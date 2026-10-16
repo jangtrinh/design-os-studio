@@ -152,6 +152,21 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     assert_eq!(app.doc.get(page).unwrap().children.len(), page_children.len() + 1, "agent edit was applied twice");
     assert_eq!(app.doc.nodes.len(), node_count + added);
 
+    // The agent keeps working on what it just made: the editor's next canvas must carry the
+    // selected card whole, or the MCP no longer sees the card's layers.
+    let price = texts[0];
+    session.call("designos_update_node", json!({ "node_id": price.0, "text": "$59" })).expect("follow-up edit on the new card");
+    let follow_up = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, follow_up);
+    let price_text = |d: &Document| match &d.get(price).unwrap().kind {
+        designos_doc::NodeKind::Text(t) => t.content.clone(),
+        _ => String::new(),
+    };
+    assert_eq!(price_text(&app.doc), "$59");
+    assert_eq!(app.doc.get(card).unwrap().children.len(), 1, "the card kept its layers");
+    assert!(app.hist.undo(&mut app.doc).expect("undo"));
+    assert_eq!(price_text(&app.doc), "$49");
+
     // One undo restores the document as it was before the agent edit.
     assert!(app.hist.undo(&mut app.doc).expect("undo"), "agent edit must be one undo step");
     assert_eq!(app.doc.nodes.len(), node_count);
@@ -165,7 +180,8 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
 }
 
 /// The same round trip on a real file: `DESIGNOS_LIVE_SYNC_FIG=<file.fig>` and, optionally,
-/// `DESIGNOS_LIVE_SYNC_OUT=<result.designos>` to save the edited document for a screenshot run.
+/// `DESIGNOS_LIVE_SYNC_OUT=<result.designos>` to save the edited document for a screenshot run
+/// (plus `<result>.card.png`, the agent's own render of the card on its next call).
 #[test]
 #[ignore = "needs a real design file in DESIGNOS_LIVE_SYNC_FIG"]
 fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
@@ -179,7 +195,8 @@ fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
 
     app.terminal = TerminalState::for_tab(unique_tab_id());
     let session_dir = app.terminal.session_dir.clone();
-    let workspace = fig.parent().unwrap().to_path_buf();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-real-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
     let applied = session
@@ -201,9 +218,28 @@ fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
     assert_eq!(&after_tops[..before_tops.len()], &before_tops[..], "a top-level frame lost layers");
     assert_eq!(after_tops.last().map(|t| t.0), Some(card));
     assert_eq!(app.doc.styles.len(), before_styles);
-    if let Some(out) = std::env::var_os("DESIGNOS_LIVE_SYNC_OUT") {
+
+    // The agent's next calls still see the whole card it just made.
+    let rendered = session.call("designos_render_png", json!({ "path": "card.png", "node_id": card.0 })).expect("render the new card");
+    eprintln!("agent render of {card:?}: {} bytes", rendered["bytes"]);
+    let mut price = None;
+    app.doc.walk(card, |n, _| {
+        if n.name == "Price" {
+            price = Some(n.id)
+        }
+    });
+    let price = price.expect("price layer");
+    session.call("designos_update_node", json!({ "node_id": price.0, "text": "$59 / month" })).expect("follow-up edit on the card");
+    let follow_up = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, follow_up);
+    assert!(matches!(&app.doc.get(price).unwrap().kind, designos_doc::NodeKind::Text(t) if t.content == "$59 / month"));
+    assert_eq!(&kids(&app.doc)[..before_tops.len()], &before_tops[..], "a top-level frame lost layers on the follow-up edit");
+
+    if let Some(out) = std::env::var_os("DESIGNOS_LIVE_SYNC_OUT").map(std::path::PathBuf::from) {
         std::fs::write(&out, app.doc.to_json().unwrap()).unwrap();
+        std::fs::copy(workspace.join("card.png"), out.with_extension("card.png")).unwrap();
     }
     app.terminal.shutdown();
     let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
 }

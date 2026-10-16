@@ -544,7 +544,7 @@ pub struct TerminalState {
     pub last_doc_sync_mtime: Option<std::time::SystemTime>,
     /// Agent edits log (`doc-patch.jsonl`) written by `designos-mcp`, with its read position.
     pub live_patch: crate::live_patch_apply::LivePatchLog,
-    pub last_synced_key: Option<(u64, u64, usize)>,
+    pub last_synced_key: Option<(u64, u64, u64)>,
     pub current_page_id: u64,
     pub current_page_name: String,
     pub doc_name: String,
@@ -705,7 +705,14 @@ impl TerminalState {
         self.current_page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_else(|| "Page 1".into());
         self.doc_name = if doc.name.trim().is_empty() { "Untitled".into() } else { doc.name.clone() };
 
-        let key = (doc.mutation_epoch(), page.0, selection.len());
+        // Selected ids, not just their count: the scoped canvas ships the selected frames whole.
+        let selection_key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            selection.hash(&mut h);
+            h.finish()
+        };
+        let key = (doc.mutation_epoch(), page.0, selection_key);
         if self.last_synced_key != Some(key) {
             let selected_ids: Vec<u64> = selection.iter().map(|n| n.0).collect();
             let ctx_val = serde_json::json!({
@@ -726,27 +733,7 @@ impl TerminalState {
             let canvas_json = if doc.nodes.len() <= 25_000 {
                 doc.to_json().ok()
             } else {
-                let mut scoped = Document::new(&self.doc_name);
-                scoped.pages.push(page);
-                if let Some(page_node) = doc.get(page) {
-                    let mut p = page_node.clone();
-                    p.fig_metadata.clear();
-                    let top_children: Vec<NodeId> = p.children.iter().copied().take(128).collect();
-                    p.children = top_children.clone();
-                    scoped.nodes.insert(page, p);
-                    for cid in top_children {
-                        if let Some(cn) = doc.get(cid) {
-                            let mut c = cn.clone();
-                            c.children.clear();
-                            c.fill_geometry = None;
-                            c.stroke_geometry = None;
-                            c.fig_metadata.clear();
-                            scoped.nodes.insert(cid, c);
-                        }
-                    }
-                }
-                scoped.reserve_ids(NodeId(doc.nodes.keys().next_back().map_or(page.0, |id| id.0)));
-                scoped.to_json().ok()
+                crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok()
             };
             if let Some(json_str) = canvas_json {
                 let _ = atomic_write_session_file(&self.live_canvas_path, json_str.as_bytes());

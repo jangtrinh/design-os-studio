@@ -49,9 +49,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --release -p designos-app -p designos-mcp
 cargo build --release -p designos-app
 
-# Sync release binary into the macOS app bundle
+# Sync release binaries into the macOS app bundle (always all three: Studio and designos-mcp
+# share the live edit-log format, and an older designos-mcp still overwrites the open document)
 cp target/release/designos-studio "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio"
 cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos"
+cp target/release/designos-mcp "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-mcp"
 
 # Launch the packaged macOS app bundle
 open "target/release/bundle/DESIGN-OS Studio.app"

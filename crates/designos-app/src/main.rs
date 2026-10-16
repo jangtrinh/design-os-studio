@@ -20,6 +20,7 @@ mod layout;
 mod libraries;
 #[cfg(test)]
 mod lint;
+mod live_canvas_scope;
 mod live_patch_apply;
 #[cfg(test)]
 mod live_sync_tests;
