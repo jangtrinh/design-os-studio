@@ -20,6 +20,9 @@ mod layout;
 mod libraries;
 #[cfg(test)]
 mod lint;
+mod live_patch_apply;
+#[cfg(test)]
+mod live_sync_tests;
 mod ops;
 mod panels;
 mod plugins;

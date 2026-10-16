@@ -222,6 +222,14 @@ impl History {
         self.undo.push(c.apply(doc)?);
         Ok(true)
     }
+    /// The command [`Self::undo`] would apply next.
+    pub fn peek_undo(&self) -> Option<&Command> {
+        self.undo.last()
+    }
+    /// The command [`Self::redo`] would apply next.
+    pub fn peek_redo(&self) -> Option<&Command> {
+        self.redo.last()
+    }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

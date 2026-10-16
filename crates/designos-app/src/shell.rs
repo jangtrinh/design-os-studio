@@ -1244,6 +1244,10 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 },
                 Err(e) => app.show_toast(format!("Failed to read live doc {}: {e}", path.display()), true),
             },
+            crate::terminal::TerminalAction::ApplyLivePatch(patches) => {
+                crate::live_patch_apply::apply_live_patches(app, &patches);
+                app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+            }
             crate::terminal::TerminalAction::ReloadFromDisk => {
                 if let Some(p) = app.file_path.clone() {
                     app.open_path(p);

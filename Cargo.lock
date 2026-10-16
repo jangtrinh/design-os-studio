@@ -917,6 +917,7 @@ dependencies = [
  "designos-fonts",
  "designos-gpu",
  "designos-library",
+ "designos-mcp",
  "designos-render",
  "designos-svg",
  "eframe",

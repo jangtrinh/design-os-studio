@@ -1,5 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::Engine;
+use designos_doc::live_patch::LivePatch;
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -21,20 +22,24 @@ pub struct LiveSessionBridge {
     pub live_doc_sync_path: Option<PathBuf>,
     pub live_spec_path: Option<PathBuf>,
     pub context_json_path: Option<PathBuf>,
+    /// Append-only log of [`LivePatch`] lines the editor replays (`doc-patch.jsonl`).
+    pub live_doc_patch_path: Option<PathBuf>,
     pub last_canvas_mtime: Option<std::time::SystemTime>,
 }
 
 impl LiveSessionBridge {
     /// Resolves live session bridge paths from `DESIGNOS_SESSION_DIR`, `DESIGNOS_LIVE_CANVAS`,
-    /// `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_SPEC`, and `DESIGNOS_CONTEXT_JSON` environment variables.
+    /// `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_DOC_PATCH`, `DESIGNOS_LIVE_SPEC`, and
+    /// `DESIGNOS_CONTEXT_JSON` environment variables.
     pub fn from_env() -> Self {
         let session_dir = std::env::var_os("DESIGNOS_SESSION_DIR").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_canvas = std::env::var_os("DESIGNOS_LIVE_CANVAS").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_doc_sync = std::env::var_os("DESIGNOS_LIVE_DOC_SYNC").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_spec = std::env::var_os("DESIGNOS_LIVE_SPEC").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_ctx = std::env::var_os("DESIGNOS_CONTEXT_JSON").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
+        let env_patch = std::env::var_os("DESIGNOS_LIVE_DOC_PATCH").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
 
-        let any_env = session_dir.is_some() || env_canvas.is_some() || env_doc_sync.is_some() || env_spec.is_some() || env_ctx.is_some();
+        let any_env = session_dir.is_some() || env_canvas.is_some() || env_doc_sync.is_some() || env_spec.is_some() || env_ctx.is_some() || env_patch.is_some();
         if !any_env {
             return Self::default();
         }
@@ -50,8 +55,11 @@ impl LiveSessionBridge {
             .or_else(|| Some(PathBuf::from("/tmp/designos-live-agent-out.spec.json")));
         let context_json_path =
             env_ctx.or_else(|| session_dir.as_ref().map(|d| d.join("context.json"))).or_else(|| Some(PathBuf::from("/tmp/designos-live-context.json")));
+        let live_doc_patch_path = env_patch
+            .or_else(|| session_dir.as_ref().map(|d| d.join("doc-patch.jsonl")))
+            .or_else(|| live_doc_sync_path.as_ref().map(|p| p.with_file_name("doc-patch.jsonl")));
 
-        Self { session_dir, live_canvas_path, live_doc_sync_path, live_spec_path, context_json_path, last_canvas_mtime: None }
+        Self { session_dir, live_canvas_path, live_doc_sync_path, live_spec_path, context_json_path, live_doc_patch_path, last_canvas_mtime: None }
     }
 
     /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
@@ -62,6 +70,7 @@ impl LiveSessionBridge {
             live_doc_sync_path: Some(dir.join("doc-sync.designos")),
             live_spec_path: Some(dir.join("live-spec.json")),
             context_json_path: Some(dir.join("context.json")),
+            live_doc_patch_path: Some(dir.join("doc-patch.jsonl")),
             session_dir: Some(dir),
             last_canvas_mtime: None,
         }
@@ -128,6 +137,7 @@ impl Session {
             return Err("Workspace must be a directory".into());
         }
         let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::from_env() };
+        s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
     }
@@ -139,6 +149,7 @@ impl Session {
             return Err("Workspace must be a directory".into());
         }
         let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::for_session_dir(session_dir) };
+        s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
     }
@@ -157,6 +168,8 @@ impl Session {
                         if let Ok(raw) = fs::read_to_string(&canvas_path) {
                             if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
                                 self.engine.doc = doc;
+                                // Ops recorded against the replaced copy no longer apply.
+                                self.engine.take_live_ops();
                                 self.bridge.last_canvas_mtime = Some(mtime);
                             }
                         }
@@ -185,8 +198,34 @@ impl Session {
         }
     }
 
-    /// Atomically publishes the updated `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
-    /// and `live_canvas_path` (`canvas.designos`) so `design:os studio` hot-syncs within `<50ms`.
+    /// Records the edits of every tool call while an open editor mirrors this session.
+    fn record_live_ops(&mut self) {
+        if self.bridge.live_doc_patch_path.is_some() {
+            self.engine.live_ops = Some(Vec::new());
+        }
+    }
+
+    /// Appends the edits recorded since the last call as one [`LivePatch`] line to
+    /// `doc-patch.jsonl`, which the editor replays on its full document. The editor's canvas may be
+    /// a scoped copy (large files), so the whole `self.engine.doc` must never be sent for an edit.
+    pub fn publish_live_patch(&mut self) -> Result<(), String> {
+        let ops = self.engine.take_live_ops();
+        let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
+            return Ok(());
+        };
+        let mut line = serde_json::to_string(&LivePatch::new(ops)).map_err(|e| format!("serialize live patch: {e}"))?;
+        line.push('\n');
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        // One write per line, so the editor never reads a line that mixes two patches.
+        let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+        file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+    }
+
+    /// Atomically publishes the whole `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
+    /// and `live_canvas_path` (`canvas.designos`) after the session switched to a different document
+    /// (`designos_open_file`, `designos_new_document`). Edits go through [`Self::publish_live_patch`].
     pub fn publish_live_doc_sync(&mut self) {
         if self.bridge.live_doc_sync_path.is_none() && self.bridge.live_canvas_path.is_none() {
             return;
@@ -201,10 +240,6 @@ impl Session {
         }
         if let Some(sync_path) = &self.bridge.live_doc_sync_path {
             let _ = atomic_write_file(sync_path, bytes);
-        }
-        if !cfg!(test) {
-            let _ = atomic_write_file(Path::new("/tmp/designos-live-doc-sync.designos"), bytes);
-            let _ = atomic_write_file(Path::new("/tmp/designos-live-canvas.designos"), bytes);
         }
     }
 
@@ -304,6 +339,7 @@ impl Session {
                 self.engine = Engine::default();
                 self.engine.active_page_id = doc.pages.first().copied();
                 self.engine.doc = doc;
+                self.record_live_ops();
                 self.dirty = false;
                 self.publish_live_doc_sync();
                 let mut summary = self.engine.call("designos_get_document", json!({}))?;
@@ -326,6 +362,7 @@ impl Session {
                 }
                 self.engine = Engine::default();
                 self.engine.doc.name = a.name;
+                self.record_live_ops();
                 self.dirty = true;
                 self.publish_live_doc_sync();
                 self.engine.call("designos_get_document", json!({}))
@@ -390,7 +427,7 @@ impl Session {
                 Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true}))
             }
             _ => {
-                let result = self.engine.call(name, args)?;
+                let mut result = self.engine.call(name, args)?;
                 if matches!(
                     name,
                     "designos_create_node"
@@ -406,7 +443,11 @@ impl Session {
                 ) && result.get("changed").and_then(Value::as_bool) != Some(false)
                 {
                     self.dirty = true;
-                    self.publish_live_doc_sync();
+                    if let Err(e) = self.publish_live_patch() {
+                        if let Some(obj) = result.as_object_mut() {
+                            obj.insert("live_sync_error".into(), json!(format!("The open editor did not receive this edit: {e}")));
+                        }
+                    }
                 }
                 Ok(result)
             }
@@ -548,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    fn scoped_session_syncs_current_page_and_writes_doc_sync() {
+    fn scoped_session_syncs_current_page_and_writes_doc_patch() {
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-{}-{nonce}", std::process::id()));
         let sess_dir = std::env::temp_dir().join(format!("designos-mcp-sess-{}-{nonce}", std::process::id()));
@@ -611,14 +652,21 @@ mod tests {
             .unwrap();
         assert_eq!(created["parent_id"], p2.0);
 
-        // Verify doc-sync.designos was atomically written and contains both nodes under Page 2
-        let sync_path = sess_dir.join("doc-sync.designos");
-        assert!(sync_path.exists(), "doc-sync.designos must be written after mutating tool calls");
-        let synced_doc = Document::from_json(&fs::read_to_string(&sync_path).unwrap()).unwrap();
-        let p2_children = &synced_doc.get(p2).unwrap().children;
+        // Edits reach the editor as replayable ops, never as a whole (possibly scoped) document.
+        assert!(!sess_dir.join("doc-sync.designos").exists(), "edits must not publish a whole document");
+        let log = fs::read_to_string(sess_dir.join("doc-patch.jsonl")).expect("doc-patch.jsonl must be written after mutating tool calls");
+        let patches: Vec<LivePatch> = log.lines().map(|l| serde_json::from_str(l).expect("patch line")).collect();
+        assert_eq!(patches.len(), 2, "one patch line per mutating tool call");
+        let mut editor = doc.clone();
+        let mut state = designos_doc::live_patch::LivePatchState::default();
+        for patch in &patches {
+            let report = designos_doc::live_patch::replay_live_patch(&mut editor, patch, &mut state, &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+            assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        }
+        let p2_children = &editor.get(p2).unwrap().children;
         assert!(p2_children.contains(&designos_doc::NodeId(card_id)));
         assert_eq!(p2_children.len(), 2);
-        assert!(synced_doc.get(p1).unwrap().children.is_empty(), "Page 1 must remain untouched");
+        assert!(editor.get(p1).unwrap().children.is_empty(), "Page 1 must remain untouched");
 
         let _ = fs::remove_dir_all(&ws_dir);
         let _ = fs::remove_dir_all(&sess_dir);
