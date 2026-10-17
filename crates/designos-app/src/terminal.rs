@@ -602,9 +602,9 @@ impl Default for TerminalState {
 }
 
 impl TerminalState {
-    /// Creates an isolated `TerminalState` bound to document tab `tab_id` (`/tmp/designos-sessions/tab-{tab_id}`).
+    /// Creates an isolated `TerminalState` bound to document tab `tab_id` (`/tmp/designos-sessions/p<pid>-tab-{tab_id}`).
     pub fn for_tab(tab_id: u64) -> Self {
-        let session_id = format!("tab-{tab_id}");
+        let session_id = format!("p{}-tab-{tab_id}", std::process::id());
         let session_dir = std::env::temp_dir().join("designos-sessions").join(&session_id);
         let live_spec_path = session_dir.join("live-spec.json");
         let live_doc_sync_path = session_dir.join("doc-sync.designos");

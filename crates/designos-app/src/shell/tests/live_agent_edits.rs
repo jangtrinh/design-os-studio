@@ -6,15 +6,8 @@ use designos_doc::live_patch::{LiveOp, LivePatch};
 
 /// A window bound to a live agent session (the dock stays closed, so no shell is spawned).
 fn live_sim() -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
-    let mut s = Sim::new();
-    // Every window numbers its document tabs from 1, and the session is named after the tab;
-    // parallel tests need their own session.
-    let tab_id = crate::live_sync_tests::unique_tab_id();
-    let active = s.app().tabs.active_idx;
-    s.shell.app.tabs.entries[active].id = tab_id;
-    let session_id = format!("tab-{tab_id}");
-    s.frame(vec![]);
-    s.frame(vec![]);
+    let s = Sim::new();
+    let session_id = format!("{}-tab-1", s.app().tabs.instance_id);
     assert_eq!(s.app().terminal.session_id, session_id, "precondition: the window keeps its own session");
     let workspace = std::env::temp_dir().join(format!("designos-live-drag-ws-{}", crate::live_sync_tests::unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
