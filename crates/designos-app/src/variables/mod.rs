@@ -533,6 +533,32 @@ mod tests {
     }
 
     #[test]
+    fn bound_fill_opacity_follows_each_edit_without_compounding() {
+        let mut app = app_with_vars();
+        let rect = *app.doc.nodes.keys().last().unwrap();
+        let mut store = VariableStore::from_doc(&app.doc);
+        let coll = store.collections.keys().next().unwrap().clone();
+        let mode = store.collections[&coll].default_mode.clone();
+        let fade = store.add_variable(&coll, "Fade", VariableKind::Number).unwrap();
+        store.set_value(&fade, &mode, VariableValue::Number(60.0));
+        assert!(app.commit_store(store, &[], &[]));
+        assert_eq!(app.doc.get(rect).unwrap().fills[0].opacity, 1.0);
+        let rendered = |app: &App| designos_doc::resolved_node(&app.doc, rect).unwrap().fills[0].opacity;
+
+        app.bind_variable(&[rect], &["fills/0/opacity"], &fade);
+        assert!((app.doc.get(rect).unwrap().fills[0].opacity - 0.6).abs() < 1e-6, "stored after bind");
+        assert!((rendered(&app) - 0.6).abs() < 1e-6, "rendered after bind");
+
+        set_number(&mut app, "Fade", 70.0);
+        assert!((app.doc.get(rect).unwrap().fills[0].opacity - 0.7).abs() < 1e-6, "stored after edit 1");
+        assert!((rendered(&app) - 0.7).abs() < 1e-6, "rendered after edit 1");
+
+        set_number(&mut app, "Fade", 40.0);
+        assert!((app.doc.get(rect).unwrap().fills[0].opacity - 0.4).abs() < 1e-6, "stored after edit 2");
+        assert!((rendered(&app) - 0.4).abs() < 1e-6, "rendered after edit 2");
+    }
+
+    #[test]
     fn aliased_variables_reflow_their_bound_nodes() {
         let mut app = app_with_vars();
         let gap = app.doc.variables.values().find(|v| v.name == "Gap").unwrap().id.clone();

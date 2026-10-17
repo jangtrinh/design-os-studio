@@ -139,13 +139,13 @@ fn fig_import_reads_code_syntax_and_opacity_bindings() {
     assert_eq!(b["fills/0/opacity"], fade.id);
     assert_eq!(b["strokes/0/opacity"], fade.id);
     assert_eq!(b["effects/0/opacity"], fade.id);
-    // raw values stay; the composed value is 0.5 x 40 % = 0.2
+    // raw values stay; the bound variable IS the opacity (40 %), it does not multiply the 0.5 / 1.0 / 0.5 raw ones
     assert_eq!(card.fills[0].opacity, 0.5);
     let r = resolved_node(&doc, card.id).unwrap();
-    assert!((r.fills[0].opacity - 0.2).abs() < 1e-6);
+    assert!((r.fills[0].opacity - 0.4).abs() < 1e-6);
     assert!((r.stroke.paints[0].opacity - 0.4).abs() < 1e-6);
     let Effect::DropShadow { color, .. } = &r.effects[0] else { panic!() };
-    assert!((color.a - 0.2).abs() < 1e-6);
+    assert!((color.a - 0.4).abs() < 1e-6);
 }
 
 #[test]

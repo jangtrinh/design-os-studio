@@ -68,13 +68,31 @@ fn js_value(v: &str) -> String {
     if t.parse::<f32>().is_ok() {
         return t.to_string();
     }
-    format!("'{}'", t.replace('\\', "\\\\").replace('\'', "\\'"))
+    format!(
+        "'{}'",
+        t.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r").replace('\u{2028}', "\\u2028").replace('\u{2029}', "\\u2029")
+    )
 }
 
 /// `key: value` pairs of a node's CSS (with variable references) as JS object entries.
 fn style_entries(doc: &Document, id: NodeId, root: bool) -> Vec<String> {
-    css_for(doc, id)
-        .lines()
+    // Every declaration ends with `;`. A line break inside a value (a code-syntax string can carry
+    // one) must stay part of its declaration instead of being dropped as a stray line.
+    let css = css_for(doc, id);
+    let mut decls: Vec<String> = Vec::new();
+    let mut open = false;
+    for l in css.lines() {
+        match decls.last_mut().filter(|_| open) {
+            Some(d) => {
+                d.push('\n');
+                d.push_str(l);
+            }
+            None => decls.push(l.to_string()),
+        }
+        open = !l.ends_with(';');
+    }
+    decls
+        .iter()
         .filter_map(|l| {
             let (p, v) = l.trim_end_matches(';').split_once(": ")?;
             // the root is placed by whoever renders the component

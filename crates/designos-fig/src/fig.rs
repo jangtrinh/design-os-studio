@@ -1413,12 +1413,13 @@ fn stack_align(s: Option<&str>) -> &'static str {
     }
 }
 
-/// Primary-axis `StackJustify`: both the legacy `SPACE_EVENLY` (3) and the CSS-aligned
-/// `SPACE_EVENLY_CSS` (6) are space-evenly; `stackLayoutVersion` tells them apart on export.
+/// Primary-axis `StackJustify`. The legacy `SPACE_EVENLY` (3) is Figma's space-between (real files
+/// carry it and never `SPACE_BETWEEN`; Figma lints it when `stackLayoutVersion < 1`), so it maps to
+/// space-between; only the CSS-aligned `SPACE_EVENLY_CSS` (6) is space-evenly.
 fn stack_justify(s: Option<&str>) -> &'static str {
     match s {
         Some("SPACE_AROUND") => "SPACE_AROUND",
-        Some("SPACE_EVENLY") | Some("SPACE_EVENLY_CSS") => "SPACE_EVENLY",
+        Some("SPACE_EVENLY_CSS") => "SPACE_EVENLY",
         other => stack_align(other),
     }
 }

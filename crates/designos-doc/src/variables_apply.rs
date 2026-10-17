@@ -11,8 +11,8 @@
 //!
 //! A paint or effect colour can also bind an opacity variable
 //! (`fills/N/opacity`, `strokes/N/opacity`, `effects/N/opacity`, scope
-//! `COLOR_OPACITY`); it composes with the colour's own alpha, see
-//! [`set_bound_property`].
+//! `COLOR_OPACITY`); the variable value (percent) becomes that paint's or
+//! effect colour's opacity, see [`set_bound_property`].
 
 use crate::*;
 use std::borrow::Cow;
@@ -98,12 +98,14 @@ fn paint_opacity_key(key: &str) -> Option<OpacityTarget> {
     }
 }
 
-/// Multiplies the opacity of the paint or effect colour a composed-opacity key addresses by
+/// Sets the opacity of the paint or effect colour a composed-opacity key addresses to
 /// `percent` / 100, clamped to 0..=1. A missing target is ignored.
-// es-debt: multiply vs replace unverified (Figma may replace the colour alpha), flip to replace if a real file shows it
+///
+/// Replace, not multiply: the bound variable value IS the opacity. This runs on stored nodes
+/// (bind, variable edit, detach bake) as well as on render-time copies, so it must be idempotent;
+/// a multiply would compound with the value already written on every edit.
 fn compose_opacity(n: &mut Node, target: OpacityTarget, percent: f32) {
-    let factor = percent / 100.0;
-    let scale = |v: f32| (v * factor).clamp(0.0, 1.0);
+    let value = (percent / 100.0).clamp(0.0, 1.0);
     match target {
         OpacityTarget::Fill(i) => {
             let paints = match &mut n.kind {
@@ -111,17 +113,17 @@ fn compose_opacity(n: &mut Node, target: OpacityTarget, percent: f32) {
                 _ => &mut n.fills,
             };
             if let Some(p) = paints.get_mut(i) {
-                p.opacity = scale(p.opacity);
+                p.opacity = value;
             }
         }
         OpacityTarget::Stroke(i) => {
             if let Some(p) = n.stroke.paints.get_mut(i) {
-                p.opacity = scale(p.opacity);
+                p.opacity = value;
             }
         }
         OpacityTarget::Effect(i) => {
             if let Some(Effect::DropShadow { color, .. } | Effect::InnerShadow { color, .. }) = n.effects.get_mut(i) {
-                color.a = scale(color.a);
+                color.a = value;
             }
         }
     }
@@ -460,15 +462,15 @@ mod tests {
     fn color_and_opacity_variables_compose_into_one_rgba() {
         let (d, frame) = composed_setup();
         let f = resolved_node(&d, frame).unwrap();
-        // colour from the colour variable, alpha = paint opacity 0.8 x 50 %
+        // colour from the colour variable, paint opacity = the variable (50 %), not 0.8 x 50 %
         assert_eq!(f.fills[0].kind, PaintKind::Solid(Color { r: 0.2, g: 0.4, b: 0.6, a: 1.0 }));
-        assert!((f.fills[0].opacity - 0.4).abs() < 1e-6, "fill opacity {}", f.fills[0].opacity);
-        // an opacity variable alone scales an unbound colour
+        assert!((f.fills[0].opacity - 0.5).abs() < 1e-6, "fill opacity {}", f.fills[0].opacity);
+        // an opacity variable on an unbound colour sets its opacity
         assert_eq!(f.stroke.paints[0].kind, PaintKind::Solid(Color::BLACK));
         assert!((f.stroke.paints[0].opacity - 0.5).abs() < 1e-6);
-        // effect colour alpha 0.5 x 50 %
+        // effect colour alpha = the variable (50 %), not 0.5 x 50 %
         let Effect::DropShadow { color, .. } = &f.effects[0] else { panic!() };
-        assert!((color.a - 0.25).abs() < 1e-6, "shadow alpha {}", color.a);
+        assert!((color.a - 0.5).abs() < 1e-6, "shadow alpha {}", color.a);
         assert_eq!((color.r, color.g, color.b), (0.0, 0.0, 0.0));
         // the raw node is untouched
         assert_eq!(d.get(frame).unwrap().fills[0].opacity, 0.8);
@@ -479,9 +481,29 @@ mod tests {
         let (mut d, frame) = composed_setup();
         d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
         let f = resolved_node(&d, frame).unwrap();
-        assert!((f.fills[0].opacity - 0.2).abs() < 1e-6, "dark mode 25 %");
+        assert!((f.fills[0].opacity - 0.25).abs() < 1e-6, "dark mode 25 %");
         d.variables.get_mut("fade").unwrap().values.insert("dark".into(), VariableValue::Number(900.0));
         assert_eq!(resolved_node(&d, frame).unwrap().fills[0].opacity, 1.0);
+    }
+
+    #[test]
+    fn applying_a_resolved_opacity_twice_equals_applying_it_once() {
+        let (d, frame) = composed_setup();
+        let once = resolved_node(&d, frame).unwrap().into_owned();
+        // re-applying the same bindings on already-resolved nodes must not compound
+        let mut twice = once.clone();
+        let fade = VariableValue::Number(50.0);
+        for key in ["fills/0/opacity", "strokes/0/opacity", "effects/0/opacity"] {
+            set_bound_property(&mut twice, key, &fade);
+        }
+        assert_eq!(twice.fills[0].opacity, once.fills[0].opacity);
+        assert_eq!(twice.stroke.paints[0].opacity, once.stroke.paints[0].opacity);
+        assert_eq!(twice.effects, once.effects);
+        // and the document-level copy is a fixed point
+        let doc_once = apply_bound_variables(&d);
+        let doc_twice = apply_bound_variables(&doc_once);
+        assert_eq!(doc_twice.get(frame).unwrap().fills, doc_once.get(frame).unwrap().fills);
+        assert_eq!(doc_twice.get(frame).unwrap().effects, doc_once.get(frame).unwrap().effects);
     }
 
     #[test]

@@ -951,3 +951,6 @@ mod tests {
         assert!(estimate_text_size(&t("a\nb")).y > estimate_text_size(&t("a")).y);
     }
 }
+
+#[cfg(test)]
+mod solver_parity_tests;
