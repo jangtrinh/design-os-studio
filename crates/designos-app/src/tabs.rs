@@ -598,15 +598,16 @@ impl TabsState {
             self.active_idx = 0;
             self.hist_in_app = false;
             self.parked_in_home = true;
-            app.file_path = None;
-            app.lib_file = None;
             if !was_home {
                 if app.lib.is_some() {
+                    // Saves the file being left, so it must still be attached to the app here.
                     app.go_home();
                 } else {
                     app.home = Some(crate::home::Home::new());
                 }
             }
+            app.file_path = None;
+            app.lib_file = None;
             return true;
         }
         if was_home {
@@ -1364,6 +1365,105 @@ mod tests {
 
         std::fs::remove_file(&path1).ok();
         std::fs::remove_file(&path2).ok();
+    }
+
+    /// A library with one design file whose page holds a rectangle; returns the library, the file id and the rectangle.
+    fn library_with_one_file(tag: &str) -> (designos_library::Library, std::path::PathBuf, String, NodeId) {
+        let dir = std::env::temp_dir().join(format!("designos_tab_close_lib_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = designos_library::Library::open(&dir).unwrap();
+        let project = lib.create_project("Project").unwrap();
+        let mut doc = Document::new("Doc");
+        let page = doc.add_page("Page 1");
+        let rect_id = doc.alloc_id();
+        let rect = doc.insert(page, Node::rectangle(rect_id, DRect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let entry = lib.create_file(&project.id, None, "Doc", &doc).unwrap();
+        (lib, dir, entry.id, rect)
+    }
+
+    /// Renames the rectangle and checks that the edit is not on disk yet (no autosave frame has run).
+    fn edit_unsaved(app: &mut App, lib: &designos_library::Library, file_id: &str, rect: NodeId) {
+        app.rename(rect, "Edited");
+        assert_ne!(crate::home::doc_hash(&app.doc), app.autosave.saved_hash, "the edit is unsaved");
+        assert!(!lib.load_file(file_id).unwrap().nodes.values().any(|n| n.name == "Edited"), "the edit is not on disk yet");
+    }
+
+    fn disk_has_edit(lib: &designos_library::Library, file_id: &str) -> bool {
+        lib.load_file(file_id).unwrap().nodes.values().any(|n| n.name == "Edited")
+    }
+
+    #[test]
+    fn closing_the_last_library_tab_saves_the_edit_and_a_closing_version() {
+        let (lib, dir, file_id, rect) = library_with_one_file("last");
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 1);
+        edit_unsaved(&mut app, &lib, &file_id, rect);
+        assert!(lib.list_versions(&file_id).is_empty());
+
+        assert!(app.close_tab(0));
+
+        assert!(app.home.is_some(), "closing the last tab returns to Home");
+        assert!(app.lib_file.is_none() && app.file_path.is_none(), "no closed file stays attached to the app");
+        assert!(disk_has_edit(&lib, &file_id), "the edit made before the close is saved to the library file");
+        let versions = lib.list_versions(&file_id);
+        assert_eq!(versions.len(), 1, "the close stores an automatic version");
+        assert!(versions[0].auto);
+        assert!(lib.load_version(&file_id, versions[0].n).unwrap().nodes.values().any(|n| n.name == "Edited"));
+
+        // Reopening from the library shows the edit.
+        app.open_library_file(&file_id);
+        assert!(app.doc.nodes.values().any(|n| n.name == "Edited"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_the_active_library_tab_with_other_tabs_open_saves_its_edit() {
+        let (lib, dir, file_id, rect) = library_with_one_file("active");
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_or_focus_lib_file(&mut app, &file_id).expect("library file opened in a second tab");
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 2);
+        assert_eq!(app.tabs.active_idx, 1);
+        edit_unsaved(&mut app, &lib, &file_id, rect);
+
+        assert!(app.close_tab(1));
+
+        assert_eq!(app.tabs.entries.len(), 1);
+        assert!(disk_has_edit(&lib, &file_id), "closing the active tab saves its edit before the next tab replaces it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn moving_a_repaired_file_into_the_library_drops_its_repaired_original_bytes() {
+        let (lib, dir, _file_id, _rect) = library_with_one_file("moved");
+        let project = lib.list_projects()[0].id.clone();
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        let path = std::env::temp_dir().join(format!("designos_tab_moved_repaired_{}.designos", std::process::id()));
+        std::fs::write(&path, damaged.to_json().unwrap()).unwrap();
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib);
+        app.open_path(path.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&path), "the opened file holds repaired original bytes");
+
+        app.save_to_library_as(&project, None, "Copy");
+
+        assert!(app.file_path.is_none() && app.lib_file.is_some());
+        assert!(!crate::io::has_repaired_original(&path), "the document no longer lives at the old path, so its repaired bytes are dropped");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

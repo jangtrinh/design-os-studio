@@ -1545,6 +1545,21 @@ impl App {
     }
 
     // ------------------------------------------------------------ files
+    /// Drops the cached pre-repair bytes of `old` once the active document no longer lives there,
+    /// unless it moves to the same file (`now_at`) or another tab still holds `old`.
+    pub(crate) fn release_repaired_original(&self, old: &std::path::Path, now_at: Option<&std::path::Path>) {
+        let same_as_new = now_at.is_some_and(|np| io::same_repair_key(old, np));
+        let held_by_other_tab = self
+            .tabs
+            .entries
+            .iter()
+            .enumerate()
+            .any(|(i, t)| i != self.tabs.active_idx && t.file_path.as_deref().is_some_and(|tp| io::same_repair_key(tp, old)));
+        if !same_as_new && !held_by_other_tab {
+            io::drop_repaired_original(old);
+        }
+    }
+
     pub fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
         crate::decks::ui::flush_notes(self);
         self.stop_plugin();
@@ -1553,16 +1568,7 @@ impl App {
         self.flush_autosave();
         if !self.tabs.parked_in_home {
             if let Some(old_path) = self.file_path.take() {
-                let same_as_new = path.as_deref().is_some_and(|np| io::same_repair_key(&old_path, np));
-                let held_by_other_tab = self
-                    .tabs
-                    .entries
-                    .iter()
-                    .enumerate()
-                    .any(|(i, t)| i != self.tabs.active_idx && t.file_path.as_deref().is_some_and(|tp| io::same_repair_key(tp, &old_path)));
-                if !same_as_new && !held_by_other_tab {
-                    io::drop_repaired_original(&old_path);
-                }
+                self.release_repaired_original(&old_path, path.as_deref());
             }
         }
         self.lib_file = None;
@@ -1642,7 +1648,9 @@ impl App {
             Ok(p) => {
                 self.show_toast(format!("Saved {}", p.display()), false);
                 if self.lib_file.is_none() {
-                    self.file_path = Some(p);
+                    if let Some(old) = self.file_path.replace(p.clone()) {
+                        self.release_repaired_original(&old, Some(&p));
+                    }
                 }
             }
             Err(e) => self.show_toast(e, true),

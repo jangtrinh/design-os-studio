@@ -781,7 +781,9 @@ impl App {
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
                 self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
-                self.file_path = None;
+                if let Some(old) = self.file_path.take() {
+                    self.release_repaired_original(&old, None);
+                }
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
                 self.show_toast(format!("Saved to {project_name}"), false);
             }
