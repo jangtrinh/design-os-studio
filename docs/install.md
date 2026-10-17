@@ -1,12 +1,16 @@
 # Installing **design:os studio**
 
-Download the latest installer for your platform from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases) or build a local release package directly from source.
+Download the latest package for your platform from [GitHub Releases](https://github.com/jangtrinh/design-os-studio/releases) or build a local release package directly from source.
+
+> **Platform support:** releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow and tested by their users. Please report anything that breaks.
 
 Every release ships all **4 binaries**:
-- `designos-studio` — Native GPU (`wgpu` Metal / DirectX 12 / Vulkan) + CPU (`tiny-skia`) Studio GUI
+- `designos-studio` — Native GPU (`wgpu`) + CPU (`tiny-skia`) Studio GUI
 - `designos` — GUI + headless CLI renderer, exporter, and batch processor
 - `designos-mcp` — Model Context Protocol (MCP) server for Claude Code, Codex, and Antigravity
 - `designos-diff` — Visual & `.fig` structural diff CLI tool
+
+Each release also attaches `SHA256SUMS` and `release-manifest.json`. Verify a download against `SHA256SUMS` before you open it.
 
 ---
 
@@ -20,7 +24,7 @@ Every release ships all **4 binaries**:
    - Clears the macOS Gatekeeper quarantine flag (`xattr -dr com.apple.quarantine /Applications/designos.app`)
    - Symlinks `designos-studio`, `designos`, `designos-mcp`, and `designos-diff` into `~/.local/bin` (or `/usr/local/bin`)
 
-If you launch `designos.app` without running `install-cli.command`, clear the quarantine attribute once in Terminal:
+The app is ad-hoc signed, not notarized. If you launch `designos.app` without running `install-cli.command`, macOS asks for a one-time approval: open System Settings → Privacy & Security and click **Open Anyway**, or clear the quarantine attribute once in Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/designos.app
@@ -38,20 +42,10 @@ cp -R designos-<version>-macos-universal/designos.app /Applications/
 
 ## 2. Windows (x64)
 
-### Option A: NSIS Setup Installer (`-setup.exe`, Recommended)
-
-1. Download `designos-<version>-x86_64-pc-windows-msvc-setup.exe`.
-2. Run the installer (if Windows SmartScreen prompts, click **More info → Run anyway**).
-3. The installer performs a **per-user installation** under `%LOCALAPPDATA%\Programs\designos` (no Administrator UAC prompt required):
-   - Installs `designos-studio.exe`, `designos.exe`, `designos-mcp.exe`, and `designos-diff.exe`
-   - Creates Start Menu (`designos studio`) and Desktop shortcuts
-   - Associates `.designos` and `.fig` files with **design:os studio**
-   - Registers an uninstaller in Windows **Installed Apps / Add or Remove Programs**
-
-### Option B: Portable `.zip` + PowerShell Installer (`install.ps1`)
+Releases ship a portable `.zip` with a PowerShell installer. The binaries are unsigned, so Windows SmartScreen may warn (**More info → Run anyway**). An NSIS installer is built only when NSIS (`makensis`) is available on the build machine; the release runner does not have it, so it is not part of the release downloads.
 
 1. Download and extract `designos-<version>-x86_64-pc-windows-msvc.zip`.
-2. Run the bundled PowerShell installer to copy the 4 binaries to `%LOCALAPPDATA%\Programs\designos\bin`, add them to your User `PATH`, create shortcuts, and register `.designos` / `.fig` file associations:
+2. Run the bundled PowerShell installer. It performs a **per-user installation** under `%LOCALAPPDATA%\Programs\designos` (no Administrator prompt), copies the 4 binaries to `%LOCALAPPDATA%\Programs\designos\bin`, adds them to your User `PATH`, creates Start Menu and Desktop shortcuts, and registers `.designos` / `.fig` file associations:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -65,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\designos\un
 
 ---
 
-## 3. Linux (x64 / ARM64)
+## 3. Linux (x64)
 
 ### Option A: Ubuntu / Debian Package (`.deb`, Recommended on Debian-based distros)
 
@@ -89,32 +83,34 @@ By default, `./install.sh` installs under `~/.local/bin` and `~/.local/share` (o
 ./uninstall.sh
 ```
 
+The binaries link the glibc of the build machine, so they run on that Linux distribution or newer.
+
 ---
 
 ## 4. Building & Packaging Releases Locally (`scripts/build-release.sh`)
 
-To compile all 4 release binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) and build platform installers + `dist/release-manifest.json` + `dist/SHA256SUMS` in one command:
+To compile all 4 release binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) and build the packages for your platform + `dist/release-manifest.json` + `dist/SHA256SUMS` in one command:
 
 ```bash
-# Build & package for your current host OS (e.g., macOS .dmg + .tar.gz, Linux .deb + .tar.gz, Windows -setup.exe + .zip)
-./scripts/build-release.sh 0.2.0 --local-host
+# Build & package for your current host OS (macOS .dmg + .tar.gz, Linux .deb + .tar.gz, Windows .zip)
+./scripts/build-release.sh 0.3.0 --local-host
 
-# Build & package a Universal (arm64 + x86_64) macOS release
-./scripts/build-release.sh 0.2.0 --universal-macos
+# Build & package a Universal (Apple Silicon + Intel) macOS release
+./scripts/build-release.sh 0.3.0 --universal-macos
 
 # Package already-built release binaries in target/release without recompiling
-./scripts/build-release.sh 0.2.0 --local-host --skip-build
+./scripts/build-release.sh 0.3.0 --local-host --skip-build
 ```
 
 Outputs are written to `dist/`:
 - `dist/designos-<version>-macos.dmg` & `dist/designos-<version>-macos-*.tar.gz` (macOS)
-- `dist/designos-<version>-<target>-setup.exe` & `dist/designos-<version>-<target>.zip` (Windows)
+- `dist/designos-<version>-<target>.zip` (Windows, plus an NSIS installer when `makensis` is installed)
 - `dist/designos_<version>_<arch>.deb` & `dist/designos-<version>-<target>.tar.gz` (Linux)
-- `dist/release-manifest.json` (compatible with the Layer-1 Atomic Self-Updater in `updater.rs`)
+- `dist/release-manifest.json` (version, channel, and the name, download URL, and SHA-256 of each package)
 - `dist/SHA256SUMS`
 
 ---
 
 ## 5. GPU Rendering
 
-**design:os studio** renders with `wgpu` (Metal on macOS, DirectX 12 / Vulkan on Windows, Vulkan / GL on Linux) and automatically falls back to the deterministic `tiny-skia` CPU renderer when needed. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.
+**design:os studio** renders with `wgpu` (Metal on macOS, Direct3D 12 / Vulkan on Windows, Vulkan / OpenGL ES on Linux) and uses the deterministic `tiny-skia` CPU renderer when the GPU cannot be initialised or when **Use GPU rendering** is off. Only the Metal path on macOS is verified by the maintainers; the other backends are tested by their users. Pass `--gpu` on the CLI to force GPU rendering in headless `--screenshot` mode.

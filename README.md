@@ -8,15 +8,14 @@
   <sub>70-second film. Click to watch it with sound.</sub>
 </p>
 
-**Native GPU-accelerated interface design studio, enterprise Figma `.fig` v106 binary read/write engine, Agentic PTY Chat UI, Live Variables & Multi-Edit (`Q`), and 22-tool Model Context Protocol server built in 100% Rust.**
+**Native GPU-accelerated interface design studio, enterprise Figma `.fig` v106 binary read/write engine, Agentic PTY Chat UI, Live Variables & Multi-Edit (`Q`), and 22-tool Model Context Protocol server written in Rust.**
 
 Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.5s with `0.0%` idle CPU on Metal, DirectX 12, and Vulkan (`wgpu` + `tiny-skia`). Execute all **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)** natively on canvas, run **Claude Code (`claude`)**, **OpenAI Codex (`codex`)**, **Antigravity CLI (`agy`)**, **Gemini CLI (`gemini`)**, and **Grok CLI (`grok`)** directly inside the native **Agentic PTY Chat UI** with zero paid external API keys, switch live Design Variables across `Light` and `Dark` modes with Multi-Edit (`Q`) and Suggest Auto-Layout (`⇧A`), generate multi-target Dev Mode code (React, Tailwind, CSS, SwiftUI, Jetpack Compose, Flutter, Rust `egui`), and automate headless GPU visual QA from any terminal or CI pipeline.
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT_%2F_Apache--2.0-202020?style=flat-square&labelColor=202020&color=444444" alt="Dual MIT OR Apache-2.0 License" height="28"></a>
-  <img src="https://img.shields.io/badge/engine-100%25_Rust_%C2%B7_wgpu_%2B_tiny--skia-202020?style=flat-square&labelColor=202020&color=444444" alt="100% Rust wgpu and tiny-skia engine" height="28">
-  <img src="https://img.shields.io/badge/Figma_.fig_v106-Native_Read_%2F_Write_(387%2F387)-202020?style=flat-square&labelColor=202020&color=444444" alt="Figma .fig v106 Native Read and Write 387/387 parity" height="28">
-  <img src="https://img.shields.io/badge/Micro--Interactions-100%2F100_A--to--Z_Verified-202020?style=flat-square&labelColor=202020&color=E36323" alt="100/100 Figma A-to-Z Micro-Interactions Verified" height="28">
+  <img src="https://img.shields.io/badge/engine-Rust_%C2%B7_wgpu_%2B_tiny--skia-202020?style=flat-square&labelColor=202020&color=444444" alt="Rust wgpu and tiny-skia engine" height="28">
+  <img src="https://img.shields.io/badge/Figma_.fig_v106-Native_Read_%2F_Write-202020?style=flat-square&labelColor=202020&color=444444" alt="Figma .fig v106 native read and write" height="28">
   <img src="https://img.shields.io/badge/Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Grok-MCP_%2B_PTY_Chat-202020?style=flat-square&labelColor=202020&color=444444" alt="Compatible AI coding agents via MCP and PTY Chat" height="28">
   <a href="commands/doctor.md"><img src="https://img.shields.io/badge/diagnostics-%2Fdoctor-202020?style=flat-square&labelColor=202020&color=444444" alt="Doctor diagnostic slash command" height="28"></a>
   <a href="llms.txt"><img src="https://img.shields.io/badge/GEO_index-llms.txt-202020?style=flat-square&labelColor=202020&color=444444" alt="GEO machine-readable llms.txt index" height="28"></a>
@@ -25,7 +24,7 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 </p>
 
 <p align="center">
-  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#new-in-v030">New in 0.3.0</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">100 Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
+  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#new-in-v030">New in 0.3.0</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
 </p>
 
 ---
@@ -34,20 +33,20 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 
 ### Why DESIGN:OS Studio? (Honest Comparison vs Figma Desktop, Penpot & Pencil/OpenPencil)
 
-Browser-wrapped Electron design tools choke on 100,000+ node enterprise files, lock `.fig` binary authoring behind proprietary cloud servers, and force AI coding agents to scrape 150KB+ of noisy REST JSON without direct canvas write-back. **`design-os-studio`** is a local-first, 100% Rust GPU studio (`wgpu` + `tiny-skia`) with native `fig-kiwi` v106 binary read/write, **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)**, an embedded Agentic PTY Chat UI for your existing CLI subscriptions (`claude`, `codex`, `agy`, `gemini`, `grok`), Live Variables Mode Switching & Multi-Edit (`Q`), and a 22-tool stdio MCP server.
+Browser-wrapped Electron design tools choke on very large enterprise files, lock `.fig` binary authoring behind proprietary cloud servers, and force AI coding agents to scrape large, noisy REST JSON payloads without direct canvas write-back. **`design-os-studio`** is a local-first GPU studio written in Rust (`wgpu` + `tiny-skia`) with native `fig-kiwi` v106 binary read/write, **Figma-style micro-interactions**, an embedded Agentic PTY Chat UI for your existing CLI subscriptions (`claude`, `codex`, `agy`, `grok`), Live Variables Mode Switching & Multi-Edit (`Q`), and a 22-tool stdio MCP server.
 
 | Dimension | Figma Desktop (Cloud / Electron) | Penpot / Pencil / OpenPencil | DESIGN:OS Studio (`design-os-studio`) |
 | :--- | :--- | :--- | :--- |
-| **Runtime & GPU Engine** | Electron + Chromium / WebGL (`1.5 GB+` RAM, continuous idle repaints) | Browser DOM / SVG / Canvas2D or Electron webview wrapper | **100% Rust (`wgpu` Metal / DX12 / Vulkan + `tiny-skia`)**, **`0.0%` static viewport CPU** (`FrameKey` GPU texture reuse) |
+| **Runtime & GPU Engine** | Electron + Chromium / WebGL | Browser DOM / SVG / Canvas2D or Electron webview wrapper | **Rust (`wgpu` + `tiny-skia`)**, **no repaints while the view is idle** (`FrameKey` GPU frame reuse) |
 | **Enterprise Scale (`723k` Records / `112k` Nodes)** | Browser tab OOM crashes, multi-second cloud streaming stalls | DOM / SVG layout bottlenecks above `5k–10k` nodes | **Uniform `2048x2048` `SceneIndex` culling + 4-tier semantic zoom LOD**, **`1.54s` cold load**, **`-96.5%` disk size (`242 MB` vs `6.80 GB`)** |
 | **Figma `.fig` v106 Binary Read/Write** | Proprietary cloud lock-in; `.fig` saves require online servers | Read-only or lossy third-party converters; no native `.fig` v106 write-back | **Native bidirectional `fig-kiwi` v106 Read & Write** (`DEFLATE`/`Zstd` `canvas.fig` + `meta.json` + `images/`, `symbolOverrides`, `parameterConsumptionMap`) |
-| **Tactile Micro-Interactions (`#1..#100`)** | Reference UI3 standard (`126.9.13`), browser-bound latency on huge files | Partial subset; missing CSS Grid track pills, Smart Selection ring swaps, or Scale Tool (`K`) | **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)** verified end-to-end (`launch_e2e_proves_100_figma_micro_interactions_end_to_end`) |
+| **Tactile Micro-Interactions** | Reference UI3 standard, browser-bound latency on huge files | Partial subset; missing CSS Grid track pills, Smart Selection ring swaps, or Scale Tool (`K`) | **Figma-style micro-interactions** on canvas: inspector scrubbing, Auto-Layout handles, CSS Grid track pills, Smart Selection, Scale Tool (`K`), Eyedropper (`I`) |
 | **Agentic Workflow & API Cost** | Paid per-seat AI credits or read-only `155K`-char REST JSON dumps | External MCP plugins or paid API key wrappers (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) | **Native Agentic PTY Chat UI** (`Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` — zero extra API cost) + **22-tool `designos-mcp`** + 1-click `NodeSpec` apply |
 | **Variables, Multi-Edit (`Q`) & Auto-Layout** | Cloud-bound variable collections & manual frame nesting | Partial variable support; no `Q` Multi-Edit or `⇧A` heuristic inference | **Live Variables Mode Switching (`Light` / `Dark`), Multi-Edit (`Q` / `⌘E`) & Suggest Auto-Layout (`⇧A`)** (`COLOR`, `FLOAT`, `STRING`, `BOOLEAN` + `=` alias picker) |
-| **Dev Mode Codegen & Visual QA** | Paid Dev Mode seats required; cloud-only inspection | Basic CSS/HTML export; no headless GPU diffing CLI | **Free built-in Dev Mode (`Shift+D`)** (React, Tailwind v4, CSS, SwiftUI, Jetpack Compose) + headless `--gpu --screenshot` & `designos-diff` SSIM CLI |
+| **Dev Mode Codegen & Visual QA** | Paid Dev Mode seats required; cloud-only inspection | Basic CSS/HTML export; no headless GPU diffing CLI | **Free built-in Dev Mode (`Shift+D`)** (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML) + headless `--gpu --screenshot` & `designos-diff` SSIM CLI |
 | **Privacy, Offline & Licensing** | Mandatory cloud sign-in, proprietary license, background telemetry | Self-hosted Docker stack or Electron runtime telemetry | **Zero telemetry — 100% local offline execution** ([`PRIVACY.md`](PRIVACY.md) audited), dual **`MIT OR Apache-2.0`** |
 
-> **Where traditional platforms win, and it is not close:** Browser-hosted multiplayer whiteboarding with 50 simultaneous live WebRTC cursors, enterprise cloud org SSO/SCIM admin consoles, and hosted comment email/Slack notifications. If your workflow requires real-time cloud multiplayer without local git or file ownership, use Figma Cloud (paired with our live bridge [`design-os-figma-plugin`](https://jangtrinh.github.io/design-os-figma-plugin/)) or a hosted Penpot instance instead.
+> **Where traditional platforms win, and it is not close:** Browser-hosted multiplayer whiteboarding with simultaneous live WebRTC cursors, enterprise cloud org SSO/SCIM admin consoles, and hosted comment email/Slack notifications. If your workflow requires real-time cloud multiplayer without local git or file ownership, use Figma Cloud (paired with our live bridge [`design-os-figma-plugin`](https://jangtrinh.github.io/design-os-figma-plugin/)) or a hosted Penpot instance instead.
 
 ---
 
@@ -57,11 +56,11 @@ Browser-wrapped Electron design tools choke on 100,000+ node enterprise files, l
 | Instrument Field | Specification | Verification / Notes |
 | :--- | :--- | :--- |
 | **Repository** | [`jangtrinh/design-os-studio`](https://github.com/jangtrinh/design-os-studio) | 11-crate Cargo workspace (`crates/designos-*`) |
-| **Engine Stack** | `100% Rust` + `wgpu` + `tiny-skia` | Metal · DirectX 12 · Vulkan · Zero Electron |
-| **Figma Parity** | `.fig` v106 + `100 / 100` Micro-UX | `387 / 387` UI3 (`487 / 487` total) · `856` tests passing |
+| **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, tested by their users) · No Electron |
+| **Figma Interop** | Native `.fig` v106 read and write | `crates/designos-fig` roundtrip tests · more than `2,800` automated tests pass in macOS CI |
 | **Agent Surface** | `22` MCP Tools + Native PTY Chat UI | `Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` |
 | **Telemetry / Privacy** | Zero Tracking (`0` network calls) | 100% offline local-first ([`PRIVACY.md`](PRIVACY.md)) |
-| **License** | Dual `MIT OR Apache-2.0` | Native installers for macOS (`.dmg`), Windows (`-setup.exe`), Linux (`.deb`) |
+| **License** | Dual `MIT OR Apache-2.0` | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
 
 ---
 
@@ -69,18 +68,18 @@ Browser-wrapped Electron design tools choke on 100,000+ node enterprise files, l
 
 ### 1. Install once
 
-Install the AI agent skill plugin in Claude Code / Codex, download a native OS installer (`.dmg`, `-setup.exe`, `.deb`), or build all 4 binaries from source:
+Install the AI agent skill plugin in Claude Code / Codex, download a release package (`.dmg`, `.zip`, `.deb`, `.tar.gz`), or build all 4 binaries from source:
 
 ```bash
 # Option A: Claude Code plugin marketplace
 /plugin marketplace add jangtrinh/design-os-studio
 /plugin install design-os-studio@design-os-studio
 
-# Option B: Clone & launch native Rust/wgpu Studio (or package .dmg / -setup.exe / .deb)
+# Option B: Clone & launch native Rust/wgpu Studio (or package a .dmg / .zip / .deb)
 git clone https://github.com/jangtrinh/design-os-studio
 cd design-os-studio
 cargo run --release -p designos-app --bin designos-studio
-./scripts/build-release.sh 0.2.0 --local-host
+./scripts/build-release.sh 0.3.0 --local-host
 ```
 
 <a id="first-safe-use--the-practical-loop"></a>
@@ -110,7 +109,7 @@ cargo run --release -p designos-app --bin designos-studio
 | **`--panel variables`** | Inspects and switches multi-mode Design Variables (`Light` / `Dark` token collections, `=` alias bindings, and semantic tokens) beside the canvas. |
 | **`--rail agents`** | Opens the native Agentic PTY Chat UI wrapping Claude Code, Codex, Antigravity, or Grok with live selection context and inline `NodeSpec` apply. |
 | **`--apply-spec / --export-fig`** | Compiles declarative JSON specs through Auto-Layout 5.0 and writes standard Figma `.fig` v106 binary archives. |
-| **`--screenshot / designos-diff`** | Renders headless Metal/Vulkan/DX12 frames at `1600x1000` and verifies perceptual SSIM parity in CI. |
+| **`--screenshot / designos-diff`** | Renders headless GPU frames at `1600x1000` and verifies perceptual SSIM parity in CI. |
 
 ### 3. Ask in plain English (or invoke the Agent CLI directly)
 
@@ -127,7 +126,7 @@ Open your project in your AI coding agent (or inside the Studio's `Agents` left-
 <a id="new-in-v030"></a>
 ## New in 0.3.0
 
-Real screenshots of the editor, captured headlessly with `designos-studio --screenshot` (2x; the two Dev Mode shots are 1.5x so the whole Code panel fits). Click an image for full size. The twelve feature videos play on the [project site](https://jangtrinh.github.io/design-os-studio/#videos).
+Real screenshots of the editor, captured headlessly with `designos-studio --screenshot` (2x; the two Dev Mode shots are 1.5x so the whole Code panel fits). Click an image for full size. The 70-second [promo film](https://jangtrinh.github.io/design-os-studio/#film) plays on the project site.
 
 <table>
   <tr>
@@ -199,7 +198,7 @@ Inspect and switch primitive, semantic, and component token collections (`COLOR`
   <sub>Command: <code>designos-studio --fixture showcase --select "Hero" --dev react --dev-demo --size 1440x900 --scale 2 --screenshot docs/images/designos-devmode.png</code></sub>
 </p>
 
-Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect CSS box-model padding/margin/border diagrams, resolved variable tokens, `handoffStatusMap` (`Ready for dev` badges), and copy-ready code generated deterministically in **React (JSX)**, **Tailwind v4**, **Modern CSS**, **Apple SwiftUI**, and **Android Jetpack Compose**.
+Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect CSS box-model padding/margin/border diagrams, resolved variable tokens, `handoffStatusMap` (`Ready for dev` badges), and copy-ready code generated deterministically in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, and **Android XML**.
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> Native `.fig` v106 Binary Roundtrip
 
@@ -214,25 +213,26 @@ AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent
 | :--- | :--- | :--- | :--- |
 | **Native `.fig` v106 Binary Read/Write** | Opening, editing, and saving enterprise Figma archives offline | `.fig` (`fig-kiwi` v106 binary + `meta.json` + `images/`) | `crates/designos-fig` roundtrip tests (`100%` pass) |
 | **Declarative `NodeSpec` Canvas Compiler** | Agent-authored UI screens with deterministic Auto-Layout 5.0 | `.spec.json` / `.designos` / `.fig` | `designos --apply-spec` + `--inspect-json` |
-| **Agentic PTY Chat & 22-Tool MCP** | Live bidirectional design-to-code and prompt-to-canvas orchestration | `designos-mcp` (`stdio`) + `RailItem::Agents` | `22/22` MCP tools + `AgentChatTurn` tests |
-| **Dev Mode Multi-Target Codegen** | Exporting production UI code and token bindings per frame | `React` · `Tailwind` · `CSS` · `SwiftUI` · `Compose` | `crates/designos-export` golden codegen suite |
+| **Agentic PTY Chat & 22-Tool MCP** | Live bidirectional design-to-code and prompt-to-canvas orchestration | `designos-mcp` (`stdio`) + `RailItem::Agents` | MCP tool list test (22 tools) + `AgentChatTurn` tests |
+| **Dev Mode Multi-Target Codegen** | Exporting production UI code and token bindings per frame | `CSS` · `Tailwind` · `React` · `SwiftUI` · `UIKit` · `Compose` · `Android XML` | `crates/designos-export` golden codegen suite |
 | **Headless GPU Visual Proof & Diff** | Automated CI screenshot capture and perceptual SSIM comparison | `PNG` / `SVG` / `PDF` / `JPG` + diff report | `designos-studio --gpu --screenshot` + `designos-diff` |
 
 ---
 
 <a id="100-figma-micro-interactions"></a>
-### 100 / 100 Figma A-to-Z Micro-Interactions Matrix (`#1..#100`)
+### Figma-style micro-interactions (reference list `#1..#100`)
 
-| Category | IDs | Verified Micro-Interactions Implemented in `designos-app` & `designos-doc` | Status |
-| :--- | :--- | :--- | :--- |
-| **A. Inspector Numeric Scrubbing, Math & Mixed Values** | `#1..#9` | Label drag-scrub (`1px` / `⇧ 10px` / `⌥ 0.1px`), `↑`/`↓` step keys, inline math (`+ - * /`), `%` relative parent sizing, `auto`/`hug`/`fill` keywords, `Mixed` multi-select override, `10` or `10,20,10,20` padding shorthand, Aspect Ratio Lock (`W/H`), `0..9` / `00` quick opacity | **`9 / 9 PASS`** |
-| **B. Auto-Layout 5.0, Edge Sizing, CSS Grid & Smart Selection** | `#10..#21` | Edge double-click `Fixed <-> Hug`, `⌥`+double-click `Fill`, on-canvas pink gap drag, inline gap click-to-type, pink padding handles (`⌥` opposite / `⇧⌥` all 4), 9-dot alignment matrix (`Space-Between` on `W`/`X`), drag reorder, `Space` ignore Auto-Layout, 2D CSS Grid track pills (`1fr`/`px`/`Hug`) & span handles, Smart Selection pink swap rings & `Tidy up` | **`12 / 12 PASS`** |
-| **C. Canvas Selection, Marquee, Guides & Transform Handles** | `#22..#29` | `⌘`-click deep select, `⌘`+Right-click overlapping layer menu, `Enter` drill children / `⇧Enter` climb parent / `Tab` cycle siblings, `⌥`-marquee containment-only, `⌥`-hover red distance guides, `⌥`-drag duplicate + `⌘D` repeat, `⇧`-axis lock + red smart snap guides, corner rotation (`15°` snap) & on-canvas corner radius handles (`⌥` single corner) | **`8 / 8 PASS`** |
-| **D. Parametric Shapes, Vector Network, Layer Tree & Eyedropper** | `#30..#45` | Donut Arc Sweep/Start/Ratio handles, Star inner ratio & point-count handles, Polygon side count, Vector midpoint split, `⌘` tangent break, `⇧⌫` heal-delete, Layer `⌘R` inline rename (`Tab` next), `⌥`-click collapse all, hover highlight, icon double-click zoom-to-fit, lock/eye drag-sweep, status badge cycle, Eyedropper (`I`) `7x7` pixel loupe + `Tab` `HEX/RGB/HSL` cycle | **`16 / 16 PASS`** |
-| **E. Dev Mode Box-Model, Scale Tool (`K`) & Viewport Navigation** | `#46..#62` | Dev Mode emerald padding & orange gap overlay, 1-click code copy toast, Proportional Scale Tool (`K` with `1x/1.5x/2x`), `Space`-drag pan, `Z` marquee zoom (`⌥Z` out), `⇧1` fit all / `⇧2` fit selection / `⇧0` 100%, `N` / `⇧N` frame walk, `⇧R` rulers + guides, `⌘\` zen UI toggle, `⌘/` & `⌘K` palette, `F` frame preset drawer | **`17 / 17 PASS`** |
-| **F. Typography, Fills, Strokes, Effects & Arrange Shortcuts** | `#63..#85` | Double-click inline text edit, double-click text handle auto-width/height, `⇧⌘>`/`<` font size, `⌥↑`/`↓` line-height, `⌥←`/`→` letter-spacing, `⌘B`/`⌘I`/`⌘U`, `⇧X` swap fill/stroke, `/` remove fill, `⌥⌘C`/`⌥⌘V` copy/paste style, `[`/`]` & `⌘[`/`]` z-order, `⌘G`/`⇧⌘G` group/ungroup, `⌥⌘G` frame selection (`⇧⌘G` unframe), `⌥W/A/S/D/H/V` align | **`23 / 23 PASS`** |
-| **G. Components, Variables, Prototype, Multi-Edit & Agent PTY** | `#86..#100` | `⌥⌘K` create component, `⌥⌘B` detach instance, double-click master jump, purple Variant matrix & pill toggles, Variable mode switch (`Light`/`Dark`) & token alias pills, Prototype blue flow node drag & trigger popover, Multi-Edit (`Q`) batch text/style override & `C` pin-comment anchor, Multi-Agent PTY runtime switcher & `NodeSpec` apply with `⌘Z` undo | **`15 / 15 PASS`** |
-| **TOTAL FIGMA A-TO-Z MICRO-INTERACTIONS** | **`#1..#100`** | **Verified by `launch_e2e_proves_100_figma_micro_interactions_end_to_end` + 12 Real-Canvas `M01..M12` Micro-Interaction Videos** | **`100 / 100 (100%)`** |
+The Studio targets the small, tactile interactions Figma users expect on the canvas. The table groups the project's own reference list (`#1..#100`) and describes scope. Not every item has an automated test: `launch_e2e_proves_100_figma_micro_interactions_end_to_end` drives eight of them (`#15`, `#16`, `#18`, `#32`, `#77`, `#78`, `#81`, `#82`).
+
+| Category | IDs | Micro-interactions in `designos-app` & `designos-doc` |
+| :--- | :--- | :--- |
+| **A. Inspector Numeric Scrubbing, Math & Mixed Values** | `#1..#9` | Label drag-scrub (`1px` / `⇧ 10px` / `⌥ 0.1px`), `↑`/`↓` step keys, inline math (`+ - * /`), `%` relative parent sizing, `auto`/`hug`/`fill` keywords, `Mixed` multi-select override, `10` or `10,20,10,20` padding shorthand, Aspect Ratio Lock (`W/H`), `0..9` / `00` quick opacity |
+| **B. Auto-Layout 5.0, Edge Sizing, CSS Grid & Smart Selection** | `#10..#21` | Edge double-click `Fixed <-> Hug`, `⌥`+double-click `Fill`, on-canvas pink gap drag, inline gap click-to-type, pink padding handles (`⌥` opposite / `⇧⌥` all 4), 9-dot alignment matrix (`Space-Between` on `W`/`X`), drag reorder, `Space` ignore Auto-Layout, 2D CSS Grid track pills (`1fr`/`px`/`Hug`) & span handles, Smart Selection pink swap rings & `Tidy up` |
+| **C. Canvas Selection, Marquee, Guides & Transform Handles** | `#22..#29` | `⌘`-click deep select, `⌘`+Right-click overlapping layer menu, `Enter` drill children / `⇧Enter` climb parent / `Tab` cycle siblings, `⌥`-marquee containment-only, `⌥`-hover red distance guides, `⌥`-drag duplicate + `⌘D` repeat, `⇧`-axis lock + red smart snap guides, corner rotation (`15°` snap) & on-canvas corner radius handles (`⌥` single corner) |
+| **D. Parametric Shapes, Vector Network, Layer Tree & Eyedropper** | `#30..#45` | Donut Arc Sweep/Start/Ratio handles, Star inner ratio & point-count handles, Polygon side count, Vector midpoint split, `⌘` tangent break, `⇧⌫` heal-delete, Layer `⌘R` inline rename (`Tab` next), `⌥`-click collapse all, hover highlight, icon double-click zoom-to-fit, lock/eye drag-sweep, status badge cycle, Eyedropper (`I`) `7x7` pixel loupe + `Tab` `HEX/RGB/HSL` cycle |
+| **E. Dev Mode Box-Model, Scale Tool (`K`) & Viewport Navigation** | `#46..#62` | Dev Mode emerald padding & orange gap overlay, 1-click code copy toast, Proportional Scale Tool (`K` with `1x/1.5x/2x`), `Space`-drag pan, `Z` marquee zoom (`⌥Z` out), `⇧1` fit all / `⇧2` fit selection / `⇧0` 100%, `N` / `⇧N` frame walk, `⇧R` rulers + guides, `⌘\` zen UI toggle, `⌘/` & `⌘K` palette, `F` frame preset drawer |
+| **F. Typography, Fills, Strokes, Effects & Arrange Shortcuts** | `#63..#85` | Double-click inline text edit, double-click text handle auto-width/height, `⇧⌘>`/`<` font size, `⌥↑`/`↓` line-height, `⌥←`/`→` letter-spacing, `⌘B`/`⌘I`/`⌘U`, `⇧X` swap fill/stroke, `/` remove fill, `⌥⌘C`/`⌥⌘V` copy/paste style, `[`/`]` & `⌘[`/`]` z-order, `⌘G`/`⇧⌘G` group/ungroup, `⌥⌘G` frame selection (`⇧⌘G` unframe), `⌥W/A/S/D/H/V` align |
+| **G. Components, Variables, Prototype, Multi-Edit & Agent PTY** | `#86..#100` | `⌥⌘K` create component, `⌥⌘B` detach instance, double-click master jump, purple Variant matrix & pill toggles, Variable mode switch (`Light`/`Dark`) & token alias pills, Prototype blue flow node drag & trigger popover, Multi-Edit (`Q`) batch text/style override & `C` pin-comment anchor, Multi-Agent PTY runtime switcher & `NodeSpec` apply with `⌘Z` undo |
 
 ### Verified 1:1 Figma `126.9.13` UI3, `.fig` v106 & A-to-Z Micro-Interactions Scorecard (`487 / 487 — 100.00%`)
 
@@ -253,10 +253,8 @@ AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent
 
 | Metric | Unoptimized Baseline | DESIGN:OS Studio (`wgpu` + `SceneIndex`) | Improvement |
 | :--- | :--- | :--- | :--- |
-| **On-Disk Library File Size** | `6.80 GB` (pretty JSON + int arrays) | **`242 MB`** (compact JSON + `"hex:..."` images + 18 sparse defaults) | **`-96.5%` (`28.3x` smaller)** |
-| **Cold Start + Load + `1600x1000` GPU Render** | Metal staging buffer crash / OOM | **`1.48s - 1.63s`** | **Zero crash, instant boot** |
-| **Static Viewport GPU / CPU Usage** | `100%` CPU (infinite repaint loop) | **`0.0%` CPU** (`FrameKey` GPU texture reuse) | **Zero idle CPU/GPU work** |
-| **Top-Level Viewport & Hit-Test Culling** | `O(N)` full-page linear scan | **`O(k)` Uniform Spatial Grid (`2048x2048`)** | **`SceneIndex::query_top_level`** |
+| **Static Viewport GPU / CPU Usage** | Repaints every frame | **No repaint requested while the view is idle** (cached frame re-blitted) | **`FrameKey` GPU frame reuse** |
+| **Top-Level Viewport & Hit-Test Culling** | `O(N)` full-page linear scan | **`O(k)` Uniform Spatial Grid (2048-unit cells)** | **`SceneIndex::query_top_level`** |
 | **Single-Node Drag / Resize Index Update** | Full 112k-node `SceneIndex::ensure` | **`O(subtree)` Incremental Propagation** | **`SceneIndex::update_subtree`** |
 | **Component Instance & Repeated Shape Mesh** | Re-tessellated per `NodeId` | **Shared Canonical Pool (`GeomCache::shared`)** | **Zero duplicate Lyon / `cosmic-text` builds** |
 
@@ -270,13 +268,15 @@ You can install **`design-os-studio`** either as a native desktop + CLI applicat
 
 | Platform | Primary Installer | Portable Archive & CLI Installer | Bundled Binaries (`4`) |
 | :--- | :--- | :--- | :--- |
-| **macOS** (`arm64` / `x86_64`) | `designos-<ver>-macos.dmg` (`designos.app` + `install-cli.command`) | `designos-<ver>-macos-universal.tar.gz` | `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
-| **Windows** (`x64`) | `designos-<ver>-x86_64-pc-windows-msvc-setup.exe` (Per-user NSIS, no UAC) | `designos-<ver>-x86_64-pc-windows-msvc.zip` (`install.ps1` / `uninstall.ps1`) | `designos-studio.exe`, `designos.exe`, `designos-mcp.exe`, `designos-diff.exe` |
-| **Linux** (`x64` / `arm64`) | `designos_<ver>_amd64.deb` (`apt install`, `.desktop`, `.designos`/`.fig` MIME) | `designos-<ver>-x86_64-unknown-linux-gnu.tar.gz` (`./install.sh`) | `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
+| **macOS** (Apple Silicon and Intel, universal) | `designos-<ver>-macos.dmg` (`designos.app` + `install-cli.command`) | `designos-<ver>-macos-universal.tar.gz` | `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
+| **Windows** (x64) | `designos-<ver>-x86_64-pc-windows-msvc.zip` (per-user `install.ps1` / `uninstall.ps1`, no admin prompt) | None. An NSIS installer is built only when NSIS is on the build machine, and the release runner does not have it. | `designos-studio.exe`, `designos.exe`, `designos-mcp.exe`, `designos-diff.exe` |
+| **Linux** (x64) | `designos_<ver>_amd64.deb` (`apt install`, `.desktop`, `.designos`/`.fig` MIME) | `designos-<ver>-x86_64-unknown-linux-gnu.tar.gz` (`./install.sh`) | `designos-studio`, `designos`, `designos-mcp`, `designos-diff` |
+
+Releases are verified on macOS (Apple Silicon). The Windows and Linux packages are built by the same release workflow and tested by their users. Please report anything that breaks.
 
 ```bash
 # Build & package native installers + release-manifest.json + SHA256SUMS locally into dist/
-./scripts/build-release.sh 0.2.0 --local-host
+./scripts/build-release.sh 0.3.0 --local-host
 ```
 
 ### Claude Code
@@ -386,7 +386,7 @@ Once installed, `skills/design-os-studio/SKILL.md` activates automatically when 
 | `designos <file> [flags]` | Terminal / Agent CLI | Apply declarative `NodeSpec` (`--apply-spec`), export Figma `.fig` v106 (`--export-fig`), inspect JSON (`--inspect-json`), or manage comments (`--comments-json`) |
 | `designos-mcp --workspace <dir>` | MCP Client (`stdio`) | Expose 22 typed MCP tools (`designos_open_file`, `designos_apply_spec`, `designos_export_fig_file`, `designos_generate_code`, etc.) |
 | `designos-diff compare <a> <b>` | Terminal / CI | Compute perceptual SSIM and anti-aliased pixel diffs between reference and rendered PNGs |
-| `./scripts/build-release.sh <ver> --local-host` | Terminal / CI | Compile all 4 binaries and package native `.dmg`, `-setup.exe`, `.deb`, `release-manifest.json`, and `SHA256SUMS` |
+| `./scripts/build-release.sh <ver> --local-host` | Terminal / CI | Compile all 4 binaries and package the host's native release packages (`.dmg`, `.zip`, `.deb`), `release-manifest.json`, and `SHA256SUMS` |
 
 ---
 
@@ -395,8 +395,8 @@ Once installed, `skills/design-os-studio/SKILL.md` activates automatically when 
 1. **Intent & Skill Routing** — Your AI agent matches your request against `skills/design-os-studio/SKILL.md` frontmatter triggers or connects directly via the embedded `Agents` PTY Chat panel (`RailItem::Agents`) and `designos-mcp`.
 2. **Progressive Context Loading** — Only the concise `SKILL.md` router loads initially; `docs/cookbook.md`, `docs/install.md`, and `crates/designos-mcp/README.md` load on demand.
 3. **Deterministic Scene-Graph & Auto-Layout Compilation** — `designos-doc` mutates the typed `Document` tree and runs Auto-Layout 5.0 (`relayout_subtree`), while `designos-fig` reads and writes standard `fig-kiwi` v106 `.fig` binary archives.
-4. **Uniform Spatial Culling & GPU Compilation** — `designos-render` indexes world bounds and clips in a `2048x2048` uniform spatial grid (`SceneIndex`) with 4-tier semantic zoom LOD, and `designos-gpu` compiles visible primitives into canonical `GeomCache` meshes and multi-pass `wgpu` shaders.
-5. **Visual & Epistemic Gate Verification** — Outputs are verified via headless GPU screenshots (`--gpu --screenshot`), `designos-diff` SSIM comparison, `cargo test --workspace` (`856` tests), and `python3 scripts/self_check.py`.
+4. **Uniform Spatial Culling & GPU Compilation** — `designos-render` indexes world bounds and clips in a uniform spatial grid with 2048-unit cells (`SceneIndex`) with zoom-based level of detail, and `designos-gpu` compiles visible primitives into canonical `GeomCache` meshes and multi-pass `wgpu` shaders.
+5. **Visual & Epistemic Gate Verification** — Outputs are verified via headless GPU screenshots (`--gpu --screenshot`), `designos-diff` SSIM comparison, `cargo test --workspace` (more than `2,800` tests), and `python3 scripts/self_check.py`.
 
 ```text
 User Prompt / Agentic PTY Chat / CLI / MCP Invocation
@@ -415,8 +415,8 @@ User Prompt / Agentic PTY Chat / CLI / MCP Invocation
                         │ indexes & renders
                         ▼
 ┌───────────────────────────────────────────────────────────┐
-│ designos-render (2048x2048 Grid) + designos-gpu (wgpu)    │
-│ 4-Tier Semantic Zoom LOD, GeomCache & UI3 Phosphor Chrome │
+│ designos-render (2048-unit grid) + designos-gpu (wgpu)    │
+│ Zoom-based LOD, GeomCache & UI3 Phosphor Chrome           │
 └───────────────────────┬───────────────────────────────────┘
                         │ verifies
                         ▼
@@ -432,9 +432,9 @@ User Prompt / Agentic PTY Chat / CLI / MCP Invocation
 
 | File | Loaded when |
 | :--- | :--- |
-| `skills/design-os-studio/SKILL.md` | Always (~120 lines) — routing rules, binary flags, and execution workflow |
+| `skills/design-os-studio/SKILL.md` | Always — routing rules, binary flags, and execution workflow |
 | `docs/cookbook.md` | When selecting copy-paste CLI/MCP workflows, `.spec.json` roundtrips, or headless screenshot recipes |
-| `docs/install.md` / `docs/releasing.md` | When installing or packaging `.dmg`, `-setup.exe`, or `.deb` releases |
+| `docs/install.md` / `docs/releasing.md` | When installing or packaging `.dmg`, `.zip`, or `.deb` releases |
 | `commands/doctor.md` / `prompts/doctor.md` | Only when running `/doctor` diagnostics |
 | `llms.txt` | When indexed by AI answer engines, RAG pipelines, or repository crawlers |
 
@@ -459,7 +459,7 @@ design-os-studio/
 │   ├── designos-fig/               # Figma .fig (fig-kiwi v106 binary) & REST JSON read/write
 │   ├── designos-render/            # Deterministic tiny-skia CPU renderer & 2048x2048 SceneIndex
 │   ├── designos-gpu/               # wgpu GPU compiler (SceneCompiler, GeomCache, WGSL shaders)
-│   ├── designos-app/               # UI3 desktop studio, 100/100 Micro-Interactions, PTY Chat, Variables & Dev Mode
+│   ├── designos-app/               # UI3 desktop studio, micro-interactions, PTY Chat, Variables & Dev Mode
 │   ├── designos-library/           # Local library, 8 KB fast header probe, zero-alloc autosave
 │   ├── designos-fonts/             # Bundled Inter variable font & async Fontsource cache
 │   ├── designos-export/            # PNG/JPG/PDF/SVG exporters & 5-target Dev Mode codegen
@@ -475,16 +475,15 @@ design-os-studio/
 │   └── doctor.md                   # Codex diagnostic prompt mirror
 ├── scripts/
 │   ├── self_check.py               # Deterministic repository, crate & skill self-check
-│   ├── zero_fake_ui_gate.py        # 12/12 Zero-Fake-UI deterministic enforcement gate
-│   ├── capture-visual-proof.sh     # Headless GPU 15-surface screenshot generator
-│   ├── build-release.sh            # Cross-platform release builder (.dmg, -setup.exe, .deb)
+│   ├── zero_fake_ui_gate.py        # 14/14 Zero-Fake-UI deterministic enforcement gate
+│   ├── capture-visual-proof.sh     # Headless GPU screenshot generator
+│   ├── build-release.sh            # Cross-platform release builder (.dmg, .zip, .deb, .tar.gz)
 │   ├── package-macos.sh            # macOS .app + .dmg + install-cli.command packager
-│   ├── package-windows.ps1         # Windows NSIS -setup.exe + .zip packager
-│   └── package-linux.sh            # Linux .deb + portable .tar.gz packager
+│   └── package.sh                  # Windows .zip + Linux .deb / .tar.gz packager
 ├── docs/
-│   ├── index.html                  # 9-Tier author-grade GitHub Pages site + 23-card visual proof gallery
+│   ├── index.html                  # GitHub Pages landing page
 │   ├── images/                     # Verified GPU visual proof & Retina 2x Micro-Interaction captures
-│   ├── videos/                     # 3 Master 1440x1440 @ 60fps Launch Motion Films & 12 Micro-UX Videos
+│   ├── videos/                     # Launch and promo films and 12 micro-interaction clips
 │   ├── cookbook.md                 # Copy-paste prompt & CLI recipes
 │   ├── install.md                  # Cross-platform installation guide
 │   ├── releasing.md                # Release engineering & self-updater guide
@@ -508,7 +507,7 @@ design-os-studio/
 ### It's working if...
 
 - `python3 scripts/self_check.py` prints `ok: design-os-studio self-check passed (design-os-studio)` and exits `0`.
-- `cargo test --workspace` passes all `856` unit, golden, and parity tests across all 11 Rust crates with `0` failures.
+- `cargo test --workspace` passes its more than `2,800` unit, golden, and parity tests across all 11 Rust crates with `0` failures (macOS CI).
 - Enterprise `.fig` v106 files (`723,136` Kiwi records / `112,474` nodes) load and render in `~1.5s` on Metal/Vulkan/DX12 with `0.0%` static viewport CPU usage.
 - Your AI coding agent loads `skills/design-os-studio/SKILL.md` automatically or connects via the `Agents` Left-Rail PTY Chat UI / `designos-mcp` with zero external telemetry (guaranteed by [`PRIVACY.md`](PRIVACY.md)).
 
@@ -525,7 +524,7 @@ design-os-studio/
 DESIGN:OS Studio (`design-os-studio`) is a native, 100% Rust GPU-accelerated interface design studio (`wgpu` + `tiny-skia`), enterprise Figma `.fig` v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (`Claude Code`, `Codex`, `Antigravity CLI`, `Gemini CLI`, `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (`designos-mcp`).
 
 **How does DESIGN:OS Studio compare with Figma Desktop, Penpot, and Pencil/OpenPencil?**
-Unlike browser-wrapped Electron or web DOM tools that stall on 100k+ node files or lock `.fig` saving behind cloud servers, DESIGN:OS Studio compiles directly to native Metal, DirectX 12, and Vulkan via Rust `wgpu` + `tiny-skia`, opens and saves authentic `fig-kiwi` v106 `.fig` binaries in ~1.5s with `0.0%` idle CPU, implements all 100/100 Figma A-to-Z Micro-Interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a 22-tool MCP server.
+Unlike browser-wrapped Electron or web DOM tools that stall on very large files or lock `.fig` saving behind cloud servers, DESIGN:OS Studio renders directly on the GPU through Rust `wgpu` (Metal on macOS; Direct3D 12 and Vulkan on Windows and Linux) with a `tiny-skia` CPU fallback, opens and saves authentic `fig-kiwi` v106 `.fig` binaries, requests no repaints while the view is idle, implements Figma-style micro-interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a 22-tool MCP server.
 
 **Can DESIGN:OS Studio both open and save standard Figma `.fig` binary files?**
 Yes. `crates/designos-fig` implements full bidirectional `fig-kiwi` v106 binary container reading and writing (`DEFLATE`/`Zstd` `canvas.fig` + `meta.json` + `images/`), preserving Auto-Layout 5.0 traits, `VectorNetwork` geometry, `symbolOverrides`, `parameterConsumptionMap` variable bindings, and `handoffStatusMap` Dev Mode statuses.
@@ -537,7 +536,7 @@ Instead of routing prompts through a proprietary cloud proxy, the `Agents` Left 
 On the `VSF - PCP.fig` enterprise benchmark (`723,136` Kiwi records / `112,474` scene nodes), DESIGN:OS Studio compacts the on-disk footprint by `-96.5%` (`6.80 GB` to `242 MB`), cold-starts and renders a `1600x1000` GPU frame in `1.48s` to `1.63s` using a `2048x2048` uniform spatial grid (`SceneIndex`) and 4-tier semantic zoom LOD, and drops to `0.0%` CPU when the viewport is static (`FrameKey` GPU texture reuse).
 
 **How is DESIGN:OS Studio installed and licensed?**
-Pre-built native installers are available for macOS (`.dmg` + `.tar.gz`), Windows (per-user NSIS `-setup.exe` + `.zip`), and Linux (`.deb` + `.tar.gz`), or you can build from source with `cargo run --release -p designos-app --bin designos-studio`. It is dual-licensed under permissive `MIT OR Apache-2.0` with zero telemetry.
+Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Apple Silicon), Windows (`.zip` with a per-user `install.ps1`), and Linux (`.deb` + `.tar.gz`). Windows and Linux are tested by their users. Or you can build from source with `cargo run --release -p designos-app --bin designos-studio`. It is dual-licensed under permissive `MIT OR Apache-2.0` with zero telemetry.
 
 </details>
 
@@ -568,10 +567,10 @@ Pre-built native installers are available for macOS (`.dmg` + `.tar.gz`), Window
 
 ## Read Next & Documentation
 
-- **[README & 23-Surface Visual Proof Matrix](https://github.com/jangtrinh/design-os-studio#readme)** — Complete architecture, comparison table, and parity scorecards.
-- **[Cross-Platform Installation Guide (`docs/install.md`)](docs/install.md)** — macOS `.dmg`, Windows `-setup.exe`, Linux `.deb`, and agent skill setup.
+- **[README](https://github.com/jangtrinh/design-os-studio#readme)** — Architecture, comparison table, install options, and FAQ.
+- **[Cross-Platform Installation Guide (`docs/install.md`)](docs/install.md)** — macOS `.dmg`, Windows `.zip`, Linux `.deb`, and agent skill setup.
 - **[Prompt & CLI Cookbook (`docs/cookbook.md`)](docs/cookbook.md)** — Copy-paste `NodeSpec` roundtrips, PTY Chat workflows, and headless GPU QA recipes.
-- **[Release Engineering (`docs/releasing.md`)](docs/releasing.md)** — Cross-platform packaging and atomic self-updater verification.
+- **[Release Engineering (`docs/releasing.md`)](docs/releasing.md)** — Cross-platform packaging and the release checklist.
 - **[Dual MIT OR Apache-2.0 License (`LICENSE`)](LICENSE)** — Permissive open-source licensing and third-party notices.
 
 ---

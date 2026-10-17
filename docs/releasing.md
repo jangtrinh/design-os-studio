@@ -63,18 +63,21 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 
    A tag containing a hyphen (`v0.2.0-rc.1`) is published as a pre-release.
 4. Watch the Release workflow. When the macOS build passes, a GitHub Release is created with auto-generated notes. Windows and Linux packages are attached if their builds pass, and a failure there does not block the release. Edit the notes if needed.
+5. Bump the homepage download links in `docs/index.html` to the new version's asset names.
+   - Read the names from `gh release view vX.Y.Z --json assets --jq '.assets[].name'`, and link only the assets that list shows. The Windows and Linux packages are optional, and a link to a file that was not attached returns 404.
+   - Do this after the release is published, as its own change. GitHub Pages deploys on every push to `main`, so links bumped in the release PR would point at assets that do not exist yet.
 
 ## What gets built
 
 | Job | Runner | Output |
 |---|---|---|
-| `build` `x86_64-pc-windows-msvc` | `windows-latest` | `designos-<version>-<target>.zip` with `install.ps1` (the exe has the icon and version info embedded by `crates/designos-app/build.rs`). A `-setup.exe` NSIS installer is added only when `makensis` is on the runner's `PATH`; `windows-latest` does not have it, so v0.2.0 shipped the zip only. |
+| `build` `x86_64-pc-windows-msvc` | `windows-latest` | `designos-<version>-<target>.zip` with `install.ps1` (the exe has the icon and version info embedded by `crates/designos-app/build.rs`). A `-setup.exe` NSIS installer is added only when `makensis` is on the runner's `PATH`; `windows-latest` does not have it, so v0.2.0 and v0.3.0 shipped the zip only. |
 | `build` `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `designos-<version>-<target>.tar.gz` (adds `designos.desktop`, `icons/`, `install.sh`) and `designos_<version>_amd64.deb` (built when `dpkg-deb` is available) |
 | `macos` | `macos-14` (builds `aarch64-apple-darwin` and cross-compiles `x86_64-apple-darwin`; `macos-13` is retired) | `designos-<version>-macos.dmg` and `designos-<version>-macos-universal.tar.gz` |
 
 Every package holds all four tools (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) plus `LICENSE-MIT`, `LICENSE-APACHE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
 
-The macOS job runs `scripts/package-macos.sh <version>`. It `lipo`s a universal `designos` and `designos-diff`, assembles `designos.app` (bundle id `os.design.studio`, `Info.plist` from `packaging/macos/Info.plist.in`, `designos.icns` built with `iconutil` from `assets/icon/designos.iconset`), ad-hoc signs it, and writes the `.dmg` (app, `Applications` link, `Read me first.txt`) and the universal `.tar.gz` (app, licenses, README). It needs a Mac, so test changes to it with a dry run (below).
+The macOS job runs `scripts/package-macos.sh <version>`. It `lipo`s a universal build of each of the four tools, assembles `designos.app` (bundle id `os.design.studio`, `Info.plist` from `packaging/macos/Info.plist.in`, `designos.icns` built with `iconutil` from `assets/icon/designos.iconset`), ad-hoc signs it, and writes the `.dmg` (app, `Applications` link, `install-cli.command`, `Read me first.txt`) and the universal `.tar.gz` (app, `install-cli.command`, licenses, README). It needs a Mac, so test changes to it with a dry run (below).
 
 The release carries a combined `SHA256SUMS` covering every file (verify with `sha256sum -c SHA256SUMS`).
 

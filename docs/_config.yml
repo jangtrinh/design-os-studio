@@ -4,7 +4,7 @@
 # jekyll-seo-tag emits <title>, <meta name="description">, Open Graph and JSON-LD;
 # jekyll-sitemap emits sitemap.xml for Google Search Console.
 title: design-os-studio
-description: Local-first Rust/wgpu interface design studio with 387/387 Figma UI3 & .fig v106 binary read/write parity, native Agentic PTY Chat UI, 11-stage Spec Reader, and 22 MCP tools.
+description: Local-first Rust/wgpu interface design studio with native Figma .fig v106 binary read/write, an agent terminal for Claude Code, Codex, Antigravity and Grok, and a 22-tool MCP server.
 url: https://jangtrinh.github.io
 baseurl: /design-os-studio
 lang: en
