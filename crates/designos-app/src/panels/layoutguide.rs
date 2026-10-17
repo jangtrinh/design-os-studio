@@ -36,9 +36,9 @@ pub(super) fn kind_index(g: &LayoutGrid) -> usize {
 /// A grid of kind `k` (0 grid, 1 columns, 2 rows) with Figma-like defaults, keeping `color`.
 pub fn default_grid(k: usize, color: Color) -> LayoutGrid {
     match k {
-        0 => LayoutGrid::Grid { size: 10.0, color },
-        1 => LayoutGrid::Columns { count: 5, gutter: 20.0, offset: 0.0, color },
-        _ => LayoutGrid::Rows { count: 5, gutter: 20.0, offset: 0.0, color },
+        0 => LayoutGrid::grid(10.0, color),
+        1 => LayoutGrid::columns(5, 20.0, 0.0, color),
+        _ => LayoutGrid::rows(5, 20.0, 0.0, color),
     }
 }
 
@@ -49,6 +49,24 @@ pub fn with_color(g: &LayoutGrid, c: Color) -> LayoutGrid {
         LayoutGrid::Grid { color, .. } | LayoutGrid::Columns { color, .. } | LayoutGrid::Rows { color, .. } => *color = c,
     }
     g
+}
+
+pub(super) fn align_index(a: LayoutGridAlign) -> usize {
+    match a {
+        LayoutGridAlign::Stretch => 0,
+        LayoutGridAlign::Min => 1,
+        LayoutGridAlign::Center => 2,
+        LayoutGridAlign::Max => 3,
+    }
+}
+
+pub(super) fn align_from_index(idx: usize) -> LayoutGridAlign {
+    match idx {
+        1 => LayoutGridAlign::Min,
+        2 => LayoutGridAlign::Center,
+        3 => LayoutGridAlign::Max,
+        _ => LayoutGridAlign::Stretch,
+    }
 }
 
 fn edit_grids(app: &mut App, sel: &[NodeId], f: impl Fn(&mut Vec<LayoutGrid>)) {
@@ -87,13 +105,44 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         return;
     }
     for (i, g) in grids.iter().enumerate() {
-        let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
+        let is_stripes = matches!(g, LayoutGrid::Columns { .. } | LayoutGrid::Rows { .. });
+        let dd_w = if is_stripes { 78.0 } else { 128.0 };
+        let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, dd_w, theme::FIELD_HEIGHT);
         let names = KINDS.map(String::from);
         if let Some(k) = dropdown(ui, dd, ("lg-kind", i), KINDS[kind_index(g)], &names) {
             let new = default_grid(k, color_of(g));
             edit_grids(app, sel, |gs| {
                 if let Some(slot) = gs.get_mut(i) {
                     *slot = new.clone();
+                }
+            });
+        }
+        if let LayoutGrid::Columns { alignment, .. } | LayoutGrid::Rows { alignment, .. } = g {
+            let is_cols = matches!(g, LayoutGrid::Columns { .. });
+            let align = *alignment;
+            let align_names =
+                if is_cols { ["Stretch", "Left", "Center", "Right"].map(String::from) } else { ["Stretch", "Top", "Center", "Bottom"].map(String::from) };
+            let align_dd = pane.rect(theme::SECTION_CONTENT_X + 82.0, 0.0, 78.0, theme::FIELD_HEIGHT);
+            if let Some(a_idx) = dropdown(ui, align_dd, ("lg-align", i), &align_names[align_index(align)], &align_names) {
+                let next_align = align_from_index(a_idx);
+                edit_grids(app, sel, |gs| match gs.get_mut(i) {
+                    Some(LayoutGrid::Columns { alignment, section_size, .. }) | Some(LayoutGrid::Rows { alignment, section_size, .. }) => {
+                        *alignment = next_align;
+                        if next_align != LayoutGridAlign::Stretch && *section_size <= 0.0 {
+                            *section_size = 60.0;
+                        }
+                    }
+                    _ => {}
+                });
+            }
+        }
+        let vis = g.is_visible();
+        let eye = pane.rect(theme::SECTION_TRAILING_X - theme::PANEL_ACTION_BUTTON - 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        let eye_icon = if vis { Icon::Eye } else { Icon::EyeOff };
+        if widgets::icon_button(ui, eye, ("lg-vis", i), eye_icon, !vis, "").clicked() {
+            edit_grids(app, sel, |gs| {
+                if let Some(slot) = gs.get_mut(i) {
+                    slot.set_visible(!vis);
                 }
             });
         }
@@ -119,12 +168,20 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
                 }
                 row_end(pane);
             }
-            LayoutGrid::Columns { count, gutter, offset, .. } | LayoutGrid::Rows { count, gutter, offset, .. } => {
-                let (c, gt, off) = (*count as f32, *gutter, *offset);
-                if let Some(v) = field::num_field(ui, pane.col(0, 0.0), ("lg-count", i), Prefix::Text("#"), Some(c), "") {
-                    let v = v.round().clamp(1.0, 64.0) as u32;
+            LayoutGrid::Columns { count, gutter, offset, section_size, alignment, .. }
+            | LayoutGrid::Rows { count, gutter, offset, section_size, alignment, .. } => {
+                let is_cols = matches!(g, LayoutGrid::Columns { .. });
+                let (c, gt, off, sec, align) = (*count, *gutter, *offset, *section_size, *alignment);
+                let count_suffix = if c == 0 { " Auto" } else { "" };
+                if let Some(v) = field::num_field(ui, pane.col(0, 0.0), ("lg-count", i), Prefix::Text("#"), Some(c as f32), count_suffix) {
+                    let v = v.round().clamp(0.0, 64.0) as u32;
                     edit_grids(app, sel, |gs| match gs.get_mut(i) {
-                        Some(LayoutGrid::Columns { count, .. }) | Some(LayoutGrid::Rows { count, .. }) => *count = v,
+                        Some(LayoutGrid::Columns { count, section_size, .. }) | Some(LayoutGrid::Rows { count, section_size, .. }) => {
+                            *count = v;
+                            if v == 0 && *section_size <= 0.0 {
+                                *section_size = 60.0;
+                            }
+                        }
                         _ => {}
                     });
                 }
@@ -140,6 +197,15 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
                     let v = v.max(0.0);
                     edit_grids(app, sel, |gs| match gs.get_mut(i) {
                         Some(LayoutGrid::Columns { offset, .. }) | Some(LayoutGrid::Rows { offset, .. }) => *offset = v,
+                        _ => {}
+                    });
+                }
+                let size_prefix = if is_cols { "W" } else { "H" };
+                let size_suffix = if align == LayoutGridAlign::Stretch && c > 0 { " Auto" } else { "" };
+                if let Some(v) = field::num_field(ui, pane.col(1, 0.0), ("lg-sec-size", i), Prefix::Text(size_prefix), Some(sec), size_suffix) {
+                    let v = v.max(0.0);
+                    edit_grids(app, sel, |gs| match gs.get_mut(i) {
+                        Some(LayoutGrid::Columns { section_size, .. }) | Some(LayoutGrid::Rows { section_size, .. }) => *section_size = v,
                         _ => {}
                     });
                 }

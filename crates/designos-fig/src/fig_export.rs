@@ -1735,25 +1735,34 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V 
 
 fn encode_grid(g: &LayoutGrid) -> V {
     match g {
-        LayoutGrid::Grid { size, color: c } => {
-            msg(vec![("pattern", en("GRID")), ("sectionSize", fl(*size)), ("color", color(c.r, c.g, c.b, c.a)), ("visible", V::Bool(true))])
+        LayoutGrid::Grid { size, color: c, visible } => {
+            msg(vec![("pattern", en("GRID")), ("sectionSize", fl(*size)), ("color", color(c.r, c.g, c.b, c.a)), ("visible", V::Bool(*visible))])
         }
-        LayoutGrid::Columns { count, gutter, offset, color: c } => msg(vec![
-            ("pattern", en("COLUMNS")),
-            ("count", V::Uint(*count)),
-            ("gutterSize", fl(*gutter)),
-            ("offset", fl(*offset)),
-            ("color", color(c.r, c.g, c.b, c.a)),
-            ("visible", V::Bool(true)),
-        ]),
-        LayoutGrid::Rows { count, gutter, offset, color: c } => msg(vec![
-            ("pattern", en("ROWS")),
-            ("count", V::Uint(*count)),
-            ("gutterSize", fl(*gutter)),
-            ("offset", fl(*offset)),
-            ("color", color(c.r, c.g, c.b, c.a)),
-            ("visible", V::Bool(true)),
-        ]),
+        LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color: c, visible }
+        | LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color: c, visible } => {
+            let pat = if matches!(g, LayoutGrid::Columns { .. }) { "COLUMNS" } else { "ROWS" };
+            let align = match alignment {
+                LayoutGridAlign::Min => "MIN",
+                LayoutGridAlign::Center => "CENTER",
+                LayoutGridAlign::Stretch => "STRETCH",
+                LayoutGridAlign::Max => "MAX",
+            };
+            let (cnt_u, num_sec) = if *count == 0 { (i32::MAX as u32, -1i32) } else { (*count, *count as i32) };
+            let mut fields = vec![
+                ("pattern", en(pat)),
+                ("type", en(align)),
+                ("count", V::Uint(cnt_u)),
+                ("numSections", V::Int(num_sec)),
+                ("gutterSize", fl(*gutter)),
+                ("offset", fl(*offset)),
+                ("color", color(c.r, c.g, c.b, c.a)),
+                ("visible", V::Bool(*visible)),
+            ];
+            if *section_size > 0.0 {
+                fields.push(("sectionSize", fl(*section_size)));
+            }
+            msg(fields)
+        }
     }
 }
 

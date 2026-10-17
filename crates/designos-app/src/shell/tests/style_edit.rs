@@ -10,7 +10,7 @@ fn shadow(radius: f32) -> Effect {
 }
 
 fn columns(count: u32) -> LayoutGrid {
-    LayoutGrid::Columns { count, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) }
+    LayoutGrid::columns(count, 20.0, 0.0, Color::rgba(255, 0, 0, 26))
 }
 
 /// Rect of a numeric field whose key is not a plain string (the key's `Debug` text).
