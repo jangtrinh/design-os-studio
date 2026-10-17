@@ -1,7 +1,7 @@
 //! Writes the shared auto-layout solver ([`crate::layout_solver`]) straight into a [`Document`].
 
-use crate::layout_solver::{compute, ChildIn, SizeLimits};
-use crate::{Document, LayoutDirection, NodeId, Vec2};
+use crate::layout_solver::{compute, hugged_axes, ChildIn, SizeLimits};
+use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
 
 impl Document {
     /// Re-solves auto layout bottom-up from `root`: every container below it first, so hugging
@@ -11,6 +11,26 @@ impl Document {
     pub fn relayout_subtree(&mut self, root: NodeId) {
         let mut budget = MAX_RELAYOUT_RESOLVES;
         self.relayout_bottom_up(root, 0, &mut budget);
+    }
+
+    /// What a flow frame's solver reads of child `id`: `None` when the child sits outside the flow
+    /// (hidden by its visibility or variable, or absolutely positioned), otherwise its box with
+    /// variable bindings applied for the mode in effect. The editor and the headless relayout both
+    /// read children through this, so a bound size means the same everywhere.
+    ///
+    /// A `width` / `height` binding does not apply on an axis the node sizes from its own content:
+    /// a group always fits its children, and an auto-layout frame hugging that axis takes its
+    /// content's extent. The stored size there is already the fitted one, so the parent places the
+    /// next sibling behind it instead of behind a bound size the node would shed again.
+    pub fn flow_child_input(&self, id: NodeId, horiz: bool) -> Option<ChildIn> {
+        let raw = self.get(id)?;
+        let bound = crate::resolve_node(self, raw);
+        if !bound.visible || raw.layout_child.absolute {
+            return None;
+        }
+        let (fit_w, fit_h) = content_sized_axes(raw);
+        let size = Vec2::new(if fit_w { raw.size.x } else { bound.size.x }, if fit_h { raw.size.y } else { bound.size.y });
+        Some(ChildIn::from_layout_child(size, &bound.layout_child, horiz))
     }
 
     fn relayout_bottom_up(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
@@ -39,20 +59,14 @@ impl Document {
 
     fn solve_auto_layout_node(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
         let Some(root_node) = self.get(root) else { return };
-        let Some(al) = root_node.kind.frame_props().and_then(|f| f.auto_layout) else {
+        let Some(al) = crate::resolve_node(self, root_node).kind.frame_props().and_then(|f| f.auto_layout) else {
             return;
         };
         let children = root_node.children.clone();
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&root_node.layout_child);
         let horiz = al.direction != LayoutDirection::Vertical;
-        let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children
-            .iter()
-            .filter_map(|cid| {
-                let k = self.get(*cid)?;
-                (k.visible && !k.layout_child.absolute).then(|| (*cid, ChildIn::from_layout_child(k.size, &k.layout_child, horiz)))
-            })
-            .unzip();
+        let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
         let out = compute(&al, frame, own_limits, &kids);
         if let Some(fnode) = self.get_mut(root) {
@@ -78,6 +92,14 @@ impl Document {
             }
         }
     }
+}
+
+/// The `(width, height)` axes along which layout derives `node`'s size from its content.
+fn content_sized_axes(node: &Node) -> (bool, bool) {
+    if matches!(node.kind, NodeKind::Group) {
+        return (true, true);
+    }
+    node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map_or((false, false), hugged_axes)
 }
 
 /// Maximum nesting depth for top-down child re-solves triggered when a parent changes a child's box.
