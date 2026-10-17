@@ -84,9 +84,9 @@ impl FacilitatorTimer {
         self.last_tick_time = None;
     }
 
-    /// Adds 60 seconds (+1 minute) to the active countdown and configured duration.
+    /// Adds 60 seconds (+1 minute) to the active countdown. The configured duration, which Reset and a
+    /// restart after reaching zero go back to, stays as it is.
     pub fn add_minute(&mut self) {
-        self.duration_secs += 60.0;
         self.remaining_secs += 60.0;
     }
 
