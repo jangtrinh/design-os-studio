@@ -26,17 +26,17 @@ status_option() {
 die() { echo "roadmap-claim: $*" >&2; exit 1; }
 
 # Every machine shares one GitHub account, so GraphQL bursts hit the secondary rate limit.
-# Wrap gh: on a rate-limit error wait and retry (4 tries, 60 s apart); any other error fails at once.
+# Wrap gh: on a rate-limit error wait and retry (6 tries, 60 s apart); any other error fails at once.
 gh() {
-  local try out err status
+  local try=1 out rc err
   err=$(mktemp)
-  for try in 1 2 3 4; do
-    if out=$(command gh "$@" 2>"$err"); then rm -f "$err"; printf '%s' "$out"; [ -n "$out" ] && echo; return 0; fi
-    status=$?
-    grep -qi "rate limit" "$err" || { cat "$err" >&2; rm -f "$err"; return "$status"; }
-    [ "$try" -lt 4 ] && { echo "roadmap-claim: GitHub rate limit, retrying in 60 s ($try/3)" >&2; sleep 60; }
+  while :; do
+    out=$(command gh "$@" 2>"$err") && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then rm -f "$err"; [ -n "$out" ] && printf '%s\n' "$out"; return 0; fi
+    if ! grep -qi "rate limit" "$err" || [ "$try" -ge 6 ]; then cat "$err" >&2; rm -f "$err"; return "$rc"; fi
+    echo "roadmap-claim: GitHub rate limit, retrying in 60 s ($try/5)" >&2
+    sleep 60; try=$((try + 1))
   done
-  cat "$err" >&2; rm -f "$err"; return "$status"
 }
 [ $# -ge 3 ] || die "usage: $0 claim <issue#> <machine> <session> | release <issue#> <machine> [Ready|In review] [handoff]"
 action=$1 issue=$2 machine=$3
