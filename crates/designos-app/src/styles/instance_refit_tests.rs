@@ -90,11 +90,19 @@ fn instance_text_with_its_own_characters_refits_when_the_style_grows_in_width_an
 #[test]
 fn instance_text_with_its_own_characters_refits_when_the_style_grows_in_height_mode() {
     let (mut app, _main, label) = instance_with_own_label(TextAutoResize::Height, OwnCharacters::Typed);
+    assert!(
+        !app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size),
+        "typing in Height mode refits height without recording a Size override"
+    );
     let before = app.doc.get(label).unwrap().size;
     assert!(app.update_style_values("Body", body_at(40.0)));
     let after = app.doc.get(label).unwrap().size;
     assert_eq!(after.x, before.x, "height mode keeps the width");
     assert!(after.y > before.y * 2.0, "the label gets taller with its type: {before:?} -> {after:?}");
+    assert!(
+        !app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size),
+        "a style edit refit in Height mode does not record a Size override"
+    );
     assert_fits_its_own_text(&app, label);
 }
 
@@ -103,10 +111,12 @@ fn instance_text_whose_characters_come_from_a_property_refits_when_the_style_cha
     for mode in [TextAutoResize::WidthAndHeight, TextAutoResize::Height] {
         let (mut app, _main, label) = instance_with_own_label(mode, OwnCharacters::Property);
         assert!(!app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Characters), "the characters are bound, not overridden");
+        assert!(!app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size), "{mode:?}: property refit does not record a Size override");
         let before = app.doc.get(label).unwrap().size;
         assert!(app.update_style_values("Body", body_at(40.0)));
         let after = app.doc.get(label).unwrap().size;
         assert!(after.y > before.y * 2.0, "{mode:?}: the label gets taller: {before:?} -> {after:?}");
+        assert!(!app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size), "{mode:?}: style edit refit does not record a Size override");
         assert_fits_its_own_text(&app, label);
     }
 }
@@ -150,6 +160,7 @@ fn instance_with_own_text_style(mode: TextAutoResize) -> (App, NodeId, NodeId) {
     let own = app.doc.get(label).unwrap();
     assert!(own.component.overrides.contains(&OverrideField::TextStyle), "the label's text style is its own");
     assert!(!own.component.overrides.contains(&OverrideField::Characters), "the characters are the main's");
+    assert!(!own.component.overrides.contains(&OverrideField::Size), "{mode:?}: applying a text style refits height without recording a Size override");
     assert_eq!(own.style_refs.get("text").map(String::as_str), Some("Body"));
     (app, t, label)
 }
@@ -162,6 +173,7 @@ fn instance_text_with_its_own_text_style_refits_when_that_style_grows() {
         assert!(app.update_style_values("Body", body_at(40.0)));
         let after = app.doc.get(label).unwrap().size;
         assert!(after.y > before.y * 2.0, "{mode:?}: the label gets taller with its own type: {before:?} -> {after:?}");
+        assert!(!app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size), "{mode:?}: style edit refit does not record a Size override");
         assert_fits_its_own_text(&app, label);
         assert_ne!(after, app.doc.get(main).unwrap().size, "{mode:?}: the size is the label's own, not the main's");
     }
@@ -179,4 +191,54 @@ fn editing_the_mains_style_does_not_copy_the_mains_size_onto_text_with_its_own_t
         assert!(matches!(&own.kind, NodeKind::Text(tp) if tp.style.font_size == 12.0), "{mode:?}: the label keeps its own type");
         assert_fits_its_own_text(&app, label);
     }
+}
+
+#[test]
+fn height_mode_refit_does_not_record_size_override_unless_width_changes() {
+    let (mut app, main, label) = instance_with_own_label(TextAutoResize::Height, OwnCharacters::Typed);
+    assert!(!app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size));
+
+    // Resetting the Characters override lets the label take the main's size again because Size was not overridden.
+    app.reset_node_overrides(label, &[OverrideField::Characters]);
+    assert_eq!(app.doc.get(label).unwrap().size, app.doc.get(main).unwrap().size);
+
+    // Explicitly widening the Height-mode text box IS a user size override.
+    app.edit_nodes(&[label], |n| {
+        if let NodeKind::Text(tp) = &n.kind {
+            n.size.x = 180.0;
+            n.size = layout::fit_text(tp, n.size);
+        }
+    });
+    assert!(app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size));
+}
+
+#[test]
+fn explicit_height_edit_on_height_mode_instance_label_survives_main_sync() {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let fid = d.alloc_id();
+    let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 200.0))).unwrap();
+    let tid = d.alloc_id();
+    let mut t = Node::text(tid, Rect::new(10.0, 10.0, 100.0, 20.0), "Label", TextStyle::default());
+    if let NodeKind::Text(tp) = &mut t.kind {
+        tp.auto_resize = TextAutoResize::Height;
+    }
+    let t = d.insert(f, t).unwrap();
+    let mut app = App::new(d);
+    app.selection = vec![f];
+    app.create_component();
+    let comp = app.doc.get(t).and_then(|n| n.parent).expect("component root");
+    let inst = app.insert_instance(comp, Vec2::new(500.0, 100.0)).expect("instance");
+    let label = app.doc.get(inst).unwrap().children[0];
+
+    // Explicitly set H to 90 on the Height-mode instance label (no auto layout, no characters override).
+    app.edit_nodes(&[label], |n| n.size.y = 90.0);
+    assert!(
+        app.doc.get(label).unwrap().component.overrides.contains(&OverrideField::Size),
+        "explicit height edit on Height-mode label must record a Size override"
+    );
+
+    // Make an edit on the main component so the instance syncs.
+    app.edit_nodes(&[t], |n| n.opacity = 0.8);
+    assert_eq!(app.doc.get(label).unwrap().size.y, 90.0, "explicit height edit on Height-mode instance label must survive main sync");
 }

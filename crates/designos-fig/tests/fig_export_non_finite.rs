@@ -139,3 +139,37 @@ fn a_vector_network_with_a_non_finite_vertex_keeps_its_network_on_export() {
     assert_eq!((net.vertices[0].pos, net.vertices[2].pos), (Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0)));
     assert_eq!(net.segments[0].ta, Vec2::ZERO);
 }
+
+#[test]
+fn non_finite_grid_tracks_export_and_reimport_as_finite_defaults() {
+    let mut d = Document::new("grid-poison");
+    let page = d.add_page("P");
+    let id = d.alloc_id();
+    let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 400.0, 300.0));
+    frame.name = "GridFrame".into();
+    let mut al = AutoLayout { direction: LayoutDirection::Grid, ..Default::default() };
+    al.grid_columns = 5;
+    al.grid_col_tracks[0] = GridTrack::Flex(f32::NAN);
+    al.grid_col_tracks[1] = GridTrack::Flex(f32::INFINITY);
+    al.grid_col_tracks[2] = GridTrack::Fixed(f32::NAN);
+    al.grid_col_tracks[3] = GridTrack::Fixed(f32::NEG_INFINITY);
+    al.grid_col_tracks[4] = GridTrack::Hug;
+    al.grid_rows = 2;
+    al.grid_row_tracks[0] = GridTrack::Flex(f32::NEG_INFINITY);
+    al.grid_row_tracks[1] = GridTrack::Fixed(f32::INFINITY);
+    frame.kind.frame_props_mut().unwrap().auto_layout = Some(al);
+    d.insert(page, frame).unwrap();
+
+    let bytes = export_fig(&d).unwrap();
+    let decoded = decode_fig_to_json(&bytes).unwrap();
+    let node = named(&decoded, "GridFrame").expect("the exported grid frame");
+    assert_eq!(node["gridColumnsSizing"].as_str(), Some("1fr 1fr 0px 0px auto"));
+    assert_eq!(node["gridRowsSizing"].as_str(), Some("1fr 0px"));
+
+    let back = import_fig(&bytes).unwrap();
+    assert_eq!(back.to_json_counted().unwrap().1, 0, "no non-finite numbers after re-import");
+    let gf = back.nodes.values().find(|n| n.name == "GridFrame").unwrap();
+    let back_al = gf.kind.frame_props().unwrap().auto_layout.expect("grid auto_layout preserved");
+    assert_eq!(back_al.grid_col_tracks[..5], [GridTrack::Flex(1.0), GridTrack::Flex(1.0), GridTrack::Fixed(0.0), GridTrack::Fixed(0.0), GridTrack::Hug,]);
+    assert_eq!(back_al.grid_row_tracks[..2], [GridTrack::Flex(1.0), GridTrack::Fixed(0.0)]);
+}

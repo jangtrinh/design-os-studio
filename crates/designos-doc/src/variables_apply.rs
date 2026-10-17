@@ -342,6 +342,7 @@ mod tests {
                 default_mode: "light".into(),
                 variables: vec![],
                 key: None,
+                source_library_key: None,
             },
         );
         let n = |x: f32| VariableValue::Number(x);
