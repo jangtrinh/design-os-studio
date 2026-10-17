@@ -479,8 +479,15 @@ impl App {
     /// Opens a library file in the editor.
     pub fn open_library_file(&mut self, id: &str) {
         let Some(lib) = self.lib.clone() else { return };
-        let loaded = lib.file(id).and_then(|e| lib.load_file(id).map(|d| (e, d)));
-        let (entry, mut doc) = match loaded {
+        let entry = match lib.file(id) {
+            Ok(e) => e,
+            Err(e) => {
+                self.show_toast(format!("Cannot open the file: {e}"), true);
+                return;
+            }
+        };
+        let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{}.designos", entry.id));
+        let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
             Err(e) => {
                 self.show_toast(format!("Cannot open the file: {e}"), true);
@@ -491,6 +498,9 @@ impl App {
         doc.name = entry.name.clone();
         let needs_thumb = lib.thumbnail_path(&entry).is_none();
         self.replace_document(doc, None);
+        if let Some(w) = warning.as_deref() {
+            self.show_toast(crate::io::opened_toast_text(&entry.name, Some(w)), true);
+        }
         self.lib_file = Some(LibFile { id: entry.id.clone(), project_id: entry.project.clone(), project, name: entry.name.clone() });
         self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
@@ -578,7 +588,12 @@ impl App {
             // an old version is on screen: the file on disk must keep the live document
             return Err("Go back to the current version before saving".into());
         }
+        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
+        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
         lib.save_file(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
+        if wrote_backup {
+            crate::io::clear_pending_repair_backup(&disk_path);
+        }
         self.autosave.saved_hash = doc_hash(&self.doc);
         self.autosave.changed_at = None;
         self.autosave.save_failed_at = None;
