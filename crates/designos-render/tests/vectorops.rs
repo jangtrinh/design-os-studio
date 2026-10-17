@@ -345,3 +345,77 @@ fn offset_of_an_open_path_alone_returns_it_unchanged() {
         assert_eq!(offset_path(&l, delta), l.to_vec(), "delta {delta}");
     }
 }
+
+/// One path holding both squares as separate closed sub-paths (same winding, so they union).
+fn two_overlapping_squares_in_one_path() -> Path {
+    let (a, b) = (rect(0.0, 0.0, 100.0, 100.0), rect(50.0, 0.0, 100.0, 100.0));
+    Path { cmds: a.cmds.into_iter().chain(b.cmds).collect(), fill_rule: FillRule::NonZero }
+}
+
+#[test]
+fn inset_erodes_the_outline_of_overlapping_squares_not_their_inner_edges() {
+    // the union is 150 x 100, so the inset is one 130 x 80 rectangle
+    let one_path = [two_overlapping_squares_in_one_path()];
+    let out = offset_path(&one_path, -10.0);
+    close(area(&out), 130.0 * 80.0, 2.0);
+    assert_eq!(count_subpaths(&out), (1, 0), "one region, not islands cut apart along the inner edges");
+
+    let two_paths = [rect(0.0, 0.0, 100.0, 100.0), rect(50.0, 0.0, 100.0, 100.0)];
+    let out = offset_path(&two_paths, -10.0);
+    close(area(&out), 130.0 * 80.0, 2.0);
+    assert_eq!(count_subpaths(&out), (1, 0));
+}
+
+#[test]
+fn inset_ignores_a_path_that_lies_inside_another() {
+    let nested = [rect(0.0, 0.0, 100.0, 100.0), rect(40.0, 40.0, 20.0, 20.0)];
+    close(area(&offset_path(&nested, -10.0)), 80.0 * 80.0, 1.5);
+    close(area(&offset_path(&nested, 10.0)), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0), 2.0);
+}
+
+#[test]
+fn offset_moves_the_boundary_of_a_hole_the_other_way() {
+    let hole = Path {
+        cmds: vec![
+            PathCmd::MoveTo(v(30.0, 30.0)),
+            PathCmd::LineTo(v(30.0, 70.0)),
+            PathCmd::LineTo(v(70.0, 70.0)),
+            PathCmd::LineTo(v(70.0, 30.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let outer = rect(0.0, 0.0, 100.0, 100.0);
+    let holed = [Path { cmds: outer.cmds.into_iter().chain(hole.cmds).collect(), fill_rule: FillRule::NonZero }];
+    close(area(&holed), 10000.0 - 1600.0, 1.0);
+    // the ring around the hole is 30 wide: eroding 10 leaves 80 x 80 minus the hole grown to 60 x 60
+    // with round corners (the region is pushed away from the hole by a disc)
+    close(area(&offset_path(&holed, -10.0)), 6400.0 - (3600.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0)), 2.0);
+    // growing 10 closes the hole down to 20 x 20
+    close(area(&offset_path(&holed, 10.0)), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0) - 400.0, 2.5);
+}
+
+#[test]
+fn offset_of_a_circle_keeps_its_curve() {
+    let (c, r, k) = (50.0, 50.0, 0.552_284_8 * 50.0);
+    let circle = Path {
+        cmds: vec![
+            PathCmd::MoveTo(v(c + r, c)),
+            PathCmd::CubicTo(v(c + r, c + k), v(c + k, c + r), v(c, c + r)),
+            PathCmd::CubicTo(v(c - k, c + r), v(c - r, c + k), v(c - r, c)),
+            PathCmd::CubicTo(v(c - r, c - k), v(c - k, c - r), v(c, c - r)),
+            PathCmd::CubicTo(v(c + k, c - r), v(c + r, c - k), v(c + r, c)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let disc = |radius: f64| std::f64::consts::PI * radius * radius;
+    close(area(&offset_path(std::slice::from_ref(&circle), 10.0)), disc(60.0), disc(60.0) * 0.005);
+    close(area(&offset_path(std::slice::from_ref(&circle), -10.0)), disc(40.0), disc(40.0) * 0.005);
+}
+
+#[test]
+fn a_fully_eroded_closed_part_returns_nothing_even_next_to_an_open_segment() {
+    let input = [rect(0.0, 0.0, 100.0, 100.0), line(v(200.0, 0.0), v(300.0, 0.0))];
+    assert!(offset_path(&input, -60.0).is_empty(), "a vanished fill must not leave only the open segment behind");
+}

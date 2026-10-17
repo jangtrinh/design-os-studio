@@ -574,6 +574,10 @@ pub fn count_subpaths(paths: &[d::Path]) -> (usize, usize) {
 /// An open sub-path has no inside to grow or shrink, and a parallel curve of it is not
 /// what a centred stroke gives (that is a ribbon around it), so open sub-paths are carried
 /// into the result exactly as they were. [`count_subpaths`] tells a caller whether there are any.
+///
+/// The closed contours are taken as they paint: overlapping ones merge into one silhouette and
+/// only its outer boundary and its holes move. When an inset removes all of the closed part the
+/// result is empty, open sub-paths included, so a caller can leave the original as it was.
 pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_limit: f32) -> Vec<d::Path> {
     if paths.is_empty() || !delta.is_finite() {
         return Vec::new();
@@ -591,49 +595,60 @@ pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_li
     };
     let st = sk_stroke(&stroke, delta.abs() * 2.0, d::StrokeCap::Round);
 
-    let mut out: Vec<d::Path> = Vec::new();
+    let mut open: Vec<d::Path> = Vec::new();
     let mut closed_paths: Vec<d::Path> = Vec::new();
-    let mut closed_subs: Vec<d::Path> = Vec::new();
-
     for p in paths {
-        let mut p_closed_cmds: Vec<d::PathCmd> = Vec::new();
+        let mut closed_cmds: Vec<d::PathCmd> = Vec::new();
         for (sub, closed) in subpaths(p) {
             if closed {
-                p_closed_cmds.extend(sub.cmds.iter().copied());
-                closed_subs.push(sub);
+                closed_cmds.extend(sub.cmds);
             } else {
-                out.push(sub);
+                open.push(sub);
             }
         }
-        if !p_closed_cmds.is_empty() {
-            closed_paths.push(d::Path { cmds: p_closed_cmds, fill_rule: p.fill_rule });
+        if !closed_cmds.is_empty() {
+            closed_paths.push(d::Path { cmds: closed_cmds, fill_rule: p.fill_rule });
         }
     }
+    if closed_paths.is_empty() {
+        return open;
+    }
 
-    if !closed_paths.is_empty() {
-        let fill = paths_to_shapes(&closed_paths, 0.02);
-        let mut ring: Shapes = Vec::new();
-        for c in &closed_subs {
-            let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
-            let Some(o) = expand(&skp, &st) else { continue };
-            let polys = flatten(&o, 0.02).simplify_shape(FillRule::NonZero);
-            ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
-        }
-        let combined = if delta > 0.0 {
-            if ring.is_empty() {
-                fill
+    // the filled region as it paints (overlaps merged, holes kept), moved by a band along its
+    // boundary only: an edge inside the fill must not be carved out of it
+    let fill = paths_to_shapes(&closed_paths, 0.02);
+    let band = boundary_band(&fill, &st);
+    let moved = match (delta > 0.0, band.is_empty()) {
+        (true, true) => fill,
+        (true, false) => fill.overlay(&band, OverlayRule::Union, FillRule::NonZero),
+        (false, true) => Vec::new(),
+        (false, false) => fill.overlay(&band, OverlayRule::Difference, FillRule::NonZero),
+    };
+    if moved.is_empty() || shapes_area(&moved) <= 1e-3 {
+        // the closed part is gone: the caller keeps the original, with its open sub-paths
+        return Vec::new();
+    }
+    open.extend(shapes_to_paths(&moved, 0.05));
+    open
+}
+
+/// The stroke band `st` laid along every contour (outer boundaries and holes) of `shapes`.
+fn boundary_band(shapes: &Shapes, st: &sk::Stroke) -> Shapes {
+    let mut band: Shapes = Vec::new();
+    for contour in shapes.iter().flatten() {
+        let mut pb = sk::PathBuilder::new();
+        for (i, p) in contour.iter().enumerate() {
+            let (x, y) = (p[0] as f32, p[1] as f32);
+            if i == 0 {
+                pb.move_to(x, y);
             } else {
-                fill.overlay(&ring, OverlayRule::Union, FillRule::NonZero)
+                pb.line_to(x, y);
             }
-        } else if ring.is_empty() {
-            Vec::new()
-        } else {
-            fill.overlay(&ring, OverlayRule::Difference, FillRule::NonZero)
-        };
-        if !combined.is_empty() && shapes_area(&combined) > 1e-3 {
-            out.extend(shapes_to_paths(&combined, 0.05));
         }
+        pb.close();
+        let Some(outline) = pb.finish().and_then(|path| expand(&path, st)) else { continue };
+        let polys = flatten(&outline, 0.02).simplify_shape(FillRule::NonZero);
+        band = if band.is_empty() { polys } else { band.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
     }
-
-    out
+    band
 }
