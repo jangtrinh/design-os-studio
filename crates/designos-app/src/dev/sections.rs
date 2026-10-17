@@ -422,7 +422,7 @@ pub fn code_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let lang = app.dev.lang;
     section_title(ui, c, "Code");
     let copy_r = c.rect(c.w - PAD - 56.0, -24.0, 56.0, 24.0);
-    let dd = c.rect(c.w - PAD - 56.0 - 6.0 - 96.0, -24.0, 96.0, 24.0);
+    let dd = c.rect(c.w - PAD - 56.0 - 6.0 - 108.0, -24.0, 108.0, 24.0);
     widgets::record(ui, "dev-lang", dd);
     widgets::record(ui, "dev-copy-code", copy_r);
     let options: Vec<String> = Language::ALL.iter().map(|l| l.label().to_string()).collect();
