@@ -710,14 +710,20 @@ mod tests {
         assert!(!raw.contains("/Subtype /Image"), "vector PDF must not emit a full-page raster image XObject");
         assert!(raw.contains("/Shading"), "gradient fill should emit a PDF Shading dictionary");
 
-        // Verify pdftotext extracts selectable text from both pages.
+        // Selectable text: every line is a `BT ... Tj ET` text run in the page streams.
+        assert!(raw.contains("(First slide headline) Tj"), "page 1 text run missing from the PDF");
+        assert!(raw.contains("(Second slide takeaway) Tj"), "page 2 text run missing from the PDF");
+
+        // Cross-check with a real extractor when poppler is installed; hosted runners do not ship it.
         let tmp = std::env::temp_dir().join(format!("designos-vector-pdf-{}.pdf", std::process::id()));
         std::fs::write(&tmp, &pdf).unwrap();
-        let output = std::process::Command::new("pdftotext").arg(&tmp).arg("-").output().expect("pdftotext runs");
+        let extractor = std::process::Command::new("pdftotext").arg(&tmp).arg("-").output();
         let _ = std::fs::remove_file(&tmp);
-        assert!(output.status.success(), "pdftotext failed: {}", String::from_utf8_lossy(&output.stderr));
-        let extracted = String::from_utf8_lossy(&output.stdout);
-        assert!(extracted.contains("First slide headline"), "page 1 text missing from pdftotext output: {extracted:?}");
-        assert!(extracted.contains("Second slide takeaway"), "page 2 text missing from pdftotext output: {extracted:?}");
+        if let Ok(output) = extractor {
+            assert!(output.status.success(), "pdftotext failed: {}", String::from_utf8_lossy(&output.stderr));
+            let extracted = String::from_utf8_lossy(&output.stdout);
+            assert!(extracted.contains("First slide headline"), "page 1 text missing from pdftotext output: {extracted:?}");
+            assert!(extracted.contains("Second slide takeaway"), "page 2 text missing from pdftotext output: {extracted:?}");
+        }
     }
 }
