@@ -197,3 +197,118 @@ fn export_then_import_keeps_effect_and_grid_styles_and_their_links() {
     assert!(matches!(&d2.styles[&unused], Style::Effect(fx) if matches!(fx.as_slice(), [Effect::LayerBlur { radius, .. }] if *radius == 6.0)));
     assert_eq!(d2.style_meta[&unused].property, StyleProperty::Effect);
 }
+
+#[test]
+fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport() {
+    let mono_noise = msg(vec![
+        ("type", en("NOISE")),
+        ("noiseType", en("MONOTONE")),
+        ("color", color(0.25, 0.5, 0.75, 1.0)),
+        ("noiseSize", vec2(3.5, 3.5)),
+        ("density", fl(0.65)),
+        ("opacity", fl(0.4)),
+        ("blendMode", en("OVERLAY")),
+        ("seed", V::Uint(42)),
+        ("visible", V::Bool(true)),
+    ]);
+    let duo_noise = msg(vec![
+        ("type", en("NOISE")),
+        ("noiseType", en("DUOTONE")),
+        ("color", color(1.0, 0.0, 0.0, 1.0)),
+        ("secondaryColor", color(0.0, 0.0, 1.0, 0.5)),
+        ("noiseSize", vec2(2.0, 2.0)),
+        ("density", fl(0.35)),
+        ("opacity", fl(0.8)),
+        ("blendMode", en("MULTIPLY")),
+        ("seed", V::Uint(9)),
+        ("visible", V::Bool(false)),
+    ]);
+    let multi_noise = msg(vec![
+        ("type", en("NOISE")),
+        ("noiseType", en("MULTITONE")),
+        ("noiseSize", vec2(1.5, 1.5)),
+        ("density", fl(0.9)),
+        ("opacity", fl(0.5)),
+        ("blendMode", en("SCREEN")),
+        ("seed", V::Uint(77)),
+        ("visible", V::Bool(true)),
+    ]);
+    let grain = msg(vec![
+        ("type", en("GRAIN")),
+        ("noiseSize", vec2(4.0, 4.0)),
+        ("radius", fl(6.5)),
+        ("clipToShape", V::Bool(false)),
+        ("seed", V::Uint(13)),
+        ("visible", V::Bool(false)),
+    ]);
+    let glass = msg(vec![
+        ("type", en("GLASS")),
+        ("specularAngle", fl(135.0)),
+        ("specularIntensity", fl(0.75)),
+        ("refractionIntensity", fl(0.6)),
+        ("refractionRadius", fl(18.0)),
+        ("chromaticAberration", fl(0.3)),
+        ("radius", fl(8.0)),
+        ("visible", V::Bool(true)),
+    ]);
+
+    let nodes = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", vec![]),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", vec![("backgroundColor", color(1.0, 1.0, 1.0, 1.0))]),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", vec![("internalOnly", V::Bool(true))]),
+        style_node(200, "FX/Rich", "EFFECT", "key-fx-rich", vec![("effects", V::Array(vec![duo_noise.clone(), grain.clone(), glass.clone()]))]),
+        frame(10, "DirectFX", vec![("effects", V::Array(vec![mono_noise, duo_noise, multi_noise, grain, glass]))]),
+        frame(11, "StyledFX", vec![("styleIdForEffect", sref(200)), ("effects", V::Array(vec![shadow(1.0)]))]),
+    ];
+    let message = msg(vec![("nodeChanges", V::Array(nodes))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &message).unwrap();
+    let fig_bytes = container::write_container(&schema.encode(), &body, Compression::Zstd, 106);
+
+    let expected_mono = Effect::Noise(NoiseEffect {
+        mode: NoiseMode::Mono { color: Color { r: 0.25, g: 0.5, b: 0.75, a: 1.0 } },
+        size: 3.5,
+        density: 0.65,
+        opacity: 0.4,
+        blend: BlendMode::Overlay,
+        seed: 42,
+        visible: true,
+    });
+    let expected_duo = Effect::Noise(NoiseEffect {
+        mode: NoiseMode::Duo { color: Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, secondary: Color { r: 0.0, g: 0.0, b: 1.0, a: 0.5 } },
+        size: 2.0,
+        density: 0.35,
+        opacity: 0.8,
+        blend: BlendMode::Multiply,
+        seed: 9,
+        visible: false,
+    });
+    let expected_multi =
+        Effect::Noise(NoiseEffect { mode: NoiseMode::Multi, size: 1.5, density: 0.9, opacity: 0.5, blend: BlendMode::Screen, seed: 77, visible: true });
+    let expected_texture = Effect::Texture(TextureEffect { size: 4.0, radius: 6.5, clip_to_shape: false, seed: 13, visible: false });
+    let expected_glass =
+        Effect::Glass(GlassEffect { light_angle: 135.0, light_intensity: 0.75, refraction: 0.6, depth: 18.0, dispersion: 0.3, frost: 8.0, visible: true });
+
+    // 1. First import from .fig
+    let d1 = import_fig(&fig_bytes).unwrap();
+    assert_eq!(
+        find(&d1, "DirectFX").effects,
+        vec![expected_mono.clone(), expected_duo.clone(), expected_multi.clone(), expected_texture.clone(), expected_glass.clone()]
+    );
+    let expected_style_fx = vec![expected_duo, expected_texture, expected_glass];
+    assert_eq!(find(&d1, "StyledFX").effects, expected_style_fx);
+    assert_eq!(d1.styles["2:200"], Style::Effect(expected_style_fx.clone()));
+
+    // 2. Export to .fig and re-import
+    let exported = export_fig(&d1).unwrap();
+    let d2 = import_fig(&exported).unwrap();
+    assert_eq!(
+        find(&d2, "DirectFX").effects,
+        vec![expected_mono, expected_style_fx[0].clone(), expected_multi, expected_style_fx[1].clone(), expected_style_fx[2].clone()]
+    );
+    let styled = find(&d2, "StyledFX");
+    assert_eq!(styled.effects, expected_style_fx);
+    let fx_key = &styled.style_refs["effect"];
+    assert_eq!(d2.styles[fx_key], Style::Effect(expected_style_fx));
+}

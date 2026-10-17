@@ -31,7 +31,7 @@ pub(super) fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, 
     match g {
         LayoutGrid::Grid { size, .. } => {
             popover::row(ui, body, row, "Size", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-size", Prefix::Text("S"), Some(*size), "") {
+                if let Some(v) = field::num_field(ui, rc, "se-grid-size", Prefix::Icon(crate::icons::Icon::Grid2x2), Some(*size), "") {
                     set(app, &|g| {
                         if let LayoutGrid::Grid { size, .. } = g {
                             *size = v.max(1.0);
@@ -44,7 +44,7 @@ pub(super) fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, 
         LayoutGrid::Columns { count, gutter, offset, .. } | LayoutGrid::Rows { count, gutter, offset, .. } => {
             let (count, gutter, offset) = (*count as f32, *gutter, *offset);
             popover::row(ui, body, row, "Count", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-count", Prefix::Text("#"), Some(count), "") {
+                if let Some(v) = field::num_field(ui, rc, "se-grid-count", Prefix::Icon(crate::icons::Icon::GridView), Some(count), "") {
                     set(app, &|g| {
                         if let LayoutGrid::Columns { count, .. } | LayoutGrid::Rows { count, .. } = g {
                             *count = v.round().clamp(1.0, 64.0) as u32;
@@ -53,7 +53,7 @@ pub(super) fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, 
                 }
             });
             popover::row(ui, body, row + 1, "Gutter", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-gutter", Prefix::Text("G"), Some(gutter), "") {
+                if let Some(v) = field::num_field(ui, rc, "se-grid-gutter", Prefix::Icon(crate::icons::Icon::Spacing), Some(gutter), "") {
                     set(app, &|g| {
                         if let LayoutGrid::Columns { gutter, .. } | LayoutGrid::Rows { gutter, .. } = g {
                             *gutter = v.max(0.0);
@@ -62,7 +62,7 @@ pub(super) fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, 
                 }
             });
             popover::row(ui, body, row + 2, "Margin", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-offset", Prefix::Text("M"), Some(offset), "") {
+                if let Some(v) = field::num_field(ui, rc, "se-grid-offset", Prefix::Icon(crate::icons::Icon::PaddingH), Some(offset), "") {
                     set(app, &|g| {
                         if let LayoutGrid::Columns { offset, .. } | LayoutGrid::Rows { offset, .. } = g {
                             *offset = v.max(0.0);

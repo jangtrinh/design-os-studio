@@ -50,6 +50,27 @@ macro_rules! forward_plain {
     };
 }
 
+macro_rules! forward_direct {
+    ($($method:ident),* $(,)?) => {
+        $(fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+            self.inner.$method(visitor)
+        })*
+    };
+}
+
+macro_rules! forward_str {
+    ($($method:ident),* $(,)?) => {
+        $(fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+            if self.key_note.is_some() {
+                let wrapped = self.wrap(visitor);
+                self.inner.$method(wrapped)
+            } else {
+                self.inner.$method(visitor)
+            }
+        })*
+    };
+}
+
 macro_rules! deserialize_float {
     ($method:ident, $double:expr) => {
         fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -61,8 +82,8 @@ macro_rules! deserialize_float {
 impl<'de, 'a, D: Deserializer<'de>> Deserializer<'de> for Lenient<'a, D> {
     type Error = D::Error;
 
-    forward_plain!(
-        deserialize_any,
+    forward_plain!(deserialize_any, deserialize_option, deserialize_seq, deserialize_map,);
+    forward_direct!(
         deserialize_bool,
         deserialize_i8,
         deserialize_i16,
@@ -75,23 +96,17 @@ impl<'de, 'a, D: Deserializer<'de>> Deserializer<'de> for Lenient<'a, D> {
         deserialize_u64,
         deserialize_u128,
         deserialize_char,
-        deserialize_str,
-        deserialize_string,
         deserialize_bytes,
         deserialize_byte_buf,
-        deserialize_option,
         deserialize_unit,
-        deserialize_seq,
-        deserialize_map,
-        deserialize_identifier,
         deserialize_ignored_any,
     );
+    forward_str!(deserialize_str, deserialize_string, deserialize_identifier,);
     deserialize_float!(deserialize_f32, false);
     deserialize_float!(deserialize_f64, true);
 
     fn deserialize_unit_struct<V: Visitor<'de>>(self, name: &'static str, visitor: V) -> Result<V::Value, Self::Error> {
-        let wrapped = self.wrap(visitor);
-        self.inner.deserialize_unit_struct(name, wrapped)
+        self.inner.deserialize_unit_struct(name, visitor)
     }
     fn deserialize_newtype_struct<V: Visitor<'de>>(self, name: &'static str, visitor: V) -> Result<V::Value, Self::Error> {
         let wrapped = self.wrap(visitor);

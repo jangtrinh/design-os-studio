@@ -26,6 +26,18 @@ pub struct VariableCollection {
     pub variables: Vec<String>,
     /// Figma library key, when imported from a published library.
     pub key: Option<String>,
+    /// Key of the shared library file this collection is a subscribed copy of (Figma's
+    /// `sourceLibraryKey`). `None` for a collection the file owns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_library_key: Option<String>,
+}
+
+impl VariableCollection {
+    /// True for a subscribed copy of a shared library's collection. Such a collection is edited in
+    /// its library file and reaches this one through a library update.
+    pub fn is_library(&self) -> bool {
+        self.source_library_key.is_some()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,6 +211,7 @@ mod tests {
                 default_mode: "light".into(),
                 variables: vec!["base".into(), "bg".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         let var = |id: &str, values: Vec<(&str, VariableValue)>| Variable {

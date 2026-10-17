@@ -150,7 +150,10 @@ impl Command {
                 doc.mark_full_dirty();
                 Command::SetStyles { styles: std::mem::replace(&mut doc.styles, styles), style_meta: std::mem::replace(&mut doc.style_meta, style_meta) }
             }
-            Command::SetComments { comments } => Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) },
+            Command::SetComments { comments } => {
+                doc.bump_mutation_epoch();
+                Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
+            }
             Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
                 state: std::mem::replace(&mut doc.library, state),
                 library_page: std::mem::replace(&mut doc.library_page, library_page),

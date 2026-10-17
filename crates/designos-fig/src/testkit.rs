@@ -66,7 +66,12 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "StrokeAlign", &["CENTER", "INSIDE", "OUTSIDE"]);
     enum_def(&mut b, "StrokeJoin", &["MITER", "BEVEL", "ROUND"]);
     enum_def(&mut b, "StrokeCap", &["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL"]);
-    enum_def(&mut b, "EffectType", &["INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "NOISE", "TEXTURE", "GLASS"]);
+    enum_def(
+        &mut b,
+        "EffectType",
+        &["INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "REPEAT", "SYMMETRY", "GRAIN", "NOISE", "GLASS", "CUSTOM", "TEXTURE"],
+    );
+    enum_def(&mut b, "NoiseType", &["MULTITONE", "MONOTONE", "DUOTONE"]);
     enum_def(&mut b, "StackMode", &["NONE", "HORIZONTAL", "VERTICAL", "GRID"]);
     enum_def(&mut b, "StackAlign", &["MIN", "CENTER", "MAX", "SPACE_BETWEEN", "BASELINE", "SPACE_EVENLY"]);
     // Figma's own values: SPACE_EVENLY (3) is the legacy spacing, SPACE_EVENLY_CSS (6) the CSS-aligned one.
@@ -255,13 +260,30 @@ pub fn figma_like_schema() -> Schema {
     b.field(eff, "type", t, false, 1);
     let ct = def(&b, "Color");
     b.field(eff, "color", ct, false, 2);
-    let t = def(&b, "Vector");
-    b.field(eff, "offset", t, false, 3);
+    let vt = def(&b, "Vector");
+    b.field(eff, "offset", vt, false, 3);
     b.field(eff, "radius", nat(Float), false, 4);
-    b.field(eff, "spread", nat(Float), false, 5);
-    b.field(eff, "visible", nat(Bool), false, 6);
-    b.field(eff, "showShadowBehindNode", nat(Bool), false, 7);
-    b.field(eff, "colorVar", FieldType::Def(vd), false, 8);
+    b.field(eff, "visible", nat(Bool), false, 5);
+    let bm = def(&b, "BlendMode");
+    b.field(eff, "blendMode", bm, false, 6);
+    b.field(eff, "spread", nat(Float), false, 7);
+    b.field(eff, "showShadowBehindNode", nat(Bool), false, 8);
+    b.field(eff, "colorVar", FieldType::Def(vd), false, 10);
+    b.field(eff, "noiseSize", vt, false, 22);
+    b.field(eff, "clipToShape", nat(Bool), false, 23);
+    b.field(eff, "secondaryColor", ct, false, 24);
+    b.field(eff, "density", nat(Float), false, 25);
+    let nt = def(&b, "NoiseType");
+    b.field(eff, "noiseType", nt, false, 26);
+    b.field(eff, "opacity", nat(Float), false, 27);
+    b.field(eff, "seed", nat(Uint), false, 29);
+    b.field(eff, "refractionRadius", nat(Float), false, 30);
+    b.field(eff, "specularAngle", nat(Float), false, 31);
+    b.field(eff, "specularIntensity", nat(Float), false, 32);
+    b.field(eff, "bevelSize", nat(Float), false, 33);
+    b.field(eff, "chromaticAberration", nat(Float), false, 34);
+    b.field(eff, "reflectionDistance", nat(Float), false, 35);
+    b.field(eff, "refractionIntensity", nat(Float), false, 36);
     // Figma's own field id (rea-findings: Effect.effectOpacityVar = 53).
     b.field(eff, "effectOpacityVar", FieldType::Def(vd), false, 53);
 
@@ -334,14 +356,28 @@ pub fn figma_like_schema() -> Schema {
     b.field(cpv, "boolValue", nat(Bool), false, 1);
     b.field(cpv, "textValue", cptvt, false, 2);
     b.field(cpv, "guidValue", gt, false, 3);
+    let spc = b.define("SlotPropConfig", DefKind::Message);
+    b.field(spc, "stretchChildOnInsert", nat(Bool), false, 1);
+    b.field(spc, "displayByDefault", nat(Bool), false, 2);
+    b.field(spc, "minChildren", nat(Uint), false, 3);
+    b.field(spc, "maxChildren", nat(Uint), false, 4);
+    b.field(spc, "allowPreferredValuesOnly", nat(Bool), false, 5);
     let cpd = b.define("ComponentPropDef", DefKind::Message);
-    let (gt, cptt, cpvt) = (def(&b, "GUID"), def(&b, "ComponentPropType"), def(&b, "ComponentPropValue"));
+    let (gt, cptt, cpvt, spct) = (def(&b, "GUID"), def(&b, "ComponentPropType"), def(&b, "ComponentPropValue"), def(&b, "SlotPropConfig"));
     b.field(cpd, "id", gt, false, 1);
     b.field(cpd, "name", nat(String), false, 2);
     b.field(cpd, "type", cptt, false, 3);
     b.field(cpd, "initialValue", cpvt, false, 4);
     b.field(cpd, "parentPropDefId", gt, false, 5);
     b.field(cpd, "preferredValues", gt, true, 6);
+    b.field(cpd, "slotPropConfig", spct, false, 7);
+    // Real schema: `SlotContentId { guid }`. Stored on a node under the non-kiwi `jsonSerialized`
+    // bag, key `slot-content-id` (INFERENCE from the editor, not seen in a real file).
+    let sci = b.define("SlotContentId", DefKind::Message);
+    b.field(sci, "guid", gt, false, 1);
+    let jsf = b.define("JsonSerializedFields", DefKind::Message);
+    let scit = def(&b, "SlotContentId");
+    b.field(jsf, "slot-content-id", scit, false, 1);
     let cpa = b.define("ComponentPropAssignment", DefKind::Message);
     b.field(cpa, "defID", gt, false, 1);
     b.field(cpa, "value", cpvt, false, 2);
@@ -713,6 +749,10 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "inheritEffectStyleID", guid_ty, false);
     f(&mut b, "inheritGridStyleID", guid_ty, false);
     f(&mut b, "isSoftDeletedStyle", nat(Bool), false);
+    let jsft = def(&b, "JsonSerializedFields");
+    f(&mut b, "isSlot", nat(Bool), false);
+    f(&mut b, "isSlotContent", nat(Bool), false);
+    f(&mut b, "jsonSerialized", jsft, false);
 
     let blob = b.define("Blob", DefKind::Message);
     b.field(blob, "bytes", nat(Byte), true, 1);

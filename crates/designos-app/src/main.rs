@@ -42,6 +42,8 @@ mod specs;
 mod styles;
 mod tabs;
 mod terminal;
+#[cfg(test)]
+mod test_timing;
 mod textedit;
 mod textmeasure;
 mod theme;

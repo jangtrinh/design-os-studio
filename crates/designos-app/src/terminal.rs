@@ -601,10 +601,19 @@ impl Default for TerminalState {
     }
 }
 
+/// Agent session id of document tab `tab_id` in the Studio window `instance_id`
+/// (`/tmp/designos-sessions/<instance_id>-tab-<tab_id>`). A tab's session id is formed only here,
+/// so the id a terminal is created with and the id the tab bar binds it to have one shape.
+pub fn tab_session_id(instance_id: &str, tab_id: u64) -> String {
+    format!("{instance_id}-tab-{tab_id}")
+}
+
 impl TerminalState {
-    /// Creates an isolated `TerminalState` bound to document tab `tab_id` (`/tmp/designos-sessions/tab-{tab_id}`).
+    /// Creates an isolated `TerminalState` bound to document tab `tab_id` of this process
+    /// (`/tmp/designos-sessions/p<pid>-tab-{tab_id}`). A window's terminal is bound to its own
+    /// instance (`TabsState::session_id_for_tab`) before any shell starts in it.
     pub fn for_tab(tab_id: u64) -> Self {
-        let session_id = format!("tab-{tab_id}");
+        let session_id = tab_session_id(&format!("p{}", std::process::id()), tab_id);
         let session_dir = std::env::temp_dir().join("designos-sessions").join(&session_id);
         let live_spec_path = session_dir.join("live-spec.json");
         let live_doc_sync_path = session_dir.join("doc-sync.designos");

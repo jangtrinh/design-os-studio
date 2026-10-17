@@ -37,6 +37,8 @@ impl<'a, V> Wrap<'a, V> {
 
     /// A struct key was read: remember the neutral value of the field it names.
     fn note_key(&self, key: &str) {
+        #[cfg(test)]
+        super::record_wrapped_str_visit();
         if let Some(note) = self.key_note {
             note.set(neutral_for(key));
         }
@@ -147,11 +149,14 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<'_, A> {
     type Error = A::Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error> {
-        let key_note = self.struct_fields.then_some(&self.field_neutral);
-        self.inner.next_key_seed(Seed { seed, replaced: self.replaced, neutral: 0.0, key_note, strict: self.strict })
+        if self.struct_fields {
+            self.inner.next_key_seed(Seed { seed, replaced: self.replaced, neutral: 0.0, key_note: Some(&self.field_neutral), strict: self.strict })
+        } else {
+            self.inner.next_key_seed(seed)
+        }
     }
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, Self::Error> {
-        let neutral = self.field_neutral.replace(0.0);
+        let neutral = if self.struct_fields { self.field_neutral.replace(0.0) } else { 0.0 };
         self.inner.next_value_seed(Seed { seed, replaced: self.replaced, neutral, key_note: None, strict: self.strict })
     }
     fn size_hint(&self) -> Option<usize> {
@@ -170,7 +175,7 @@ impl<'de, 'a, A: EnumAccess<'de>> EnumAccess<'de> for Variants<'a, A> {
     type Variant = Variant<'a, A::Variant>;
 
     fn variant_seed<V: DeserializeSeed<'de>>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error> {
-        let (value, variant) = self.inner.variant_seed(Seed { seed, replaced: self.replaced, neutral: 0.0, key_note: None, strict: self.strict })?;
+        let (value, variant) = self.inner.variant_seed(seed)?;
         Ok((value, Variant { inner: variant, replaced: self.replaced, strict: self.strict }))
     }
 }
