@@ -421,6 +421,12 @@ impl Library {
     }
 
     pub fn create_file(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<FileEntry> {
+        self.create_file_counted(project, folder, name, doc).map(|(entry, _)| entry)
+    }
+
+    /// [`Self::create_file`], also returning how many non-finite numbers (NaN, infinity) were
+    /// written as their neutral value, so the stored file always opens.
+    fn create_file_counted(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<(FileEntry, usize)> {
         let _guard = write_lock();
         let name = clean_name(name, "file")?;
         let mut m = self.load_manifest(project)?;
@@ -441,11 +447,12 @@ impl Library {
             starred: false,
             thumbnail: None,
         };
-        write_atomic(&self.file_path(project, &entry.id), doc.to_json()?.as_bytes())?;
+        let (json, replaced) = doc.to_json_counted()?;
+        write_atomic(&self.file_path(project, &entry.id), json.as_bytes())?;
         m.files.push(entry.clone());
         m.project.modified = now;
         self.save_manifest(&m)?;
-        Ok(entry)
+        Ok((entry, replaced))
     }
 
     /// Overwrites the file's contents atomically and bumps its modified time.
@@ -616,8 +623,15 @@ impl Library {
         let doc = load_external(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
-        let entry = self.create_file(project, folder, &name, &doc)?;
-        Ok((entry, doc))
+        let (entry, replaced) = self.create_file_counted(project, folder, &name, &doc)?;
+        if replaced == 0 {
+            return Ok((entry, doc));
+        }
+        // The import produced NaN or infinity and the stored file holds neutral values instead.
+        // Return what is stored, so the editor and the file agree from the first open.
+        eprintln!("designos-library: imported \"{name}\" with {replaced} non-finite numbers replaced by their neutral value");
+        let stored = self.load_file(&entry.id)?;
+        Ok((entry, stored))
     }
 
     // ------------------------------------------------------------ recents / search

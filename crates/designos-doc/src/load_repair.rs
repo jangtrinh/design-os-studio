@@ -32,6 +32,10 @@ pub struct RepairReport {
     pub next_id_raised: bool,
     /// A node id sits within [`MIN_ID_HEADROOM`] of `u64::MAX`, so ids cannot keep being allocated above it.
     pub id_space_exhausted: bool,
+    /// Numbers stored as `null` (how older versions saved a NaN or infinity) that were read as
+    /// their neutral value; see [`crate::finite_json`]. Not a node-graph defect, so
+    /// [`RepairReport::structural_summary`] leaves it out.
+    pub non_finite_numbers: usize,
 }
 
 impl RepairReport {
