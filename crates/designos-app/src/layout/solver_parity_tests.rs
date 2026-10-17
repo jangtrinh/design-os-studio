@@ -653,3 +653,42 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
 }
+
+#[test]
+fn auto_layout_child_margins_shift_positions_and_expand_hug_frames_across_all_solvers() {
+    // 1. Horizontal Hug/Hug frame with per-child margins [top, right, bottom, left]
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.primary_sizing = Sizing::Hug;
+    al.counter_sizing = Sizing::Hug;
+    al.padding = [4.0, 4.0, 4.0, 4.0];
+    al.item_spacing = 6.0;
+    let k0 = kid_with(40.0, 20.0, |lc| lc.margin = [10.0, 8.0, 5.0, 12.0]);
+    let k1 = kid_with(30.0, 20.0, |lc| lc.margin = [0.0, 4.0, 0.0, 2.0]);
+    let solved = solve_everywhere(al, v2(10.0, 10.0), &[k0, k1]);
+    // Child 0: x = 4 (pl) + 12 (ml0) = 16, y = 4 (pt) + 10 (mt0) = 14
+    assert_eq!(solved.kids[0], [16.0, 14.0, 40.0, 20.0]);
+    // Child 1: x = 16 + 40 + 8 (mr0) + 6 (spacing) + 2 (ml1) = 72, y = 4 (pt) + 0 = 4
+    assert_eq!(solved.kids[1], [72.0, 4.0, 30.0, 20.0]);
+    // Frame Hug size: w = 4 + (12 + 40 + 8) + 6 + (2 + 30 + 4) + 4 = 110, h = 4 + max(10 + 20 + 5, 20) + 4 = 43
+    assert_eq!(solved.frame, (110.0, 43.0));
+
+    // 2. Vertical Fixed frame with Fill child and CounterAlign::End child with margins
+    let mut al_v = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al_v.counter_align = LayoutAlign::End;
+    al_v.padding = [8.0, 8.0, 8.0, 8.0];
+    al_v.item_spacing = 10.0;
+    let v0 = kid_with(50.0, 10.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.margin = [6.0, 10.0, 4.0, 2.0];
+    });
+    let v1 = kid_with(40.0, 20.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.margin = [2.0, 6.0, 8.0, 14.0];
+    });
+    let solved_v = solve_everywhere(al_v, v2(120.0, 100.0), &[v0, v1]);
+    // Vertical available height = 100 - 16 = 84; spacing = 10; fixed v1 height = 20; vertical margins = (6+4) + (2+8) = 20 -> v0 Fill height = 84 - 10 - 20 - 20 = 34
+    // CounterAlign::End for v0 (width 50, mr=10, ml=2 in cross_avail=104): x = 8 + (104 - (2 + 50 + 10)) + 2 = 52, y = 8 + 6 = 14
+    assert_eq!(solved_v.kids[0], [52.0, 14.0, 50.0, 34.0]);
+    // v1 has horizontal=Fill (cross_fill in vertical frame): width = 104 - 14 - 6 = 84, x = 8 + 14 = 22, y = 14 + 34 + 4 + 10 + 2 = 64
+    assert_eq!(solved_v.kids[1], [22.0, 64.0, 84.0, 20.0]);
+}

@@ -2350,6 +2350,11 @@ impl<'a> Ctx<'a> {
         if let Some(p) = fstr(set, "layoutPositioning") {
             n.layout_child.absolute = p == "ABSOLUTE";
         }
+        for (idx, key) in [(0, "stackChildMarginTop"), (1, "stackChildMarginRight"), (2, "stackChildMarginBottom"), (3, "stackChildMarginLeft")] {
+            if let Some(m) = fnum(set, key) {
+                n.layout_child.margin[idx] = m;
+            }
+        }
         if let Some(c) = set.get("gridColumnAnchorIndex").and_then(Value::as_u64) {
             n.layout_child.grid_column = Some(c as u16);
         }
@@ -2665,6 +2670,10 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "layoutAlign"
         | "layoutGrow"
         | "layoutPositioning"
+        | "stackChildMarginTop"
+        | "stackChildMarginRight"
+        | "stackChildMarginBottom"
+        | "stackChildMarginLeft"
         | "layoutSizingHorizontal"
         | "layoutSizingVertical"
         | "gridColumns"
@@ -2981,6 +2990,12 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
         grid_row: u("gridRowAnchorIndex"),
         col_span: u("gridColumnSpan").unwrap_or(1).max(1),
         row_span: u("gridRowSpan").unwrap_or(1).max(1),
+        margin: [
+            fnum(v, "stackChildMarginTop").unwrap_or(0.0),
+            fnum(v, "stackChildMarginRight").unwrap_or(0.0),
+            fnum(v, "stackChildMarginBottom").unwrap_or(0.0),
+            fnum(v, "stackChildMarginLeft").unwrap_or(0.0),
+        ],
         ..Default::default()
     };
     let (sh, sv) = (sizing(fstr(v, "layoutSizingHorizontal")), sizing(fstr(v, "layoutSizingVertical")));
