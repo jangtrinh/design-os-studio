@@ -692,15 +692,6 @@ impl TerminalState {
     /// so any CLI agent (`claude`, `codex`, `agy`, `grok`) in this file's terminal automatically
     /// targets THIS file and its currently selected page.
     pub fn sync_live_file_context(&mut self, doc: &Document, page: NodeId, selection: &[NodeId], file_path: Option<&Path>) {
-        for _ in 0..2 {
-            self.last_synced_key = None;
-            self.sync_live_file_context_once(doc, page, selection, file_path);
-            self.last_synced_key = None;
-        }
-        self.sync_live_file_context_once(doc, page, selection, file_path)
-    }
-
-    fn sync_live_file_context_once(&mut self, doc: &Document, page: NodeId, selection: &[NodeId], file_path: Option<&Path>) {
         let _ = std::fs::create_dir_all(&self.session_dir);
         self.current_page_id = page.0;
         self.current_page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_else(|| "Page 1".into());
