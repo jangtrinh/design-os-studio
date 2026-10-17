@@ -187,6 +187,9 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
     if !doc.styles.contains_key(key) {
         return Err(StyleOpError::UnknownStyle(key.into()));
     }
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
     let property = style_property(doc, key);
     let name = name.trim();
     if name.is_empty() {
@@ -488,6 +491,22 @@ mod tests {
         assert_ne!(d.get(fill_node).unwrap().fills, vec![blue.clone()]);
         // A file's own styles stay editable.
         assert!(update_style(&d, "Line", Style::Fill(vec![blue])).is_ok());
+    }
+
+    #[test]
+    fn a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file() {
+        let (mut d, _) = paint_and_text_fixture();
+        d.library.external.insert(
+            "L1/Brand".into(),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some("Brand".into()) },
+        );
+        assert!(matches!(rename_style(&d, "Brand", "Brand/Renamed").unwrap_err(), StyleOpError::LibraryStyle(k) if k == "Brand"));
+        assert_eq!(d.style_name("Brand"), "Brand");
+        // A local style can still be renamed.
+        let mut h = History::default();
+        let c = rename_style(&d, "Line", "Line/Thin");
+        run(&mut d, &mut h, c);
+        assert_eq!(d.style_name("Line"), "Line/Thin");
     }
 
     #[test]

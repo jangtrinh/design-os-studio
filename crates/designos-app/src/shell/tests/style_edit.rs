@@ -215,3 +215,29 @@ fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     s.frame(vec![]);
     assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
 }
+
+#[test]
+fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
+    let (mut s, ..) = welcome_with_styles();
+    let sel = s.app().selection.clone();
+    let props = [(StyleProperty::Effect, "Effect style 1"), (StyleProperty::Grid, "Grid style 1")];
+    for (prop, _) in props {
+        let row = style_picker::rename_style_row(s.app(), &sel, prop);
+        assert_eq!((row.label.as_str(), row.disabled), ("Rename style", false), "{prop:?}: a local style can be renamed from the menu");
+    }
+    for (_, key) in props {
+        make_library_style(&mut s, key);
+    }
+    for (prop, _) in props {
+        let row = style_picker::rename_style_row(s.app(), &sel, prop);
+        assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
+    }
+    // Double-clicking the linked row does not open the inline rename field for a library style.
+    let linked = s.rect_of("effect-style-row");
+    s.click(linked.center());
+    s.click(linked.center());
+    s.frame(vec![]);
+    assert!(s.app().props.style_rename.is_none(), "double-clicking a library style's linked row does not start a rename");
+    assert!(!s.shell.app.rename_style_to("Effect style 1", "Renamed"));
+    assert_eq!(s.app().doc.style_name("Effect style 1"), "Effect style 1");
+}
