@@ -6,14 +6,15 @@ use crate::{Document, LayoutDirection, NodeId, Vec2};
 impl Document {
     /// Re-solves auto layout bottom-up from `root`: every container below it first, so hugging
     /// sizes bubble up, then `root` itself. A child whose size the parent changed (Fill, grid
-    /// stretch, min/max) is re-solved top-down within [`MAX_RELAYOUT_RESOLVE_DEPTH`] and
-    /// [`MAX_RELAYOUT_RESOLVES`] so its own children follow without unbounded recursion.
+    /// stretch, min/max) is re-solved top-down within [`MAX_RELAYOUT_RESOLVE_DEPTH`] hops from the
+    /// changed node and [`MAX_RELAYOUT_RESOLVES`] total re-solves; any subtree past either limit
+    /// is queued in `pending_relayout` so it can be reported and finished lazily.
     pub fn relayout_subtree(&mut self, root: NodeId) {
         let mut budget = MAX_RELAYOUT_RESOLVES;
-        self.relayout_bottom_up(root, 0, &mut budget);
+        self.relayout_bottom_up(root, true, &mut budget);
     }
 
-    fn relayout_bottom_up(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
+    fn relayout_bottom_up(&mut self, root: NodeId, is_root: bool, budget: &mut usize) {
         let Some(n) = self.get(root) else { return };
         if !n.kind.is_container() {
             return;
@@ -21,23 +22,32 @@ impl Document {
         let children = n.children.clone();
         for c in &children {
             if self.get(*c).is_some_and(|k| k.kind.is_container()) {
-                self.relayout_bottom_up(*c, depth + 1, budget);
+                self.relayout_bottom_up(*c, false, budget);
             }
         }
-        self.solve_auto_layout_node(root, depth, budget);
+        if !is_root && self.pending_relayout.contains(&root) {
+            return;
+        }
+        self.solve_auto_layout_node(root, 0, budget);
     }
 
-    fn relayout_top_down(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
-        if depth > MAX_RELAYOUT_RESOLVE_DEPTH || *budget == 0 {
+    fn relayout_top_down(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+        if hops > MAX_RELAYOUT_RESOLVE_DEPTH || *budget == 0 {
+            if !self.pending_relayout.contains(&root) {
+                self.pending_relayout.push(root);
+            }
             return;
         }
         *budget -= 1;
         #[cfg(test)]
         RESOLVE_CALLS.with(|c| c.set(c.get() + 1));
-        self.solve_auto_layout_node(root, depth, budget);
+        self.solve_auto_layout_node(root, hops, budget);
     }
 
-    fn solve_auto_layout_node(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
+    fn solve_auto_layout_node(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+        if !self.pending_relayout.is_empty() {
+            self.pending_relayout.retain(|&id| id != root);
+        }
         let Some(root_node) = self.get(root) else { return };
         let Some(al) = root_node.kind.frame_props().and_then(|f| f.auto_layout) else {
             return;
@@ -74,13 +84,70 @@ impl Document {
                 cnode.size = new_size;
             }
             if size_changed && is_auto_layout {
-                self.relayout_top_down(*cid, depth + 1, budget);
+                self.relayout_top_down(*cid, hops + 1, budget);
             }
         }
     }
+
+    /// Number of auto-layout subtrees whose box changed during [`Self::relayout_subtree`] but
+    /// whose own children were deferred past [`MAX_RELAYOUT_RESOLVES`] or
+    /// [`MAX_RELAYOUT_RESOLVE_DEPTH`].
+    pub fn relayout_skipped_count(&self) -> usize {
+        self.pending_relayout.len()
+    }
+
+    /// Queued subtree roots waiting for top-down re-layout.
+    pub fn pending_relayout(&self) -> &[NodeId] {
+        &self.pending_relayout
+    }
+
+    /// User-facing status/toast summary when [`Self::relayout_skipped_count`] is non-zero.
+    pub fn relayout_notice(&self) -> Option<String> {
+        let n = self.pending_relayout.len();
+        if n == 0 {
+            None
+        } else if n == 1 {
+            Some("Layout incomplete: 1 subtree skipped past budget".to_string())
+        } else {
+            Some(format!("Layout incomplete: {n} subtrees skipped past budget"))
+        }
+    }
+
+    /// Runs one bounded top-down pass (`MAX_RELAYOUT_RESOLVES` re-solves, up to
+    /// `MAX_RELAYOUT_RESOLVE_DEPTH` hops per queued root) over queued subtrees and returns the
+    /// number of subtrees still remaining in the queue.
+    pub fn flush_pending_relayout_step(&mut self) -> usize {
+        if self.pending_relayout.is_empty() {
+            return 0;
+        }
+        let queued = std::mem::take(&mut self.pending_relayout);
+        let mut budget = MAX_RELAYOUT_RESOLVES;
+        for id in queued {
+            if budget == 0 {
+                if !self.pending_relayout.contains(&id) {
+                    self.pending_relayout.push(id);
+                }
+            } else {
+                self.relayout_top_down(id, 1, &mut budget);
+            }
+        }
+        self.pending_relayout.len()
+    }
+
+    /// Finishes all queued subtrees in bounded passes (up to 64 steps) and returns the number of
+    /// steps executed.
+    pub fn flush_pending_relayout(&mut self) -> usize {
+        let mut steps = 0;
+        while !self.pending_relayout.is_empty() && steps < 64 {
+            self.flush_pending_relayout_step();
+            steps += 1;
+        }
+        steps
+    }
 }
 
-/// Maximum nesting depth for top-down child re-solves triggered when a parent changes a child's box.
+/// Maximum number of top-down hops from the node whose size changed before deferring deeper
+/// child re-solves to [`Document::pending_relayout`].
 pub const MAX_RELAYOUT_RESOLVE_DEPTH: usize = 32;
 
 /// Maximum number of top-down child re-solves allowed in a single [`Document::relayout_subtree`] pass.
@@ -264,5 +331,125 @@ mod tests {
         );
         assert_eq!(doc.get(swap_chain[MAX_RELAYOUT_RESOLVE_DEPTH]).unwrap().size.y, 64.0);
         assert_eq!(doc.get(*swap_chain.last().unwrap()).unwrap().size.y, 40.0, "nodes deeper than MAX_RELAYOUT_RESOLVE_DEPTH (32) must not be re-solved");
+        assert!(doc.relayout_skipped_count() > 0, "skipped subtrees past budget/depth must be counted and not dropped silently");
+        doc.flush_pending_relayout();
+        assert_eq!(doc.get(*mode_chain.last().unwrap()).unwrap().size.x, 640.0);
+        assert_eq!(doc.get(*swap_chain.last().unwrap()).unwrap().size.y, 64.0);
+        assert_eq!(doc.relayout_skipped_count(), 0);
+    }
+
+    #[test]
+    fn repro_4097_rows_reports_skipped_and_flushes_remaining_row() {
+        let mut doc = Document::new("4097-rows");
+        let page = doc.add_page("Page 1");
+        let parent = doc.alloc_id();
+        let mut pf = Node::frame(parent, Rect::new(0.0, 0.0, 100.0, 2000.0));
+        if let NodeKind::Frame(fp) = &mut pf.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            });
+        }
+        doc.insert(page, pf).unwrap();
+
+        let mut rects = Vec::with_capacity(4_097);
+        for _ in 0..4_097 {
+            let row = doc.alloc_id();
+            let mut rf = Node::frame(row, Rect::new(0.0, 0.0, 100.0, 20.0));
+            if let NodeKind::Frame(fp) = &mut rf.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    primary_align: crate::LayoutAlign::Center,
+                    ..AutoLayout::default()
+                });
+            }
+            rf.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fixed, ..LayoutChild::default() };
+            doc.insert(parent, rf).unwrap();
+
+            let r = doc.alloc_id();
+            doc.insert(row, Node::rectangle(r, Rect::new(40.0, 0.0, 20.0, 20.0))).unwrap();
+            rects.push(r);
+        }
+
+        doc.get_mut(parent).unwrap().size.x = 500.0;
+        doc.relayout_subtree(parent);
+
+        for &r in &rects[..4_096] {
+            assert_eq!(doc.get(r).unwrap().transform.tx, 240.0);
+        }
+        assert_eq!(doc.relayout_skipped_count(), 1, "row 4096 must be reported as skipped past MAX_RELAYOUT_RESOLVES");
+        assert!(doc.relayout_notice().is_some(), "relayout_notice must surface the skipped subtree count");
+
+        doc.flush_pending_relayout();
+        assert_eq!(doc.get(rects[4_096]).unwrap().transform.tx, 240.0, "flushing pending relayout must finish row 4096");
+        assert_eq!(doc.relayout_skipped_count(), 0);
+    }
+
+    #[test]
+    fn repro_33_nested_frames_under_page_counts_hops_from_changed_node() {
+        let mut doc = Document::new("33-nested-frames");
+        let page = doc.add_page("Page 1");
+
+        // 33 nested horizontal auto-layout frames under `page` (frames 0..=32):
+        // outer frame 0 is fixed 400x40 with `primary_align: End`, frames 1..=32 are `Fill`.
+        let mut cur = page;
+        let mut frames = Vec::with_capacity(33);
+        for i in 0..33 {
+            let fid = doc.alloc_id();
+            let init_w = if i == 0 { 400.0 } else { 50.0 };
+            let mut f = Node::frame(fid, Rect::new(0.0, 0.0, init_w, 40.0));
+            if let NodeKind::Frame(fp) = &mut f.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    primary_align: crate::LayoutAlign::End,
+                    ..AutoLayout::default()
+                });
+            }
+            if i > 0 {
+                f.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+            }
+            doc.insert(cur, f).unwrap();
+            frames.push(fid);
+            cur = fid;
+        }
+        let leaf = doc.alloc_id();
+        doc.insert(frames[32], Node::rectangle(leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+
+        doc.relayout_subtree(page);
+        assert_eq!(doc.get(frames[32]).unwrap().size, Vec2::new(400.0, 40.0));
+        assert_eq!(doc.get(leaf).unwrap().transform.tx, 390.0, "frame 32 is 32 hops from frame 0 (not 33 from page) so its 10x10 child must sit at x = 390");
+        assert_eq!(doc.relayout_skipped_count(), 0);
+
+        // Now add a 34th frame (frame 33, 33 hops from frame 0) and resize frame 0 to 500:
+        // hop 33 exceeds MAX_RELAYOUT_RESOLVE_DEPTH (32), so it is counted as skipped and finished on flush.
+        doc.remove(leaf).unwrap();
+        let frame_33 = doc.alloc_id();
+        let mut f33 = Node::frame(frame_33, Rect::new(0.0, 0.0, 50.0, 40.0));
+        if let NodeKind::Frame(fp) = &mut f33.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: crate::LayoutAlign::End,
+                ..AutoLayout::default()
+            });
+        }
+        f33.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+        doc.insert(frames[32], f33).unwrap();
+        let deep_leaf = doc.alloc_id();
+        doc.insert(frame_33, Node::rectangle(deep_leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+
+        doc.get_mut(frames[0]).unwrap().size.x = 500.0;
+        doc.relayout_subtree(page);
+        assert_eq!(doc.relayout_skipped_count(), 1, "hop 33 must be counted as skipped");
+        doc.flush_pending_relayout();
+        assert_eq!(doc.get(deep_leaf).unwrap().transform.tx, 490.0);
+        assert_eq!(doc.relayout_skipped_count(), 0);
     }
 }
