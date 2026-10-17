@@ -47,13 +47,15 @@ pub struct LivePatchLog {
     pub pending_doc: Option<Document>,
     /// Where the agent's documents are written: `doc-sync.designos` next to the log.
     doc_sync_path: PathBuf,
-    /// Edits dropped because they were made on a document the agent had already left. Shown
-    /// with the next document switch.
+    /// Edits dropped because they were made on a document the agent had already left, or on one
+    /// that could not be loaded before a later switch did. Shown with the next document switch.
     pub dropped_old_epoch: usize,
     /// The document the agent works on could not be loaded, so its edits are dropped until the
     /// next document switch.
     discarding: bool,
-    /// `discarding` is not a superseded switch but a failure the user must be told about.
+    /// `discarding` is not a superseded switch but a failure the user must be told about: edits
+    /// dropped meanwhile are reported at once, unless a switch that loads follows in the same
+    /// batch (see `ingest`).
     load_failed: bool,
 }
 
@@ -185,7 +187,14 @@ impl LivePatchLog {
             }
         }
         if dropped_while_stuck > 0 {
-            errors.push(format!("{dropped_while_stuck} agent edit(s) were not applied: Studio could not load the document the agent opened"));
+            if self.pending_doc.is_some() {
+                // A switch later in this batch loaded (a failure leaves `pending_doc` empty), so
+                // the toast that opens it replaces any error shown now. It reports these edits
+                // with the ones dropped for the switch, once.
+                self.dropped_old_epoch += dropped_while_stuck;
+            } else {
+                errors.push(format!("{dropped_while_stuck} agent edit(s) were not applied: Studio could not load the document the agent opened"));
+            }
         }
         errors
     }
@@ -374,6 +383,25 @@ mod tests {
         let (lines, _) = log.poll();
         assert!(log.ingest(lines).is_empty());
         assert_eq!(log.dropped_old_epoch, 0, "edits already reported during load failure must not be counted again");
+    }
+
+    #[test]
+    fn edits_dropped_while_stuck_belong_to_the_switch_that_loads_later_in_the_same_batch() {
+        let path = temp_log("stuck-then-switch");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Recovered");
+        doc.add_page("Page");
+        let (good, bytes) = switch_line(&doc, 2);
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes).unwrap();
+        let unsupported = serde_json::to_string(&DocEpoch { v: LIVE_PATCH_VERSION + 1, doc_epoch: 1, bytes: 0, hash: 0 }).unwrap() + "\n";
+        append(&path, &(unsupported + &line(1) + &good + &line(2)));
+        let (lines, _) = log.poll();
+        let errors = log.ingest(lines);
+        assert_eq!(errors.len(), 1, "the switch that loads reports the dropped edit, so no second error: {errors:?}");
+        assert!(errors[0].contains("unsupported log version"), "{}", errors[0]);
+        assert_eq!(log.dropped_old_epoch, 1, "the edit made while stuck is reported with the switch that follows");
+        assert_eq!(log.pending.iter().flat_map(|p| &p.ops).count(), 1, "only the edit after the loaded switch is held");
+        assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Recovered"));
     }
 
     #[test]
