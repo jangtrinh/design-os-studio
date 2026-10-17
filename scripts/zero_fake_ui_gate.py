@@ -164,9 +164,45 @@ def strip_cfg_test_items(src: str) -> str:
         pos = i
 
 
+_UNICODE_ESCAPE_RE = re.compile(r"\\u\{([0-9a-fA-F_]{1,6})\}|\\x([0-9a-fA-F]{2})")
+_CONCAT_MACRO_RE = re.compile(r'\bconcat!\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*,\s*)*"(?:\\.|[^"\\])*"\s*,?\s*)\)')
+_STRING_LITERAL_RE = re.compile(r'"((?:\\.|[^"\\])*)"')
+
+
+def _decode_rust_escapes_in_literal(match: re.Match[str]) -> str:
+    body = match.group(1)
+
+    def _sub_esc(m: re.Match[str]) -> str:
+        hex_str = (m.group(1) or m.group(2) or "").replace("_", "")
+        codepoint = int(hex_str, 16)
+        if codepoint in (0x22, 0x5C):
+            return "\\" + chr(codepoint)
+        if 0x20 <= codepoint <= 0x10FFFF:
+            return chr(codepoint)
+        return m.group(0)
+
+    return '"' + _UNICODE_ESCAPE_RE.sub(_sub_esc, body) + '"'
+
+
+def normalize_rust_literals(src: str) -> str:
+    """Decodes `\\u{HEX}`/`\\xHH` escapes inside string literals and folds `concat!("a", "b")` into `"ab"`."""
+    decoded = _STRING_LITERAL_RE.sub(_decode_rust_escapes_in_literal, src)
+
+    def _fold_concat(m: re.Match[str]) -> str:
+        parts = [p.group(1) for p in _STRING_LITERAL_RE.finditer(m.group(1))]
+        return '"' + "".join(parts) + '"'
+
+    prev = None
+    cur = decoded
+    while prev != cur:
+        prev = cur
+        cur = _CONCAT_MACRO_RE.sub(_fold_concat, cur)
+    return cur
+
+
 def shipped_code(src: str) -> str:
-    """Rust source as the binary sees it: no comments, no `#[cfg(test)]` items."""
-    return strip_cfg_test_items(strip_rust_comments(src))
+    """Rust source as the binary sees it: no comments, no `#[cfg(test)]` items, with string literals normalized."""
+    return normalize_rust_literals(strip_cfg_test_items(strip_rust_comments(src)))
 
 
 class SourceSet:
@@ -175,6 +211,7 @@ class SourceSet:
     def __init__(self, files: Dict[str, str]) -> None:
         self.files = dict(files)
         self._code: Dict[str, str] = {}
+        self._unnormalized_code: Dict[str, str] = {}
 
     @classmethod
     def from_disk(cls) -> "SourceSet":
@@ -196,19 +233,24 @@ class SourceSet:
     def raw(self, rel_path: str) -> str:
         return self.files.get(rel_path, "")
 
+    def unnormalized_code(self, rel_path: str) -> str:
+        if rel_path not in self._unnormalized_code:
+            self._unnormalized_code[rel_path] = strip_cfg_test_items(strip_rust_comments(self.raw(rel_path)))
+        return self._unnormalized_code[rel_path]
+
     def code(self, rel_path: str) -> str:
         if rel_path not in self._code:
             self._code[rel_path] = shipped_code(self.raw(rel_path))
         return self._code[rel_path]
 
     def code_hits(self, pattern: str, only: str = "") -> List[str]:
-        """Files whose shipped code (comments and tests excluded) matches `pattern`."""
+        """Files whose shipped code (comments and tests excluded, literals normalized) matches `pattern`."""
         rx = re.compile(pattern)
         hits = []
         for rel in sorted(self.files):
             if only and rel != only:
                 continue
-            if rx.search(self.raw(rel)) and rx.search(self.code(rel)):  # raw prefilter keeps the scan fast
+            if rx.search(self.code(rel)):
                 hits.append(rel)
         return hits
 
@@ -380,6 +422,8 @@ def check_z07(specs_rs: str) -> Tuple[bool, str]:
 
 RETIRED_ACTION_PATTERN = r"ctx-crop|ctx-remove-bg"
 RETIRED_CMDK_PATTERN = r"(?i)remove[\s_-]*background"
+RETIRED_MULTIPLAYER_PATTERN = r"(?i)multiplayer\s+cursors"
+UI_LABEL_OBFUSCATION_PATTERN = re.compile(r"\bconcat!\s*\(|\\u\{0*[0-7]?[0-9a-fA-F]\}|\\x[0-9a-fA-F]{2}")
 
 
 def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
@@ -388,9 +432,17 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     has_edit_img = ("ctx-edit-image" in toolbar_rs) or ("ctx-edit-prompt" in toolbar_rs)
     # Crop / Remove-background had no real implementation (a 5% shrink and "delete first fill").
     # They may only come back with an honest implementation, which must update this check.
+    # Scan all shipped, non-test sources (not only cmdk.rs / toolbar.rs) and reject concat! / \u{ in UI labels.
     retired_actions = sources.code_hits(RETIRED_ACTION_PATTERN)
-    retired_cmdk = sources.code_hits(RETIRED_CMDK_PATTERN, only="cmdk.rs")
-    stubs_gone = not retired_actions and not retired_cmdk
+    retired_cmdk = sources.code_hits(RETIRED_CMDK_PATTERN)
+    cmdk_unnorm = sources.unnormalized_code("cmdk.rs")
+    toolbar_unnorm = sources.unnormalized_code("panels/toolbar.rs")
+    obfuscated_ui_labels = []
+    if re.search(r"\bconcat!\s*\(|\\u\{|\\x[0-9a-fA-F]{2}", cmdk_unnorm):
+        obfuscated_ui_labels.append("cmdk.rs")
+    if UI_LABEL_OBFUSCATION_PATTERN.search(toolbar_unnorm):
+        obfuscated_ui_labels.append("panels/toolbar.rs")
+    stubs_gone = not retired_actions and not retired_cmdk and not obfuscated_ui_labels
     mutates_state = (
         ("app.doc" in toolbar_rs or "doc." in toolbar_rs)
         and ("app.tool" in toolbar_rs)
@@ -398,11 +450,12 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     )
     ok = has_select and has_edit_img and stubs_gone and mutates_state
     if ok:
-        return True, "`panels/toolbar.rs` contextual buttons (`ctx-select-area`, `ctx-edit-prompt`) mutate `app.doc` / `app.tool`; no ctx-crop / ctx-remove-bg / cmdk Remove background in shipped code"
+        return True, "`panels/toolbar.rs` contextual buttons (`ctx-select-area`, `ctx-edit-prompt`) mutate `app.doc` / `app.tool`; no ctx-crop / ctx-remove-bg / Remove background in any shipped source"
     return (
         False,
         f"select={has_select}, edit_img={has_edit_img}, mutates_state={mutates_state}, "
-        f"retired ctx-crop/ctx-remove-bg in shipped code: {retired_actions}, retired cmdk Remove background: {retired_cmdk}",
+        f"retired ctx-crop/ctx-remove-bg in shipped code: {retired_actions}, retired cmdk Remove background: {retired_cmdk}, "
+        f"obfuscated UI labels: {obfuscated_ui_labels}",
     )
 
 
@@ -513,13 +566,17 @@ ZOOM_ROW_PATTERN = re.compile(
 )
 
 
-def check_z13(menus_rs: str) -> Tuple[bool, str]:
+def check_z13(sources: "SourceSet") -> Tuple[bool, str]:
+    menus_rs = sources.code("panels/menus.rs")
+    menus_unnorm = sources.unnormalized_code("panels/menus.rs")
     struct_at = menus_rs.find("struct ZoomRowSpec")
     zoom_src = menus_rs[struct_at : menus_rs.find("fn show_zoom_menu", struct_at)] if struct_at != -1 else ""
     rows_body = extract_fn_body(menus_rs, "zoom_rows")
+    raw_rows_body = extract_fn_body(menus_unnorm, "zoom_rows")
     dead_rows = len(re.findall(r"action:\s*None", zoom_src))
-    fake_check = "Multiplayer cursors" in zoom_src
+    fake_check = bool(sources.code_hits(RETIRED_MULTIPLAYER_PATTERN))
     optional_action = bool(re.search(r"action:\s*Option<", zoom_src))
+    obfuscated_zoom_labels = bool(re.search(r"\bconcat!\s*\(|\\u\{|\\x[0-9a-fA-F]{2}", raw_rows_body))
 
     rows = [m.groupdict() for m in ZOOM_ROW_PATTERN.finditer(rows_body)]
     constructed = len(re.findall(r"ZoomRowSpec\s*\{", rows_body))
@@ -537,6 +594,7 @@ def check_z13(menus_rs: str) -> Tuple[bool, str]:
         and dead_rows == 0
         and not fake_check
         and not optional_action
+        and not obfuscated_zoom_labels
         and unparsed == 0
         and not unlisted
         and not wrong_action
@@ -547,12 +605,12 @@ def check_z13(menus_rs: str) -> Tuple[bool, str]:
         return True, f"Zoom menu = the {len(rows)} allow-listed rows, each on its real `Action`; every `checked:` is `false` or read from `app.` state"
     return False, (
         f"found_struct={struct_at != -1}, zoom_rows_fn={bool(rows_body)}, action_none_rows={dead_rows}, multiplayer_cursors={fake_check}, "
-        f"optional_action={optional_action}, unparsed_rows={unparsed}, unlisted_labels={unlisted}, wrong_action={wrong_action}, "
-        f"missing_rows={missing}, hardcoded_checked={hardcoded_checked}"
+        f"optional_action={optional_action}, obfuscated_zoom_labels={obfuscated_zoom_labels}, unparsed_rows={unparsed}, unlisted_labels={unlisted}, "
+        f"wrong_action={wrong_action}, missing_rows={missing}, hardcoded_checked={hardcoded_checked}"
     )
 
 
-UPDATER_GUARD_FIRST_STATEMENT = re.compile(r"\{\s*if\s+!\s*(?:\w+::)*UPDATER_UI_ENABLED\b[^{;]*\{\s*return\b")
+UPDATER_GUARD_FIRST_STATEMENT = re.compile(r"^\{\s*if\s+!\s*(?:\w+::)*UPDATER_UI_ENABLED\s*\{\s*return\s*;")
 UPDATER_GUARD_BLOCK = re.compile(r"\bif\s+(?:\w+::)*UPDATER_UI_ENABLED\s*\{")
 
 
@@ -579,13 +637,19 @@ def check_z14(updater_rs: str, tabs_rs: str) -> Tuple[bool, str]:
     uses_sample = "sample_for_channel" in updater_rs
     hidden = bool(re.search(r"pub const UPDATER_UI_ENABLED:\s*bool\s*=\s*false\s*;", updater_rs))
 
-    # Tab-bar entry: every `top-tab-update-btn` / `updater::` use must sit inside `if ...UPDATER_UI_ENABLED { ... }` CODE.
+    # Tab-bar entry: every updater symbol / alias / button use must sit inside `if ...UPDATER_UI_ENABLED { ... }` CODE.
     guarded_spans = [(m.start(), matching_brace_end(tabs_rs, m.end() - 1)) for m in UPDATER_GUARD_BLOCK.finditer(tabs_rs)]
-    entry_uses = [m.start() for m in re.finditer(r"top-tab-update-btn|updater::UpdaterState|\.check_for_updates\(", tabs_rs)]
+    entry_uses = [
+        m.start()
+        for m in re.finditer(
+            r"top-tab-update-btn|\bUpdaterState\b|\bshow_update_modal\b|\bshow_sidebar_card(?:_in_rect)?\b|\bupdater\s+as\s+\w+|\.check_for_updates\(",
+            tabs_rs,
+        )
+    ]
     unguarded_tab_uses = [at for at in entry_uses if not any(lo <= at < hi for lo, hi in guarded_spans)]
     tab_entry_gated = not unguarded_tab_uses
 
-    # Home sidebar card + update modal: the guard is the first statement of the function body.
+    # Home sidebar card + update modal: the guard is the exact first statement `if !...UPDATER_UI_ENABLED { return; }`.
     card_guarded = bool(UPDATER_GUARD_FIRST_STATEMENT.match(extract_fn_body(updater_rs, "show_sidebar_card_in_rect")))
     modal_guarded = bool(UPDATER_GUARD_FIRST_STATEMENT.match(extract_fn_body(updater_rs, "show_update_modal")))
 
@@ -611,7 +675,6 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
     picker_rs = read_src("widgets/picker.rs")
     panels_mod_rs = read_src("panels/mod.rs")
     vars_view_rs = read_src("variables/view.rs")
-    menus_code = sources.code("panels/menus.rs")
     updater_code = sources.code("updater.rs")
     tabs_code = sources.code("tabs.rs")
 
@@ -628,7 +691,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z10", "panels/right.rs", "Share copies to clipboard & Dev Mode 2nd tab renders Dev Plugins inspector", lambda: check_z10(right_rs)),
         ("Z11", "panels/inspect.rs + properties.rs", "Dev Mode Code Connect/MCP/Redlines/Keyframes & Copy to Slides mutate state/clipboard", lambda: check_z11(inspect_rs, properties_rs, dev_sections_rs)),
         ("Z12", "widgets/picker.rs + panels/mod.rs + variables/view.rs", "Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag()", lambda: check_z12(picker_rs, panels_mod_rs, vars_view_rs, properties_rs)),
-        ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(menus_code)),
+        ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
         ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(updater_code, tabs_code)),
     ]
 

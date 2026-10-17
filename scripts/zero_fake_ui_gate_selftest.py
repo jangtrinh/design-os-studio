@@ -29,6 +29,10 @@ SIDEBAR_GUARD = (
     "pub fn show_sidebar_card_in_rect(ui: &mut Ui, rect: Rect, state: &mut UpdaterState) {\n"
     "    if !UPDATER_UI_ENABLED {\n        return;\n    }\n"
 )
+MODAL_GUARD = (
+    "pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {\n"
+    "    if !UPDATER_UI_ENABLED {\n        return;\n    }\n"
+)
 
 # (case label, invariant that must fail, file, anchor in the real source, replacement)
 REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
@@ -57,8 +61,8 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "4. updater modal guard removed",
         "Z14",
         "updater.rs",
-        "if !UPDATER_UI_ENABLED || !state.modal_open {",
-        "if !state.modal_open {",
+        MODAL_GUARD,
+        MODAL_GUARD.split("\n", 1)[0] + "\n",
     ),
     # Extra coverage of the same hardening rules.
     ("5. updater sidebar card guard removed", "Z14", "updater.rs", SIDEBAR_GUARD, SIDEBAR_GUARD.split("\n", 1)[0] + "\n"),
@@ -84,6 +88,48 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "panels/menus.rs",
         ZOOM_IN_ROW,
         ZOOM_IN_ROW.replace("Action::ZoomIn", "Action::ZoomOut"),
+    ),
+    (
+        '11. concat!("Remove ", "background") evasion in cmdk.rs',
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat!("Remove ", "background"),',
+    ),
+    (
+        r'12. "Remove \u{62}ackground" unicode-escape evasion in cmdk.rs',
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        r'title: "Remove \u{62}ackground",',
+    ),
+    (
+        "13. retired label const defined in another module (panels/mod.rs)",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove background";',
+    ),
+    (
+        '14. concat!("ctx-", "crop") evasion in panels/toolbar.rs',
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, concat!("ctx-", "crop"), "Select area"),',
+    ),
+    (
+        "15. updater guard rewritten with `&& false`",
+        "Z14",
+        "updater.rs",
+        "if !UPDATER_UI_ENABLED {",
+        "if !UPDATER_UI_ENABLED && false {",
+    ),
+    (
+        "16. aliased module path (`use crate::home::updater as upd`) bypassing tabs.rs guard",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "use crate::home::updater as upd;\n    let _ = upd::UpdaterState::new();\n    if crate::home::updater::UPDATER_UI_ENABLED {",
     ),
 ]
 
