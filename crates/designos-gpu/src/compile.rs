@@ -34,6 +34,19 @@ pub type FallbackFn = Arc<dyn Fn(&Node) -> bool + Send + Sync>;
 /// is a conservative owner-reviewed default, not a measured crash threshold.
 pub const DEFAULT_REFINE_VRAM_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Default offscreen-program count ceiling for the idle refine compile: 4,096
+/// programs (the root program plus up to 4,095 offscreen layer/mask/effect
+/// programs).
+///
+/// Evidence: on the 112,474-node (`723,136` Kiwi records) `VSF - PCP.fig`
+/// benchmark fixture at 2880x1800 (`1440x900 @2x`) across zooms `0.05..=4.0`,
+/// an uncapped refine opens at most ~1,200 programs, whereas a synthetic page
+/// of 400,000 tiny (`2x2`) blurred nodes would otherwise open ~400,001 `8x8`
+/// programs (~1.28 KB each) inside the 512 MiB byte budget and stall CPU/GPU
+/// pass encoding. 4,096 is >3x the largest real-document refine while bounding
+/// pathological tiny-node pass explosions (`CLAUDE.md` §4.4).
+pub const DEFAULT_REFINE_MAX_PROGRAMS: usize = 4_096;
+
 /// Compile-time knobs.
 #[derive(Clone)]
 pub struct CompileOptions {
@@ -49,16 +62,27 @@ pub struct CompileOptions {
     /// full-quality compile of an idle view. Headless compiles never cap.
     pub uncap_programs: bool,
     /// With `uncap_programs`: offscreen programs are only opened while the
-    /// accounted GPU bytes of all targets of the frame stay within this budget
-    /// (see `program_bytes`); past it the compile degrades exactly like the
-    /// capped interactive path (scissor clip, skipped effect). Ignored by
-    /// capped and headless compiles.
+    /// accounted GPU bytes of all targets of the frame (including the root
+    /// output target) stay within this budget (see `program_bytes`); past it
+    /// the compile degrades exactly like the capped interactive path (scissor
+    /// clip, skipped effect). Ignored by capped and headless compiles.
     pub refine_vram_budget_bytes: u64,
+    /// With `uncap_programs`: total programs in the frame (`frame.programs.len()`,
+    /// including root program 0) are capped at this count backstop alongside
+    /// `refine_vram_budget_bytes`. Ignored by capped and headless compiles.
+    pub refine_max_programs: usize,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
-        Self { max_texture: 0, force_fallback: None, supersample: 0, uncap_programs: false, refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES }
+        Self {
+            max_texture: 0,
+            force_fallback: None,
+            supersample: 0,
+            uncap_programs: false,
+            refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
+            refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
+        }
     }
 }
 
@@ -124,7 +148,7 @@ impl SceneCompiler {
             unit,
             cull: !single,
             ss,
-            vram: 0,
+            vram: root_bytes(out_size, size, ss),
         };
         let node = doc.get(root_node).map(|n| resolve_node(doc, n));
         let bg = match node.as_deref().map(|n| &n.kind) {
@@ -187,6 +211,20 @@ fn pool_extent(v: i32) -> u64 {
 /// Pixels of the pooled target a `rect`-sized request ends up with.
 fn pooled_pixels(rect: IRect) -> u64 {
     pool_extent(rect.w()) * pool_extent(rect.h())
+}
+
+/// GPU bytes of the root output target (`exec.rs` `ensure_output`: single-sample
+/// `output` at `out_size` plus `MSAA` colour target `output_ms` at `size`, and
+/// when supersampling `ss > 1` the pooled root program targets).
+fn root_bytes(out_size: (u32, u32), size: (u32, u32), ss: u32) -> u64 {
+    let out_px = out_size.0.max(1) as u64 * out_size.1.max(1) as u64;
+    let ms_px = size.0.max(1) as u64 * size.1.max(1) as u64;
+    let base = (out_px + ms_px * MSAA as u64) * texel_bytes();
+    if ss > 1 {
+        base + program_bytes(IRect::new(0, 0, size.0 as i32, size.1 as i32))
+    } else {
+        base
+    }
 }
 
 /// GPU bytes of one offscreen program: the 4x MSAA colour target (`ms_pool`,
@@ -414,7 +452,7 @@ impl Ctx<'_> {
         if region.is_empty() {
             return None;
         }
-        if self.over_budget(self.program_cost(region)) {
+        if self.over_budget(1, self.program_cost(region)) {
             return Some(match degrade {
                 Degrade::Scissor(r) => self.narrow_clip(parent, r),
                 Degrade::Keep => parent,
@@ -464,17 +502,25 @@ impl Ctx<'_> {
     }
 
     /// Whether interactive mode forbids opening more offscreen programs once
-    /// `limit` exist (lifted by `CompileOptions::uncap_programs`).
+    /// `limit` exist (lifted to `CompileOptions::refine_max_programs` when
+    /// `CompileOptions::uncap_programs` is set).
     fn prog_cap_hit(&self, limit: usize) -> bool {
-        self.interactive() && !self.opts.uncap_programs && self.progs.len() >= limit
+        if !self.interactive() {
+            return false;
+        }
+        let cap = if self.opts.uncap_programs { self.opts.refine_max_programs } else { limit };
+        self.progs.len() >= cap
     }
 
-    /// Whether the idle refine compile must not open offscreen targets worth
-    /// `bytes` more: the frame would exceed `refine_vram_budget_bytes`. Only
-    /// the uncapped interactive compile is bound; callers degrade exactly like
-    /// the `prog_cap_hit` fallback of the same site.
-    fn over_budget(&self, bytes: u64) -> bool {
-        self.interactive() && self.opts.uncap_programs && self.vram.saturating_add(bytes) > self.opts.refine_vram_budget_bytes
+    /// Whether the idle refine compile must not open `progs` more offscreen
+    /// targets worth `bytes` more: the frame would exceed
+    /// `refine_max_programs` or `refine_vram_budget_bytes`. Only the uncapped
+    /// interactive compile is bound; callers degrade exactly like the
+    /// `prog_cap_hit` fallback of the same site.
+    fn over_budget(&self, progs: usize, bytes: u64) -> bool {
+        self.interactive()
+            && self.opts.uncap_programs
+            && (self.progs.len().saturating_add(progs) > self.opts.refine_max_programs || self.vram.saturating_add(bytes) > self.opts.refine_vram_budget_bytes)
     }
 
     fn zoom_lod(&self) -> bool {
@@ -531,7 +577,7 @@ impl Ctx<'_> {
             return;
         }
         let rest = &siblings[i + 1..];
-        if self.prog_cap_hit(64) || self.over_budget(2 * self.program_cost(rect)) {
+        if self.prog_cap_hit(64) || self.over_budget(2, 2 * self.program_cost(rect)) {
             let lclip = self.narrow_clip(clip, rect);
             self.draw_children(rest, parent_ts, lclip);
             return;
@@ -668,7 +714,7 @@ impl Ctx<'_> {
             return;
         }
         let blur_cost = if layer_blur > 0.0 { self.blur_cost(rect) } else { 0 };
-        if self.over_budget(self.program_cost(rect) + blur_cost) {
+        if self.over_budget(1, self.program_cost(rect) + blur_cost) {
             self.draw_body(n, ts, clip, opacity, false);
             return;
         }
@@ -722,7 +768,7 @@ impl Ctx<'_> {
             let g = self.geom_of(n, &ts);
             let rect = self.progs[self.cur() as usize].rect;
             let clip_rect = t.clip_to_shape.then(|| IRect::outward(self.bbox(n, &ts)).grow(amp.ceil() as i32 + 3).intersect(rect)).filter(|r| !r.is_empty());
-            if self.over_budget(displace_bytes(rect) + clip_rect.map_or(0, |r| self.program_cost(r))) {
+            if self.over_budget(usize::from(clip_rect.is_some()), displace_bytes(rect) + clip_rect.map_or(0, |r| self.program_cost(r))) {
                 continue;
             }
             let clip_to = clip_rect.map(|r| self.sil_program(n, &g, ts, r, 0.0, 0.0, 0.0, true));
@@ -921,7 +967,7 @@ impl Ctx<'_> {
             if rect.is_empty() {
                 return;
             }
-            if self.over_budget(self.program_cost(rect)) {
+            if self.over_budget(1, self.program_cost(rect)) {
                 self.draw_mesh(mesh, ts, pi, DrawBlend::Over, clip);
                 return;
             }
@@ -1150,7 +1196,7 @@ impl Ctx<'_> {
         }
         let silhouettes = if show_behind { 1 } else { 2 };
         let blur_cost = if sigma > 0.05 { self.blur_cost(rect) } else { 0 };
-        if self.over_budget(silhouettes * self.program_cost(rect) + blur_cost) {
+        if self.over_budget(silhouettes as usize, silhouettes * self.program_cost(rect) + blur_cost) {
             return;
         }
         let s = self.sil_program(n, g, ts, rect, ox, oy, spread, false);
@@ -1187,7 +1233,7 @@ impl Ctx<'_> {
             return;
         }
         let blur_cost = if sigma > 0.05 { self.blur_cost(rect) } else { 0 };
-        if self.over_budget(3 * self.program_cost(rect) + blur_cost) {
+        if self.over_budget(3, 3 * self.program_cost(rect) + blur_cost) {
             return;
         }
         let hole = self.sil_program(n, g, ts, rect, ox, oy, -spread, false);
@@ -1222,7 +1268,7 @@ impl Ctx<'_> {
         }
         let pad = (3.0 * sigma).ceil() as i32 + 1;
         let padr = region.grow(pad).intersect(self.root_rect);
-        if self.over_budget(self.program_cost(region) + backdrop_bytes(false, padr)) {
+        if self.over_budget(1, self.program_cost(region) + backdrop_bytes(false, padr)) {
             return;
         }
         let mask = self.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, true);
@@ -1240,7 +1286,7 @@ impl Ctx<'_> {
         let sigma_m = (depth / 3.0).max(0.6);
         let pad = (3.0 * sigma_f.max(sigma_m)).ceil() as i32 + (depth * 1.5).ceil() as i32 + 2;
         let padr = region.grow(pad).intersect(self.root_rect);
-        if self.over_budget(self.program_cost(padr) + backdrop_bytes(true, padr)) {
+        if self.over_budget(1, self.program_cost(padr) + backdrop_bytes(true, padr)) {
             return;
         }
         let mask = self.sil_program(n, g, ts, padr, 0.0, 0.0, 0.0, true);
@@ -1297,7 +1343,7 @@ impl Ctx<'_> {
             }
         }
         // general case: grain layer masked by the opaque silhouette
-        if self.over_budget(2 * self.program_cost(rect)) {
+        if self.over_budget(2, 2 * self.program_cost(rect)) {
             return;
         }
         let layer = self.new_prog(rect);

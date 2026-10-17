@@ -240,6 +240,13 @@ impl Renderer {
         o
     }
 
+    /// Frees all free pooled offscreen targets unused since `idle_frames` ago.
+    pub fn trim_pools(&mut self, idle_frames: u64) {
+        self.ms_pool.trim(self.frame_no, idle_frames);
+        self.plain_pool.trim(self.frame_no, idle_frames);
+        self.stats.pool_bytes = self.ms_pool.bytes() + self.plain_pool.bytes();
+    }
+
     /// Records the passes for `frame` into `enc` and returns the page texture.
     pub fn render(&mut self, frame: &Frame, enc: &mut wgpu::CommandEncoder) -> Output {
         self.frame_no += 1;
@@ -253,10 +260,10 @@ impl Renderer {
         }
         let st = run.stats;
         self.stats = st;
+        self.ms_pool.trim(self.frame_no, 0);
+        self.plain_pool.trim(self.frame_no, 0);
         self.stats.pool_bytes = self.ms_pool.bytes() + self.plain_pool.bytes();
         self.stats.meshes_uploaded = std::mem::take(&mut self.arena.uploaded);
-        self.ms_pool.trim(self.frame_no, 90);
-        self.plain_pool.trim(self.frame_no, 90);
         let fno = self.frame_no;
         self.images.retain(|_, i| fno.saturating_sub(i.last_used) < 900);
         output
