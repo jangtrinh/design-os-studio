@@ -87,6 +87,17 @@ pub struct Archive {
     inflate_left: Option<u64>,
     /// Per-read inflate cap the archive was opened with; `None` uses [`MAX_INFLATED`].
     inflate_per_read: Option<u64>,
+    /// What is left of the file-wide ratio room (see [`Budget::ratio_room`]) after opening the zip, so the chunks
+    /// are judged against the size of the whole file too. `None` for a bare container.
+    inflate_ratio_room: Option<u64>,
+}
+
+impl Archive {
+    /// Records what is left of `budget` after opening, for [`read_archive_chunks`] to continue.
+    fn keep_budget(&mut self, budget: &Budget) {
+        self.inflate_left = Some(budget.left);
+        self.inflate_ratio_room = Some(budget.ratio_room);
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -112,7 +123,7 @@ pub fn open(bytes: &[u8]) -> Result<Archive, FigError> {
 pub fn open_with_budget(bytes: &[u8], per_read: u64, total: u64) -> Result<Archive, FigError> {
     let mut budget = Budget::new(per_read, total);
     let mut archive = if bytes.starts_with(b"PK") { open_zip_with(bytes, &mut budget, MAX_ZIP_ENTRIES)? } else { open(bytes)? };
-    archive.inflate_left = Some(budget.left);
+    archive.keep_budget(&budget);
     archive.inflate_per_read = Some(per_read);
     Ok(archive)
 }
@@ -146,7 +157,7 @@ fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_len: u64) -> R
 fn open_zip(bytes: &[u8]) -> Result<Archive, FigError> {
     let mut budget = Budget::new(MAX_INFLATED, MAX_INFLATED_TOTAL);
     let mut archive = open_zip_with(bytes, &mut budget, MAX_ZIP_ENTRIES)?;
-    archive.inflate_left = Some(budget.left);
+    archive.keep_budget(&budget);
     Ok(archive)
 }
 
@@ -212,7 +223,9 @@ pub fn read_chunks(canvas: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FigError> {
 
 /// Splits the canvas of an opened archive, continuing the inflate budget that opening it already drew on.
 pub fn read_archive_chunks(archive: &Archive) -> Result<(Vec<u8>, Vec<u8>), FigError> {
-    read_chunks_with(&archive.canvas, &mut Budget::new(archive.inflate_per_read.unwrap_or(MAX_INFLATED), archive.inflate_left.unwrap_or(MAX_INFLATED_TOTAL)))
+    let mut budget = Budget::new(archive.inflate_per_read.unwrap_or(MAX_INFLATED), archive.inflate_left.unwrap_or(MAX_INFLATED_TOTAL));
+    budget.ratio_room = archive.inflate_ratio_room.unwrap_or(u64::MAX);
+    read_chunks_with(&archive.canvas, &mut budget)
 }
 
 fn read_chunks_with(canvas: &[u8], budget: &mut Budget) -> Result<(Vec<u8>, Vec<u8>), FigError> {
@@ -668,6 +681,33 @@ mod tests {
             Ok(archive) => panic!("entries that together exceed the ratio limit must fail the open, but {} images were kept", archive.images.len()),
             Err(e) => e,
         };
+        assert!(err.to_string().contains("compression ratio exceeded"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn chunks_of_a_zipped_container_draw_on_the_file_wide_ratio_room() {
+        // The zip squeezes the repeated blocks of a bomb chunk down to a few KiB, so the container inside it is
+        // small enough to pass the entry checks. The chunk is then judged against the whole file, not only
+        // against its own (much larger) compressed length.
+        let bomb_chunk = deflate_bomb_2gib_plus_one();
+        let schema_chunk = compress(b"s", Compression::Deflate);
+        let mut canvas = Vec::new();
+        canvas.extend_from_slice(MAGIC_KIWI);
+        canvas.extend_from_slice(&1u32.to_le_bytes());
+        for chunk in [&schema_chunk, &bomb_chunk] {
+            canvas.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+            canvas.extend_from_slice(chunk);
+        }
+        let z = write_zip(&canvas, &BTreeMap::new(), None);
+        assert!(
+            (z.len() as u64 + 1) * (MAX_INFLATE_RATIO + 1) < RATIO_GRACE_BYTES,
+            "the file is small enough for the grace window to be its whole room ({} bytes)",
+            z.len()
+        );
+
+        // A per-read cap of 64 MiB keeps the unfixed run small; the ratio room is what must stop the chunk first.
+        let archive = open_with_budget(&z, 64 << 20, 4 << 30).expect("the zip itself holds only a 2 MB container");
+        let err = read_archive_chunks(&archive).expect_err("a chunk that inflates far past the ratio limit of the whole file must be rejected");
         assert!(err.to_string().contains("compression ratio exceeded"), "unexpected error: {err}");
     }
 
