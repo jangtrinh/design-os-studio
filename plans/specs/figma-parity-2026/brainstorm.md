@@ -63,3 +63,9 @@ Source: `plans/261017-figma-gap-analysis/gap-list.md` (58 gaps, 10 epics) and th
 - **A10 (PDF).** Frame PDF export is raster, one image per page, because the existing `pdf.rs` engine is raster-only. Vector PDF is a follow-up.
 - **A11 (paste).** Pasted Figma layers keep their computed sizes. Styles, variable bindings, prototype links and library refs in the payload are not merged; resolved values stay. Cmd+V pastes a Figma payload even when the clipboard has no plain text.
 - **A12 (labels).** "Auto spacing: Between / Around / Evenly" and "Wrap style: Auto / Balance / Pretty" come from Figma's en.json strings. The counter-spread control uses our own labels "Auto" and "Between", because Figma's labels were not found.
+
+## Owner rulings (2026-10-17 morning, AskUserQuestion)
+- A5 codegen naming: **follow Figma** (`var(--Color-Primary, #0D99FF)`).
+- A6 opacity variables: **replace** (value/100), not multiply.
+- A10 vector PDF: **follow-up issue**; raster ships in this wave.
+- Ship: **push + PR into `review-fixes-261016`** (stacked on PR #1) after the fix round and green gates.
