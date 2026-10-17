@@ -25,7 +25,7 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 </p>
 
 <p align="center">
-  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#video-showcase">Video Showcase</a> · <a href="#what-it-makes">What it makes</a> · <a href="#visual-proof-gallery">Visual Proof</a> · <a href="#100-figma-micro-interactions">100 Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
+  <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#new-in-v030">New in 0.3.0</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">100 Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
 </p>
 
 ---
@@ -124,138 +124,49 @@ Open your project in your AI coding agent (or inside the Studio's `Agents` left-
 
 ---
 
-<a id="video-showcase"></a>
-## Interactive Functional Showcase — 12 Core Capabilities & Micro-Interactions (`#1..#100`)
+<a id="new-in-v030"></a>
+## New in 0.3.0
 
-Every one of the **100 Figma A-to-Z Micro-Interactions (`#1..#100`)** runs natively in 100% Rust (`wgpu` + `egui` + `designos-doc`) and is captured below directly from live `designos-studio` desktop workflows.
+Real screenshots of the editor, captured headlessly with `designos-studio --screenshot` (2x; the two Dev Mode shots are 1.5x so the whole Code panel fits). Click an image for full size. The twelve feature videos play on the [project site](https://jangtrinh.github.io/design-os-studio/#videos).
 
-<p align="center">
-  <a href="https://jangtrinh.github.io/design-os-studio/#videos">
-    <img src="docs/videos/designos-studio-launch-preview.gif" alt="DESIGN:OS Studio Native GPU Canvas, Agentic PTY Chat, Live Variables Mode Switching, and Dev Mode" width="640">
-  </a>
-  <br>
-  <sub><b>Interactive Desktop Overview:</b> Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>⌘K</code> AI Synthesis, and 5-target Dev Mode codegen on <a href="https://jangtrinh.github.io/design-os-studio/#videos">GitHub Pages</a>.</sub>
-</p>
-
-### 01. Auto-Layout 5.0 & Edge Sizing (`#10..#15`)
-
-- **On-canvas gap & padding handles:** Drag pink gap handles (`8px -> 36px`) or click the inline pill to type exact pixel values directly on the canvas.
-- **Modifier-driven padding symmetry:** Hold `⌥` while dragging a padding handle to mirror opposite sides (`Top+Bottom` or `Left+Right`), or `⇧⌥` to adjust all four edges uniformly (`16px -> 44px`).
-- **Tactile edge sizing cycle:** Double-click any frame edge to toggle `Fixed <-> Hug Contents`, or `⌥`-double-click to set `Fill Container` without leaving the viewport.
-
-<p align="center">
-  <img src="docs/videos/micro-01-autolayout-5-16x9.gif" width="100%" alt="01 — Auto-Layout 5.0 gap and padding scrubbing, inline pill input, and edge Fixed to Hug to Fill cycling">
-</p>
-
-### 02. 2D CSS Grid Tracks & Cell Span (`#16..#18`)
-
-- **Interactive track header pills:** Click column or row track headers to cycle sizing modes between fractional units (`1fr`), fixed pixels (`220px`), and content-driven `Hug`.
-- **Direct gutter & track scrubbing:** Drag column and row gutter bars on canvas (`12px -> 36px`) with live multi-cell reflow across the 2D grid container.
-- **Multi-cell spanning handles:** Drag any child frame's bottom-right grid span handle to span across multiple columns and rows (`2×1 -> 2×2`) while preserving responsive track constraints.
-
-<p align="center">
-  <img src="docs/videos/micro-02-css-grid-16x9.gif" width="100%" alt="02 — 2D CSS Grid column and row track header pills, gutter scrubbing, and multi-cell spanning">
-</p>
-
-### 03. Smart Selection & One-Click Tidy Up (`#19..#21`)
-
-- **One-click `Tidy up` normalization:** Select any group of unevenly spaced cards or layers and click `Tidy up` to snap them into a uniform grid with equalized `24px` gaps.
-- **Uniform gap bar scrubbing:** Drag the pink Smart Selection gap bar between siblings (`14px -> 42px`) to reflow spacing across the entire selection simultaneously.
-- **Pink ring slot swapping:** Drag the centered pink ring handle on any selected item and drop it onto another sibling to swap their positions cleanly without breaking layout alignment.
-
-<p align="center">
-  <img src="docs/videos/micro-03-smart-selection-16x9.gif" width="100%" alt="03 — Smart Selection one-click Tidy up, uniform pink gap scrubbing, and pink ring slot swapping">
-</p>
-
-### 04. Parametric Arc, Donut, Star & Polygon Controls (`#30..#32`)
-
-- **Live ellipse arc & donut handles:** Drag the on-canvas Sweep handle (`90° -> 330°`), inner Ratio handle (`35% -> 76%` donut ring), and Start Angle handle (`0° -> 65°`) for gauges and progress rings.
-- **Parametric star & polygon geometry:** Drag the Star inner-radius handle to sharpen or soften star spikes and scrub the Count handle (`5 -> 9 pts`) with live `Lyon` GPU re-tessellation.
-- **Non-destructive `.fig` v106 preservation:** Parametric arc data (`arcData`) and star/polygon counts serialize losslessly into standard Figma `.fig` v106 archives.
-
-<p align="center">
-  <img src="docs/videos/micro-04-shape-controls-16x9.gif" width="100%" alt="04 — Parametric Arc sweep, Donut inner ratio, Start angle, and Star point count handles">
-</p>
-
-### 05. Vector Network & Bezier Tangents (`#33..#35`)
-
-- **True graph-based Vector Networks:** Press `Enter` on any vector path to edit multi-edge vertices and cubic Bezier control handles (`dx`, `dy`) directly on the GPU canvas.
-- **Asymmetric cusp tangents (`⌘`-drag):** Hold `⌘` while dragging a tangent handle to break mirror symmetry and sculpt sharp corner cusps.
-- **Midpoint subdivision & heal-delete (`⇧⌫`):** Click the live midpoint diamond (`t = 0.5`) on any segment to split it in place, or press `⇧⌫` on a vertex to remove it and heal the surrounding curve continuously.
-
-<p align="center">
-  <img src="docs/videos/micro-05-vector-network-16x9.gif" width="100%" alt="05 — Vector Network cubic Bezier tangent handles, Cmd-drag cusp break, midpoint split, and heal-delete">
-</p>
-
-### 06. Deep-Hit Layer Picker & `7×7` Eyedropper Loupe (`#36..#45`)
-
-- **Overlapping layer stack picker (`⌘`+Right-Click):** `⌘`-Right-Click anywhere on a dense canvas to list every intersecting node in z-order and select deeply nested layers directly.
-- **Layer tree search & workflow status badges:** Filter 100k+ node hierarchies instantly, sweep across lock/visibility icons, and cycle frame status badges (`Ready for Dev -> In Progress -> Needs Review`).
-- **Precision `7×7` Eyedropper (`I` + `Tab`):** Sample live GPU framebuffer pixels through a magnified `7×7` loupe with centered pixel readout, pressing `Tab` to cycle `HEX -> RGB -> HSL` clipboard formats.
-
-<p align="center">
-  <img src="docs/videos/micro-06-layer-eyedropper-16x9.gif" width="100%" alt="06 — Deep-Hit Layer Picker context menu, Layer Tree filter and status badges, and 7x7 Eyedropper loupe">
-</p>
-
-### 07. Dev Mode Box-Model & 5-Target Codegen (`#46..#47`)
-
-- **Interactive box-model visualization (`⇧D`):** Toggle Dev Mode to inspect emerald padding bands (`24px`), orange item-spacing gaps (`16px`), and resolved token aliases directly on the selected frame.
-- **Deterministic 5-target production codegen:** Switch live between **React (JSX)**, **Tailwind v4**, **CSS**, **SwiftUI**, and **Jetpack Compose**—emitting real `display: flex` / `grid`, resolved variable tokens, and exact typography styles.
-- **One-click copy & asset readiness:** Copy production-ready component snippets with instant toast confirmation and inspect exportable vector/raster assets side by side.
-
-<p align="center">
-  <img src="docs/videos/micro-07-devmode-boxmodel-16x9.gif" width="100%" alt="07 — Dev Mode emerald padding and orange gap box-model overlay with 5-target code generation">
-</p>
-
-### 08. Proportional Scale Tool (`K`) & Viewport Navigation (`#48..#62`)
-
-- **Proportional Scale Tool (`K`):** Scale bounding boxes, typography font sizes, line heights, corner radii, strokes, and Auto-Layout padding/gaps proportionally in a single drag (`1.0x -> 1.85x`) or via preset multiplier pills (`1.25x`, `1.5x`, `2.0x`).
-- **Anchor-aware origin scaling:** Choose any of the 9 transform origin anchor points (`Top-Left` through `Center` and `Bottom-Right`) before scaling complex component hierarchies.
-- **Instant viewport choreography:** Navigate massive artboards with `Space`-drag panning, `Z` marquee zoom, `⇧1` Zoom-to-Fit All, `⇧2` Zoom-to-Selection, and `N` / `⇧N` frame-to-frame walking.
-
-<p align="center">
-  <img src="docs/videos/micro-08-scale-navigation-16x9.gif" width="100%" alt="08 — Proportional Scale Tool (K) multiplier HUD, proportional typography and radius scaling, and viewport navigation">
-</p>
-
-### 09. Inspector Numeric Scrubbing, Inline Math & Hex Shorthand (`#1..#9`)
-
-- **Modifier-aware label drag-scrubbing:** Drag any numeric Inspector label (`X`, `Y`, `W`, `H`, `R`, `Gap`, `Padding`) at `1px` default speed, `⇧` for `10px` coarse steps, or `⌥` for `0.1px` sub-pixel precision.
-- **Inline arithmetic & shorthand expressions:** Evaluate `100+24`, `320/2`, or `50%` directly inside Inspector fields, type `10,20,10,20` for 4-edge CSS padding shorthand, and lock aspect ratio (`W/H`) for proportional resizing.
-- **Single-char hex & quick opacity shortcuts:** Expand `#3` to `#333333` or `#f0a` to `#ff00aa` automatically, and press `0..9` (`5` -> `50%`, `00` -> `0%`, `0` -> `100%`) to set layer opacity from the canvas.
-
-<p align="center">
-  <img src="docs/videos/micro-09-inspector-math-16x9.gif" width="100%" alt="09 — Inspector numeric label scrubbing, inline math evaluation, padding shorthand, and hex/opacity shortcuts">
-</p>
-
-### 10. Selection Traversal, `⌘D` Offset Memory & 4-Corner Radius (`#19..#36`)
-
-- **Keyboard hierarchy traversal:** Drill into child layers with `Enter`, climb back to parent frames with `⇧Enter`, and cycle forward or backward across siblings with `Tab` / `⇧Tab`.
-- **Duplicate with offset memory (`⌥`-drag + `⌘D`):** Hold `⌥` while dragging a node to duplicate it with live red distance guides, then press `⌘D` repeatedly to stamp additional copies using the exact delta offset.
-- **On-canvas 4-corner radius handles:** Drag inner corner radius dots to round all corners uniformly (`4px -> 44px`), or hold `⌥` to sculpt a single independent corner (`topLeftRadius`, `topRightRadius`, `bottomRightRadius`, `bottomLeftRadius`).
-
-<p align="center">
-  <img src="docs/videos/micro-10-selection-corner-16x9.gif" width="100%" alt="10 — Keyboard hierarchy traversal, Option-drag and Cmd+D offset memory, red distance guides, and 4-corner radius handles">
-</p>
-
-### 11. Typography Auto-Height Fit, Tracking & Multi-Edit (`Q`) (`#55..#70`)
-
-- **Text box auto-fit handles:** Double-click the bottom or right edge of any text frame to snap its bounds tightly to shaped `cosmic-text` glyph metrics (`Auto-Height` / `Auto-Width`).
-- **Tactile typographic nudging:** Adjust letter-spacing (`⌥←` / `⌥→`), line-height (`⌥↑` / `⌥↓`), font size (`⇧⌘>` / `⇧⌘<`), and weight/style (`⌘B`, `⌘I`, `⌘U`) with immediate GPU glyph re-layout.
-- **Simultaneous Multi-Edit (`Q` / `⌘E`):** Press `Q` to select all matching sibling or component instances across artboards and edit their text content, fills, or typography in lockstep.
-
-<p align="center">
-  <img src="docs/videos/micro-11-typography-multiedit-16x9.gif" width="100%" alt="11 — Typography auto-height fit, Option tracking and leading nudges, and Q Multi-Edit across matching layers">
-</p>
-
-### 12. Components, Live Variables Mode Switch (`=`) & Prototype Flows (`#71..#100`)
-
-- **Components & Variant Set matrices (`⌥⌘K`):** Create reusable master Components, organize purple dashed `ComponentSet` variant grids, swap variant property pills in the Inspector, and jump to master definitions or detach instances (`⌥⌘B`).
-- **Design Variables (`=`) & Live Mode Switching:** Bind fill, stroke, spacing, and radius fields to semantic tokens via the `=` alias picker, and switch collections between `Light` and `Dark` modes with instant scene-graph propagation.
-- **Interactive Prototype noodles & triggers:** Drag blue prototype connection nodes between frames and configure interaction triggers (`On Click`, `On Hover`, `After Delay`) and transitions (`Smart Animate`, `Dissolve`, `Push`).
-
-<p align="center">
-  <img src="docs/videos/micro-12-components-variables-16x9.gif" width="100%" alt="12 — Components and Variant Sets, Variables alias binding and Light/Dark mode switching, and Prototype flow noodles">
-</p>
+<table>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/styles-effect-and-grid-styles.png"><img src="docs/images/v0.3/styles-effect-and-grid-styles.png" alt="DESIGN:OS Studio inspector on the page with no layer selected, listing the file's local Effect styles (Shadow: Card, Floating) and Grid styles (Grid: 12 columns, 8 px) beside three pricing cards (two use the Card shadow, one the Floating shadow) and a 12-column grid frame" width="430"></a><br>
+      <sub><b>Effect and grid styles</b><br>Local styles list with two effect styles and two grid styles.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/styles-edit-effect-style.png"><img src="docs/images/v0.3/styles-edit-effect-style.png" alt="DESIGN:OS Studio Edit style panel for the Shadow/Card effect style showing X, Y, blur, spread and color, for a selected pricing card whose Effects section links to that style" width="430"></a><br>
+      <sub><b>Edit a style</b><br>The Edit style panel for the Shadow/Card effect style that the selected card uses.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/auto-layout-space-evenly-vertical-wrap.png"><img src="docs/images/v0.3/auto-layout-space-evenly-vertical-wrap.png" alt="DESIGN:OS Studio frame with vertical wrap and Space evenly auto layout: six chips split into two columns, each column spreading its chips evenly top to bottom, with the Auto layout inspector open" width="430"></a><br>
+      <sub><b>Auto layout: Space evenly and vertical wrap</b><br>Each wrapped column spreads its own items evenly.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/text-wrap-balance.png"><img src="docs/images/v0.3/text-wrap-balance.png" alt="DESIGN:OS Studio canvas with two cards holding the same headline, wrapped Auto on the left, which ends on a single word, and Balance on the right, which evens out the lines, with the Type settings panel showing Wrap style Balance" width="430"></a><br>
+      <sub><b>Text wrap: Balance next to Auto</b><br>Balance (right) evens out the lines that Auto (left) leaves with a one-word last line.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/dev-mode-uikit.png"><img src="docs/images/v0.3/dev-mode-uikit.png" alt="DESIGN:OS Studio Dev Mode with UIKit selected: the Code panel for a text layer prints its color as Theme.Color.textPrimary, the variable's iOS code syntax, with the Variables used list below" width="430"></a><br>
+      <sub><b>Dev Mode: UIKit</b><br>A variable prints as its iOS code syntax, <code>Theme.Color.textPrimary</code>.</sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.3/dev-mode-android-xml.png"><img src="docs/images/v0.3/dev-mode-android-xml.png" alt="DESIGN:OS Studio Dev Mode with Android XML selected: the Code panel for the same text layer prints android:textColor as @color/text_primary, the variable's Android code syntax" width="430"></a><br>
+      <sub><b>Dev Mode: Android XML</b><br>The same variable prints as its Android code syntax, <code>@color/text_primary</code>.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center" valign="top">
+      <a href="docs/images/v0.3/scale-untitled-ui-kit.png"><img src="docs/images/v0.3/scale-untitled-ui-kit.png" alt="DESIGN:OS Studio on the GPU canvas with the Untitled UI PRO v8.0 Figma kit open: the Input field frame, a dense matrix of text-field variants, with the file's pages and layers listed on the left" width="880"></a><br>
+      <sub><b>Scale: Untitled UI PRO v8.0 Figma kit, by Untitled UI</b><br>208,610 nodes on 113 pages when opened. Shown: the Input field frame.</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
@@ -306,92 +217,6 @@ AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent
 | **Agentic PTY Chat & 22-Tool MCP** | Live bidirectional design-to-code and prompt-to-canvas orchestration | `designos-mcp` (`stdio`) + `RailItem::Agents` | `22/22` MCP tools + `AgentChatTurn` tests |
 | **Dev Mode Multi-Target Codegen** | Exporting production UI code and token bindings per frame | `React` · `Tailwind` · `CSS` · `SwiftUI` · `Compose` | `crates/designos-export` golden codegen suite |
 | **Headless GPU Visual Proof & Diff** | Automated CI screenshot capture and perceptual SSIM comparison | `PNG` / `SVG` / `PDF` / `JPG` + diff report | `designos-studio --gpu --screenshot` + `designos-diff` |
-
----
-
-<a id="visual-proof-gallery"></a>
-### Visual Proof Gallery (15 Discrete Uncropped Retina Captures)
-
-Every screenshot below is an individual, uncropped capture rendered deterministically from the live `designos-studio` binary using [`scripts/capture-visual-proof.sh`](scripts/capture-visual-proof.sh) at Retina 2x (`--scale 2`).
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-hero.png" alt="01. DESIGN:OS Studio 1:1 Figma UI3 dark chrome and GPU canvas rendering showcase workspace at Retina 2x" width="430"><br>
-      <sub><b>01 · 1:1 Figma UI3 Dark Chrome &amp; GPU Canvas</b><br><code>--fixture showcase --select "Hero" --scale 2</code><br>Renders `112,474` nodes (`723,136` Kiwi records) in `1.54s` on Metal with `#1e1e1e` UI3 chrome, `#0d99ff` selection blue, and unified Phosphor icons.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-agents-chat.png" alt="02. DESIGN:OS Studio Native Agentic PTY Chat UI wrapping Claude Code, Codex, Antigravity CLI, and Grok CLI" width="430"><br>
-      <sub><b>02 · Native Agentic PTY Chat UI Wrapper (`S13`)</b><br><code>--fixture showcase --panel agents-chat --scale 2</code><br>1-click runtime switcher (`Claude | Codex | AGY | Grok | Shell`), ANSI-stripped chat turn bubbles, `+` selection context pill, and inline `NodeSpec` apply.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/09-micro-autolayout.png" alt="03. DESIGN:OS Studio Auto-Layout 5.0 and Suggest Auto-Layout with on-canvas pink gap and padding handles" width="430"><br>
-      <sub><b>03 · Auto-Layout 5.0 &amp; Suggest Auto-Layout</b><br><code>--micro-showcase autolayout --scale 2</code><br>On-canvas pink gap/padding drag handles, inline value input, edge double-click `Fixed -> Hug -> Fill` cycle, and `⇧A` heuristic Suggest Auto-Layout.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-assets-panel.png" alt="04. DESIGN:OS Studio Assets and Libraries left-rail panel with Created in this file card and library search" width="430"><br>
-      <sub><b>04 · Assets &amp; Libraries Panel (`Created in this file`)</b><br><code>--rail assets --gpu</code><br>1:1 Figma UI3 `File | Assets` switch with `Search all libraries`, `Created in this file` vertical preview card (`142x168`), and draggable component grid.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-actions-cmdk.png" alt="05. DESIGN:OS Studio Actions Cmd+K Command Palette and Live Design Gate audit overlay" width="430"><br>
-      <sub><b>05 · `Actions (Cmd+K)` &amp; Live Design Gate (`Ctrl+Shift+G`)</b><br><code>--panel cmdk --gpu</code><br>Bottom-center UI3 `Actions` launcher with `First Draft`, `Make Prototype`, `Rename Layers`, `Rewrite`, and automated WCAG / 8pt grid Design Gate checks.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-devmode.png" alt="06. DESIGN:OS Studio Dev Mode Inspector with box model diagram and React Tailwind SwiftUI code generation" width="430"><br>
-      <sub><b>06 · Dev Mode (`Shift+D` / `&lt;/&gt;`) &amp; Multi-Target Codegen</b><br><code>--tab dev --dev-lang react --gpu</code><br>Interactive CSS Box Model diagram, resolved variable tokens, `Ready for dev` handoff badges, and live React / Tailwind / CSS / SwiftUI / Compose output.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-variables.png" alt="07. DESIGN:OS Studio Design Variables and Multi-Mode Token Collections modal in Light and Dark modes" width="430"><br>
-      <sub><b>07 · Design Variables &amp; Multi-Mode Token Collections</b><br><code>--panel variables --gpu</code><br>Inspect and edit primitive, semantic, and component token collections across `Light` and `Dark` modes (`COLOR`, `FLOAT`, `STRING`, `BOOLEAN` + alias chains).</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-components.png" alt="08. DESIGN:OS Studio Master Components, Variant Sets, and Synced Instance Overrides on canvas" width="430"><br>
-      <sub><b>08 · Master Components, Variant Sets &amp; Instance Overrides</b><br><code>--rail components --gpu</code><br>Purple `#9747ff` UI3 component chrome, dashed `ComponentSet` matrices, boolean/text/instance-swap properties, and shared canonical `GeomCache` meshes.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-prototype.png" alt="09. DESIGN:OS Studio Prototype tab showing interactive cubic Bezier flow noodles and trigger action inspector" width="430"><br>
-      <sub><b>09 · Interactive Prototype Noodle Flows &amp; Triggers</b><br><code>--tab prototype --gpu</code><br>Visualizes flow starting points, cubic Bezier interaction noodles with directional arrowheads, and `On Click / Hover -> Navigate / Dissolve / Smart Animate` rules.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-comments.png" alt="10. DESIGN:OS Studio Spatial Canvas Pin-Comments and Human-Agent review loop panel" width="430"><br>
-      <sub><b>10 · Spatial Canvas Pin-Comments &amp; Agent Review Loop</b><br><code>--tool-mode comment --gpu</code><br>Pin feedback directly onto canvas nodes (`resolve_comment_targets`), query unresolved threads via `--comments-json` or MCP, and reply/resolve automatically.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-main-menu.png" alt="11. DESIGN:OS Studio Figma UI3 Main Menu dropdown with File Edit View Object Text Arrange Vector and AI balance" width="430"><br>
-      <sub><b>11 · Figma UI3 Main Menu Dropdown (`248px` Overlay)</b><br><code>--panel main-menu --gpu</code><br>Full hierarchical menu (`Search...`, `File`, `Edit`, `View`, `Object`, `Text`, `Arrange`, `Vector`, `Plugins`, `Widgets`, `Preferences`, `Libraries`, `AI balance`).</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-color-picker.png" alt="12. DESIGN:OS Studio Gradient and Solid Color Picker Popover with document swatches and hex opacity controls" width="430"><br>
-      <sub><b>12 · Color &amp; Gradient Picker Popover (`Custom` / `Libraries`)</b><br><code>--panel color-picker --gpu</code><br>2D saturation-value square, hue &amp; alpha sliders, `Solid / Linear / Radial / Angular` paint modes, eyedropper (`I`), Hex + opacity inputs, and document swatches.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-agent-spec.png" alt="13. DESIGN:OS Studio EaseUI Agent-First Spec Console generated from declarative JSON spec and exported to .fig" width="430"><br>
-      <sub><b>13 · Declarative `NodeSpec` -> Auto-Layout 5.0 -> `.fig`</b><br><code>--apply-spec easeui-agent-console.spec.json</code><br>Compiled from declarative JSON into Auto-Layout 5.0 frames, exported to a standard Figma `.fig` v106 binary archive, and rendered with 1:1 UI3 layer icons.</sub>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/images/designos-overview.png" alt="14. DESIGN:OS Studio 49,410-node page rendered at 2 percent semantic zoom LOD with container collapse" width="430"><br>
-      <sub><b>14 · 4-Tier Semantic Zoom LOD (`49,410` Nodes at `2%` Zoom)</b><br><code>--zoom 2 --gpu</code><br>Bird's-eye overview of an entire 49,410-node enterprise page using Container Collapse (`&lt; 6px`), text greeking bars (`1.25px..3.5px`), and sub-pixel culling.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" valign="top" align="center">
-      <img src="docs/images/designos-home.png" alt="15. DESIGN:OS Studio Home Screen showing Recents, Starred, Local Library thumbnails, and New Design File actions" width="880"><br>
-      <sub><b>15 · Studio Home Screen (`design:os studio`), Recents, Starred &amp; Fast 8 KB Header Probe Library</b> — Instant local project browser (`crates/designos-library`) with automatic thumbnail caching, zero-allocation `HashSerializer` dirty-check autosave, and 1-click `.fig` / `.designos` / `.svg` import.</sub>
-    </td>
-  </tr>
-</table>
 
 ---
 

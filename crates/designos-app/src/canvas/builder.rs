@@ -195,6 +195,8 @@ pub fn finish(app: &mut App) {
             let id = node.id;
             if tx.cmd(&mut app.doc, Command::Insert { parent, index: at + 1, nodes: vec![node] }).is_ok() {
                 made.push(id);
+                // Agent edits held while this tool was open still name the layer it replaced.
+                app.terminal.live_patch.state.record_replacement(orig, id);
             }
         }
         let _ = tx.cmd(&mut app.doc, Command::Remove { id: orig });

@@ -49,9 +49,11 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --release -p designos-app -p designos-mcp
 cargo build --release -p designos-app
 
-# Sync release binary into the macOS app bundle
+# Sync release binaries into the macOS app bundle (always all three: Studio and designos-mcp
+# share the live edit-log format, and an older designos-mcp still overwrites the open document)
 cp target/release/designos-studio "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio"
 cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos"
+cp target/release/designos-mcp "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-mcp"
 
 # Launch the packaged macOS app bundle
 open "target/release/bundle/DESIGN-OS Studio.app"
@@ -66,6 +68,15 @@ cargo test -p designos-mcp
 ```
 
 ---
+
+## Git Workflow (`main` is protected)
+
+Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it: not the owner, and not any agent runtime (Claude, Codex, Grok, Gemini).
+
+- Never push to `main`. Work on a branch or worktree, push it, and open a pull request.
+- To merge, a PR needs green `Test (macos-14)`, `Clippy` and `Rustfmt` on a branch that is up to date with `main`. Run `gh pr update-branch <n> --rebase`, then wait for CI. Ubuntu and Windows CI also run but do not block, because releases are verified on macOS.
+- Merge with squash only (`gh pr merge <n> --squash`). The head branch is deleted on merge, and `main` keeps a linear history.
+- Release tags `v*` cannot be moved or deleted once pushed. Tag the squash commit of the release PR (see `docs/releasing.md`).
 
 ## 4. Non-Negotiable Performance & Safety Invariants
 
