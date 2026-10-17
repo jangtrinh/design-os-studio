@@ -272,6 +272,50 @@ fn agent_comments_never_overwrite_user_threads() {
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
+#[test]
+fn agent_undo_after_a_canvas_reload_never_touches_user_layers() {
+    let Fixture { doc, page, screens, .. } = big_fixture();
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let replay = |app: &mut App| {
+        let actions = app.terminal.poll_live_agent_bridge();
+        crate::shell::execute_terminal_actions(app, actions);
+    };
+
+    // The user draws a layer that takes the id the agent allocates next. It sits at the bottom of
+    // the page, inside the frames the scoped canvas shares.
+    let user_layer = app.doc.alloc_id();
+    let mut user_rect = Node::rectangle(user_layer, Rect::new(10.0, 10.0, 40.0, 40.0));
+    user_rect.name = "User layer".into();
+    designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![user_rect] }.apply(&mut app.doc).unwrap();
+    let created = session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+    assert_eq!(created["node"]["id"].as_u64(), Some(user_layer.0), "precondition: the agent picks the id the user just took");
+    replay(&mut app);
+    let agent_layer = *app.doc.get(page).unwrap().children.last().unwrap();
+    assert_ne!(agent_layer, user_layer);
+    assert_eq!(app.doc.get(agent_layer).unwrap().name, "Agent layer");
+
+    // The editor republished its canvas; the agent's next call reloads it with the editor's ids.
+    // Its undo history refers to its old ids, so undoing must not touch the user's layer.
+    session.call("designos_get_document", json!({})).expect("read");
+    assert!(session.engine.doc.get(user_layer).is_some_and(|n| n.name == "User layer"), "precondition: the agent reloaded the editor's canvas");
+    let undo = session.call("designos_undo", json!({})).expect("undo");
+    replay(&mut app);
+    assert_eq!(app.doc.get(user_layer).map(|n| n.name.as_str()), Some("User layer"), "the agent's undo deleted the user's layer");
+    assert_eq!(undo["changed"], false);
+    assert!(undo["reason"].as_str().is_some_and(|r| r.contains("Studio")), "undo must say why it did nothing: {undo}");
+    assert!(app.doc.get(screens[0]).is_some_and(|n| n.children.len() == RECTS_PER_SCREEN));
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
 /// The same round trip on a real file: `DESIGNOS_LIVE_SYNC_FIG=<file.fig>` and, optionally,
 /// `DESIGNOS_LIVE_SYNC_OUT=<result.designos>` to save the edited document for a screenshot run
 /// (plus `<result>.card.png`, the agent's own render of the card on its next call).

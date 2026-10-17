@@ -233,6 +233,15 @@ impl History {
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
+    /// Number of steps [`Self::undo`] can take.
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+    /// Forgets undo steps past `depth` without applying them, for edits the caller already
+    /// reverted another way (by restoring a snapshot of the document).
+    pub fn drop_undo_steps_after(&mut self, depth: usize) {
+        self.undo.truncate(depth);
+    }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }

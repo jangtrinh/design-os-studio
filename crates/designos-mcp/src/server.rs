@@ -91,6 +91,8 @@ pub struct Session {
     root: PathBuf,
     dirty: bool,
     pub bridge: LiveSessionBridge,
+    /// Undo history was dropped because the editor's canvas replaced the document.
+    history_dropped: bool,
 }
 
 #[derive(Deserialize)]
@@ -136,7 +138,7 @@ impl Session {
         if !root.is_dir() {
             return Err("Workspace must be a directory".into());
         }
-        let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::from_env() };
+        let mut s = Self { engine: Engine::default(), root, dirty: false, history_dropped: false, bridge: LiveSessionBridge::from_env() };
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
@@ -148,7 +150,7 @@ impl Session {
         if !root.is_dir() {
             return Err("Workspace must be a directory".into());
         }
-        let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::for_session_dir(session_dir) };
+        let mut s = Self { engine: Engine::default(), root, dirty: false, history_dropped: false, bridge: LiveSessionBridge::for_session_dir(session_dir) };
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
@@ -168,8 +170,14 @@ impl Session {
                         if let Ok(raw) = fs::read_to_string(&canvas_path) {
                             if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
                                 self.engine.doc = doc;
-                                // Ops recorded against the replaced copy no longer apply.
+                                // Ops recorded against the replaced copy no longer apply, and neither
+                                // does its undo history: it names the agent's old ids, which the
+                                // editor may have given to the user's layers.
                                 self.engine.take_live_ops();
+                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
+                                    self.engine.history = designos_doc::History::default();
+                                    self.history_dropped = true;
+                                }
                                 self.bridge.last_canvas_mtime = Some(mtime);
                             }
                         }
@@ -221,6 +229,22 @@ impl Session {
         // One write per line, so the editor never reads a line that mixes two patches.
         let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
         file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+    }
+
+    /// Reverts the tool call `name` whose edit could not be sent to the editor, without recording
+    /// it: undo and redo revert each other, and any other edit restores `snapshot`.
+    fn roll_back(&mut self, name: &str, snapshot: Option<(designos_doc::Document, usize)>) {
+        let history = &mut self.engine.history;
+        let _ = match name {
+            "designos_undo" => history.redo(&mut self.engine.doc),
+            "designos_redo" => history.undo(&mut self.engine.doc),
+            _ => Ok(snapshot.is_some_and(|(doc, depth)| {
+                self.engine.doc = doc;
+                history.drop_undo_steps_after(depth);
+                true
+            })),
+        };
+        self.engine.take_live_ops();
     }
 
     /// Atomically publishes the whole `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
@@ -427,8 +451,7 @@ impl Session {
                 Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true}))
             }
             _ => {
-                let mut result = self.engine.call(name, args)?;
-                if matches!(
+                let mutating = matches!(
                     name,
                     "designos_create_node"
                         | "designos_update_node"
@@ -440,13 +463,26 @@ impl Session {
                         | "designos_set_dev_status"
                         | "designos_undo"
                         | "designos_redo"
-                ) && result.get("changed").and_then(Value::as_bool) != Some(false)
-                {
-                    self.dirty = true;
+                );
+                let live = mutating && self.bridge.live_doc_patch_path.is_some();
+                // What a failed write to the editor rolls back to. Undo and redo revert each other.
+                let snapshot =
+                    (live && !matches!(name, "designos_undo" | "designos_redo")).then(|| (self.engine.doc.clone(), self.engine.history.undo_depth()));
+                let mut result = self.engine.call(name, args)?;
+                let changed = result.get("changed").and_then(Value::as_bool) != Some(false);
+                if mutating && changed {
                     if let Err(e) = self.publish_live_patch() {
-                        if let Some(obj) = result.as_object_mut() {
-                            obj.insert("live_sync_error".into(), json!(format!("The open editor did not receive this edit: {e}")));
-                        }
+                        self.roll_back(name, snapshot);
+                        return Err(format!("The open editor could not receive this edit, so it was undone: {e}"));
+                    }
+                    self.dirty = true;
+                    self.history_dropped = false;
+                } else if matches!(name, "designos_undo" | "designos_redo") && self.history_dropped {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert(
+                            "reason".into(),
+                            json!("Studio republished the canvas after your earlier edits, so they can no longer be undone or redone from this session. Ask the user to undo them in Studio."),
+                        );
                     }
                 }
                 Ok(result)
@@ -695,5 +731,59 @@ mod tests {
         assert!(line.ends_with('\n') && line.len() < 100);
         let err = live_patch_line(&patch, 10).unwrap_err();
         assert!(err.contains("over the"), "{err}");
+    }
+
+    #[test]
+    fn a_failed_patch_write_undoes_the_edit_and_reports_it() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-rollback-{}-{nonce}", std::process::id()));
+        let sess_dir = std::env::temp_dir().join(format!("designos-mcp-sess-rollback-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        fs::create_dir_all(&sess_dir).unwrap();
+        let mut doc = Document::new("Rollback");
+        doc.add_page("Page");
+        fs::write(sess_dir.join("canvas.designos"), doc.to_json().unwrap()).unwrap();
+        let mut session = Session::with_session_dir(&ws_dir, &sess_dir).unwrap();
+
+        // A Hug auto-layout stack reaches the editor normally.
+        let stack = session
+            .call(
+                "designos_apply_spec",
+                json!({ "spec": { "name": "Stack", "width_sizing": "hug", "height_sizing": "hug",
+                    "layout": { "direction": "column", "gap": 8.0 },
+                    "children": [{ "kind": "rectangle", "name": "A", "width": 40.0, "height": 20.0 }] } }),
+            )
+            .unwrap();
+        let stack_id = stack["root_node_id"].as_u64().unwrap();
+        let log = session.bridge.live_doc_patch_path.clone().unwrap();
+        let lines = || fs::read_to_string(&log).map(|s| s.lines().count()).unwrap_or(0);
+        let (before, can_undo, written) = (session.engine.doc.to_json().unwrap(), session.engine.history.can_undo(), lines());
+
+        // The log now sits under a regular file, so the next write fails.
+        let blocker = sess_dir.join("blocker");
+        fs::write(&blocker, "not a directory").unwrap();
+        session.bridge.live_doc_patch_path = Some(blocker.join("doc-patch.jsonl"));
+        let err = session
+            .call("designos_apply_spec", json!({ "parent_id": stack_id, "spec": { "kind": "rectangle", "name": "B", "width": 40.0, "height": 30.0 } }))
+            .expect_err("a write failure must fail the tool call");
+        assert!(err.contains("undone"), "{err}");
+        assert_eq!(session.engine.doc.to_json().unwrap(), before, "the agent's document must match the editor's again");
+        assert_eq!(session.engine.history.can_undo(), can_undo);
+        assert!(!session.engine.history.can_redo(), "the reverted edit must not be redoable");
+
+        // Undo and redo are reverted the same way.
+        session.call("designos_undo", json!({})).expect_err("undo whose write fails");
+        assert_eq!(session.engine.doc.to_json().unwrap(), before);
+        assert!(session.engine.history.can_undo());
+        session.bridge.live_doc_patch_path = Some(log.clone());
+        session.call("designos_undo", json!({})).unwrap();
+        session.bridge.live_doc_patch_path = Some(blocker.join("doc-patch.jsonl"));
+        session.call("designos_redo", json!({})).expect_err("redo whose write fails");
+        assert!(session.engine.doc.get(designos_doc::NodeId(stack_id)).is_none(), "the failed redo was reverted");
+        assert!(session.engine.history.can_redo());
+        assert_eq!(lines(), written + 1, "only the successful undo reached the editor");
+
+        let _ = fs::remove_dir_all(&ws_dir);
+        let _ = fs::remove_dir_all(&sess_dir);
     }
 }
