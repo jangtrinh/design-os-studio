@@ -146,13 +146,9 @@ fn adopt_orphan_roots(message: &mut KiwiValue) {
         return;
     }
     let present: std::collections::HashSet<(u64, u64)> = changes.iter().filter_map(|c| c.get("guid").and_then(guid_key)).collect();
-    let page = (0..).map(|l| (u64::from(u32::MAX), l)).find(|g| !present.contains(g)).unwrap_or((u64::from(u32::MAX), u64::from(u32::MAX)));
-    let page_guid = || {
-        KiwiValue::Struct(vec![
-            (Arc::from("sessionID"), KiwiValue::Uint(page.0 as u32)),
-            (Arc::from("localID"), KiwiValue::Uint(page.1 as u32)),
-        ])
-    };
+    // a guid in a session id no client uses, so the synthetic page cannot collide with a copied node
+    let page: (u32, u32) = (0..=u32::MAX).map(|l| (u32::MAX, l)).find(|g| !present.contains(&(u64::from(g.0), u64::from(g.1)))).unwrap_or((u32::MAX, u32::MAX));
+    let page_guid = || KiwiValue::Struct(vec![(Arc::from("sessionID"), KiwiValue::Uint(page.0)), (Arc::from("localID"), KiwiValue::Uint(page.1))]);
     let mut adopted = false;
     for c in changes.iter_mut() {
         let parent = c.get("parentIndex").and_then(|p| p.get("guid")).and_then(guid_key);
