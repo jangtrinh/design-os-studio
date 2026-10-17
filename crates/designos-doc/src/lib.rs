@@ -182,6 +182,10 @@ pub struct Document {
     gap_cursor: u64,
     #[serde(skip)]
     dirty: DirtyLog,
+    /// Subtrees whose size was changed by an auto-layout parent during [`Self::relayout_subtree`]
+    /// after [`MAX_RELAYOUT_RESOLVES`] or [`MAX_RELAYOUT_RESOLVE_DEPTH`] was reached.
+    #[serde(skip)]
+    pub(crate) pending_relayout: Vec<NodeId>,
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,

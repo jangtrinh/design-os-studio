@@ -988,6 +988,14 @@ impl Shell {
             self.app.flush_autosave();
         }
         self.app.scrub_sync(&ctx);
+        if let Some(notice) = self.app.doc.relayout_notice() {
+            if self.app.toast.as_ref().is_none_or(|t| !t.error) {
+                self.app.show_toast(notice, false);
+            }
+            self.app.doc.flush_pending_relayout_step();
+            self.app.canvas.tiles.invalidate_all();
+            ctx.request_repaint();
+        }
         let window_full = ui.max_rect();
         let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
