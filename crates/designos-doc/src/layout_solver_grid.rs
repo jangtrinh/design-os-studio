@@ -2,7 +2,7 @@
 
 use crate::layout_solver_grid_placement::{place_children, Placed, MAX_GRID_TRACKS};
 use crate::layout_solver_types::{ChildIn, LayoutOut, SizeLimits};
-use crate::{AutoLayout, GridTrack, Rect, Sizing, Vec2};
+use crate::{AutoLayout, GridAutoTracks, GridTrack, Rect, Sizing, Vec2};
 
 /// Widest clamped natural child (single-column ones only) in column `c`.
 fn widest_in_column(kids: &[ChildIn], placements: &[Placed], c: usize) -> f32 {
@@ -117,11 +117,29 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         }
     }
 
-    // Row heights: a Fixed row track wins; single-row items size their row from clamped height,
-    // then spanning items distribute only the remaining needed height across shorter auto rows.
-    let fixed_row = |r: usize| match al.grid_row_tracks.get(r) {
-        Some(GridTrack::Fixed(h)) => Some(h.max(0.0)),
-        _ => None,
+    // Row heights: an explicit Fixed row track wins (or an explicit Fixed auto-track size for
+    // implicit overflow rows `r >= al.grid_rows`); single-row items size their row from clamped
+    // height, then spanning items distribute only the remaining needed height across shorter auto rows.
+    let explicit_rows = al.grid_rows as usize;
+    let fixed_row = |r: usize| -> Option<f32> {
+        if explicit_rows > 0 && r < explicit_rows {
+            match al.grid_row_tracks.get(r) {
+                Some(GridTrack::Fixed(h)) => Some(h.max(0.0)),
+                _ => None,
+            }
+        } else if explicit_rows == 0 {
+            if let Some(GridTrack::Fixed(h)) = al.grid_row_tracks.get(r) {
+                Some(h.max(0.0))
+            } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
+                Some(h.max(0.0))
+            } else {
+                None
+            }
+        } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
+            Some(h.max(0.0))
+        } else {
+            None
+        }
     };
     let mut row_heights = vec![0.0f32; rows];
     for (r, h) in row_heights.iter_mut().enumerate() {

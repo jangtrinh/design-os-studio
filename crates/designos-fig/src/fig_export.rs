@@ -790,6 +790,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("gridRows", V::Uint(al.grid_rows)));
                 fields.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
             }
+            if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
+                fields.push(("gridAutoTracks", V::String(gat)));
+            }
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
                 fields.push(("gridRowGap", fl(al.counter_spacing)));
@@ -1231,6 +1234,18 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
         .join(" ")
 }
 
+fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
+    match gat {
+        GridAutoTracks::None => None,
+        GridAutoTracks::Rows => Some("ROWS".to_string()),
+        GridAutoTracks::Track(t) => {
+            let mut arr = [GridTrack::default(); 8];
+            arr[0] = t;
+            Some(format_grid_tracks(1, &arr))
+        }
+    }
+}
+
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     let mut var_entries = Vec::new();
     for (k, vid) in &vars.bindings {
@@ -1424,6 +1439,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         if al.grid_rows > 0 {
                             ov.push(("gridRows", V::Uint(al.grid_rows)));
                             ov.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
+                        }
+                        if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
+                            ov.push(("gridAutoTracks", V::String(gat)));
                         }
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));
