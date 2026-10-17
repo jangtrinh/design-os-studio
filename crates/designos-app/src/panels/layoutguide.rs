@@ -13,19 +13,19 @@ use crate::widgets::{self};
 use designos_doc::*;
 use egui::{Color32, Sense, Ui};
 
-const KINDS: [&str; 3] = ["Grid", "Columns", "Rows"];
+pub(super) const KINDS: [&str; 3] = ["Grid", "Columns", "Rows"];
 
 fn red() -> Color {
     Color::rgba(255, 0, 0, 26)
 }
 
-fn color_of(g: &LayoutGrid) -> Color {
+pub(super) fn color_of(g: &LayoutGrid) -> Color {
     match g {
         LayoutGrid::Grid { color, .. } | LayoutGrid::Columns { color, .. } | LayoutGrid::Rows { color, .. } => *color,
     }
 }
 
-fn kind_index(g: &LayoutGrid) -> usize {
+pub(super) fn kind_index(g: &LayoutGrid) -> usize {
     match g {
         LayoutGrid::Grid { .. } => 0,
         LayoutGrid::Columns { .. } => 1,

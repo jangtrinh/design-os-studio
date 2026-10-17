@@ -1,4 +1,5 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
+use designos_doc::live_patch::{live_ops_for_command, LiveOp};
 use designos_doc::{
     Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Rect, TextStyle, Vec2,
 };
@@ -9,13 +10,16 @@ pub struct Engine {
     pub doc: Document,
     pub history: History,
     pub active_page_id: Option<NodeId>,
+    /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
+    /// mirrors this session (`None` = not recording).
+    pub live_ops: Option<Vec<LiveOp>>,
 }
 
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
-        Self { doc, history: History::default(), active_page_id: Some(page) }
+        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None }
     }
 }
 
@@ -364,8 +368,14 @@ impl Engine {
             }
             "designos_undo" | "designos_redo" => {
                 let _: Empty = parse(args)?;
-                let changed =
-                    if name == "designos_undo" { self.history.undo(&mut self.doc) } else { self.history.redo(&mut self.doc) }.map_err(|e| e.to_string())?;
+                let undo = name == "designos_undo";
+                let next = if undo { self.history.peek_undo() } else { self.history.peek_redo() }.cloned();
+                let ops = match &next {
+                    Some(command) => self.live_ops_for(command)?,
+                    None => Vec::new(),
+                };
+                let changed = if undo { self.history.undo(&mut self.doc) } else { self.history.redo(&mut self.doc) }.map_err(|e| e.to_string())?;
+                self.record(ops);
                 Ok(json!({"changed":changed,"can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
             _ => Err(format!("unknown tool: {name}")),
@@ -380,7 +390,29 @@ impl Engine {
     }
 
     fn exec(&mut self, command: Command) -> Result<(), String> {
-        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())
+        let ops = self.live_ops_for(&command)?;
+        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
+        self.record(ops);
+        Ok(())
+    }
+
+    /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
+    fn live_ops_for(&self, command: &Command) -> Result<Vec<LiveOp>, String> {
+        if self.live_ops.is_none() {
+            return Ok(Vec::new());
+        }
+        live_ops_for_command(&self.doc, command)
+    }
+
+    fn record(&mut self, ops: Vec<LiveOp>) {
+        if let Some(log) = &mut self.live_ops {
+            log.extend(ops);
+        }
+    }
+
+    /// Drains the edits recorded since the last call.
+    pub fn take_live_ops(&mut self) -> Vec<LiveOp> {
+        self.live_ops.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     fn create(&mut self, a: CreateArgs) -> Result<Value, String> {

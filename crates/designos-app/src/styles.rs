@@ -125,16 +125,50 @@ impl App {
 
     /// Runs the outcome of a style operation as one undo step; false (with a toast) when refused.
     fn run_style_op(&mut self, op: Result<Command, StyleOpError>) -> bool {
+        self.run_style_op_then(op, |_, _| {})
+    }
+
+    /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
+    fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
         let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
         match applied {
-            Ok(()) => self.run_tx(tx),
+            Ok(()) => {
+                after(self, &mut tx);
+                self.run_tx(tx)
+            }
             Err(e) => {
                 tx.cancel(&mut self.doc);
                 self.show_toast(format!("Style not changed: {e}"), true);
                 false
             }
         }
+    }
+
+    /// Replaces the values of style `key` (fill, stroke, text, effect or grid; same kind as the
+    /// stored one) and pushes them to every layer linked to it, as one undo step. Text layers are
+    /// re-fitted to their new type. False (with a toast) when refused.
+    pub fn update_style_values(&mut self, key: &str, style: Style) -> bool {
+        // A numeric scrub still open would swallow the edit (it only records node changes).
+        self.scrub_end();
+        let op = update_style(&self.doc, key, style);
+        let linked = linked_style_nodes(&self.doc, key);
+        self.run_style_op_then(op, |app, tx| {
+            for id in linked {
+                // A layer inside an instance mirrors its main: the main is re-fitted here and the
+                // instance sync carries the size over, so no Size override gets recorded on the copy.
+                // Text that keeps its own size (own characters, size override) gets no sync: re-fit it.
+                if size_comes_from_main(&app.doc, id) {
+                    continue;
+                }
+                if let Some(n) = tx.ed.node(&mut app.doc, id) {
+                    if let NodeKind::Text(t) = &mut n.kind {
+                        n.size = layout::fit_text(t, n.size);
+                    }
+                }
+                layout::relayout_around(&mut app.doc, &mut tx.ed, id);
+            }
+        })
     }
 
     /// Creates an effect or grid style from the values of `node` and links the node to it.
@@ -296,6 +330,9 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
 }
 
 #[cfg(test)]
+mod instance_refit_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -414,6 +451,74 @@ mod tests {
     }
 
     #[test]
+    fn editing_a_style_updates_all_linked_layers_in_one_undo_step() {
+        let (mut ed, f, r, t) = app();
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        ed.apply_style(&[f, r], "Brand/Primary");
+        ed.apply_style(&[t], "s2");
+        let before_size = ed.doc.get(t).unwrap().size;
+        // A colour style reaches the frame and the rectangle but not the text layer.
+        assert!(ed.update_style_values("Brand/Primary", Style::Fill(vec![blue.clone()])));
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![blue.clone()]);
+        assert_eq!(ed.doc.get(r).unwrap().fills, vec![blue.clone()]);
+        assert!(matches!(&ed.doc.styles["Brand/Primary"], Style::Fill(p) if p == &vec![blue.clone()]));
+        // A text style resizes the linked auto-size text layer.
+        assert!(ed.update_style_values("s2", Style::Text(TextStyle { font_size: 80.0, font_weight: 700, ..Default::default() })));
+        match &ed.doc.get(t).unwrap().kind {
+            NodeKind::Text(tp) => assert_eq!((tp.style.font_size, tp.style.font_weight), (80.0, 700)),
+            other => panic!("{other:?}"),
+        }
+        assert!(ed.doc.get(t).unwrap().size.y > before_size.y, "the text layer follows its new size");
+        // One undo takes the text style edit back, the next one the colour edit.
+        ed.undo();
+        assert_eq!(ed.doc.get(t).unwrap().size, before_size);
+        assert!(matches!(&ed.doc.styles["s2"], Style::Text(ts) if ts.font_size == 40.0));
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![blue.clone()], "the colour edit is a separate step");
+        ed.undo();
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![Paint::solid(Color::rgb(1, 2, 3))]);
+        assert_eq!(ed.doc.get(r).unwrap().fills, vec![Paint::solid(Color::rgb(1, 2, 3))]);
+        // A wrong kind or an unknown style is refused with a toast and changes nothing.
+        let depth = ed.hist.can_undo();
+        assert!(!ed.update_style_values("Brand/Primary", Style::Effect(vec![])));
+        assert!(!ed.update_style_values("nope", Style::Fill(vec![])));
+        assert_eq!(ed.hist.can_undo(), depth);
+        assert!(ed.toast.is_some());
+    }
+
+    #[test]
+    fn editing_a_text_style_refits_the_main_and_the_instance_follows_without_a_size_override() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(10.0, 10.0, 100.0, 20.0), "A long label that wraps over a few lines in a narrow box", TextStyle::default());
+        if let NodeKind::Text(tp) = &mut t.kind {
+            tp.auto_resize = TextAutoResize::Height;
+        }
+        let t = d.insert(f, t).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        let mut app = App::new(d);
+        app.apply_style(&[t], "Body");
+        app.selection = vec![f];
+        app.create_component();
+        let comp = app.doc.get(t).and_then(|n| n.parent).expect("component root");
+        let inst = app.insert_instance(comp, Vec2::new(500.0, 100.0)).expect("instance");
+        let inst_text = app.doc.get(inst).unwrap().children[0];
+        assert_eq!(app.doc.get(inst_text).unwrap().component.source, Some(t), "the instance text mirrors the main text");
+        assert_eq!(app.doc.get(inst_text).unwrap().style_refs.get("text").map(String::as_str), Some("Body"));
+        let main_height = app.doc.get(t).unwrap().size.y;
+
+        assert!(app.update_style_values("Body", Style::Text(TextStyle { font_size: 40.0, ..Default::default() })));
+
+        let (main, copy) = (app.doc.get(t).unwrap(), app.doc.get(inst_text).unwrap());
+        assert!(main.size.y > main_height, "the main text is re-fitted to its new type");
+        assert_eq!(copy.size, main.size, "the instance takes the size from its main");
+        assert!(!copy.component.overrides.contains(&OverrideField::Size), "re-fitting is not a user override of the instance: {:?}", copy.component.overrides);
+        assert!(matches!(&copy.kind, NodeKind::Text(tp) if tp.style.font_size == 40.0), "the instance follows the new style");
+    }
+
+    #[test]
     fn creating_renaming_and_detaching_an_effect_style_are_single_undo_steps() {
         let (mut ed, _f, r, _t) = app();
         ed.edit_nodes(&[r], |n| n.effects = vec![Effect::LayerBlur { radius: 6.0, visible: true }]);
@@ -434,5 +539,30 @@ mod tests {
         let (mut empty, _f, r, _t) = app();
         assert!(empty.create_style_from(r, StyleProperty::Effect).is_none());
         assert!(empty.toast.is_some(), "the refusal is shown");
+    }
+
+    #[test]
+    fn editing_a_style_does_not_refit_library_nodes_skipped_by_doc_update_style() {
+        let (mut ed, _f, _r, t) = app();
+        ed.doc.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        ed.apply_style(&[t], "Body");
+
+        // Place a text node on the hidden library page with an un-fitted box size (500x200) and a style_ref to "Body".
+        let lp = ed.doc.add_page("__library__");
+        ed.doc.pages.retain(|&p| p != lp);
+        ed.doc.library_page = Some(lp);
+        let lib_tid = ed.doc.alloc_id();
+        let mut lib_text = Node::text(lib_tid, Rect::new(0.0, 0.0, 500.0, 200.0), "Library copy", TextStyle { font_size: 12.0, ..Default::default() });
+        lib_text.style_refs.insert("text".into(), "Body".into());
+        let lib_t = ed.doc.insert(lp, lib_text).unwrap();
+        assert!(is_library_node(&ed.doc, lib_t));
+
+        assert!(ed.update_style_values("Body", Style::Text(TextStyle { font_size: 40.0, ..Default::default() })));
+
+        // The local text node was updated and re-fitted, while the library node was untouched by both doc and app.
+        assert!(matches!(&ed.doc.get(t).unwrap().kind, NodeKind::Text(tp) if tp.style.font_size == 40.0));
+        let lib_after = ed.doc.get(lib_t).unwrap();
+        assert!(matches!(&lib_after.kind, NodeKind::Text(tp) if tp.style.font_size == 12.0), "doc-side update_style skips library nodes");
+        assert_eq!(lib_after.size, Vec2::new(500.0, 200.0), "app-side update_style_values must also skip library nodes instead of re-fitting them");
     }
 }

@@ -1,0 +1,14 @@
+test styles_ops::tests::effect_style_is_created_from_a_node_and_undone_in_one_step ... ok
+test styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused ... FAILED
+test styles_ops::tests::editing_a_style_updates_every_linked_node_and_only_those ... ok
+test styles_ops::tests::grid_style_is_created_from_a_frame_with_a_chosen_name ... ok
+test styles_ops::tests::renaming_changes_the_display_name_only ... ok
+test styles_ops::tests::effect_and_grid_styles_survive_a_native_save_and_load ... ok
+test styles_ops::tests::applying_links_nodes_and_copies_values ... ok
+test styles_ops::tests::creation_is_refused_without_values_or_on_the_wrong_node ... ok
+test styles_ops::tests::detaching_drops_the_link_but_keeps_the_values ... ok
+test styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step ... FAILED
+thread 'styles_ops::tests::editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused' (39550377) panicked at crates/designos-doc/src/styles_ops.rs:386:9:
+thread 'styles_ops::tests::editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step' (39550375) panicked at crates/designos-doc/src/styles_ops.rs:216:21:
+operation accepted: NotEffectOrGrid(Fill)
+test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 185 filtered out; finished in 0.00s

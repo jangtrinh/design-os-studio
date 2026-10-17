@@ -411,6 +411,12 @@ pub fn is_library_node(doc: &Document, id: NodeId) -> bool {
     id == lp || doc.is_ancestor(lp, id)
 }
 
+/// True when style `key` is the local copy of a style published by a shared library. Such a
+/// style is edited in its library file, never in a file that consumes it.
+pub fn is_library_style(doc: &Document, key: &str) -> bool {
+    doc.library.external.values().any(|e| e.kind == LibraryAssetKind::Style && e.local_key.as_deref() == Some(key))
+}
+
 /// The library asset a component node belongs to: `(external key, entry)`. A
 /// variant resolves to its set.
 pub fn library_asset_of_component(doc: &Document, comp: NodeId) -> Option<(&String, &ExternalAsset)> {
@@ -914,12 +920,11 @@ impl<'a> Trial<'a> {
         let Some(style) = self.snap.styles.get(raw).cloned() else { return };
         let local = self.ns(raw);
         self.set_style(&local, style.clone(), self.snap.style_meta.get(raw).cloned());
-        let prop = style_property(self.doc, &local);
         let targets: Vec<NodeId> =
             self.doc.nodes.values().filter(|n| n.style_refs.values().any(|v| *v == local) && !is_library_node(self.doc, n.id)).map(|n| n.id).collect();
         for id in targets {
             let mut n = self.doc.nodes[&id].clone();
-            if apply_style_values(&mut n, &style, prop, &local) {
+            if apply_style_values(&mut n, &style, &local) {
                 self.push(Command::Update { node: Box::new(n) });
             }
         }
@@ -962,21 +967,26 @@ pub fn style_property(doc: &Document, key: &str) -> StyleProperty {
     })
 }
 
-/// Copies a shared style's values onto `n` for the property it is linked to
+/// Copies a shared style's values onto `n` for every property it is linked to
 /// (the same rules as applying a style in the editor, minus text re-fitting).
-/// Returns whether the node changed.
-pub fn apply_style_values(n: &mut Node, style: &Style, prop: StyleProperty, key: &str) -> bool {
+/// A colour style may be linked as a fill, as a stroke, or as both; each side
+/// whose link names `key` takes the paints. Returns whether the node changed.
+pub fn apply_style_values(n: &mut Node, style: &Style, key: &str) -> bool {
     let before = n.clone();
     match style {
-        Style::Fill(paints) if prop == StyleProperty::Stroke => {
+        Style::Fill(paints) => {
             if n.style_refs.get("stroke").is_some_and(|k| k == key) {
                 n.stroke.paints = paints.clone();
             }
-        }
-        Style::Fill(paints) => {
             if n.style_refs.get("fill").is_some_and(|k| k == key) {
                 match &mut n.kind {
-                    NodeKind::Text(t) => t.style.fills = paints.clone(),
+                    NodeKind::Text(t) => {
+                        // Runs carry their own colour; a linked colour style recolours them all.
+                        t.style.fills = paints.clone();
+                        for r in &mut t.runs {
+                            r.style.fills = paints.clone();
+                        }
+                    }
                     _ => n.fills = paints.clone(),
                 }
             }
@@ -1556,5 +1566,33 @@ mod tests {
         let c = apply_updates(&mut d, &snap2, &["style:Brand".into()]);
         run(&mut d, c);
         assert!(matches!(d.get(rid).unwrap().fills[0].kind, PaintKind::Solid(c) if c.b == 1.0));
+    }
+
+    #[test]
+    fn style_update_reaches_layers_that_use_the_style_as_a_stroke() {
+        let mut lib = lib_doc();
+        let snap1 = snapshot(&lib, "L1", "Lib", 1);
+        let mut d = consumer();
+        let p = d.pages[0];
+        let c = import_asset(&mut d, &snap1, "style:Brand", None);
+        run(&mut d, c);
+        let mut ids = Vec::new();
+        for refs in [&["stroke"][..], &["fill", "stroke"][..]] {
+            let id = d.alloc_id();
+            let mut r = Node::rectangle(id, Rect::new(0.0, 0.0, 5.0, 5.0));
+            for k in refs {
+                r.style_refs.insert((*k).into(), "L1/Brand".into());
+            }
+            d.insert(p, r).unwrap();
+            ids.push(id);
+        }
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        lib.styles.insert("Brand".into(), Style::Fill(vec![blue.clone()]));
+        let snap2 = snapshot(&lib, "L1", "Lib", 2);
+        let c = apply_updates(&mut d, &snap2, &["style:Brand".into()]);
+        run(&mut d, c);
+        assert_eq!(d.get(ids[0]).unwrap().stroke.paints, vec![blue.clone()], "stroke-only link");
+        assert_eq!(d.get(ids[1]).unwrap().stroke.paints, vec![blue.clone()], "stroke side of a fill + stroke link");
+        assert_eq!(d.get(ids[1]).unwrap().fills, vec![blue]);
     }
 }
