@@ -2,10 +2,8 @@
 //! compressed schema + message.
 
 use crate::FigError;
-use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::rc::Rc;
+use std::io::{Cursor, Read};
 
 /// Hard cap on any single decompressed chunk / zip entry (zip-bomb guard: 2 GiB).
 const MAX_INFLATED: u64 = 2 << 30;
@@ -13,37 +11,40 @@ const MAX_INFLATED: u64 = 2 << 30;
 const MAX_INFLATED_TOTAL: u64 = 4 << 30;
 /// Cap on zip entries inspected; real files hold one entry per embedded image.
 const MAX_ZIP_ENTRIES: usize = 100_000;
-/// Grace window (16 MiB) before the streaming compression-ratio guard activates.
+/// Output up to this size (16 MiB) is never judged by compression ratio.
 const RATIO_GRACE_BYTES: u64 = 16 << 20;
-/// Maximum allowed `inflated_bytes / compressed_bytes_read` once past [`RATIO_GRACE_BYTES`].
+/// Largest accepted `inflated / compressed` ratio of a whole stream, enforced past [`RATIO_GRACE_BYTES`].
 const MAX_INFLATE_RATIO: u64 = 100;
 /// Streaming read chunk size (64 KiB) so rejected streams never pre-allocate multi-GiB buffers.
 const STREAM_CHUNK_BYTES: usize = 64 * 1024;
+const TOO_LARGE: &str = "decompressed data too large";
+const RATIO_EXCEEDED: &str = "decompressed data too large (compression ratio exceeded)";
 
-/// Reader wrapper that counts how many compressed input bytes have been pulled so far.
-struct CountingReader<R> {
-    inner: R,
-    bytes_read: Rc<Cell<u64>>,
+/// Why a bounded inflate stopped early.
+enum InflateError {
+    /// The output crossed the size cap or the compression-ratio limit: the input is oversized or hostile.
+    Limit(&'static str),
+    /// The stream itself could not be read (bad checksum, truncated or corrupt data).
+    Unreadable(String),
 }
 
-impl<R> CountingReader<R> {
-    fn new(inner: R, bytes_read: Rc<Cell<u64>>) -> Self {
-        Self { inner, bytes_read }
+impl From<InflateError> for FigError {
+    fn from(e: InflateError) -> Self {
+        match e {
+            InflateError::Limit(msg) => FigError::Format(msg.into()),
+            InflateError::Unreadable(msg) => FigError::Format(msg),
+        }
     }
 }
 
-impl<R: Read> Read for CountingReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        self.bytes_read.set(self.bytes_read.get().saturating_add(n as u64));
-        Ok(n)
-    }
-}
-
-impl<R: Seek> Seek for CountingReader<R> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.inner.seek(pos)
-    }
+/// True once `inflated` output is more than [`MAX_INFLATE_RATIO`] times the whole `compressed` input.
+///
+/// A decoder emits output in order, so a stream can start far denser than it is overall; judging the output so
+/// far against the input read so far would reject such a stream whose whole ratio is fine. Judging it against
+/// the whole input is safe to do early, because the unread rest of the stream can only add output and never
+/// bring the ratio back down.
+fn ratio_exceeded(inflated: u64, compressed: u64) -> bool {
+    compressed > 0 && inflated > RATIO_GRACE_BYTES && inflated / compressed > MAX_INFLATE_RATIO
 }
 
 /// Inflate allowance shared by every read of one archive or container.
@@ -65,7 +66,7 @@ pub const MAGIC_JAM: &[u8; 8] = b"fig-jam.";
 pub struct Archive {
     /// Raw `canvas.fig` bytes (the fig-kiwi container).
     pub canvas: Vec<u8>,
-    /// `images/<hash>` entries keyed by file name.
+    /// `images/<hash>` entries keyed by file name. A corrupt entry is left out; one past the size or ratio limits fails the open.
     pub images: BTreeMap<String, Vec<u8>>,
     pub meta: Option<serde_json::Value>,
     /// Inflate allowance left after opening the zip, so [`read_archive_chunks`] continues the same budget.
@@ -103,26 +104,24 @@ pub fn open_with_budget(bytes: &[u8], per_read: u64, total: u64) -> Result<Archi
     Ok(archive)
 }
 
-fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_read: Option<&Cell<u64>>) -> Result<Vec<u8>, FigError> {
+/// Inflates `r` into memory in [`STREAM_CHUNK_BYTES`] steps and stops as soon as the size cap or the ratio limit
+/// is crossed, so a bomb is never buffered up to the cap. `compressed_len` is the length of the whole compressed
+/// input behind `r` (see [`ratio_exceeded`]).
+fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_len: u64) -> Result<Vec<u8>, InflateError> {
     let cap = budget.per_read.min(budget.left);
     let mut out = Vec::new();
     let mut chunk = [0u8; STREAM_CHUNK_BYTES];
     loop {
-        let n = r.read(&mut chunk).map_err(|e| FigError::Format(format!("read error: {e}")))?;
+        let n = r.read(&mut chunk).map_err(|e| InflateError::Unreadable(format!("read error: {e}")))?;
         if n == 0 {
             break;
         }
         let next_len = (out.len() + n) as u64;
         if next_len > cap {
-            return Err(FigError::Format("decompressed data too large".into()));
+            return Err(InflateError::Limit(TOO_LARGE));
         }
-        if next_len > RATIO_GRACE_BYTES {
-            if let Some(comp_cell) = compressed_read {
-                let comp = comp_cell.get().max(1);
-                if next_len / comp > MAX_INFLATE_RATIO {
-                    return Err(FigError::Format("decompressed data too large (compression ratio exceeded)".into()));
-                }
-            }
+        if ratio_exceeded(next_len, compressed_len) {
+            return Err(InflateError::Limit(RATIO_EXCEEDED));
         }
         out.extend_from_slice(&chunk[..n]);
     }
@@ -138,9 +137,7 @@ fn open_zip(bytes: &[u8]) -> Result<Archive, FigError> {
 }
 
 fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Result<Archive, FigError> {
-    let compressed_read = Rc::new(Cell::new(0u64));
-    let reader = CountingReader::new(Cursor::new(bytes), Rc::clone(&compressed_read));
-    let mut zip = zip::ZipArchive::new(reader).map_err(|e| FigError::Format(format!("zip: {e}")))?;
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| FigError::Format(format!("zip: {e}")))?;
     if zip.len() > max_entries {
         return Err(FigError::Format(format!("zip has too many entries ({})", zip.len())));
     }
@@ -152,32 +149,31 @@ fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Resul
             continue;
         }
         let Ok(name) = file.name().map(|n| n.replace('\\', "/")) else { continue };
-        let cap = budget.per_read.min(budget.left);
-        let declared_too_large = file.size() > cap
-            || (file.size() > RATIO_GRACE_BYTES && file.compressed_size() > 0 && file.size() / file.compressed_size().max(1) > MAX_INFLATE_RATIO);
-        if name == "canvas.fig" || name.ends_with("/canvas.fig") {
-            if declared_too_large {
-                return Err(FigError::Format("decompressed data too large".into()));
-            }
-            compressed_read.set(0);
-            arch.canvas = read_limited(file, budget, Some(&compressed_read))?;
+        let is_canvas = name == "canvas.fig" || name.ends_with("/canvas.fig");
+        let image_hash = name.strip_prefix("images/").filter(|h| !h.is_empty() && !h.contains('/'));
+        if !is_canvas && name != "meta.json" && image_hash.is_none() {
+            continue;
+        }
+        // The header's compressed size is attacker-controlled; the entry cannot hold more than what follows its data offset.
+        let in_archive = file.data_start().map_or(bytes.len() as u64, |start| (bytes.len() as u64).saturating_sub(start));
+        let compressed_len = file.compressed_size().min(in_archive);
+        if file.size() > budget.per_read.min(budget.left) || ratio_exceeded(file.size(), compressed_len) {
+            return Err(FigError::Format(TOO_LARGE.into()));
+        }
+        let data = match read_limited(file, budget, compressed_len) {
+            Ok(data) => data,
+            Err(InflateError::Limit(msg)) => return Err(FigError::Format(msg.into())),
+            // Only the canvas is indispensable: an image or meta.json that cannot be read is left out of the archive.
+            Err(e @ InflateError::Unreadable(_)) if is_canvas => return Err(e.into()),
+            Err(InflateError::Unreadable(_)) => continue,
+        };
+        if is_canvas {
+            arch.canvas = data;
             have_canvas = true;
-        } else if name == "meta.json" {
-            if declared_too_large {
-                return Err(FigError::Format("decompressed data too large".into()));
-            }
-            compressed_read.set(0);
-            let data = read_limited(file, budget, Some(&compressed_read))?;
+        } else if let Some(hash) = image_hash {
+            arch.images.insert(hash.to_string(), data);
+        } else {
             arch.meta = serde_json::from_slice(&data).ok();
-        } else if let Some(h) = name.strip_prefix("images/") {
-            if !h.is_empty() && !h.contains('/') {
-                if declared_too_large {
-                    return Err(FigError::Format("decompressed data too large".into()));
-                }
-                compressed_read.set(0);
-                let data = read_limited(file, budget, Some(&compressed_read))?;
-                arch.images.insert(h.to_string(), data);
-            }
         }
     }
     if !have_canvas {
@@ -232,21 +228,20 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, FigError> {
 }
 
 fn decompress_with(data: &[u8], budget: &mut Budget) -> Result<Vec<u8>, FigError> {
-    let compressed_read = Rc::new(Cell::new(0u64));
+    let compressed_len = data.len() as u64;
     if data.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
-        let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
-        let dec = ruzstd::decoding::StreamingDecoder::new(reader).map_err(|e| FigError::Format(format!("zstd: {e}")))?;
-        return read_limited(dec, budget, Some(&compressed_read));
+        let dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| FigError::Format(format!("zstd: {e}")))?;
+        return Ok(read_limited(dec, budget, compressed_len)?);
     }
-    let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
-    match read_limited(flate2::read::DeflateDecoder::new(reader), budget, Some(&compressed_read)) {
+    match read_limited(flate2::read::DeflateDecoder::new(data), budget, compressed_len) {
         Ok(v) => Ok(v),
-        Err(e) if e.to_string().contains("decompressed data too large") => Err(e),
-        Err(e) => {
+        Err(InflateError::Limit(msg)) => Err(FigError::Format(msg.into())),
+        Err(InflateError::Unreadable(first)) => {
             // Some producers use zlib framing.
-            compressed_read.set(0);
-            let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
-            read_limited(flate2::read::ZlibDecoder::new(reader), budget, Some(&compressed_read)).map_err(|_| e)
+            read_limited(flate2::read::ZlibDecoder::new(data), budget, compressed_len).map_err(|e| match e {
+                InflateError::Limit(msg) => FigError::Format(msg.into()),
+                InflateError::Unreadable(_) => FigError::Format(first),
+            })
         }
     }
 }
@@ -297,6 +292,22 @@ pub fn write_zip(canvas: &[u8], images: &BTreeMap<String, Vec<u8>>, meta: Option
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    /// Reader wrapper that counts how many compressed input bytes have been pulled so far.
+    struct CountingReader<R> {
+        inner: R,
+        bytes_read: Rc<Cell<u64>>,
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.bytes_read.set(self.bytes_read.get().saturating_add(n as u64));
+            Ok(n)
+        }
+    }
 
     #[test]
     fn compression_roundtrips() {
@@ -445,8 +456,12 @@ mod tests {
 
     /// Wraps a raw DEFLATE stream as `canvas.fig` inside a minimal Zip64 PKZIP archive.
     fn wrap_raw_deflate_in_zip(entry_name: &str, raw_deflate: &[u8], declared_uncompressed: u64) -> Vec<u8> {
+        wrap_raw_deflate_in_zip_declaring(entry_name, raw_deflate, declared_uncompressed, raw_deflate.len() as u64)
+    }
+
+    /// Like [`wrap_raw_deflate_in_zip`], but the headers claim `comp_size` compressed bytes whatever the stream holds.
+    fn wrap_raw_deflate_in_zip_declaring(entry_name: &str, raw_deflate: &[u8], declared_uncompressed: u64, comp_size: u64) -> Vec<u8> {
         let name_bytes = entry_name.as_bytes();
-        let comp_size = raw_deflate.len() as u64;
         // Zip64 extra field (header ID 0x0001, data size 16: 8B uncompressed + 8B compressed)
         let mut extra = Vec::with_capacity(20);
         extra.extend_from_slice(&0x0001u16.to_le_bytes());
@@ -521,13 +536,16 @@ mod tests {
         let err_ratio = open_with_budget(&within_cap_zip, 2 << 30, 4 << 30).expect_err("streaming ratio guard must reject");
         assert!(err_ratio.to_string().contains("decompressed data too large"), "unexpected error: {err_ratio}");
 
-        // Verify directly on the underlying stream that `decompress_with` aborts right after `RATIO_GRACE_BYTES` (16 MiB)
-        // after consuming < 256 KiB of the 2.1 MB compressed input, never buffering the 2 GiB stream.
+        // Verify directly on the underlying stream that `read_limited` aborts as soon as the output is more than
+        // `MAX_INFLATE_RATIO` times the whole 2.1 MB compressed input, after consuming < 256 KiB of it and never
+        // buffering the 2 GiB stream.
         let comp_pulled = Rc::new(Cell::new(0u64));
-        let reader = CountingReader::new(Cursor::new(&raw_deflate), Rc::clone(&comp_pulled));
+        let reader = CountingReader { inner: Cursor::new(&raw_deflate), bytes_read: Rc::clone(&comp_pulled) };
         let mut budget = Budget::new(MAX_INFLATED, MAX_INFLATED_TOTAL);
-        let err2 =
-            read_limited(flate2::read::DeflateDecoder::new(reader), &mut budget, Some(&comp_pulled)).expect_err("raw 2 GiB + 1 deflate bomb must be rejected");
+        let err2 = FigError::from(
+            read_limited(flate2::read::DeflateDecoder::new(reader), &mut budget, raw_deflate.len() as u64)
+                .expect_err("raw 2 GiB + 1 deflate bomb must be rejected"),
+        );
         assert!(err2.to_string().contains("decompressed data too large"), "unexpected error: {err2}");
         assert_eq!(budget.left, MAX_INFLATED_TOTAL, "failed read must not commit partial bytes");
         assert!(
@@ -535,6 +553,140 @@ mod tests {
             "streaming ratio guard must abort after pulling < 256 KiB of compressed input, pulled {} bytes",
             comp_pulled.get()
         );
+    }
+
+    #[test]
+    fn entry_declaring_a_huge_compressed_size_is_still_ratio_checked() {
+        // A header that claims a gigantic compressed size must not switch the ratio guard off: the entry cannot hold
+        // more than the archive does, and that is what its declared output is judged against.
+        let raw_deflate = deflate_bomb_2gib_plus_one();
+        let declared_output = 250u64 << 20;
+        assert!(declared_output / raw_deflate.len() as u64 > MAX_INFLATE_RATIO, "the declared output must be a bomb for the stream it sits on");
+        for name in ["canvas.fig", "images/bomb"] {
+            let lying = wrap_raw_deflate_in_zip_declaring(name, &raw_deflate, declared_output, 1 << 40);
+            let err = open_with_budget(&lying, 256 << 20, 256 << 20).expect_err("a bomb behind a lying compressed size must be rejected");
+            assert!(err.to_string().contains("decompressed data too large"), "{name}: unexpected error: {err}");
+        }
+    }
+
+    /// Deterministic incompressible bytes (splitmix64), so the tests need no RNG dependency.
+    fn pseudo_random_bytes(len: usize, seed: u64) -> Vec<u8> {
+        let mut state = seed;
+        let mut out = Vec::with_capacity(len + 8);
+        while out.len() < len {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            out.extend_from_slice(&(z ^ (z >> 31)).to_le_bytes());
+        }
+        out.truncate(len);
+        out
+    }
+
+    /// A message whose zero prefix alone compresses far past [`MAX_INFLATE_RATIO`] once it crosses
+    /// [`RATIO_GRACE_BYTES`], but whose incompressible tail keeps the ratio of the whole message low.
+    fn skewed_message(how: Compression) -> Vec<u8> {
+        let zeros = vec![0u8; RATIO_GRACE_BYTES as usize + (2 << 20)];
+        let tail = pseudo_random_bytes(2 << 20, 7);
+        let prefix_ratio = zeros.len() / compress(&zeros, how).len();
+        let mut msg = zeros;
+        msg.extend_from_slice(&tail);
+        let whole_ratio = msg.len() / compress(&msg, how).len();
+        assert!(prefix_ratio as u64 > MAX_INFLATE_RATIO, "{how:?}: the zero prefix must exceed the ratio limit on its own ({prefix_ratio}:1)");
+        assert!((whole_ratio as u64) < MAX_INFLATE_RATIO, "{how:?}: the whole message must stay under the ratio limit ({whole_ratio}:1)");
+        msg
+    }
+
+    fn assert_skewed_chunk_opens(how: Compression) {
+        let msg = skewed_message(how);
+        let canvas = write_container(b"schema", &msg, how, 1);
+        let (schema, message) = read_chunks(&canvas).unwrap_or_else(|e| panic!("{how:?} bare container: {e}"));
+        assert_eq!(schema, b"schema");
+        assert!(message == msg, "{how:?} bare container message differs");
+
+        let zipped = write_zip(&canvas, &BTreeMap::new(), None);
+        let archive = open(&zipped).unwrap_or_else(|e| panic!("{how:?} zipped container: {e}"));
+        let (_, message) = read_archive_chunks(&archive).unwrap_or_else(|e| panic!("{how:?} zipped container chunks: {e}"));
+        assert!(message == msg, "{how:?} zipped container message differs");
+    }
+
+    #[test]
+    fn deflate_chunk_with_compressible_prefix_and_low_overall_ratio_opens() {
+        assert_skewed_chunk_opens(Compression::Deflate);
+    }
+
+    #[test]
+    fn zstd_chunk_with_compressible_prefix_and_low_overall_ratio_opens() {
+        assert_skewed_chunk_opens(Compression::Zstd);
+    }
+
+    #[test]
+    fn chunk_whose_whole_ratio_is_past_the_limit_is_rejected_while_streaming() {
+        // The same zero prefix with no incompressible tail behind it: the whole stream is a bomb.
+        for how in [Compression::Deflate, Compression::Zstd] {
+            let zeros = vec![0u8; RATIO_GRACE_BYTES as usize + (2 << 20)];
+            let compressed = compress(&zeros, how);
+            assert!((zeros.len() / compressed.len()) as u64 > MAX_INFLATE_RATIO, "{how:?}: the stream must be past the limit overall");
+            let err = decompress(&compressed).expect_err("a chunk past the ratio limit overall must be rejected");
+            assert!(err.to_string().contains("compression ratio exceeded"), "{how:?}: unexpected error: {err}");
+        }
+    }
+
+    #[test]
+    fn zip_entry_with_compressible_prefix_and_low_overall_ratio_opens() {
+        let image = skewed_message(Compression::Deflate);
+        let canvas = write_container(b"s", b"m", Compression::Deflate, 1);
+        let mut images = BTreeMap::new();
+        images.insert("skewed".to_string(), image.clone());
+        let archive = open(&write_zip(&canvas, &images, None)).expect("an entry whose whole ratio is under the limit opens");
+        assert!(archive.images["skewed"] == image);
+    }
+
+    /// Flips the first compressed bytes of `name` so inflating it fails, and proves the damage is real.
+    fn damage_entry(zip_bytes: &mut [u8], name: &str) {
+        let start = {
+            let mut archive = zip::ZipArchive::new(Cursor::new(&*zip_bytes)).unwrap();
+            let entry = archive.by_name(name).unwrap();
+            entry.data_start().expect("data offset of a located entry") as usize
+        };
+        zip_bytes[start] ^= 0xFF;
+        zip_bytes[start + 1] ^= 0xFF;
+        let mut archive = zip::ZipArchive::new(Cursor::new(&*zip_bytes)).unwrap();
+        let mut sink = Vec::new();
+        assert!(archive.by_name(name).unwrap().read_to_end(&mut sink).is_err(), "{name} must be unreadable after the damage");
+    }
+
+    #[test]
+    fn damaged_image_or_meta_entry_is_skipped_not_fatal() {
+        let canvas = write_container(b"schema", b"message", Compression::Deflate, 1);
+        let payload = b"image bytes that will not survive".repeat(40);
+        let mut z = zip_of(&[
+            ("canvas.fig", canvas.clone()),
+            ("meta.json", br#"{"file_name":"x"}"#.repeat(20)),
+            ("images/bad", payload.clone()),
+            ("images/good", payload.clone()),
+        ]);
+        damage_entry(&mut z, "images/bad");
+        damage_entry(&mut z, "meta.json");
+
+        let archive = open(&z).expect("one unreadable image or meta.json must not fail the whole file");
+        assert_eq!(archive.canvas, canvas);
+        assert_eq!(archive.images.keys().map(String::as_str).collect::<Vec<_>>(), ["good"], "only the damaged image is left out");
+        assert_eq!(archive.images["good"], payload);
+        assert!(archive.meta.is_none());
+        let (schema, message) = read_archive_chunks(&archive).unwrap();
+        assert_eq!((schema.as_slice(), message.as_slice()), (&b"schema"[..], &b"message"[..]));
+    }
+
+    #[test]
+    fn image_entry_past_the_ratio_limit_still_fails_the_open() {
+        // Skipping unreadable entries must not turn a real bomb into a silently dropped image.
+        let canvas = write_container(b"s", b"m", Compression::Deflate, 1);
+        let mut images = BTreeMap::new();
+        images.insert("bomb".to_string(), vec![0u8; RATIO_GRACE_BYTES as usize + (4 << 20)]);
+        let err = open(&write_zip(&canvas, &images, None)).expect_err("an image far past the ratio limit must fail the open");
+        assert!(err.to_string().contains("decompressed data too large"), "unexpected error: {err}");
     }
 
     #[test]
