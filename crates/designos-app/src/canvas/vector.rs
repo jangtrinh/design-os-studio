@@ -150,6 +150,31 @@ fn box_screen_corners(b: Rect, to_screen: &dyn Fn(DV) -> DV) -> [DV; 4] {
     [to_screen(v2(b.x, b.y)), to_screen(v2(b.x + b.w, b.y)), to_screen(v2(b.x + b.w, b.y + b.h)), to_screen(v2(b.x, b.y + b.h))]
 }
 
+/// Screen distance between the selected points' box and the frame that carries its scale handles.
+/// Twice the point pick radius: a handle never overlaps a point inside the box, nor the stroke of
+/// a straight segment between two of them, so those keep their own gestures.
+const BOX_HANDLE_GAP_PX: f32 = 2.0 * theme::VEDIT_HIT;
+
+/// Centres of the eight scale handles of the box `b` on the screen, on a frame
+/// [`BOX_HANDLE_GAP_PX`] outside the box along its own axes (so it follows a rotated or flipped
+/// node, and a box without width or height still gets distinct handles).
+pub fn box_handle_points(b: Rect, to_screen: &dyn Fn(DV) -> DV) -> [(super::handles::Handle, DV); 8] {
+    let [tl, tr, br, bl] = box_screen_corners(b, to_screen);
+    let axis = |to: DV, fallback: DV| {
+        let d = sub(to, tl);
+        let l = len(d);
+        if l < 1e-6 {
+            fallback
+        } else {
+            scale(d, 1.0 / l)
+        }
+    };
+    let ux = scale(axis(to_screen(v2(b.x + 1.0, b.y)), v2(1.0, 0.0)), BOX_HANDLE_GAP_PX);
+    let uy = scale(axis(to_screen(v2(b.x, b.y + 1.0)), v2(0.0, 1.0)), BOX_HANDLE_GAP_PX);
+    let frame = [sub(sub(tl, ux), uy), sub(add(tr, ux), uy), add(add(br, ux), uy), add(sub(bl, ux), uy)];
+    super::handles::Handle::ALL.map(|h| (h, super::handles::handle_pos(&frame, h)))
+}
+
 /// Handles worth showing: those of the selected vertices and of their neighbours,
 /// and both ends of the selected segment.
 fn visible_handles(net: &VectorNetwork, sel: &BTreeSet<usize>, seg: Option<usize>) -> BTreeSet<(usize, End)> {
@@ -193,17 +218,15 @@ pub fn hit_test(
             return Some(Hit::Handle(s, e));
         }
     }
-    if let Some(b) = selected_bounds(net, sel) {
-        let corners = box_screen_corners(b, to_screen);
-        for h in super::handles::Handle::ALL {
-            if dist(super::handles::handle_pos(&corners, h), p) <= radius {
-                return Some(Hit::BoxHandle(h));
-            }
-        }
-    }
     for (i, v) in net.vertices.iter().enumerate().rev() {
         if dist(to_screen(v.pos), p) <= radius {
             return Some(Hit::Vertex(i));
+        }
+    }
+    // scale handles come after points, so a point is never shadowed by the box frame
+    if let Some(b) = selected_bounds(net, sel) {
+        if let Some((h, _)) = box_handle_points(b, to_screen).into_iter().find(|(_, c)| dist(*c, p) <= radius) {
+            return Some(Hit::BoxHandle(h));
         }
     }
     let mut best: Option<(f32, Hit)> = None;
@@ -405,17 +428,10 @@ pub fn press(app: &mut App, rect: ERect, pos: Pos2, mods: Modifiers) -> bool {
         bucket_click(app, rect, pos);
         return true;
     }
-    let mut hit = {
+    let hit = {
         let to_s = mapper(app, rect, world);
         hit_test(&v.net, &v.sel, v.seg.map(|s| s.0), &to_s, v2(pos.x, pos.y), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT)
     };
-    if matches!(hit, Some(Hit::BoxHandle(_))) && (mods.shift || mods.command || tool == VTool::Bend) {
-        let to_s = mapper(app, rect, world);
-        let p = v2(pos.x, pos.y);
-        if let Some((i, _)) = v.net.vertices.iter().enumerate().rev().find(|(_, vx)| dist(to_s(vx.pos), p) <= theme::VEDIT_HIT) {
-            hit = Some(Hit::Vertex(i));
-        }
-    }
     let vertex_of = |app: &App, seg: usize, end: End| app.canvas.vedit.as_ref().map(|v| v.net.vertex_of(seg, end));
     match hit {
         Some(Hit::Handle(seg, end)) => {
@@ -534,10 +550,12 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
                 if mods.alt { (0.5, 0.5) } else { (if handle.affects_x() { 1.0 - hx } else { 0.5 }, if handle.affects_y() { 1.0 - hy } else { 0.5 }) };
             let anchor_pt = v2(box0.x + ax * box0.w, box0.y + ay * box0.h);
             let handle_pt0 = v2(box0.x + hx * box0.w, box0.y + hy * box0.h);
+            // the handle sits outside the box, so it follows the pointer's travel rather than its position
+            let target = add(handle_pt0, sub(local, d.anchor));
             let mut sx =
-                if handle.affects_x() && (handle_pt0.x - anchor_pt.x).abs() > 1e-4 { (local.x - anchor_pt.x) / (handle_pt0.x - anchor_pt.x) } else { 1.0 };
+                if handle.affects_x() && (handle_pt0.x - anchor_pt.x).abs() > 1e-4 { (target.x - anchor_pt.x) / (handle_pt0.x - anchor_pt.x) } else { 1.0 };
             let mut sy =
-                if handle.affects_y() && (handle_pt0.y - anchor_pt.y).abs() > 1e-4 { (local.y - anchor_pt.y) / (handle_pt0.y - anchor_pt.y) } else { 1.0 };
+                if handle.affects_y() && (handle_pt0.y - anchor_pt.y).abs() > 1e-4 { (target.y - anchor_pt.y) / (handle_pt0.y - anchor_pt.y) } else { 1.0 };
             if mods.shift && handle.is_corner() {
                 let mag = sx.abs().max(sy.abs());
                 sx = if sx < 0.0 { -mag } else { mag };
@@ -638,19 +656,6 @@ pub fn release(app: &mut App) {
     let Some(d) = v.drag.take() else { return };
     if !d.changed {
         match d.kind {
-            DragKind::ScaleBox { .. } => {
-                d.tx.cancel(&mut app.doc);
-                let world = d.world0;
-                if let Some(v) = app.canvas.vedit.as_mut() {
-                    let hit_r = theme::VEDIT_HIT / zoom.max(1e-3);
-                    let p_page = world.apply(d.anchor);
-                    if let Some((vi, _)) = v.net.vertices.iter().enumerate().rev().find(|(_, vx)| dist(world.apply(vx.pos), p_page) <= hit_r) {
-                        v.sel = BTreeSet::from([vi]);
-                        app.changed();
-                    }
-                }
-                return;
-            }
             DragKind::Segment { seg, t } => {
                 // a click on a segment adds a point
                 d.tx.cancel(&mut app.doc);
@@ -1059,15 +1064,17 @@ pub fn overlay(app: &App, p: &Painter, rect: ERect) {
             p.circle_stroke(sp(to_s(vx.pos)), theme::VEDIT_POINT_SIZE * 1.1, Stroke::new(1.0, col));
         }
     }
-    // multi-point bounding box and 8 resize handles
+    // multi-point scale frame: the box outline sits on the 8 handles, clear of the points inside it
     if let Some(b) = selected_bounds(&v.net, &v.sel) {
-        let corners = box_screen_corners(b, &to_s);
-        let pts = [sp(corners[0]), sp(corners[1]), sp(corners[2]), sp(corners[3]), sp(corners[0])];
-        p.add(egui::Shape::line(pts.to_vec(), Stroke::new(1.0, col)));
-        for h in super::handles::Handle::ALL {
+        let handles = box_handle_points(b, &to_s);
+        // `Handle::ALL` runs clockwise from the top-left corner, so the handles in order trace the frame
+        let mut ring: Vec<Pos2> = handles.iter().map(|(_, c)| sp(*c)).collect();
+        ring.push(ring[0]);
+        p.add(egui::Shape::line(ring, Stroke::new(1.0, col)));
+        for (h, c) in handles {
             let hovered = v.hover == Some(Hit::BoxHandle(h));
             let size = theme::VEDIT_POINT_SIZE * if hovered { 1.4 } else { 1.0 };
-            let hr = ERect::from_center_size(sp(super::handles::handle_pos(&corners, h)), egui::Vec2::splat(size));
+            let hr = ERect::from_center_size(sp(c), egui::Vec2::splat(size));
             p.rect_filled(hr, 0.0, if hovered { col } else { theme::CANVAS_HANDLE_FILL });
             p.rect_stroke(hr, 0.0, Stroke::new(1.0, col), StrokeKind::Inside);
         }
@@ -1719,5 +1726,196 @@ mod tests {
         // Segment 0's start tangent (attached to selected vertex 0) scaled by 2x
         assert!((net.segments[0].ta.x - t0_before.x * 2.0).abs() < 1e-3);
         assert!((net.segments[0].ta.y - t0_before.y * 2.0).abs() < 1e-3);
+    }
+
+    fn test_rect() -> ERect {
+        ERect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0))
+    }
+
+    /// Screen position of the scale handle `h` of the selected points' box. It is found by probing
+    /// `hit_test` over the screen, so the tests do not depend on where the handle is drawn.
+    fn scale_handle_pos(app: &App, rect: ERect, h: super::super::handles::Handle) -> Pos2 {
+        let v = vedit(app);
+        let to_s = mapper(app, rect, app.doc.world_transform(v.id));
+        let pts: Vec<DV> = v.sel.iter().map(|i| to_s(v.net.vertices[*i].pos)).collect();
+        let lo = v2(pts.iter().map(|p| p.x).fold(f32::MAX, f32::min) - 60.0, pts.iter().map(|p| p.y).fold(f32::MAX, f32::min) - 60.0);
+        let hi = v2(pts.iter().map(|p| p.x).fold(f32::MIN, f32::max) + 60.0, pts.iter().map(|p| p.y).fold(f32::MIN, f32::max) + 60.0);
+        let (mut sum, mut n) = (v2(0.0, 0.0), 0u32);
+        let mut y = lo.y;
+        while y <= hi.y {
+            let mut x = lo.x;
+            while x <= hi.x {
+                let hit = hit_test(&v.net, &v.sel, v.seg.map(|s| s.0), &to_s, v2(x, y), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT);
+                if hit == Some(Hit::BoxHandle(h)) {
+                    sum = add(sum, v2(x, y));
+                    n += 1;
+                }
+                x += 1.0;
+            }
+            y += 1.0;
+        }
+        assert!(n > 0, "the {h:?} scale handle cannot be hit");
+        Pos2::new(sum.x / n as f32, sum.y / n as f32)
+    }
+
+    /// Screen position of the page point `p`.
+    fn screen_of(app: &App, rect: ERect, p: DV) -> Pos2 {
+        app.view.to_screen(rect.min, p)
+    }
+
+    /// A pointer gesture on the canvas, like the interaction layer feeds it: press at a screen
+    /// position, move through page-space points, release.
+    fn gesture(app: &mut App, rect: ERect, from: Pos2, path: &[DV], mods: Modifiers) {
+        assert!(press(app, rect, from, mods));
+        for q in path {
+            drag(app, *q, mods);
+        }
+        release(app);
+    }
+
+    fn world_pos(app: &App, id: NodeId, vertex: usize) -> DV {
+        app.doc.world_transform(id).apply(vedit(app).net.vertices[vertex].pos)
+    }
+
+    #[test]
+    fn shift_on_a_scale_handle_over_a_selected_point_keeps_the_aspect() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        // vertices 0 and 2 are the top-left and bottom-right of the selection's box
+        sel(&mut app, &[0, 2]);
+        let rect = test_rect();
+        let from = scale_handle_pos(&app, rect, super::super::handles::Handle::BR);
+        let page0 = app.view.to_page(rect.min, from);
+        // pointer travel (+100, +50): 2x wide and 1.5x tall unless the aspect is locked
+        gesture(&mut app, rect, from, &[add(page0, v2(100.0, 50.0))], Modifiers::SHIFT);
+        let (p0, p1, p2) = (world_pos(&app, id, 0), world_pos(&app, id, 1), world_pos(&app, id, 2));
+        assert!((p0.x - 200.0).abs() < 1e-3 && (p0.y - 100.0).abs() < 1e-3, "the opposite corner stays: {p0:?}");
+        assert!((p2.x - 400.0).abs() < 1e-3 && (p2.y - 300.0).abs() < 1e-3, "locked to 2x in both axes: {p2:?}");
+        assert!((p1.x - 300.0).abs() < 1e-3 && (p1.y - 100.0).abs() < 1e-3, "the unselected point stays: {p1:?}");
+        assert_eq!(vedit(&app).sel, BTreeSet::from([0, 2]), "the selection is untouched");
+    }
+
+    #[test]
+    fn dragging_a_selected_corner_point_moves_the_whole_selection() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        sel(&mut app, &[0, 2]);
+        let rect = test_rect();
+        let on_point = screen_of(&app, rect, world_pos(&app, id, 2));
+        let page0 = app.view.to_page(rect.min, on_point);
+        gesture(&mut app, rect, on_point, &[add(page0, v2(20.0, 0.0))], Modifiers::NONE);
+        let (p0, p2) = (world_pos(&app, id, 0), world_pos(&app, id, 2));
+        assert!((p0.x - 220.0).abs() < 1e-3 && (p0.y - 100.0).abs() < 1e-3, "{p0:?}");
+        assert!((p2.x - 320.0).abs() < 1e-3 && (p2.y - 200.0).abs() < 1e-3, "{p2:?}");
+    }
+
+    #[test]
+    fn shift_and_command_clicks_on_a_selected_corner_point_still_edit_that_point() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1, 2]);
+        let rect = test_rect();
+        let on_point = screen_of(&app, rect, world_pos(&app, id, 2));
+        gesture(&mut app, rect, on_point, &[], Modifiers::SHIFT);
+        assert_eq!(vedit(&app).sel, BTreeSet::from([0, 1]), "shift toggles the point out of the selection");
+        sel(&mut app, &[0, 1, 2]);
+        gesture(&mut app, rect, on_point, &[], Modifiers { command: true, ..Modifiers::NONE });
+        assert_eq!(vedit(&app).sel, BTreeSet::from([2]), "command picks the point alone");
+        assert_eq!(vedit(&app).net.vertices[2].mirror, HandleMirror::AngleAndLength, "and toggles it smooth");
+    }
+
+    #[test]
+    fn pressing_a_scale_handle_without_dragging_keeps_the_selection() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1, 2]);
+        let rect = test_rect();
+        let handle = scale_handle_pos(&app, rect, super::super::handles::Handle::TL);
+        let before = vedit(&app).net.clone();
+        // a plain click
+        gesture(&mut app, rect, handle, &[], Modifiers::NONE);
+        assert_eq!(vedit(&app).sel, BTreeSet::from([0, 1, 2]), "a click on a handle selects nothing");
+        // a press that moves less than the drag threshold
+        let page0 = app.view.to_page(rect.min, handle);
+        let nudge_page = v2(2.0 / app.view.zoom, 0.0);
+        gesture(&mut app, rect, handle, &[add(page0, nudge_page)], Modifiers::NONE);
+        assert_eq!(vedit(&app).sel, BTreeSet::from([0, 1, 2]), "a tiny movement selects nothing either");
+        assert_eq!(vedit(&app).net, before, "and moves nothing");
+        assert!(!app.hist.can_undo(), "no undo step was recorded");
+    }
+
+    #[test]
+    fn scale_handles_lie_outside_the_box_and_clear_of_its_points_under_any_node_transform() {
+        let points = [v2(10.0, 20.0), v2(110.0, 20.0), v2(110.0, 120.0), v2(40.0, 70.0)];
+        let flat = [v2(10.0, 20.0), v2(110.0, 20.0)];
+        let transforms = [
+            Affine::translate(200.0, 100.0),
+            Affine::translate(200.0, 100.0) * Affine::rotate(0.6),
+            Affine::translate(50.0, 50.0) * Affine::scale(-0.5, 0.5),
+            Affine::scale(3.0, 2.0) * Affine::rotate(2.5),
+        ];
+        let min_gap = 2.0 * theme::VEDIT_HIT - 1e-3;
+        for t in transforms {
+            for pts in [&points[..], &flat[..]] {
+                let (x0, x1) = (pts.iter().map(|p| p.x).fold(f32::MAX, f32::min), pts.iter().map(|p| p.x).fold(f32::MIN, f32::max));
+                let (y0, y1) = (pts.iter().map(|p| p.y).fold(f32::MAX, f32::min), pts.iter().map(|p| p.y).fold(f32::MIN, f32::max));
+                let b = Rect::new(x0, y0, x1 - x0, y1 - y0);
+                let to_s = |p: DV| t.apply(p);
+                let handles = box_handle_points(b, &to_s);
+                let inv = t.invert().unwrap();
+                for (i, (h, c)) in handles.iter().enumerate() {
+                    for q in pts {
+                        assert!(dist(*c, to_s(*q)) >= min_gap, "{h:?} is too close to a point under {t:?}");
+                    }
+                    for (h2, c2) in &handles[i + 1..] {
+                        assert!(dist(*c, *c2) >= min_gap, "{h:?} and {h2:?} overlap under {t:?}");
+                    }
+                    // outside the box on the sides the handle names, within it along the others
+                    let l = inv.apply(*c);
+                    let (hx, hy) = h.norm();
+                    let eps = 1e-2;
+                    let side_ok = |v: f32, lo: f32, hi: f32, n: f32| {
+                        if n == 0.0 {
+                            v < lo - eps
+                        } else if n == 1.0 {
+                            v > hi + eps
+                        } else {
+                            v >= lo - eps && v <= hi + eps
+                        }
+                    };
+                    assert!(side_ok(l.x, b.x, b.x + b.w, hx) && side_ok(l.y, b.y, b.y + b.h, hy), "{h:?} at {l:?} is not outside {b:?} under {t:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_straight_segments_midpoint_is_not_taken_by_the_box_handles_of_its_end_points() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        // vertices 0 and 1 are the ends of the horizontal segment 0, so the box has no height
+        sel(&mut app, &[0, 1]);
+        let ident = |p: DV| p;
+        let sel01 = vedit(&app).sel.clone();
+        assert_eq!(hit_test(&vedit(&app).net, &sel01, None, &ident, v2(50.0, 0.0), 6.0, 5.0), Some(Hit::Segment(0, 0.5)));
+        // a click on the midpoint adds a point, as it did before points could be scaled
+        let rect = test_rect();
+        let mid = screen_of(&app, rect, v2(250.0, 100.0));
+        gesture(&mut app, rect, mid, &[], Modifiers::NONE);
+        assert_eq!(vedit(&app).net.vertices.len(), 4, "a point was inserted");
+    }
+
+    #[test]
+    fn dragging_a_straight_segments_midpoint_moves_the_segment_when_its_end_points_are_selected() {
+        let (mut app, id) = app_with_vector();
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1]);
+        let rect = test_rect();
+        let mid = screen_of(&app, rect, v2(250.0, 100.0));
+        gesture(&mut app, rect, mid, &[v2(250.0, 115.0), v2(250.0, 130.0)], Modifiers::NONE);
+        let (p0, p1, p2) = (world_pos(&app, id, 0), world_pos(&app, id, 1), world_pos(&app, id, 2));
+        assert!((p0.x - 200.0).abs() < 1e-3 && (p0.y - 130.0).abs() < 1e-3, "{p0:?}");
+        assert!((p1.x - 300.0).abs() < 1e-3 && (p1.y - 130.0).abs() < 1e-3, "{p1:?}");
+        assert!((p2.x - 300.0).abs() < 1e-3 && (p2.y - 200.0).abs() < 1e-3, "the other point stays: {p2:?}");
     }
 }
