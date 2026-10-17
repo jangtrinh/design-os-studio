@@ -25,7 +25,7 @@ type Origins = Vec<(f32, f32)>;
 
 /// Child origins from the editor solver, then from the spec solver run on a real document.
 fn positions_from_both(al: AutoLayout, frame: Vec2, kids: &[(f32, f32)]) -> (Origins, Origins) {
-    let ins: Vec<ChildIn> = kids.iter().map(|&(w, h)| ChildIn { size: v2(w, h), main_fill: false, cross_fill: false, grow: 0.0 }).collect();
+    let ins: Vec<ChildIn> = kids.iter().map(|&(w, h)| ChildIn { size: v2(w, h), ..Default::default() }).collect();
     let editor = compute(&al, frame, &ins).rects.iter().map(|r| (r.x, r.y)).collect();
 
     let mut d = Document::new("t");
