@@ -22,6 +22,9 @@ pub struct ProtoState {
     /// Flow whose name is being edited in the list.
     pub scroll: f32,
     pub content_h: f32,
+    /// Scroll offset and content height of the Frame preset list in the Design tab.
+    pub presets_scroll: f32,
+    pub presets_content_h: f32,
     /// Hotspot drag started on the canvas: (source layer, pointer position).
     pub connect: Option<(NodeId, egui::Pos2)>,
     /// Layer whose hotspot the pointer is over.
@@ -126,6 +129,9 @@ pub const FRAME_PRESETS: &[FramePreset] = &[
     FramePreset { category: PresetCategory::SocialMedia, name: "LinkedIn cover", width: 1584.0, height: 396.0, corner_radius: 0.0 },
 ];
 
+/// Space between a new preset frame and the top-level frame it is stepped past (a multiple of 4).
+const PRESET_FRAME_GAP: f32 = 40.0;
+
 /// Looks up a [`FramePreset`] by exact name.
 pub fn find_frame_preset(name: &str) -> Option<&'static FramePreset> {
     FRAME_PRESETS.iter().find(|p| p.name == name)
@@ -227,17 +233,34 @@ impl App {
         self.changed();
     }
 
-    /// Creates a new top-level frame on the active page sized and named from a [`FramePreset`].
+    /// Creates a new top-level frame on the active page sized and named from a [`FramePreset`]. It opens
+    /// centred on the viewport, moved right past any top-level frame it would otherwise cover.
     pub fn create_preset_frame(&mut self, preset_name: &str) -> Option<NodeId> {
         let preset = find_frame_preset(preset_name)?;
+        let at = self.preset_frame_origin(preset.width, preset.height);
         let id = self.doc.alloc_id();
-        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, preset.width, preset.height));
+        let mut frame = Node::frame(id, Rect::new(at.x, at.y, preset.width, preset.height));
         frame.name = preset.name.to_string();
         let index = self.doc.get(self.page).map(|p| p.children.len()).unwrap_or(0);
         self.hist.exec(&mut self.doc, Command::Insert { parent: self.page, index, nodes: vec![frame] }).ok()?;
         self.selection = vec![id];
         self.changed();
         Some(id)
+    }
+
+    /// Top-left page position for a new `w` x `h` top-level frame: its centre on the viewport centre
+    /// (whole pixels), then stepped right of every top-level frame it overlaps.
+    fn preset_frame_origin(&self, w: f32, h: f32) -> Vec2 {
+        let centre = self.view.to_page(self.canvas_rect.min, self.canvas_rect.center());
+        let mut at = Rect::new((centre.x - w / 2.0).round(), (centre.y - h / 2.0).round(), w, h);
+        let siblings: Vec<Rect> =
+            self.doc.get(self.page).map(|p| p.children.iter().map(|c| crate::util::world_aabb(&self.doc, *c)).collect()).unwrap_or_default();
+        // A step clears every frame it overlapped and only moves right, so it ends within `siblings.len()` steps.
+        for _ in 0..=siblings.len() {
+            let Some(right) = siblings.iter().filter(|s| s.intersects(&at)).map(|s| s.x + s.w).reduce(f32::max) else { break };
+            at.x = (right + PRESET_FRAME_GAP).ceil();
+        }
+        Vec2::new(at.x, at.y)
     }
 }
 
@@ -1096,5 +1119,58 @@ mod tests {
         let node = app.doc.get(fid).unwrap();
         assert_eq!(node.name, "iPhone 17 Pro Max");
         assert_eq!((node.size.x, node.size.y), (440.0, 956.0));
+    }
+
+    #[test]
+    fn device_dropdown_keeps_the_original_entries_first() {
+        let head: Vec<&str> = DEVICES.iter().take(3).map(|d| d.0).collect();
+        assert_eq!(head, ["None", "iPhone 15", "iPhone 15 Pro Max"], "stored index-based pickers keep pointing at the same device");
+    }
+
+    fn preset_app() -> App {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        let mut app = App::new(d);
+        app.canvas_rect = egui::Rect::from_min_size(egui::Pos2::new(300.0, 0.0), egui::vec2(1000.0, 800.0));
+        app
+    }
+
+    #[test]
+    fn preset_frame_opens_centered_in_the_visible_viewport() {
+        let mut app = preset_app();
+        app.view = crate::app::View { offset: Vec2::new(4000.0, 4000.0), zoom: 0.5 };
+        let id = app.create_preset_frame("iPhone 17").expect("created frame");
+        let b = crate::util::world_aabb(&app.doc, id);
+        assert_eq!((b.w, b.h), (402.0, 874.0));
+        let view = app.view.to_page(app.canvas_rect.min, app.canvas_rect.center());
+        assert!(
+            (b.x + b.w / 2.0 - view.x).abs() <= 1.0 && (b.y + b.h / 2.0 - view.y).abs() <= 1.0,
+            "frame center ({}, {}) must be the viewport center ({}, {})",
+            b.x + b.w / 2.0,
+            b.y + b.h / 2.0,
+            view.x,
+            view.y
+        );
+        assert_eq!((b.x.fract(), b.y.fract()), (0.0, 0.0), "placed on whole pixels");
+        assert_eq!(app.selection, vec![id]);
+        let count = app.doc.nodes.len();
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), count - 1, "one undo removes the frame");
+    }
+
+    #[test]
+    fn successive_preset_frames_sit_side_by_side_on_the_grid() {
+        let mut app = preset_app();
+        let mut placed: Vec<Rect> = Vec::new();
+        for name in ["iPhone 17", "Desktop", "A4", "iPhone 17"] {
+            let id = app.create_preset_frame(name).expect("created frame");
+            let b = crate::util::world_aabb(&app.doc, id);
+            for earlier in &placed {
+                assert!(!b.intersects(earlier), "{name} at {b:?} overlaps an earlier preset frame {earlier:?}");
+            }
+            placed.push(b);
+        }
+        let gap = placed[1].x - (placed[0].x + placed[0].w);
+        assert!(gap > 0.0 && gap % 4.0 == 0.0, "the second frame starts {gap} px right of the first: a positive step on the 4 px grid");
     }
 }
