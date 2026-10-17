@@ -1079,11 +1079,25 @@ mod tests {
         );
     }
 
+    /// Budget for the fastest steady-state `sync_live_file_context` call on the synthetic 303-node doc
+    /// (debug build, full parallel suite). The call mostly writes and renames 7 files, which costs a
+    /// different amount per OS, so each OS gets a budget under 3x its measured fastest call: a 3x
+    /// slowdown fails everywhere. Fastest of 40 calls, measured 2026-10-17: macOS 3.4 ms on macos-14 CI
+    /// (2.2 ms on an Apple-silicon laptop), Linux 4.4 ms, Windows 10.6 ms.
+    const SYNTH_TERM_SYNC_BUDGET_MS: f64 = if cfg!(windows) {
+        25.0
+    } else if cfg!(target_os = "macos") {
+        6.0
+    } else {
+        10.0
+    };
+
     #[test]
     fn vsf_pcp_single_container_instance_and_multi_selection_under_2ms() {
         // The real "VSF - PCP.fig" bench is opt-in through DESIGNOS_BENCH_FIG. A hard-coded home path
         // ties the test to one machine, and probing ~/Downloads blocks on the macOS privacy prompt.
         let fig_path = std::env::var_os("DESIGNOS_BENCH_FIG").map(std::path::PathBuf::from);
+        let real_fixture = fig_path.is_some();
         let doc = if let Some(fig_path) = fig_path {
             let bytes = std::fs::read(&fig_path).unwrap_or_else(|e| panic!("read DESIGNOS_BENCH_FIG {}: {e}", fig_path.display()));
             designos_fig::import_fig(&bytes).expect("import DESIGNOS_BENCH_FIG")
@@ -1204,51 +1218,22 @@ mod tests {
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
         let term_sync_cold_ms = t_sync_cold.elapsed().as_secs_f64() * 1000.0;
 
-        // Steady state: the sync that runs on every page or selection change. File I/O on shared CI
-        // runners spikes by tens of milliseconds, so the budget applies to the fastest of N calls.
-        let mut term_sync_samples: Vec<f64> = (0..40)
-            .map(|_| {
-                app.terminal.last_synced_key = None;
-                let t = std::time::Instant::now();
-                app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
-                t.elapsed().as_secs_f64() * 1000.0
-            })
-            .collect();
-        term_sync_samples.sort_by(f64::total_cmp);
-        let term_sync_ms = term_sync_samples[0];
-
-        // DIAG (temporary): I/O floor = rewriting the same files with no serialization work.
-        let mut floor_samples = Vec::new();
-        {
-            let mut files = Vec::new();
-            let mut stack = vec![session_dir.clone()];
-            while let Some(d) = stack.pop() {
-                for e in std::fs::read_dir(&d).unwrap().flatten() {
-                    let p = e.path();
-                    if p.is_dir() {
-                        stack.push(p);
-                    } else {
-                        files.push((p.clone(), std::fs::read(&p).unwrap()));
-                    }
-                }
-            }
-            for _ in 0..40 {
-                let t = std::time::Instant::now();
-                for (p, b) in &files {
-                    let tmp = p.with_extension("floor.tmp");
-                    std::fs::write(&tmp, b).unwrap();
-                    std::fs::rename(&tmp, p).unwrap();
-                }
-                floor_samples.push(t.elapsed().as_secs_f64() * 1000.0);
-            }
-            floor_samples.sort_by(f64::total_cmp);
-            let bytes: usize = files.iter().map(|(_, b)| b.len()).sum();
-            eprintln!("[DIAG] files={} bytes={bytes}", files.len());
+        // Steady state: the sync that runs on every page or selection change. Shared CI runners stall
+        // file I/O for tens of milliseconds at a time, so the budget applies to the fastest call: keep
+        // calling (at least 5 times, at most 5 s) until one lands under it. A healthy sync gets there in
+        // a few calls; a regressed one never does, however long it is sampled.
+        let term_sync_budget_ms = if real_fixture { 60.0 } else { SYNTH_TERM_SYNC_BUDGET_MS };
+        let sample_until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut term_sync_ms = f64::INFINITY;
+        let mut term_sync_calls = 0;
+        while (term_sync_calls < 5 || term_sync_ms >= term_sync_budget_ms) && std::time::Instant::now() < sample_until {
+            app.terminal.last_synced_key = None;
+            let t = std::time::Instant::now();
+            app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+            term_sync_ms = term_sync_ms.min(t.elapsed().as_secs_f64() * 1000.0);
+            term_sync_calls += 1;
         }
         let _ = std::fs::remove_dir_all(&session_dir);
-        let fmt = |v: &[f64]| v.iter().map(|x| format!("{x:.2}")).collect::<Vec<_>>().join(",");
-        let diag = format!("[DIAG os={}] cold={term_sync_cold_ms:.2} sync=[{}] floor=[{}]", std::env::consts::OS, fmt(&term_sync_samples), fmt(&floor_samples));
-        eprintln!("{diag}");
 
         // 6. Canvas Overlay Chrome, Label Rects & Hover Hit-Test at zoom=1.0
         app.view.zoom = 1.0;
@@ -1286,9 +1271,11 @@ mod tests {
             multi_sel_ms
         );
         eprintln!(
-            "[INTERACTION & POST-LOAD BENCH] fonts_load={:.3}ms | term_sync={:.3}ms | label_rects={:.3}ms | chrome_nodes({})={:.4}ms | hit_test={:.4}ms | with_sync={:.4}ms | layout_node={:.3}ms",
+            "[INTERACTION & POST-LOAD BENCH] fonts_load={:.3}ms | term_sync={:.3}ms (fastest of {} calls, cold {:.3}ms) | label_rects={:.3}ms | chrome_nodes({})={:.4}ms | hit_test={:.4}ms | with_sync={:.4}ms | layout_node={:.3}ms",
             fonts_ms,
             term_sync_ms,
+            term_sync_calls,
+            term_sync_cold_ms,
             labels_ms,
             chrome_count,
             chrome_ms,
@@ -1296,14 +1283,16 @@ mod tests {
             with_sync_ms,
             layout_ms
         );
-        panic!("{diag}"); // DIAG (temporary): surface per-OS numbers in CI logs
 
         assert!(single_leaf_ms < 25.0, "single leaf selection took {:.3}ms", single_leaf_ms);
         assert!(container_sel_ms < 25.0, "big container selection took {:.3}ms", container_sel_ms);
         assert!(instance_sel_ms < 25.0, "instance selection took {:.3}ms", instance_sel_ms);
         assert!(multi_sel_ms < 25.0, "200-node multi-selection + marquee took {:.3}ms", multi_sel_ms);
         assert!(fonts_ms < 60.0, "fonts.load_for took {:.3}ms", fonts_ms);
-        assert!(term_sync_ms < 60.0, "sync_live_file_context took {:.3}ms", term_sync_ms);
+        assert!(
+            term_sync_ms < term_sync_budget_ms,
+            "steady-state sync_live_file_context took {term_sync_ms:.3}ms at best over {term_sync_calls} calls (budget {term_sync_budget_ms}ms)"
+        );
         assert!(hit_ms < 10.0, "hit_test_with_index took {:.4}ms", hit_ms);
         assert!(with_sync_ms < 10.0, "comp_ops::with_sync took {:.4}ms", with_sync_ms);
         assert!(layout_ms < 30.0, "layout_node took {:.3}ms", layout_ms);
