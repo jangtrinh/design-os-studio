@@ -1,7 +1,8 @@
 //! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
 
+use super::replay_comments::{resolve_comments, CommentRemap};
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
-use crate::{Command, CommentThread, DocError, Document, Node, NodeId};
+use crate::{Command, DocError, Document, Node, NodeId};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,6 +14,8 @@ const LAYOUT_FIELDS: [&str; 4] = ["size", "kind", "layout_child", "visible"];
 pub struct LivePatchState {
     /// Agent ids that collided with nodes the editor created meanwhile, and their new ids.
     remap: BTreeMap<NodeId, NodeId>,
+    /// The same for comment thread and message ids.
+    comments: CommentRemap,
 }
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
@@ -114,20 +117,9 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             report.needs_layout.push(parent);
             Some(Command::Remove { id })
         }
-        LiveOp::Comments { upsert, removed } => {
-            let mut comments = doc.comments.clone();
-            for thread in upsert {
-                let mut thread = thread.clone();
-                thread.anchor.page = map(thread.anchor.page, state);
-                thread.anchor.node = thread.anchor.node.map(|n| map(n, state));
-                upsert_thread(&mut comments, thread);
-            }
-            comments.retain(|t| !removed.contains(&t.id));
-            if comments == doc.comments {
-                report.duplicates += 1;
-                return None;
-            }
-            Some(Command::SetComments { comments })
+        LiveOp::Comments { added, changed, removed } => {
+            let node = |id: NodeId| state.remap.get(&id).copied().unwrap_or(id);
+            resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
         }
     }
 }
@@ -223,11 +215,4 @@ fn remap_subtree(nodes: &mut [Node], map: &BTreeMap<NodeId, NodeId>) {
 fn remap_hint(at: &SiblingHint, state: &LivePatchState) -> SiblingHint {
     let m = |id: NodeId| state.remap.get(&id).copied().unwrap_or(id);
     SiblingHint { after: at.after.map(m), before: at.before.map(m) }
-}
-
-fn upsert_thread(comments: &mut Vec<CommentThread>, thread: CommentThread) {
-    match comments.iter_mut().find(|t| t.id == thread.id) {
-        Some(slot) => *slot = thread,
-        None => comments.push(thread),
-    }
 }

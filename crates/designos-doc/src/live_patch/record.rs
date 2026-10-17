@@ -1,6 +1,6 @@
 //! Agent side: turn a command about to be executed into the [`LiveOp`]s it performs.
 
-use super::{LiveOp, SiblingHint, STRUCTURAL_FIELDS};
+use super::{LiveOp, SiblingHint, ThreadChange, STRUCTURAL_FIELDS};
 use crate::{Command, CommentThread, Document, Node};
 use serde_json::{Map, Value};
 
@@ -71,9 +71,23 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
 }
 
 fn comment_changes(before: &[CommentThread], after: &[CommentThread]) -> Option<LiveOp> {
-    let upsert: Vec<_> = after.iter().filter(|t| !before.contains(t)).cloned().collect();
-    let removed: Vec<_> = before.iter().filter(|t| !after.iter().any(|a| a.id == t.id)).map(|t| t.id.clone()).collect();
-    (!upsert.is_empty() || !removed.is_empty()).then_some(LiveOp::Comments { upsert, removed })
+    let find = |list: &[CommentThread], id: &str| list.iter().find(|t| t.id == id).cloned();
+    let added: Vec<_> = after.iter().filter(|t| find(before, &t.id).is_none()).cloned().collect();
+    let removed: Vec<_> = before.iter().filter(|t| find(after, &t.id).is_none()).map(|t| t.id.clone()).collect();
+    let changed: Vec<_> = after.iter().filter_map(|a| find(before, &a.id).filter(|b| b != a).map(|b| thread_change(&b, a))).collect();
+    (!added.is_empty() || !changed.is_empty() || !removed.is_empty()).then_some(LiveOp::Comments { added, changed, removed })
+}
+
+fn thread_change(before: &CommentThread, after: &CommentThread) -> ThreadChange {
+    let old = |id: &str| before.messages.iter().find(|m| m.id == id);
+    ThreadChange {
+        id: after.id.clone(),
+        resolved: (before.resolved != after.resolved).then_some(after.resolved),
+        anchor: (before.anchor != after.anchor).then_some(after.anchor),
+        added: after.messages.iter().filter(|m| old(&m.id).is_none()).cloned().collect(),
+        edited: after.messages.iter().filter(|m| old(&m.id).is_some_and(|o| o != *m)).cloned().collect(),
+        removed: before.messages.iter().filter(|m| !after.messages.iter().any(|a| a.id == m.id)).map(|m| m.id.clone()).collect(),
+    }
 }
 
 fn command_name(cmd: &Command) -> &'static str {

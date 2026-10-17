@@ -1,6 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::Engine;
-use designos_doc::live_patch::LivePatch;
+use designos_doc::live_patch::{LiveOp, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -213,8 +213,7 @@ impl Session {
         let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
             return Ok(());
         };
-        let mut line = serde_json::to_string(&LivePatch::new(ops)).map_err(|e| format!("serialize live patch: {e}"))?;
-        line.push('\n');
+        let line = live_patch_line(ops, MAX_LIVE_PATCH_LINE_BYTES)?;
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -566,6 +565,21 @@ impl ServerHandler for DesignOSServer {
     }
 }
 
+/// One `doc-patch.jsonl` line, refused when it is over the size the editor reads.
+fn live_patch_line(ops: Vec<LiveOp>, max_bytes: usize) -> Result<String, String> {
+    let mut line = serde_json::to_string(&LivePatch::new(ops)).map_err(|e| format!("serialize live patch: {e}"))?;
+    if line.len() > max_bytes {
+        let mib = |b: usize| b as f64 / (1 << 20) as f64;
+        return Err(format!(
+            "this edit is {:.1} MiB, over the {:.0} MiB the editor accepts, so Studio was not updated; split it into smaller calls",
+            mib(line.len()),
+            mib(max_bytes)
+        ));
+    }
+    line.push('\n');
+    Ok(line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -670,5 +684,14 @@ mod tests {
 
         let _ = fs::remove_dir_all(&ws_dir);
         let _ = fs::remove_dir_all(&sess_dir);
+    }
+
+    #[test]
+    fn an_oversized_patch_line_is_refused() {
+        let ops = vec![LiveOp::Remove { id: designos_doc::NodeId(7) }];
+        let line = live_patch_line(ops.clone(), 1 << 20).unwrap();
+        assert!(line.ends_with('\n') && line.len() < 100);
+        let err = live_patch_line(ops, 10).unwrap_err();
+        assert!(err.contains("over the"), "{err}");
     }
 }

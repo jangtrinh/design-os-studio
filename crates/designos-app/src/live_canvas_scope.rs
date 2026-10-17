@@ -2,7 +2,7 @@
 //!
 //! Serializing a whole large file on every edit would stall the UI thread, so the agent gets the
 //! current page with its top-level frames as empty shells, plus the frames that hold the current
-//! selection in full. The editor selects what an agent edit created, so the agent can keep
+//! selection in full, and every comment thread. The editor selects what an agent edit created, so the agent can keep
 //! working on it in its next tool call.
 
 use designos_doc::{Document, NodeId};
@@ -44,6 +44,9 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
         }
     }
     scoped.nodes.insert(page, p);
+    // Threads are small; with them the agent can reply to the user's threads and picks ids
+    // that do not collide with theirs.
+    scoped.comments = doc.comments.clone();
     scoped
 }
 

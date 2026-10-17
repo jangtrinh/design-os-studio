@@ -1248,6 +1248,7 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 crate::live_patch_apply::apply_live_patches(app, &patches);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             }
+            crate::terminal::TerminalAction::LiveSyncError(msg) => app.show_toast(msg, true),
             crate::terminal::TerminalAction::ReloadFromDisk => {
                 if let Some(p) = app.file_path.clone() {
                     app.open_path(p);

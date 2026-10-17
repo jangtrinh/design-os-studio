@@ -67,9 +67,10 @@ fn big_fixture() -> Fixture {
     Fixture { doc, page, toolbar, screens }
 }
 
+/// A session id no other test in any running test process uses (tests run in parallel).
 fn unique_tab_id() -> u64 {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
-    900_000 + (nanos % 100_000) + std::process::id() as u64
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    9_000_000 + (std::process::id() as u64 % 100_000) * 100 + NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[test]
@@ -167,12 +168,86 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     assert!(app.hist.undo(&mut app.doc).expect("undo"));
     assert_eq!(price_text(&app.doc), "$49");
 
-    // One undo restores the document as it was before the agent edit.
-    assert!(app.hist.undo(&mut app.doc).expect("undo"), "agent edit must be one undo step");
+    // Each agent tool call is its own undo step, however the polls happened to group them:
+    // the rename and the card arrived in one poll but undo one at a time.
+    assert!(app.hist.undo(&mut app.doc).expect("undo"));
+    assert_eq!(app.doc.get(renamed).unwrap().name, "Screen 7", "the rename is its own undo step");
+    assert!(app.doc.get(card).is_some(), "undoing the rename must not undo the card");
+    assert!(app.hist.undo(&mut app.doc).expect("undo"), "the card is its own undo step");
     assert_eq!(app.doc.nodes.len(), node_count);
     assert!(app.doc.get(card).is_none());
     assert_eq!(app.doc.get(renamed).unwrap().name, "Screen 7");
     assert_eq!(app.doc.get(page).unwrap().children, page_children);
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+/// A user thread with a given id and one message.
+fn user_thread(id: &str, page: NodeId, text: &str) -> CommentThread {
+    CommentThread {
+        id: id.into(),
+        anchor: CommentAnchor { page, node: None, offset: Vec2::new(10.0, 10.0) },
+        messages: vec![Comment { id: format!("{id}-1"), author: "Jang".into(), text: text.into(), created: "2026-10-17T09:00:00Z".into(), edited: None }],
+        resolved: false,
+    }
+}
+
+#[test]
+fn agent_comments_never_overwrite_user_threads() {
+    let Fixture { mut doc, page, .. } = big_fixture();
+    doc.comments.push(user_thread("t1", page, "User thread"));
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let replay = |app: &mut App| {
+        let actions = app.terminal.poll_live_agent_bridge();
+        crate::shell::execute_terminal_actions(app, actions);
+    };
+    let thread = |app: &App, id: &str| app.doc.comments.iter().find(|t| t.id == id).cloned();
+    let texts = |t: &CommentThread| t.messages.iter().map(|m| m.text.clone()).collect::<Vec<_>>();
+
+    // 1. The agent adds a thread while the user's `t1` already exists.
+    let added = session.call("designos_add_comment", json!({ "page_id": page.0, "x": 5.0, "y": 5.0, "text": "Agent note" })).expect("add_comment");
+    replay(&mut app);
+    assert_eq!(texts(&thread(&app, "t1").expect("user t1")), ["User thread"], "the user's t1 was overwritten");
+    let agent_id = added["id"].as_str().unwrap().to_string();
+    let agent_threads: Vec<_> = app.doc.comments.iter().filter(|t| texts(t) == ["Agent note"]).collect();
+    assert_eq!(agent_threads.len(), 1, "the agent's thread must exist once");
+    assert_ne!(agent_threads[0].id, "t1");
+
+    // 2. The user adds `t4` after the agent read the canvas; the agent's next thread is also `t4`.
+    app.doc.comments.push(user_thread("t4", page, "User race"));
+    let raced = session.call("designos_add_comment", json!({ "page_id": page.0, "x": 6.0, "y": 6.0, "text": "Agent race" })).expect("add_comment");
+    assert_eq!(raced["id"], "t4", "precondition: the agent picks the id the user just took");
+    replay(&mut app);
+    assert_eq!(texts(&thread(&app, "t4").unwrap()), ["User race"], "the user's t4 was overwritten");
+    let moved = app.doc.comments.iter().find(|t| texts(t) == ["Agent race"]).expect("agent thread kept under a new id").id.clone();
+    assert_ne!(moved, "t4");
+
+    // Later edits to the agent's `t4` follow it to its new id.
+    session.call("designos_reply_comment", json!({ "thread_id": "t4", "text": "Agent follow-up" })).expect("reply");
+    replay(&mut app);
+    assert_eq!(texts(&thread(&app, "t4").unwrap()), ["User race"]);
+    assert_eq!(texts(&thread(&app, &moved).unwrap()), ["Agent race", "Agent follow-up"]);
+
+    // 3. The user and the agent both reply to t1; both replies survive.
+    let mut t1 = thread(&app, "t1").unwrap();
+    t1.messages.push(Comment { id: "t1-2".into(), author: "Jang".into(), text: "User reply".into(), created: "2026-10-17T09:05:00Z".into(), edited: None });
+    if let Some(t) = app.doc.comments.iter_mut().find(|t| t.id == "t1") {
+        *t = t1;
+    }
+    session.call("designos_reply_comment", json!({ "thread_id": "t1", "text": "Agent reply" })).expect("reply to t1");
+    replay(&mut app);
+    assert_eq!(texts(&thread(&app, "t1").unwrap()), ["User thread", "User reply", "Agent reply"]);
+    let ids: Vec<_> = thread(&app, "t1").unwrap().messages.iter().map(|m| m.id.clone()).collect();
+    assert_eq!(ids.iter().collect::<std::collections::BTreeSet<_>>().len(), 3, "message ids must stay unique: {ids:?}");
+    assert!(app.doc.comments.iter().any(|t| t.id == agent_id || texts(t) == ["Agent note"]));
 
     app.terminal.shutdown();
     let _ = std::fs::remove_dir_all(&session_dir);

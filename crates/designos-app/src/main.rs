@@ -22,6 +22,7 @@ mod libraries;
 mod lint;
 mod live_canvas_scope;
 mod live_patch_apply;
+mod live_patch_log;
 #[cfg(test)]
 mod live_sync_tests;
 mod ops;

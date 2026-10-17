@@ -318,6 +318,8 @@ pub enum TerminalAction {
     SyncLiveDoc(PathBuf),
     /// Replays agent edits appended by `designos-mcp` to `doc-patch.jsonl` on the open document.
     ApplyLivePatch(Vec<designos_doc::live_patch::LivePatch>),
+    /// An agent edit in `doc-patch.jsonl` could not be read (unreadable or over the size limit).
+    LiveSyncError(String),
     /// Triggers immediate hot-reload of `save_path` into the Canvas.
     ReloadFromDisk,
     /// Serializes the currently selected Canvas node (or first top-level frame) to
@@ -543,7 +545,7 @@ pub struct TerminalState {
     pub selection_spec_path: PathBuf,
     pub last_doc_sync_mtime: Option<std::time::SystemTime>,
     /// Agent edits log (`doc-patch.jsonl`) written by `designos-mcp`, with its read position.
-    pub live_patch: crate::live_patch_apply::LivePatchLog,
+    pub live_patch: crate::live_patch_log::LivePatchLog,
     pub last_synced_key: Option<(u64, u64, u64)>,
     pub current_page_id: u64,
     pub current_page_name: String,
@@ -614,7 +616,7 @@ impl TerminalState {
         let initial_doc_mtime = std::fs::metadata(&live_doc_sync_path).and_then(|m| m.modified()).ok();
         let fallback_spec_mtime = std::fs::metadata("/tmp/designos-live-agent-out.spec.json").and_then(|m| m.modified()).ok();
         let fallback_doc_mtime = std::fs::metadata("/tmp/designos-live-doc-sync.designos").and_then(|m| m.modified()).ok();
-        let live_patch = crate::live_patch_apply::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
+        let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         Self {
             session_id,
             session_dir,
@@ -672,7 +674,7 @@ impl TerminalState {
         self.session_dir = session_dir;
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
         self.last_doc_sync_mtime = std::fs::metadata(&self.live_doc_sync_path).and_then(|m| m.modified()).ok();
-        self.live_patch = crate::live_patch_apply::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
+        self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.last_synced_key = None;
     }
 
@@ -1214,8 +1216,9 @@ impl TerminalState {
 
         // Channel 2a: Scoped doc-patch.jsonl (edits made by designos-mcp tools)
         let (patches, errors) = self.live_patch.poll();
-        if let Some(err) = errors.into_iter().next() {
-            self.status_msg = Some(err);
+        for err in errors {
+            self.status_msg = Some(err.clone());
+            actions.push(TerminalAction::LiveSyncError(err));
         }
         if !patches.is_empty() {
             self.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), self.live_patch.path.display()));

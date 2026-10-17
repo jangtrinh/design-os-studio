@@ -9,11 +9,12 @@
 
 mod record;
 mod replay;
+mod replay_comments;
 
 pub use record::live_ops_for_command;
 pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
 
-use crate::{CommentThread, Node, NodeId};
+use crate::{Comment, CommentAnchor, CommentThread, Node, NodeId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -90,14 +91,40 @@ pub enum LiveOp {
     Remove {
         id: NodeId,
     },
-    /// Comment threads added or changed (whole thread) and removed, by thread id.
+    /// Comment threads the agent created, edited or deleted, by thread id. The agent's copy can
+    /// lack threads the editor has, so ids it picks may already be taken there.
     Comments {
+        /// New threads, whole. An id the editor already uses gets a fresh one.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        upsert: Vec<CommentThread>,
+        added: Vec<CommentThread>,
+        /// Edits to threads that existed before, as a delta, so replies made in the editor
+        /// meanwhile are kept.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        changed: Vec<ThreadChange>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed: Vec<String>,
     },
 }
+
+/// What changed in one existing comment thread.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ThreadChange {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<CommentAnchor>,
+    /// New messages. A message id the editor's thread already uses gets a fresh one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added: Vec<Comment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edited: Vec<Comment>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<String>,
+}
+
+/// Longest patch line either side accepts (one tool call's edits).
+pub const MAX_LIVE_PATCH_LINE_BYTES: usize = 16 << 20;
 
 /// Fields that structural ops own; field updates never touch them.
 pub(crate) const STRUCTURAL_FIELDS: [&str; 3] = ["id", "parent", "children"];

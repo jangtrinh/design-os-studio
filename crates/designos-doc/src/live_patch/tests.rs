@@ -184,3 +184,47 @@ fn sibling_hints_survive_different_views_of_the_parent() {
     assert_eq!(SiblingHint::at(seen, 2).index_in(&ids), 2);
     assert_eq!(SiblingHint { after: Some(NodeId(99)), before: Some(NodeId(3)) }.index_in(&ids), 2);
 }
+
+#[test]
+fn agent_comments_keep_the_editor_threads_and_follow_their_new_ids() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = full.clone();
+    let mut hist = History::default();
+    // Meanwhile the user starts `t-2` in the editor, the id the agent is about to use.
+    full.comments.push(thread("t-2", page, "user"));
+
+    let mut add = Vec::new();
+    let mut with_t2 = agent.comments.clone();
+    with_t2.push(thread("t-2", page, "agent"));
+    agent_exec(&mut agent, &mut hist, &mut add, Command::SetComments { comments: with_t2 });
+    let mut state = LivePatchState::default();
+    replay(&mut full, add.clone(), &mut state);
+    let texts = |d: &Document, id: &str| d.comments.iter().find(|t| t.id == id).map(|t| t.messages.iter().map(|m| m.text.clone()).collect::<Vec<_>>());
+    assert_eq!(texts(&full, "t-1").unwrap(), ["keep"]);
+    assert_eq!(texts(&full, "t-2").unwrap(), ["user"], "the user's thread was overwritten");
+    assert_eq!(texts(&full, "t-2.2").unwrap(), ["agent"]);
+    assert_eq!(replay(&mut full, add, &mut state).duplicates, 1, "a repeated patch adds nothing");
+    assert_eq!(full.comments.len(), 3);
+
+    // The agent replies in its `t-2` and resolves it; both land on `t-2.2`. A reply id the user's
+    // own message took meanwhile gets a fresh one.
+    full.comments.iter_mut().find(|t| t.id == "t-2.2").unwrap().messages.push(Comment {
+        id: "t-2-r".into(),
+        author: "u".into(),
+        text: "user reply".into(),
+        created: "2026-10-16T00:01:00Z".into(),
+        edited: None,
+    });
+    let mut changed = agent.comments.clone();
+    let mine = changed.iter_mut().find(|t| t.id == "t-2").unwrap();
+    mine.messages.push(Comment { id: "t-2-r".into(), author: "a".into(), text: "agent reply".into(), created: "2026-10-16T00:02:00Z".into(), edited: None });
+    mine.resolved = true;
+    let mut ops = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetComments { comments: changed });
+    replay(&mut full, ops, &mut state);
+    let t = full.comments.iter().find(|t| t.id == "t-2.2").unwrap();
+    assert!(t.resolved);
+    assert_eq!(t.messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["agent", "user reply", "agent reply"]);
+    assert_eq!(t.messages.iter().map(|m| m.id.as_str()).collect::<std::collections::BTreeSet<_>>().len(), 3);
+    assert!(!full.comments.iter().find(|t| t.id == "t-2").unwrap().resolved, "the user's thread stays open");
+}
