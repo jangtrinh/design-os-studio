@@ -66,7 +66,12 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "StrokeAlign", &["CENTER", "INSIDE", "OUTSIDE"]);
     enum_def(&mut b, "StrokeJoin", &["MITER", "BEVEL", "ROUND"]);
     enum_def(&mut b, "StrokeCap", &["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL"]);
-    enum_def(&mut b, "EffectType", &["INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "NOISE", "TEXTURE", "GLASS"]);
+    enum_def(
+        &mut b,
+        "EffectType",
+        &["INNER_SHADOW", "DROP_SHADOW", "FOREGROUND_BLUR", "BACKGROUND_BLUR", "REPEAT", "SYMMETRY", "GRAIN", "NOISE", "GLASS", "CUSTOM", "TEXTURE"],
+    );
+    enum_def(&mut b, "NoiseType", &["MULTITONE", "MONOTONE", "DUOTONE"]);
     enum_def(&mut b, "StackMode", &["NONE", "HORIZONTAL", "VERTICAL", "GRID"]);
     enum_def(&mut b, "StackAlign", &["MIN", "CENTER", "MAX", "SPACE_BETWEEN", "BASELINE", "SPACE_EVENLY"]);
     // Figma's own values: SPACE_EVENLY (3) is the legacy spacing, SPACE_EVENLY_CSS (6) the CSS-aligned one.
@@ -255,13 +260,30 @@ pub fn figma_like_schema() -> Schema {
     b.field(eff, "type", t, false, 1);
     let ct = def(&b, "Color");
     b.field(eff, "color", ct, false, 2);
-    let t = def(&b, "Vector");
-    b.field(eff, "offset", t, false, 3);
+    let vt = def(&b, "Vector");
+    b.field(eff, "offset", vt, false, 3);
     b.field(eff, "radius", nat(Float), false, 4);
-    b.field(eff, "spread", nat(Float), false, 5);
-    b.field(eff, "visible", nat(Bool), false, 6);
-    b.field(eff, "showShadowBehindNode", nat(Bool), false, 7);
-    b.field(eff, "colorVar", FieldType::Def(vd), false, 8);
+    b.field(eff, "visible", nat(Bool), false, 5);
+    let bm = def(&b, "BlendMode");
+    b.field(eff, "blendMode", bm, false, 6);
+    b.field(eff, "spread", nat(Float), false, 7);
+    b.field(eff, "showShadowBehindNode", nat(Bool), false, 8);
+    b.field(eff, "colorVar", FieldType::Def(vd), false, 10);
+    b.field(eff, "noiseSize", vt, false, 22);
+    b.field(eff, "clipToShape", nat(Bool), false, 23);
+    b.field(eff, "secondaryColor", ct, false, 24);
+    b.field(eff, "density", nat(Float), false, 25);
+    let nt = def(&b, "NoiseType");
+    b.field(eff, "noiseType", nt, false, 26);
+    b.field(eff, "opacity", nat(Float), false, 27);
+    b.field(eff, "seed", nat(Uint), false, 29);
+    b.field(eff, "refractionRadius", nat(Float), false, 30);
+    b.field(eff, "specularAngle", nat(Float), false, 31);
+    b.field(eff, "specularIntensity", nat(Float), false, 32);
+    b.field(eff, "bevelSize", nat(Float), false, 33);
+    b.field(eff, "chromaticAberration", nat(Float), false, 34);
+    b.field(eff, "reflectionDistance", nat(Float), false, 35);
+    b.field(eff, "refractionIntensity", nat(Float), false, 36);
     // Figma's own field id (rea-findings: Effect.effectOpacityVar = 53).
     b.field(eff, "effectOpacityVar", FieldType::Def(vd), false, 53);
 

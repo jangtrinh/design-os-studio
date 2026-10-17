@@ -307,9 +307,12 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
     add(before.blend != after.blend, OverrideField::Blend);
     add(before.size != after.size, OverrideField::Size);
     add(before.transform != after.transform, OverrideField::Transform);
-    add(before.fills != after.fills, OverrideField::Fills);
-    add(before.stroke != after.stroke, OverrideField::Stroke);
-    add(before.effects != after.effects, OverrideField::Effects);
+    add(
+        before.fills != after.fills || (!matches!(after.kind, NodeKind::Text(_)) && before.style_refs.get("fill") != after.style_refs.get("fill")),
+        OverrideField::Fills,
+    );
+    add(before.stroke != after.stroke || before.style_refs.get("stroke") != after.style_refs.get("stroke"), OverrideField::Stroke);
+    add(before.effects != after.effects || before.style_refs.get("effect") != after.style_refs.get("effect"), OverrideField::Effects);
     add(before.corner_radii != after.corner_radii || before.corner_smoothing != after.corner_smoothing, OverrideField::CornerRadii);
     if let (NodeKind::Text(a), NodeKind::Text(b)) = (&before.kind, &after.kind) {
         add(a.content != b.content, OverrideField::Characters);
@@ -320,11 +323,18 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
                 || a.max_lines != b.max_lines
                 || a.paragraph != b.paragraph
                 || a.lists != b.lists
-                || a.direction != b.direction,
+                || a.direction != b.direction
+                || before.style_refs.get("text") != after.style_refs.get("text")
+                || before.style_refs.get("fill") != after.style_refs.get("fill"),
             OverrideField::TextStyle,
         );
     }
-    add(before.kind.frame_props() != after.kind.frame_props() || before.layout_child != after.layout_child, OverrideField::Layout);
+    add(
+        before.kind.frame_props() != after.kind.frame_props()
+            || before.layout_child != after.layout_child
+            || before.style_refs.get("grid") != after.style_refs.get("grid"),
+        OverrideField::Layout,
+    );
     add(instance_component(before) != instance_component(after), OverrideField::MainComponent);
     s
 }
@@ -601,6 +611,17 @@ fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>)
     to.component.overrides.extend(fields.iter().copied());
 }
 
+fn copy_style_ref_key(key: &str, from: &Node, to: &mut Node) {
+    match from.style_refs.get(key) {
+        Some(v) => {
+            to.style_refs.insert(key.to_string(), v.clone());
+        }
+        None => {
+            to.style_refs.remove(key);
+        }
+    }
+}
+
 fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
     match f {
         OverrideField::Name => to.name = from.name.clone(),
@@ -614,9 +635,20 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
             to.stroke_geometry = from.stroke_geometry.clone();
         }
         OverrideField::Transform => to.transform = from.transform,
-        OverrideField::Fills => to.fills = from.fills.clone(),
-        OverrideField::Stroke => to.stroke = from.stroke.clone(),
-        OverrideField::Effects => to.effects = from.effects.clone(),
+        OverrideField::Fills => {
+            to.fills = from.fills.clone();
+            if !matches!(to.kind, NodeKind::Text(_)) {
+                copy_style_ref_key("fill", from, to);
+            }
+        }
+        OverrideField::Stroke => {
+            to.stroke = from.stroke.clone();
+            copy_style_ref_key("stroke", from, to);
+        }
+        OverrideField::Effects => {
+            to.effects = from.effects.clone();
+            copy_style_ref_key("effect", from, to);
+        }
         OverrideField::CornerRadii => {
             to.corner_radii = from.corner_radii;
             to.corner_smoothing = from.corner_smoothing;
@@ -636,12 +668,17 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
                 b.lists = a.lists.clone();
                 b.direction = a.direction;
             }
+            copy_style_ref_key("text", from, to);
+            if matches!(to.kind, NodeKind::Text(_)) {
+                copy_style_ref_key("fill", from, to);
+            }
         }
         OverrideField::Layout => {
             if let (Some(a), Some(b)) = (from.kind.frame_props(), to.kind.frame_props_mut()) {
                 *b = a.clone();
             }
             to.layout_child = from.layout_child;
+            copy_style_ref_key("grid", from, to);
         }
         OverrideField::MainComponent | OverrideField::SlotContent => {}
     }
@@ -694,6 +731,10 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
                 b.paragraph = a.paragraph.clone();
                 b.direction = a.direction;
             }
+            copy_style_ref_key("text", r, n);
+            if matches!(n.kind, NodeKind::Text(_)) {
+                copy_style_ref_key("fill", r, n);
+            }
             continue;
         }
         copy_field(f, r, n);
@@ -706,7 +747,6 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         }
     }
     n.is_mask = r.is_mask;
-    n.style_refs = r.style_refs.clone();
     if !top {
         n.component.bindings = r.component.bindings.clone();
     }
@@ -1755,5 +1795,73 @@ mod tests {
         let n = f.d.get(l).unwrap();
         assert_eq!(n.opacity, 0.5);
         assert_eq!(n.size, Vec2::new(140.0, 20.0));
+    }
+
+    #[test]
+    fn sync_preserves_overridden_style_refs_and_resets_them_on_reset_overrides() {
+        let mut f = fx();
+        // Main component label uses "Heading", bg uses "Surface".
+        let mut main_label = f.d.get(f.label).unwrap().clone();
+        if let NodeKind::Text(t) = &mut main_label.kind {
+            t.style.font_size = 24.0;
+        }
+        main_label.style_refs.insert("text".into(), "Heading".into());
+        apply(&mut f.d, Command::Update { node: Box::new(main_label) });
+
+        let mut main_bg = f.d.get(f.bg).unwrap().clone();
+        main_bg.fills = vec![Paint::solid(Color::rgb(20, 20, 20))];
+        main_bg.style_refs.insert("fill".into(), "Surface".into());
+        apply(&mut f.d, Command::Update { node: Box::new(main_bg) });
+
+        let i = inst(&mut f, (200.0, 0.0));
+        let ilabel = child_named(&f.d, i, "label");
+        let ibg = child_named(&f.d, i, "bg");
+        assert_eq!(f.d.get(ilabel).unwrap().style_refs.get("text").map(String::as_str), Some("Heading"));
+        assert_eq!(f.d.get(ibg).unwrap().style_refs.get("fill").map(String::as_str), Some("Surface"));
+
+        // Override the instance's label text style to "Body" (14px) and bg fill style to "Brand".
+        let before_label = f.d.get(ilabel).unwrap().clone();
+        let mut after_label = before_label.clone();
+        if let NodeKind::Text(t) = &mut after_label.kind {
+            t.style.font_size = 14.0;
+        }
+        after_label.style_refs.insert("text".into(), "Body".into());
+        after_label.component.overrides = record_override(&before_label, &after_label);
+        assert!(after_label.component.overrides.contains(&OverrideField::TextStyle));
+        apply(&mut f.d, Command::Update { node: Box::new(after_label) });
+
+        let before_bg = f.d.get(ibg).unwrap().clone();
+        let mut after_bg = before_bg.clone();
+        after_bg.fills = vec![Paint::solid(Color::rgb(255, 100, 0))];
+        after_bg.style_refs.insert("fill".into(), "Brand".into());
+        after_bg.component.overrides = record_override(&before_bg, &after_bg);
+        assert!(after_bg.component.overrides.contains(&OverrideField::Fills));
+        apply(&mut f.d, Command::Update { node: Box::new(after_bg) });
+
+        // Syncing the main component must keep the instance's overridden style_refs ("Body" and "Brand").
+        let mut main_label = f.d.get(f.label).unwrap().clone();
+        main_label.opacity = 0.8;
+        apply(&mut f.d, Command::Update { node: Box::new(main_label) });
+        let c = sync_instances(&mut f.d, f.comp);
+        apply(&mut f.d, c);
+
+        let n_label = f.d.get(ilabel).unwrap();
+        assert_eq!(n_label.opacity, 0.8);
+        assert_eq!(n_label.style_refs.get("text").map(String::as_str), Some("Body"));
+        if let NodeKind::Text(t) = &n_label.kind {
+            assert_eq!(t.style.font_size, 14.0);
+        }
+
+        let n_bg = f.d.get(ibg).unwrap();
+        assert_eq!(n_bg.style_refs.get("fill").map(String::as_str), Some("Brand"));
+
+        // Resetting TextStyle override restores main's "Heading" style_ref and 24px font_size.
+        let c = reset_overrides(&mut f.d, ilabel, &[OverrideField::TextStyle]);
+        apply(&mut f.d, c);
+        let n_label = f.d.get(ilabel).unwrap();
+        assert_eq!(n_label.style_refs.get("text").map(String::as_str), Some("Heading"));
+        if let NodeKind::Text(t) = &n_label.kind {
+            assert_eq!(t.style.font_size, 24.0);
+        }
     }
 }

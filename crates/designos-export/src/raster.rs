@@ -196,6 +196,18 @@ pub fn export_jpg(doc: &Document, node: NodeId, scale: f32, quality: u8) -> Vec<
     }
 }
 
+/// Lossless WebP bytes of `node` at `scale` (1.0 = 100%), preserving RGBA pixels identically to PNG.
+pub fn export_webp(doc: &Document, node: NodeId, scale: f32) -> Vec<u8> {
+    let Some(pm) = render_export(doc, node, scale) else { return Vec::new() };
+    let rgba = rgba_bytes(&pm);
+    let mut out = Vec::new();
+    let enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
+    match image::ImageEncoder::write_image(enc, &rgba, pm.width(), pm.height(), image::ExtendedColorType::Rgba8) {
+        Ok(()) => out,
+        Err(_) => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -34,7 +34,7 @@ pub use codegen::{is_vector_asset, vector_assets};
 pub use compose::compose_for;
 pub use css::{css_for, font_family_css, paint_css, text_style_css};
 pub use pdf::export_pdf;
-pub use raster::{export_jpg, export_png, render_export, rgba_bytes, ExportScale};
+pub use raster::{export_jpg, export_png, export_webp, render_export, rgba_bytes, ExportScale};
 pub use react::{react_for, react_with, ReactOptions};
 pub use svg::{export_svg, SvgOptions};
 pub use swiftui::swiftui_for;
@@ -212,6 +212,26 @@ mod tests {
         assert_eq!(img.dimensions(), (20, 10));
         let p = img.get_pixel(5, 5);
         assert!(p[0] > 245 && p[1] > 245 && p[2] > 245, "{p:?}");
+    }
+
+    #[test]
+    fn webp_lossless_decoded_output_equals_png_pixels() {
+        let (mut d, id) = shadow_doc();
+        d.get_mut(id).unwrap().effects.push(Effect::DropShadow {
+            color: Color::rgba(20, 40, 80, 180),
+            offset: Vec2::new(2.0, 4.0),
+            radius: 3.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        });
+        let png = export_png(&d, id, 2.0);
+        let webp = export_webp(&d, id, 2.0);
+        assert!(webp.len() >= 12 && &webp[..4] == b"RIFF" && &webp[8..12] == b"WEBP", "expected RIFF/WEBP header, got {} bytes", webp.len());
+        let png_img = image::load_from_memory_with_format(&png, image::ImageFormat::Png).unwrap().to_rgba8();
+        let webp_img = image::load_from_memory_with_format(&webp, image::ImageFormat::WebP).unwrap().to_rgba8();
+        assert_eq!(webp_img.dimensions(), png_img.dimensions());
+        assert_eq!(webp_img.as_raw(), png_img.as_raw());
     }
 
     #[test]
