@@ -73,24 +73,25 @@ pub fn from_str_lenient<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Resul
     Ok((value, replaced.get()))
 }
 
-/// Whether a strict parse failed on a `null` where an `f32` / `f64` belongs, the one error a lenient
-/// parse can repair. serde_json words it `invalid type: null, expected f32 at line L column C`.
-fn is_null_number_error(error: &serde_json::Error) -> bool {
-    error.is_data() && {
-        let message = error.to_string();
-        message.starts_with("invalid type: null, expected f32") || message.starts_with("invalid type: null, expected f64")
-    }
+/// Parses `s` strictly while recording in `null_numbers` whether any `f32` / `f64` slot encountered
+/// a `null` token, the one error a lenient parse can repair.
+fn from_str_strict<'a, T: Deserialize<'a>>(s: &'a str, null_numbers: &Cell<usize>) -> serde_json::Result<T> {
+    let mut parser = serde_json::Deserializer::from_str(s);
+    let value = T::deserialize(de::Lenient::strict(&mut parser, null_numbers))?;
+    parser.end()?;
+    Ok(value)
 }
 
-/// `serde_json::from_str`, falling back to [`from_str_lenient`] only when the strict parse failed on
-/// a `null` number (what an older version saved for a NaN or infinity). Any other error is returned
+/// Parses `s` strictly, falling back to [`from_str_lenient`] only when the strict parse failed on a
+/// `null` number (what an older version saved for a NaN or infinity). Any other error is returned
 /// at once from the strict parse, without a second pass over the text. Returns the value and how
 /// many nulls were replaced (zero when the text parsed strictly). When the lenient parse fails too,
 /// its error is returned: it comes from the first problem that is not a `null` number.
 pub fn from_str_repairing<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Result<(T, usize)> {
-    match serde_json::from_str(s) {
+    let null_numbers = Cell::new(0);
+    match from_str_strict(s, &null_numbers) {
         Ok(value) => Ok((value, 0)),
-        Err(strict) if is_null_number_error(&strict) => from_str_lenient(s),
+        Err(strict) if strict.is_data() && null_numbers.get() > 0 => from_str_lenient(s),
         Err(strict) => Err(strict),
     }
 }

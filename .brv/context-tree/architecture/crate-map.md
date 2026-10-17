@@ -62,7 +62,7 @@ flowchart TD
   - `VariableCollection`, `Variable`, `VariableId`, `VariableValue`, `resolve_node` (`variables.rs`, `variables_apply.rs`)
   - `History` (`history.rs`)
 - **Hot Paths & Invariants:**
-  - `Document::to_json` / `Document::from_json` (`lib.rs`): Uses compact single-line `serde_json::to_string` + `serde_images` (`"hex:..."` encoding with backward-compatible integer-array deserialization) + `#[serde(default, skip_serializing_if = "...")]` on `Node`, `FrameProps`, `TextProps`, and `ComponentLink`. Reduces a 723,136-node `.fig` library save from `6.8 GB` to `242 MB` (`-96.5%`, `28.3x` smaller).
+  - `Document::to_json` / `Document::from_json` (`lib.rs`): Uses compact single-line `serde_json::to_string` + `serde_images` (`"hex:..."` encoding with backward-compatible integer-array deserialization) + `#[serde(default, skip_serializing_if = "...")]` on `Node`, `FrameProps`, `TextProps`, and `ComponentLink`. Reduces a 112,474-node (723,136 Kiwi records) `.fig` library save from `6.8 GB` to `242 MB` (`-96.5%`, `28.3x` smaller).
   - `resolve_node(doc, node) -> Cow<'_, Node>` (`variables_apply.rs`): Returns `Cow::Borrowed(node)` with zero allocation when a node has no bound design variables.
 
 ---
@@ -77,7 +77,7 @@ flowchart TD
   - `rest` & `rest_import` (`rest.rs`, `rest_import.rs`): Blocking Figma REST API client and JSON importer.
   - `export` (`export.rs`): Exports `Document` back to `.fig` binary container.
 - **Hot Paths:**
-  - `fig::import_fig_bytes` (`fig.rs`): Multi-hundred-thousand node decoding, `vectorNetworkBlob` parsing, and component instance expansion (`VSF - PCP.fig`: 17 MB archive -> 723,136 expanded `Node`s).
+  - `fig::import_fig_bytes` (`fig.rs`): Multi-hundred-thousand node decoding, `vectorNetworkBlob` parsing, and component instance expansion (`VSF - PCP.fig`: 17 MB archive, `723,136` Kiwi records -> `112,474` scene nodes on the 7-page benchmark / `1,082,324` scene nodes across all 31 pages).
 
 ---
 

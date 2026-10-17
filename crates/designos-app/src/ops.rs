@@ -1986,4 +1986,33 @@ mod tests {
         assert_eq!(al2.grid_rows, 2);
         assert_eq!(al2.grid_columns, 2);
     }
+
+    #[test]
+    fn deleting_a_grid_column_moves_children_pinned_to_it_into_a_free_cell() {
+        let mut d = Document::new("grid-pins");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 200.0));
+        if let Some(fp) = f.kind.frame_props_mut() {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 3, grid_rows: 2, ..Default::default() });
+        }
+        d.insert(page, f).unwrap();
+        let mut ids = Vec::new();
+        for column in 0..3u16 {
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.layout_child.grid_row = Some(0);
+            n.layout_child.grid_column = Some(column);
+            ids.push(d.insert(fid, n).unwrap());
+        }
+        let mut app = App::new(d);
+        app.selection = vec![fid];
+        app.delete_table_column();
+        let origin = |i: usize| {
+            let t = app.doc.get(ids[i]).unwrap().transform;
+            (t.tx, t.ty)
+        };
+        // two 150 px columns remain; the child that lost column 2 takes the first free cell instead of stacking on column 1
+        assert_eq!([origin(0), origin(1), origin(2)], [(0.0, 0.0), (150.0, 0.0), (0.0, 10.0)]);
+    }
 }

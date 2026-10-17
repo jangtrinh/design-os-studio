@@ -50,7 +50,8 @@ cargo build --release -p designos-app
 cp target/release/designos-studio "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio"
 cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos"
 
-# 3. Run the 723,136-node "VSF - PCP" benchmark fixture directly
+# 3. Run the 112,474-node (723,136 Kiwi records) "VSF - PCP" benchmark fixture directly
+# (or `--open-id 18de8bff2547cd200000` for the full 31-page 1,082,324-node import)
 "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" --open-id 18de678a186512c80000
 
 # 4. Run test gates
@@ -60,6 +61,15 @@ cargo test -p designos-mcp
 ```
 
 ---
+
+## Git Workflow (`main` is protected)
+
+Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it: not the owner, and not any agent runtime (Claude, Codex, Grok, Gemini).
+
+- Never push to `main`. Work on a branch or worktree, push it, and open a pull request.
+- To merge, a PR needs green `Test (macos-14)`, `Clippy` and `Rustfmt` on a branch that is up to date with `main`. Run `gh pr update-branch <n> --rebase`, then wait for CI. Ubuntu and Windows CI also run but do not block, because releases are verified on macOS.
+- Merge with squash only (`gh pr merge <n> --squash`). The head branch is deleted on merge, and `main` keeps a linear history.
+- Release tags `v*` cannot be moved or deleted once pushed. Tag the squash commit of the release PR (see `docs/releasing.md`).
 
 ## 4. Non-Negotiable Performance & Safety Invariants
 

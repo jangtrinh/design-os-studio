@@ -2,7 +2,7 @@
 //! layer follow, as one undo step.
 
 use super::*;
-use crate::panels::{style_edit, style_picker};
+use crate::panels::style_picker;
 use designos_doc::{Effect, ExternalAsset, LayoutGrid, LibraryAssetKind, Style, StyleProperty};
 
 fn shadow(radius: f32) -> Effect {
@@ -146,17 +146,14 @@ fn a_drag_is_recorded_once_when_the_pointer_is_released() {
     let button = s.rect_of("effect-style-edit");
     s.click(button.center());
     s.frame(vec![]);
-    // Pointer down on the popover body (not on a control) while values change underneath.
-    let body = raw_field_rect(&s, "(\"fxp-b\", 0)");
-    s.mv(Pos2::new(body.left() - 60.0, body.center().y));
+    let blur = raw_field_rect(&s, "(\"fxp-b\", 0)");
+    let start = Pos2::new(blur.left() + 8.0, blur.center().y);
+    s.mv(start);
+    s.frame(vec![]);
+    assert_eq!(s.cursor, egui::CursorIcon::ResizeHorizontal, "prefix label shows scrub cursor");
     s.button(true);
-    for radius in [10.0, 14.0, 18.0] {
-        style_edit::edit(&mut s.shell.app, |st| {
-            if let Style::Effect(fx) = st {
-                fx[0] = shadow(radius);
-            }
-        });
-        s.frame(vec![]);
+    for dx in [2.0, 6.0, 10.0] {
+        s.mv(start + Vec2::new(dx, 0.0));
         assert_eq!(s.app().doc.get(card).unwrap().effects, vec![shadow(8.0)], "nothing is recorded while the pointer is down");
     }
     s.button(false);
@@ -168,6 +165,43 @@ fn a_drag_is_recorded_once_when_the_pointer_is_released() {
     for id in [welcome, card] {
         assert_eq!(s.app().doc.get(id).unwrap().effects, vec![shadow(8.0)], "one undo takes the whole drag back");
     }
+}
+
+#[test]
+fn scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step() {
+    let mut s = Sim::with(Options { select: Some("Welcome back".into()), ..Default::default() });
+    let t = s.by_name("Welcome back");
+    s.shell.app.apply_style(&[t], "Body/Regular");
+    edit_from_list(&mut s, "Body/Regular");
+    let size_field = s.field_rect("se-size");
+    let a = Pos2::new(size_field.left() + 8.0, size_field.center().y);
+    s.drag(a, a + Vec2::new(8.0, 0.0));
+    let font_size = match &s.app().doc.get(t).unwrap().kind {
+        NodeKind::Text(tp) => tp.style.font_size,
+        k => panic!("{k:?}"),
+    };
+    assert_eq!(font_size, 24.0);
+    s.cmd_key(Key::Z);
+    let font_size = match &s.app().doc.get(t).unwrap().kind {
+        NodeKind::Text(tp) => tp.style.font_size,
+        k => panic!("{k:?}"),
+    };
+    assert_eq!(font_size, 16.0);
+
+    let (mut s, welcome, _card) = welcome_with_styles();
+    let r = s.rect_of("grid-style-button");
+    s.click(r.center());
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
+    s.frame(vec![]);
+    let count_field = s.field_rect("se-grid-count");
+    let c0 = Pos2::new(count_field.left() + 8.0, count_field.center().y);
+    s.drag(c0, c0 + Vec2::new(-4.0, 0.0));
+    let grids = s.app().doc.get(welcome).unwrap().kind.frame_props().unwrap().grids.clone();
+    assert_eq!(grids, vec![columns(8)]);
+    s.cmd_key(Key::Z);
+    let grids = s.app().doc.get(welcome).unwrap().kind.frame_props().unwrap().grids.clone();
+    assert_eq!(grids, vec![columns(12)]);
 }
 
 /// Marks style `key` as the local copy of a style published by a shared library.
@@ -214,4 +248,30 @@ fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     s.click(button.center());
     s.frame(vec![]);
     assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
+}
+
+#[test]
+fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
+    let (mut s, ..) = welcome_with_styles();
+    let sel = s.app().selection.clone();
+    let props = [(StyleProperty::Effect, "Effect style 1"), (StyleProperty::Grid, "Grid style 1")];
+    for (prop, _) in props {
+        let row = style_picker::rename_style_row(s.app(), &sel, prop);
+        assert_eq!((row.label.as_str(), row.disabled), ("Rename style", false), "{prop:?}: a local style can be renamed from the menu");
+    }
+    for (_, key) in props {
+        make_library_style(&mut s, key);
+    }
+    for (prop, _) in props {
+        let row = style_picker::rename_style_row(s.app(), &sel, prop);
+        assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
+    }
+    // Double-clicking the linked row does not open the inline rename field for a library style.
+    let linked = s.rect_of("effect-style-row");
+    s.click(linked.center());
+    s.click(linked.center());
+    s.frame(vec![]);
+    assert!(s.app().props.style_rename.is_none(), "double-clicking a library style's linked row does not start a rename");
+    assert!(!s.shell.app.rename_style_to("Effect style 1", "Renamed"));
+    assert_eq!(s.app().doc.style_name("Effect style 1"), "Effect style 1");
 }
