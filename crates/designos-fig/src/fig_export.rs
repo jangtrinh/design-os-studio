@@ -7,11 +7,45 @@
 use crate::container::{self, Compression};
 use crate::kiwi::KiwiValue as V;
 use crate::rest_import::utf16_to_byte_offsets;
-use crate::testkit::{color, en, figma_like_schema, fl, guid, msg, st, vec2};
+use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
+
+// The kiwi encoder writes whatever float bits it is given, and a reader treats a NaN or an infinity
+// as an absent field, so a single bad number would drop a whole `size` or transform on the way back.
+// The exporter therefore never hands the encoder a non-finite float: it writes the neutral value of
+// the slot instead, one for opacity, alpha and the diagonal of a matrix, zero for every other number.
+fn finite_or(x: f32, neutral: f32) -> f32 {
+    if x.is_finite() {
+        x
+    } else {
+        neutral
+    }
+}
+
+fn fl(x: f32) -> V {
+    testkit::fl(finite_or(x, 0.0))
+}
+
+/// [`fl`] for a number whose neutral value is one: opacity, alpha, the diagonal of a matrix.
+fn fl_one(x: f32) -> V {
+    testkit::fl(finite_or(x, 1.0))
+}
+
+fn vec2(x: f32, y: f32) -> V {
+    st(vec![("x", fl(x)), ("y", fl(y))])
+}
+
+fn color(r: f32, g: f32, b: f32, a: f32) -> V {
+    st(vec![("r", fl(r)), ("g", fl(g)), ("b", fl(b)), ("a", fl_one(a))])
+}
+
+/// Little-endian bytes of a float inside a binary blob, with the same rule.
+fn blob_f32(x: f32) -> [u8; 4] {
+    finite_or(x, 0.0).to_le_bytes()
+}
 
 /// Encodes a [`Path`] into Figma's binary path-commands blob format
 /// (`0` = Close, `1` = MoveTo, `2` = LineTo, `3` = QuadTo, `4` = CubicTo,
@@ -19,8 +53,8 @@ use std::collections::{BTreeMap, HashSet};
 pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
     let mut out = Vec::new();
     let push_pt = |out: &mut Vec<u8>, p: Vec2| {
-        out.extend_from_slice(&p.x.to_le_bytes());
-        out.extend_from_slice(&p.y.to_le_bytes());
+        out.extend_from_slice(&blob_f32(p.x));
+        out.extend_from_slice(&blob_f32(p.y));
     };
     for cmd in &path.cmds {
         match *cmd {
@@ -544,7 +578,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         ("name", V::String(node.name.clone())),
         ("visible", V::Bool(node.visible)),
         ("locked", V::Bool(node.locked)),
-        ("opacity", fl(node.opacity)),
+        ("opacity", fl_one(node.opacity)),
         ("size", vec2(node.size.x, node.size.y)),
         ("transform", encode_matrix(&node.transform)),
         ("blendMode", en(blend_name(node.blend))),
@@ -1270,7 +1304,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("locked", V::Bool(n.locked)));
             }
             if ovs.contains(&OverrideField::Opacity) {
-                ov.push(("opacity", fl(n.opacity)));
+                ov.push(("opacity", fl_one(n.opacity)));
             }
             if ovs.contains(&OverrideField::Blend) {
                 ov.push(("blendMode", en(blend_name(n.blend))));
@@ -1507,17 +1541,17 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
             0
         };
         b.extend_from_slice(&sid.to_le_bytes());
-        b.extend_from_slice(&v.pos.x.to_le_bytes());
-        b.extend_from_slice(&v.pos.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(v.pos.x));
+        b.extend_from_slice(&blob_f32(v.pos.y));
     }
     for seg in &net.segments {
         b.extend_from_slice(&0u32.to_le_bytes());
         b.extend_from_slice(&(seg.a as u32).to_le_bytes());
-        b.extend_from_slice(&seg.ta.x.to_le_bytes());
-        b.extend_from_slice(&seg.ta.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(seg.ta.x));
+        b.extend_from_slice(&blob_f32(seg.ta.y));
         b.extend_from_slice(&(seg.b as u32).to_le_bytes());
-        b.extend_from_slice(&seg.tb.x.to_le_bytes());
-        b.extend_from_slice(&seg.tb.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(seg.tb.x));
+        b.extend_from_slice(&blob_f32(seg.tb.y));
     }
     for reg in &net.regions {
         let rule = if reg.rule == FillRule::NonZero { 1u32 } else { 0u32 };
@@ -1534,7 +1568,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
 }
 
 fn encode_matrix(xf: &Affine) -> V {
-    st(vec![("m00", fl(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl(xf.d)), ("m12", fl(xf.ty))])
+    st(vec![("m00", fl_one(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl_one(xf.d)), ("m12", fl(xf.ty))])
 }
 
 fn gradient_matrix_from_handles(h: &[Vec2; 3]) -> V {
@@ -1591,7 +1625,7 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
             fields.push(("imageScaleMode", en(sm)));
         }
     }
-    fields.push(("opacity", fl(p.opacity)));
+    fields.push(("opacity", fl_one(p.opacity)));
     fields.push(("visible", V::Bool(p.visible)));
     fields.push(("blendMode", en(blend_name(p.blend))));
     if let Some(cv) = color_var {

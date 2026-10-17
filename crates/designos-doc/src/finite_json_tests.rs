@@ -109,9 +109,9 @@ fn lenient_parsing_does_not_hide_other_errors() {
 
     #[derive(Debug, Deserialize)]
     struct Named {
-        #[allow(dead_code)]
         name: String,
     }
+    assert_eq!(from_str_lenient::<Named>(r#"{"name":"x"}"#).unwrap().0.name, "x");
     let null_string = from_str_lenient::<Named>(r#"{"name":null}"#).unwrap_err();
     assert!(null_string.to_string().contains("invalid type: null, expected a string"), "{null_string}");
     assert!(from_str_lenient::<Shapes>("{").unwrap_err().is_eof());
@@ -244,7 +244,6 @@ fn only_a_null_number_error_triggers_the_second_parse() {
     use crate::finite_json::{from_str_repairing, lenient_parses_on_this_thread as lenient_parses};
 
     #[derive(Debug, Deserialize)]
-    #[allow(dead_code)]
     struct Slots {
         name: String,
         count: u32,
@@ -265,10 +264,12 @@ fn only_a_null_number_error_triggers_the_second_parse() {
         assert_eq!(lenient_parses(), before, "{text}: an unrelated error must fail after the strict parse alone");
     }
 
-    for text in [r#"{"name":"n","count":1,"value":null,"wide":2.5}"#, r#"{"name":"n","count":1,"value":1.5,"wide":null}"#] {
+    let repairable = [(r#"{"name":"n","count":1,"value":null,"wide":2.5}"#, 0.0, 2.5), (r#"{"name":"n","count":1,"value":1.5,"wide":null}"#, 1.5, 0.0)];
+    for (text, value, wide) in repairable {
         let before = lenient_parses();
-        let (_, replaced) = from_str_repairing::<Slots>(text).unwrap();
+        let (slots, replaced) = from_str_repairing::<Slots>(text).unwrap();
         assert_eq!((replaced, lenient_parses() - before), (1, 1), "{text}: a null number takes exactly one lenient parse");
+        assert_eq!((slots.name.as_str(), slots.count, slots.value, slots.wide), ("n", 1, value, wide), "{text}");
     }
 
     // The same through a document: a wrong type fails fast.
