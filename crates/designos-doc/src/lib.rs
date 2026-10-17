@@ -729,7 +729,7 @@ pub struct StyleMeta {
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Style {
     Fill(Vec<Paint>),
     Text(TextStyle),

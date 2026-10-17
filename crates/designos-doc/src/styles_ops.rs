@@ -27,6 +27,8 @@ pub enum StyleOpError {
     NothingToStyle(NodeId),
     #[error("a style name cannot be empty")]
     EmptyName,
+    #[error("style {0:?} holds a different kind of values than the ones given")]
+    KindMismatch(String),
 }
 
 /// Key of the `style_refs` entry that links a node to a style of `prop`.
@@ -123,15 +125,29 @@ pub fn apply_style(doc: &Document, nodes: &[NodeId], key: &str) -> Result<Comman
     Ok(Command::Batch(cmds))
 }
 
-/// Replaces the values of style `key` and pushes them to every linked node.
-/// `style` must be the same kind (effect / grid) as the stored one.
+/// Key of the `style_refs` entry that links a node to `style`. The kind of the values decides, so
+/// metadata naming another property (a text style filed under the default `Fill`) cannot hide the
+/// linked nodes; the metadata only tells a stroke style from a fill style.
+fn any_ref_key(style: &Style, prop: StyleProperty) -> &'static str {
+    match style {
+        Style::Fill(_) if prop == StyleProperty::Stroke => "stroke",
+        Style::Fill(_) => "fill",
+        Style::Text(_) => "text",
+        Style::Effect(_) => "effect",
+        Style::Grid(_) => "grid",
+    }
+}
+
+/// Replaces the values of style `key` and pushes them to every linked node, as one command (one
+/// undo step). Works for fill, stroke, text, effect and grid styles; `style` must be the same
+/// kind as the stored one.
 pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, StyleOpError> {
     let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
-    let prop = style_property(doc, key);
-    let ref_key = effect_or_grid_ref(prop)?;
     if std::mem::discriminant(stored) != std::mem::discriminant(&style) {
-        return Err(StyleOpError::NotEffectOrGrid(prop));
+        return Err(StyleOpError::KindMismatch(key.into()));
     }
+    let prop = style_property(doc, key);
+    let ref_key = any_ref_key(stored, prop);
     let mut styles = doc.styles.clone();
     styles.insert(key.to_string(), style.clone());
     let mut cmds = vec![Command::SetStyles { styles, style_meta: doc.style_meta.clone() }];
@@ -309,6 +325,89 @@ mod tests {
         assert_eq!(grids(&d, f), vec![cols(4)]);
         h.undo(&mut d).unwrap();
         assert_eq!(grids(&d, f), vec![cols(12)]);
+    }
+
+    /// Page with a linked rectangle per fill / stroke style, a text layer linked to a text and a
+    /// fill style, and an unlinked rectangle. Returns the document and the ids in that order.
+    fn paint_and_text_fixture() -> (Document, [NodeId; 4]) {
+        let red = Paint::solid(Color::rgb(255, 0, 0));
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut ids = Vec::new();
+        for i in 0..4 {
+            let id = d.alloc_id();
+            let r = Rect::new(60.0 * i as f32, 0.0, 50.0, 50.0);
+            let n = if i == 2 {
+                Node::text(id, r, "Hi", TextStyle { font_size: 12.0, fills: vec![red.clone()], ..Default::default() })
+            } else {
+                Node::rectangle(id, r)
+            };
+            ids.push(d.insert(page, n).unwrap());
+        }
+        d.styles.insert("Brand".into(), Style::Fill(vec![red.clone()]));
+        d.styles.insert("Line".into(), Style::Fill(vec![Paint::solid(Color::rgb(0, 255, 0))]));
+        d.style_meta.insert("Line".into(), StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke });
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        // Metadata that never named the property (it defaults to Fill) must not hide the text layers.
+        d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), ..Default::default() });
+        for (id, refs) in [(ids[0], vec![("fill", "Brand")]), (ids[1], vec![("stroke", "Line")]), (ids[2], vec![("text", "Body"), ("fill", "Brand")])] {
+            let n = d.get_mut(id).unwrap();
+            for (k, v) in refs {
+                n.style_refs.insert(k.into(), v.into());
+            }
+        }
+        (d, [ids[0], ids[1], ids[2], ids[3]])
+    }
+
+    #[test]
+    fn editing_a_fill_stroke_or_text_style_updates_every_linked_node_in_one_undo_step() {
+        let (mut d, [fill_node, stroke_node, text_node, loose]) = paint_and_text_fixture();
+        let mut h = History::default();
+        let loose_fills = d.get(loose).unwrap().fills.clone();
+        let stroke_before = d.get(stroke_node).unwrap().stroke.paints.clone();
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        let c = update_style(&d, "Brand", Style::Fill(vec![blue.clone()]));
+        run(&mut d, &mut h, c);
+        assert!(matches!(&d.styles["Brand"], Style::Fill(p) if p == &vec![blue.clone()]));
+        assert_eq!(d.get(fill_node).unwrap().fills, vec![blue.clone()]);
+        match &d.get(text_node).unwrap().kind {
+            NodeKind::Text(t) => assert_eq!(t.style.fills, vec![blue.clone()], "a linked text layer takes the colour"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(d.get(loose).unwrap().fills, loose_fills, "unlinked nodes are untouched");
+
+        let white = Paint::solid(Color::rgb(255, 255, 255));
+        let c = update_style(&d, "Line", Style::Fill(vec![white.clone()]));
+        run(&mut d, &mut h, c);
+        assert_eq!(d.get(stroke_node).unwrap().stroke.paints, vec![white]);
+        assert!(d.get(fill_node).unwrap().fills != d.get(stroke_node).unwrap().stroke.paints);
+
+        let c = update_style(&d, "Body", Style::Text(TextStyle { font_size: 20.0, font_weight: 700, ..Default::default() }));
+        run(&mut d, &mut h, c);
+        match &d.get(text_node).unwrap().kind {
+            NodeKind::Text(t) => {
+                assert_eq!((t.style.font_size, t.style.font_weight), (20.0, 700));
+                assert_eq!(t.style.fills, vec![blue.clone()], "a text style carries no colour");
+            }
+            other => panic!("{other:?}"),
+        }
+        // One undo step per edit, each taking the style and all of its layers back together.
+        h.undo(&mut d).unwrap();
+        assert!(matches!(&d.styles["Body"], Style::Text(t) if t.font_size == 12.0));
+        match &d.get(text_node).unwrap().kind {
+            NodeKind::Text(t) => assert_eq!(t.style.font_size, 12.0),
+            other => panic!("{other:?}"),
+        }
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(stroke_node).unwrap().stroke.paints, stroke_before);
+    }
+
+    #[test]
+    fn editing_a_style_with_the_wrong_kind_or_an_unknown_key_is_refused() {
+        let (d, _) = paint_and_text_fixture();
+        assert!(matches!(update_style(&d, "Brand", Style::Text(TextStyle::default())).unwrap_err(), StyleOpError::KindMismatch(k) if k == "Brand"));
+        assert!(matches!(update_style(&d, "Body", Style::Fill(vec![])).unwrap_err(), StyleOpError::KindMismatch(k) if k == "Body"));
+        assert!(matches!(update_style(&d, "nope", Style::Fill(vec![])).unwrap_err(), StyleOpError::UnknownStyle(k) if k == "nope"));
     }
 
     #[test]

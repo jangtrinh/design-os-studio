@@ -125,16 +125,44 @@ impl App {
 
     /// Runs the outcome of a style operation as one undo step; false (with a toast) when refused.
     fn run_style_op(&mut self, op: Result<Command, StyleOpError>) -> bool {
+        self.run_style_op_then(op, |_, _| {})
+    }
+
+    /// [`App::run_style_op`] where `after` adds to the same transaction once the command ran.
+    fn run_style_op_then(&mut self, op: Result<Command, StyleOpError>, after: impl FnOnce(&mut App, &mut crate::edit::Tx)) -> bool {
         let mut tx = crate::edit::Tx::new();
         let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
         match applied {
-            Ok(()) => self.run_tx(tx),
+            Ok(()) => {
+                after(self, &mut tx);
+                self.run_tx(tx)
+            }
             Err(e) => {
                 tx.cancel(&mut self.doc);
                 self.show_toast(format!("Style not changed: {e}"), true);
                 false
             }
         }
+    }
+
+    /// Replaces the values of style `key` (fill, stroke, text, effect or grid; same kind as the
+    /// stored one) and pushes them to every layer linked to it, as one undo step. Text layers are
+    /// re-fitted to their new type. False (with a toast) when refused.
+    pub fn update_style_values(&mut self, key: &str, style: Style) -> bool {
+        // A numeric scrub still open would swallow the edit (it only records node changes).
+        self.scrub_end();
+        let op = update_style(&self.doc, key, style);
+        let linked: Vec<NodeId> = self.doc.nodes.values().filter(|n| n.style_refs.values().any(|k| k == key)).map(|n| n.id).collect();
+        self.run_style_op_then(op, |app, tx| {
+            for id in linked {
+                if let Some(n) = tx.ed.node(&mut app.doc, id) {
+                    if let NodeKind::Text(t) = &mut n.kind {
+                        n.size = layout::fit_text(t, n.size);
+                    }
+                }
+                layout::relayout_around(&mut app.doc, &mut tx.ed, id);
+            }
+        })
     }
 
     /// Creates an effect or grid style from the values of `node` and links the node to it.
@@ -411,6 +439,41 @@ mod tests {
         ed.apply_style(&[r, f], "g");
         assert!(!ed.doc.get(r).unwrap().style_refs.contains_key("grid"), "a rectangle has no layout guides");
         assert_eq!(ed.doc.get(f).unwrap().style_refs.get("grid").map(String::as_str), Some("g"));
+    }
+
+    #[test]
+    fn editing_a_style_updates_all_linked_layers_in_one_undo_step() {
+        let (mut ed, f, r, t) = app();
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        ed.apply_style(&[f, r], "Brand/Primary");
+        ed.apply_style(&[t], "s2");
+        let before_size = ed.doc.get(t).unwrap().size;
+        // A colour style reaches the frame and the rectangle but not the text layer.
+        assert!(ed.update_style_values("Brand/Primary", Style::Fill(vec![blue.clone()])));
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![blue.clone()]);
+        assert_eq!(ed.doc.get(r).unwrap().fills, vec![blue.clone()]);
+        assert!(matches!(&ed.doc.styles["Brand/Primary"], Style::Fill(p) if p == &vec![blue.clone()]));
+        // A text style resizes the linked auto-size text layer.
+        assert!(ed.update_style_values("s2", Style::Text(TextStyle { font_size: 80.0, font_weight: 700, ..Default::default() })));
+        match &ed.doc.get(t).unwrap().kind {
+            NodeKind::Text(tp) => assert_eq!((tp.style.font_size, tp.style.font_weight), (80.0, 700)),
+            other => panic!("{other:?}"),
+        }
+        assert!(ed.doc.get(t).unwrap().size.y > before_size.y, "the text layer follows its new size");
+        // One undo takes the text style edit back, the next one the colour edit.
+        ed.undo();
+        assert_eq!(ed.doc.get(t).unwrap().size, before_size);
+        assert!(matches!(&ed.doc.styles["s2"], Style::Text(ts) if ts.font_size == 40.0));
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![blue.clone()], "the colour edit is a separate step");
+        ed.undo();
+        assert_eq!(ed.doc.get(f).unwrap().fills, vec![Paint::solid(Color::rgb(1, 2, 3))]);
+        assert_eq!(ed.doc.get(r).unwrap().fills, vec![Paint::solid(Color::rgb(1, 2, 3))]);
+        // A wrong kind or an unknown style is refused with a toast and changes nothing.
+        let depth = ed.hist.can_undo();
+        assert!(!ed.update_style_values("Brand/Primary", Style::Effect(vec![])));
+        assert!(!ed.update_style_values("nope", Style::Fill(vec![])));
+        assert_eq!(ed.hist.can_undo(), depth);
+        assert!(ed.toast.is_some());
     }
 
     #[test]

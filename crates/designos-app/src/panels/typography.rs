@@ -16,7 +16,7 @@ use crate::widgets::{self};
 use designos_doc::*;
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
-const WEIGHTS: [(&str, u16); 9] = [
+pub(super) const WEIGHTS: [(&str, u16); 9] = [
     ("Thin", 100),
     ("Extra Light", 200),
     ("Light", 300),
@@ -127,7 +127,7 @@ fn seg_text(ui: &mut Ui, pane: &Pane, x: f32, key: &str, labels: &[&str], select
     out
 }
 
-fn weight_name(w: u16) -> &'static str {
+pub(super) fn weight_name(w: u16) -> &'static str {
     WEIGHTS.iter().min_by_key(|x| (x.1 as i32 - w as i32).abs()).map(|x| x.0).unwrap_or("Regular")
 }
 
@@ -347,7 +347,7 @@ pub fn set_solid(st: &mut TextStyle, c: Color, opacity: Option<f32>) {
 }
 
 // ------------------------------------------------------------------ font family picker
-fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<String> {
+pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<String> {
     let id = ui.id().with("font-family");
     #[cfg(test)]
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("field-rect", format!("{:?}", "font-family"))), rect));

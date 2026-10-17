@@ -1,8 +1,9 @@
 //! Effect and grid styles in the inspector: the "Style" (four dots) button of the Effects and
-//! Layout guide headers with its menu (apply, create, rename, detach), and the row that stands in
-//! for the effect or grid rows while the selection is linked to a style, like Figma's UI3.
+//! Layout guide headers with its menu (apply, create, rename, detach, edit), and the row that
+//! stands in for the effect or grid rows while the selection is linked to a style, like Figma's UI3.
 
 use super::properties::Pane;
+use super::style_edit;
 use crate::app::App;
 use crate::icons::{self, Icon};
 use crate::styles::{style_entries_of, StyleKind};
@@ -44,6 +45,7 @@ enum Pick {
     Create,
     Rename,
     Detach,
+    Edit,
 }
 
 /// Menu rows and, aligned with them, what each one does (None for a disabled placeholder).
@@ -68,7 +70,8 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
     items.push(MenuItem::new("Rename style").disabled(!linked));
     items.push(MenuItem::new("Detach style").disabled(!linked));
-    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach)]);
+    items.push(MenuItem::new("Edit style").disabled(!linked));
+    picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
     (items, picks)
 }
 
@@ -101,6 +104,11 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
                 Some(Pick::Detach) => {
                     app.detach_style_of(sel, prop);
                 }
+                Some(Pick::Edit) => {
+                    if let Some(style) = linked_style(app, sel, prop) {
+                        style_edit::toggle(app, &style, btn);
+                    }
+                }
                 None => {}
             }
         }
@@ -113,7 +121,7 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
 /// button that detaches it. Leaves `pane` below the row.
 pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], prop: StyleProperty, key: &str) {
     let tag = if prop == StyleProperty::Effect { "effect-style" } else { "grid-style" };
-    let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+    let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
     widgets::record(ui, &format!("{tag}-row"), row);
     let name = app.doc.style_name(key).to_string();
     let id = Id::new((tag, "name"));
@@ -146,6 +154,12 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             app.props.style_rename = Some(prop);
         }
         resp.on_hover_text(name);
+    }
+    let edit = pane.rect(theme::SECTION_TRAILING_X - theme::PANEL_ACTION_BUTTON - 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+    widgets::record(ui, &format!("{tag}-edit"), edit);
+    let editing = app.props.style_edit.as_ref().is_some_and(|s| s.key == key);
+    if widgets::icon_button(ui, edit, (tag, "edit"), Icon::StrokeSettings, editing, "Edit style").clicked() {
+        style_edit::toggle(app, key, edit);
     }
     let minus = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, &format!("{tag}-detach"), minus);
