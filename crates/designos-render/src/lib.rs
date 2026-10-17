@@ -15,6 +15,7 @@ mod effects;
 mod fx;
 mod geom;
 mod index;
+mod mask;
 mod outline;
 mod paint;
 mod shadow;
@@ -27,6 +28,7 @@ pub mod vectorops;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
+pub use mask::mask_stencil;
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
     StrokeClip, StrokePlan, TextOutline,
@@ -260,14 +262,8 @@ impl Renderer<'_> {
                 let needs_back = children[i + 1..].iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c)));
                 let backdrop = needs_back.then(|| composite_backdrop(back, target));
                 self.draw_children(&children[i + 1..], parent_ts, &mut layer, clip, backdrop.as_ref());
-                let mut mask_node = child.clone();
-                mask_node.blend = designos_doc::BlendMode::Normal;
                 // Masks use the shape's alpha regardless of its paints.
-                mask_node.effects.clear();
-                mask_node.stroke.paints.clear();
-                if !matches!(mask_node.kind, NodeKind::Text(_) | NodeKind::Group) && !mask_node.fills.iter().any(|p| p.visible) {
-                    mask_node.fills = vec![designos_doc::Paint::solid(designos_doc::Color::BLACK)];
-                }
+                let mask_node = mask::mask_stencil(child);
                 self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
                 let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
                 layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);

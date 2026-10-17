@@ -2,7 +2,7 @@
 
 use crate::{
     Action, Color, CommentAnchor, CommentThread, ComponentPropDef, ConnectorEnd, ConnectorProps, Document, ExprValue, Expression, ExternalAsset, Flow, Guide,
-    GuideAxis, LibraryAssetKind, Magnet, Node, NodeId, NodeKind, PropKind, PropValue, Reaction, Rect, Trigger, Vec2, MIN_ID_HEADROOM,
+    GuideAxis, LibraryAssetKind, Magnet, Node, NodeId, NodeKind, PropKind, PropValue, Reaction, Rect, SlotPropConfig, Trigger, Vec2, MIN_ID_HEADROOM,
 };
 use std::collections::BTreeSet;
 
@@ -36,6 +36,8 @@ fn document_with_every_reference_on_high_ids() -> (Document, Vec<u64>) {
         default: PropValue::Instance(NodeId(big)),
     });
     instance.component.values.insert("slot".into(), PropValue::Slot(vec![NodeId(kid)]));
+    instance.component.props.push(ComponentPropDef { name: "body".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) });
+    instance.component.slot_configs.insert("body".into(), SlotPropConfig { preferred: vec![NodeId(comp)], ..Default::default() });
     instance.prototype.fixed_children = vec![NodeId(kid)];
     instance.prototype.reactions.push(Reaction {
         trigger: Trigger::OnClick,
@@ -116,6 +118,7 @@ fn renumbering_rewrites_every_reference_and_leaves_no_old_id() {
     assert_eq!(inst.component.props[0].default, PropValue::Instance(big));
     assert_eq!(inst.component.props[0].kind, PropKind::InstanceSwap { preferred: vec![comp] });
     assert_eq!(inst.component.values["slot"], PropValue::Slot(vec![kid]));
+    assert_eq!(inst.component.slot_configs["body"].preferred, vec![comp]);
     assert_eq!(inst.prototype.fixed_children, vec![kid]);
     let actions = &inst.prototype.reactions[0].actions;
     assert!(matches!(&actions[0], Action::Navigate { dest, .. } if *dest == big));

@@ -291,7 +291,7 @@ fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
 
 fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     let mut c: Vec<String> = Vec::new();
-    let sz = sizes(n, parent);
+    let sz = web_sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
     let has_children = !visible_children(doc, n).is_empty();
     let abs_children = visible_children(doc, n).iter().any(|k| own_al.is_none() || k.layout_child.absolute);
@@ -352,6 +352,13 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
         if n.layout_child.row_span > 1 {
             c.push(format!("row-span-{}", n.layout_child.row_span));
         }
+        // An item sized by its own content keeps that size instead of stretching across its cell.
+        if sz.w == Dim::Hug {
+            c.push("justify-self-start".into());
+        }
+        if sz.h == Dim::Hug {
+            c.push("self-start".into());
+        }
     }
     // size
     let grid_parent = parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid);
@@ -368,14 +375,10 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
         }
     }
     if let Some(w) = size_class("w", sz.w, bound(doc, n, "width")) {
-        if !(grid_parent && n.layout_child.col_span > 1) {
-            c.push(w);
-        }
+        c.push(w);
     }
     if let Some(h) = size_class("h", sz.h, bound(doc, n, "height")) {
-        if !(grid_parent && n.layout_child.row_span > 1) {
-            c.push(h);
-        }
+        c.push(h);
     }
     if sz.in_flow && !grid_parent && !c.contains(&"flex-1".to_string()) && (matches!(sz.w, Dim::Fixed(_)) || matches!(sz.h, Dim::Fixed(_))) {
         c.push("shrink-0".into());
@@ -545,5 +548,91 @@ mod tests {
         assert!(out.contains("w-[313px]"), "{out}");
         assert!(out.contains("rounded-tl-[10px] rounded-tr-[10px]"), "{out}");
         assert!(out.contains("opacity-[0.37]"), "{out}");
+    }
+
+    /// The utility classes on the `n`th line of `html`, split into tokens.
+    fn tokens(html: &str, n: usize) -> Vec<String> {
+        let line = html.lines().nth(n).unwrap_or_default();
+        let start = line.find("class=\"").map(|i| i + 7).unwrap_or(0);
+        let end = line[start..].find('"').map(|i| start + i).unwrap_or(start);
+        line[start..end].split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn grid_items_keep_their_size_and_only_content_sized_items_align_to_start() {
+        let al = AutoLayout { grid_columns: 3, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 300.0));
+        // line 1: fixed item spanning 2 columns and 2 rows
+        let span = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(span).unwrap().layout_child.col_span = 2;
+        d.get_mut(span).unwrap().layout_child.row_span = 2;
+        // line 2: a rectangle whose sizing mode says Hug keeps its pixel size
+        let hug_rect = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(hug_rect).unwrap().layout_child.horizontal = Sizing::Hug;
+        d.get_mut(hug_rect).unwrap().layout_child.vertical = Sizing::Hug;
+        // line 3: a frame that hugs its own content is the content-sized case
+        let hug_frame = d.alloc_id();
+        let mut f = Node::frame(hug_frame, Rect::new(0.0, 0.0, 60.0, 24.0));
+        f.fills.clear();
+        if let NodeKind::Frame(fp) = &mut f.kind {
+            fp.auto_layout = Some(AutoLayout { primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() });
+        }
+        d.insert(grid, f).unwrap();
+        // line 4: a Fill item is stretched by the grid
+        let fill = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(fill).unwrap().layout_child.horizontal = Sizing::Fill;
+        d.get_mut(fill).unwrap().layout_child.vertical = Sizing::Fill;
+        d.relayout_subtree(grid);
+
+        let html = tailwind_for(&d, grid);
+        let has = |line: usize, want: &str| tokens(&html, line).iter().any(|t| t == want);
+        for want in ["col-span-2", "row-span-2", "w-20", "h-10"] {
+            assert!(has(1, want), "fixed spanning item must keep {want}:\n{html}");
+        }
+        assert!(!has(1, "justify-self-start") && !has(1, "self-start"), "{html}");
+        for want in ["w-20", "h-10"] {
+            assert!(has(2, want), "a rectangle with Hug sizing mode must keep {want}:\n{html}");
+        }
+        assert!(!has(2, "justify-self-start") && !has(2, "self-start"), "{html}");
+        assert!(has(3, "justify-self-start") && has(3, "self-start"), "a content-sized item must align to the start:\n{html}");
+        assert!(!tokens(&html, 3).iter().any(|t| t.starts_with("w-") || t.starts_with("h-")), "{html}");
+        assert!(!tokens(&html, 4).iter().any(|t| t.starts_with("w-") || t.starts_with("h-") || t.contains("self-start")), "a Fill item is stretched: {html}");
+    }
+
+    #[test]
+    fn hugging_grid_exports_its_solved_pixel_size_with_fractional_tracks() {
+        let al = AutoLayout { grid_columns: 3, grid_rows: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(500.0, 500.0));
+        fixture::add_rect(&mut d, grid, Vec2::new(100.0, 10.0));
+        d.relayout_subtree(grid);
+        let size = d.get(grid).unwrap().size;
+        assert_eq!(size, Vec2::new(180.0, 10.0), "the solver sizes the columns 100, 40 and 40 and the rows at their tallest child");
+        let html = tailwind_for(&d, grid);
+        let t = tokens(&html, 0);
+        for want in ["grid", "grid-cols-3", "grid-rows-2", "w-[180px]", "h-2.5"] {
+            assert!(t.iter().any(|c| c == want), "{want} missing in {html}");
+        }
+        assert!(!t.iter().any(|c| c.contains("max") || c.contains("auto")), "{html}");
+
+        let al = AutoLayout { grid_columns: 3, grid_rows: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (d, grid) = fixture::grid_frame(al, Vec2::new(300.0, 200.0));
+        let t = tokens(&tailwind_for(&d, grid), 0);
+        for want in ["grid-cols-3", "grid-rows-2", "w-[300px]", "h-[200px]"] {
+            assert!(t.iter().any(|c| c == want), "{want} missing in {t:?}");
+        }
+    }
+
+    #[test]
+    fn grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height() {
+        let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(rect).unwrap().layout_child.grow = 1.0;
+        d.relayout_subtree(grid);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(200.0, 40.0), "the solver stretches a grow item across its column and leaves its height");
+        let html = tailwind_for(&d, grid);
+        let t = tokens(&html, 1);
+        assert!(t.iter().any(|c| c == "h-10"), "the height stays: {html}");
+        assert!(!t.iter().any(|c| c.starts_with("w-")), "the grid stretches the item across its cell: {html}");
     }
 }
