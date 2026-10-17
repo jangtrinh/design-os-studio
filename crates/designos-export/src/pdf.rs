@@ -172,8 +172,9 @@ mod fidelity {
     //! does. The conditions mirror the CPU renderer (`designos_render`): when a frame uses something the
     //! writer does not model, the page is flattened into an image instead of being drawn wrong.
 
-    use designos_doc::{resolve_node, BlendMode, Document, Node, NodeId, NodeKind, Paint, PaintKind};
-    use designos_render::{outline_of, vectorops::vertex_caps};
+    use designos_doc::{resolve_node, BlendMode, Document, Node, NodeId, NodeKind, Paint, PaintKind, StrokeAlign};
+    use designos_render::{outline_of, vectorops::vertex_caps, NodeShape};
+    use tiny_skia::{FillRule as SkRule, Path as SkPath, PathSegment, Point};
 
     /// Flattening tolerance, in local units, for shapes the renderer builds from other shapes (booleans).
     pub(super) const FLATTEN_TOLERANCE: f32 = 0.05;
@@ -285,7 +286,7 @@ mod fidelity {
     /// Clips and inside/outside strokes are drawn from one outline; shapes made of several paths are not.
     fn clip_reason(doc: &Document, n: &Node, has_strokes: bool) -> Option<&'static str> {
         let clips = draws_children(n) && n.kind.frame_props().is_some_and(|f| f.clips_content);
-        let aligned = has_strokes && n.stroke.align != designos_doc::StrokeAlign::Center;
+        let aligned = has_strokes && n.stroke.align != StrokeAlign::Center;
         if !clips && !aligned {
             return None;
         }
@@ -293,10 +294,102 @@ mod fidelity {
         if clips && shape.paths.len() != 1 {
             return Some("a clipping frame made of several paths");
         }
-        if aligned && shape.stroke_paths.is_none() && shape.closed && shape.fill_paths().len() != 1 {
-            return Some("an aligned stroke around several paths");
+        if aligned && shape.stroke_paths.is_none() && shape.closed {
+            if shape.fill_paths().len() != 1 {
+                return Some("an aligned stroke around several paths");
+            }
+            if n.stroke.align == StrokeAlign::Outside && !outside_clip_is_exact(n, &shape) {
+                return Some("an outside stroke around an outline that may cross itself");
+            }
         }
         None
+    }
+
+    /// An outside stroke is kept where the shape is not. The page writes that as an even-odd clip of a
+    /// page-sized rectangle plus the outline, which is the complement of the fill only where the even-odd
+    /// and non-zero rules agree: even-odd outlines, the renderer's own primitives, and single contours
+    /// that never cross themselves. A pentagram, for one, covers its centre twice and is filled by the
+    /// non-zero rule but not by the even-odd rule.
+    fn outside_clip_is_exact(n: &Node, shape: &NodeShape) -> bool {
+        let [(path, rule)] = shape.fill_paths() else { return false };
+        if *rule == SkRule::EvenOdd {
+            return true;
+        }
+        let primitive = n.fill_geometry.is_none()
+            && matches!(
+                n.kind,
+                NodeKind::Frame(_)
+                    | NodeKind::Component(_)
+                    | NodeKind::ComponentSet(_)
+                    | NodeKind::Instance { .. }
+                    | NodeKind::Section
+                    | NodeKind::Rectangle
+                    | NodeKind::Ellipse(_)
+                    | NodeKind::Polygon { .. }
+                    | NodeKind::Star { .. }
+            );
+        primitive || is_simple_contour(path)
+    }
+
+    /// One contour whose flattened outline has no two edges crossing. Anything longer than a few thousand
+    /// edges, or made of several contours, is not examined and counts as not simple.
+    fn is_simple_contour(path: &SkPath) -> bool {
+        const PIECES: usize = 8;
+        const MAX_EDGES: usize = 2000;
+        let mut points: Vec<Point> = Vec::new();
+        let mut contours = 0;
+        let mut last = Point::zero();
+        for segment in path.segments() {
+            match segment {
+                PathSegment::MoveTo(p) => {
+                    contours += 1;
+                    points.push(p);
+                    last = p;
+                }
+                PathSegment::LineTo(p) => {
+                    points.push(p);
+                    last = p;
+                }
+                PathSegment::QuadTo(c, p) => {
+                    for k in 1..=PIECES {
+                        let (t, u) = (k as f32 / PIECES as f32, 1.0 - k as f32 / PIECES as f32);
+                        points.push(Point::from_xy(u * u * last.x + 2.0 * u * t * c.x + t * t * p.x, u * u * last.y + 2.0 * u * t * c.y + t * t * p.y));
+                    }
+                    last = p;
+                }
+                PathSegment::CubicTo(c1, c2, p) => {
+                    for k in 1..=PIECES {
+                        let (t, u) = (k as f32 / PIECES as f32, 1.0 - k as f32 / PIECES as f32);
+                        let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                        points.push(Point::from_xy(a * last.x + b * c1.x + c * c2.x + d * p.x, a * last.y + b * c1.y + c * c2.y + d * p.y));
+                    }
+                    last = p;
+                }
+                PathSegment::Close => {}
+            }
+        }
+        if contours != 1 || points.len() > MAX_EDGES {
+            return false;
+        }
+        points.dedup();
+        if points.len() > 1 && points.first() == points.last() {
+            points.pop();
+        }
+        let n = points.len();
+        let side = |p: Point, q: Point, r: Point| (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        for i in 0..n {
+            let (a, b) = (points[i], points[(i + 1) % n]);
+            for j in i + 2..n {
+                if i == 0 && j == n - 1 {
+                    continue;
+                }
+                let (c, d) = (points[j], points[(j + 1) % n]);
+                if side(a, b, c) * side(a, b, d) < 0.0 && side(c, d, a) * side(c, d, b) < 0.0 {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     fn paint_reason(p: &Paint) -> Option<&'static str> {
@@ -380,8 +473,8 @@ mod shading {
     use crate::util::num;
     use designos_doc::{Color, GradientStop, Vec2};
 
-    /// Positions closer than this are one position.
-    const EPS: f32 = 1e-5;
+    /// Stop positions are written with five decimals; two positions that print alike are one position.
+    const POSITION_STEP: f32 = 1e-5;
 
     pub(super) enum Plan {
         /// One colour stop: the renderer paints it as a solid colour.
@@ -428,25 +521,28 @@ mod shading {
     /// Colour as a function of the position along the gradient, over `[0 1]`: flat before the first stop and
     /// after the last, linear between stops, a jump where two stops share a position.
     fn function_dict(stops: &[(f32, Color)]) -> String {
+        // PDF wants `/Bounds` that increase strictly inside (0, 1) as printed, so work on the printed positions
+        let stops: Vec<(f32, Color)> = stops.iter().map(|(pos, color)| ((pos / POSITION_STEP).round() * POSITION_STEP, *color)).collect();
         let (first, last) = (stops[0], stops[stops.len() - 1]);
+        let wider = |from: f32, to: f32| to - from > POSITION_STEP / 2.0;
         // (start, end, colour at start, colour at end)
         let mut segments: Vec<(f32, f32, Color, Color)> = Vec::new();
-        if first.0 > EPS {
+        if wider(0.0, first.0) {
             segments.push((0.0, first.0, first.1, first.1));
         }
         for pair in stops.windows(2) {
-            if pair[1].0 - pair[0].0 > EPS {
+            if wider(pair[0].0, pair[1].0) {
                 segments.push((pair[0].0, pair[1].0, pair[0].1, pair[1].1));
             }
         }
-        if last.0 < 1.0 - EPS {
+        if wider(last.0, 1.0) {
             segments.push((last.0, 1.0, last.1, last.1));
         }
         if let [(_, _, a, b)] = segments.as_slice() {
             return linear_segment(*a, *b);
         }
         let functions = segments.iter().map(|(_, _, a, b)| linear_segment(*a, *b)).collect::<Vec<_>>().join(" ");
-        let bounds = segments.iter().skip(1).map(|(start, ..)| num(*start)).collect::<Vec<_>>().join(" ");
+        let bounds = segments.iter().skip(1).map(|(start, ..)| n5(*start)).collect::<Vec<_>>().join(" ");
         let encode = vec!["0 1"; segments.len()].join(" ");
         format!("<< /FunctionType 3 /Domain [0 1] /Functions [{functions}] /Bounds [{bounds}] /Encode [{encode}] >>")
     }
@@ -728,11 +824,23 @@ mod vector_page {
         uses_wide_font: bool,
         /// Transform from the local space of the node being drawn to the page (design pixels).
         ctm: Affine,
+        /// The part of the page that the frame bounds, clipping frames and masks above the node being
+        /// drawn leave visible; text outside it is not worth selecting.
+        visible: Bounds,
     }
 
     impl<'a, 'f> PageBuilder<'a, 'f> {
         fn new(doc: &'a Document, fonts: &'f mut TextFonts, page: Vec2) -> Self {
-            Self { doc, fonts, page, body: String::new(), resources: PageResources::default(), uses_wide_font: false, ctm: Affine::IDENTITY }
+            Self {
+                doc,
+                fonts,
+                page,
+                body: String::new(),
+                resources: PageResources::default(),
+                uses_wide_font: false,
+                ctm: Affine::IDENTITY,
+                visible: [0.0, 0.0, page.x, page.y],
+            }
         }
 
         fn page_points(&self) -> (String, String) {
@@ -810,9 +918,12 @@ mod vector_page {
 
         fn children(&mut self, n: &Node, shape: Option<&NodeShape>) {
             let clips = n.kind.frame_props().is_some_and(|f| f.clips_content);
+            let visible = self.visible;
             if clips {
                 // a clipping node without a shape draws none of its children
-                let Some((cmds, rule)) = shape.and_then(|sh| path_cmds(&sh.paths).into_iter().next()) else { return };
+                let Some(first) = shape.and_then(|sh| sh.paths.first()) else { return };
+                let (cmds, rule) = path_cmds(std::slice::from_ref(first)).remove(0);
+                self.narrow_to(&Affine::IDENTITY, &first.0);
                 self.body.push_str("q\n");
                 self.clip(&cmds, rule);
             }
@@ -827,7 +938,9 @@ mod vector_page {
                         continue;
                     }
                     if let Some(sh) = outline_of(doc, &child, FLATTEN_TOLERANCE) {
-                        if let Some((cmds, rule)) = path_cmds(sh.fill_paths()).into_iter().next() {
+                        if let Some(first) = sh.fill_paths().first() {
+                            let (cmds, rule) = path_cmds(std::slice::from_ref(first)).remove(0);
+                            self.narrow_to(&child.transform, &first.0);
                             self.body.push_str("q\n");
                             self.clip(&transform_cmds(&cmds, &child.transform), rule);
                             open_masks += 1;
@@ -843,6 +956,13 @@ mod vector_page {
             if clips {
                 self.body.push_str("Q\n");
             }
+            self.visible = visible;
+        }
+
+        /// Narrows the visible part of the page to the box of `path`, drawn at `local` inside the current node.
+        fn narrow_to(&mut self, local: &Affine, path: &SkPath) {
+            let b = path.bounds();
+            self.visible = narrow(self.visible, in_page(&(self.ctm * *local), [b.left(), b.top(), b.right(), b.bottom()]));
         }
 
         // ----- clips ---------------------------------------------------------------------------------
@@ -862,7 +982,9 @@ mod vector_page {
         }
 
         /// Clips to everything outside the node's single fill path (an even-odd clip of a rectangle that
-        /// covers the page plus the path). False when there is no such path or the space is singular.
+        /// covers the page plus the path). That is the complement of the fill only where the outline cannot
+        /// overlap itself under the non-zero rule, which the page checks make sure of. False when there is
+        /// no such path or the space is singular.
         fn clip_outside(&mut self, sh: &NodeShape) -> bool {
             let [path] = sh.fill_paths() else { return false };
             let Some(inv) = self.ctm.invert() else { return false };
@@ -1047,6 +1169,12 @@ mod vector_page {
             for line in &out.lines {
                 for span in &line.spans {
                     let size = out.styles.get(span.style).unwrap_or(&tp.style).font_size.max(1.0);
+                    // a run no part of which is on the visible page is not worth selecting; one that is only
+                    // partly visible stays whole
+                    let glyphs = cmd_bounds(&span.outline).unwrap_or([span.x, line.baseline - size, span.x, line.baseline]);
+                    if !touches(in_page(&self.ctm, glyphs), self.visible) {
+                        continue;
+                    }
                     let (font, string) = match self.fonts.encode(span.text.trim_end_matches('\n')) {
                         None => continue,
                         Some(Encoded::Latin(s)) => ("F1", format!("({s})")),
@@ -1071,18 +1199,75 @@ mod vector_page {
                 return;
             }
             let doc = self.doc;
+            let visible = self.visible;
+            if n.kind.frame_props().is_some_and(|f| f.clips_content) {
+                // like the canvas: a clipping node without a shape draws none of its children
+                let Some(sh) = outline_of(doc, n, FLATTEN_TOLERANCE) else { return };
+                let Some(first) = sh.paths.first() else { return };
+                self.narrow_to(&Affine::IDENTITY, &first.0);
+            }
             for cid in &n.children {
                 let Some(raw) = doc.get(*cid) else { continue };
                 let child = resolve_node(doc, raw);
-                if child.is_mask || !is_drawn(&child) {
+                if child.is_mask {
+                    // whatever the mask's strength, nothing shows outside its shape
+                    if child.visible && !matches!(child.kind, NodeKind::Text(_) | NodeKind::Group) && !draws_children(&child) {
+                        if let Some(first) = outline_of(doc, &child, FLATTEN_TOLERANCE).and_then(|sh| sh.fill_paths().first().cloned()) {
+                            self.narrow_to(&child.transform, &first.0);
+                        }
+                    }
+                    continue;
+                }
+                if !is_drawn(&child) {
                     continue;
                 }
                 let t = child.transform;
+                let outer = self.ctm;
+                self.ctm = self.ctm * t;
                 let _ = writeln!(self.body, "q\n{} cm", [t.a, t.b, t.c, t.d, t.tx, t.ty].map(n5).join(" "));
                 self.text_layer(&child);
                 self.body.push_str("Q\n");
+                self.ctm = outer;
             }
+            self.visible = visible;
         }
+    }
+
+    /// A box in page pixels: left, top, right, bottom. A box with left > right holds nothing.
+    type Bounds = [f32; 4];
+
+    const NOTHING: Bounds = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+
+    /// The box of every point of `cmds` (control points included), `None` for an empty outline.
+    fn cmd_bounds(cmds: &[PathCmd]) -> Option<Bounds> {
+        let mut points = cmds.iter().flat_map(|c| match *c {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => vec![p],
+            PathCmd::QuadTo(a, p) => vec![a, p],
+            PathCmd::CubicTo(a, b, p) => vec![a, b, p],
+            PathCmd::Close => vec![],
+        });
+        let first = points.next()?;
+        Some(points.fold([first.x, first.y, first.x, first.y], |b, p| [b[0].min(p.x), b[1].min(p.y), b[2].max(p.x), b[3].max(p.y)]))
+    }
+
+    /// The box that `b`, in the space `m` maps from, covers after `m`.
+    fn in_page(m: &Affine, b: Bounds) -> Bounds {
+        let corners = [Vec2::new(b[0], b[1]), Vec2::new(b[2], b[1]), Vec2::new(b[2], b[3]), Vec2::new(b[0], b[3])].map(|c| m.apply(c));
+        corners.iter().fold(NOTHING, |r, c| [r[0].min(c.x), r[1].min(c.y), r[2].max(c.x), r[3].max(c.y)])
+    }
+
+    fn narrow(a: Bounds, b: Bounds) -> Bounds {
+        let r = [a[0].max(b[0]), a[1].max(b[1]), a[2].min(b[2]), a[3].min(b[3])];
+        if r[0] > r[2] || r[1] > r[3] {
+            NOTHING
+        } else {
+            r
+        }
+    }
+
+    /// Whether the boxes share a point; a box that is not a number counts as visible.
+    fn touches(a: Bounds, b: Bounds) -> bool {
+        !(a[0] > b[2] || b[0] > a[2] || a[1] > b[3] || b[1] > a[3])
     }
 
     /// `[a b ...] 0 d` for a dash pattern the renderer would also apply: non-negative, not all zero.
