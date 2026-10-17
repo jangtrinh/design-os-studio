@@ -139,7 +139,85 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             x += theme::TOOL_CHEVRON_W;
         }
     }
+    show_timer(app, ui, bar);
     popup(app, ui);
+}
+
+fn show_timer(app: &mut App, ui: &mut Ui, bar: Rect) {
+    let now = ui.input(|i| i.time);
+    if app.board.timer.tick(now) {
+        ui.ctx().request_repaint();
+    }
+
+    let toggle_r = Rect::from_min_size(Pos2::new(bar.right() + 10.0, bar.top()), Vec2::new(84.0, bar.height()));
+    widgets::record(ui, "board-timer-toggle", toggle_r);
+    let resp = ui.interact(toggle_r, ui.id().with("board-timer-toggle"), Sense::click());
+    let p = ui.painter().clone();
+    widgets::shadow(&p, toggle_r, theme::RADIUS_LARGE, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
+    let bg = if app.board.timer.running {
+        theme::BG_TOOLBAR_SELECTED
+    } else if app.board.timer.open || resp.hovered() {
+        theme::BG_TOOLBAR_HOVER
+    } else {
+        theme::BG_TOOLBAR
+    };
+    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_LARGE), bg);
+    p.rect_stroke(toggle_r.shrink(0.5), theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
+    icons::paint(
+        &p,
+        Icon::Clock,
+        Pos2::new(toggle_r.left() + 18.0, toggle_r.center().y),
+        14.0,
+        if app.board.timer.running { Color32::WHITE } else { theme::ICON },
+    );
+    let label = app.board.timer.format_mm_ss();
+    p.text(
+        Pos2::new(toggle_r.left() + 32.0, toggle_r.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        theme::font_body_strong(),
+        if app.board.timer.running { Color32::WHITE } else { theme::TEXT },
+    );
+    if resp.on_hover_text("Facilitator timer").clicked() {
+        app.board.timer.open = !app.board.timer.open;
+    }
+
+    if !app.board.timer.open {
+        return;
+    }
+
+    let hud_size = Vec2::new(220.0, 40.0);
+    let hud_r = Rect::from_min_size(Pos2::new(toggle_r.right() - hud_size.x, toggle_r.top() - hud_size.y - 8.0), hud_size);
+    widgets::record(ui, "board-timer-hud", hud_r);
+    widgets::menu_panel(&p, hud_r, theme::RADIUS_LARGE);
+    ui.interact(hud_r, ui.id().with("board-timer-hud-block"), Sense::click_and_drag());
+
+    let start_r = Rect::from_min_size(Pos2::new(hud_r.left() + 8.0, hud_r.top() + 6.0), Vec2::new(64.0, 28.0));
+    widgets::record(ui, "board-timer-start-pause", start_r);
+    let sresp = ui.interact(start_r, ui.id().with("board-timer-start-pause"), Sense::click());
+    p.rect_filled(start_r, theme::cr(theme::RADIUS_MEDIUM), if app.board.timer.running { theme::BG_HOVER } else { theme::BG_BRAND });
+    p.text(start_r.center(), Align2::CENTER_CENTER, if app.board.timer.running { "Pause" } else { "Start" }, theme::font_body_strong(), Color32::WHITE);
+    if sresp.clicked() {
+        app.board.timer.toggle(now);
+    }
+
+    let add_r = Rect::from_min_size(Pos2::new(start_r.right() + 6.0, hud_r.top() + 6.0), Vec2::new(64.0, 28.0));
+    widgets::record(ui, "board-timer-add-min", add_r);
+    let aresp = ui.interact(add_r, ui.id().with("board-timer-add-min"), Sense::click());
+    p.rect_filled(add_r, theme::cr(theme::RADIUS_MEDIUM), if aresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+    p.text(add_r.center(), Align2::CENTER_CENTER, "+1 min", theme::font_body(), theme::TEXT);
+    if aresp.clicked() {
+        app.board.timer.add_minute();
+    }
+
+    let reset_r = Rect::from_min_size(Pos2::new(add_r.right() + 6.0, hud_r.top() + 6.0), Vec2::new(64.0, 28.0));
+    widgets::record(ui, "board-timer-reset", reset_r);
+    let rresp = ui.interact(reset_r, ui.id().with("board-timer-reset"), Sense::click());
+    p.rect_filled(reset_r, theme::cr(theme::RADIUS_MEDIUM), if rresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+    p.text(reset_r.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT_SECONDARY);
+    if rresp.clicked() {
+        app.board.timer.reset();
+    }
 }
 
 /// Cell size of the popover grids.

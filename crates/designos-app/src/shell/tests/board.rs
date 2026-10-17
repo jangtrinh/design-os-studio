@@ -759,3 +759,47 @@ fn moving_a_free_connector_carries_its_loose_ends() {
     s.cmd_key(Key::Z);
     assert_eq!(connector_route(&s.app().doc, c).unwrap().end(), r0.end());
 }
+
+#[test]
+fn facilitator_timer_runs_while_canvas_is_in_use() {
+    let mut s = board_sim();
+    assert!(!s.app().board.timer.running);
+    assert_eq!(s.app().board.timer.format_mm_ss(), "05:00");
+
+    // Open the facilitator timer HUD and start the timer
+    let toggle = s.rect_of("board-timer-toggle");
+    s.click(toggle.center());
+    assert!(s.app().board.timer.open);
+
+    let start_btn = s.rect_of("board-timer-start-pause");
+    s.click(start_btn.center());
+    assert!(s.app().board.timer.running);
+    let rem_after_start = s.app().board.timer.remaining_secs;
+
+    // Use the canvas while the timer is running: place a sticky note and type into it
+    s.key(Key::S);
+    s.click(s.screen(320.0, 320.0));
+    s.type_text("Brainstorm item");
+    s.key(Key::Escape);
+    assert_eq!(stickies(&s).len(), 1);
+
+    // The timer continued ticking down while the canvas was actively used
+    assert!(s.app().board.timer.running);
+    assert!(
+        s.app().board.timer.remaining_secs < rem_after_start - 0.1,
+        "expected timer to advance while canvas in use: before={rem_after_start}, after={}",
+        s.app().board.timer.remaining_secs
+    );
+
+    // Add 1 minute (+60s) and verify remaining time increases while still running
+    let rem_before_add = s.app().board.timer.remaining_secs;
+    let add_min = s.rect_of("board-timer-add-min");
+    s.click(add_min.center());
+    assert!(s.app().board.timer.remaining_secs > rem_before_add + 50.0);
+
+    // Reset stops the timer and restores the configured duration
+    let reset_btn = s.rect_of("board-timer-reset");
+    s.click(reset_btn.center());
+    assert!(!s.app().board.timer.running);
+    assert_eq!(s.app().board.timer.remaining_secs, s.app().board.timer.duration_secs);
+}
