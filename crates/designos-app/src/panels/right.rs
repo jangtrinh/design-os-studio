@@ -561,6 +561,16 @@ mod tests {
             panic!("the row of preset {preset:?} never scrolled into the inspector");
         }
 
+        /// Scrolls the list so the row of `preset` starts exactly at `top`.
+        fn scroll_row_to(&mut self, preset: &str, top: f32) {
+            let row = self.row(preset).unwrap_or_else(|| panic!("the row of preset {preset:?} is not in the inspector at all"));
+            self.app.proto.presets_scroll += row.top() - top;
+            self.frame(vec![]);
+            self.frame(vec![]);
+            let now = self.row(preset).expect("preset row").top();
+            assert!((now - top).abs() < 0.01, "{preset:?} row starts at {now}, wanted {top}: the list cannot scroll that far");
+        }
+
         fn click(&mut self, at: Pos2) {
             self.frame(vec![egui::Event::PointerMoved(at)]);
             for pressed in [true, false] {
@@ -638,6 +648,69 @@ mod tests {
         let first = crate::proto::FRAME_PRESETS.first().expect("catalogue is not empty").name;
         let row = ins.row(first).expect("first preset row");
         assert!(row.top() >= ins.region.top() && row.top() - ins.region.top() <= 80.0, "scrolled back to the top, the first row sits right below the title");
+    }
+
+    /// The Prototype tab and the zoom control, as points in their lower half (where a row that sticks out
+    /// above the list region would cover them).
+    fn header_controls_lower_half(ins: &PresetInspector) -> [(&'static str, Pos2); 2] {
+        let tab = ins.rect_named("right-tab-Prototype").expect("Prototype tab");
+        let zoom = Rect::from_min_size(
+            Pos2::new(ins.rect.right() - theme::RIGHT_ZOOM_FROM_RIGHT, ins.rect.top() + theme::RIGHT_TABS_Y),
+            Vec2::new(theme::RIGHT_ZOOM_W, theme::RIGHT_TABS_H),
+        );
+        [
+            ("Prototype tab", Pos2::new(tab.center().x, tab.top() + tab.height() * 0.75)),
+            ("zoom control", Pos2::new(zoom.center().x, zoom.top() + zoom.height() * 0.75)),
+        ]
+    }
+
+    #[test]
+    fn header_tabs_and_zoom_still_work_while_a_preset_row_sticks_out_above_the_list() {
+        for above in [1.0, 5.0, 10.0, 14.0, 23.0] {
+            for which in 0..2 {
+                let mut ins = PresetInspector::new(Vec2::new(theme::DEFAULT_WINDOW.0, theme::DEFAULT_WINDOW.1));
+                ins.scroll_row_to("iPhone 17", ins.region.top() - above);
+                let (name, at) = header_controls_lower_half(&ins)[which];
+                if above == 23.0 {
+                    let row = ins.row("iPhone 17").expect("preset row");
+                    assert!(row.contains(at), "the straddling row {row:?} reaches the {name} at {at:?}");
+                }
+                let frames = ins.app.doc.nodes.len();
+                ins.click(at);
+                assert_eq!(ins.app.doc.nodes.len(), frames, "{name}: a click with a row {above} px above the list must not create a frame");
+                match which {
+                    0 => assert_eq!(ins.app.ui.right_tab, Some(RightTab::Prototype), "row {above} px above the list: the Prototype tab must switch"),
+                    _ => assert_eq!(ins.app.ui.menu, Some(MenuKind::Zoom), "row {above} px above the list: the zoom control must open its menu"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_preset_row_cut_by_the_list_edges_is_clickable_only_where_it_is_visible() {
+        let mut ins = PresetInspector::new(Vec2::new(theme::DEFAULT_WINDOW.0, theme::DEFAULT_WINDOW.1));
+        let x = ins.region.left() + 40.0;
+        // Cut by the top edge: 10 px of the row are hidden above, 14 px show.
+        ins.scroll_row_to("iPhone 17", ins.region.top() - 10.0);
+        let frames = ins.app.doc.nodes.len();
+        ins.click(Pos2::new(x, ins.region.top() + 6.0));
+        assert_eq!(ins.app.doc.nodes.len(), frames + 1, "the visible part of a row cut by the top edge creates its frame");
+        assert_eq!(ins.app.doc.get(ins.app.selection[0]).map(|n| n.name.as_str()), Some("iPhone 17"));
+        // Probes sit 8 px outside the list: past egui's 5 px click radius, which lets a click just beside
+        // any widget hit it, but well inside the 24 px row rect that an unclipped hit area would have.
+        let mut ins = PresetInspector::new(Vec2::new(theme::DEFAULT_WINDOW.0, theme::DEFAULT_WINDOW.1));
+        ins.scroll_row_to("iPhone 17", ins.region.top() - 23.0);
+        let frames = ins.app.doc.nodes.len();
+        ins.click(Pos2::new(x, ins.region.top() - 8.0));
+        assert_eq!(ins.app.doc.nodes.len(), frames, "the strip between the tabs and the list takes no row clicks");
+        // Cut by the bottom edge: the row starts 2 px above it, 22 px sit in the footer.
+        let mut ins = PresetInspector::new(Vec2::new(theme::DEFAULT_WINDOW.0, theme::DEFAULT_WINDOW.1));
+        ins.scroll_row_to("Instagram post", ins.region.bottom() - 2.0);
+        let frames = ins.app.doc.nodes.len();
+        ins.click(Pos2::new(x, ins.region.bottom() + 8.0));
+        assert_eq!(ins.app.doc.nodes.len(), frames, "the footer below the list takes no row clicks");
+        ins.click(Pos2::new(x, ins.region.bottom() - 1.0));
+        assert_eq!(ins.app.doc.nodes.len(), frames + 1, "the visible 2 px of a row cut by the bottom edge create its frame");
     }
 
     #[test]
