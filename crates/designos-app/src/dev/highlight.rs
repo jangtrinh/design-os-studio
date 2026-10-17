@@ -233,6 +233,24 @@ mod tests {
     }
 
     #[test]
+    fn uikit_and_android_xml() {
+        let l = &highlight(Language::UiKit, "let card = UIStackView()")[0];
+        assert_eq!(kinds(l)[0], (Tok::Keyword, "let"));
+        assert!(kinds(l).contains(&(Tok::Type, "UIStackView")));
+        let l = &highlight(Language::UiKit, "card.spacing = 8")[0];
+        assert!(kinds(l).contains(&(Tok::Number, "8")));
+        // an XML file header is one comment, even though it holds slashes and dots
+        let l = &highlight(Language::AndroidXml, "<!-- res/layout/card.xml -->")[0];
+        assert_eq!(kinds(l), vec![(Tok::Comment, "<!-- res/layout/card.xml -->")]);
+        let l = &highlight(Language::AndroidXml, "    android:text=\"Hi\"")[0];
+        assert!(kinds(l).contains(&(Tok::Property, "android")));
+        assert!(kinds(l).contains(&(Tok::Property, "text")));
+        assert!(kinds(l).contains(&(Tok::Str, "\"Hi\"")));
+        let l = &highlight(Language::AndroidXml, "<LinearLayout")[0];
+        assert_eq!(kinds(l)[1], (Tok::Type, "LinearLayout"));
+    }
+
+    #[test]
     fn markup() {
         let l = &highlight(Language::Tailwind, r#"<div class="flex p-4">"#)[0];
         assert_eq!(kinds(l)[1], (Tok::Type, "div"));

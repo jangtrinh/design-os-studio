@@ -514,7 +514,16 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         token_note(ui, c, &format!("Bindings: {}", u.props.join(", ")));
         if let Some(v) = app.doc.variables.get(&u.id) {
             let reference = designos_export::css_variable_reference(v);
-            token_copy_row(app, ui, c, &format!("dev-token-ref-{i}"), "CSS reference", &reference, None);
+            let label = if v.code_syntax_for(CodeSyntaxPlatform::Web).is_some() { "Web code syntax" } else { "CSS reference" };
+            // Android and iOS code syntax, as written on the variable
+            let other_syntax: Vec<(&str, &str, String)> = [(CodeSyntaxPlatform::Android, "android", "Android code syntax"), (CodeSyntaxPlatform::Ios, "ios", "iOS code syntax")]
+                .into_iter()
+                .filter_map(|(platform, key, label)| Some((key, label, v.code_syntax_for(platform)?.to_string())))
+                .collect();
+            token_copy_row(app, ui, c, &format!("dev-token-ref-{i}"), label, &reference, None);
+            for (key, label, code) in other_syntax {
+                token_copy_row(app, ui, c, &format!("dev-token-syntax-{i}-{key}"), label, &code, None);
+            }
         }
         token_note(ui, c, "Effective values · click to copy");
         for (j, binding) in u.effective.iter().enumerate() {
