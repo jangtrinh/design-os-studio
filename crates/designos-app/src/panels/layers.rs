@@ -178,6 +178,35 @@ pub(crate) fn kind_icon(k: &NodeKind) -> Icon {
     }
 }
 
+pub fn kind_label(k: &NodeKind) -> &'static str {
+    match k {
+        NodeKind::Page { .. } => "Page",
+        NodeKind::Frame(f) => match f.auto_layout.as_ref().map(|al| al.direction) {
+            Some(designos_doc::LayoutDirection::Grid) => "Grid",
+            Some(designos_doc::LayoutDirection::Horizontal | designos_doc::LayoutDirection::Vertical) => "Auto layout",
+            None => "Frame",
+        },
+        NodeKind::Group => "Group",
+        NodeKind::Section => "Section",
+        NodeKind::Rectangle => "Rect",
+        NodeKind::Ellipse(_) => "Ellipse",
+        NodeKind::Line => "Line",
+        NodeKind::Polygon { .. } => "Polygon",
+        NodeKind::Star { .. } => "Star",
+        NodeKind::Vector { .. } => "Vector",
+        NodeKind::Text(_) => "Text",
+        NodeKind::BooleanOp(_) => "Boolean",
+        NodeKind::Component(_) => "Component",
+        NodeKind::ComponentSet(_) => "Variant set",
+        NodeKind::Instance { .. } => "Instance",
+        NodeKind::Sticky(_) => "Sticky",
+        NodeKind::Connector(_) => "Connector",
+        NodeKind::ShapeWithText(_) => "Shape",
+        NodeKind::Stamp { .. } => "Stamp",
+        NodeKind::Unknown { .. } => "Layer",
+    }
+}
+
 fn is_component_like(n: &designos_doc::Node) -> bool {
     // Components, instances and every layer inside an instance read as purple.
     matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }) || n.component.source.is_some()
@@ -306,8 +335,8 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         for (offset, row) in visible_slice.iter().copied().enumerate() {
             let i = first + offset;
             let Some(node) = app.doc.get(row.id) else { continue };
-            let (node_parent, comp, icon, node_name, node_visible, node_locked) =
-                (node.parent, is_component_like(node), kind_icon(&node.kind), node.name.clone(), node.visible, node.locked);
+            let (node_parent, comp, icon, type_label, node_name, node_visible, node_locked) =
+                (node.parent, is_component_like(node), kind_icon(&node.kind), kind_label(&node.kind), node.name.clone(), node.visible, node.locked);
             let rr = Rect::from_min_size(
                 Pos2::new(region.left(), region.top() + i as f32 * theme::LAYER_ROW_HEIGHT - scroll),
                 Vec2::new(region.width(), theme::LAYER_ROW_HEIGHT),
@@ -473,12 +502,18 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     }
                 }
             } else {
-                let shown = widgets::elide(&p, &node_name, &theme::font_body(), (text_right - text_left).max(10.0));
+                let label_w = widgets::text_width(&p, type_label, &theme::font_small()) + 8.0;
+                let name_right = (text_right - label_w).max(text_left + 16.0);
+                let shown = widgets::elide(&p, &node_name, &theme::font_body(), (name_right - text_left).max(10.0));
                 if let Some(m) = &filter {
                     let ranges = crate::find::filter::highlights(m, &shown);
-                    crate::find::filter::paint_highlights(&p, &shown, &ranges, text_left, rr, &theme::font_body(), text_right);
+                    crate::find::filter::paint_highlights(&p, &shown, &ranges, text_left, rr, &theme::font_body(), name_right);
                 }
                 p.text(Pos2::new(text_left, rr.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), tcol);
+                let label_col = if comp { theme::TEXT_COMPONENT.gamma_multiply(0.75) } else { theme::TEXT_TERTIARY };
+                p.text(Pos2::new(text_right - 2.0, rr.center().y), Align2::RIGHT_CENTER, type_label, theme::font_small(), label_col);
+                #[cfg(test)]
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("layer-type-label", row.id.0)), type_label));
             }
 
             // Visibility / lock toggles (visible on hover or when active).
@@ -686,5 +721,73 @@ mod tests {
         let rows2 = visible_rows_cached(&mut app);
         assert_eq!(rows2.len(), 3);
         assert_eq!(app.layers.cache_key, key1, "cache_key must remain valid during transform drags");
+    }
+
+    #[test]
+    fn kind_label_covers_every_node_type_and_renders_in_virtualised_budget() {
+        use designos_doc::{ArcData, AutoLayout, BooleanOp, ConnectorProps, FrameProps, LayoutDirection, ShapeWithTextProps, StickyProps, TextProps};
+
+        let cases: &[(NodeKind, &str)] = &[
+            (NodeKind::Page { background: designos_doc::Color::BLACK }, "Page"),
+            (NodeKind::Frame(FrameProps::default()), "Frame"),
+            (
+                NodeKind::Frame(FrameProps {
+                    auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, ..AutoLayout::default() }),
+                    ..FrameProps::default()
+                }),
+                "Auto layout",
+            ),
+            (
+                NodeKind::Frame(FrameProps {
+                    auto_layout: Some(AutoLayout { direction: LayoutDirection::Grid, ..AutoLayout::default() }),
+                    ..FrameProps::default()
+                }),
+                "Grid",
+            ),
+            (NodeKind::Group, "Group"),
+            (NodeKind::Section, "Section"),
+            (NodeKind::Rectangle, "Rect"),
+            (NodeKind::Ellipse(ArcData::default()), "Ellipse"),
+            (NodeKind::Line, "Line"),
+            (NodeKind::Polygon { count: 5 }, "Polygon"),
+            (NodeKind::Star { count: 5, inner_ratio: 0.5 }, "Star"),
+            (NodeKind::Vector { paths: vec![], network: None }, "Vector"),
+            (NodeKind::Text(TextProps::default()), "Text"),
+            (NodeKind::BooleanOp(BooleanOp::Union), "Boolean"),
+            (NodeKind::Component(FrameProps::default()), "Component"),
+            (NodeKind::ComponentSet(FrameProps::default()), "Variant set"),
+            (NodeKind::Instance { component: Some(NodeId(1)), component_key: None, frame: FrameProps::default() }, "Instance"),
+            (NodeKind::Sticky(StickyProps::default()), "Sticky"),
+            (NodeKind::Connector(ConnectorProps::default()), "Connector"),
+            (NodeKind::ShapeWithText(ShapeWithTextProps::default()), "Shape"),
+            (NodeKind::Stamp { kind: "thumbs-up".into() }, "Stamp"),
+            (NodeKind::Unknown { type_name: "SLICE".into() }, "Layer"),
+        ];
+
+        for (kind, expected) in cases {
+            assert_eq!(kind_label(kind), *expected, "mismatch for {kind:?}");
+        }
+
+        // Virtualised panel test: 2,000 rows render in well under the 16ms frame budget and record type labels for visible rows
+        let mut d = Document::new("perf");
+        let page = d.add_page("Page 1");
+        for idx in 0..2_000 {
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, DRect::new(0.0, (idx * 12) as f32, 40.0, 10.0));
+            n.name = format!("Item {idx}");
+            d.insert(page, n).unwrap();
+        }
+        let mut app = App::new(d);
+        let top_id = visible_rows_cached(&mut app)[0].id;
+        let ctx = egui::Context::default();
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 600.0));
+        let t0 = std::time::Instant::now();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            show(&mut app, ui, region);
+        });
+        let elapsed = t0.elapsed();
+        assert!(elapsed.as_secs_f64() * 1000.0 < 16.0, "virtualised Layers panel exceeded 16ms budget: {elapsed:?}");
+        let recorded: Option<&'static str> = ctx.data(|d| d.get_temp(egui::Id::new(("layer-type-label", top_id.0))));
+        assert_eq!(recorded, Some("Rect"));
     }
 }
