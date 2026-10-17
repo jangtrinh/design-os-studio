@@ -14,6 +14,8 @@ const REPOSITORY: &str = "jangtrinh/design-os-plugins";
 const ALLOWED_REPOS: &[(&str, &str)] = &[("jangtrinh", "design-os-plugins"), ("jangtrinh", "designos-plugins")];
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_FIGMA_VERSION: &str = "1.0.0";
+const IMPORT_RETRY: &str = "Correct the plugin folder, then import again.";
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -438,11 +440,16 @@ pub fn list(root: &Path) -> Result<Vec<InstalledPlugin>, String> {
         plugin.runtime_supported = false;
         if entry.path() == bundle_directory(root, &plugin.id, &plugin.version) {
             if plugin.source_kind() == PluginSourceKind::LocalManifest {
+                // An imported Figma bundle has no native manifest and no runner yet, so it is never
+                // runnable. installed.json is unverified: capability fields are rebuilt only from the
+                // validated Figma manifest.
+                plugin.permissions = Vec::new();
+                plugin.network = Vec::new();
                 if let Ok(Some(figma)) = load_figma_manifest(root, &plugin) {
                     plugin.name = figma.name.clone();
                     plugin.main = figma.main.clone();
                     plugin.panel = figma.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string);
-                    plugin.runtime_supported = true;
+                    plugin.network = figma.declared_network();
                 }
             } else if let Ok(bundle) = load_bundle(root, &plugin) {
                 plugin = bundle.plugin;
@@ -831,6 +838,224 @@ mod tests {
 
         fs::remove_dir_all(root).unwrap();
     }
+
+    fn figma_manifest_value() -> serde_json::Value {
+        serde_json::json!({
+            "name": "Repo Formatter",
+            "id": "repo-formatter",
+            "api": "1.0.0",
+            "main": "dist/code.js",
+            "ui": "ui/index.html",
+            "editorType": ["figma"],
+            "menu": [{"name": "Format Selection", "command": "format-selection"}],
+            "networkAccess": {"allowedDomains": ["https://api.example.com"]}
+        })
+    }
+
+    fn write_figma_repo(parent: &Path, manifest: &serde_json::Value) -> PathBuf {
+        let repo = parent.join("figma-repo");
+        fs::create_dir_all(repo.join("dist")).unwrap();
+        fs::create_dir_all(repo.join("ui")).unwrap();
+        fs::write(repo.join("dist/code.js"), b"figma.closePlugin();").unwrap();
+        fs::write(repo.join("ui/index.html"), b"<!doctype html><title>UI</title>").unwrap();
+        fs::write(repo.join("manifest.json"), serde_json::to_vec_pretty(manifest).unwrap()).unwrap();
+        repo
+    }
+
+    #[test]
+    fn imported_figma_plugin_is_not_runnable_and_installed_metadata_cannot_grant_capabilities() {
+        let root = root();
+        let repo = write_figma_repo(&root, &figma_manifest_value());
+        let installed = import_figma_manifest(&root, &repo).unwrap();
+        assert!(!installed.runtime_supported, "the import result must not advertise a runner that does not exist");
+        assert!(!list(&root).unwrap()[0].runtime_supported, "the library must not enable Open for a bundle load_bundle cannot open");
+        assert!(load_bundle(&root, &installed).is_err());
+
+        let directory = bundle_directory(&root, &installed.id, &installed.version);
+        let mut fake = installed.clone();
+        fake.permissions = vec!["document:insert-svg".into()];
+        fake.network = vec!["https://other.example".into()];
+        fake.runtime_supported = true;
+        fs::write(directory.join("installed.json"), serde_json::to_vec(&fake).unwrap()).unwrap();
+        let actual = list(&root).unwrap().remove(0);
+        assert!(actual.permissions.is_empty(), "installed.json must not grant document permissions: {:?}", actual.permissions);
+        assert_eq!(actual.network, ["https://api.example.com"]);
+        assert!(!actual.runtime_supported);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn tampered_source_url_cannot_make_a_native_bundle_claim_permissions_through_the_local_branch() {
+        let root = root();
+        let plugin = install_v2(&root);
+        let directory = bundle_directory(&root, &plugin.id, &plugin.version);
+        let mut fake = plugin.clone();
+        fake.manifest_url = "file:///anywhere/manifest.json".into();
+        fake.permissions = vec!["arbitrary".into()];
+        fake.network = vec!["https://other.example".into()];
+        fs::write(directory.join("installed.json"), serde_json::to_vec(&fake).unwrap()).unwrap();
+        let actual = list(&root).unwrap().remove(0);
+        assert!(!actual.runtime_supported);
+        assert!(actual.permissions.is_empty(), "{:?}", actual.permissions);
+        assert!(actual.network.is_empty(), "{:?}", actual.network);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn figma_menu_entries_refuse_a_manifest_that_names_a_different_plugin() {
+        for (field, value) in [("id", serde_json::json!("other-plugin")), ("api", serde_json::json!("9.9.9"))] {
+            let root = root();
+            let repo = write_figma_repo(&root, &figma_manifest_value());
+            let installed = import_figma_manifest(&root, &repo).unwrap();
+            assert_eq!(menu_entries(&root).unwrap().len(), 1);
+
+            let directory = bundle_directory(&root, &installed.id, &installed.version);
+            let mut swapped = figma_manifest_value();
+            swapped[field] = value;
+            swapped["name"] = serde_json::json!("Imposter");
+            fs::write(directory.join("figma-manifest.json"), serde_json::to_vec(&swapped).unwrap()).unwrap();
+
+            let err = menu_entries(&root).expect_err("a manifest for another plugin must not produce menu rows");
+            assert!(err.contains("does not match") && err.contains("import"), "{field}: {err}");
+            assert!(installed.menu_entries(&root).is_empty());
+            let listed = list(&root).unwrap();
+            assert_eq!(listed[0].name, "Repo Formatter", "{field}: the tampered name must not be applied");
+            assert_eq!(listed[0].id, "repo-formatter");
+            assert!(!listed[0].runtime_supported);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn figma_multi_panel_ui_prefers_default_then_main_then_a_stable_fallback() {
+        let primary = |ui: serde_json::Value| {
+            let mut manifest = figma_manifest_value();
+            manifest["ui"] = ui;
+            parse_figma_manifest(&serde_json::to_vec(&manifest).unwrap()).unwrap().ui.unwrap().primary_panel().map(str::to_string)
+        };
+        assert_eq!(primary(serde_json::json!({"about": "ui/about.html", "main": "ui/main.html"})).as_deref(), Some("ui/main.html"));
+        assert_eq!(
+            primary(serde_json::json!({"about": "ui/about.html", "main": "ui/main.html", "default": "ui/start.html"})).as_deref(),
+            Some("ui/start.html")
+        );
+        assert_eq!(primary(serde_json::json!({"zeta": "ui/z.html", "alpha": "ui/a.html"})).as_deref(), Some("ui/a.html"));
+    }
+
+    #[test]
+    fn figma_import_requires_an_identity_the_bundle_store_can_hold() {
+        let with = |id: Option<String>, api: &str| {
+            let mut m = figma_manifest_value();
+            match id {
+                Some(id) => m["id"] = serde_json::json!(id),
+                None => {
+                    m.as_object_mut().unwrap().remove("id");
+                }
+            }
+            m["api"] = serde_json::json!(api);
+            m
+        };
+        // A missing id is never guessed from the name; an id/api pair longer than the native limit does not fit the directory name.
+        let cases = [("id", with(None, "1.0.0")), ("id", with(Some("i".repeat(100)), &"1".repeat(100))), ("id", with(Some("i".repeat(60)), &"1".repeat(61)))];
+        for (field, manifest) in cases {
+            let root = root();
+            let repo = write_figma_repo(&root, &manifest);
+            let err = import_figma_manifest(&root, &repo).expect_err("identity must be rejected before anything is stored");
+            assert!(err.contains(&format!("'{field}'")) && err.contains("import again"), "{err}");
+            assert!(visible_plugin_entries(&root).is_empty());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    fn visible_plugin_entries(root: &Path) -> Vec<String> {
+        match fs::read_dir(root.join("plugins")) {
+            Ok(entries) => entries.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn figma_import_rejects_hostile_inputs_with_a_next_step_and_leaves_the_store_untouched() {
+        let root = root();
+        let sentinel = root.join("outside-sentinel.js");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&sentinel, b"sentinel-secret").unwrap();
+        let mut cases: Vec<(&str, PathBuf)> = Vec::new();
+        let fresh = |name: &str, manifest: &serde_json::Value| {
+            let parent = root.join(name);
+            fs::create_dir_all(&parent).unwrap();
+            write_figma_repo(&parent, manifest)
+        };
+
+        let escape = {
+            let mut m = figma_manifest_value();
+            m["main"] = serde_json::json!("../outside-sentinel.js");
+            fresh("traversal-main", &m)
+        };
+        cases.push(("traversal in main", escape));
+        let escape_ui = {
+            let mut m = figma_manifest_value();
+            m["ui"] = serde_json::json!({"default": "../../outside.html"});
+            fresh("traversal-ui", &m)
+        };
+        cases.push(("traversal in ui", escape_ui));
+
+        let oversized = fresh("oversized", &figma_manifest_value());
+        let mut padded = serde_json::to_vec(&figma_manifest_value()).unwrap();
+        padded.extend(std::iter::repeat_n(b' ', MAX_BYTES));
+        fs::write(oversized.join("manifest.json"), padded).unwrap();
+        cases.push(("oversized manifest", oversized));
+
+        let bad_manifest = fresh("non-utf8-manifest", &figma_manifest_value());
+        fs::write(bad_manifest.join("manifest.json"), b"{\"name\":\"\xff\xfe\",\"main\":\"dist/code.js\"}").unwrap();
+        cases.push(("non-UTF-8 manifest", bad_manifest));
+
+        let bad_main = fresh("non-utf8-main", &figma_manifest_value());
+        fs::write(bad_main.join("dist/code.js"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
+        cases.push(("non-UTF-8 main", bad_main));
+
+        let bad_ui = fresh("non-utf8-ui", &figma_manifest_value());
+        fs::write(bad_ui.join("ui/index.html"), [0xc3, 0x28]).unwrap();
+        cases.push(("non-UTF-8 ui", bad_ui));
+
+        let missing = fresh("missing-main", &figma_manifest_value());
+        fs::remove_file(missing.join("dist/code.js")).unwrap();
+        cases.push(("missing main", missing));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let linked_file = fresh("symlinked-main", &figma_manifest_value());
+            fs::remove_file(linked_file.join("dist/code.js")).unwrap();
+            symlink(&sentinel, linked_file.join("dist/code.js")).unwrap();
+            cases.push(("symlinked main", linked_file));
+
+            let linked_dir = fresh("symlinked-dir", &figma_manifest_value());
+            fs::remove_dir_all(linked_dir.join("dist")).unwrap();
+            let target = root.join("elsewhere");
+            fs::create_dir_all(&target).unwrap();
+            fs::write(target.join("code.js"), b"sentinel-secret").unwrap();
+            symlink(&target, linked_dir.join("dist")).unwrap();
+            cases.push(("symlinked directory", linked_dir));
+
+            let linked_manifest = fresh("symlinked-manifest", &figma_manifest_value());
+            fs::remove_file(linked_manifest.join("manifest.json")).unwrap();
+            symlink(root.join("figma-repo-source.json"), linked_manifest.join("manifest.json")).unwrap();
+            fs::write(root.join("figma-repo-source.json"), serde_json::to_vec(&figma_manifest_value()).unwrap()).unwrap();
+            cases.push(("symlinked manifest", linked_manifest.clone()));
+            cases.push(("symlinked manifest given as a file", linked_manifest.join("manifest.json")));
+        }
+
+        for (label, path) in &cases {
+            let before: Vec<_> = fs::read_dir(path).map(|d| d.map(|e| e.unwrap().file_name()).collect()).unwrap_or_default();
+            let err = std::panic::catch_unwind(|| import_figma_manifest(&root, path)).unwrap_or_else(|_| panic!("{label}: import panicked")).expect_err(label);
+            assert!(err.contains("import again"), "{label}: the error must name the next step: {err}");
+            assert!(visible_plugin_entries(&root).is_empty(), "{label}: nothing may be stored: {:?}", visible_plugin_entries(&root));
+            let after: Vec<_> = fs::read_dir(path).map(|d| d.map(|e| e.unwrap().file_name()).collect()).unwrap_or_default();
+            assert_eq!(before, after, "{label}: the source folder must not change");
+        }
+        assert_eq!(fs::read(&sentinel).unwrap(), b"sentinel-secret");
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -852,7 +1077,9 @@ impl FigmaUi {
     pub fn primary_panel(&self) -> Option<&str> {
         match self {
             FigmaUi::Single(path) => Some(path.as_str()),
-            FigmaUi::Multiple(map) => map.get("default").or_else(|| map.values().next()).map(String::as_str),
+            // The map is key-sorted, so source order is unavailable: prefer `default`, then `main`,
+            // then the alphabetically first entry.
+            FigmaUi::Multiple(map) => map.get("default").or_else(|| map.get("main")).or_else(|| map.values().next()).map(String::as_str),
         }
     }
 
@@ -947,6 +1174,15 @@ impl FigmaManifest {
             }
         }
         slugify_plugin_id(&self.name)
+    }
+
+    pub fn version(&self) -> &str {
+        self.api.as_deref().unwrap_or(DEFAULT_FIGMA_VERSION)
+    }
+
+    /// Network origins the manifest asks for. `none` means no access.
+    pub fn declared_network(&self) -> Vec<String> {
+        self.network_access.as_ref().map(|n| n.allowed_domains.iter().filter(|d| d.as_str() != "none").cloned().collect()).unwrap_or_default()
     }
 
     pub fn menu_entries(&self) -> Vec<PluginMenuEntry> {
@@ -1349,13 +1585,19 @@ pub fn load_figma_manifest(root: &Path, plugin: &InstalledPlugin) -> Result<Opti
     }
     let bytes = read_bundle_file(&directory, "figma-manifest.json")?;
     let parsed = parse_figma_manifest(&bytes)?;
+    if parsed.resolved_id() != plugin.id || parsed.version() != plugin.version {
+        return Err(format!(
+            "The stored Figma manifest for {} does not match the installed plugin. Delete this plugin from your plugins folder, then import it again.",
+            plugin.id
+        ));
+    }
     Ok(Some(parsed))
 }
 
 pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<InstalledPlugin, String> {
-    let meta = fs::symlink_metadata(manifest_or_dir).map_err(|e| format!("Cannot locate plugin manifest path: {e}"))?;
+    let meta = fs::symlink_metadata(manifest_or_dir).map_err(|e| format!("Cannot locate plugin manifest path: {e} Check the path, then import again."))?;
     if meta.file_type().is_symlink() {
-        return Err("Plugin manifest path cannot be a symbolic link.".into());
+        return Err("Plugin manifest path cannot be a symbolic link. Choose the real folder or file, then import again.".into());
     }
     let (plugin_dir, manifest_rel) = if meta.is_dir() {
         (manifest_or_dir.to_path_buf(), "manifest.json".to_string())
@@ -1365,10 +1607,18 @@ pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<Inst
         (parent.to_path_buf(), file_name.to_string())
     };
 
-    let manifest_bytes = read_bundle_file(&plugin_dir, &manifest_rel)?;
-    let parsed = parse_figma_manifest(&manifest_bytes)?;
-    let id = parsed.resolved_id();
-    let version = parsed.api.clone().unwrap_or_else(|| "1.0.0".to_string());
+    let manifest_bytes =
+        read_bundle_file(&plugin_dir, &manifest_rel).map_err(|e| format!("Cannot read the plugin manifest {manifest_rel}: {e} {IMPORT_RETRY}"))?;
+    let parsed = parse_figma_manifest(&manifest_bytes).map_err(|e| format!("{e} {IMPORT_RETRY}"))?;
+    // The bundle is stored under its id, so the import needs an explicit one rather than a name-derived guess.
+    let id = parsed
+        .id
+        .clone()
+        .ok_or_else(|| format!("Invalid plugin manifest field 'id': add an id of letters, digits, dots, dashes or underscores. {IMPORT_RETRY}"))?;
+    let version = parsed.version().to_string();
+    if id.len() + version.len() > 100 {
+        return Err(format!("Invalid plugin manifest fields 'id' and 'api': together they must be at most 100 characters. {IMPORT_RETRY}"));
+    }
 
     let destination = bundle_directory(root, &id, &version);
     if destination.exists() {
@@ -1387,21 +1637,21 @@ pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<Inst
     let mut assets = BTreeMap::new();
     let mut total = manifest_bytes.len();
     for rel in &asset_paths {
-        let content = read_bundle_file(&plugin_dir, rel).map_err(|e| {
-            let field = if rel == &parsed.main { "main" } else { "ui" };
-            format!("Invalid plugin manifest field '{field}': {e}")
-        })?;
+        let field = if rel == &parsed.main { "main" } else { "ui" };
+        let content = read_bundle_file(&plugin_dir, rel).map_err(|e| format!("Invalid plugin manifest field '{field}': {e} {IMPORT_RETRY}"))?;
+        if std::str::from_utf8(&content).is_err() {
+            return Err(format!("Invalid plugin manifest field '{field}': {rel} is not valid UTF-8 text. Re-save it as UTF-8, then import again."));
+        }
         total += content.len();
         if total > MAX_TOTAL_BYTES {
-            return Err("Plugin bundle exceeds 8 MiB.".into());
+            return Err("Plugin bundle exceeds 8 MiB. Remove large files from the plugin folder, then import again.".into());
         }
         assets.insert(rel.clone(), content);
     }
 
     let canonical_dir = fs::canonicalize(&plugin_dir).map_err(|e| format!("Cannot canonicalize plugin folder: {e}"))?;
     let manifest_uri = format!("file://{}", canonical_dir.join(&manifest_rel).display());
-    let network =
-        parsed.network_access.as_ref().map(|n| n.allowed_domains.iter().filter(|d| d.as_str() != "none").cloned().collect::<Vec<_>>()).unwrap_or_default();
+    let network = parsed.declared_network();
 
     let installed = InstalledPlugin {
         id: id.clone(),
@@ -1412,7 +1662,8 @@ pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<Inst
         manifest_url: manifest_uri,
         main: parsed.main.clone(),
         permissions: Vec::new(),
-        runtime_supported: true,
+        // No runner executes a Figma bundle yet; it has no native manifest or LICENSE for load_bundle.
+        runtime_supported: false,
         installed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
         schema_version: 2,
         panel: parsed.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string),
