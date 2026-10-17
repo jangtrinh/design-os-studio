@@ -437,7 +437,14 @@ pub fn list(root: &Path) -> Result<Vec<InstalledPlugin>, String> {
         let mut plugin: InstalledPlugin = serde_json::from_slice(&bytes).map_err(|e| format!("Invalid installed plugin metadata: {e}"))?;
         plugin.runtime_supported = false;
         if entry.path() == bundle_directory(root, &plugin.id, &plugin.version) {
-            if let Ok(bundle) = load_bundle(root, &plugin) {
+            if plugin.source_kind() == PluginSourceKind::LocalManifest {
+                if let Ok(Some(figma)) = load_figma_manifest(root, &plugin) {
+                    plugin.name = figma.name.clone();
+                    plugin.main = figma.main.clone();
+                    plugin.panel = figma.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string);
+                    plugin.runtime_supported = true;
+                }
+            } else if let Ok(bundle) = load_bundle(root, &plugin) {
                 plugin = bundle.plugin;
             }
         }
@@ -654,4 +661,799 @@ mod tests {
         assert!(install(&root, url).unwrap_err().contains("already installed"));
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn figma_manifest_parses_main_ui_editor_type_menu_parameters_and_network_access() {
+        let raw = br#"{
+            "name": "Design Token Sync",
+            "id": "token-sync-local",
+            "api": "1.0.0",
+            "main": "dist/code.js",
+            "ui": {
+                "default": "ui/index.html",
+                "settings": "ui/settings.html"
+            },
+            "editorType": ["figma", "dev"],
+            "parameters": [
+                {
+                    "name": "Collection",
+                    "key": "collection",
+                    "description": "Target variable collection",
+                    "allowFreeform": false,
+                    "optional": false
+                }
+            ],
+            "parameterOnly": false,
+            "menu": [
+                {
+                    "name": "Sync Tokens",
+                    "command": "sync-tokens",
+                    "parameters": [
+                        {
+                            "name": "Mode",
+                            "key": "mode",
+                            "description": "Mode to export",
+                            "allowFreeform": true,
+                            "optional": true
+                        }
+                    ],
+                    "parameterOnly": true
+                },
+                { "separator": true },
+                {
+                    "name": "Advanced",
+                    "menu": [
+                        {
+                            "name": "Purge Unused",
+                            "command": "purge-unused"
+                        }
+                    ]
+                }
+            ],
+            "networkAccess": {
+                "allowedDomains": ["https://api.example.com"],
+                "reasoning": "Fetch token definitions",
+                "devAllowedDomains": ["http://localhost:4100"]
+            }
+        }"#;
+        let parsed = parse_figma_manifest(raw).expect("valid Figma manifest should parse");
+        assert_eq!(parsed.name, "Design Token Sync");
+        assert_eq!(parsed.id.as_deref(), Some("token-sync-local"));
+        assert_eq!(parsed.api.as_deref(), Some("1.0.0"));
+        assert_eq!(parsed.main, "dist/code.js");
+        assert_eq!(parsed.ui.as_ref().and_then(FigmaUi::primary_panel), Some("ui/index.html"));
+        assert_eq!(parsed.editor_type, vec!["figma".to_string(), "dev".to_string()]);
+        assert_eq!(parsed.parameters.len(), 1);
+        assert_eq!(parsed.parameters[0].key, "collection");
+        let net = parsed.network_access.as_ref().expect("networkAccess parsed");
+        assert_eq!(net.allowed_domains, vec!["https://api.example.com".to_string()]);
+        assert_eq!(net.dev_allowed_domains, vec!["http://localhost:4100".to_string()]);
+        assert_eq!(net.reasoning.as_deref(), Some("Fetch token definitions"));
+
+        let entries = parsed.menu_entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].label, "Sync Tokens");
+        assert_eq!(entries[0].command, "sync-tokens");
+        assert!(entries[0].parameter_only);
+        assert_eq!(entries[0].parameters.len(), 1);
+        assert_eq!(entries[0].parameters[0].key, "mode");
+        assert_eq!(entries[1].label, "Advanced / Purge Unused");
+        assert_eq!(entries[1].command, "purge-unused");
+        assert_eq!(entries[1].submenu_path, vec!["Advanced".to_string()]);
+    }
+
+    #[test]
+    fn figma_manifest_invalid_fields_are_named_in_error() {
+        let base = serde_json::json!({
+            "name": "Local Plugin",
+            "id": "local-plugin",
+            "api": "1.0.0",
+            "main": "code.js",
+            "ui": "ui.html",
+            "editorType": ["figma"],
+            "menu": [{"name": "Run", "command": "run"}],
+            "parameters": [{"name": "Query", "key": "query"}],
+            "networkAccess": {"allowedDomains": ["https://api.iconify.design"]}
+        });
+
+        for (field, bad_value) in [
+            ("name", serde_json::json!("   ")),
+            ("id", serde_json::json!("../bad-id")),
+            ("api", serde_json::json!("")),
+            ("main", serde_json::json!("code.ts")),
+            ("main", serde_json::json!("../escape.js")),
+            ("ui", serde_json::json!("panel.txt")),
+            ("ui", serde_json::json!({"default": "../escape.html"})),
+            ("editorType", serde_json::json!([])),
+            ("editorType", serde_json::json!(["unknown_editor"])),
+            ("menu", serde_json::json!([])),
+            ("menu", serde_json::json!([{"name": "", "command": "run"}])),
+            ("parameters", serde_json::json!([{"name": "Query", "key": "bad key!"}])),
+            ("networkAccess", serde_json::json!({"allowedDomains": []})),
+            ("networkAccess", serde_json::json!({"allowedDomains": ["none", "https://example.com"]})),
+            ("unexpectedField", serde_json::json!(123)),
+        ] {
+            let mut candidate = base.clone();
+            candidate[field] = bad_value;
+            let bytes = serde_json::to_vec(&candidate).unwrap();
+            let err = parse_figma_manifest(&bytes).expect_err(&format!("field {field} should fail"));
+            assert!(err.contains(field), "error for field '{field}' did not name it: {err}");
+        }
+    }
+
+    #[test]
+    fn import_figma_manifest_from_local_folder_persists_bundle_and_exposes_menu_entries() {
+        let root = root();
+        let repo_dir = root.join("sample-plugin-repo");
+        fs::create_dir_all(repo_dir.join("dist")).unwrap();
+        fs::create_dir_all(repo_dir.join("ui")).unwrap();
+        fs::write(repo_dir.join("dist/code.js"), b"figma.closePlugin();").unwrap();
+        fs::write(repo_dir.join("ui/index.html"), b"<!doctype html><title>UI</title>").unwrap();
+        let manifest_json = serde_json::json!({
+            "name": "Repo Formatter",
+            "id": "repo-formatter",
+            "api": "1.0.0",
+            "main": "dist/code.js",
+            "ui": "ui/index.html",
+            "editorType": ["figma", "figjam"],
+            "menu": [
+                {"name": "Format Selection", "command": "format-selection"},
+                {"separator": true},
+                {"name": "Lint", "menu": [{"name": "Check Contrast", "command": "check-contrast"}]}
+            ],
+            "parameters": [
+                {"name": "Strict", "key": "strict", "optional": true}
+            ],
+            "networkAccess": {
+                "allowedDomains": ["none"]
+            }
+        });
+        fs::write(repo_dir.join("manifest.json"), serde_json::to_vec_pretty(&manifest_json).unwrap()).unwrap();
+
+        let installed = import_figma_manifest(&root, &repo_dir).expect("import from local repo folder");
+        assert_eq!(installed.source_kind(), PluginSourceKind::LocalManifest);
+        assert_eq!(installed.id, "repo-formatter");
+        assert_eq!(installed.name, "Repo Formatter");
+        assert_eq!(installed.main, "dist/code.js");
+        assert_eq!(installed.panel.as_deref(), Some("ui/index.html"));
+
+        let listed = list(&root).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].source_kind(), PluginSourceKind::LocalManifest);
+
+        let entries = menu_entries(&root).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].plugin_id, "repo-formatter");
+        assert_eq!(entries[0].label, "Format Selection");
+        assert_eq!(entries[0].command, "format-selection");
+        assert_eq!(entries[1].label, "Lint / Check Contrast");
+        assert_eq!(entries[1].command, "check-contrast");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginSourceKind {
+    #[default]
+    NativeRegistry,
+    LocalManifest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FigmaUi {
+    Single(String),
+    Multiple(BTreeMap<String, String>),
+}
+
+impl FigmaUi {
+    pub fn primary_panel(&self) -> Option<&str> {
+        match self {
+            FigmaUi::Single(path) => Some(path.as_str()),
+            FigmaUi::Multiple(map) => map.get("default").or_else(|| map.values().next()).map(String::as_str),
+        }
+    }
+
+    pub fn all_paths(&self) -> Vec<&str> {
+        match self {
+            FigmaUi::Single(path) => vec![path.as_str()],
+            FigmaUi::Multiple(map) => map.values().map(String::as_str).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigmaParameter {
+    pub name: String,
+    pub key: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(rename = "allowFreeform", default)]
+    pub allow_freeform: bool,
+    #[serde(default)]
+    pub optional: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FigmaMenuItem {
+    Separator,
+    Submenu {
+        name: String,
+        menu: Vec<FigmaMenuItem>,
+    },
+    Command {
+        name: String,
+        command: String,
+        #[serde(default)]
+        parameters: Vec<FigmaParameter>,
+        #[serde(rename = "parameterOnly", default)]
+        parameter_only: bool,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigmaNetworkAccess {
+    #[serde(rename = "allowedDomains")]
+    pub allowed_domains: Vec<String>,
+    #[serde(default)]
+    pub reasoning: Option<String>,
+    #[serde(rename = "devAllowedDomains", default)]
+    pub dev_allowed_domains: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigmaManifest {
+    pub name: String,
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub api: Option<String>,
+    pub main: String,
+    #[serde(default)]
+    pub ui: Option<FigmaUi>,
+    #[serde(rename = "editorType", default)]
+    pub editor_type: Vec<String>,
+    #[serde(default)]
+    pub menu: Vec<FigmaMenuItem>,
+    #[serde(default)]
+    pub parameters: Vec<FigmaParameter>,
+    #[serde(rename = "parameterOnly", default)]
+    pub parameter_only: bool,
+    #[serde(rename = "networkAccess", default)]
+    pub network_access: Option<FigmaNetworkAccess>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginMenuEntry {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub label: String,
+    pub command: String,
+    #[serde(default)]
+    pub submenu_path: Vec<String>,
+    #[serde(default)]
+    pub parameters: Vec<FigmaParameter>,
+    #[serde(default)]
+    pub parameter_only: bool,
+}
+
+impl FigmaManifest {
+    pub fn resolved_id(&self) -> String {
+        if let Some(id) = &self.id {
+            if safe_part(id) {
+                return id.clone();
+            }
+        }
+        slugify_plugin_id(&self.name)
+    }
+
+    pub fn menu_entries(&self) -> Vec<PluginMenuEntry> {
+        let plugin_id = self.resolved_id();
+        let mut out = Vec::new();
+        if self.menu.is_empty() {
+            out.push(PluginMenuEntry {
+                plugin_id,
+                plugin_name: self.name.clone(),
+                label: self.name.clone(),
+                command: "default".into(),
+                submenu_path: Vec::new(),
+                parameters: self.parameters.clone(),
+                parameter_only: self.parameter_only,
+            });
+            return out;
+        }
+        collect_menu_entries(&plugin_id, &self.name, &self.menu, &mut Vec::new(), &mut out);
+        out
+    }
+}
+
+fn collect_menu_entries(plugin_id: &str, plugin_name: &str, items: &[FigmaMenuItem], path: &mut Vec<String>, out: &mut Vec<PluginMenuEntry>) {
+    for item in items {
+        match item {
+            FigmaMenuItem::Separator => {}
+            FigmaMenuItem::Command { name, command, parameters, parameter_only } => {
+                let label = if path.is_empty() { name.clone() } else { format!("{} / {name}", path.join(" / ")) };
+                out.push(PluginMenuEntry {
+                    plugin_id: plugin_id.to_string(),
+                    plugin_name: plugin_name.to_string(),
+                    label,
+                    command: command.clone(),
+                    submenu_path: path.clone(),
+                    parameters: parameters.clone(),
+                    parameter_only: *parameter_only,
+                });
+            }
+            FigmaMenuItem::Submenu { name, menu } => {
+                path.push(name.clone());
+                collect_menu_entries(plugin_id, plugin_name, menu, path, out);
+                path.pop();
+            }
+        }
+    }
+}
+
+fn slugify_plugin_id(name: &str) -> String {
+    let mut slug = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() {
+            slug.push(b.to_ascii_lowercase() as char);
+        } else if (b == b' ' || b == b'-' || b == b'_') && !slug.ends_with('-') && !slug.is_empty() {
+            slug.push('-');
+        }
+        if slug.len() >= 64 {
+            break;
+        }
+    }
+    let trimmed = slug.trim_matches('-');
+    if trimmed.is_empty() {
+        "local-plugin".into()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+impl InstalledPlugin {
+    pub fn source_kind(&self) -> PluginSourceKind {
+        if self.manifest_url.starts_with("file://") || self.source_url.starts_with("file://") {
+            PluginSourceKind::LocalManifest
+        } else {
+            PluginSourceKind::NativeRegistry
+        }
+    }
+
+    pub fn menu_entries(&self, root: &Path) -> Vec<PluginMenuEntry> {
+        if let Ok(Some(figma)) = load_figma_manifest(root, self) {
+            figma.menu_entries()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+const KNOWN_FIGMA_MANIFEST_FIELDS: &[&str] = &[
+    "name",
+    "id",
+    "api",
+    "main",
+    "ui",
+    "editorType",
+    "menu",
+    "parameters",
+    "parameterOnly",
+    "networkAccess",
+    "permissions",
+    "capabilities",
+    "documentAccess",
+    "enableProposedApi",
+    "enablePrivatePluginApi",
+    "build",
+    "relaunchButtons",
+    "codegenLanguages",
+    "codegenPreferences",
+    "widgetApi",
+    "containsWidget",
+];
+
+const ALLOWED_EDITOR_TYPES: &[&str] = &["figma", "figjam", "dev", "slides", "buzz"];
+
+fn parse_parameters(field_path: &str, value: &serde_json::Value) -> Result<Vec<FigmaParameter>, String> {
+    let arr = value.as_array().ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': expected an array of parameter objects."))?;
+    let mut seen_keys = BTreeSet::new();
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let obj = item.as_object().ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': each parameter must be an object."))?;
+        for k in obj.keys() {
+            if !matches!(k.as_str(), "name" | "key" | "description" | "allowFreeform" | "optional") {
+                return Err(format!("Invalid plugin manifest field '{field_path}.{k}': unknown parameter property."));
+            }
+        }
+        let name = obj
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 200)
+            .ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': parameter 'name' must be a non-empty string."))?
+            .to_string();
+        let key = obj
+            .get("key")
+            .and_then(serde_json::Value::as_str)
+            .filter(|k| safe_part(k))
+            .ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': parameter 'key' must contain only safe identifier characters."))?
+            .to_string();
+        if !seen_keys.insert(key.clone()) {
+            return Err(format!("Invalid plugin manifest field '{field_path}': duplicate parameter key '{key}'."));
+        }
+        let description = match obj.get("description") {
+            Some(v) => Some(v.as_str().ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': 'description' must be a string."))?.to_string()),
+            None => None,
+        };
+        let allow_freeform = match obj.get("allowFreeform") {
+            Some(v) => v.as_bool().ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': 'allowFreeform' must be a boolean."))?,
+            None => false,
+        };
+        let optional = match obj.get("optional") {
+            Some(v) => v.as_bool().ok_or_else(|| format!("Invalid plugin manifest field '{field_path}': 'optional' must be a boolean."))?,
+            None => false,
+        };
+        out.push(FigmaParameter { name, key, description, allow_freeform, optional });
+    }
+    Ok(out)
+}
+
+fn parse_menu_items(value: &serde_json::Value) -> Result<Vec<FigmaMenuItem>, String> {
+    let arr = value.as_array().ok_or_else(|| "Invalid plugin manifest field 'menu': expected a non-empty array.".to_string())?;
+    if arr.is_empty() {
+        return Err("Invalid plugin manifest field 'menu': menu array cannot be empty.".into());
+    }
+    let mut items = Vec::with_capacity(arr.len());
+    for entry in arr {
+        let obj = entry.as_object().ok_or_else(|| "Invalid plugin manifest field 'menu': each menu entry must be an object.".to_string())?;
+        if let Some(sep) = obj.get("separator") {
+            if obj.len() != 1 || sep.as_bool() != Some(true) {
+                return Err("Invalid plugin manifest field 'menu': separator entry must be {\"separator\": true}.".into());
+            }
+            items.push(FigmaMenuItem::Separator);
+            continue;
+        }
+        let name = obj
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && s.len() <= 200)
+            .ok_or_else(|| "Invalid plugin manifest field 'menu': menu item 'name' must be a non-empty string.".to_string())?
+            .to_string();
+        if let Some(sub) = obj.get("menu") {
+            for k in obj.keys() {
+                if !matches!(k.as_str(), "name" | "menu") {
+                    return Err(format!("Invalid plugin manifest field 'menu.{k}': submenu item only allows 'name' and 'menu'."));
+                }
+            }
+            let children = parse_menu_items(sub)?;
+            items.push(FigmaMenuItem::Submenu { name, menu: children });
+        } else {
+            for k in obj.keys() {
+                if !matches!(k.as_str(), "name" | "command" | "parameters" | "parameterOnly") {
+                    return Err(format!("Invalid plugin manifest field 'menu.{k}': unknown menu command property."));
+                }
+            }
+            let command = obj
+                .get("command")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty() && safe_part(s))
+                .ok_or_else(|| "Invalid plugin manifest field 'menu': command entry requires a safe non-empty 'command' string.".to_string())?
+                .to_string();
+            let parameters = match obj.get("parameters") {
+                Some(v) => parse_parameters("menu.parameters", v)?,
+                None => Vec::new(),
+            };
+            let parameter_only = match obj.get("parameterOnly") {
+                Some(v) => v.as_bool().ok_or_else(|| "Invalid plugin manifest field 'menu.parameterOnly': expected a boolean.".to_string())?,
+                None => false,
+            };
+            items.push(FigmaMenuItem::Command { name, command, parameters, parameter_only });
+        }
+    }
+    Ok(items)
+}
+
+fn validate_domain_list(field_name: &str, list: &[String], allow_empty: bool) -> Result<(), String> {
+    if !allow_empty && list.is_empty() {
+        return Err(format!("Invalid plugin manifest field '{field_name}': domain list cannot be empty."));
+    }
+    if list.iter().any(|d| d == "none") && list.len() > 1 {
+        return Err(format!("Invalid plugin manifest field '{field_name}': 'none' cannot be combined with other domains."));
+    }
+    for domain in list {
+        let trimmed = domain.trim();
+        if trimmed.is_empty() || trimmed != domain || domain.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            return Err(format!("Invalid plugin manifest field '{field_name}': invalid domain '{domain}'."));
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_figma_manifest(bytes: &[u8]) -> Result<FigmaManifest, String> {
+    let root_val: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| format!("Invalid plugin manifest JSON: {e}"))?;
+    let obj = root_val.as_object().ok_or_else(|| "Invalid plugin manifest: root value must be a JSON object.".to_string())?;
+
+    for key in obj.keys() {
+        if !KNOWN_FIGMA_MANIFEST_FIELDS.contains(&key.as_str()) {
+            return Err(format!("Invalid plugin manifest field '{key}': unknown field."));
+        }
+    }
+
+    let name = obj
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.len() <= 200 && !s.chars().any(char::is_control))
+        .ok_or_else(|| "Invalid plugin manifest field 'name': required non-empty string (at most 200 characters).".to_string())?
+        .to_string();
+
+    let id = match obj.get("id") {
+        Some(v) => {
+            let s = v.as_str().ok_or_else(|| "Invalid plugin manifest field 'id': must be a string.".to_string())?;
+            if !safe_part(s) {
+                return Err("Invalid plugin manifest field 'id': must contain only letters, digits, dots, dashes, or underscores.".into());
+            }
+            Some(s.to_string())
+        }
+        None => None,
+    };
+
+    let api = match obj.get("api") {
+        Some(v) => {
+            let s = v.as_str().ok_or_else(|| "Invalid plugin manifest field 'api': must be a string.".to_string())?;
+            if !safe_part(s) {
+                return Err("Invalid plugin manifest field 'api': must be a valid version string.".into());
+            }
+            Some(s.to_string())
+        }
+        None => None,
+    };
+
+    let main = obj
+        .get("main")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Invalid plugin manifest field 'main': required relative .js path.".to_string())?
+        .to_string();
+    validate_asset_path(&main).map_err(|e| format!("Invalid plugin manifest field 'main': {e}"))?;
+    if !main.ends_with(".js") {
+        return Err("Invalid plugin manifest field 'main': must end with .js.".into());
+    }
+
+    let ui = match obj.get("ui") {
+        Some(serde_json::Value::String(path)) => {
+            validate_asset_path(path).map_err(|e| format!("Invalid plugin manifest field 'ui': {e}"))?;
+            if !path.ends_with(".html") {
+                return Err("Invalid plugin manifest field 'ui': UI file must end with .html.".into());
+            }
+            Some(FigmaUi::Single(path.clone()))
+        }
+        Some(serde_json::Value::Object(map)) => {
+            if map.is_empty() {
+                return Err("Invalid plugin manifest field 'ui': UI map cannot be empty.".into());
+            }
+            let mut ui_map = BTreeMap::new();
+            for (k, v) in map {
+                if !safe_part(k) {
+                    return Err(format!("Invalid plugin manifest field 'ui': invalid UI key '{k}'."));
+                }
+                let path = v.as_str().ok_or_else(|| format!("Invalid plugin manifest field 'ui': UI entry '{k}' must be a string path."))?;
+                validate_asset_path(path).map_err(|e| format!("Invalid plugin manifest field 'ui': {e}"))?;
+                if !path.ends_with(".html") {
+                    return Err(format!("Invalid plugin manifest field 'ui': UI entry '{k}' must end with .html."));
+                }
+                ui_map.insert(k.clone(), path.to_string());
+            }
+            Some(FigmaUi::Multiple(ui_map))
+        }
+        Some(_) => return Err("Invalid plugin manifest field 'ui': must be a string path or an object map of HTML paths.".into()),
+        None => None,
+    };
+
+    let editor_type = match obj.get("editorType") {
+        Some(v) => {
+            let arr = v.as_array().ok_or_else(|| "Invalid plugin manifest field 'editorType': must be a non-empty array of strings.".to_string())?;
+            if arr.is_empty() {
+                return Err("Invalid plugin manifest field 'editorType': must list at least one editor type.".into());
+            }
+            let mut seen = BTreeSet::new();
+            let mut out = Vec::with_capacity(arr.len());
+            for item in arr {
+                let s = item.as_str().ok_or_else(|| "Invalid plugin manifest field 'editorType': entries must be strings.".to_string())?;
+                if !ALLOWED_EDITOR_TYPES.contains(&s) || !seen.insert(s) {
+                    return Err(format!("Invalid plugin manifest field 'editorType': unsupported or duplicate editor type '{s}'."));
+                }
+                out.push(s.to_string());
+            }
+            out
+        }
+        None => vec!["figma".to_string()],
+    };
+
+    let menu = match obj.get("menu") {
+        Some(v) => parse_menu_items(v)?,
+        None => Vec::new(),
+    };
+
+    let parameters = match obj.get("parameters") {
+        Some(v) => parse_parameters("parameters", v)?,
+        None => Vec::new(),
+    };
+
+    let parameter_only = match obj.get("parameterOnly") {
+        Some(v) => v.as_bool().ok_or_else(|| "Invalid plugin manifest field 'parameterOnly': must be a boolean.".to_string())?,
+        None => false,
+    };
+
+    let network_access = match obj.get("networkAccess") {
+        Some(v) => {
+            let net_obj = v.as_object().ok_or_else(|| "Invalid plugin manifest field 'networkAccess': must be an object.".to_string())?;
+            for k in net_obj.keys() {
+                if !matches!(k.as_str(), "allowedDomains" | "reasoning" | "devAllowedDomains") {
+                    return Err(format!("Invalid plugin manifest field 'networkAccess.{k}': unknown property."));
+                }
+            }
+            let allowed_val = net_obj
+                .get("allowedDomains")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| "Invalid plugin manifest field 'networkAccess': 'allowedDomains' must be a non-empty array of strings.".to_string())?;
+            let mut allowed_domains = Vec::with_capacity(allowed_val.len());
+            for item in allowed_val {
+                let s = item.as_str().ok_or_else(|| "Invalid plugin manifest field 'networkAccess': each allowedDomain must be a string.".to_string())?;
+                allowed_domains.push(s.to_string());
+            }
+            validate_domain_list("networkAccess", &allowed_domains, false)?;
+
+            let dev_allowed_domains = match net_obj.get("devAllowedDomains") {
+                Some(dev_val) => {
+                    let arr = dev_val
+                        .as_array()
+                        .ok_or_else(|| "Invalid plugin manifest field 'networkAccess': 'devAllowedDomains' must be an array of strings.".to_string())?;
+                    let mut list = Vec::with_capacity(arr.len());
+                    for item in arr {
+                        let s = item
+                            .as_str()
+                            .ok_or_else(|| "Invalid plugin manifest field 'networkAccess': each devAllowedDomain must be a string.".to_string())?;
+                        list.push(s.to_string());
+                    }
+                    validate_domain_list("networkAccess", &list, true)?;
+                    list
+                }
+                None => Vec::new(),
+            };
+
+            let reasoning = match net_obj.get("reasoning") {
+                Some(r) => {
+                    Some(r.as_str().ok_or_else(|| "Invalid plugin manifest field 'networkAccess': 'reasoning' must be a string.".to_string())?.to_string())
+                }
+                None => None,
+            };
+
+            Some(FigmaNetworkAccess { allowed_domains, reasoning, dev_allowed_domains })
+        }
+        None => None,
+    };
+
+    Ok(FigmaManifest { name, id, api, main, ui, editor_type, menu, parameters, parameter_only, network_access })
+}
+
+pub fn load_figma_manifest(root: &Path, plugin: &InstalledPlugin) -> Result<Option<FigmaManifest>, String> {
+    let directory = bundle_directory(root, &plugin.id, &plugin.version);
+    if !directory.join("figma-manifest.json").exists() {
+        return Ok(None);
+    }
+    let bytes = read_bundle_file(&directory, "figma-manifest.json")?;
+    let parsed = parse_figma_manifest(&bytes)?;
+    Ok(Some(parsed))
+}
+
+pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<InstalledPlugin, String> {
+    let meta = fs::symlink_metadata(manifest_or_dir).map_err(|e| format!("Cannot locate plugin manifest path: {e}"))?;
+    if meta.file_type().is_symlink() {
+        return Err("Plugin manifest path cannot be a symbolic link.".into());
+    }
+    let (plugin_dir, manifest_rel) = if meta.is_dir() {
+        (manifest_or_dir.to_path_buf(), "manifest.json".to_string())
+    } else {
+        let file_name = manifest_or_dir.file_name().and_then(|n| n.to_str()).ok_or_else(|| "Invalid plugin manifest filename.".to_string())?;
+        let parent = manifest_or_dir.parent().ok_or_else(|| "Cannot determine plugin directory.".to_string())?;
+        (parent.to_path_buf(), file_name.to_string())
+    };
+
+    let manifest_bytes = read_bundle_file(&plugin_dir, &manifest_rel)?;
+    let parsed = parse_figma_manifest(&manifest_bytes)?;
+    let id = parsed.resolved_id();
+    let version = parsed.api.clone().unwrap_or_else(|| "1.0.0".to_string());
+
+    let destination = bundle_directory(root, &id, &version);
+    if destination.exists() {
+        return Err(format!("{} {} is already installed.", parsed.name, version));
+    }
+
+    let mut asset_paths = vec![parsed.main.clone()];
+    if let Some(ui) = &parsed.ui {
+        for p in ui.all_paths() {
+            if !asset_paths.iter().any(|existing| existing == p) {
+                asset_paths.push(p.to_string());
+            }
+        }
+    }
+
+    let mut assets = BTreeMap::new();
+    let mut total = manifest_bytes.len();
+    for rel in &asset_paths {
+        let content = read_bundle_file(&plugin_dir, rel).map_err(|e| {
+            let field = if rel == &parsed.main { "main" } else { "ui" };
+            format!("Invalid plugin manifest field '{field}': {e}")
+        })?;
+        total += content.len();
+        if total > MAX_TOTAL_BYTES {
+            return Err("Plugin bundle exceeds 8 MiB.".into());
+        }
+        assets.insert(rel.clone(), content);
+    }
+
+    let canonical_dir = fs::canonicalize(&plugin_dir).map_err(|e| format!("Cannot canonicalize plugin folder: {e}"))?;
+    let manifest_uri = format!("file://{}", canonical_dir.join(&manifest_rel).display());
+    let network =
+        parsed.network_access.as_ref().map(|n| n.allowed_domains.iter().filter(|d| d.as_str() != "none").cloned().collect::<Vec<_>>()).unwrap_or_default();
+
+    let installed = InstalledPlugin {
+        id: id.clone(),
+        name: parsed.name.clone(),
+        version: version.clone(),
+        license: "LOCAL".into(),
+        source_url: manifest_uri.clone(),
+        manifest_url: manifest_uri,
+        main: parsed.main.clone(),
+        permissions: Vec::new(),
+        runtime_supported: true,
+        installed_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        schema_version: 2,
+        panel: parsed.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string),
+        files: asset_paths,
+        network,
+    };
+
+    let plugins = root.join("plugins");
+    fs::create_dir_all(&plugins).map_err(|e| format!("Cannot create plugin storage: {e}"))?;
+    let temporary = plugins.join(format!(".install-{}-{}-{}", std::process::id(), installed.installed_at, NEXT_TEMP.fetch_add(1, Ordering::Relaxed)));
+    fs::create_dir(&temporary).map_err(|e| format!("Cannot create temporary plugin directory: {e}"))?;
+    let result = (|| -> Result<(), String> {
+        for (path, content) in &assets {
+            let target = temporary.join(path);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            write_synced(&target, content)?;
+        }
+        write_synced(&temporary.join("figma-manifest.json"), &manifest_bytes)?;
+        write_synced(&temporary.join("installed.json"), &serde_json::to_vec_pretty(&installed).map_err(|e| e.to_string())?)?;
+        if destination.exists() {
+            return Err("This plugin version is already installed.".into());
+        }
+        fs::rename(&temporary, &destination).map_err(|e| format!("Cannot finish plugin installation: {e}"))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&temporary);
+    }
+    result?;
+    Ok(installed)
+}
+
+pub fn menu_entries(root: &Path) -> Result<Vec<PluginMenuEntry>, String> {
+    let plugins = list(root)?;
+    let mut entries = Vec::new();
+    for plugin in &plugins {
+        if let Some(figma) = load_figma_manifest(root, plugin)? {
+            entries.extend(figma.menu_entries());
+        }
+    }
+    Ok(entries)
 }
