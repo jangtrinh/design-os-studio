@@ -58,6 +58,14 @@ impl Axes {
     }
 }
 
+/// Solves an auto-layout frame accounting for its [`crate::Stroke`]: in version 0
+/// (`layout_version == 0`) with `stroke_included == true` (`bordersTakeSpace`), inward stroke
+/// widths add to padding; in version 1 and up (`layout_version >= 1`), stroke inset is ignored
+/// (border inside the box).
+pub fn compute_with_stroke(al: &AutoLayout, frame: Vec2, own: SizeLimits, stroke: &crate::Stroke, kids: &[ChildIn]) -> LayoutOut {
+    compute(&al.with_stroke(stroke), frame, own, kids)
+}
+
 /// Solves an auto-layout frame. `frame` is the current frame size (used for fixed axes) and `own`
 /// the frame's own min/max: they clamp the frame before any child is aligned, so a hugging frame
 /// raised by its minimum centers its children in the raised box. Padding order is top, right,
