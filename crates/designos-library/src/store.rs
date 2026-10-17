@@ -112,8 +112,11 @@ fn write_lock() -> MutexGuard<'static, ()> {
 /// truncated file behind.
 ///
 /// Delegates to [`designos_fonts::write_atomic`] so every crate in the workspace shares the same
-/// atomic save guarantees (symlink traversal, dangling symlink creation, long filename hashing,
-/// `0600` temp creation mode, POSIX ACL preservation, and stale `.tmp` cleanup).
+/// atomic save guarantees: symlink traversal (including dangling links), temp-file names truncated
+/// on a char boundary for 249–255 byte filenames, the existing permission mode applied when the
+/// temp file is created, refusal of read-only, unwritable and non-regular targets, and cleanup of
+/// stale temp files left by crashed saves. Because the save renames a new file over the old one,
+/// the old file's ACLs, extended attributes, ownership and hard links are not carried over.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }

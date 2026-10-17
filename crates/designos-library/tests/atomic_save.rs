@@ -16,6 +16,15 @@ fn leftover_tmp_files(dir: &Path) -> Vec<String> {
     std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".tmp")).collect()
 }
 
+/// The pid of a process that has already exited and been reaped.
+#[cfg(unix)]
+fn dead_pid() -> u32 {
+    let mut child = std::process::Command::new("true").spawn().expect("`true` is available on unix");
+    let pid = child.id();
+    child.wait().unwrap();
+    pid
+}
+
 #[cfg(unix)]
 #[test]
 fn saving_through_a_symlink_updates_the_real_file_and_keeps_the_link() {
@@ -224,9 +233,12 @@ fn temp_file_is_never_world_readable_while_saving_a_0600_document() {
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
 }
 
-#[cfg(unix)]
+// macOS only: a file can be `0644` and still deny its owner write access there (a write-deny ACL).
+// On Linux the owner's mode bits alone decide, so a `0644` file of ours is always writable, and the
+// only ways to make one unwritable (`chattr +i`, a file owned by someone else) need root.
+#[cfg(target_os = "macos")]
 #[test]
-fn file_with_0644_mode_owned_by_another_user_or_not_writable_is_refused() {
+fn file_with_0644_mode_and_a_write_deny_acl_is_refused() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = scratch("foreign-0644");
@@ -234,24 +246,21 @@ fn file_with_0644_mode_owned_by_another_user_or_not_writable_is_refused() {
     std::fs::write(&file, b"original").unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
 
-    #[cfg(target_os = "macos")]
-    {
-        // Attach a write-deny ACL on `file` inside our writable `dir`:
-        // - `meta.permissions().mode() & 0o777` is still `0o644` (`readonly()` is false).
-        // - `dir` is writable, so an unguarded `rename(tmp, file)` replaces `file`!
-        // - Plain `fs::write(&file, ...)` fails with PermissionDenied, and `write_atomic` must too.
-        let status = std::process::Command::new("/bin/chmod").args(["+a", "everyone deny write", file.to_str().unwrap()]).status().unwrap();
-        assert!(status.success());
-        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o644);
-        assert!(!std::fs::metadata(&file).unwrap().permissions().readonly());
-        assert!(std::fs::write(&file, b"plain").is_err(), "precondition: plain write is denied");
+    // Attach a write-deny ACL on `file` inside our writable `dir`:
+    // - `meta.permissions().mode() & 0o777` is still `0o644` (`readonly()` is false).
+    // - `dir` is writable, so an unguarded `rename(tmp, file)` replaces `file`!
+    // - Plain `fs::write(&file, ...)` fails with PermissionDenied, and `write_atomic` must too.
+    let status = std::process::Command::new("/bin/chmod").args(["+a", "everyone deny write", file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success());
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o644);
+    assert!(!std::fs::metadata(&file).unwrap().permissions().readonly());
+    assert!(std::fs::write(&file, b"plain").is_err(), "precondition: plain write is denied");
 
-        let res = write_atomic(&file, b"replaced");
-        let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
-        assert!(res.is_err(), "0644 file that cannot be opened for writing in a writable folder must not be replaced");
-        assert_eq!(std::fs::read(&file).unwrap(), b"original");
-        assert!(leftover_tmp_files(&dir).is_empty());
-    }
+    let res = write_atomic(&file, b"replaced");
+    let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
+    assert!(res.is_err(), "0644 file that cannot be opened for writing in a writable folder must not be replaced");
+    assert_eq!(std::fs::read(&file).unwrap(), b"original");
+    assert!(leftover_tmp_files(&dir).is_empty());
 }
 
 #[test]
@@ -260,23 +269,28 @@ fn crashed_save_leftover_tmp_files_are_swept_on_next_save() {
     let file = dir.join("doc.designos");
     std::fs::write(&file, b"v1").unwrap();
 
-    // Simulate leftover temp files from crashed processes (dead PIDs and legacy .tmp).
-    let dead_tmp_1 = dir.join("doc.designos.999999-0.tmp");
-    let dead_tmp_2 = dir.join("doc.designos.999998-17.tmp");
+    // Simulate leftover temp files from crashed processes (legacy .tmp on every platform, dead
+    // PIDs where the platform can tell that a process is gone).
     let legacy_tmp = dir.join("doc.designos.tmp");
-    std::fs::write(&dead_tmp_1, b"partial-1").unwrap();
-    std::fs::write(&dead_tmp_2, b"partial-2").unwrap();
     std::fs::write(&legacy_tmp, b"partial-legacy").unwrap();
+    #[cfg(unix)]
+    let (dead_tmp_1, dead_tmp_2) = {
+        let pid = dead_pid();
+        let (a, b) = (dir.join(format!("doc.designos.save-{pid}-0.tmp")), dir.join(format!("doc.designos.save-{pid}-17.tmp")));
+        std::fs::write(&a, b"partial-1").unwrap();
+        std::fs::write(&b, b"partial-2").unwrap();
+        (a, b)
+    };
 
     // User files with `.tmp` suffix and live-process temp files MUST NOT be deleted!
     let user_notes_tmp = dir.join("doc.designos.my-notes.tmp");
-    let live_self_tmp = dir.join(format!("doc.designos.{}-99999.tmp", std::process::id()));
+    let live_self_tmp = dir.join(format!("doc.designos.save-{}-99999.tmp", std::process::id()));
     std::fs::write(&user_notes_tmp, b"keep-user-notes").unwrap();
     std::fs::write(&live_self_tmp, b"in-flight-save").unwrap();
     #[cfg(unix)]
     let pid1_tmp = {
         // PID 1 (launchd/init) is owned by root: kill(1, 0) fails with EPERM, not ESRCH.
-        let p = dir.join("doc.designos.1-0.tmp");
+        let p = dir.join("doc.designos.save-1-0.tmp");
         std::fs::write(&p, b"other-user-live-pid").unwrap();
         p
     };
@@ -284,8 +298,11 @@ fn crashed_save_leftover_tmp_files_are_swept_on_next_save() {
     write_atomic(&file, b"v2").unwrap();
 
     assert_eq!(std::fs::read(&file).unwrap(), b"v2");
-    assert!(!dead_tmp_1.exists(), "dead PID temp file 1 must be swept");
-    assert!(!dead_tmp_2.exists(), "dead PID temp file 2 must be swept");
+    #[cfg(unix)]
+    {
+        assert!(!dead_tmp_1.exists(), "dead PID temp file 1 must be swept");
+        assert!(!dead_tmp_2.exists(), "dead PID temp file 2 must be swept");
+    }
     assert!(!legacy_tmp.exists(), "legacy .tmp must be swept");
     assert_eq!(std::fs::read(&user_notes_tmp).unwrap(), b"keep-user-notes", "user file doc.designos.my-notes.tmp must never be deleted");
     assert_eq!(std::fs::read(&live_self_tmp).unwrap(), b"in-flight-save", "live process temp file must never be deleted");
@@ -305,4 +322,69 @@ fn publish_and_font_cache_use_the_shared_hardened_write_atomic() {
     designos_fonts::write_atomic(&link, b"TTF-BYTES").unwrap();
     assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
     assert_eq!(std::fs::read(&real).unwrap(), b"TTF-BYTES");
+}
+
+/// Creates a named pipe at `path`.
+#[cfg(unix)]
+fn make_fifo(path: &Path) {
+    let status = std::process::Command::new("mkfifo").arg(path).status().expect("mkfifo is available on unix");
+    assert!(status.success(), "mkfifo {} failed", path.display());
+}
+
+/// Runs `write_atomic` on a worker thread and waits for it a bounded time, so a save that
+/// blocks forever fails the test instead of hanging the run.
+#[cfg(unix)]
+fn save_within_deadline(path: &Path, bytes: &'static [u8]) -> Option<Result<(), String>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let target = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(write_atomic(&target, bytes).map_err(|e| e.to_string()));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(2)).ok()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_named_pipe_target_is_refused_without_blocking() {
+    let dir = scratch("fifo-target");
+    let fifo = dir.join("doc.designos");
+    make_fifo(&fifo);
+
+    let outcome = save_within_deadline(&fifo, b"saved");
+
+    let res = outcome.expect("saving onto a named pipe must return, not wait for a reader");
+    assert!(res.is_err(), "a named pipe is not a document file and must not be replaced");
+    assert!(leftover_tmp_files(&dir).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_to_a_named_pipe_is_refused_without_blocking() {
+    let dir = scratch("fifo-link");
+    let fifo = dir.join("pipe");
+    let link = dir.join("doc.designos");
+    make_fifo(&fifo);
+    std::os::unix::fs::symlink(&fifo, &link).unwrap();
+
+    let outcome = save_within_deadline(&link, b"saved");
+
+    let res = outcome.expect("saving through a link to a named pipe must return, not wait for a reader");
+    assert!(res.is_err(), "a link to a named pipe is not a document file and must not be replaced");
+    assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "the link must stay a link");
+    assert!(leftover_tmp_files(&dir).is_empty());
+}
+
+#[test]
+fn a_user_file_named_like_a_digit_pair_temp_is_never_swept() {
+    let dir = scratch("sweep-user-digit-pair");
+    let file = dir.join("doc.designos");
+    std::fs::write(&file, b"v1").unwrap();
+    // Nobody runs as this PID (above every platform's pid ceiling), yet the file is the user's.
+    let user_file = dir.join("doc.designos.20241018-1.tmp");
+    std::fs::write(&user_file, b"keep-me").unwrap();
+
+    write_atomic(&file, b"v2").unwrap();
+
+    assert_eq!(std::fs::read(&file).unwrap(), b"v2");
+    assert_eq!(std::fs::read(&user_file).unwrap(), b"keep-me", "a file only shaped like a crashed save must not be deleted");
 }

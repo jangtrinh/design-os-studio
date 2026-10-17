@@ -187,7 +187,13 @@ static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 ///   ACL/flags in a writable folder) is refused with `PermissionDenied` instead of being replaced;
 /// - filenames of 249–255 bytes (e.g. ~80+ Vietnamese UTF-8 characters) truncate the temp prefix on
 ///   a char boundary so the temp filename never hits `ENAMETOOLONG`;
-/// - leftover `<prefix>.<pid>-<seq>.tmp` files from crashed saves (dead PIDs) are swept on save.
+/// - leftover `<prefix>.save-<pid>-<seq>.tmp` files from crashed saves (dead PIDs) are swept on save;
+///   only names this function writes are touched, never a user file that merely ends in `.tmp`;
+/// - a target that is not a regular file (named pipe, socket, device) is refused with `InvalidInput`
+///   before it is opened, so saving onto a pipe does not wait for a reader.
+///
+/// Limitation: the rename installs a new file, so ACLs, extended attributes, ownership and hard
+/// links of the replaced file are not carried over (the permission mode is).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let (target, existing) = resolve_save_target(path)?;
     let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
@@ -232,39 +238,46 @@ fn is_process_dead(_pid: u32) -> bool {
     false
 }
 
+/// Fixed word between the target name and the `<pid>-<seq>` fields of every temporary file this
+/// writer creates. A user file that only looks like `<name>.<digits>-<digits>.tmp` lacks it, so the
+/// sweep can tell a crashed save from a user's file.
+const TMP_MARKER: &str = "save";
+
+/// The temporary file name of save number `seq` by process `pid`: `<prefix>.save-<pid>-<seq>.tmp`.
+fn tmp_file_name(prefix: &str, pid: u32, seq: u64) -> String {
+    format!("{prefix}.{TMP_MARKER}-{pid}-{seq}.tmp")
+}
+
+/// The pid inside a name produced by [`tmp_file_name`] for `prefix`, or `None` for any other name.
+fn tmp_file_pid(file_name: &str, prefix: &str) -> Option<u32> {
+    let stem = file_name.strip_suffix(".tmp")?;
+    let fields = stem.strip_prefix(prefix)?.strip_prefix('.')?.strip_prefix(TMP_MARKER)?.strip_prefix('-')?;
+    let (pid, seq) = fields.split_once('-')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(pid) || !digits(seq) {
+        return None;
+    }
+    pid.parse().ok()
+}
+
 /// Best-effort sweep of leftover `.tmp` files for `target` left behind by crashed processes.
 fn sweep_stale_temps(dir: &Path, target_name: &str, prefix: &str) {
     let legacy = dir.join(format!("{target_name}.tmp"));
     let _ = std::fs::remove_file(legacy);
 
     let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let prefix_dot = format!("{prefix}.");
-    let target_dot = format!("{target_name}.");
     for entry in entries.flatten() {
         let fname = entry.file_name();
-        let Some(s) = fname.to_str() else { continue };
-        let Some(stem) = s.strip_suffix(".tmp") else { continue };
-        let mid = stem.strip_prefix(&prefix_dot).or_else(|| stem.strip_prefix(&target_dot));
-        let Some(mid) = mid else { continue };
-        let stale_by_pid = match mid.split_once('-') {
-            Some((pid_str, seq_str))
-                if !pid_str.is_empty() && pid_str.bytes().all(|b| b.is_ascii_digit()) && !seq_str.is_empty() && seq_str.bytes().all(|b| b.is_ascii_digit()) =>
-            {
-                match pid_str.parse::<u32>() {
-                    Ok(pid) => is_process_dead(pid),
-                    Err(_) => false,
-                }
-            }
-            _ => false,
-        };
-        if stale_by_pid {
+        let Some(pid) = fname.to_str().and_then(|s| tmp_file_pid(s, prefix)) else { continue };
+        if is_process_dead(pid) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
 }
 
 /// Follows symlinks (including dangling chains) to the file that must really change. Returns the
-/// metadata of that file when it exists, and refuses a directory or a non-writable file.
+/// metadata of that file when it exists, and refuses a directory, a non-regular file or a
+/// non-writable file.
 fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs::Metadata>)> {
     use std::io::{Error, ErrorKind};
     let mut cur = path.to_path_buf();
@@ -279,6 +292,15 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs:
                 if meta.is_dir() {
                     return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", cur.display())));
                 }
+                // Opening a named pipe for writing waits for a reader, so anything that is not a
+                // regular file is refused before the writability probe below. (A file swapped for
+                // a pipe between this check and that open is not covered.)
+                if !meta.is_file() {
+                    return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", cur.display())));
+                }
+                // The mode bits are checked on their own, before the open probe: a file with no
+                // write bit that is writable only through an ACL would be saved once, and the
+                // renamed-in replacement (which carries no ACL) would then refuse every later save.
                 if meta.permissions().readonly() {
                     return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only", cur.display())));
                 }
@@ -311,7 +333,7 @@ fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing
     }
 
     let (tmp, mut file) = loop {
-        let tmp = dir.join(format!("{prefix}.{}-{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        let tmp = dir.join(tmp_file_name(prefix, std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
         match opts.open(&tmp) {
             Ok(file) => break (tmp, file),
             Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
@@ -459,6 +481,54 @@ mod tests {
         let cache = FontCache::with_dir(tempdir("nf")).with_fetcher(Box::new(Mock { routes: HashMap::new(), hits: Arc::default() }));
         let err = cache.resolve(&FontRequest::new("No Such Font", 400, false)).unwrap_err();
         assert!(matches!(err, FontError::NotFound(ref f) if f == "No Such Font"), "{err:?}");
+    }
+
+    #[test]
+    fn temp_names_round_trip_and_nothing_else_is_taken_for_a_crashed_save() {
+        let name = tmp_file_name("doc.designos", 4242, 17);
+        assert_eq!(tmp_file_pid(&name, "doc.designos"), Some(4242));
+        for other in [
+            "doc.designos.4242-17.tmp",            // digit pair without the marker: a user's file
+            "doc.designos.save-4242.tmp",          // missing seq
+            "doc.designos.save--17.tmp",           // empty pid
+            "doc.designos.save-42a-17.tmp",        // non-digit pid
+            "doc.designos.save-4242-1x.tmp",       // non-digit seq
+            "doc.designos.save-4242-17",           // no .tmp suffix
+            "other.designos.save-4242-17.tmp",     // another target
+            "doc.designos.save-99999999999-1.tmp", // pid beyond u32
+        ] {
+            assert_eq!(tmp_file_pid(other, "doc.designos"), None, "{other}");
+        }
+    }
+
+    /// The pid of a process that has already exited and been reaped.
+    #[cfg(unix)]
+    fn dead_pid() -> u32 {
+        let mut child = std::process::Command::new("true").spawn().expect("`true` is available on unix");
+        let pid = child.id();
+        child.wait().unwrap();
+        pid
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn leftover_of_a_dead_process_is_swept_but_a_look_alike_user_file_is_kept() {
+        let dir = tempdir("sweep");
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("doc.designos");
+        std::fs::write(&target, b"v1").unwrap();
+        let pid = dead_pid();
+        let leftover = dir.join(tmp_file_name("doc.designos", pid, 0));
+        let user_file = dir.join(format!("doc.designos.{pid}-0.tmp"));
+        std::fs::write(&leftover, b"partial").unwrap();
+        std::fs::write(&user_file, b"mine").unwrap();
+
+        write_atomic(&target, b"v2").unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"v2");
+        assert!(!leftover.exists(), "the leftover of a crashed save is swept");
+        assert_eq!(std::fs::read(&user_file).unwrap(), b"mine", "a user file with the same digits is not a leftover");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
