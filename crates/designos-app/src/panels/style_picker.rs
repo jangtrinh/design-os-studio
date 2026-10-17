@@ -70,7 +70,9 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
     items.push(MenuItem::new("Rename style").disabled(!linked));
     items.push(MenuItem::new("Detach style").disabled(!linked));
-    items.push(MenuItem::new("Edit style").disabled(!linked));
+    // A library style is edited in its library file.
+    let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
+    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
     picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
     (items, picks)
 }
@@ -157,8 +159,7 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
     }
     let edit = pane.rect(theme::SECTION_TRAILING_X - theme::PANEL_ACTION_BUTTON - 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, &format!("{tag}-edit"), edit);
-    let editing = app.props.style_edit.as_ref().is_some_and(|s| s.key == key);
-    if widgets::icon_button(ui, edit, (tag, "edit"), Icon::StrokeSettings, editing, "Edit style").clicked() {
+    if style_edit::edit_button(app, ui, edit, (tag, "edit"), key) {
         style_edit::toggle(app, key, edit);
     }
     let minus = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);

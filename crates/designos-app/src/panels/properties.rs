@@ -255,7 +255,9 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
             last.separator_after = true;
         }
         let edit_row = items.len();
-        items.push(crate::widgets::menu::MenuItem::new("Edit style").disabled(linked.is_none()));
+        let read_only = linked.as_deref().is_some_and(|k| super::style_edit::is_read_only(app, k));
+        let edit_label = if read_only { super::style_edit::LIBRARY_STYLE_TIP } else { "Edit style" };
+        items.push(crate::widgets::menu::MenuItem::new(edit_label).disabled(linked.is_none() || read_only));
         let pos = Pos2::new(styles.right() - 168.0, styles.bottom() + 4.0);
         match crate::widgets::menu::popup_menu(ui.ctx(), egui::Id::new(("styles-menu", stroke)), pos, 168.0, &items, Some(styles)) {
             crate::widgets::menu::MenuResult::Picked(i) => {
@@ -578,7 +580,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                     theme::cr(theme::RADIUS_MEDIUM),
                     if is_current { theme::BG_SELECTED } else { theme::BG_HOVER },
                 );
-                edit_clicked = widgets::icon_button(ui, edit_r, ("style-edit", &e.key), Icon::StrokeSettings, editing, "Edit style").clicked();
+                edit_clicked = super::style_edit::edit_button(app, ui, edit_r, ("style-edit", &e.key), &e.key);
                 if edit_clicked {
                     super::style_edit::toggle(app, &e.key, edit_r);
                 }

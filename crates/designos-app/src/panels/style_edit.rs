@@ -5,12 +5,15 @@
 //! is up, so scrubbing a number is a single history entry however long the drag.
 
 use super::effects::{self, FxTarget};
+use super::style_edit_grid_rows as grid_rows;
 use super::{layoutguide, typography};
 use crate::app::App;
+use crate::icons::Icon;
 use crate::richtext;
+use crate::theme;
 use crate::widgets::field::{self, Prefix};
 use crate::widgets::menu::dropdown;
-use crate::widgets::popover;
+use crate::widgets::{self, popover, Key};
 use designos_doc::*;
 use egui::{Id, Rect, Ui};
 
@@ -25,8 +28,33 @@ pub struct StyleEdit {
     pub pending: Option<Style>,
 }
 
+/// Tooltip (and menu label) of an "Edit style" control for a style that belongs to a library.
+pub(super) const LIBRARY_STYLE_TIP: &str = "Edit in the library file";
+
+/// A style published by a shared library is read-only in the files that use it, as in Figma.
+pub(super) fn is_read_only(app: &App, key: &str) -> bool {
+    is_library_style(&app.doc, key)
+}
+
+/// The "Edit style" icon button: opens the popover (returns true when clicked), or stays dimmed
+/// with a tooltip when the style belongs to a library.
+pub(super) fn edit_button(app: &App, ui: &mut Ui, rect: Rect, id: impl Key, key: &str) -> bool {
+    if is_read_only(app, key) {
+        let r = ui.interact(rect, ui.id().with(id), egui::Sense::hover());
+        widgets::paint_icon_in(ui.painter(), rect, Icon::StrokeSettings, 16.0, theme::TEXT_DISABLED);
+        r.on_hover_text(LIBRARY_STYLE_TIP);
+        return false;
+    }
+    let editing = app.props.style_edit.as_ref().is_some_and(|s| s.key == key);
+    widgets::icon_button(ui, rect, id, Icon::StrokeSettings, editing, "Edit style").clicked()
+}
+
 /// Opens the popover for style `key` next to `anchor`; clicking the opener again closes it.
+/// A library style is never opened.
 pub(super) fn toggle(app: &mut App, key: &str, anchor: Rect) {
+    if is_read_only(app, key) {
+        return;
+    }
     if app.props.style_edit.as_ref().is_some_and(|s| s.key == key) {
         app.props.style_edit = None;
         return;
@@ -148,7 +176,7 @@ fn body_ui(app: &mut App, ui: &mut Ui, body: Rect, key: &str, style: &Style, ite
         }
         Style::Grid(g) => {
             if let Some(g) = g.get(item) {
-                grid_rows(app, ui, body, g, item, first);
+                grid_rows::grid_rows(app, ui, body, g, item, first);
             }
         }
     }
@@ -206,7 +234,7 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, t: &TextStyle, first: usize
             set(app, &|ts| ts.font_size = v.max(1.0));
         }
     });
-    let line = richtext::line_height_px(t.line_height, t.font_size).unwrap_or_else(|| (t.font_size * 1.21 * 10.0).round() / 10.0);
+    let line = richtext::display_line_height_px(t.line_height, t.font_size);
     popover::row(ui, body, first + 3, "Line height", |ui, rc| {
         if let Some(v) = field::num_field(ui, rc, "se-line-height", Prefix::None, Some(line), "") {
             set(app, &|ts| ts.line_height = LineHeight::Pixels(v.max(1.0)));
@@ -215,80 +243,6 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, t: &TextStyle, first: usize
     popover::row(ui, body, first + 4, "Letter spacing", |ui, rc| {
         if let Some(v) = field::num_field(ui, rc, "se-letter-spacing", Prefix::None, Some(t.letter_spacing), "") {
             set(app, &|ts| ts.letter_spacing = v);
-        }
-    });
-}
-
-fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, item: usize, first: usize) {
-    let set = |app: &mut App, f: &dyn Fn(&mut LayoutGrid)| {
-        edit(app, |s| {
-            if let Some(g) = if let Style::Grid(gs) = s { gs.get_mut(item) } else { None } {
-                f(g);
-            }
-        })
-    };
-    let color = layoutguide::color_of(g);
-    let mut row = first;
-    popover::row(ui, body, row, "Type", |ui, rc| {
-        let names = layoutguide::KINDS.map(String::from);
-        if let Some(k) = dropdown(ui, rc, "se-grid-kind", layoutguide::KINDS[layoutguide::kind_index(g)], &names) {
-            set(app, &|g| *g = layoutguide::default_grid(k, color));
-        }
-    });
-    row += 1;
-    match g {
-        LayoutGrid::Grid { size, .. } => {
-            popover::row(ui, body, row, "Size", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-size", Prefix::None, Some(*size), "") {
-                    set(app, &|g| {
-                        if let LayoutGrid::Grid { size, .. } = g {
-                            *size = v.max(1.0);
-                        }
-                    });
-                }
-            });
-            row += 1;
-        }
-        LayoutGrid::Columns { count, gutter, offset, .. } | LayoutGrid::Rows { count, gutter, offset, .. } => {
-            let (count, gutter, offset) = (*count as f32, *gutter, *offset);
-            popover::row(ui, body, row, "Count", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-count", Prefix::None, Some(count), "") {
-                    set(app, &|g| {
-                        if let LayoutGrid::Columns { count, .. } | LayoutGrid::Rows { count, .. } = g {
-                            *count = v.round().clamp(1.0, 64.0) as u32;
-                        }
-                    });
-                }
-            });
-            popover::row(ui, body, row + 1, "Gutter", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-gutter", Prefix::None, Some(gutter), "") {
-                    set(app, &|g| {
-                        if let LayoutGrid::Columns { gutter, .. } | LayoutGrid::Rows { gutter, .. } = g {
-                            *gutter = v.max(0.0);
-                        }
-                    });
-                }
-            });
-            popover::row(ui, body, row + 2, "Margin", |ui, rc| {
-                if let Some(v) = field::num_field(ui, rc, "se-grid-offset", Prefix::None, Some(offset), "") {
-                    set(app, &|g| {
-                        if let LayoutGrid::Columns { offset, .. } | LayoutGrid::Rows { offset, .. } = g {
-                            *offset = v.max(0.0);
-                        }
-                    });
-                }
-            });
-            row += 3;
-        }
-    }
-    popover::row(ui, body, row, "Color", |ui, rc| {
-        if let Some(nc) = effects::color_row(app, ui, rc, (item, 7), color, None) {
-            set(app, &|g| *g = layoutguide::with_color(g, nc));
-        }
-    });
-    popover::row(ui, body, row + 1, "Opacity", |ui, rc| {
-        if let Some(v) = field::num_field(ui, rc, "se-grid-opacity", Prefix::None, Some((color.a * 100.0).round()), "%") {
-            set(app, &|g| *g = layoutguide::with_color(g, Color { a: (v / 100.0).clamp(0.0, 1.0), ..color }));
         }
     });
 }

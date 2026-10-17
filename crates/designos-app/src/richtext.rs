@@ -265,6 +265,11 @@ pub fn line_height_px(lh: LineHeight, size: f32) -> Option<f32> {
     }
 }
 
+/// [`line_height_px`] for a field: automatic line height shows as the font's usual 121 % of the size.
+pub fn display_line_height_px(lh: LineHeight, size: f32) -> f32 {
+    line_height_px(lh, size).unwrap_or_else(|| (size * 1.21 * 10.0).round() / 10.0)
+}
+
 // ------------------------------------------------------------------ OpenType features
 /// The value of OpenType feature `tag` in a style's feature list, if it is set.
 pub fn feature_value(features: &[(String, u32)], tag: &str) -> Option<u32> {

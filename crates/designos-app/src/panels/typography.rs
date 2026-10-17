@@ -193,13 +193,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     row_end(pane);
 
     // ---- line height + letter spacing
-    let lh = match sum.line_height {
-        Some(l) => Some(
-            richtext::line_height_px(l, sum.size.unwrap_or(t.style.font_size))
-                .unwrap_or_else(|| ((sum.size.unwrap_or(t.style.font_size) * 1.21) * 10.0).round() / 10.0),
-        ),
-        None => None,
-    };
+    let lh = sum.line_height.map(|l| richtext::display_line_height_px(l, sum.size.unwrap_or(t.style.font_size)));
     if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "line-height", Prefix::Text("\u{2195}"), lh, "") {
         let v = v.max(1.0);
         set_style(app, sel, |s| s.line_height = LineHeight::Pixels(v));

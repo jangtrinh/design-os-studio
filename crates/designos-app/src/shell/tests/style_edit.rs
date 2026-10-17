@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::panels::style_edit;
-use designos_doc::{Effect, LayoutGrid, Style, StyleProperty};
+use designos_doc::{Effect, ExternalAsset, LayoutGrid, LibraryAssetKind, Style, StyleProperty};
 
 fn shadow(radius: f32) -> Effect {
     Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: DV::new(0.0, 4.0), radius, spread: 0.0, visible: true, show_behind: false }
@@ -168,4 +168,42 @@ fn a_drag_is_recorded_once_when_the_pointer_is_released() {
     for id in [welcome, card] {
         assert_eq!(s.app().doc.get(id).unwrap().effects, vec![shadow(8.0)], "one undo takes the whole drag back");
     }
+}
+
+/// Marks style `key` as the local copy of a style published by a shared library.
+fn make_library_style(s: &mut Sim, key: &str) {
+    s.shell.app.doc.library.external.insert(
+        format!("L1/{key}"),
+        ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some(key.into()) },
+    );
+}
+
+#[test]
+fn a_library_style_cannot_be_edited_from_the_list() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.apply_style(&[hero], "Brand/Primary");
+    make_library_style(&mut s, "Brand/Primary");
+    let before = s.app().doc.styles["Brand/Primary"].clone();
+    edit_from_list(&mut s, "Brand/Primary");
+    assert!(s.app().props.style_edit.is_none(), "the popover stays closed for a library style");
+    assert_eq!(s.app().doc.styles["Brand/Primary"], before);
+}
+
+#[test]
+fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
+    let (mut s, ..) = welcome_with_styles();
+    make_library_style(&mut s, "Effect style 1");
+    make_library_style(&mut s, "Grid style 1");
+    let button = s.rect_of("effect-style-edit");
+    s.click(button.center());
+    s.frame(vec![]);
+    assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
+    // The style menu keeps "Edit style" as a disabled row.
+    let r = s.rect_of("grid-style-button");
+    s.click(r.center());
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
+    s.frame(vec![]);
+    assert!(s.app().props.style_edit.is_none(), "the disabled menu row does not open the popover");
 }
