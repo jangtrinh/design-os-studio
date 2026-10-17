@@ -5,7 +5,7 @@
 use super::*;
 use crate::util::v2;
 use designos_doc::{
-    AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
+    AlignSelf, AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
 };
 
 fn auto(direction: LayoutDirection, primary: LayoutAlign) -> AutoLayout {
@@ -652,4 +652,34 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     let solved = solve_everywhere_with_frame_limits(al, v2(100.0, 50.0), frame_lc, &[fill, fill]);
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
+}
+
+#[test]
+fn align_self_children_sit_at_literal_cross_axis_positions_in_flow_frames() {
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_align = LayoutAlign::Start;
+    al.padding = [10.0, 10.0, 10.0, 10.0];
+    al.item_spacing = 8.0;
+    let k_auto = kid(30.0, 20.0);
+    let k_center = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::Center);
+    let k_end = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::End);
+    let k_stretch = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::Stretch);
+    let solved = solve_everywhere(al, v2(200.0, 100.0), &[k_auto, k_center, k_end, k_stretch]);
+    // Inner cross height = 100 - 20 = 80; top padding = 10.
+    // Auto (Start) -> y = 10, Center -> y = 10 + (80 - 20)/2 = 40, End -> y = 10 + 80 - 20 = 70, Stretch -> y = 10, h = 80.
+    assert_eq!(solved.kids[0], [10.0, 10.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[1], [48.0, 40.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[2], [86.0, 70.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[3], [124.0, 10.0, 30.0, 80.0]);
+
+    // Vertical frame with counter_align = End, overridden per-child by Start and Center.
+    let mut val = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    val.counter_align = LayoutAlign::End;
+    let v_auto = kid(20.0, 15.0);
+    let v_start = kid_with(20.0, 15.0, |lc| lc.align_self = AlignSelf::Start);
+    let v_center = kid_with(20.0, 15.0, |lc| lc.align_self = AlignSelf::Center);
+    let v_solved = solve_everywhere(val, v2(100.0, 80.0), &[v_auto, v_start, v_center]);
+    assert_eq!(v_solved.kids[0], [80.0, 0.0, 20.0, 15.0]);
+    assert_eq!(v_solved.kids[1], [0.0, 15.0, 20.0, 15.0]);
+    assert_eq!(v_solved.kids[2], [40.0, 30.0, 20.0, 15.0]);
 }
