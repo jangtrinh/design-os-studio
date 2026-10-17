@@ -10,6 +10,7 @@
 mod record;
 mod replay;
 mod replay_comments;
+mod validate;
 
 pub use record::live_ops_for_command;
 pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
@@ -141,3 +142,5 @@ pub(crate) const STRUCTURAL_FIELDS: [&str; 3] = ["id", "parent", "children"];
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod validate_tests;

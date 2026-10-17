@@ -45,6 +45,7 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
 }
 
 fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool), String> {
+    let saved = app.terminal.live_patch.state.clone();
     let mut tx = Tx::new();
     let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| tx.cmd(doc, cmd));
     let report = match replayed {
@@ -54,7 +55,11 @@ fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool)
             return Err(e.to_string());
         }
     };
-    let committed = tx.commit(&mut app.doc, &mut app.hist).map_err(|e| e.to_string())?;
+    let committed = tx.commit(&mut app.doc, &mut app.hist).map_err(|e| {
+        // Nothing of this patch landed, so neither do the id remaps it made.
+        app.terminal.live_patch.state = saved;
+        e.to_string()
+    })?;
     if committed {
         relayout_touched(&mut app.doc, &report.needs_layout);
     }

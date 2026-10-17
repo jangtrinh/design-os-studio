@@ -1,6 +1,7 @@
 //! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
 
 use super::replay_comments::{resolve_comments, CommentRemap};
+use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId};
 use serde_json::{Map, Value};
@@ -50,6 +51,8 @@ pub fn replay_live_patch(
         report.skipped.push(format!("unsupported live patch version {}", patch.v));
         return Ok(report);
     }
+    // A failed replay is cancelled by the caller, so the remaps it made must go too.
+    let saved = state.clone();
     if patch.base != state.base {
         // The agent reloaded a canvas the editor wrote with its own ids; earlier remaps would
         // now send its edits to the wrong node or thread.
@@ -59,7 +62,10 @@ pub fn replay_live_patch(
     }
     for op in &patch.ops {
         if let Some(cmd) = resolve(doc, op, state, &mut report) {
-            exec(doc, cmd)?;
+            if let Err(e) = exec(doc, cmd) {
+                *state = saved;
+                return Err(e);
+            }
             report.applied += 1;
         }
     }
@@ -85,6 +91,10 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             };
             if merged == *cur {
                 report.duplicates += 1;
+                return None;
+            }
+            if !cur.children.is_empty() && !merged.kind.is_container() {
+                report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
                 return None;
             }
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
@@ -148,6 +158,11 @@ fn resolve_insert(
     }
     let mut nodes: Vec<Node> = nodes.to_vec();
     remap_subtree(&mut nodes, &state.remap);
+    // Before anything below reserves ids for it.
+    if let Some(why) = insert_problem(doc, parent, &nodes) {
+        report.skipped.push(format!("insert of node {}: {why}", nodes[0].id.0));
+        return None;
+    }
     if let Some(existing) = doc.get(nodes[0].id) {
         if existing.parent == Some(parent) && same_props(existing, &nodes[0]) {
             report.duplicates += 1;
@@ -160,7 +175,11 @@ fn resolve_insert(
     let mut fresh = BTreeMap::new();
     for n in &nodes {
         if doc.get(n.id).is_some() {
-            fresh.insert(n.id, doc.try_alloc_id()?);
+            let Some(id) = doc.try_alloc_id() else {
+                report.skipped.push(format!("insert of node {}: the document has no node ids left", nodes[0].id.0));
+                return None;
+            };
+            fresh.insert(n.id, id);
         }
     }
     if !fresh.is_empty() {
