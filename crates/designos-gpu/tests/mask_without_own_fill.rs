@@ -163,6 +163,27 @@ fn a_built_vector_child_still_cuts_by_its_shape() {
 }
 
 #[test]
+fn the_frame_box_stands_in_for_one_frame_only() {
+    let Some(mut g) = common::gpu() else { return };
+    // the vector covers the top-left quarter of the mask frame
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 30.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // first frame: the vector is not built yet, only the box can cut the siblings
+    g.compiler.geom.budget = Some(Duration::ZERO);
+    let first = g.render_page(&doc, page, &vp, SIZE);
+    assert_eq!(px(&first, 15, 15), [255, 0, 0, 255], "first frame: inside the vector");
+    assert_eq!(px(&first, 45, 45), [255, 0, 0, 255], "first frame: the box stands in outside the unbuilt vector");
+    assert_eq!(px(&first, 70, 70), [255, 255, 255, 255], "first frame: outside the mask frame");
+
+    // next frame, with budget to build it: the mask follows the vector again
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    let second = g.render_page(&doc, page, &vp, SIZE);
+    assert_eq!(px(&second, 15, 15), [255, 0, 0, 255], "second frame: inside the vector");
+    assert_eq!(px(&second, 45, 45), [255, 255, 255, 255], "second frame: the box is gone once the vector is built");
+}
+
+#[test]
 fn standing_in_the_frame_box_opens_no_extra_program() {
     let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 60.0));
     let programs = |budget: Duration, max: usize| {
