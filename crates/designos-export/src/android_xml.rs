@@ -60,6 +60,12 @@ fn android_text(s: &str) -> String {
     esc(&o)
 }
 
+/// A user-supplied code-syntax string as an XML attribute value: the shared XML escapes, plus line
+/// breaks and tabs as character references so the attribute stays on one line.
+fn attr_text(s: &str) -> String {
+    esc(s).replace('\n', "&#10;").replace('\t', "&#9;")
+}
+
 fn argb(c: &Color, opacity: f32) -> String {
     let a = ((c.a * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
     format!("#{a:02X}{}", c.to_hex())
@@ -71,21 +77,21 @@ fn token(v: &Variable) -> String {
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
     match bound(doc, n, key) {
-        Some(v) => token_text(v, CodeSyntaxPlatform::Android, || format!("@color/{}", token(v))),
+        Some(v) => attr_text(&token_text(v, CodeSyntaxPlatform::Android, || format!("@color/{}", token(v)))),
         None => argb(c, opacity),
     }
 }
 
 fn dp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var))),
+        Some(var) => attr_text(&token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var)))),
         None => format!("{}dp", num(v)),
     }
 }
 
 fn sp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var))),
+        Some(var) => attr_text(&token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var)))),
         None => format!("{}sp", num(v)),
     }
 }
@@ -168,7 +174,7 @@ impl Cx<'_> {
             attr(attrs, "elevation", format!("{}dp", num(radius / 2.0)));
         }
         match bound(doc, n, "opacity") {
-            Some(v) => attr(attrs, "alpha", token_text(v, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(v)))),
+            Some(v) => attr(attrs, "alpha", attr_text(&token_text(v, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(v))))),
             None if n.opacity < 0.999 => attr(attrs, "alpha", num((n.opacity * 100.0).round() / 100.0)),
             None => {}
         }

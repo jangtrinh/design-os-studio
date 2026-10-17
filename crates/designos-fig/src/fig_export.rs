@@ -768,8 +768,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             // StackJustify has no baseline and no distribution beyond the main axis.
             let justify_name = match al.primary_align {
                 LayoutAlign::SpaceAround => "SPACE_AROUND",
-                LayoutAlign::SpaceEvenly if al.layout_version >= 1 => "SPACE_EVENLY_CSS",
-                LayoutAlign::SpaceEvenly => "SPACE_EVENLY",
+                // the legacy SPACE_EVENLY (3) is space-between in real files: always write 6
+                LayoutAlign::SpaceEvenly => "SPACE_EVENLY_CSS",
                 LayoutAlign::Baseline => "MIN",
                 other => align_name(other),
             };

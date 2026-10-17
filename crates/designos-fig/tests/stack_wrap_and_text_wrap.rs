@@ -2,7 +2,7 @@
 //! through the `.fig` binary, the REST-shaped JSON and the pen format.
 
 use designos_doc::*;
-use designos_fig::{decode_fig_to_json, export_fig, export_pen_json, export_rest_json, import_fig, import_pen_json, import_rest_json};
+use designos_fig::{decode_fig_to_json, export_fig, export_pen_json, export_rest_json, import_fig, import_fig_node_changes, import_pen_json, import_rest_json};
 use serde_json::{json, Value};
 
 fn doc_with(al: AutoLayout, text_wrap: TextWrap) -> Document {
@@ -66,12 +66,37 @@ fn space_evenly_with_layout_version_one_is_written_as_the_css_enum_and_reads_bac
     assert_eq!((al.primary_align, al.layout_version), (LayoutAlign::SpaceEvenly, 1));
 }
 
+/// Recorded decision from real-file evidence (`FIELDS.md`: real files carry SPACE_EVENLY and
+/// never SPACE_BETWEEN): the legacy `StackJustify` value 3 is Figma's space-between, so SPACE_EVENLY is
+/// never written back as 3, whatever the layout version.
 #[test]
-fn space_evenly_without_a_layout_version_keeps_the_legacy_enum() {
-    let bytes = export_fig(&doc_with(stack(LayoutAlign::SpaceEvenly, 0), TextWrap::Auto)).unwrap();
-    assert_eq!(wire_node(&bytes, "Stack")["stackPrimaryAlignItems"], "SPACE_EVENLY");
-    let al = auto_layout(&import_fig(&bytes).unwrap());
-    assert_eq!((al.primary_align, al.layout_version), (LayoutAlign::SpaceEvenly, 0));
+fn space_evenly_is_always_written_as_the_css_enum_never_the_legacy_one() {
+    for version in [0, 1] {
+        let bytes = export_fig(&doc_with(stack(LayoutAlign::SpaceEvenly, version), TextWrap::Auto)).unwrap();
+        assert_eq!(wire_node(&bytes, "Stack")["stackPrimaryAlignItems"], "SPACE_EVENLY_CSS", "layout version {version}");
+        let al = auto_layout(&import_fig(&bytes).unwrap());
+        assert_eq!((al.primary_align, al.layout_version), (LayoutAlign::SpaceEvenly, version));
+    }
+}
+
+/// Same decision, import side: the wire values 3 (legacy SPACE_EVENLY) and 4 (SPACE_BETWEEN) are both
+/// space-between; 5 is space-around; 6 (SPACE_EVENLY_CSS) is the only space-evenly.
+#[test]
+fn legacy_space_evenly_on_the_wire_imports_as_space_between() {
+    let bytes = export_fig(&doc_with(stack(LayoutAlign::Start, 0), TextWrap::Auto)).unwrap();
+    for (wire, want) in [
+        ("SPACE_EVENLY", LayoutAlign::SpaceBetween),
+        ("SPACE_BETWEEN", LayoutAlign::SpaceBetween),
+        ("SPACE_AROUND", LayoutAlign::SpaceAround),
+        ("SPACE_EVENLY_CSS", LayoutAlign::SpaceEvenly),
+    ] {
+        let mut json = decode_fig_to_json(&bytes).unwrap();
+        let changes = json["message"]["nodeChanges"].as_array_mut().unwrap();
+        let stack_node = changes.iter_mut().find(|n| n["name"] == "Stack").unwrap();
+        stack_node["stackPrimaryAlignItems"] = json!(wire);
+        let doc = import_fig_node_changes(&json["message"], "t").unwrap();
+        assert_eq!(auto_layout(&doc).primary_align, want, "wire {wire}");
+    }
 }
 
 #[test]
