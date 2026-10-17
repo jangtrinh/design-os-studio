@@ -479,8 +479,8 @@ impl TabsState {
             self.switch_to(idx, app);
             return Some(idx);
         }
-        let doc = match crate::io::load_path(path) {
-            Ok(d) => d,
+        let (doc, warning) = match crate::io::load_path_with_warning(path) {
+            Ok(pair) => pair,
             Err(e) => {
                 app.show_toast(e, true);
                 return None;
@@ -489,6 +489,9 @@ impl TabsState {
         let title = if doc.name.trim().is_empty() { path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled").to_string() } else { doc.name.clone() };
         let kind = ProjectTabKind::from_doc(&doc);
         let idx = self.open_new_tab(app, &title, doc, kind);
+        if warning.is_some() {
+            app.show_toast(crate::io::opened_toast_text(&title, warning.as_deref()), true);
+        }
         let svg = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"));
         if !svg {
             let pb = path.to_path_buf();

@@ -1,10 +1,52 @@
 //! Opening and saving documents.
 
 use designos_doc::{Document, Vec2};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 pub const NATIVE_EXT: &str = "designos";
 pub const LEGACY_EXT: &str = "designos";
+
+fn repaired_originals() -> &'static Mutex<HashMap<PathBuf, Vec<u8>>> {
+    static ORIGINALS: OnceLock<Mutex<HashMap<PathBuf, Vec<u8>>>> = OnceLock::new();
+    ORIGINALS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn repair_key(path: &Path) -> PathBuf {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    std::fs::canonicalize(&p).unwrap_or(p)
+}
+
+fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Document, Option<String>)> {
+    let (mut doc, report) = Document::from_json_with_report(text)?;
+    if !report.is_clean() {
+        eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+    }
+    if report.id_space_exhausted {
+        doc.renumber_ids_for_headroom();
+    }
+    let key = repair_key(path);
+    let warning = match report.structural_summary() {
+        Some(what) => {
+            if let Ok(mut map) = repaired_originals().lock() {
+                map.insert(key, text.as_bytes().to_vec());
+            }
+            let bak_name = backup_path(path).file_name().and_then(|n| n.to_str()).unwrap_or("backup.bak").to_string();
+            Some(format!("repaired malformed document ({what}); original will be backed up to {bak_name} on save"))
+        }
+        None => {
+            if let Ok(mut map) = repaired_originals().lock() {
+                map.remove(&key);
+            }
+            None
+        }
+    };
+    Ok((doc, warning))
+}
 
 /// Loads a document from disk, dispatching on the file extension. Import warnings go to stderr;
 /// use [`load_path_with_warning`] where the user should see them.
@@ -16,8 +58,9 @@ pub fn load_path(path: &Path) -> Result<Document, String> {
     Ok(doc)
 }
 
-/// Like [`load_path`], but also returns the non-fatal import warning, if any: a `.pen` file whose
-/// `ref` expansion hit the clone budget still opens, minus the instances left unexpanded.
+/// Like [`load_path`], but also returns the non-fatal import or repair warning, if any: a `.pen`
+/// file whose `ref` expansion hit the clone budget or a native `.designos` file whose node graph
+/// needed structural repair on load still opens, and reports what changed.
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
     load_path_importing_pen_with(path, designos_fig::import_pen_json_with_warnings)
 }
@@ -55,7 +98,12 @@ fn load_path_importing_pen_with(
                         warning = w;
                         d
                     }
-                    Err(_) => Document::from_json(&text).map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?,
+                    Err(_) => {
+                        let (d, w) =
+                            parse_native_with_warning(path, &text).map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?;
+                        warning = w;
+                        d
+                    }
                 },
             }
         }
@@ -69,7 +117,9 @@ fn load_path_importing_pen_with(
         }
         _ => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            Document::from_json(&text).map_err(|e| format!("Invalid designos file: {e}"))?
+            let (d, w) = parse_native_with_warning(path, &text).map_err(|e| format!("Invalid designos file: {e}"))?;
+            warning = w;
+            d
         }
     };
     // The editor can keep working on a file whose ids leave no room for new ones: it gets fresh
@@ -99,24 +149,39 @@ pub fn ensure_page(doc: &mut Document) {
     }
 }
 
+/// Path of the `<file>.bak` backup written before saving a document that was repaired on load.
+pub fn backup_path(path: &Path) -> PathBuf {
+    let mut os = path.as_os_str().to_os_string();
+    os.push(".bak");
+    PathBuf::from(os)
+}
+
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
     }
-    if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
-        let bytes = designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
-        designos_library::write_atomic(&p, &bytes).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
-        return Ok(p);
+    let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
+        designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?
+    } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
+        designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
+    } else {
+        doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?.into_bytes()
+    };
+
+    let key = repair_key(&p);
+    let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
+    if let Some(original_bytes) = &pending_backup {
+        let bak = backup_path(&p);
+        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
     }
-    if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
-        let pen_json = designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?;
-        designos_library::write_atomic(&p, pen_json.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
-        return Ok(p);
+    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
+    if pending_backup.is_some() {
+        if let Ok(mut map) = repaired_originals().lock() {
+            map.remove(&key);
+        }
     }
-    let json = doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?;
-    designos_library::write_atomic(&p, json.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
     Ok(p)
 }
 
@@ -342,5 +407,65 @@ mod tests {
         std::fs::remove_file(&p).ok();
         assert_eq!(back.page_of(a), Some(page));
         let _ = back.world_transform(a);
+    }
+
+    #[test]
+    fn malformed_native_open_reports_what_was_repaired_and_backs_up_original_bytes_on_save() {
+        let mut d = Document::new("Damaged");
+        let page = d.add_page("P");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        // Inject a dangling child id and a self/page cycle so load-time repair has to strip them.
+        d.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(999));
+        d.nodes.get_mut(&a).unwrap().children.push(page);
+        d.nodes.get_mut(&page).unwrap().parent = Some(a);
+
+        let p = tmp("damaged_backup.designos");
+        let bak = backup_path(&p);
+        std::fs::remove_file(&bak).ok();
+        let original_bytes = d.to_json().unwrap().into_bytes();
+        std::fs::write(&p, &original_bytes).unwrap();
+
+        let (mut doc, warning) = load_path_with_warning(&p).unwrap();
+        let warning = warning.expect("malformed native open must return a repair warning");
+        assert!(warning.contains("1 dangling ids"), "warning should list dangling ids: {warning}");
+        assert!(warning.contains("duplicate or cyclic child claims"), "warning should list cyclic claims: {warning}");
+        let toast = opened_toast_text(&doc.name, Some(&warning));
+        assert!(toast.starts_with("Opened Damaged with a warning:"), "{toast}");
+        assert!(!bak.exists(), "backup is only written when saving");
+
+        // First save writes <file>.bak with the untouched pre-repair bytes before rewriting <file>.
+        save_path(&doc, &p).unwrap();
+        assert_eq!(std::fs::read(&bak).unwrap(), original_bytes, "original pre-repair bytes must be recoverable from <file>.bak after saving");
+        let saved_repaired = std::fs::read(&p).unwrap();
+        assert_ne!(saved_repaired, original_bytes, "saved file holds the repaired document");
+
+        // A second save updates <file> without overwriting <file>.bak with the already-repaired bytes.
+        doc.name = "Damaged Edited".to_string();
+        save_path(&doc, &p).unwrap();
+        assert_eq!(std::fs::read(&bak).unwrap(), original_bytes, "second save must preserve the original pre-repair backup");
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(&bak).ok();
+    }
+
+    #[test]
+    fn clean_native_open_has_no_warning_and_writes_no_backup_on_save() {
+        let mut d = Document::new("Clean");
+        let page = d.add_page("P");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+
+        let p = tmp("clean_no_backup.designos");
+        let bak = backup_path(&p);
+        std::fs::remove_file(&bak).ok();
+        std::fs::write(&p, d.to_json().unwrap()).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        assert!(warning.is_none(), "clean file must not warn: {warning:?}");
+        save_path(&doc, &p).unwrap();
+        assert!(!bak.exists(), "clean file must not write a .bak file on save");
+
+        std::fs::remove_file(&p).ok();
     }
 }
