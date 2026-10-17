@@ -75,7 +75,16 @@ fn unique_tab_id() -> u64 {
 
 #[test]
 fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
-    let Fixture { doc, page, toolbar, screens } = big_fixture();
+    let Fixture { mut doc, page, toolbar, screens } = big_fixture();
+    // Threads the scoped canvas cannot resolve: on a layer of a screen past the shared frames,
+    // and on another page.
+    let far_rect = doc.get(screens[SCREENS - 1]).unwrap().children[0];
+    let mut on_far_rect = user_thread("thread-2", page, "On a hidden layer");
+    on_far_rect.anchor.node = Some(far_rect);
+    doc.comments.push(on_far_rect);
+    let other_page = doc.add_page("Other");
+    doc.comments.push(user_thread("thread-3", other_page, "On another page"));
+    let comments_before = doc.comments.clone();
     let node_count = doc.nodes.len();
     let toolbar_size = doc.get(toolbar).unwrap().size;
     let toolbar_children = doc.get(toolbar).unwrap().children.clone();
@@ -122,7 +131,7 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     assert_eq!(d.get(toolbar).unwrap().size, toolbar_size, "toolbar was resized by the agent's scoped relayout");
     assert_eq!(d.styles.len(), 1, "shared styles were dropped");
     assert_eq!(d.style_meta.len(), 1, "style metadata was dropped");
-    assert_eq!(d.comments.len(), 1, "comment threads were dropped");
+    assert_eq!(d.comments, comments_before, "comment threads changed");
 
     // The new card sits on top of the page with its text; the renamed screen kept its layers.
     let page_now = d.get(page).unwrap().children.clone();
@@ -196,7 +205,7 @@ fn user_thread(id: &str, page: NodeId, text: &str) -> CommentThread {
 
 #[test]
 fn agent_comments_never_overwrite_user_threads() {
-    let Fixture { mut doc, page, .. } = big_fixture();
+    let Fixture { mut doc, page, screens, .. } = big_fixture();
     doc.comments.push(user_thread("t1", page, "User thread"));
     let mut app = App::new(doc);
     app.terminal = TerminalState::for_tab(unique_tab_id());
@@ -221,20 +230,29 @@ fn agent_comments_never_overwrite_user_threads() {
     assert_eq!(agent_threads.len(), 1, "the agent's thread must exist once");
     assert_ne!(agent_threads[0].id, "t1");
 
-    // 2. The user adds `t4` after the agent read the canvas; the agent's next thread is also `t4`.
+    // 2. The user adds `t4` after the agent read the canvas; the agent's next thread is also `t4`,
+    // and it replies there before the editor polls. Both calls land on the agent's thread.
     app.doc.comments.push(user_thread("t4", page, "User race"));
     let raced = session.call("designos_add_comment", json!({ "page_id": page.0, "x": 6.0, "y": 6.0, "text": "Agent race" })).expect("add_comment");
     assert_eq!(raced["id"], "t4", "precondition: the agent picks the id the user just took");
-    replay(&mut app);
-    assert_eq!(texts(&thread(&app, "t4").unwrap()), ["User race"], "the user's t4 was overwritten");
-    let moved = app.doc.comments.iter().find(|t| texts(t) == ["Agent race"]).expect("agent thread kept under a new id").id.clone();
-    assert_ne!(moved, "t4");
-
-    // Later edits to the agent's `t4` follow it to its new id.
     session.call("designos_reply_comment", json!({ "thread_id": "t4", "text": "Agent follow-up" })).expect("reply");
     replay(&mut app);
-    assert_eq!(texts(&thread(&app, "t4").unwrap()), ["User race"]);
+    assert_eq!(texts(&thread(&app, "t4").unwrap()), ["User race"], "the user's t4 was overwritten");
+    let moved = app.doc.comments.iter().find(|t| texts(t).first().is_some_and(|m| m == "Agent race")).expect("agent thread kept under a new id").id.clone();
+    assert_ne!(moved, "t4");
     assert_eq!(texts(&thread(&app, &moved).unwrap()), ["Agent race", "Agent follow-up"]);
+
+    // A layer edit makes the editor republish its canvas. The agent's next call reloads it and
+    // from then on sees the editor's ids: `t4` is the user's thread, and resolving it must
+    // resolve the user's thread, not the one the agent's old `t4` was moved to.
+    session.call("designos_update_node", json!({ "node_id": screens[0].0, "name": "Screen 0 (agent)" })).expect("update_node");
+    replay(&mut app);
+    session.call("designos_resolve_comment", json!({ "thread_id": "t4", "resolved": true })).expect("resolve");
+    let agent_view = |session: &designos_mcp::server::Session, id: &str| session.engine.doc.comments.iter().find(|t| t.id == id).cloned();
+    assert_eq!(texts(&agent_view(&session, "t4").expect("agent sees t4")), ["User race"], "precondition: the agent reloaded the editor's canvas");
+    replay(&mut app);
+    assert!(thread(&app, "t4").unwrap().resolved, "the agent resolved the user's t4");
+    assert!(!thread(&app, &moved).unwrap().resolved, "the edit was redirected to the agent's old thread");
 
     // 3. The user and the agent both reply to t1; both replies survive.
     let mut t1 = thread(&app, "t1").unwrap();

@@ -16,6 +16,8 @@ pub struct LivePatchState {
     remap: BTreeMap<NodeId, NodeId>,
     /// The same for comment thread and message ids.
     comments: CommentRemap,
+    /// [`LivePatch::base`] the remaps above were made under.
+    base: Option<u64>,
 }
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
@@ -47,6 +49,13 @@ pub fn replay_live_patch(
     if patch.v != LIVE_PATCH_VERSION {
         report.skipped.push(format!("unsupported live patch version {}", patch.v));
         return Ok(report);
+    }
+    if patch.base != state.base {
+        // The agent reloaded a canvas the editor wrote with its own ids; earlier remaps would
+        // now send its edits to the wrong node or thread.
+        state.remap.clear();
+        state.comments = CommentRemap::default();
+        state.base = patch.base;
     }
     for op in &patch.ops {
         if let Some(cmd) = resolve(doc, op, state, &mut report) {

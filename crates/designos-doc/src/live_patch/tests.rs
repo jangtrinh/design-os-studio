@@ -144,6 +144,36 @@ fn ids_the_editor_reused_meanwhile_get_fresh_ones() {
 }
 
 #[test]
+fn remapped_ids_stop_applying_once_the_agent_reloads_the_editor_canvas() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = full.clone();
+    let taken = full.alloc_id();
+    full.insert(page, Node::rectangle(taken, Rect::new(0.0, 0.0, 1.0, 1.0))).unwrap();
+    let id = agent.alloc_id();
+    assert_eq!(id, taken);
+    let mut ops = Vec::new();
+    agent_exec(
+        &mut agent,
+        &mut History::default(),
+        &mut ops,
+        Command::Insert { parent: page, index: 1, nodes: vec![Node::frame(id, Rect::new(0.0, 0.0, 9.0, 9.0))] },
+    );
+    let mut state = LivePatchState::default();
+    let on = |base: u64, ops: Vec<LiveOp>| LivePatch::new(ops).with_base(Some(base));
+    let exec = &mut |d: &mut Document, c: Command| c.apply(d).map(|_| ());
+    let fresh = replay_live_patch(&mut full, &on(1, ops), &mut state, exec).unwrap().inserted_roots[0];
+    let rename = |name: &str| vec![LiveOp::Update { id: taken, set: [("name".to_string(), serde_json::json!(name))].into_iter().collect(), unset: Vec::new() }];
+
+    // Same canvas: the agent's id still means its own frame.
+    replay_live_patch(&mut full, &on(1, rename("agent frame")), &mut state, exec).unwrap();
+    assert_eq!(full.get(fresh).unwrap().name, "agent frame");
+    // After a reload the agent holds the editor's ids, so the same id is the user's layer.
+    replay_live_patch(&mut full, &on(2, rename("user layer")), &mut state, exec).unwrap();
+    assert_eq!(full.get(taken).unwrap().name, "user layer");
+    assert_eq!(full.get(fresh).unwrap().name, "agent frame");
+}
+
+#[test]
 fn removes_and_moves_replay_on_the_full_subtree() {
     let (mut full, page, tops) = full_doc(3, 2);
     let mut agent = full.clone();

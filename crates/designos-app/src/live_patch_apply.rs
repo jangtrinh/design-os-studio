@@ -11,21 +11,19 @@ use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchReport};
 use designos_doc::{Document, NodeId};
 
 /// Replays `patches` on `app.doc`, one undo step per patch (one agent tool call), and reports
-/// the result in a toast. Stops at the first patch that cannot be applied; earlier ones stay.
+/// the result in a toast. A patch that cannot be applied is reported and the rest still are: the
+/// log has already been read past them.
 pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
     let mut total = LivePatchReport::default();
     let mut committed_any = false;
-    let mut failure = None;
+    let mut failures = Vec::new();
     for patch in patches {
         match apply_one(app, patch) {
             Ok((report, committed)) => {
                 committed_any |= committed;
                 merge(&mut total, report);
             }
-            Err(e) => {
-                failure = Some(e);
-                break;
-            }
+            Err(e) => failures.push(e),
         }
     }
     if committed_any {
@@ -35,8 +33,12 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
         app.sanitize();
         app.changed();
     }
-    if let Some(e) = failure {
-        app.show_toast(format!("Agent edit could not be applied: {e}"), true);
+    if let Some(first) = failures.first() {
+        let msg = match patches.len() {
+            1 => format!("Agent edit could not be applied: {first}"),
+            n => format!("{} of {n} agent edits could not be applied: {first}", failures.len()),
+        };
+        app.show_toast(msg, true);
     } else if let Some(msg) = toast_text(&total, committed_any) {
         app.show_toast(msg, !total.skipped.is_empty());
     }

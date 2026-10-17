@@ -1,6 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::Engine;
-use designos_doc::live_patch::{LiveOp, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -213,7 +213,8 @@ impl Session {
         let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
             return Ok(());
         };
-        let line = live_patch_line(ops, MAX_LIVE_PATCH_LINE_BYTES)?;
+        let base = self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64);
+        let line = live_patch_line(&LivePatch::new(ops).with_base(base), MAX_LIVE_PATCH_LINE_BYTES)?;
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
@@ -566,8 +567,8 @@ impl ServerHandler for DesignOSServer {
 }
 
 /// One `doc-patch.jsonl` line, refused when it is over the size the editor reads.
-fn live_patch_line(ops: Vec<LiveOp>, max_bytes: usize) -> Result<String, String> {
-    let mut line = serde_json::to_string(&LivePatch::new(ops)).map_err(|e| format!("serialize live patch: {e}"))?;
+fn live_patch_line(patch: &LivePatch, max_bytes: usize) -> Result<String, String> {
+    let mut line = serde_json::to_string(patch).map_err(|e| format!("serialize live patch: {e}"))?;
     if line.len() > max_bytes {
         let mib = |b: usize| b as f64 / (1 << 20) as f64;
         return Err(format!(
@@ -583,6 +584,7 @@ fn live_patch_line(ops: Vec<LiveOp>, max_bytes: usize) -> Result<String, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::live_patch::LiveOp;
     use designos_doc::Document;
 
     #[test]
@@ -688,10 +690,10 @@ mod tests {
 
     #[test]
     fn an_oversized_patch_line_is_refused() {
-        let ops = vec![LiveOp::Remove { id: designos_doc::NodeId(7) }];
-        let line = live_patch_line(ops.clone(), 1 << 20).unwrap();
+        let patch = LivePatch::new(vec![LiveOp::Remove { id: designos_doc::NodeId(7) }]);
+        let line = live_patch_line(&patch, 1 << 20).unwrap();
         assert!(line.ends_with('\n') && line.len() < 100);
-        let err = live_patch_line(ops, 10).unwrap_err();
+        let err = live_patch_line(&patch, 10).unwrap_err();
         assert!(err.contains("over the"), "{err}");
     }
 }

@@ -25,12 +25,22 @@ pub const LIVE_PATCH_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LivePatch {
     pub v: u32,
+    /// The editor canvas the agent's document was loaded from (`canvas.designos` modification
+    /// time, ns since the Unix epoch). Ids the editor remapped hold only for patches with the same
+    /// base: after the agent reloads a newer canvas it sees the editor's own ids.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<u64>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, ops }
+    }
+
+    pub fn with_base(mut self, base: Option<u64>) -> Self {
+        self.base = base;
+        self
     }
 }
 
