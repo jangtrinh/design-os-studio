@@ -363,3 +363,78 @@ fn null_number_detection_does_not_rely_on_error_message_text() {
         assert_eq!(lenient_parses(), before, "{bad}: non-null wrong type in float slot must not trigger lenient parse");
     }
 }
+
+#[test]
+fn strict_pass_overhead_on_large_document_is_bounded_and_skips_key_wrapping() {
+    use crate::finite_json::{from_str_repairing, lenient_parses_on_this_thread as lenient_parses, wrapped_str_visits_on_this_thread as wrapped_str_visits};
+    use crate::{AutoLayout, Effect, LayoutDirection, NodeKind, Stroke, Vec2};
+    use std::time::Instant;
+
+    let mut doc = Document::new("large-strict-bench");
+    let page = doc.add_page("Page 1");
+    for i in 0..2_500u32 {
+        let id = doc.alloc_id();
+        let mut node = Node::frame(id, Rect::new((i % 50) as f32 * 24.0, (i / 50) as f32 * 24.0, 180.0, 96.0));
+        node.name = format!("Frame {i}");
+        node.fills = vec![Paint::solid(Color { r: 0.15, g: 0.45, b: 0.85, a: 0.95 })];
+        node.stroke = Stroke { paints: vec![Paint::solid(Color::BLACK)], weight: 1.5, ..Stroke::default() };
+        node.effects = vec![Effect::DropShadow {
+            color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.25 },
+            offset: Vec2::new(0.0, 4.0),
+            radius: 12.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        }];
+        node.corner_radii = [8.0, 8.0, 8.0, 8.0];
+        if let NodeKind::Frame(container) = &mut node.kind {
+            container.auto_layout =
+                Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 8.0, padding: [12.0, 16.0, 12.0, 16.0], ..AutoLayout::default() });
+        }
+        doc.insert(page, node).unwrap();
+    }
+
+    let (json, replaced_out) = doc.to_json_counted().unwrap();
+    assert_eq!(replaced_out, 0);
+    assert!(json.len() > 1_000_000, "expected >1 MB fixture, got {} bytes", json.len());
+
+    // Warm up both paths once.
+    let plain_warm: Document = serde_json::from_str(&json).unwrap();
+    assert_eq!(plain_warm.nodes.len(), doc.nodes.len());
+
+    let lenient_before = lenient_parses();
+    let str_visits_before = wrapped_str_visits();
+    let (strict_warm, repaired_warm): (Document, usize) = from_str_repairing(&json).unwrap();
+    let strict_str_visits = wrapped_str_visits() - str_visits_before;
+    assert_eq!(repaired_warm, 0);
+    assert_eq!(strict_warm.nodes.len(), doc.nodes.len());
+    assert_eq!(lenient_parses(), lenient_before, "clean document must not run lenient fallback");
+    assert_eq!(strict_str_visits, 0, "strict pass must not wrap struct/map keys or string values (saw {strict_str_visits} wrapped string visits)");
+
+    let runs = 5;
+    let mut plain_best = std::time::Duration::MAX;
+    let mut strict_best = std::time::Duration::MAX;
+    for _ in 0..runs {
+        let t0 = Instant::now();
+        let d_plain: Document = serde_json::from_str(&json).unwrap();
+        let dt_plain = t0.elapsed();
+        assert_eq!(d_plain.nodes.len(), doc.nodes.len());
+        plain_best = plain_best.min(dt_plain);
+
+        let t1 = Instant::now();
+        let (d_strict, rep): (Document, usize) = from_str_repairing(&json).unwrap();
+        let dt_strict = t1.elapsed();
+        assert_eq!((d_strict.nodes.len(), rep), (doc.nodes.len(), 0));
+        strict_best = strict_best.min(dt_strict);
+    }
+
+    let plain_ms = plain_best.as_secs_f64() * 1000.0;
+    let strict_ms = strict_best.as_secs_f64() * 1000.0;
+    let ratio = strict_ms / plain_ms.max(0.001);
+    eprintln!(
+        "[#99 finite_json bench] {} bytes ({} nodes): serde_json={plain_ms:.2}ms vs from_str_strict={strict_ms:.2}ms (ratio={ratio:.2}x)",
+        json.len(),
+        doc.nodes.len()
+    );
+    assert!(ratio <= 1.50, "from_str_strict ({strict_ms:.2}ms) exceeded 1.50x plain serde_json ({plain_ms:.2}ms), ratio={ratio:.2}x");
+}
