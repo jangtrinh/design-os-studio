@@ -7,14 +7,14 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::rc::Rc;
 
-/// Hard cap on any single decompressed chunk / zip entry (zip-bomb guard: 64 MiB).
-const MAX_INFLATED: u64 = 64 << 20;
-/// Cap on everything inflated while opening one archive (all entries together: 256 MiB).
-const MAX_INFLATED_TOTAL: u64 = 256 << 20;
+/// Hard cap on any single decompressed chunk / zip entry (zip-bomb guard: 2 GiB).
+const MAX_INFLATED: u64 = 2 << 30;
+/// Cap on everything inflated while opening one archive (all entries together: 4 GiB).
+const MAX_INFLATED_TOTAL: u64 = 4 << 30;
 /// Cap on zip entries inspected; real files hold one entry per embedded image.
 const MAX_ZIP_ENTRIES: usize = 100_000;
-/// Grace window (1 MiB) before the streaming compression-ratio guard activates.
-const RATIO_GRACE_BYTES: u64 = 1 << 20;
+/// Grace window (16 MiB) before the streaming compression-ratio guard activates.
+const RATIO_GRACE_BYTES: u64 = 16 << 20;
 /// Maximum allowed `inflated_bytes / compressed_bytes_read` once past [`RATIO_GRACE_BYTES`].
 const MAX_INFLATE_RATIO: u64 = 100;
 /// Streaming read chunk size (64 KiB) so rejected streams never pre-allocate multi-GiB buffers.
@@ -163,18 +163,20 @@ fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Resul
             arch.canvas = read_limited(file, budget, Some(&compressed_read))?;
             have_canvas = true;
         } else if name == "meta.json" {
-            if !declared_too_large {
-                compressed_read.set(0);
-                if let Ok(data) = read_limited(file, budget, Some(&compressed_read)) {
-                    arch.meta = serde_json::from_slice(&data).ok();
-                }
+            if declared_too_large {
+                return Err(FigError::Format("decompressed data too large".into()));
             }
+            compressed_read.set(0);
+            let data = read_limited(file, budget, Some(&compressed_read))?;
+            arch.meta = serde_json::from_slice(&data).ok();
         } else if let Some(h) = name.strip_prefix("images/") {
-            if !h.is_empty() && !h.contains('/') && !declared_too_large {
-                compressed_read.set(0);
-                if let Ok(data) = read_limited(file, budget, Some(&compressed_read)) {
-                    arch.images.insert(h.to_string(), data);
+            if !h.is_empty() && !h.contains('/') {
+                if declared_too_large {
+                    return Err(FigError::Format("decompressed data too large".into()));
                 }
+                compressed_read.set(0);
+                let data = read_limited(file, budget, Some(&compressed_read))?;
+                arch.images.insert(h.to_string(), data);
             }
         }
     }
@@ -339,8 +341,8 @@ mod tests {
         let mut roomy = Budget::new(4096, 1 << 20);
         assert_eq!(open_zip_with(&z, &mut roomy, 16).unwrap().images.len(), 3);
         let mut tight = Budget::new(4096, 7000);
-        let a = open_zip_with(&z, &mut tight, 16).unwrap();
-        assert!(a.images.len() < 3, "images past the shared budget must be dropped, got {}", a.images.len());
+        let err = open_zip_with(&z, &mut tight, 16).expect_err("images past the shared budget must return an error, never drop silently");
+        assert!(err.to_string().contains("decompressed data too large"), "unexpected error: {err}");
         let mut tiny = Budget::new(4096, 10);
         assert!(open_zip_with(&z, &mut tiny, 16).is_err(), "canvas over budget is an error");
     }
@@ -504,50 +506,8 @@ mod tests {
         zip
     }
 
-    #[cfg(unix)]
-    fn peak_rss_bytes() -> u64 {
-        #[repr(C)]
-        struct Timeval {
-            tv_sec: isize,
-            tv_usec: isize,
-        }
-        #[repr(C)]
-        struct RUsage {
-            ru_utime: Timeval,
-            ru_stime: Timeval,
-            ru_maxrss: isize,
-            ru_ixrss: isize,
-            ru_idrss: isize,
-            ru_isrss: isize,
-            ru_minflt: isize,
-            ru_majflt: isize,
-            ru_nswap: isize,
-            ru_inblock: isize,
-            ru_oublock: isize,
-            ru_msgsnd: isize,
-            ru_msgrcv: isize,
-            ru_nsignals: isize,
-            ru_nvcsw: isize,
-            ru_nivcsw: isize,
-        }
-        unsafe extern "C" {
-            fn getrusage(who: i32, usage: *mut RUsage) -> i32;
-        }
-        let mut usage = std::mem::MaybeUninit::<RUsage>::zeroed();
-        let rc = unsafe { getrusage(0, usage.as_mut_ptr()) };
-        if rc != 0 {
-            return 0;
-        }
-        let raw = unsafe { usage.assume_init().ru_maxrss } as u64;
-        if cfg!(target_os = "macos") {
-            raw
-        } else {
-            raw * 1024
-        }
-    }
-
     #[test]
-    fn zip_bomb_stream_rejected_under_100mb_rss() {
+    fn zip_bomb_stream_rejected_before_buffering() {
         let raw_deflate = deflate_bomb_2gib_plus_one();
         // ~2.1 MB compressed DEFLATE stream that inflates to 2 GiB + 1 byte of zeros.
         assert!(raw_deflate.len() > 1_000_000 && raw_deflate.len() < 12_000_000, "compressed len={}", raw_deflate.len());
@@ -556,18 +516,53 @@ mod tests {
         let err = open(&bomb_zip).expect_err("2 GiB + 1 zip bomb must be rejected");
         assert!(err.to_string().contains("decompressed data too large"), "unexpected error: {err}");
 
-        // Even with the old 2 GiB / 4 GiB budget and a declared size under the cap, streaming ratio guard rejects early.
+        // Even with the 2 GiB / 4 GiB budget and a declared size under the cap, streaming ratio guard rejects early.
         let within_cap_zip = wrap_raw_deflate_in_zip("canvas.fig", &raw_deflate, 2u64 << 30);
         let err_ratio = open_with_budget(&within_cap_zip, 2 << 30, 4 << 30).expect_err("streaming ratio guard must reject");
         assert!(err_ratio.to_string().contains("decompressed data too large"), "unexpected error: {err_ratio}");
 
-        let err2 = decompress(&raw_deflate).expect_err("raw 2 GiB + 1 deflate bomb must be rejected");
+        // Verify directly on the underlying stream that `decompress_with` aborts right after `RATIO_GRACE_BYTES` (16 MiB)
+        // after consuming < 256 KiB of the 2.1 MB compressed input, never buffering the 2 GiB stream.
+        let comp_pulled = Rc::new(Cell::new(0u64));
+        let reader = CountingReader::new(Cursor::new(&raw_deflate), Rc::clone(&comp_pulled));
+        let mut budget = Budget::new(MAX_INFLATED, MAX_INFLATED_TOTAL);
+        let err2 =
+            read_limited(flate2::read::DeflateDecoder::new(reader), &mut budget, Some(&comp_pulled)).expect_err("raw 2 GiB + 1 deflate bomb must be rejected");
         assert!(err2.to_string().contains("decompressed data too large"), "unexpected error: {err2}");
+        assert_eq!(budget.left, MAX_INFLATED_TOTAL, "failed read must not commit partial bytes");
+        assert!(
+            comp_pulled.get() < 256 * 1024,
+            "streaming ratio guard must abort after pulling < 256 KiB of compressed input, pulled {} bytes",
+            comp_pulled.get()
+        );
+    }
 
-        #[cfg(unix)]
-        {
-            let rss = peak_rss_bytes();
-            assert!(rss < 100 << 20, "peak RSS reached {:.1} MiB (must stay under 100 MiB when rejecting 2 GiB zip bomb)", rss as f64 / (1024.0 * 1024.0));
+    #[test]
+    fn legitimate_160mib_stream_opens_cleanly() {
+        // Build a 160 MiB message stream with realistic ~4:1 compression ratio (64-byte varied pattern)
+        // plus 20 MiB of embedded images, matching real enterprise .fig files (e.g. VSF - PCP 182 MiB, Hugeicons 143 MiB).
+        let msg_len = 160 << 20;
+        let mut msg = vec![0u8; msg_len];
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        for chunk in msg.chunks_mut(64) {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let bytes = state.to_le_bytes();
+            // First 16 bytes vary per 64-byte record (~3-4x compression ratio, well under MAX_INFLATE_RATIO = 100).
+            chunk[0..8].copy_from_slice(&bytes);
+            chunk[8..16].copy_from_slice(&state.rotate_left(17).to_le_bytes());
         }
+        let canvas = write_container(b"schema-bytes", &msg, Compression::Zstd, 106);
+        let mut images = BTreeMap::new();
+        images.insert("img1".to_string(), msg[..10 << 20].to_vec());
+        images.insert("img2".to_string(), msg[10 << 20..20 << 20].to_vec());
+        let zipped = write_zip(&canvas, &images, None);
+
+        let archive = open(&zipped).expect("legitimate 160 MiB message + 20 MiB images archive must open");
+        assert_eq!(archive.images.len(), 2);
+        let (schema, decoded_msg) = read_archive_chunks(&archive).expect("160 MiB message chunk must decompress");
+        assert_eq!(schema, b"schema-bytes");
+        assert_eq!(decoded_msg.len(), msg_len);
+        assert_eq!(&decoded_msg[..64], &msg[..64]);
+        assert_eq!(&decoded_msg[msg_len - 64..], &msg[msg_len - 64..]);
     }
 }
