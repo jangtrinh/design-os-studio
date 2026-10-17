@@ -418,6 +418,8 @@ impl Shell {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
+        // egui-winit emits `Event::Paste` only for a non-empty `text/plain`; a Figma copy can carry HTML alone.
+        let paste_event = events.iter().any(|e| matches!(e, Event::Paste(_)));
         for ev in events {
             match ev {
                 Event::Copy if !editing_text => {
@@ -431,8 +433,15 @@ impl Shell {
                     }
                 }
                 Event::Paste(s) if !editing_text => {
-                    let html = crate::clipboard::system_figma_html();
-                    self.app.paste_with_html(Some(&s), html.as_deref());
+                    self.app.paste_from_system(Some(&s));
+                }
+                Event::Key { key: Key::V, pressed: true, modifiers, .. }
+                    if !paste_event && !editing_text && modifiers.command && !modifiers.shift && !modifiers.alt =>
+                {
+                    // Plain paste shortcut with no text event: only a Figma payload on the clipboard can act here.
+                    if let Some(html) = (self.app.system_html)() {
+                        self.app.paste_with_html(None, Some(&html));
+                    }
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.try_typography_shortcut(key, modifiers) {

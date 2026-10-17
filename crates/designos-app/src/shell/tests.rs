@@ -4,6 +4,10 @@ use super::*;
 use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2 as DV};
 use egui::{Modifiers, PointerButton, RawInput};
 
+fn no_system_clipboard() -> Option<String> {
+    None
+}
+
 struct Sim {
     ctx: Context,
     shell: Shell,
@@ -20,7 +24,9 @@ impl Sim {
     }
     fn with(opts: Options) -> Self {
         let ctx = Context::default();
-        let shell = Shell::build(&ctx, opts);
+        let mut shell = Shell::build(&ctx, opts);
+        // Hermetic: the OS pasteboard is global and not thread-safe; tests script the clipboard instead.
+        shell.app.system_html = no_system_clipboard;
         let mut s = Sim { ctx, shell, t: 0.0, pos: Pos2::new(700.0, 500.0), mods: Modifiers::NONE, cursor: egui::CursorIcon::Default, shapes: Vec::new() };
         s.frame(vec![]);
         s.frame(vec![]);
@@ -937,6 +943,7 @@ mod components;
 mod decks;
 mod dev;
 mod effect_grid_styles;
+mod figma_paste;
 mod find;
 mod history;
 mod home;
