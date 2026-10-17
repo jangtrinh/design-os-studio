@@ -58,12 +58,12 @@ pub fn scale_of(c: ExportConstraint) -> ExportScale {
     }
 }
 
-fn format_of(f: ExportFileFormat) -> Option<ExportFormat> {
+fn format_of(f: ExportFileFormat) -> ExportFormat {
     match f {
-        ExportFileFormat::Png => Some(ExportFormat::Png),
-        ExportFileFormat::Jpg => Some(ExportFormat::Jpg),
-        ExportFileFormat::Svg => Some(ExportFormat::Svg),
-        ExportFileFormat::Pdf => None,
+        ExportFileFormat::Png => ExportFormat::Png,
+        ExportFileFormat::Jpg => ExportFormat::Jpg,
+        ExportFileFormat::Svg => ExportFormat::Svg,
+        ExportFileFormat::Pdf => ExportFormat::Pdf,
     }
 }
 
@@ -72,24 +72,18 @@ fn file_format_of(f: ExportFormat) -> ExportFileFormat {
         ExportFormat::Png => ExportFileFormat::Png,
         ExportFormat::Jpg => ExportFileFormat::Jpg,
         ExportFormat::Svg => ExportFileFormat::Svg,
+        ExportFormat::Pdf => ExportFileFormat::Pdf,
     }
 }
 
-fn format_label(f: ExportFileFormat) -> &'static str {
-    match format_of(f) {
-        Some(x) => x.label(),
-        None => "PDF",
-    }
-}
-
-/// Renderable form of a stored preset; `None` for formats that cannot be written (PDF).
-pub fn setting_of(p: &ExportPreset) -> Option<ExportSetting> {
-    Some(ExportSetting { scale: scale_of(p.constraint), format: format_of(p.format)? })
+/// Renderable form of a stored preset.
+pub fn setting_of(p: &ExportPreset) -> ExportSetting {
+    ExportSetting { scale: scale_of(p.constraint), format: format_of(p.format) }
 }
 
 /// Output file name: layer name + the preset's suffix (or the `@2x` style default).
 pub fn preset_file_name(p: &ExportPreset, layer: &str) -> String {
-    let s = setting_of(p).unwrap_or_default();
+    let s = setting_of(p);
     let name = s.file_name(layer);
     if p.suffix.is_empty() {
         return name;
@@ -272,7 +266,7 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
         }
 
         let options: Vec<String> = ExportFormat::ALL.iter().map(|f| f.label().to_string()).collect();
-        if let Some(p) = dropdown(ui, fmt_r, ("export-format", first, i), format_label(row.format), &options) {
+        if let Some(p) = dropdown(ui, fmt_r, ("export-format", first, i), format_of(row.format).label(), &options) {
             row.format = file_format_of(ExportFormat::ALL[p]);
             changed = true;
         }
@@ -387,69 +381,114 @@ pub fn copy_as(app: &mut App, node: NodeId, kind: CopyKind) {
     }
 }
 
+/// One file an export writes: its name, the layers it holds and how it is encoded.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportJob {
+    pub file: String,
+    pub nodes: Vec<NodeId>,
+    pub setting: ExportSetting,
+}
+
+/// The files exporting `ids` with their own rows writes. Image rows give one file per
+/// layer and row (`name@2x.png`); every layer with a PDF row goes into ONE PDF with a
+/// page per layer, in selection order, named after the layer (one) or the document (several).
+pub fn plan_export(doc: &Document, ids: &[NodeId]) -> Vec<ExportJob> {
+    let mut jobs: Vec<ExportJob> = Vec::new();
+    let mut seen: HashMap<String, u32> = HashMap::new();
+    let mut unique = |file: String, ext: &str| -> String {
+        let count = seen.entry(file.clone()).or_insert(0);
+        *count += 1;
+        if *count == 1 {
+            return file;
+        }
+        let stem = file.rsplit_once('.').map_or(file.as_str(), |(a, _)| a);
+        format!("{stem} {count}.{ext}")
+    };
+    let mut pdf: Option<(ExportPreset, Vec<NodeId>)> = None;
+    for id in ids {
+        let Some(n) = doc.get(*id) else { continue };
+        let mut in_pdf = false;
+        for p in &n.export_settings {
+            let s = setting_of(p);
+            if s.format != ExportFormat::Pdf {
+                let file = unique(preset_file_name(p, &n.name), s.format.extension());
+                jobs.push(ExportJob { file, nodes: vec![*id], setting: s });
+            } else if !in_pdf {
+                in_pdf = true;
+                pdf.get_or_insert_with(|| (p.clone(), Vec::new())).1.push(*id);
+            }
+        }
+    }
+    if let Some((preset, nodes)) = pdf {
+        let file = match nodes.as_slice() {
+            [one] => preset_file_name(&preset, doc.get(*one).map_or("export", |n| n.name.as_str())),
+            _ => format!("{}.pdf", designos_export::sanitize_file_name(&doc.name)),
+        };
+        jobs.push(ExportJob { file: unique(file, "pdf"), nodes, setting: setting_of(&preset) });
+    }
+    jobs
+}
+
 /// Writes every selected layer with its own export rows. One file asks for a
 /// path; several ask for a folder and use `name@2x.png` style names.
 pub fn run_export(app: &mut App, ids: &[NodeId]) {
-    let mut jobs: Vec<(String, NodeId, ExportSetting)> = Vec::new();
-    let mut seen: HashMap<String, u32> = HashMap::new();
-    let mut skipped_pdf = false;
-    for id in ids {
-        let Some(n) = app.doc.get(*id) else { continue };
-        for p in &n.export_settings {
-            let Some(s) = setting_of(p) else {
-                skipped_pdf = true;
-                continue;
-            };
-            let mut file = preset_file_name(p, &n.name);
-            let count = seen.entry(file.clone()).or_insert(0);
-            *count += 1;
-            if *count > 1 {
-                let stem = file.rsplit_once('.').map(|(a, _)| a.to_string()).unwrap_or_else(|| file.clone());
-                file = format!("{stem} {count}.{}", s.format.extension());
-            }
-            jobs.push((file, *id, s.clone()));
-        }
-    }
+    let jobs = plan_export(&app.doc, ids);
     if jobs.is_empty() {
-        app.show_toast(if skipped_pdf { "PDF export is not supported" } else { "Nothing to export" }, true);
+        app.show_toast("Nothing to export", true);
         return;
     }
+    // Variable bindings are applied like in the preview and the deck PDF.
+    let doc = app.export_doc();
     let mut written = Vec::new();
-    if jobs.len() == 1 {
-        let (file, id, s) = &jobs[0];
-        let Some(path) = rfd::FileDialog::new().add_filter(s.format.label(), &[s.format.extension()]).set_file_name(file).save_file() else { return };
-        let bytes = s.render(&app.doc, *id);
-        if bytes.is_empty() {
-            app.show_toast("Nothing to export", true);
+    let mut failed: Vec<String> = Vec::new();
+    if let [job] = jobs.as_slice() {
+        let Some(path) = rfd::FileDialog::new().add_filter(job.setting.format.label(), &[job.setting.format.extension()]).set_file_name(&job.file).save_file()
+        else {
             return;
-        }
+        };
+        let bytes = match job.setting.render_many(&doc, &job.nodes) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                drop(doc);
+                app.show_toast(e, true);
+                return;
+            }
+        };
         match std::fs::write(&path, bytes) {
             Ok(()) => written.push(path),
             Err(e) => {
+                drop(doc);
                 app.show_toast(format!("Export failed: {e}"), true);
                 return;
             }
         }
     } else {
         let Some(dir) = rfd::FileDialog::new().set_title("Choose export folder").pick_folder() else { return };
-        for (file, id, s) in &jobs {
-            let bytes = s.render(&app.doc, *id);
-            if bytes.is_empty() {
-                continue;
-            }
-            let path = dir.join(file);
+        for job in &jobs {
+            let bytes = match job.setting.render_many(&doc, &job.nodes) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    failed.push(format!("{}: {e}", job.file));
+                    continue;
+                }
+            };
+            let path = dir.join(&job.file);
             match std::fs::write(&path, bytes) {
                 Ok(()) => written.push(path),
                 Err(e) => {
+                    drop(doc);
                     app.show_toast(format!("Export failed: {e}"), true);
                     return;
                 }
             }
         }
     }
+    drop(doc);
+    let skipped = if failed.is_empty() { String::new() } else { format!(" ({} skipped: {})", failed.len(), failed.join("; ")) };
     match written.as_slice() {
-        [one] => app.show_toast(format!("Exported {}", one.display()), false),
-        many => app.show_toast(format!("Exported {} files", many.len()), false),
+        [] => app.show_toast(format!("Nothing exported{skipped}"), true),
+        [one] => app.show_toast(format!("Exported {}{skipped}", one.display()), !failed.is_empty()),
+        many => app.show_toast(format!("Exported {} files{skipped}", many.len()), !failed.is_empty()),
     }
 }
 
@@ -537,7 +576,9 @@ mod tests {
         assert_eq!(preset_file_name(&p, "Logo"), "Logo@64h.jpg");
         let p = ExportPreset { suffix: "-dark".into(), ..p };
         assert_eq!(preset_file_name(&p, "Logo"), "Logo-dark.jpg");
-        assert!(setting_of(&ExportPreset { format: ExportFileFormat::Pdf, ..Default::default() }).is_none());
+        let pdf = ExportPreset { format: ExportFileFormat::Pdf, ..Default::default() };
+        assert_eq!(setting_of(&pdf).format, ExportFormat::Pdf);
+        assert_eq!(preset_file_name(&pdf, "Hero"), "Hero.pdf");
     }
 
     #[test]
@@ -583,6 +624,70 @@ mod tests {
         app.edit_export_rows(&[a, b], &RowEdit::Remove(new));
         assert_eq!(app.doc.get(b).unwrap().export_settings, vec![]);
         assert_eq!(app.doc.get(a).unwrap().export_settings.len(), 1, "the non-shared row is kept");
+    }
+
+    fn two_frames_with_pdf_rows() -> (App, NodeId, NodeId) {
+        let mut d = Document::new("Screens");
+        let page = d.add_page("p");
+        let a = d.alloc_id();
+        d.insert(page, Node::frame(a, R::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+        let b = d.alloc_id();
+        d.insert(page, Node::frame(b, R::new(100.0, 0.0, 20.0, 50.0))).unwrap();
+        d.get_mut(a).unwrap().name = "Home".into();
+        d.get_mut(b).unwrap().name = "Detail".into();
+        let mut app = App::new(d);
+        let pdf = ExportPreset { format: ExportFileFormat::Pdf, ..Default::default() };
+        app.edit_export_rows(&[a, b], &RowEdit::Add(pdf));
+        (app, a, b)
+    }
+
+    fn pdf_pages(bytes: &[u8]) -> usize {
+        bytes.windows(12).filter(|w| *w == b"/Type /Page ").count()
+    }
+
+    #[test]
+    fn every_format_is_in_the_dropdown_and_round_trips_to_the_stored_format() {
+        let labels: Vec<&str> = ExportFormat::ALL.iter().map(|f| f.label()).collect();
+        assert_eq!(labels, ["PNG", "JPG", "SVG", "PDF"]);
+        for f in ExportFormat::ALL {
+            assert_eq!(format_of(file_format_of(f)), f);
+        }
+    }
+
+    #[test]
+    fn selected_frames_with_pdf_rows_export_as_one_multi_page_file() {
+        let (app, a, b) = two_frames_with_pdf_rows();
+        let jobs = plan_export(&app.doc, &[a, b]);
+        assert_eq!(jobs.len(), 1, "one PDF, not one per frame");
+        assert_eq!((jobs[0].file.as_str(), jobs[0].nodes.as_slice()), ("Screens.pdf", &[a, b][..]));
+        let bytes = jobs[0].setting.render_many(&app.export_doc(), &jobs[0].nodes).unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        assert_eq!(pdf_pages(&bytes), 2);
+        // a single layer keeps its own name and gives a one-page file
+        let one = plan_export(&app.doc, &[b]);
+        assert_eq!((one[0].file.as_str(), one[0].nodes.as_slice()), ("Detail.pdf", &[b][..]));
+        assert_eq!(pdf_pages(&one[0].setting.render_many(&app.export_doc(), &one[0].nodes).unwrap()), 1);
+    }
+
+    #[test]
+    fn pdf_rows_mix_with_image_rows_and_repeat_rows_add_no_page() {
+        let (mut app, a, b) = two_frames_with_pdf_rows();
+        let png = ExportPreset { constraint: ExportConstraint::Scale(2.0), ..Default::default() };
+        app.edit_export_rows(&[a], &RowEdit::Add(png));
+        let again = ExportPreset { format: ExportFileFormat::Pdf, suffix: "-copy".into(), ..Default::default() };
+        app.edit_export_rows(&[a], &RowEdit::Add(again));
+        let jobs = plan_export(&app.doc, &[a, b]);
+        let files: Vec<&str> = jobs.iter().map(|j| j.file.as_str()).collect();
+        assert_eq!(files, ["Home@2x.png", "Screens.pdf"]);
+        assert_eq!(jobs[1].nodes, vec![a, b], "Home has two PDF rows but is one page");
+    }
+
+    #[test]
+    fn oversized_frame_in_a_pdf_row_reports_an_error() {
+        let (mut app, a, b) = two_frames_with_pdf_rows();
+        app.doc.get_mut(b).unwrap().size.x = 25_000.0;
+        let jobs = plan_export(&app.doc, &[a, b]);
+        assert!(jobs[0].setting.render_many(&app.export_doc(), &jobs[0].nodes).is_err());
     }
 
     #[test]
