@@ -37,6 +37,8 @@ pub struct Archive {
     /// Inflate allowance left after opening the zip, so [`read_archive_chunks`] continues the same budget.
     /// `None` for a bare container (nothing was inflated yet).
     inflate_left: Option<u64>,
+    /// Per-read inflate cap the archive was opened with; `None` uses [`MAX_INFLATED`].
+    inflate_per_read: Option<u64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -54,6 +56,17 @@ pub fn open(bytes: &[u8]) -> Result<Archive, FigError> {
         return Ok(Archive { canvas: bytes.to_vec(), ..Default::default() });
     }
     Err(FigError::Format("missing fig-kiwi magic or zip header".into()))
+}
+
+/// Like [`open`], but every inflate (zip entries and the chunks read later by [`read_archive_chunks`]) draws on
+/// one allowance of `total` bytes, no single read exceeding `per_read`. For untrusted payloads smaller than a
+/// whole `.fig` file, such as a clipboard.
+pub fn open_with_budget(bytes: &[u8], per_read: u64, total: u64) -> Result<Archive, FigError> {
+    let mut budget = Budget::new(per_read, total);
+    let mut archive = if bytes.starts_with(b"PK") { open_zip_with(bytes, &mut budget, MAX_ZIP_ENTRIES)? } else { open(bytes)? };
+    archive.inflate_left = Some(budget.left);
+    archive.inflate_per_read = Some(per_read);
+    Ok(archive)
 }
 
 fn read_limited(r: impl Read, budget: &mut Budget) -> Result<Vec<u8>, FigError> {
@@ -118,7 +131,7 @@ pub fn read_chunks(canvas: &[u8]) -> Result<(Vec<u8>, Vec<u8>), FigError> {
 
 /// Splits the canvas of an opened archive, continuing the inflate budget that opening it already drew on.
 pub fn read_archive_chunks(archive: &Archive) -> Result<(Vec<u8>, Vec<u8>), FigError> {
-    read_chunks_with(&archive.canvas, &mut Budget::new(MAX_INFLATED, archive.inflate_left.unwrap_or(MAX_INFLATED_TOTAL)))
+    read_chunks_with(&archive.canvas, &mut Budget::new(archive.inflate_per_read.unwrap_or(MAX_INFLATED), archive.inflate_left.unwrap_or(MAX_INFLATED_TOTAL)))
 }
 
 fn read_chunks_with(canvas: &[u8], budget: &mut Budget) -> Result<(Vec<u8>, Vec<u8>), FigError> {
@@ -293,6 +306,23 @@ mod tests {
         let bare = open(&c).unwrap();
         assert_eq!(bare.inflate_left, None);
         assert!(read_archive_chunks(&bare).is_ok());
+    }
+
+    #[test]
+    fn explicit_budget_covers_zip_entries_and_chunks_of_a_bare_container_alike() {
+        let zero = vec![0u8; 3000];
+        let bare = write_container(&zero, &zero, Compression::Deflate, 1);
+        let zipped = write_zip(&bare, &BTreeMap::new(), None);
+        for bytes in [&bare, &zipped] {
+            let roomy = open_with_budget(bytes, 4096, 1 << 20).unwrap();
+            assert!(read_archive_chunks(&roomy).is_ok());
+            // each chunk fits the per-read cap, the two together exceed the allowance
+            let tight = open_with_budget(bytes, 4096, 5000).unwrap();
+            assert!(read_archive_chunks(&tight).is_err(), "chunks draw on the explicit allowance");
+            let per_read = open_with_budget(bytes, 2000, 1 << 20).unwrap();
+            assert!(read_archive_chunks(&per_read).is_err(), "the per-read cap applies to chunks too");
+        }
+        assert!(open_with_budget(&zipped, 4096, 10).is_err(), "a zip canvas over the allowance fails at open");
     }
 
     #[test]

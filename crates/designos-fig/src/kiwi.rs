@@ -390,8 +390,14 @@ impl Schema {
     /// derived fields (`editInfo`, `derivedTextData`, `derivedImmutableFrameData`)
     /// on the fly when the message payload exceeds 2 MB. The same decode budgets apply.
     pub fn decode_message_for_import(&self, root: usize, data: &[u8]) -> Result<KiwiValue> {
+        self.decode_message_for_import_with_values(root, data, MAX_DECODED_VALUES)
+    }
+
+    /// [`Self::decode_message_for_import`] with a caller-chosen cap on decoded values (untrusted payloads smaller
+    /// than a whole file, such as a clipboard, use a far lower cap than [`MAX_DECODED_VALUES`]).
+    pub fn decode_message_for_import_with_values(&self, root: usize, data: &[u8], values: usize) -> Result<KiwiValue> {
         let skip_heavy = data.len() > 2_000_000;
-        self.decode_message_with_limits(root, data, MAX_DECODED_VALUES, MAX_ZERO_WIRE_INSTANCES, skip_heavy)
+        self.decode_message_with_limits(root, data, values, MAX_ZERO_WIRE_INSTANCES, skip_heavy)
     }
 
     /// Per definition: whether one instance occupies zero bytes on the wire. Enums (a varint), messages (a terminator)

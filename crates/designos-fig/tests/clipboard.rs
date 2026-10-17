@@ -116,3 +116,72 @@ fn malformed_payloads_are_errors_not_panics() {
     assert!(parse_figma_clipboard_html("<!--(figma)@@@(/figma)-->").is_err());
     assert!(parse_figma_clipboard_html("<!--(figma)aGVsbG8=").is_err());
 }
+
+/// The sample payload with `Star` and `Note` (children of the canvas) re-parented onto a guid the payload does not
+/// hold, as a copy of single layers out of a page that also ships the component masters. `drop_document` keeps
+/// only the canvases.
+fn orphaned_roots_beside_a_canvas_buffer(drop_document: bool) -> Vec<u8> {
+    let mut msg = sample_message();
+    let Some(KiwiValue::Array(changes)) = msg.get_mut("nodeChanges") else { panic!("sample has nodeChanges") };
+    if drop_document {
+        changes.retain(|c| !matches!(c.get("type"), Some(KiwiValue::Enum(t)) if &**t == "DOCUMENT"));
+    }
+    for c in changes.iter_mut() {
+        let is_copied_root = matches!(c.get("name"), Some(KiwiValue::String(n)) if n == "Star" || n == "Note");
+        if !is_copied_root {
+            continue;
+        }
+        let Some(KiwiValue::Struct(fields)) = c.get_mut("parentIndex") else { panic!("parentIndex") };
+        for (k, v) in fields.iter_mut() {
+            if &**k == "guid" {
+                *v = designos_fig::testkit::guid(7, 7);
+            }
+        }
+    }
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    write_container(&schema.encode(), &schema.encode_message(root, &msg).unwrap(), Compression::Zstd, 101)
+}
+
+fn page_names(doc: &Document) -> Vec<String> {
+    doc.pages.iter().map(|p| doc.get(*p).unwrap().name.clone()).collect()
+}
+
+#[test]
+fn orphaned_roots_beside_a_document_and_canvas_are_adopted_onto_a_pasted_page() {
+    let doc = paste(&figma_html(&orphaned_roots_beside_a_canvas_buffer(false)));
+    assert_eq!(page_names(&doc), ["Page 1", "Pasted"], "the synthetic page sits under the payload's document, after its canvases");
+    assert_eq!(names(&doc), ["Card", "Note", "Pie", "Star"], "orphans are kept, the canvas content stays");
+    let pasted = doc.pages.iter().map(|p| doc.get(*p).unwrap()).find(|p| p.name == "Pasted").unwrap();
+    let on_pasted: Vec<&str> = pasted.children.iter().map(|c| doc.get(*c).unwrap().name.as_str()).collect();
+    assert_eq!(on_pasted.len(), 2);
+    assert!(on_pasted.contains(&"Star") && on_pasted.contains(&"Note"), "{on_pasted:?}");
+    // component masters on the canvas still resolve for the instance
+    let NodeKind::Instance { component, .. } = &named(&doc, "Button copy").kind else { panic!("Button copy is an instance") };
+    assert_eq!(*component, Some(named(&doc, "Button").id));
+}
+
+#[test]
+fn orphaned_roots_beside_a_canvas_without_a_document_are_adopted_too() {
+    let doc = paste(&figma_html(&orphaned_roots_beside_a_canvas_buffer(true)));
+    assert_eq!(names(&doc), ["Card", "Note", "Pie", "Star"]);
+    assert_eq!(doc.pages.len(), 2, "{:?}", page_names(&doc));
+}
+
+#[test]
+fn a_payload_without_orphans_gets_no_synthetic_page() {
+    let doc = paste(&figma_html(&sample_fig(Compression::Zstd, true)));
+    assert_eq!(page_names(&doc), ["Page 1"]);
+}
+
+#[test]
+fn a_clipboard_payload_inflating_past_the_clipboard_budget_is_an_error_not_an_abort() {
+    // 300 MiB of zeros deflate to ~300 KB: small on the clipboard, over the 256 MiB clipboard inflate budget
+    // (a whole `.fig` file may inflate 4 GiB, so only the clipboard path rejects it).
+    let schema = figma_like_schema();
+    let bomb = write_container(&schema.encode(), &vec![0u8; 300 << 20], Compression::Deflate, 101);
+    assert!(bomb.len() < 4 << 20, "the payload itself stays small: {} bytes", bomb.len());
+    let clip = parse_figma_clipboard_html(&figma_html(&bomb)).unwrap();
+    let err = import_figma_clipboard(&clip).unwrap_err().to_string();
+    assert!(err.contains("too large"), "{err}");
+}

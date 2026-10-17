@@ -25,6 +25,12 @@ use std::sync::Arc;
 /// Cap on the decoded `(figma)` buffer. Real copies are a few MB; the container
 /// adds its own inflate budgets on top when the archive is opened.
 const MAX_BUFFER_BYTES: usize = 256 << 20;
+/// Total inflate allowance for one clipboard payload (zip entries and both container chunks together). A
+/// clipboard is decoded on the UI thread and any web page can plant marker HTML on it, so it gets a small share of
+/// what a whole `.fig` file may inflate.
+const CLIPBOARD_INFLATE_BUDGET: u64 = 256 << 20;
+/// Cap on kiwi values decoded from one clipboard payload: ~52 per node, so ~320k nodes, against ~5M for a file.
+const CLIPBOARD_DECODED_VALUES: usize = 1 << 24;
 /// Cap on the decoded `(figmeta)` JSON, which only holds a handful of keys.
 const MAX_META_BYTES: usize = 1 << 20;
 
@@ -98,17 +104,25 @@ fn decode_base64(text: &str, max_bytes: usize, what: &str) -> Result<Vec<u8>, Fi
 /// Imports the copied nodes of `clip` as a [`Document`]; the nodes are the top-level children of its page(s).
 ///
 /// A copy of part of a page has no `CANVAS` ancestor in its `nodeChanges`, so
-/// a synthetic page adopts the orphaned roots. A payload that carries a whole
-/// file tree (`DOCUMENT` / `CANVAS`) imports like a `.fig`. Images are embedded
-/// when the archive ships them; hashes it does not ship stay unresolved.
+/// a synthetic page adopts every node whose parent is not part of the payload
+/// (the copied roots), also when the payload carries canvases or a whole file
+/// tree (`DOCUMENT` / `CANVAS`), which otherwise import like a `.fig`. Images are
+/// embedded when the archive ships them; hashes it does not ship stay unresolved.
+///
+/// Inflate and decode run under the clipboard budgets; a payload past them is an error.
 pub fn import_figma_clipboard(clip: &FigClipboard) -> Result<Document, FigError> {
-    let mut archive = container::open(&clip.buffer)?;
+    import_with_limits(clip, CLIPBOARD_INFLATE_BUDGET, CLIPBOARD_DECODED_VALUES)
+}
+
+fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: usize) -> Result<Document, FigError> {
+    let mut archive = container::open_with_budget(&clip.buffer, inflate_budget, inflate_budget)?;
     let (schema_bin, msg_bin) = container::read_archive_chunks(&archive)?;
     archive.canvas = Vec::new();
     let schema = Schema::decode(&schema_bin).map_err(|e| FigError::Format(format!("kiwi schema: {e}")))?;
     drop(schema_bin);
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
-    let mut message = schema.decode_message_for_import(root, &msg_bin).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let mut message =
+        schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
     drop(msg_bin);
 
     adopt_orphan_roots(&mut message);
@@ -138,19 +152,21 @@ fn is_page_level(change: &KiwiValue) -> bool {
     matches!(change.get("type"), Some(KiwiValue::Enum(t)) if matches!(&**t, "DOCUMENT" | "CANVAS"))
 }
 
-/// When no change is a `DOCUMENT` or `CANVAS`, appends a synthetic `CANVAS` and re-parents every node whose
-/// parent is not part of the payload (the copied roots) under it, keeping their sibling positions.
+/// Appends a synthetic `CANVAS` and re-parents every node whose parent is not part of the payload (the copied
+/// roots; `DOCUMENT` and `CANVAS` nodes are page-level and stay) under it, keeping their sibling positions. The
+/// canvas goes under the payload's `DOCUMENT` when there is one, after the canvases it already has.
 fn adopt_orphan_roots(message: &mut KiwiValue) {
     let Some(KiwiValue::Array(changes)) = message.get_mut("nodeChanges") else { return };
-    if changes.iter().any(is_page_level) {
-        return;
-    }
     let present: std::collections::HashSet<(u64, u64)> = changes.iter().filter_map(|c| c.get("guid").and_then(guid_key)).collect();
+    let document = changes.iter().find(|c| matches!(c.get("type"), Some(KiwiValue::Enum(t)) if &**t == "DOCUMENT")).and_then(|c| c.get("guid").cloned());
     // a guid in a session id no client uses, so the synthetic page cannot collide with a copied node
     let page: (u32, u32) = (0..=u32::MAX).map(|l| (u32::MAX, l)).find(|g| !present.contains(&(u64::from(g.0), u64::from(g.1)))).unwrap_or((u32::MAX, u32::MAX));
     let page_guid = || KiwiValue::Struct(vec![(Arc::from("sessionID"), KiwiValue::Uint(page.0)), (Arc::from("localID"), KiwiValue::Uint(page.1))]);
     let mut adopted = false;
     for c in changes.iter_mut() {
+        if is_page_level(c) {
+            continue;
+        }
         let parent = c.get("parentIndex").and_then(|p| p.get("guid")).and_then(guid_key);
         if parent.is_some_and(|p| present.contains(&p)) {
             continue;
@@ -168,11 +184,17 @@ fn adopt_orphan_roots(message: &mut KiwiValue) {
         adopted = true;
     }
     if adopted {
-        changes.push(KiwiValue::Message(vec![
+        let mut canvas = vec![
             (Arc::from("guid"), page_guid()),
             (Arc::from("type"), KiwiValue::Enum(Arc::from("CANVAS"))),
             (Arc::from("name"), KiwiValue::String("Pasted".into())),
-        ]));
+        ];
+        if let Some(doc_guid) = document {
+            // "~" is the last character of Figma's fractional-index alphabet, so the page sorts after the real ones
+            let slot = KiwiValue::Struct(vec![(Arc::from("guid"), doc_guid), (Arc::from("position"), KiwiValue::String("~".into()))]);
+            canvas.push((Arc::from("parentIndex"), slot));
+        }
+        changes.push(KiwiValue::Message(canvas));
     }
 }
 
@@ -226,5 +248,29 @@ mod tests {
         let html = "<!--(figma)aGVsbG8gd29ybGQ=(/figma)-->"; // 11 bytes
         assert!(parse_with_limits(html, 12).is_ok());
         assert!(parse_with_limits(html, 8).is_err());
+    }
+
+    fn sample_clip() -> FigClipboard {
+        FigClipboard { meta: None, buffer: crate::testkit::sample_fig(crate::container::Compression::Zstd, true) }
+    }
+
+    #[test]
+    fn the_clipboard_budgets_are_far_below_a_whole_file() {
+        const { assert!(CLIPBOARD_INFLATE_BUDGET <= (256 << 20)) };
+        const { assert!(CLIPBOARD_DECODED_VALUES * 8 <= (1 << 28)) };
+    }
+
+    #[test]
+    fn a_payload_inflating_past_the_budget_is_an_error() {
+        let clip = sample_clip();
+        assert!(import_with_limits(&clip, 1 << 20, 1 << 20).is_ok(), "the sample fits a small budget");
+        let err = import_with_limits(&clip, 64, 1 << 20).unwrap_err().to_string();
+        assert!(err.contains("too large"), "{err}");
+    }
+
+    #[test]
+    fn a_payload_decoding_past_the_value_budget_is_an_error() {
+        let err = import_with_limits(&sample_clip(), 1 << 20, 10).unwrap_err().to_string();
+        assert!(err.contains("budget"), "{err}");
     }
 }

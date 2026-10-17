@@ -64,6 +64,13 @@ pub enum Command {
         variables: BTreeMap<String, Variable>,
         collections: BTreeMap<String, VariableCollection>,
     },
+    /// Adds embedded image bytes (a hash already present keeps its bytes) and drops the `remove` hashes.
+    /// Its inverse removes what was newly added and puts the removed bytes back, so undo/redo of a paste
+    /// leaves no orphaned images and loses none.
+    SetImages {
+        add: BTreeMap<String, Vec<u8>>,
+        remove: Vec<String>,
+    },
     Batch(Vec<Command>),
 }
 
@@ -160,6 +167,17 @@ impl Command {
                     collections: std::mem::replace(&mut doc.variable_collections, collections),
                 }
             }
+            Command::SetImages { add, remove } => {
+                let removed: BTreeMap<String, Vec<u8>> = remove.into_iter().filter_map(|h| doc.images.remove(&h).map(|bytes| (h, bytes))).collect();
+                let mut added = Vec::new();
+                for (hash, bytes) in add {
+                    if let std::collections::btree_map::Entry::Vacant(slot) = doc.images.entry(hash) {
+                        added.push(slot.key().clone());
+                        slot.insert(bytes);
+                    }
+                }
+                Command::SetImages { add: removed, remove: added }
+            }
             Command::Batch(cmds) => {
                 let mut inv = Vec::with_capacity(cmds.len());
                 for c in cmds {
@@ -237,6 +255,26 @@ mod tests {
         assert_eq!(d.get(page).unwrap().children, vec![id]);
         h.redo(&mut d).unwrap();
         assert!(d.get(id).is_none());
+    }
+
+    #[test]
+    fn undo_redo_images_add_only_what_was_missing() {
+        let mut d = Document::new("t");
+        d.images.insert("old".into(), vec![9]);
+        let mut h = History::default();
+        let add: BTreeMap<String, Vec<u8>> = [("old".to_string(), vec![0]), ("new".to_string(), vec![1, 2])].into();
+        h.exec(&mut d, Command::SetImages { add, remove: vec![] }).unwrap();
+        assert_eq!(d.images["old"], vec![9], "an existing hash keeps its bytes");
+        assert_eq!(d.images["new"], vec![1, 2]);
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.images.keys().collect::<Vec<_>>(), ["old"], "undo removes only the newly added image");
+        assert_eq!(d.images["old"], vec![9]);
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.images["new"], vec![1, 2]);
+        h.exec(&mut d, Command::SetImages { add: BTreeMap::new(), remove: vec!["new".into(), "missing".into()] }).unwrap();
+        assert!(!d.images.contains_key("new"));
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.images["new"], vec![1, 2], "undoing a removal puts the bytes back");
     }
 
     #[test]

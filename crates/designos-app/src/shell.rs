@@ -63,6 +63,7 @@ pub struct Shell {
     app: App,
     shot: Option<Shot>,
     title: String,
+    paste_chord: crate::clipboard::PasteChord,
 }
 
 impl Shell {
@@ -322,7 +323,7 @@ impl Shell {
             requested: false,
             seq: seq_capture,
         });
-        Self { app, shot, title: String::new() }
+        Self { app, shot, title: String::new(), paste_chord: Default::default() }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -397,6 +398,7 @@ impl Shell {
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
+        self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
         if self.app.plugins.open || self.app.dialog.is_some() || self.app.history.save_modal.is_some() || self.app.dev.compare.is_some() {
             return;
         }
@@ -420,9 +422,15 @@ impl Shell {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
-        // egui-winit emits `Event::Paste` only for a non-empty `text/plain`; a Figma copy can carry HTML alone.
-        let paste_event = events.iter().any(|e| matches!(e, Event::Paste(_)));
         for ev in events {
+            // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
+            // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
+            if self.paste_chord.on_event(&ev) && !editing_text {
+                if let Some(html) = (self.app.system_html)() {
+                    self.app.paste_with_html(None, Some(&html));
+                }
+                continue;
+            }
             match ev {
                 Event::Copy if !editing_text => {
                     if let Some(s) = self.app.copy_selection() {
@@ -436,14 +444,6 @@ impl Shell {
                 }
                 Event::Paste(s) if !editing_text => {
                     self.app.paste_from_system(Some(&s));
-                }
-                Event::Key { key: Key::V, pressed: true, modifiers, .. }
-                    if !paste_event && !editing_text && modifiers.command && !modifiers.shift && !modifiers.alt =>
-                {
-                    // Plain paste shortcut with no text event: only a Figma payload on the clipboard can act here.
-                    if let Some(html) = (self.app.system_html)() {
-                        self.app.paste_with_html(None, Some(&html));
-                    }
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.try_typography_shortcut(key, modifiers) {
