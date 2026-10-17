@@ -21,31 +21,51 @@ pub fn split_name(name: &str) -> (String, String) {
     }
 }
 
+/// Which group of shared styles a list shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StyleKind {
+    Text,
+    Color,
+    Effect,
+    Grid,
+}
+
+impl StyleKind {
+    fn holds(self, s: &Style) -> bool {
+        matches!((self, s), (Self::Text, Style::Text(_)) | (Self::Color, Style::Fill(_)) | (Self::Effect, Style::Effect(_)) | (Self::Grid, Style::Grid(_)))
+    }
+
+    /// Key of the `style_refs` entry a node links to a style of this kind with.
+    pub fn ref_key(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Color => "fill",
+            Self::Effect => "effect",
+            Self::Grid => "grid",
+        }
+    }
+}
+
 /// Text styles (`text == true`) or paint styles, ordered by folder then name.
 pub fn style_entries(doc: &Document, text: bool) -> Vec<StyleEntry> {
+    style_entries_of(doc, if text { StyleKind::Text } else { StyleKind::Color })
+}
+
+/// The styles of one kind, root-level ones first and then folders alphabetically.
+pub fn style_entries_of(doc: &Document, kind: StyleKind) -> Vec<StyleEntry> {
     let mut out: Vec<StyleEntry> = doc
         .styles
         .iter()
-        .filter(|(_, s)| matches!(s, Style::Text(_)) == text && (text || matches!(s, Style::Fill(_))))
+        .filter(|(_, s)| kind.holds(s))
         .map(|(k, _)| {
             let (folder, leaf) = split_name(doc.style_name(k));
             StyleEntry { key: k.clone(), folder, leaf }
         })
         .collect();
-    // Root-level styles first, then folders alphabetically.
     out.sort_by(|a, b| {
         (!a.folder.is_empty(), a.folder.to_lowercase(), a.leaf.to_lowercase()).cmp(&(!b.folder.is_empty(), b.folder.to_lowercase(), b.leaf.to_lowercase()))
     });
     out
-}
-
-fn property_of(doc: &Document, key: &str) -> StyleProperty {
-    doc.style_meta.get(key).map(|m| m.property).unwrap_or(match doc.styles.get(key) {
-        Some(Style::Text(_)) => StyleProperty::Text,
-        Some(Style::Effect(_)) => StyleProperty::Effect,
-        Some(Style::Grid(_)) => StyleProperty::Grid,
-        _ => StyleProperty::Fill,
-    })
 }
 
 impl App {
@@ -60,7 +80,7 @@ impl App {
     /// [`App::apply_style`] inside a caller-owned transaction.
     pub fn apply_style_in(&mut self, tx: &mut crate::edit::Tx, sel: &[NodeId], key: &str) {
         let Some(style) = self.doc.styles.get(key).cloned() else { return };
-        let prop = property_of(&self.doc, key);
+        let prop = style_property(&self.doc, key);
         let f = |n: &mut Node| match &style {
             Style::Fill(paints) if prop == StyleProperty::Stroke => {
                 n.stroke.paints = paints.clone();
@@ -101,6 +121,47 @@ impl App {
             }
             layout::relayout_around(&mut self.doc, &mut tx.ed, *id);
         }
+    }
+
+    /// Runs the outcome of a style operation as one undo step; false (with a toast) when refused.
+    fn run_style_op(&mut self, op: Result<Command, StyleOpError>) -> bool {
+        let mut tx = crate::edit::Tx::new();
+        let applied = op.map_err(|e| e.to_string()).and_then(|cmd| tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string()));
+        match applied {
+            Ok(()) => self.run_tx(tx),
+            Err(e) => {
+                tx.cancel(&mut self.doc);
+                self.show_toast(format!("Style not changed: {e}"), true);
+                false
+            }
+        }
+    }
+
+    /// Creates an effect or grid style from the values of `node` and links the node to it.
+    /// Returns the new style's key.
+    pub fn create_style_from(&mut self, node: NodeId, prop: StyleProperty) -> Option<String> {
+        match create_style_from_node(&self.doc, node, prop, None) {
+            Ok((key, cmd)) => self.run_style_op(Ok(cmd)).then(|| {
+                self.show_toast(format!("Created \"{key}\""), false);
+                key
+            }),
+            Err(e) => {
+                self.run_style_op(Err(e));
+                None
+            }
+        }
+    }
+
+    /// Unlinks the effect or grid style of `sel`; the nodes keep their values.
+    pub fn detach_style_of(&mut self, sel: &[NodeId], prop: StyleProperty) -> bool {
+        let op = detach_style(&self.doc, sel, prop);
+        self.run_style_op(op)
+    }
+
+    /// Renames style `key` (the display name; folders come from "/").
+    pub fn rename_style_to(&mut self, key: &str, name: &str) -> bool {
+        let op = rename_style(&self.doc, key, name);
+        self.run_style_op(op)
     }
 
     /// Replaces solid colour `old` by `new` in the whole subtree of the selection (one undo step).
@@ -331,5 +392,47 @@ mod tests {
         app.undo();
         assert_eq!(app.doc.get(f).unwrap().fills[0].kind, PaintKind::Solid(Color::rgb(255, 0, 0)));
         assert!(!app.hist.can_undo());
+    }
+
+    #[test]
+    fn effect_and_grid_styles_have_their_own_groups() {
+        let (mut ed, f, r, _t) = app();
+        ed.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]));
+        ed.doc.styles.insert("g".into(), Style::Grid(vec![LayoutGrid::Grid { size: 8.0, color: Color::rgba(255, 0, 0, 26) }]));
+        ed.doc.style_meta.insert("g".into(), StyleMeta { name: "Layout/8pt".into(), property: StyleProperty::Grid, ..Default::default() });
+        let keys = |k| style_entries_of(&ed.doc, k).into_iter().map(|e| (e.key, e.folder, e.leaf)).collect::<Vec<_>>();
+        assert_eq!(keys(StyleKind::Effect), vec![("Shadow/Card".to_string(), "Shadow".to_string(), "Card".to_string())]);
+        assert_eq!(keys(StyleKind::Grid), vec![("g".to_string(), "Layout".to_string(), "8pt".to_string())]);
+        assert_eq!(keys(StyleKind::Color).len(), 1, "colour styles do not list effect or grid styles");
+        assert_eq!(keys(StyleKind::Text).len(), 1);
+        // Applying through the shared path links the layer and, for grids, only frames take it.
+        ed.apply_style(&[r, f], "Shadow/Card");
+        assert_eq!(ed.doc.get(r).unwrap().style_refs.get("effect").map(String::as_str), Some("Shadow/Card"));
+        ed.apply_style(&[r, f], "g");
+        assert!(!ed.doc.get(r).unwrap().style_refs.contains_key("grid"), "a rectangle has no layout guides");
+        assert_eq!(ed.doc.get(f).unwrap().style_refs.get("grid").map(String::as_str), Some("g"));
+    }
+
+    #[test]
+    fn creating_renaming_and_detaching_an_effect_style_are_single_undo_steps() {
+        let (mut ed, _f, r, _t) = app();
+        ed.edit_nodes(&[r], |n| n.effects = vec![Effect::LayerBlur { radius: 6.0, visible: true }]);
+        let key = ed.create_style_from(r, StyleProperty::Effect).expect("created");
+        assert!(matches!(&ed.doc.styles[&key], Style::Effect(fx) if fx == &vec![Effect::LayerBlur { radius: 6.0, visible: true }]));
+        assert!(ed.rename_style_to(&key, "Blur/Soft"));
+        assert_eq!(ed.doc.style_name(&key), "Blur/Soft");
+        assert!(ed.detach_style_of(&[r], StyleProperty::Effect));
+        assert!(ed.doc.get(r).unwrap().style_refs.is_empty());
+        assert_eq!(ed.doc.get(r).unwrap().effects.len(), 1, "detaching keeps the effect");
+        ed.undo();
+        assert_eq!(ed.doc.get(r).unwrap().style_refs.get("effect"), Some(&key));
+        ed.undo();
+        assert_eq!(ed.doc.style_name(&key), key, "the rename is undone on its own");
+        ed.undo();
+        assert!(!ed.doc.styles.contains_key(&key) && ed.doc.get(r).unwrap().style_refs.is_empty(), "creation and link undo together");
+        // A layer without effects has nothing to turn into a style.
+        let (mut empty, _f, r, _t) = app();
+        assert!(empty.create_style_from(r, StyleProperty::Effect).is_none());
+        assert!(empty.toast.is_some(), "the refusal is shown");
     }
 }

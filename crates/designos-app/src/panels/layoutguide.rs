@@ -3,6 +3,7 @@
 //! on the canvas (View > Layout guides, Ctrl+Shift+4).
 
 use super::properties::{open_picker, row_end, section_sep, title, Pane, PickTarget};
+use super::style_picker;
 use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
@@ -65,10 +66,25 @@ fn c32(c: &Color) -> Color32 {
 
 pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], grids: &[LayoutGrid]) {
     section_sep(ui, pane, false);
-    if title(ui, pane, "Layout guide", Some(Icon::Plus), grids.is_empty()) {
+    let linked = style_picker::linked_style(app, sel, StyleProperty::Grid);
+    if title(ui, pane, "Layout guide", Some(Icon::Plus), grids.is_empty() && linked.is_none()) {
         // first a square grid, later ones columns (Figma's order of defaults)
         let k = if grids.is_empty() { 0 } else { 1 };
-        edit_grids(app, sel, |g| g.push(default_grid(k, red())));
+        // Adding to a style-linked frame leaves the style: the frame keeps its guides and gets the new one.
+        app.edit_nodes(sel, |n| {
+            n.style_refs.remove("grid");
+            if let Some(fp) = n.kind.frame_props_mut() {
+                fp.grids.push(default_grid(k, red()));
+            }
+        });
+    }
+    style_picker::header_button(app, ui, pane, sel, StyleProperty::Grid);
+    if let Some(key) = linked {
+        // A linked frame shows its style instead of the guides it copies.
+        pane.y += 4.0;
+        style_picker::linked_row(app, ui, pane, sel, StyleProperty::Grid, &key);
+        pane.y += 4.0;
+        return;
     }
     for (i, g) in grids.iter().enumerate() {
         let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);

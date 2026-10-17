@@ -586,6 +586,7 @@ pub(crate) fn import_rest_value_owned<'a>(
     }
     cx.link_remote_components(&v);
     crate::variables::import_variables_value(&mut cx.doc, &v);
+    apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     drop(v);
     cx.install_deferred_hydrator();
@@ -681,6 +682,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     }
     cx.link_remote_components(v);
     crate::variables::import_variables_value(&mut cx.doc, v);
+    apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     cx.install_deferred_hydrator();
     let doc = cx.doc;
@@ -2543,6 +2545,21 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 }
 
+/// Effect and grid styles whose values the file states on the style node (`.fig` imports put them
+/// in the `styles` map): the node's values replace the copy seeded from the first consumer, and a
+/// style no node uses is kept too. REST JSON carries no values there, so it is left as seeded.
+fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
+    let Some(map) = styles.and_then(Value::as_object) else { return };
+    for (id, m) in map {
+        let style = match fstr(m, "styleType") {
+            Some("EFFECT") if m.get("effects").is_some() => Style::Effect(farr(m, "effects").iter().filter_map(parse_effect).collect()),
+            Some("GRID") if m.get("layoutGrids").is_some() => Style::Grid(farr(m, "layoutGrids").iter().filter_map(parse_grid).collect()),
+            _ => continue,
+        };
+        doc.styles.insert(id.clone(), style);
+    }
+}
+
 /// Library style metadata from the top-level REST `styles` map. A FILL style
 /// that is only ever used as a stroke gets [`StyleProperty::Stroke`].
 fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleMeta> {
@@ -2573,6 +2590,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             Some("TEXT") => StyleProperty::Text,
             Some("EFFECT") => StyleProperty::Effect,
             Some("GRID") => StyleProperty::Grid,
+            Some("STROKE") => StyleProperty::Stroke,
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,
         };

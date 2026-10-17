@@ -6,6 +6,7 @@ use crate::app::App;
 use crate::edit::Tx;
 use crate::icons::{self, Icon};
 use crate::ops::{apply_resize, Align};
+use crate::styles::StyleKind;
 use crate::theme;
 use crate::util::v2;
 use crate::widgets::field::{self, Prefix};
@@ -152,6 +153,10 @@ pub struct PropsState {
     pub fx_menu: bool,
     /// The paint styles menu (4-dots button) is open: Some(for_stroke).
     pub styles_menu: Option<bool>,
+    /// The style menu of the Effects (`Effect`) or Layout guide (`Grid`) header is open.
+    pub style_menu: Option<StyleProperty>,
+    /// The name of the style the Effects or Layout guide row shows is being edited.
+    pub style_rename: Option<StyleProperty>,
     /// Cached `(selection_hash, tile_rev, unique_colors, usage_counts)` for Selection colors.
     pub sel_colors_cache: Option<(u64, u64, Vec<Color>, Vec<usize>)>,
     /// Cached `(doc_node_count_and_epoch, sorted_component_ids)` for instance swap menus.
@@ -441,8 +446,10 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
 fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
     let applied = |app: &App, prop: &str| target.first().and_then(|t| app.doc.get(*t)).and_then(|n| n.style_refs.get(prop).cloned());
     let mut shown_groups = 0;
-    for (label, text) in [("Text styles", true), ("Color styles", false)] {
-        let entries = crate::styles::style_entries(&app.doc, text);
+    for (label, kind) in
+        [("Text styles", StyleKind::Text), ("Color styles", StyleKind::Color), ("Effect styles", StyleKind::Effect), ("Grid styles", StyleKind::Grid)]
+    {
+        let entries = crate::styles::style_entries_of(&app.doc, kind);
         if entries.is_empty() {
             continue;
         }
@@ -451,7 +458,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
         let lr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::SUBLABEL_HEIGHT);
         ui.painter().text(Pos2::new(lr.left(), lr.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT_SECONDARY);
         pane.y += theme::SUBLABEL_HEIGHT + theme::STYLES_ROW_GAP;
-        let current = applied(app, if text { "text" } else { "fill" });
+        let current = applied(app, kind.ref_key());
         let mut last_folder: Option<String> = None;
         for e in &entries {
             let folder_key = format!("{label}/{}", e.folder);
@@ -487,14 +494,28 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             let indent = if e.folder.is_empty() { 0.0 } else { theme::STYLE_INDENT };
             let r = pane.rect(8.0, 0.0, theme::RIGHT_PANEL_WIDTH - 17.0, theme::STYLE_ROW_H);
             widgets::record(ui, &format!("style:{}", e.key), r);
-            let resp = ui.interact(r, ui.id().with((if text { "tstyle" } else { "cstyle" }, &e.key)), Sense::click());
+            let resp = ui.interact(r, ui.id().with((kind.ref_key(), &e.key)), Sense::click());
             let is_current = current.as_deref() == Some(e.key.as_str());
             if is_current {
                 ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
             }
-            if text {
+            if matches!(kind, StyleKind::Effect | StyleKind::Grid) {
+                let icon = match app.doc.styles.get(&e.key) {
+                    Some(Style::Effect(fx)) => fx.first().map_or(Icon::DropShadow, |f| super::effects::KINDS[super::effects::kind_of(f)].1),
+                    _ => Icon::Grid2x2,
+                };
+                icons::paint(
+                    ui.painter(),
+                    icon,
+                    Pos2::new(r.left() + theme::STYLE_SWATCH_CX + indent, r.center().y),
+                    theme::STYLE_SWATCH,
+                    theme::ICON_SECONDARY,
+                );
+                let nm = widgets::elide(ui.painter(), &e.leaf, &theme::font_body(), 130.0 - indent);
+                ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X + indent, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
+            } else if kind == StyleKind::Text {
                 let Some(Style::Text(t)) = app.doc.styles.get(&e.key).cloned() else { continue };
                 ui.painter().text(Pos2::new(r.left() + 10.0 + indent, r.center().y), Align2::LEFT_CENTER, "Ag", theme::font_body_strong(), theme::TEXT);
                 let nm = widgets::elide(ui.painter(), &e.leaf, &theme::font_body(), 110.0 - indent);
@@ -2014,6 +2035,25 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         "effects-menu" => {
             app.props.scroll = 1.0e6;
             app.props.fx_menu = true;
+        }
+        "effect-styles" | "grid-styles" => {
+            // The style menu of the Effects / Layout guide header. A frame without guides gets the
+            // usual 12 column ones, and with no style yet one is created from the selection.
+            let prop = if spec == "grid-styles" { StyleProperty::Grid } else { StyleProperty::Effect };
+            if prop == StyleProperty::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
+                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                app.edit_nodes(&[id], |n| {
+                    if let Some(f) = n.kind.frame_props_mut() {
+                        f.grids.push(grid.clone());
+                    }
+                });
+            }
+            let kind = if prop == StyleProperty::Grid { StyleKind::Grid } else { StyleKind::Effect };
+            if crate::styles::style_entries_of(&app.doc, kind).is_empty() {
+                app.create_style_from(id, prop);
+            }
+            app.props.scroll = 1.0e6;
+            app.props.style_menu = Some(prop);
         }
         "stroke-settings" => {
             app.props.scroll = 1.0e6;

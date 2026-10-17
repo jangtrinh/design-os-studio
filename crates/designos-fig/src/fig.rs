@@ -264,6 +264,9 @@ struct Lk<'a> {
     style_nodes: HashMap<String, Value>,
     /// Style node id (`s:l`) -> node, for styles defined in this file.
     style_by_id: HashMap<String, Value>,
+    /// Ids (`s:l`) of style nodes the file marks as deleted: their values are never used and
+    /// the nodes that still point at them are left unlinked.
+    deleted_styles: std::collections::HashSet<String>,
     /// Property definition id (including the `parentPropDefId` aliases that
     /// variants carry) -> (`Name#s:l`, REST type).
     prop_defs: HashMap<String, (String, &'static str)>,
@@ -283,6 +286,7 @@ impl<'a> Lk<'a> {
             style_by_key: HashMap::new(),
             style_nodes: HashMap::new(),
             style_by_id: HashMap::new(),
+            deleted_styles: std::collections::HashSet::new(),
             prop_defs: HashMap::new(),
             handoff_status: HashMap::new(),
         };
@@ -290,8 +294,11 @@ impl<'a> Lk<'a> {
         for e in entries {
             let j = &e.json;
             let key = fstr(j, "key").filter(|k| !k.is_empty());
-            if fstr(j, "styleType").is_some() {
+            let live_style = fstr(j, "styleType").is_some() && !style_soft_deleted(j);
+            if live_style {
                 lk.style_by_id.insert(e.id.clone(), j.clone());
+            } else if fstr(j, "styleType").is_some() {
+                lk.deleted_styles.insert(e.id.clone());
             }
             for h in j.get("handoffStatusMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]) {
                 let Some(gid) = h.get("guid").and_then(guid_str) else { continue };
@@ -314,7 +321,9 @@ impl<'a> Lk<'a> {
                 }
                 (_, Some(k)) if fstr(j, "styleType").is_some() => {
                     lk.style_by_key.insert(k.to_string(), e.id.clone());
-                    lk.style_nodes.insert(k.to_string(), j.clone());
+                    if live_style {
+                        lk.style_nodes.insert(k.to_string(), j.clone());
+                    }
                 }
                 _ => {}
             }
@@ -378,6 +387,19 @@ impl<'a> Lk<'a> {
             Some(k) => self.style_nodes.get(k),
             None => self.style_by_id.get(r.get("guid").and_then(guid_str)?.as_str()),
         }
+    }
+
+    /// The live style node a consumer points at: its `modern` `styleIdFor*` reference, else the
+    /// legacy GUID reference `legacy` (`inherit*StyleID`).
+    fn style_node_of(&self, nc: &Value, modern: &str, legacy: &str) -> Option<&Value> {
+        nc.get(modern).and_then(|r| self.style_node(r)).or_else(|| self.style_by_id.get(guid_str(nc.get(legacy)?)?.as_str()))
+    }
+
+    /// Style id for a consumer's `modern` reference, else its `legacy` GUID reference. None when
+    /// the consumer has neither or the style is deleted.
+    fn style_id_of(&self, nc: &Value, modern: &str, legacy: Option<&str>) -> Option<String> {
+        let id = nc.get(modern).and_then(|r| self.style_id(r)).or_else(|| nc.get(legacy?).and_then(guid_str))?;
+        (!self.deleted_styles.contains(&id)).then_some(id)
     }
 
     fn prop_def(&self, r: &Value) -> Option<&(String, &'static str)> {
@@ -532,10 +554,10 @@ fn style_table(entries: &[Entry]) -> Value {
     let mut out = Map::new();
     for e in entries {
         let j = &e.json;
-        if rest_import::fbool(j, "isSoftDeleted") == Some(true) {
+        if style_soft_deleted(j) {
             continue;
         }
-        let Some(ty) = fstr(j, "styleType").filter(|t| matches!(*t, "FILL" | "TEXT" | "EFFECT" | "GRID")) else { continue };
+        let Some(ty) = fstr(j, "styleType").filter(|t| matches!(*t, "FILL" | "STROKE" | "TEXT" | "EFFECT" | "GRID")) else { continue };
         let key = fstr(j, "key").unwrap_or("");
         let mut m = Map::new();
         if !key.is_empty() {
@@ -544,9 +566,24 @@ fn style_table(entries: &[Entry]) -> Value {
         m.insert("name".into(), fstr(j, "name").unwrap_or("").into());
         m.insert("description".into(), fstr(j, "styleDescription").unwrap_or("").into());
         m.insert("styleType".into(), ty.into());
+        // The style node is the source of truth for the values it shares.
+        match ty {
+            "EFFECT" => {
+                m.insert("effects".into(), Value::Array(rest_import::farr(j, "effects").iter().filter_map(convert_effect).collect()));
+            }
+            "GRID" => {
+                m.insert("layoutGrids".into(), convert_grids(j).unwrap_or_else(|| Value::Array(Vec::new())));
+            }
+            _ => {}
+        }
         out.insert(e.id.clone(), Value::Object(m));
     }
     Value::Object(out)
+}
+
+/// A style node the file marks as deleted (`isSoftDeletedStyle`, or the node-level `isSoftDeleted`).
+fn style_soft_deleted(j: &Value) -> bool {
+    rest_import::fbool(j, "isSoftDeletedStyle") == Some(true) || rest_import::fbool(j, "isSoftDeleted") == Some(true)
 }
 
 fn symbol_id_str(v: &Value) -> Option<String> {
@@ -912,7 +949,10 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             json!({"top": g("borderTopWeight"), "right": g("borderRightWeight"), "bottom": g("borderBottomWeight"), "left": g("borderLeftWeight")}),
         );
     }
-    let effects: Vec<Value> = rest_import::farr(nc, "effects").iter().filter_map(convert_effect).collect();
+    // Effects follow the same rule as paints: the style node's list wins unless a variable is bound.
+    let own_effects = rest_import::farr(nc, "effects");
+    let fx_style = lk.style_node_of(nc, "styleIdForEffect", "inheritEffectStyleID").filter(|_| !own_effects.iter().any(|e| e.get("colorVar").is_some()));
+    let effects: Vec<Value> = fx_style.map(|s| rest_import::farr(s, "effects")).unwrap_or(own_effects).iter().filter_map(convert_effect).collect();
     if !effects.is_empty() {
         m.insert("effects".into(), Value::Array(effects));
     }
@@ -962,7 +1002,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         let masked = nc.get("frameMaskDisabled").and_then(Value::as_bool) != Some(true);
         m.insert("clipsContent".into(), masked.into());
         convert_stack(&mut m, nc);
-        if let Some(g) = convert_grids(nc) {
+        if let Some(g) = convert_grids(lk.style_node_of(nc, "styleIdForGrid", "inheritGridStyleID").unwrap_or(nc)) {
             m.insert("layoutGrids".into(), g);
         }
     }
@@ -999,10 +1039,14 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
 
     // Style references (`{assetRef: {key}}` for library styles, `{guid}` for local ones).
     let mut styles = Map::new();
-    for (src, dst) in
-        [("styleIdForFill", "fill"), ("styleIdForStrokeFill", "stroke"), ("styleIdForText", "text"), ("styleIdForEffect", "effect"), ("styleIdForGrid", "grid")]
-    {
-        if let Some(g) = nc.get(src).and_then(|r| lk.style_id(r)) {
+    for (src, legacy, dst) in [
+        ("styleIdForFill", None, "fill"),
+        ("styleIdForStrokeFill", None, "stroke"),
+        ("styleIdForText", None, "text"),
+        ("styleIdForEffect", Some("inheritEffectStyleID"), "effect"),
+        ("styleIdForGrid", Some("inheritGridStyleID"), "grid"),
+    ] {
+        if let Some(g) = lk.style_id_of(nc, src, legacy) {
             styles.insert(dst.into(), g.into());
         }
     }

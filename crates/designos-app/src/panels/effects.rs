@@ -2,6 +2,7 @@
 //! settings button, eye, minus) and the settings popovers for every effect type.
 
 use super::properties::{open_picker, title, Pane, PickTarget};
+use super::style_picker;
 use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
@@ -142,7 +143,11 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
             app.props.fx_menu = false;
             let seed = app.doc.nodes.len() as u32 + 1;
             let e = default_effect(k, seed);
-            app.edit_nodes(sel, |n| n.effects.push(e.clone()));
+            // Adding to a style-linked layer leaves the style: the layer keeps its values and gets the new effect.
+            app.edit_nodes(sel, |n| {
+                n.style_refs.remove("effect");
+                n.effects.push(e.clone());
+            });
         }
         MenuResult::Picked(_) | MenuResult::Closed => app.props.fx_menu = false,
         MenuResult::Open => {}
@@ -150,7 +155,16 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
 }
 
 pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], effects: &[Effect]) {
-    header(app, ui, pane, sel, effects.is_empty());
+    let linked = style_picker::linked_style(app, sel, StyleProperty::Effect);
+    header(app, ui, pane, sel, effects.is_empty() && linked.is_none());
+    style_picker::header_button(app, ui, pane, sel, StyleProperty::Effect);
+    if let Some(key) = linked {
+        // A linked layer shows its style instead of the effects it copies.
+        pane.y += 4.0;
+        style_picker::linked_row(app, ui, pane, sel, StyleProperty::Effect, &key);
+        pane.y += 8.0;
+        return;
+    }
     let names: Vec<String> = KINDS.iter().map(|(n, _)| n.to_string()).collect();
     if !effects.is_empty() {
         pane.y += 4.0;
