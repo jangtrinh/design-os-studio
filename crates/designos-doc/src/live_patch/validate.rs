@@ -1,7 +1,7 @@
 //! Checks a subtree from a patch line before it reaches the document. The log is a file any
 //! local process can write, so it may hold cycles, orphans or ids that would exhaust the id space.
 
-use crate::{Document, Node, NodeId, MAX_TREE_DEPTH, MIN_ID_HEADROOM};
+use crate::{Document, Node, NodeId, NodeKind, MAX_TREE_DEPTH, MIN_ID_HEADROOM};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Why `nodes` (root first) cannot be inserted under `parent`, or `None` when it can.
@@ -23,6 +23,9 @@ pub(super) fn insert_problem(doc: &Document, parent: NodeId, nodes: &[Node]) -> 
         return Some(format!("the first node {} is inside its own subtree", root.id.0));
     }
     for n in nodes {
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return Some(format!("node {} is a page, which an agent edit cannot insert", n.id.0));
+        }
         if !n.children.is_empty() && !n.kind.is_container() {
             return Some(format!("node {} lists children but cannot hold them", n.id.0));
         }

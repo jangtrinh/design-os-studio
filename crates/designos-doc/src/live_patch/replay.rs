@@ -3,7 +3,7 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
-use crate::{Command, DocError, Document, Node, NodeId};
+use crate::{Command, DocError, Document, Node, NodeId, NodeKind};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,6 +19,27 @@ pub struct LivePatchState {
     comments: CommentRemap,
     /// [`LivePatch::base`] the remaps above were made under.
     base: Option<u64>,
+    /// Layers the editor replaced by another one while the agent still knew the old id (the
+    /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
+    /// replacement sends edits back to the restored layer.
+    replaced: BTreeMap<NodeId, NodeId>,
+}
+
+impl LivePatchState {
+    /// The editor removed layer `old` and put `new` in its place; agent edits to `old` that have
+    /// not been replayed yet go to `new`.
+    pub fn record_replacement(&mut self, old: NodeId, new: NodeId) {
+        self.replaced.insert(old, new);
+    }
+
+    /// The editor-side id for an id from the agent's document.
+    fn target(&self, doc: &Document, id: NodeId) -> NodeId {
+        let id = self.remap.get(&id).copied().unwrap_or(id);
+        if doc.get(id).is_some() {
+            return id;
+        }
+        self.replaced.get(&id).copied().unwrap_or(id)
+    }
 }
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
@@ -73,11 +94,13 @@ pub fn replay_live_patch(
 }
 
 fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
-    let map = |id: NodeId, state: &LivePatchState| state.remap.get(&id).copied().unwrap_or(id);
     match op {
-        LiveOp::Insert { parent, at, nodes } => resolve_insert(doc, map(*parent, state), at, nodes, state, report),
+        LiveOp::Insert { parent, at, nodes } => {
+            let parent = state.target(doc, *parent);
+            resolve_insert(doc, parent, at, nodes, state, report)
+        }
         LiveOp::Update { id, set, unset } => {
-            let id = map(*id, state);
+            let id = state.target(doc, *id);
             let Some(cur) = doc.get(id) else {
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
@@ -93,6 +116,11 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                 report.duplicates += 1;
                 return None;
             }
+            let is_page = |n: &Node| matches!(n.kind, NodeKind::Page { .. });
+            if is_page(cur) != is_page(&merged) {
+                report.skipped.push(format!("update of node {} would turn a layer into a page or a page into a layer", id.0));
+                return None;
+            }
             if !cur.children.is_empty() && !merged.kind.is_container() {
                 report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
                 return None;
@@ -103,7 +131,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             Some(Command::Update { node: Box::new(merged) })
         }
         LiveOp::Reparent { id, parent, at } => {
-            let (id, parent) = (map(*id, state), map(*parent, state));
+            let (id, parent) = (state.target(doc, *id), state.target(doc, *parent));
             let at = remap_hint(at, state);
             let (Some(node), Some(p)) = (doc.get(id), doc.get(parent)) else {
                 report.skipped.push(format!("move of node {} into missing parent {}", id.0, parent.0));
@@ -124,7 +152,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             Some(Command::Reparent { id, parent, index })
         }
         LiveOp::Remove { id } => {
-            let id = map(*id, state);
+            let id = state.target(doc, *id);
             let Some(parent) = doc.get(id).map(|n| n.parent) else {
                 report.duplicates += 1;
                 return None;

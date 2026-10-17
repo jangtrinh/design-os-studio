@@ -4,6 +4,7 @@
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
 use designos_doc::live_patch::{LivePatch, LivePatchState, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -41,6 +42,9 @@ pub struct LivePatchLog {
     /// Patches already read but not applied yet, because the user was in the middle of an edit.
     /// The read position is past them, so they live only here.
     pub pending: Vec<LivePatch>,
+    /// A document the agent switched to while the user was mid-edit. It replaces the open one
+    /// once the canvas is idle, before any patch in `pending` (those were made on it).
+    pub pending_doc: Option<Document>,
 }
 
 impl LivePatchLog {
@@ -55,10 +59,16 @@ impl LivePatchLog {
             max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
             state: LivePatchState::default(),
             pending: Vec::new(),
+            pending_doc: None,
             path,
         };
         log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
         log
+    }
+
+    /// Agent changes wait for the canvas to go idle.
+    pub fn has_held(&self) -> bool {
+        !self.pending.is_empty() || self.pending_doc.is_some()
     }
 
     /// Complete patch lines appended since the last poll. Unreadable and oversized lines come

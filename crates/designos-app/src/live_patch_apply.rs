@@ -8,7 +8,7 @@
 use crate::app::App;
 use crate::canvas::Interaction;
 use crate::edit::Tx;
-use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchReport};
+use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchReport, LivePatchState};
 use designos_doc::{Document, NodeId};
 
 /// The user is in the middle of an edit that holds an open transaction or a snapshot: a canvas
@@ -20,17 +20,57 @@ pub fn user_edit_in_progress(app: &App) -> bool {
         || app.canvas.vedit.as_ref().is_some_and(|v| v.drag.is_some())
         || app.scrub.is_some()
         || app.props.picker.is_some()
+        || app.canvas.builder.is_some()
+}
+
+/// Publishes the editor's document to the agent session, unless an edit is in progress or agent
+/// changes are still held (see `TerminalState::sync_live_file_context`).
+pub fn publish_live_context(app: &mut App) {
+    app.terminal.edit_in_progress = user_edit_in_progress(app);
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+}
+
+/// The agent switched to another document. Replaced at once on an idle canvas; otherwise it
+/// waits like the patches do, and edits held for the old document are dropped, since the agent's
+/// document they were made on is gone.
+pub fn sync_live_document(app: &mut App, new_doc: Document) {
+    if user_edit_in_progress(app) {
+        app.terminal.live_patch.pending.clear();
+        app.terminal.live_patch.pending_doc = Some(new_doc);
+        app.terminal.status_msg = Some("Agent document waits until you finish the current edit".into());
+    } else {
+        replace_live_document(app, new_doc);
+    }
+}
+
+fn replace_live_document(app: &mut App, mut new_doc: Document) {
+    crate::io::ensure_page(&mut new_doc);
+    let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
+    app.doc = new_doc;
+    app.page = keep_page;
+    // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
+    app.terminal.live_patch.state = LivePatchState::default();
+    app.sanitize();
+    app.changed();
+    app.fit_all();
+    publish_live_context(app);
+    app.show_toast("Applied live Agent changes to current page", false);
 }
 
 /// Applies the agent edits waiting in the log, unless the user is mid-edit. Runs every frame.
 pub fn apply_pending_live_patches(app: &mut App) {
-    if app.terminal.live_patch.pending.is_empty() || user_edit_in_progress(app) {
+    if !app.terminal.live_patch.has_held() || user_edit_in_progress(app) {
         return;
     }
+    if let Some(doc) = app.terminal.live_patch.pending_doc.take() {
+        replace_live_document(app, doc);
+    }
     let patches = std::mem::take(&mut app.terminal.live_patch.pending);
-    app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
-    apply_live_patches(app, &patches);
-    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+    if !patches.is_empty() {
+        app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
+        apply_live_patches(app, &patches);
+    }
+    publish_live_context(app);
 }
 
 /// Replays `patches` on `app.doc`, one undo step per patch (one agent tool call), and reports

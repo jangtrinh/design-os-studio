@@ -547,6 +547,9 @@ pub struct TerminalState {
     /// Agent edits log (`doc-patch.jsonl`) written by `designos-mcp`, with its read position.
     pub live_patch: crate::live_patch_log::LivePatchLog,
     pub last_synced_key: Option<(u64, u64, u64)>,
+    /// The user holds an open edit (drag, text session, shape builder...): the editor's canvas
+    /// is not published until it ends. Refreshed by `live_patch_apply::publish_live_context`.
+    pub edit_in_progress: bool,
     pub current_page_id: u64,
     pub current_page_name: String,
     pub doc_name: String,
@@ -628,6 +631,7 @@ impl TerminalState {
             last_doc_sync_mtime: initial_doc_mtime,
             live_patch,
             last_synced_key: None,
+            edit_in_progress: false,
             current_page_id: 1,
             current_page_name: "Page 1".to_string(),
             doc_name: "Untitled".to_string(),
@@ -706,6 +710,14 @@ impl TerminalState {
         self.current_page_id = page.0;
         self.current_page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_else(|| "Page 1".into());
         self.doc_name = if doc.name.trim().is_empty() { "Untitled".into() } else { doc.name.clone() };
+
+        // The canvas the agent reads must keep holding every edit the agent made. While one of its
+        // edits waits for the user to finish, or the user is mid-edit, the editor's document does
+        // not have it yet, so publishing now would make the agent's next call lose its own edit.
+        // `last_synced_key` stays as it was, so the first idle frame publishes.
+        if self.edit_in_progress || self.live_patch.has_held() {
+            return;
+        }
 
         // Selected ids, not just their count: the scoped canvas ships the selected frames whole.
         let selection_key = {
