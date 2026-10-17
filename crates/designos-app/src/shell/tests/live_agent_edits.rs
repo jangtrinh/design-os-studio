@@ -109,3 +109,38 @@ fn removing_the_dragged_layer_mid_drag_does_not_panic() {
         finish(s, workspace);
     }
 }
+
+/// `--panel agents`, `terminal` and `agents-chat` start their shell while the window is built,
+/// before the first frame. The shell captures the session directory in its environment once, so
+/// the first frame must keep the window on that directory: the agent writes there and
+/// `designos-mcp` reads from there.
+#[test]
+fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_frame() {
+    for panel in ["agents", "terminal", "agents-chat"] {
+        let ctx = Context::default();
+        let mut shell = Shell::build(&ctx, Options { panel: Some(panel.into()), ..Options::default() });
+        shell.app.system_html = no_system_clipboard;
+        assert_eq!(shell.app.terminal.tabs.len(), 1, "precondition: --panel {panel} starts the shell during build");
+        let started_with = shell.app.terminal.session_env();
+
+        let mut s = Sim { ctx, shell, t: 0.0, pos: Pos2::new(700.0, 500.0), mods: Modifiers::NONE, cursor: egui::CursorIcon::Default, shapes: Vec::new() };
+        s.frame(vec![]);
+        s.frame(vec![]);
+
+        let terminal = &s.app().terminal;
+        assert_eq!(
+            terminal.session_id, started_with.session_id,
+            "--panel {panel}: the first frame moved the window off the session its shell was started with"
+        );
+        assert_eq!(terminal.session_dir, started_with.session_dir);
+        assert_eq!(terminal.live_spec_path, started_with.live_spec_path);
+        assert_eq!(
+            terminal.session_id,
+            format!("{}-tab-1", s.app().tabs.instance_id),
+            "--panel {panel}: the shell was started on an id the tab bar does not bind"
+        );
+        let dir = terminal.session_dir.clone();
+        s.shell.app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

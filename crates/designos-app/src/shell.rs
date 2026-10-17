@@ -119,6 +119,10 @@ impl Shell {
             None if opts.file.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
             _ => demo::demo_document(),
         });
+        // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
+        // session directory once; bind the terminal to the id the tab bar keeps before any can start.
+        let session_id = app.tabs.active_session_id();
+        app.terminal.bind_session(&session_id);
         if !matches!(opts.fixture.as_deref(), Some("variables" | "deck" | crate::showcase::FIXTURE)) {
             app.doc.name = "Untitled".into();
         }

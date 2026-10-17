@@ -168,7 +168,15 @@ impl TabsState {
 
     pub fn session_id_for_tab(&mut self, tab_id: u64) -> String {
         self.ensure_instance_id();
-        format!("{}-tab-{tab_id}", self.instance_id)
+        crate::terminal::tab_session_id(&self.instance_id, tab_id)
+    }
+
+    /// Session id the window's terminal keeps: the active tab's, or the first tab's when no tab
+    /// exists yet. A shell started before the first frame captures its session directory once, so
+    /// the terminal is bound to this id before such a shell can start.
+    pub fn active_session_id(&mut self) -> String {
+        let tab_id = self.entries.get(self.active_idx).map_or(self.next_id, |t| t.id);
+        self.session_id_for_tab(tab_id)
     }
 
     fn alloc_id(&mut self) -> u64 {
@@ -1307,5 +1315,40 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&app_a.terminal.session_dir);
         let _ = std::fs::remove_dir_all(&app_b.terminal.session_dir);
+    }
+
+    /// The terminal is bound to `active_session_id` before a shell can start in it (`Shell::build`);
+    /// that must be the id the first reconcile binds, or the shell keeps writing to a directory
+    /// Studio no longer watches.
+    #[test]
+    fn the_session_bound_before_a_shell_starts_is_the_one_the_first_reconcile_keeps() {
+        let mut app = App::new(Document::new("Preset"));
+        let bound = app.tabs.active_session_id();
+        app.terminal.bind_session(&bound);
+        app.terminal.ensure_default_tab(None);
+        assert_eq!(app.terminal.tabs.len(), 1, "precondition: the shell started");
+        let started_with = app.terminal.session_env();
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        assert_eq!(app.terminal.session_id, started_with.session_id, "the first frame moved Studio off the session the shell was started with");
+        assert_eq!(app.terminal.session_dir, started_with.session_dir);
+        assert_eq!(started_with.session_id, bound);
+        assert_eq!(bound, app.tabs.session_id_for_tab(app.tabs.entries[0].id));
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&app.terminal.session_dir);
+    }
+
+    #[test]
+    fn active_session_id_follows_the_active_tab() {
+        let mut app = make_app_with_doc("Tab 1");
+        let first = app.tabs.entries[0].id;
+        assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(first));
+        app.open_new_tab("Tab 2", Document::new("Tab 2"), ProjectTabKind::Design);
+        let second = app.tabs.entries[app.tabs.active_idx].id;
+        assert_ne!(first, second);
+        assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(second));
     }
 }
