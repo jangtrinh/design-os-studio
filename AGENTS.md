@@ -71,6 +71,13 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
 - Merge with squash only (`gh pr merge <n> --squash`). The head branch is deleted on merge, and `main` keeps a linear history.
 - Release tags `v*` cannot be moved or deleted once pushed. Tag the squash commit of the release PR (see `docs/releasing.md`).
 
+## Marketing Videos (owner HARD RULE, 2026-10-17)
+
+- Every piece of demo UI in a project video (launch and promo films, micro clips, GIFs, long-form captures) comes from the Untitled UI PRO VARIABLES v8.0 kit, `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`, opened in Studio. Never show a blank or self-built demo file, another kit, or a client file (e.g. VSF - PCP).
+- Work from a copy (a `.fig` import saved as `.designos`) so takes never save over the original. Feature demos may edit that copy through Studio or `designos-mcp`. Extra demo frames go on a scratch page inside it.
+- The kit's default brand colour is purple. Use neutral frames, or re-theme through the kit's own colour variables (Purple Ban). Never recolour pixels, and show no photos of people.
+- Credit "Untitled UI PRO v8.0 kit by Untitled UI" in the end card.
+
 ## 4. Non-Negotiable Performance & Safety Invariants
 
 1. **No `doc.to_json()` in `doc_hash` (`crates/designos-app/src/home/session.rs`):**
