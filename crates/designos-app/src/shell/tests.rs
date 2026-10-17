@@ -944,6 +944,20 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
         designos_doc::LayoutGrid::Columns { count, .. } => assert_eq!(*count, 5, "undo restores"),
         g => panic!("{g:?}"),
     }
+    let w_rect = s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{:?}", ("lg-sec-size", 0usize)))))).expect("width field is shown");
+    s.click(Pos2::new(w_rect.left() + 40.0, w_rect.center().y));
+    s.type_text("60");
+    s.key(Key::Enter);
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text("0");
+    s.key(Key::Enter);
+    match &s.app().doc.get(id).unwrap().kind.frame_props().unwrap().grids[0] {
+        designos_doc::LayoutGrid::Columns { count, section_size, .. } => {
+            assert_eq!(*count, 0);
+            assert_eq!(*section_size, 60.0);
+        }
+        g => panic!("{g:?}"),
+    }
 }
 
 mod board;

@@ -47,7 +47,7 @@ pub(super) fn grid_rows(app: &mut App, ui: &mut Ui, body: Rect, g: &LayoutGrid, 
                 if let Some(v) = field::num_field(ui, rc, "se-grid-count", Prefix::Icon(crate::icons::Icon::GridView), Some(count), "") {
                     set(app, &|g| {
                         if let LayoutGrid::Columns { count, .. } | LayoutGrid::Rows { count, .. } = g {
-                            *count = v.round().clamp(1.0, 64.0) as u32;
+                            *count = v.round().clamp(0.0, 64.0) as u32;
                         }
                     });
                 }

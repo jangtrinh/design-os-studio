@@ -2168,7 +2168,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             // usual 12 column ones, and with no style yet one is created from the selection.
             let prop = if spec == "grid-styles" { StyleProperty::Grid } else { StyleProperty::Effect };
             if prop == StyleProperty::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
-                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
                 app.edit_nodes(&[id], |n| {
                     if let Some(f) = n.kind.frame_props_mut() {
                         f.grids.push(grid.clone());
@@ -2198,7 +2198,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 app.edit_nodes(&[id], |n| n.effects.push(fx.clone()));
             }
             if kind == StyleKind::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
-                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                let grid = LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26));
                 app.edit_nodes(&[id], |n| {
                     if let Some(f) = n.kind.frame_props_mut() {
                         f.grids.push(grid.clone());
