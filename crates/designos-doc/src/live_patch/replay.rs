@@ -1,0 +1,329 @@
+//! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
+
+use super::replay_comments::{resolve_comments, CommentRemap};
+use super::validate::insert_problem;
+use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
+use crate::{Command, DocError, Document, Node, NodeId, NodeKind};
+use serde_json::{Map, Value};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Fields whose change can affect an auto-layout container's arrangement.
+const LAYOUT_FIELDS: [&str; 4] = ["size", "kind", "layout_child", "visible"];
+
+/// Replay state kept across patches of one agent session.
+#[derive(Clone, Debug, Default)]
+pub struct LivePatchState {
+    /// Agent ids that collided with nodes the editor created meanwhile, and their new ids.
+    remap: BTreeMap<NodeId, NodeId>,
+    /// The same for comment thread and message ids.
+    comments: CommentRemap,
+    /// [`LivePatch::base`] the remaps above were made under.
+    base: Option<u64>,
+    /// Layers the editor replaced by another one while the agent still knew the old id (the
+    /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
+    /// replacement sends edits back to the restored layer.
+    replaced: BTreeMap<NodeId, NodeId>,
+}
+
+impl LivePatchState {
+    /// The editor removed layer `old` and put `new` in its place; agent edits to `old` that have
+    /// not been replayed yet go to `new`.
+    pub fn record_replacement(&mut self, old: NodeId, new: NodeId) {
+        self.replaced.insert(old, new);
+    }
+
+    /// The editor-side id for an id from the agent's document.
+    fn target(&self, doc: &Document, id: NodeId) -> NodeId {
+        resolve_id(&self.remap, &self.replaced, doc, id).0
+    }
+}
+
+/// The editor-side id for an id from the agent's document, and whether it is a layer the
+/// editor replaced by another one (so the agent's shape numbers describe a different layer).
+fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, NodeId>, doc: &Document, id: NodeId) -> (NodeId, bool) {
+    let id = remap.get(&id).copied().unwrap_or(id);
+    if doc.get(id).is_some() {
+        return (id, false);
+    }
+    match replaced.get(&id) {
+        Some(new) => (*new, true),
+        None => (id, false),
+    }
+}
+
+/// Fields that describe a layer's shape in its own coordinate frame. The shape builder rebuilds
+/// a layer from geometry in the frame of its parent, so the agent's numbers for these do not
+/// apply to the replacement.
+const SHAPE_FIELDS: [&str; 3] = ["transform", "size", "kind"];
+
+/// What a replay did, for the toast, the post-replay layout pass and tests.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LivePatchReport {
+    /// Roots of inserted subtrees, in insertion order.
+    pub inserted_roots: Vec<NodeId>,
+    /// Nodes whose change can move or resize siblings in an auto-layout container: new or
+    /// removed children, moves, and size, visibility or layout changes.
+    pub needs_layout: Vec<NodeId>,
+    /// Ops that turned into commands.
+    pub applied: usize,
+    /// Ops already reflected in the document (a repeated delivery).
+    pub duplicates: usize,
+    /// Ops that could not be replayed, with the reason.
+    pub skipped: Vec<String>,
+}
+
+/// Replays `patch` on `doc`, one op at a time so each is checked against the state the previous
+/// ones left. Every command goes through `exec`, so the editor can run them in one transaction.
+/// Ops whose target is gone are skipped and reported; only an `exec` failure aborts.
+pub fn replay_live_patch(
+    doc: &mut Document,
+    patch: &LivePatch,
+    state: &mut LivePatchState,
+    exec: &mut dyn FnMut(&mut Document, Command) -> Result<(), DocError>,
+) -> Result<LivePatchReport, DocError> {
+    let mut report = LivePatchReport::default();
+    if patch.v != LIVE_PATCH_VERSION {
+        report.skipped.push(format!("unsupported live patch version {}", patch.v));
+        return Ok(report);
+    }
+    // A failed replay is cancelled by the caller, so the remaps it made must go too.
+    let saved = state.clone();
+    if patch.base != state.base {
+        // The agent reloaded a canvas the editor wrote with its own ids; earlier remaps would
+        // now send its edits to the wrong node or thread.
+        state.remap.clear();
+        state.comments = CommentRemap::default();
+        // Its replaced layers are gone from that canvas, so their old ids mean nothing there. The
+        // first patch of a session has no earlier canvas to be newer than.
+        if state.base.is_some() {
+            state.replaced.clear();
+        }
+        state.base = patch.base;
+    }
+    for op in &patch.ops {
+        if let Some(cmd) = resolve(doc, op, state, &mut report) {
+            if let Err(e) = exec(doc, cmd) {
+                *state = saved;
+                return Err(e);
+            }
+            report.applied += 1;
+        }
+    }
+    Ok(report)
+}
+
+fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
+    match op {
+        LiveOp::Insert { parent, at, nodes } => {
+            let parent = state.target(doc, *parent);
+            resolve_insert(doc, parent, at, nodes, state, report)
+        }
+        LiveOp::Update { id: agent_id, set, unset } => {
+            let (id, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
+            let kept;
+            let (set, unset) = if redirected {
+                kept = without_shape_fields(*agent_id, set, unset, report);
+                if kept.0.is_empty() && kept.1.is_empty() {
+                    return None;
+                }
+                (&kept.0, &kept.1)
+            } else {
+                (set, unset)
+            };
+            let Some(cur) = doc.get(id) else {
+                report.skipped.push(format!("update of missing node {}", id.0));
+                return None;
+            };
+            let merged = match merge_fields(cur, set, unset) {
+                Ok(n) => n,
+                Err(e) => {
+                    report.skipped.push(format!("update of node {}: {e}", id.0));
+                    return None;
+                }
+            };
+            if merged == *cur {
+                report.duplicates += 1;
+                return None;
+            }
+            let is_page = |n: &Node| matches!(n.kind, NodeKind::Page { .. });
+            if is_page(cur) != is_page(&merged) {
+                report.skipped.push(format!("update of node {} would turn a layer into a page or a page into a layer", id.0));
+                return None;
+            }
+            if !cur.children.is_empty() && !merged.kind.is_container() {
+                report.skipped.push(format!("update of node {} would turn a layer with children into one that cannot hold them", id.0));
+                return None;
+            }
+            if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
+                report.needs_layout.push(id);
+            }
+            Some(Command::Update { node: Box::new(merged) })
+        }
+        LiveOp::Reparent { id, parent, at } => {
+            let (id, parent) = (state.target(doc, *id), state.target(doc, *parent));
+            let at = remap_hint(at, state);
+            let (Some(node), Some(p)) = (doc.get(id), doc.get(parent)) else {
+                report.skipped.push(format!("move of node {} into missing parent {}", id.0, parent.0));
+                return None;
+            };
+            if !p.kind.is_container() || id == parent || doc.is_ancestor(id, parent) || node.parent.is_none() {
+                report.skipped.push(format!("move of node {} into {} is not allowed", id.0, parent.0));
+                return None;
+            }
+            let siblings: Vec<_> = p.children.iter().copied().filter(|c| *c != id).collect();
+            let index = at.index_in(&siblings);
+            if node.parent == Some(parent) && p.children.iter().position(|c| *c == id) == Some(index) {
+                report.duplicates += 1;
+                return None;
+            }
+            report.needs_layout.extend(node.parent);
+            report.needs_layout.extend([parent, id]);
+            Some(Command::Reparent { id, parent, index })
+        }
+        LiveOp::Remove { id } => {
+            let id = state.target(doc, *id);
+            let Some(parent) = doc.get(id).map(|n| n.parent) else {
+                report.duplicates += 1;
+                return None;
+            };
+            let Some(parent) = parent else {
+                report.skipped.push(format!("page {} cannot be removed by an agent edit", id.0));
+                return None;
+            };
+            report.needs_layout.push(parent);
+            Some(Command::Remove { id })
+        }
+        LiveOp::Comments { added, changed, removed } => {
+            let (remap, replaced) = (&state.remap, &state.replaced);
+            let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
+            resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
+        }
+    }
+}
+
+/// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
+/// reported as refused.
+fn without_shape_fields(agent_id: NodeId, set: &Map<String, Value>, unset: &[String], report: &mut LivePatchReport) -> (Map<String, Value>, Vec<String>) {
+    let mut refuse = |field: &str| {
+        report.skipped.push(format!("{field} change refused: layer {} was reshaped by the shape builder while this edit waited", agent_id.0));
+    };
+    let mut kept_set = Map::new();
+    for (field, value) in set {
+        if SHAPE_FIELDS.contains(&field.as_str()) {
+            refuse(field);
+        } else {
+            kept_set.insert(field.clone(), value.clone());
+        }
+    }
+    let mut kept_unset = Vec::new();
+    for field in unset {
+        if SHAPE_FIELDS.contains(&field.as_str()) {
+            refuse(field);
+        } else {
+            kept_unset.push(field.clone());
+        }
+    }
+    (kept_set, kept_unset)
+}
+
+fn resolve_insert(
+    doc: &mut Document,
+    parent: NodeId,
+    at: &SiblingHint,
+    nodes: &[Node],
+    state: &mut LivePatchState,
+    report: &mut LivePatchReport,
+) -> Option<Command> {
+    let Some(root) = nodes.first() else { return None };
+    if !doc.get(parent).is_some_and(|p| p.kind.is_container()) {
+        report.skipped.push(format!("insert of node {} into missing parent {}", root.id.0, parent.0));
+        return None;
+    }
+    let mut nodes: Vec<Node> = nodes.to_vec();
+    remap_subtree(&mut nodes, &state.remap);
+    // Before anything below reserves ids for it.
+    if let Some(why) = insert_problem(doc, parent, &nodes) {
+        report.skipped.push(format!("insert of node {}: {why}", nodes[0].id.0));
+        return None;
+    }
+    if let Some(existing) = doc.get(nodes[0].id) {
+        if existing.parent == Some(parent) && same_props(existing, &nodes[0]) {
+            report.duplicates += 1;
+            return None;
+        }
+    }
+    // Ids the editor already uses (created while the agent worked) get fresh ones.
+    let largest = nodes.iter().map(|n| n.id).max().unwrap_or(NodeId(0));
+    doc.reserve_ids(largest);
+    let mut fresh = BTreeMap::new();
+    for n in &nodes {
+        if doc.get(n.id).is_some() {
+            let Some(id) = doc.try_alloc_id() else {
+                report.skipped.push(format!("insert of node {}: the document has no node ids left", nodes[0].id.0));
+                return None;
+            };
+            fresh.insert(n.id, id);
+        }
+    }
+    if !fresh.is_empty() {
+        remap_subtree(&mut nodes, &fresh);
+        state.remap.extend(fresh);
+    }
+    // Children outside the subtree are existing nodes; their own Reparent ops move them here.
+    let ids: BTreeSet<NodeId> = nodes.iter().map(|n| n.id).collect();
+    for n in &mut nodes {
+        n.children.retain(|c| ids.contains(c));
+    }
+    nodes[0].parent = Some(parent);
+    let siblings = &doc.get(parent)?.children;
+    let index = remap_hint(at, state).index_in(siblings);
+    report.inserted_roots.push(nodes[0].id);
+    report.needs_layout.push(parent);
+    Some(Command::Insert { parent, index, nodes })
+}
+
+/// `cur` with the changed top-level fields of `set` / `unset` applied; structure is kept.
+fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Result<Node, String> {
+    let Value::Object(mut fields) = serde_json::to_value(cur).map_err(|e| e.to_string())? else {
+        return Err("node did not serialize to an object".into());
+    };
+    for (k, v) in set {
+        if !STRUCTURAL_FIELDS.contains(&k.as_str()) {
+            fields.insert(k.clone(), v.clone());
+        }
+    }
+    for k in unset {
+        if !STRUCTURAL_FIELDS.contains(&k.as_str()) {
+            fields.remove(k);
+        }
+    }
+    let mut merged: Node = serde_json::from_value(Value::Object(fields)).map_err(|e| e.to_string())?;
+    merged.id = cur.id;
+    merged.parent = cur.parent;
+    merged.children = cur.children.clone();
+    Ok(merged)
+}
+
+fn same_props(a: &Node, b: &Node) -> bool {
+    let strip = |n: &Node| Node { parent: None, children: Vec::new(), ..n.clone() };
+    strip(a) == strip(b)
+}
+
+fn remap_subtree(nodes: &mut [Node], map: &BTreeMap<NodeId, NodeId>) {
+    if map.is_empty() {
+        return;
+    }
+    let m = |id: NodeId| map.get(&id).copied().unwrap_or(id);
+    for n in nodes {
+        n.id = m(n.id);
+        n.parent = n.parent.map(m);
+        for c in &mut n.children {
+            *c = m(*c);
+        }
+    }
+}
+
+fn remap_hint(at: &SiblingHint, state: &LivePatchState) -> SiblingHint {
+    let m = |id: NodeId| state.remap.get(&id).copied().unwrap_or(id);
+    SiblingHint { after: at.after.map(m), before: at.before.map(m) }
+}

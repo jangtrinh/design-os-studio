@@ -1,0 +1,131 @@
+//! The agent's log orders its document switches against its edits: an edit made before the
+//! agent opened another document never lands on that document, however the editor's polls and
+//! its busy canvas happen to batch the log.
+
+use crate::live_sync_interaction_tests::{apply_pending, live, Live};
+use designos_doc::{Document, Node, NodeId, Rect};
+use serde_json::json;
+
+/// A second document whose only layer has the same id as the editor's hero layer, so an edit
+/// that crosses over cannot miss.
+fn other_document_with_colliding_id(hero: NodeId) -> (Document, NodeId) {
+    let mut other = Document::new("Other");
+    let page = other.add_page("Page");
+    let theirs = other.alloc_id();
+    assert_eq!(theirs, hero, "the repro needs both documents to number their layer alike");
+    other.insert(page, Node::frame(theirs, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+    other.get_mut(theirs).unwrap().name = "Fresh".into();
+    (other, theirs)
+}
+
+fn agent_opens(l: &mut Live, other: &Document) {
+    std::fs::write(l.workspace.join("other.designos"), other.to_json().unwrap()).unwrap();
+    l.session.call("designos_open_file", json!({ "path": "other.designos", "discard_changes": true })).expect("open_file");
+}
+
+fn name_of(l: &Live, id: NodeId) -> String {
+    l.app.doc.get(id).map(|n| n.name.clone()).unwrap_or_default()
+}
+
+fn toast(l: &Live) -> String {
+    l.app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default()
+}
+
+#[test]
+fn an_edit_made_before_the_agent_opened_another_document_does_not_land_on_it_when_both_arrive_in_one_poll() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.agent_renames(hero, "Agent hero");
+    agent_opens(&mut l, &other);
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Other");
+    assert_eq!(name_of(&l, theirs), "Fresh", "the old document's rename landed on the new one");
+    assert!(toast(&l).contains("1 earlier edit"), "the toast must say an edit was dropped: {:?}", toast(&l));
+    l.finish();
+}
+
+#[test]
+fn an_edit_made_before_the_agent_opened_another_document_does_not_land_on_it_during_a_drag() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.start_drag();
+    l.agent_renames(hero, "Agent hero");
+    agent_opens(&mut l, &other);
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Live", "the document is not replaced in the middle of a drag");
+    l.app.canvas.inter = crate::canvas::Interaction::None;
+    apply_pending(&mut l.app);
+    assert_eq!(l.app.doc.name, "Other");
+    assert_eq!(name_of(&l, theirs), "Fresh", "the old document's rename landed on the new one");
+    assert!(toast(&l).contains("1 earlier edit"), "the toast must say an edit was dropped: {:?}", toast(&l));
+    l.finish();
+}
+
+#[test]
+fn edits_made_after_the_switch_land_on_the_new_document_in_the_same_poll() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.agent_renames(hero, "Agent hero");
+    agent_opens(&mut l, &other);
+    l.agent_renames(theirs, "Agent fresh");
+    l.deliver();
+    assert_eq!(name_of(&l, theirs), "Agent fresh");
+    assert!(toast(&l).contains("1 earlier edit"), "{:?}", toast(&l));
+    l.finish();
+}
+
+#[test]
+fn an_edit_already_applied_before_the_switch_is_not_counted_as_dropped() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.agent_renames(hero, "Agent hero");
+    l.deliver();
+    assert_eq!(name_of(&l, hero), "Agent hero");
+    agent_opens(&mut l, &other);
+    l.deliver();
+    assert_eq!(name_of(&l, theirs), "Fresh");
+    assert!(!toast(&l).contains("earlier edit"), "{:?}", toast(&l));
+    l.finish();
+}
+
+#[test]
+fn only_the_last_of_several_switches_in_one_poll_is_opened_and_edits_between_them_are_dropped() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    agent_opens(&mut l, &other);
+    l.agent_renames(theirs, "Edit on the middle document");
+    let mut last = Document::new("Last");
+    let page = last.add_page("Page");
+    let fresh = last.alloc_id();
+    assert_eq!(fresh, hero);
+    last.insert(page, Node::frame(fresh, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+    last.get_mut(fresh).unwrap().name = "Last fresh".into();
+    std::fs::write(l.workspace.join("last.designos"), last.to_json().unwrap()).unwrap();
+    l.session.call("designos_open_file", json!({ "path": "last.designos", "discard_changes": true })).expect("open_file");
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Last");
+    assert_eq!(name_of(&l, fresh), "Last fresh");
+    assert!(toast(&l).contains("1 earlier edit"), "{:?}", toast(&l));
+    l.finish();
+}
+
+#[test]
+fn an_unloadable_document_is_reported_and_the_edits_made_on_it_are_dropped_not_misapplied() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    agent_opens(&mut l, &other);
+    // The editor cannot read what the agent published.
+    std::fs::remove_file(l.dir.join("doc-sync.designos")).unwrap();
+    l.agent_renames(theirs, "Agent fresh");
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Live");
+    assert_eq!(name_of(&l, hero), "Hero", "an edit made on the unreadable document landed on the open one");
+    assert!(toast(&l).contains("agent edit"), "the dropped edit is reported: {:?}", toast(&l));
+    l.finish();
+}
