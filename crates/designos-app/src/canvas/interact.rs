@@ -300,6 +300,21 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         builder::hover(app, app.canvas.pointer_page);
     }
 
+    let pill_drag_id = egui::Id::new("grid-pill-drag-start");
+    if inp.pressed && hovered {
+        if let Some(pos) = inp.pos {
+            if super::draw::grid_track_pill_rects(app, rect).iter().any(|(_, _, _, r)| r.contains(pos)) {
+                ctx.data_mut(|d| d.insert_temp(pill_drag_id, pos));
+            }
+        }
+    }
+    if inp.released {
+        if let (Some(from_pos), Some(to_pos)) = (ctx.data_mut(|d| d.remove_temp::<Pos2>(pill_drag_id)), inp.pos) {
+            if (to_pos - from_pos).length() > 4.0 && try_drag_grid_track_pill(app, rect, from_pos, to_pos) {
+                return;
+            }
+        }
+    }
     if (inp.pressed || inp.mid_pressed) && hovered {
         app.terminal.viewport_focused = false;
         if let Some(focused_id) = ctx.memory(|m| m.focused()) {
@@ -432,7 +447,34 @@ pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bo
             return true;
         }
     }
+    for (grid_id, is_col, add_r) in super::draw::grid_track_add_button_rects(app, rect) {
+        if add_r.contains(pos) {
+            let at = app
+                .doc
+                .get(grid_id)
+                .and_then(|n| n.kind.frame_props())
+                .and_then(|fp| fp.auto_layout.as_ref())
+                .map(|al| super::grids::grid_tracks_of(al, is_col).len())
+                .unwrap_or(0);
+            if super::grids::insert_grid_track(app, grid_id, is_col, at, designos_doc::GridTrack::Flex(1.0)) {
+                app.show_toast(if is_col { "Added column track" } else { "Added row track" }, false);
+            }
+            return true;
+        }
+    }
     false
+}
+
+/// Reorders a grid column/row track when dragging from one on-canvas track header pill to another (`#144`).
+pub fn try_drag_grid_track_pill(app: &mut App, rect: ERect, from_pos: Pos2, to_pos: Pos2) -> bool {
+    let pills = super::draw::grid_track_pill_rects(app, rect);
+    let Some(&(grid_id, is_col, from_idx, _)) = pills.iter().find(|(_, _, _, r)| r.contains(from_pos)) else {
+        return false;
+    };
+    let Some(&(_, _, to_idx, _)) = pills.iter().find(|&&(gid, col, idx, r)| gid == grid_id && col == is_col && idx != from_idx && r.contains(to_pos)) else {
+        return false;
+    };
+    super::grids::move_grid_track(app, grid_id, is_col, from_idx, to_idx)
 }
 
 /// Returns `(shared_parent_id, items_with_world_aabb)` when 2 or more selected nodes

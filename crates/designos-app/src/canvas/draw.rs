@@ -387,7 +387,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
             dashed_quad(p, &c_pts, 3.0, 3.0, cell_stroke);
         }
 
-        // 3. Compact Column & Row Track Header Pills outside top and left edges when zoom >= 0.4.
+        // 3. Compact Column & Row Track Header Pills + '+' Add Track buttons outside top/left edges when zoom >= 0.4.
         if app.view.zoom >= 0.4 {
             let font = theme::font_small_strong();
             for c in 0..ov.cols {
@@ -399,6 +399,13 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
                 p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
                 p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
             }
+            if ov.cols < 8 {
+                let top_right = to_s(inner_x1, 0.0);
+                let add_c = ERect::from_center_size(Pos2::new(top_right.x + 10.0, top_right.y - 11.0), EV::new(15.0, 15.0));
+                p.rect_filled(add_c, theme::cr(3), pill_bg);
+                p.rect_stroke(add_c, theme::cr(3), pill_border, StrokeKind::Inside);
+                p.text(add_c.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
+            }
             for r in 0..ov.rows {
                 let label = super::grids::format_grid_track(ov.row_tracks[r]);
                 let left_mid = to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5);
@@ -407,6 +414,13 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
                 p.rect_filled(pill, theme::cr(3), pill_bg);
                 p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
                 p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
+            }
+            if ov.rows < 8 {
+                let bot_left = to_s(0.0, inner_y1);
+                let add_r = ERect::from_min_size(Pos2::new(bot_left.x - 20.0, bot_left.y + 3.0), EV::new(15.0, 15.0));
+                p.rect_filled(add_r, theme::cr(3), pill_bg);
+                p.rect_stroke(add_r, theme::cr(3), pill_border, StrokeKind::Inside);
+                p.text(add_r.center(), Align2::CENTER_CENTER, "+", font, FIGMA_BLUE);
             }
         }
     }
@@ -468,6 +482,40 @@ pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize
             let tw = (label.chars().count() as f32 * 6.0 + 10.0).max(24.0);
             let pill = ERect::from_min_size(Pos2::new(left_mid.x - tw - 5.0, left_mid.y - 7.5), EV::new(tw, 15.0));
             out.push((id, false, r, pill));
+        }
+    }
+    out
+}
+
+/// Returns `(grid_frame_id, is_col, screen_rect)` for the on-canvas `+` add-column / add-row buttons (`#144`).
+pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, ERect)> {
+    let mut out = Vec::new();
+    if app.view.zoom < 0.4 {
+        return out;
+    }
+    let mut candidates = app.selection.clone();
+    if let Some(h) = app.hover {
+        if !candidates.contains(&h) {
+            candidates.push(h);
+        }
+    }
+    for id in candidates {
+        let Some(n) = app.doc.get(id) else { continue };
+        let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
+        let w_xform = super::fast_world_transform(&app.doc, id);
+        let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
+        let [pt, pr, pb, pl] = ov.padding;
+        let inner_x1 = (n.size.x - pr).max(pl);
+        let inner_y1 = (n.size.y - pb).max(pt);
+        if ov.cols < 8 {
+            let top_right = to_s(inner_x1, 0.0);
+            let add_c = ERect::from_center_size(Pos2::new(top_right.x + 10.0, top_right.y - 11.0), EV::new(15.0, 15.0));
+            out.push((id, true, add_c));
+        }
+        if ov.rows < 8 {
+            let bot_left = to_s(0.0, inner_y1);
+            let add_r = ERect::from_min_size(Pos2::new(bot_left.x - 20.0, bot_left.y + 3.0), EV::new(15.0, 15.0));
+            out.push((id, false, add_r));
         }
     }
     out

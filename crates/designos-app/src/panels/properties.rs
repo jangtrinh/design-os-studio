@@ -1137,6 +1137,9 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
             update_al(app, sel, |al| al.grid_rows = r);
         }
         row_end(pane);
+        if let &[grid_id] = sel {
+            grid_tracks_ui(app, ui, pane, grid_id, a);
+        }
     }
     dimensions_ui(app, ui, pane, sel, false);
     let _ = parent_al;
@@ -1214,6 +1217,62 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
         update_al(app, sel, |al| al.counter_align_content = if i == 1 { CounterAlignContent::SpaceBetween } else { CounterAlignContent::Auto });
     }
     row_end(pane);
+}
+
+fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId, a: AutoLayout) {
+    use crate::canvas::grids::{delete_grid_track, format_grid_track_list, grid_tracks_of, insert_grid_track, move_grid_track, resize_grid_track};
+    use designos_doc::GridTrack;
+
+    let right_x = theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W;
+    let options = ["1fr", "Fixed", "Hug"].map(String::from);
+    for (is_col, heading, tag) in [(true, "Columns", "col"), (false, "Rows", "row")] {
+        let tracks = grid_tracks_of(&a, is_col);
+        let labels = format_grid_track_list(&a, is_col);
+        sublabel(ui, pane, heading);
+        let add_r = pane.rect(right_x - 20.0, -20.0, 20.0, 20.0);
+        if widgets::icon_button(ui, add_r, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked() {
+            insert_grid_track(app, grid_id, is_col, tracks.len(), GridTrack::Flex(1.0));
+        }
+        for (idx, (&tr, cur_lbl)) in tracks.iter().zip(labels.iter()).enumerate() {
+            let dd_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 74.0, theme::FIELD_HEIGHT);
+            if let Some(mode_i) = dropdown(ui, dd_r, format!("grid-{tag}-mode-{idx}"), cur_lbl, &options) {
+                let next = match mode_i {
+                    0 => GridTrack::Flex(1.0),
+                    1 => GridTrack::Fixed(120.0),
+                    _ => GridTrack::Hug,
+                };
+                resize_grid_track(app, grid_id, is_col, idx, next);
+            }
+            let val_r = pane.rect(theme::SECTION_CONTENT_X + 78.0, 0.0, 76.0, theme::FIELD_HEIGHT);
+            match tr {
+                GridTrack::Flex(fr) => {
+                    if let Some(v) = field::num_field(ui, val_r, format!("grid-{tag}-fr-{idx}"), Prefix::Text("fr"), Some(fr), "") {
+                        resize_grid_track(app, grid_id, is_col, idx, GridTrack::Flex(v.max(0.1)));
+                    }
+                }
+                GridTrack::Fixed(px) => {
+                    if let Some(v) = field::num_field(ui, val_r, format!("grid-{tag}-px-{idx}"), Prefix::Text("px"), Some(px), "") {
+                        resize_grid_track(app, grid_id, is_col, idx, GridTrack::Fixed(v.max(1.0)));
+                    }
+                }
+                GridTrack::Hug => {}
+            }
+            if tracks.len() > 1 {
+                let next_idx = if idx + 1 < tracks.len() { idx + 1 } else { idx.saturating_sub(1) };
+                let mv_r = pane.rect(right_x - 44.0, 2.0, 20.0, 20.0);
+                if widgets::icon_button(ui, mv_r, format!("grid-{tag}-mv-{idx}"), Icon::ChevronDown, false, "Move track").clicked() {
+                    move_grid_track(app, grid_id, is_col, idx, next_idx);
+                }
+            }
+            if !is_col || tracks.len() > 1 {
+                let del_r = pane.rect(right_x - 20.0, 2.0, 20.0, 20.0);
+                if widgets::icon_button(ui, del_r, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
+                    delete_grid_track(app, grid_id, is_col, idx);
+                }
+            }
+            row_end(pane);
+        }
+    }
 }
 
 /// The Auto spacing popup: Between, Around or Evenly, or back to packed items.
