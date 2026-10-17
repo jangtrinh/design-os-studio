@@ -51,8 +51,8 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 
 ## Checklist
 
-1. Make sure `main` is green (tests on Linux, Windows and macOS, Clippy).
-2. Bump `version` under `[workspace.package]` in the root `Cargo.toml`, run `cargo build --workspace` so `Cargo.lock` updates, and commit both (`release: 0.2.0`).
+1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and Windows and Linux are tested by their users.
+2. Bump `version` under `[workspace.package]` in the root `Cargo.toml`, run `cargo update -w` so `Cargo.lock` updates, and commit both (`release: 0.3.0`). The workflow's `version-check` job fails the release when the tag and this version differ.
 3. Tag and push:
 
    ```sh
@@ -61,7 +61,7 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
    ```
 
    A tag containing a hyphen (`v0.2.0-rc.1`) is published as a pre-release.
-4. Watch the Release workflow. When all builds pass, a GitHub Release is created with auto-generated notes. Edit the notes if needed.
+4. Watch the Release workflow. When the macOS build passes, a GitHub Release is created with auto-generated notes. Windows and Linux packages are attached if their builds pass, and a failure there does not block the release. Edit the notes if needed.
 
 ## What gets built
 

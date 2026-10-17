@@ -2,6 +2,26 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.3.0] - 2026-10-17
+
+### Fixed
+- **Agent edits keep the open document intact (#28).** `designos_apply_spec` and other edits made through the bundled `designos-mcp` server no longer replace the open document. On large files, the other frames used to become empty boxes and the Text styles list emptied. Edits are now replayed as node operations: one undo step per batch, the new layer is selected, and the view stays where it was.
+- **Large pages render at low zoom (#13).** The GPU canvas renders each frame in its own submission. Pages such as a 68,698-layer `.fig` at 3% zoom no longer show an empty canvas.
+- **Untrusted files and saves (#1):**
+  - `.fig`, kiwi and `.pen` decoding is bounded (total inflate budget, entry and depth caps);
+  - saves are atomic (temp file in the same folder, fsync, rename);
+  - documents with dangling or cyclic layer references are repaired on load instead of crashing; the MCP `open_file` tool refuses repaired documents.
+- **The app reports its real version.** The workspace version was still `0.1.0` in v0.2.0, so the About dialog and the updater misreported it. The release workflow now fails if the tag and `Cargo.toml` disagree.
+
+### Changed
+- **Idle full-quality GPU refine (#1).** After 250 ms without changes, the canvas renders one uncapped frame (masks, blur, blend modes, group opacity), bounded by a 512 MiB VRAM budget. Any interaction returns to the capped interactive path.
+- **Lower memory on `.fig` import.** Peak RSS on large files is about 6.4 GB lower, and Phase 2 engine optimizations were added.
+- **Removed UI that did nothing (#1).**
+- **Releases are verified on macOS.** A failed Windows or Linux build no longer blocks the macOS release; those packages are attached when their builds pass.
+
+### Added
+- `--no-toast` and `--no-caption` for `--screenshot`, for clean real-canvas captures (#13).
+
 ## [0.2.0] - 2026-10-15
 
 ### Added

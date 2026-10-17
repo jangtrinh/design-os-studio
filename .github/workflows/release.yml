@@ -15,8 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  # The binaries report CARGO_PKG_VERSION (About dialog, self-updater), so a tag
+  # that differs from the workspace version ships an app that misreports itself.
+  version-check:
+    name: Tag matches Cargo version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare tag and [workspace.package] version
+        shell: bash
+        run: |
+          cargo_version=$(sed -n '/^\[workspace.package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "workspace version: ${cargo_version}"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME#v}" != "${cargo_version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${cargo_version}. Bump [workspace.package] version first (docs/releasing.md, step 2)."
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: version-check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -82,6 +101,7 @@ jobs:
   # (.dmg for users + install-cli.command, .tar.gz for scripts & self-updater).
   macos:
     name: Build macOS universal app
+    needs: version-check
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -124,9 +144,14 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build, macos]
+    needs: [version-check, build, macos]
     # Tags only: manual (workflow_dispatch) runs stop after uploading artifacts.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # macOS is the verified platform: a failed Windows or Linux build leaves its
+    # package out of the release instead of blocking the macOS release.
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v')
+      && needs.version-check.result == 'success'
+      && needs.macos.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
