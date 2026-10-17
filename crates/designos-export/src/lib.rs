@@ -6,8 +6,9 @@
 //! * [`css_for`] prints Dev Mode style CSS for a layer; [`tailwind_for`], [`swiftui_for`],
 //!   [`compose_for`] and [`react_for`] generate code for the other Dev Mode languages.
 //!
-//! [`export_pdf`] exports ordered slide frames as losslessly compressed raster PDF pages.
-//! PDF pages preserve slide dimensions and artwork; text is not selectable.
+//! [`export_pdf`] exports ordered frames (deck slides or selected design frames) as
+//! losslessly compressed raster PDF pages, one page per frame. Pages preserve frame
+//! dimensions and artwork; text is not selectable.
 
 mod bounds;
 mod codegen;
@@ -43,16 +44,18 @@ pub enum ExportFormat {
     Png,
     Jpg,
     Svg,
+    Pdf,
 }
 
 impl ExportFormat {
-    pub const ALL: [ExportFormat; 3] = [ExportFormat::Png, ExportFormat::Jpg, ExportFormat::Svg];
+    pub const ALL: [ExportFormat; 4] = [ExportFormat::Png, ExportFormat::Jpg, ExportFormat::Svg, ExportFormat::Pdf];
 
     pub fn label(&self) -> &'static str {
         match self {
             Self::Png => "PNG",
             Self::Jpg => "JPG",
             Self::Svg => "SVG",
+            Self::Pdf => "PDF",
         }
     }
 
@@ -61,12 +64,14 @@ impl ExportFormat {
             Self::Png => "png",
             Self::Jpg => "jpg",
             Self::Svg => "svg",
+            Self::Pdf => "pdf",
         }
     }
 
-    /// Whether the scale setting means anything for this format.
+    /// Whether the scale setting means anything for this format. PDF pages use the
+    /// frame's own size, so they take no `@2x` suffix either.
     pub fn is_raster(&self) -> bool {
-        !matches!(self, Self::Svg)
+        !matches!(self, Self::Svg | Self::Pdf)
     }
 }
 
@@ -90,7 +95,8 @@ impl ExportSetting {
         format!("{}{suffix}.{}", sanitize_file_name(layer), self.format.extension())
     }
 
-    /// Encoded bytes for `node`.
+    /// Encoded bytes for `node`; empty when nothing can be rendered (including a PDF
+    /// the exporter rejects, e.g. a non-frame or oversized layer).
     pub fn render(&self, doc: &designos_doc::Document, node: designos_doc::NodeId) -> Vec<u8> {
         let size = doc.get(node).map(|n| n.size).unwrap_or_default();
         let f = self.scale.factor(size);
@@ -98,7 +104,25 @@ impl ExportSetting {
             ExportFormat::Png => export_png(doc, node, f),
             ExportFormat::Jpg => export_jpg(doc, node, f, 90),
             ExportFormat::Svg => export_svg(doc, node, &SvgOptions::default()).into_bytes(),
+            ExportFormat::Pdf => export_pdf(doc, &[node]).unwrap_or_default(),
         }
+    }
+
+    /// Encoded bytes for a whole selection. PDF writes one multi-page document with
+    /// one page per node, in the given order; the other formats are one file per
+    /// layer and so take exactly one node. Errors name the reason.
+    pub fn render_many(&self, doc: &designos_doc::Document, nodes: &[designos_doc::NodeId]) -> Result<Vec<u8>, String> {
+        if self.format == ExportFormat::Pdf {
+            return export_pdf(doc, nodes);
+        }
+        let [node] = nodes else {
+            return Err(format!("{} exports one layer per file.", self.format.label()));
+        };
+        let bytes = self.render(doc, *node);
+        if bytes.is_empty() {
+            return Err("Nothing to export.".into());
+        }
+        Ok(bytes)
     }
 }
 

@@ -24,7 +24,7 @@ impl Writer {
     }
     fn object(&mut self, number: usize, body: &[u8]) -> Result<(), String> {
         if self.bytes.len().saturating_add(body.len()).saturating_add(64) > MAX_OUTPUT {
-            return Err("PDF exceeds the 128 MiB export limit. Export fewer slides at a time.".into());
+            return Err("PDF exceeds the 128 MiB export limit. Export fewer frames at a time.".into());
         }
         if number != self.offsets.len() {
             return Err("Invalid PDF object sequence.".into());
@@ -60,20 +60,20 @@ impl Writer {
 /// an error. Transparency is composited over white; notes are not included.
 pub fn export_pdf(doc: &Document, slides: &[NodeId]) -> Result<Vec<u8>, String> {
     if slides.is_empty() {
-        return Err("There are no slides to export.".into());
+        return Err("There are no frames to export.".into());
     }
     if slides.len() > MAX_PAGES {
-        return Err(format!("Export at most {MAX_PAGES} slides at a time."));
+        return Err(format!("Export at most {MAX_PAGES} frames at a time."));
     }
     // Validate the complete selection before spending time rendering any page.
     for id in slides {
-        let node = doc.get(*id).ok_or_else(|| format!("Slide {} no longer exists.", id.0))?;
+        let node = doc.get(*id).ok_or_else(|| format!("Frame {} no longer exists.", id.0))?;
         if !matches!(node.kind, NodeKind::Frame(_)) {
-            return Err(format!("{} is not a slide frame.", node.name));
+            return Err(format!("{} is not a frame; only frames export as PDF pages.", node.name));
         }
         let size = node.size;
         if !size.x.is_finite() || !size.y.is_finite() || size.x < 1.0 || size.y < 1.0 || size.x > 19_200.0 || size.y > 19_200.0 {
-            return Err("Slide dimensions must be finite and between 1 and 19,200 pixels.".into());
+            return Err("Frame dimensions must be finite and between 1 and 19,200 pixels.".into());
         }
     }
     let mut writer = Writer::new();
