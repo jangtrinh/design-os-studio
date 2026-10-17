@@ -39,9 +39,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         }
     }
     let grid_parent = parent_al.is_some_and(|a| a.direction == LayoutDirection::Grid);
-    let row_parent = parent_al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
+    let row_parent = parent_al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
+    let hug_w = own_al.map(|a| a.sizing_along(true) == Sizing::Hug).unwrap_or(false);
+    let hug_h = own_al.map(|a| a.sizing_along(false) == Sizing::Hug).unwrap_or(false);
     let text_auto_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_auto_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill);
@@ -50,11 +50,11 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut flex_done = false;
     let mut stretch = false;
     if in_flow && grid_parent {
-        if n.layout_child.col_span > 1 {
-            push("grid-column", format!("span {}", n.layout_child.col_span));
+        if let Some(col) = crate::codegen::grid_placement_css(n.layout_child.grid_column, n.layout_child.col_span) {
+            push("grid-column", col);
         }
-        if n.layout_child.row_span > 1 {
-            push("grid-row", format!("span {}", n.layout_child.row_span));
+        if let Some(row) = crate::codegen::grid_placement_css(n.layout_child.grid_row, n.layout_child.row_span) {
+            push("grid-row", row);
         }
     } else {
         for (is_w, fill) in [(true, fill_w), (false, fill_h)] {
@@ -93,10 +93,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1);
-            push("grid-template-columns", format!("repeat({cols}, minmax(0, 1fr))"));
+            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1) as usize;
+            push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
             if al.grid_rows > 0 {
-                push("grid-template-rows", format!("repeat({}, minmax(0, 1fr))", al.grid_rows));
+                push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
             }
             let col = al.item_spacing;
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -663,5 +663,57 @@ mod tests {
         let css = css_for(&d, id);
         assert!(css.contains("background: radial-gradient(50% 50% at 50% 50%, #FFF 0%, #000 100%);"), "{css}");
         assert!(css.contains("border-radius: 50%;"), "{css}");
+    }
+
+    #[test]
+    fn grid_tracks_placement_and_gaps_css() {
+        let mut pinned_id = NodeId(0);
+        let mut span_only_id = NodeId(0);
+        let (d, grid_id) = doc_with(|d, page| {
+            let gid = d.alloc_id();
+            let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 480.0, 200.0));
+            g.fills.clear();
+            let mut al = AutoLayout {
+                direction: LayoutDirection::Grid,
+                item_spacing: 16.0,
+                counter_spacing: 24.0,
+                padding: [12.0, 16.0, 12.0, 16.0],
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Fixed,
+                grid_columns: 3,
+                grid_rows: 2,
+                ..Default::default()
+            };
+            al.grid_col_tracks[0] = GridTrack::Flex(1.0);
+            al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+            al.grid_col_tracks[2] = GridTrack::Hug;
+            al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+            al.grid_row_tracks[1] = GridTrack::Hug;
+            g.kind = NodeKind::Frame(FrameProps { clips_content: true, auto_layout: Some(al), ..Default::default() });
+            let g = d.insert(page, g).unwrap();
+
+            let c1 = d.alloc_id();
+            let mut n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 200.0, 80.0));
+            n1.fills.clear();
+            n1.layout_child.grid_column = Some(1);
+            n1.layout_child.grid_row = Some(0);
+            n1.layout_child.col_span = 2;
+            n1.layout_child.row_span = 1;
+            pinned_id = d.insert(g, n1).unwrap();
+
+            let c2 = d.alloc_id();
+            let mut n2 = Node::rectangle(c2, Rect::new(0.0, 0.0, 180.0, 60.0));
+            n2.fills.clear();
+            n2.layout_child.col_span = 2;
+            n2.layout_child.row_span = 1;
+            span_only_id = d.insert(g, n2).unwrap();
+        });
+
+        assert_eq!(
+            css_for(&d, grid_id),
+            "display: grid;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: 1fr 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\noverflow: hidden;"
+        );
+        assert_eq!(css_for(&d, pinned_id), "grid-column: 2 / span 2;\ngrid-row: 1 / span 1;\nheight: 80px;");
+        assert_eq!(css_for(&d, span_only_id), "grid-column: span 2;\nheight: 60px;");
     }
 }
