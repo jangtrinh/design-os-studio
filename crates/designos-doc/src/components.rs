@@ -648,10 +648,11 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
 }
 
 /// Text whose characters differ from the main `r` (overridden, or driven by a bound property that
-/// has a value) and that sizes itself to its content keeps its own, already fitted, size.
+/// has a value) or whose text style is its own, and that sizes itself to its content, keeps its own,
+/// already fitted, size.
 fn keeps_own_text_size(r: &Node, n: &Node, values: &BTreeMap<String, PropValue>) -> bool {
     let bound_text = r.component.bindings.get(&OverrideField::Characters).is_some_and(|p| values.contains_key(p));
-    (n.component.overrides.contains(&OverrideField::Characters) || bound_text)
+    (n.component.overrides.contains(&OverrideField::Characters) || n.component.overrides.contains(&OverrideField::TextStyle) || bound_text)
         && matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height))
 }
 

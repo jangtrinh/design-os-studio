@@ -116,7 +116,67 @@ fn a_style_edit_on_an_instance_label_is_one_undo_step() {
     let (mut app, _main, label) = instance_with_own_label(TextAutoResize::WidthAndHeight, OwnCharacters::Typed);
     let before = app.doc.get(label).unwrap().size;
     assert!(app.update_style_values("Body", body_at(40.0)));
+    let size_after_edit = app.doc.get(label).unwrap().size;
+    assert_ne!(size_after_edit, before, "the edit re-fitted the label, so undo has something to restore");
     app.undo();
     assert_eq!(app.doc.get(label).unwrap().size, before);
     assert!(matches!(&app.doc.styles["Body"], Style::Text(ts) if ts.font_size == 12.0));
+}
+
+/// A main label on `Heading` (24) with one instance whose label has `Body` (12) applied on top,
+/// so its text style is the instance's own. Characters are the main's. Returns app, main label, instance label.
+fn instance_with_own_text_style(mode: TextAutoResize) -> (App, NodeId, NodeId) {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    let fid = d.alloc_id();
+    let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 200.0))).unwrap();
+    let tid = d.alloc_id();
+    let mut t = Node::text(tid, Rect::new(10.0, 10.0, 100.0, 40.0), "Label", TextStyle::default());
+    if let NodeKind::Text(tp) = &mut t.kind {
+        tp.auto_resize = mode;
+    }
+    let t = d.insert(f, t).unwrap();
+    d.styles.insert("Heading".into(), Style::Text(TextStyle { font_size: 24.0, ..Default::default() }));
+    d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+    let mut app = App::new(d);
+    app.apply_style(&[t], "Heading");
+    app.selection = vec![f];
+    app.create_component();
+    let comp = app.doc.get(t).and_then(|n| n.parent).expect("component root");
+    let inst = app.insert_instance(comp, Vec2::new(500.0, 100.0)).expect("instance");
+    let label = app.doc.get(inst).unwrap().children[0];
+    assert_eq!(app.doc.get(label).unwrap().component.source, Some(t), "the instance label mirrors the main label");
+    app.apply_style(&[label], "Body");
+    let own = app.doc.get(label).unwrap();
+    assert!(own.component.overrides.contains(&OverrideField::TextStyle), "the label's text style is its own");
+    assert!(!own.component.overrides.contains(&OverrideField::Characters), "the characters are the main's");
+    assert_eq!(own.style_refs.get("text").map(String::as_str), Some("Body"));
+    (app, t, label)
+}
+
+#[test]
+fn instance_text_with_its_own_text_style_refits_when_that_style_grows() {
+    for mode in [TextAutoResize::WidthAndHeight, TextAutoResize::Height] {
+        let (mut app, main, label) = instance_with_own_text_style(mode);
+        let before = app.doc.get(label).unwrap().size;
+        assert!(app.update_style_values("Body", body_at(40.0)));
+        let after = app.doc.get(label).unwrap().size;
+        assert!(after.y > before.y * 2.0, "{mode:?}: the label gets taller with its own type: {before:?} -> {after:?}");
+        assert_fits_its_own_text(&app, label);
+        assert_ne!(after, app.doc.get(main).unwrap().size, "{mode:?}: the size is the label's own, not the main's");
+    }
+}
+
+#[test]
+fn editing_the_mains_style_does_not_copy_the_mains_size_onto_text_with_its_own_text_style() {
+    for mode in [TextAutoResize::WidthAndHeight, TextAutoResize::Height] {
+        let (mut app, main, label) = instance_with_own_text_style(mode);
+        let before = app.doc.get(label).unwrap().size;
+        assert!(app.update_style_values("Heading", Style::Text(TextStyle { font_size: 60.0, ..Default::default() })));
+        assert!(app.doc.get(main).unwrap().size.y > before.y * 2.0, "{mode:?}: the main grew with Heading");
+        let own = app.doc.get(label).unwrap();
+        assert_eq!(own.size, before, "{mode:?}: the label keeps its own size");
+        assert!(matches!(&own.kind, NodeKind::Text(tp) if tp.style.font_size == 12.0), "{mode:?}: the label keeps its own type");
+        assert_fits_its_own_text(&app, label);
+    }
 }
