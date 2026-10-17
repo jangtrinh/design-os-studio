@@ -557,14 +557,23 @@ pub fn flattened_area(paths: &[d::Path]) -> f32 {
     paths.iter().flat_map(|p| flatten_path(p, 0.01)).filter(|(_, c)| *c).map(|(pts, _)| polygon_area(&pts)).sum()
 }
 
-/// Offsets filled/open paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
-/// using Figma's default round join semantics.
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// using Figma's default round join semantics. Open sub-paths pass through unchanged.
 pub fn offset_path(paths: &[d::Path], delta: f32) -> Vec<d::Path> {
     offset_paths(paths, delta, d::StrokeJoin::Round, 4.0)
 }
 
-/// Offsets filled/open paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// `(closed, open)` sub-path counts of `paths`.
+pub fn count_subpaths(paths: &[d::Path]) -> (usize, usize) {
+    paths.iter().flat_map(subpaths).fold((0, 0), |(closed, open), (_, is_closed)| if is_closed { (closed + 1, open) } else { (closed, open + 1) })
+}
+
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
 /// with explicit corner join (`Round`, `Miter`, `Bevel`) and miter limit.
+///
+/// An open sub-path has no inside to grow or shrink, and a parallel curve of it is not
+/// what a centred stroke gives (that is a ribbon around it), so open sub-paths are carried
+/// into the result exactly as they were. [`count_subpaths`] tells a caller whether there are any.
 pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_limit: f32) -> Vec<d::Path> {
     if paths.is_empty() || !delta.is_finite() {
         return Vec::new();
@@ -592,12 +601,8 @@ pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_li
             if closed {
                 p_closed_cmds.extend(sub.cmds.iter().copied());
                 closed_subs.push(sub);
-            } else if delta > 0.0 {
-                if let Some(skp) = vector_paths(std::slice::from_ref(&sub)).paths.into_iter().next().map(|x| x.0) {
-                    if let Some(o) = expand(&skp, &st) {
-                        out.push(sk_to_doc(&o, d::FillRule::NonZero));
-                    }
-                }
+            } else {
+                out.push(sub);
             }
         }
         if !p_closed_cmds.is_empty() {
