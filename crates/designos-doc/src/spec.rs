@@ -932,4 +932,59 @@ mod tests {
         );
         assert_eq!(doc.get(hug_h_id).unwrap().size, Vec2::new(400.0, 30.0));
     }
+
+    #[test]
+    fn grid_height_hug_keeps_an_explicit_width_pinned() {
+        let mut doc = Document::new("Grid Spec");
+        let page = doc.add_page("P");
+        // A preset leaves the grid hugging both ways. The explicit width pins the primary axis and
+        // height_sizing=hug keeps the counter axis hugging, so the width stays 400.
+        let preset_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "PresetGrid",
+            "kind": "frame",
+            "preset": "easeui-panel",
+            "width": 400.0,
+            "height_sizing": "hug",
+            "layout": { "direction": "grid", "grid_columns": 2, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 }
+            ]
+        }))
+        .unwrap();
+        let preset_id = doc.apply_spec(page, &preset_spec).unwrap();
+        let al_p = doc.get(preset_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_p.primary_sizing, al_p.counter_sizing),
+            (Sizing::Fixed, Sizing::Hug),
+            "an explicit width on a hugging grid frame must pin primary_sizing, and height_sizing=hug must leave counter_sizing hugging"
+        );
+        assert_eq!(doc.get(preset_id).unwrap().size, Vec2::new(400.0, 62.0), "400 wide, one row of 30 plus the preset's 16px padding above and below");
+    }
+
+    #[test]
+    fn grid_width_and_height_hug_together_hug_both_axes() {
+        let mut doc = Document::new("Grid Spec");
+        let page = doc.add_page("P");
+        let hug_both_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "HugBothGrid",
+            "kind": "frame",
+            "width_sizing": "hug",
+            "height_sizing": "hug",
+            "layout": { "direction": "grid", "grid_columns": 2, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 }
+            ]
+        }))
+        .unwrap();
+        let hug_both_id = doc.apply_spec(page, &hug_both_spec).unwrap();
+        let al_b = doc.get(hug_both_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_b.primary_sizing, al_b.counter_sizing),
+            (Sizing::Hug, Sizing::Hug),
+            "width_sizing=hug and height_sizing=hug on a grid frame must hug the columns and the rows"
+        );
+        assert_eq!(doc.get(hug_both_id).unwrap().size, Vec2::new(110.0, 30.0));
+    }
 }
