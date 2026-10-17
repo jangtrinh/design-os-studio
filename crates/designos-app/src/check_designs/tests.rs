@@ -590,4 +590,5 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
 
+mod backdrop;
 mod safety;

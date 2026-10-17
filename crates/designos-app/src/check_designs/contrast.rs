@@ -1,9 +1,16 @@
 //! Contrast rule: WCAG 2.x AA for text against the backdrop its ancestors paint.
 //!
 //! Limits, all of which skip the layer instead of guessing: the text must have one visible solid
-//! colour (no gradient, image, or per-run colours), every ancestor fill must be solid with normal
-//! blending, and no visible layer painted before the text (a sibling of the text or of one of its
-//! ancestors) may overlap it, because what that layer paints behind the text is not modelled.
+//! colour (no gradient, image, or per-run colours); no layer from the text up to the page may use a
+//! blend mode other than normal or pass-through (the renderer blends such a layer as a whole group,
+//! so the colours inside it are not what reaches the screen); every ancestor fill under the text
+//! must be solid with normal blending; and no visible layer painted before the text (a sibling of
+//! the text or of one of its ancestors) may overlap it, because what that layer paints behind the
+//! text is not modelled.
+//!
+//! An ancestor fill counts only where it is painted: the layer's own box, which nothing clips by
+//! default, so a child can sit outside it. A fill that does not reach the text is not its backdrop,
+//! and a fill that covers only part of the text leaves the backdrop unknown.
 //!
 //! Ancestors are composited the way the renderer does: a frame with opacity below 1 and children
 //! is one isolated group, so its opacity scales everything inside it, the text included.
@@ -95,14 +102,58 @@ impl Backdrop {
     }
 }
 
-/// What the ancestors of `id` paint behind it. `None` when any visible ancestor fill is not a plain
-/// solid, because the backdrop is then unknown.
+/// Whether the renderer blends this layer as a whole group instead of painting it normally.
+fn blends_as_group(mode: BlendMode) -> bool {
+    !matches!(mode, BlendMode::Normal | BlendMode::PassThrough)
+}
+
+/// The four corners of a box of `size` at the origin of its layer.
+fn box_corners(size: Vec2) -> [Vec2; 4] {
+    [Vec2::new(0.0, 0.0), Vec2::new(size.x, 0.0), Vec2::new(0.0, size.y), Vec2::new(size.x, size.y)]
+}
+
+/// How far a layer's fill reaches under the text.
+enum Reach {
+    /// The whole text box is over the fill.
+    Covers,
+    /// No part of the text box is over the fill.
+    Misses,
+    /// The fill is behind only part of the text, so the backdrop changes under it.
+    Partial,
+}
+
+/// Where the fill of a layer of `size` is relative to the text box `corners`, given in that
+/// layer's own space (so a rotated or scaled ancestor is exact, not approximated by a page box).
+fn reach(corners: &[Vec2; 4], size: Vec2) -> Reach {
+    // Matrix products leave float noise; text flush with the edge is still on the fill.
+    const EDGE: f32 = 0.01;
+    if corners.iter().all(|c| c.x >= -EDGE && c.y >= -EDGE && c.x <= size.x + EDGE && c.y <= size.y + EDGE) {
+        return Reach::Covers;
+    }
+    let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
+    let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    if x1 <= EDGE || y1 <= EDGE || x0 >= size.x - EDGE || y0 >= size.y - EDGE {
+        Reach::Misses
+    } else {
+        Reach::Partial
+    }
+}
+
+/// What the ancestors of `id` paint behind it. `None` when the backdrop is unknown: a visible
+/// ancestor is blended as a group, or a fill under the text is not a plain solid or covers only part
+/// of it.
 fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
+    let text = doc.get(id)?;
+    // The text box in the space of the layer being looked at; it starts in the parent's space.
+    let mut corners = box_corners(text.size).map(|c| text.transform.apply(c));
     let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE };
-    let mut cur = doc.get(id)?.parent;
+    let mut cur = text.parent;
     while let Some(p) = cur {
+        let raw = doc.get(p)?;
         let n = resolved_node(doc, p)?;
-        cur = doc.get(p)?.parent;
+        cur = raw.parent;
+        let here = corners;
+        corners = here.map(|c| raw.transform.apply(c));
         if let NodeKind::Page { background } = &n.kind {
             out.page = Color { a: 1.0, ..*background };
             continue;
@@ -110,11 +161,23 @@ fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
         if !n.visible {
             continue;
         }
+        if blends_as_group(n.blend) {
+            return None;
+        }
         let mut fills = Vec::new();
-        for paint in n.fills.iter().filter(|p| p.visible) {
-            match &paint.kind {
-                PaintKind::Solid(c) if paint.blend == BlendMode::Normal => fills.push((*c, c.a * paint.opacity)),
-                _ => return None,
+        if n.fills.iter().any(|p| p.visible) {
+            match reach(&here, n.size) {
+                // Its opacity still scales the text; it just paints nothing under it.
+                Reach::Misses => {}
+                Reach::Partial => return None,
+                Reach::Covers => {
+                    for paint in n.fills.iter().filter(|p| p.visible) {
+                        match &paint.kind {
+                            PaintKind::Solid(c) if paint.blend == BlendMode::Normal => fills.push((*c, c.a * paint.opacity)),
+                            _ => return None,
+                        }
+                    }
+                }
             }
         }
         out.layers.push(Layer { fills, opacity: n.opacity });
@@ -124,9 +187,8 @@ fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
 
 /// The layer's bounds in page space (the box of its transformed corners).
 fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
-    let size = doc.get(id)?.size;
     let t = doc.world_transform(id);
-    let corners = [Vec2::new(0.0, 0.0), Vec2::new(size.x, 0.0), Vec2::new(0.0, size.y), Vec2::new(size.x, size.y)].map(|c| t.apply(c));
+    let corners = box_corners(doc.get(id)?.size).map(|c| t.apply(c));
     let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
     let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
     Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
@@ -187,7 +249,7 @@ impl Failure {
 fn failure(doc: &Document, id: NodeId) -> Option<Failure> {
     let n = resolved_node(doc, id)?;
     let NodeKind::Text(t) = &n.kind else { return None };
-    if t.content.trim().is_empty() {
+    if t.content.trim().is_empty() || blends_as_group(n.blend) {
         return None;
     }
     let (paint, color) = text_paint(&n)?;
