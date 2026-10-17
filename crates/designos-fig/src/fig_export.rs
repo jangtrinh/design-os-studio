@@ -1191,6 +1191,7 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
     (0..count.min(8) as usize)
         .map(|i| match tracks[i] {
             GridTrack::Flex(w) => {
+                let w = finite_or(w, 1.0);
                 if (w - w.round()).abs() < 1e-4 {
                     format!("{}fr", w.round() as i32)
                 } else {
@@ -1198,6 +1199,7 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
                 }
             }
             GridTrack::Fixed(px) => {
+                let px = finite_or(px, 0.0);
                 if (px - px.round()).abs() < 1e-4 {
                     format!("{}px", px.round() as i32)
                 } else {

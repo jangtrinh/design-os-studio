@@ -2735,13 +2735,14 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
                 return parse_one(max_part);
             }
         }
+        let finite = |s: &str| s.trim().parse::<f32>().ok().filter(|v| v.is_finite());
         if matches!(lower.as_str(), "auto" | "min-content" | "max-content" | "fit-content") {
             GridTrack::Hug
         } else if let Some(fr) = lower.strip_suffix("fr") {
-            GridTrack::Flex(fr.trim().parse::<f32>().unwrap_or(1.0).max(0.01))
+            GridTrack::Flex(finite(fr).unwrap_or(1.0).max(0.01))
         } else if let Some(px) = lower.strip_suffix("px") {
-            GridTrack::Fixed(px.trim().parse::<f32>().unwrap_or(0.0).max(0.0))
-        } else if let Ok(v) = lower.parse::<f32>() {
+            GridTrack::Fixed(finite(px).unwrap_or(0.0).max(0.0))
+        } else if let Some(v) = finite(&lower) {
             GridTrack::Fixed(v.max(0.0))
         } else {
             GridTrack::Flex(1.0)
@@ -3287,5 +3288,24 @@ mod grid_sizing_tests {
         let (n, _) = parse_grid_sizing(&s);
         assert_eq!(n, 0);
         assert!(started.elapsed().as_millis() < 250, "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn non_finite_track_tokens_fall_back_to_finite_defaults() {
+        let (n, t) = parse_grid_sizing("NaNfr inffr -inffr NaNpx infpx -infpx inf -inf");
+        assert_eq!(n, 8);
+        assert_eq!(
+            t,
+            [
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+            ]
+        );
     }
 }

@@ -243,11 +243,11 @@ pub fn capture(doc: &Document, ids: &[NodeId]) -> Option<Clip> {
 }
 
 pub fn to_json(clip: &Clip) -> Option<String> {
-    serde_json::to_string(clip).ok()
+    designos_doc::finite_json::to_string_finite(clip).ok().map(|(s, _)| s)
 }
 
 pub fn from_json(s: &str) -> Option<Clip> {
-    let c: Clip = serde_json::from_str(s).ok()?;
+    let (c, _): (Clip, _) = designos_doc::finite_json::from_str_repairing(s).ok()?;
     (c.magic == MAGIC && !c.roots.is_empty()).then_some(c)
 }
 
@@ -482,5 +482,31 @@ pub(crate) mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>"#;
         app.paste_with_html(Some(svg), Some("<b>plain</b>"));
         assert_eq!(page_children(&app), 2, "svg text still pastes when the HTML is not Figma's");
+    }
+
+    #[test]
+    fn clipboard_json_roundtrips_non_finite_numbers_and_repairs_legacy_nulls() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 20.0));
+        rect.size.x = f32::NAN;
+        rect.opacity = f32::NAN;
+        rect.transform.tx = f32::INFINITY;
+        d.insert(page, rect).unwrap();
+
+        let clip = capture(&d, &[id]).expect("clip");
+        let json = to_json(&clip).expect("to_json");
+        assert!(!json.contains("null"), "clipboard JSON must not write null for non-finite numbers: {json}");
+        let roundtripped = from_json(&json).expect("from_json on finite-sanitized clip");
+        assert_eq!(
+            (roundtripped.nodes[0].size.x, roundtripped.nodes[0].size.y, roundtripped.nodes[0].opacity, roundtripped.nodes[0].transform.tx),
+            (0.0, 20.0, 1.0, 0.0)
+        );
+
+        let legacy_json = serde_json::to_string(&clip).unwrap();
+        assert!(legacy_json.contains("null"));
+        let repaired = from_json(&legacy_json).expect("from_json repairs legacy null floats");
+        assert_eq!((repaired.nodes[0].size.x, repaired.nodes[0].opacity), (0.0, 1.0));
     }
 }
