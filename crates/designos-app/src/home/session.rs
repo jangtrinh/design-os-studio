@@ -80,6 +80,11 @@ impl Autosave {
         self.watcher.as_ref().is_some_and(|w| w.inner.dirty.swap(false, std::sync::atomic::Ordering::AcqRel))
     }
 
+    /// Whether the watcher saw a write that no frame has looked at yet.
+    fn watcher_dirty(&self) -> bool {
+        self.watcher.as_ref().is_some_and(|w| w.inner.dirty.load(std::sync::atomic::Ordering::Acquire))
+    }
+
     fn sync_watcher(&mut self, ctx: &egui::Context, path: Option<PathBuf>, mtime: Option<std::time::SystemTime>) {
         if path.is_none() {
             if let Some(w) = &self.watcher {
@@ -632,8 +637,11 @@ impl App {
             }
         }
         self.autosave.sync_watcher(ctx, watched_path.clone(), self.autosave.disk_mtime);
-        let watcher_woke = self.autosave.take_watcher_dirty();
-        if !self.autosave.pending() && (watcher_woke || self.now - self.autosave.last_mtime_poll >= 0.5) {
+        // While a save is pending the file is not looked at, so a write the watcher reported stays flagged
+        // until the frame that can act on it.
+        let check_disk = !self.autosave.pending();
+        let watcher_woke = check_disk && self.autosave.take_watcher_dirty();
+        if check_disk && (watcher_woke || self.now - self.autosave.last_mtime_poll >= 0.5) {
             self.autosave.last_mtime_poll = self.now;
             if let Some(path) = watched_path {
                 let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
@@ -690,6 +698,10 @@ impl App {
                     Ok(()) => self.autosave.saves += 1,
                     Err(e) => self.show_toast(e, true),
                 }
+            }
+            if self.autosave.watcher_dirty() {
+                // The save is over, so the write that arrived during it can be looked at on the next frame.
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
             }
             return;
         }
@@ -860,6 +872,82 @@ mod tests {
         });
         let _ = std::fs::remove_dir_all(&dir);
         assert!(app.doc.get(nid).is_some(), "woken editor must hot-reload the external node");
+        assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some("Synced external agent changes"));
+    }
+
+    #[test]
+    fn external_write_during_a_failed_autosave_is_still_picked_up() {
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_failed_autosave_reload_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut doc = Document::new("Test");
+        doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.attach_library(dir.clone());
+        app.new_file_here();
+        app.toast = None;
+        app.now = 10.0;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        // Baseline frame: starts the watcher on the freshly opened file.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+
+        let requests = Arc::new(Mutex::new(Vec::<Duration>::new()));
+        let requests_cb = requests.clone();
+        ctx.set_request_repaint_callback(move |info| requests_cb.lock().unwrap().push(info.delay));
+
+        // What an agent writes to the file while a local edit is waiting for its debounced save.
+        let path = app.watched_disk_path().expect("watched disk path");
+        let page = app.doc.pages[0];
+        let mut ext_doc = app.doc.clone();
+        let ext_id = ext_doc.alloc_id();
+        ext_doc.insert(page, designos_doc::Node::frame(ext_id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+
+        app.doc.alloc_id();
+        let local_id = app.doc.alloc_id();
+        app.doc.insert(page, designos_doc::Node::frame(local_id, designos_doc::Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        app.autosave.changed_at = Some(app.now);
+        app.autosave.confirmed = true;
+        assert!(app.autosave.pending());
+
+        std::thread::sleep(Duration::from_millis(20));
+        designos_library::write_atomic(&path, ext_doc.to_json().unwrap().as_bytes()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while requests.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(!requests.lock().unwrap().is_empty(), "external disk write must wake the editor");
+
+        // The save that is due now cannot write: the file turned read-only.
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        // The wake-up frame is also the frame whose save fails.
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        requests.lock().unwrap().clear();
+        app.now = 12.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        assert_eq!(app.toast.as_ref().map(|t| t.error), Some(true), "the save must have failed for this test to mean anything");
+        let follow_up = requests.lock().unwrap().iter().copied().find(|d| *d > Duration::ZERO && *d < Duration::MAX);
+        let follow_up = follow_up.expect("a failed autosave must schedule another frame so the deferred external write is still looked at");
+
+        app.now += follow_up.as_secs_f64();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(app.doc.get(ext_id).is_some(), "the external node must be loaded once the save is over");
         assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some("Synced external agent changes"));
     }
 }
