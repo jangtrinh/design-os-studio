@@ -484,3 +484,100 @@ fn text_fill_edits_only_the_selected_range_and_binds_the_layer() {
     s.cmd_key(Key::Z);
     assert!(s.app().doc.get(id).unwrap().variables.is_empty(), "binding is one undo step");
 }
+
+// ------------------------------------------------------------------ library collections
+
+/// Adds a subscribed-library collection "Shared brand" with one colour variable "Brand/Sea" to the demo
+/// document; returns (collection id, variable id, the variable's default mode).
+fn add_library_collection(s: &mut Sim) -> (String, String, String) {
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let coll = store.add_collection("Shared brand");
+    let mode = store.collections[&coll].default_mode.clone();
+    let var = store.add_variable(&coll, "Brand/Sea", VariableKind::Color).unwrap();
+    store.set_value(&var, &mode, VariableValue::Color(designos_doc::Color::rgb(0x0C, 0x8C, 0xE9)));
+    store.collections.get_mut(&coll).unwrap().source_library_key = Some("lk-shared".into());
+    assert!(s.shell.app.commit_store(store, &[], &[]), "a new library collection can be added");
+    (coll, var, mode)
+}
+
+fn recorded(s: &Sim, name: &str) -> bool {
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some()
+}
+
+#[test]
+fn library_collections_are_listed_under_a_from_library_heading() {
+    let mut s = Sim::new();
+    let (lib, ..) = add_library_collection(&mut s);
+    open_view(&mut s, true);
+    let heading = s.rect_of("vars-heading:From library");
+    let library_row = s.rect_of("vars-coll:Shared brand");
+    for own in ["Theme", "Primitives"] {
+        let row = s.rect_of(&format!("vars-coll:{own}"));
+        assert!(row.bottom() <= heading.top(), "{own} sits above the heading");
+    }
+    assert!(library_row.top() >= heading.bottom(), "the library collection sits under the heading");
+    assert_ne!(s.app().vars.collection.as_deref(), Some(lib.as_str()), "the panel opens on a collection the file owns");
+}
+
+#[test]
+fn no_heading_without_library_collections() {
+    let mut s = Sim::new();
+    open_view(&mut s, true);
+    assert!(!recorded(&s, "vars-heading:From library"));
+}
+
+#[test]
+fn a_library_collection_cannot_be_edited_from_the_panel() {
+    let mut s = Sim::new();
+    let (lib, var, mode) = add_library_collection(&mut s);
+    s.shell.app.vars.collection = Some(lib.clone());
+    open_view(&mut s, true);
+    let before = (s.app().doc.variables.clone(), s.app().doc.variable_collections.clone());
+    assert!(!recorded(&s, "vars-create") && !recorded(&s, "vars-add-mode"), "no create-variable or add-mode controls");
+    assert!(recorded(&s, "vars-readonly"), "a note says the collection is read-only");
+
+    // typing a new hex into the value cell
+    let hex = s.rect_of(&format!("vars-hex:Brand/Sea:{mode}"));
+    s.click(Pos2::new(hex.left() + 30.0, hex.center().y));
+    s.type_text("00FF00");
+    s.key(Key::Enter);
+    // double-clicking the name, and the collection in the sidebar, do not start a rename
+    let name = s.rect_of("vars-row:Brand/Sea");
+    s.click(name.center());
+    s.click(name.center());
+    assert!(s.app().vars.renaming.is_none(), "the variable name stays read-only");
+    let side = s.rect_of("vars-coll:Shared brand");
+    s.click(side.center());
+    s.click(side.center());
+    assert!(s.app().vars.renaming.is_none(), "the collection name stays read-only");
+    // right-clicking a row or a mode column opens no editing menu
+    s.right_click(s.rect_of("vars-row:Brand/Sea").center());
+    assert!(s.app().vars.menu.is_none());
+    s.right_click(s.rect_of("vars-mode:Value").center());
+    assert!(s.app().vars.menu.is_none());
+    assert_eq!((s.app().doc.variables.clone(), s.app().doc.variable_collections.clone()), before);
+    assert_eq!(s.app().doc.variables[&var].values[&mode], VariableValue::Color(designos_doc::Color::rgb(0x0C, 0x8C, 0xE9)));
+}
+
+#[test]
+fn committing_a_variable_edit_leaves_library_collections_untouched() {
+    let mut s = Sim::new();
+    let (lib, var, mode) = add_library_collection(&mut s);
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    // everything a panel path could do to the maps directly
+    store.variables.get_mut(&var).unwrap().values.insert(mode, VariableValue::Color(designos_doc::Color::WHITE));
+    store.variables.get_mut(&var).unwrap().name = "Hacked".into();
+    store.collections.get_mut(&lib).unwrap().name = "Hacked".into();
+    let local = s.app().doc.variables.values().find(|v| v.name == "Radius/Card").unwrap().id.clone();
+    store.variables.get_mut(&local).unwrap().name = "Radius/Edited".into();
+    let before = s.app().doc.variable_collections[&lib].clone();
+    assert!(s.shell.app.commit_store(store, &[], &[]), "the local edit still commits");
+    assert_eq!(s.app().doc.variable_collections[&lib], before);
+    assert_eq!(s.app().doc.variables[&var].name, "Brand/Sea");
+    assert!(s.app().doc.variables.values().any(|v| v.name == "Radius/Edited"));
+    // a store whose only change is to the library collection is no change at all
+    let mut only_library = designos_doc::VariableStore::from_doc(&s.app().doc);
+    only_library.collections.remove(&lib);
+    assert!(!s.shell.app.commit_store(only_library, &[], &[]));
+    assert!(s.app().doc.variable_collections.contains_key(&lib));
+}

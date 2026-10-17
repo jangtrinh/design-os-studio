@@ -432,6 +432,9 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if let Some(k) = &c.key {
             fields.push(("key", V::String(k.clone())));
         }
+        if let Some(lib) = &c.source_library_key {
+            fields.push(("sourceLibraryKey", V::String(lib.clone())));
+        }
         cx.changes.push(msg(fields));
         *idx += 1;
     }

@@ -2,6 +2,7 @@
 //! binding picker and the App operations behind them. Every change goes through `Command::SetVariables`
 //! (or ordinary node updates for bindings) so it is one undo step.
 
+pub mod library;
 pub mod popover;
 pub mod view;
 pub mod widgets;
@@ -189,10 +190,16 @@ impl App {
     /// Installs an edited variable store as one undo step. `removed_*` list
     /// variables / collections that disappeared so their bindings are dropped
     /// from nodes in the same step.
-    pub fn commit_store(&mut self, store: VariableStore, removed_vars: &[String], removed_colls: &[String]) -> bool {
+    pub fn commit_store(&mut self, mut store: VariableStore, removed_vars: &[String], removed_colls: &[String]) -> bool {
+        // A collection subscribed from a library is edited in its library file, whichever path got here.
+        store.enforce_library_read_only(&VariableStore::from_doc(&self.doc));
         if store.matches_doc(&self.doc) {
             return false;
         }
+        // a removal the guard refused leaves the variable in place, so its bindings stay too
+        let removed_vars: Vec<String> = removed_vars.iter().filter(|v| !store.variables.contains_key(*v)).cloned().collect();
+        let removed_colls: Vec<String> = removed_colls.iter().filter(|c| !store.collections.contains_key(*c)).cloned().collect();
+        let (removed_vars, removed_colls) = (&removed_vars[..], &removed_colls[..]);
         let cleanup = dangling_binding_cleanup(&self.doc, removed_vars, removed_colls);
         let mut cleaned = Vec::new();
         for mut n in cleanup {

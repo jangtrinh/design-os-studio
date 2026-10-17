@@ -110,6 +110,7 @@ impl Shell {
         let mut app = App::new(match opts.fixture.as_deref() {
             Some("no-selection") => demo::reference_document(),
             Some("variables") => demo::variables_document(),
+            Some("variables-library" | "variables-library-open") => demo::variables_library_document(),
             Some(crate::showcase::FIXTURE) => crate::showcase::document(),
             Some(crate::protovars::FIXTURE) => crate::protovars::document(),
             Some("deck") => crate::decks::demo::document(),
@@ -119,7 +120,7 @@ impl Shell {
             None if opts.file.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
             _ => demo::demo_document(),
         });
-        if !matches!(opts.fixture.as_deref(), Some("variables" | "deck" | crate::showcase::FIXTURE)) {
+        if !matches!(opts.fixture.as_deref(), Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE)) {
             app.doc.name = "Untitled".into();
         }
         if opts.fixture.as_deref() == Some("deck") {
@@ -294,6 +295,10 @@ impl Shell {
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
                 app.open_variables();
+                if opts.fixture.as_deref() == Some("variables-library-open") {
+                    // the capture of a library collection: start on it rather than on the file's own
+                    app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
+                }
             }
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {
