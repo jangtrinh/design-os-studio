@@ -4,9 +4,9 @@ use crate::layout_solver_grid_placement::{place_children, Placed, MAX_GRID_TRACK
 use crate::layout_solver_types::{ChildIn, LayoutOut, SizeLimits};
 use crate::{AutoLayout, GridTrack, Rect, Sizing, Vec2};
 
-/// Widest natural child (single-column ones only) in column `c`.
+/// Widest clamped natural child (single-column ones only) in column `c`.
 fn widest_in_column(kids: &[ChildIn], placements: &[Placed], c: usize) -> f32 {
-    placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1).map(|(_, k)| k.size.x).fold(0.0, f32::max)
+    placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1).map(|(_, k)| k.limits.clamp_w(k.size.x)).fold(0.0, f32::max)
 }
 
 /// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
@@ -79,7 +79,8 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         }
     }
 
-    // Row heights: a Fixed row track wins, every other row takes its tallest child.
+    // Row heights: a Fixed row track wins; single-row items size their row from clamped height,
+    // then spanning items distribute only the remaining needed height across shorter auto rows.
     let fixed_row = |r: usize| match al.grid_row_tracks.get(r) {
         Some(GridTrack::Fixed(h)) => Some(h.max(0.0)),
         _ => None,
@@ -91,10 +92,50 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         }
     }
     for (p, k) in placements.iter().zip(kids) {
-        let per_row = (k.size.y - row_gap * (p.row_span.saturating_sub(1) as f32)).max(0.0) / (p.row_span as f32);
-        for r in p.row..(p.row + p.row_span).min(rows) {
-            if fixed_row(r).is_none() {
-                row_heights[r] = row_heights[r].max(per_row);
+        if p.row_span == 1 && p.row < rows && fixed_row(p.row).is_none() {
+            let h = k.limits.clamp_h(k.size.y);
+            row_heights[p.row] = row_heights[p.row].max(h);
+        }
+    }
+    for (p, k) in placements.iter().zip(kids) {
+        if p.row_span <= 1 {
+            continue;
+        }
+        let end_row = (p.row + p.row_span).min(rows);
+        let span_len = end_row.saturating_sub(p.row);
+        if span_len == 0 {
+            continue;
+        }
+        let need = k.limits.clamp_h(k.size.y);
+        let mut rem = (need - row_gap * (span_len.saturating_sub(1) as f32)).max(0.0);
+        let mut frozen = vec![false; span_len];
+        for (i, r) in (p.row..end_row).enumerate() {
+            if fixed_row(r).is_some() {
+                frozen[i] = true;
+                rem -= row_heights[r];
+            }
+        }
+        loop {
+            let unfrozen = frozen.iter().filter(|&&f| !f).count();
+            if unfrozen == 0 || rem <= 0.0 {
+                break;
+            }
+            let share = rem / (unfrozen as f32);
+            let mut newly_frozen = false;
+            for (i, r) in (p.row..end_row).enumerate() {
+                if !frozen[i] && row_heights[r] >= share {
+                    frozen[i] = true;
+                    rem -= row_heights[r];
+                    newly_frozen = true;
+                }
+            }
+            if !newly_frozen {
+                for (i, r) in (p.row..end_row).enumerate() {
+                    if !frozen[i] {
+                        row_heights[r] = share;
+                    }
+                }
+                break;
             }
         }
     }

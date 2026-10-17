@@ -413,6 +413,44 @@ fn grid_fixed_child_spanning_rows_keeps_its_size() {
     assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 25.0]);
 }
 
+#[test]
+fn grid_clamps_child_sizes_when_sizing_hug_columns_and_auto_rows() {
+    let mut al = grid(2);
+    al.item_spacing = 10.0;
+    al.primary_sizing = Sizing::Hug;
+    al.counter_sizing = Sizing::Hug;
+    al.grid_col_tracks[0] = GridTrack::Hug;
+    al.grid_col_tracks[1] = GridTrack::Hug;
+    let capped = kid_with(120.0, 80.0, |lc| {
+        lc.max_w = Some(50.0);
+        lc.max_h = Some(30.0);
+    });
+    let plain = kid(40.0, 20.0);
+    let solved = solve_everywhere(al, v2(300.0, 300.0), &[capped, plain]);
+    assert_eq!(solved.frame, (100.0, 30.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 50.0, 30.0]);
+    assert_eq!(solved.kids[1], [60.0, 0.0, 40.0, 20.0]);
+}
+
+#[test]
+fn grid_row_span_does_not_inflate_rows_that_already_hold_it() {
+    let mut al = grid(2);
+    al.item_spacing = 10.0;
+    al.counter_sizing = Sizing::Hug;
+    // Row 0 is 40 high, row 1 is 15 high; with the 10 gap they already provide 65 >= 50.
+    let spanning_fits = kid_with(40.0, 50.0, |lc| lc.row_span = 2);
+    let solved = solve_everywhere(al, v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
+    assert_eq!(solved.frame, (300.0, 65.0));
+    assert_eq!(solved.kids[2], [155.0, 50.0, 40.0, 15.0]);
+
+    // When a spanning item (70) exceeds row 0 (40) + gap (10) + row 1 (10) = 60,
+    // row 0 already exceeds an even 30 split, so only row 1 grows to 20 (total 70).
+    let spanning_grows_short_row = kid_with(40.0, 70.0, |lc| lc.row_span = 2);
+    let solved2 = solve_everywhere(al, v2(300.0, 300.0), &[spanning_grows_short_row, kid(40.0, 40.0), kid(40.0, 10.0)]);
+    assert_eq!(solved2.frame, (300.0, 70.0));
+    assert_eq!(solved2.kids[2], [155.0, 50.0, 40.0, 10.0]);
+}
+
 // ---- grid placement: pinned first, then locked, then auto -------------------------------------
 
 fn two_fixed_columns() -> AutoLayout {
