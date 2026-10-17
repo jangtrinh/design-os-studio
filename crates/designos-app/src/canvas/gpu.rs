@@ -34,6 +34,8 @@ pub struct GpuView {
     /// The frame for `last_key` was compiled with the offscreen-program cap
     /// lifted (the idle full-quality pass), so there is nothing left to refine.
     refined: bool,
+    /// The canvas was last drawn by the GPU, not by the CPU tiles.
+    painting: bool,
     /// `egui` input time at which the frame key last changed, or the view last
     /// scrolled/zoomed while the key was unchanged: the start of the idle delay.
     stable_since: f64,
@@ -54,6 +56,7 @@ impl Default for GpuView {
             compiler,
             last_key: None,
             refined: false,
+            painting: false,
             stable_since: 0.0,
             last_compile_ms: 0.0,
             last_stats: None,
@@ -78,6 +81,15 @@ impl GpuView {
         self.compiler.index.clear();
         self.last_key = None;
         self.refined = false;
+    }
+
+    /// Whether a capture taken now shows the frame a user sees once the view is at
+    /// rest: the canvas is not drawn by the GPU, or the one full-quality refine
+    /// compile of the current view has run. Until then the frame on screen is the
+    /// capped interactive one, whose masks, group opacity and effects past the
+    /// offscreen-program cap are degraded.
+    pub fn at_rest(&self) -> bool {
+        !self.painting || self.refined
     }
 
     /// What this frame needs: the cached output, the capped interactive
@@ -224,6 +236,7 @@ pub fn init(rs: &egui_wgpu::RenderState) -> Option<u32> {
 
 /// Paints the page with the GPU into `rect`; false when the CPU path must do it.
 pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
+    app.canvas.gpu.painting = false;
     if !app.canvas.gpu.active() {
         return false;
     }
@@ -232,6 +245,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
     if size.0 > app.canvas.gpu.max_texture.max(1) || size.1 > app.canvas.gpu.max_texture.max(1) {
         return false;
     }
+    app.canvas.gpu.painting = true;
     let rev = super::tiles::take_rev(app);
     let vp = Viewport { offset: app.view.offset, zoom: app.view.zoom, dpr: ppp };
     let key: FrameKey =
@@ -380,5 +394,35 @@ mod tests {
         let mut g = view(true);
         g.reset();
         assert_eq!(g.plan(key(1), 1.0, false, false), FramePlan::Interactive);
+    }
+
+    #[test]
+    fn a_canvas_not_drawn_by_the_gpu_is_always_at_rest() {
+        assert!(GpuView::default().at_rest());
+    }
+
+    #[test]
+    fn gpu_view_is_at_rest_only_once_the_refine_compile_has_run() {
+        let mut g = GpuView { painting: true, ..GpuView::default() };
+        assert!(!g.at_rest(), "nothing compiled yet");
+        assert_eq!(g.plan(key(1), 0.0, false, false), FramePlan::Interactive);
+        g.compiled(key(1), false);
+        assert!(!g.at_rest(), "the capped interactive frame is on screen");
+        assert!(matches!(g.plan(key(1), 0.1, false, false), FramePlan::Wait(_)));
+        assert!(!g.at_rest(), "still waiting for the idle delay");
+        assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
+        g.compiled(key(1), true);
+        assert!(g.at_rest(), "the refined frame is cached");
+        assert_eq!(g.plan(key(2), 1.0, false, false), FramePlan::Interactive);
+        g.compiled(key(2), false);
+        assert!(!g.at_rest(), "a changed view leaves rest again");
+    }
+
+    #[test]
+    fn refine_with_deferred_geometry_is_not_at_rest() {
+        let mut g = GpuView { painting: true, ..GpuView::default() };
+        g.compiler.geom.stale_hits = 1;
+        g.compiled(key(1), true);
+        assert!(!g.at_rest());
     }
 }
