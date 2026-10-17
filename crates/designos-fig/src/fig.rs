@@ -80,9 +80,12 @@ fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
     Some(format!("{}:{}", u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?))
 }
 
+/// A kiwi float field as `f32`. A NaN or infinity is treated as absent, the way the JSON path does
+/// ([`kiwi::clean_f32`] turns it into `null`); this fast path skips that path and used to hand a
+/// NaN straight to a node's size.
 fn kiwi_f32(v: &KiwiValue, k: &str) -> Option<f32> {
     match v.get(k)? {
-        KiwiValue::Float(f) => Some(*f),
+        KiwiValue::Float(f) => f.is_finite().then_some(*f),
         KiwiValue::Uint(u) => Some(*u as f32),
         KiwiValue::Int(i) => Some(*i as f32),
         _ => None,

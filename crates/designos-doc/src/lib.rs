@@ -21,6 +21,9 @@ mod comments;
 mod components;
 mod dev;
 pub mod find;
+pub mod finite_json;
+#[cfg(test)]
+mod finite_json_tests;
 mod geom;
 mod history;
 mod library;
@@ -671,17 +674,31 @@ impl Document {
         removed
     }
 
+    /// Compact JSON of the document. A number that is not finite (NaN, infinity) is written as its
+    /// neutral value instead (see [`finite_json`]), so the text always parses back; a file used to
+    /// fail to open with `invalid type: null, expected f32` after one such number was saved.
     pub fn to_json(&self) -> serde_json::Result<String> {
-        serde_json::to_string(self)
+        let (json, replaced) = self.to_json_counted()?;
+        if replaced > 0 {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| eprintln!("designos-doc: wrote {replaced} non-finite numbers as their neutral value (reported once per run)"));
+        }
+        Ok(json)
+    }
+
+    /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
+    pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
+        finite_json::to_string_finite(self)
     }
 
     /// Parses a native document. Text written by older versions that emulated lists with
     /// literal bullet and "1. " prefixes is converted to real lists. A malformed node graph is
-    /// repaired in place (see [`Document::validate_and_repair`]) and noted on stderr.
+    /// repaired in place (see [`Document::validate_and_repair`]) and noted on stderr, and a `null`
+    /// where a number belongs (a NaN saved by an older version) is read as the neutral value.
     pub fn from_json(s: &str) -> serde_json::Result<Self> {
         let (doc, repaired) = Self::from_json_with_report(s)?;
         if !repaired.is_clean() {
-            eprintln!("designos-doc: repaired a malformed document on load: {repaired:?}");
+            eprintln!("designos-doc: repaired a damaged document on load: {repaired:?}");
         }
         Ok(doc)
     }
@@ -689,8 +706,11 @@ impl Document {
     /// Like [`Document::from_json`] but silent: returns what the load-time repair changed so a
     /// caller that must not accept a repaired document (for example the MCP server) can refuse it.
     pub fn from_json_with_report(s: &str) -> serde_json::Result<(Self, RepairReport)> {
-        let mut doc: Self = serde_json::from_str(s)?;
-        let report = doc.validate_and_repair();
+        // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
+        // neutral value and counted (see [`finite_json`]).
+        let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        let mut report = doc.validate_and_repair();
+        report.non_finite_numbers = non_finite_numbers;
         doc.migrate_text();
         Ok((doc, report))
     }

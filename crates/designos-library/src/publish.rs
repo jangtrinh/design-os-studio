@@ -152,7 +152,11 @@ impl Library {
             })
             .collect();
         let published_at = now_rfc3339();
-        write_atomic(&dir.join(format!("{version}.json")), serde_json::to_string(&snap)?.as_bytes())?;
+        let (snapshot_json, replaced) = designos_doc::finite_json::to_string_finite(&snap)?;
+        if replaced > 0 {
+            eprintln!("designos-library: published library {id} version {version} with {replaced} non-finite numbers replaced by their neutral value");
+        }
+        write_atomic(&dir.join(format!("{version}.json")), snapshot_json.as_bytes())?;
         index.name = name.clone();
         index.versions.push(VersionEntry { version, description: description.into(), published_at: published_at.clone(), changelog });
         index.components = snap.count(LibraryAssetKind::Component) + snap.count(LibraryAssetKind::ComponentSet);
@@ -203,7 +207,11 @@ impl Library {
             None => self.library_index(id)?.latest_version(),
         };
         let s = read_or_not_found(&self.library_dir(id).join(format!("{version}.json")), || format!("library {id} version {version}"))?;
-        Ok(serde_json::from_str(&s)?)
+        let (snapshot, replaced) = designos_doc::finite_json::from_str_repairing(&s)?;
+        if replaced > 0 {
+            eprintln!("designos-library: library {id} version {version} held {replaced} null numbers, read as their neutral value");
+        }
+        Ok(snapshot)
     }
 
     /// Unpublishes a library: moves it to `trash/libraries/` (restorable with
@@ -375,6 +383,28 @@ mod tests {
         let back = Document::from_json(&b.to_json().unwrap()).unwrap();
         assert_eq!(back.library, b.library);
         assert!(pending_updates(&back, &latest).is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A NaN in a published component or style used to be saved as `null`, which made the whole
+    /// version unreadable.
+    #[test]
+    fn a_published_version_with_non_finite_numbers_still_loads() {
+        let root = tmp("nan");
+        let lib = Library::open(&root).unwrap();
+        let mut doc = lib_doc();
+        let comp = doc.get(doc.pages[0]).unwrap().children[0];
+        doc.get_mut(comp).unwrap().size = Vec2::new(f32::NAN, 40.0);
+        doc.styles.insert("Faded".into(), Style::Fill(vec![Paint { opacity: f32::NAN, ..Paint::solid(Color::rgb(0, 0, 255)) }]));
+        publish(&lib, "ds", &doc, "v1").unwrap();
+        let snap = lib.load_snapshot("ds", None).unwrap();
+        assert!(snap.assets.iter().any(|a| a.name == "Button"));
+
+        // A version written by an older release holds `null` there; it loads too.
+        let legacy = serde_json::to_string(&snapshot(&doc, "ds", "Design System", 1)).unwrap();
+        assert!(serde_json::from_str::<LibrarySnapshot>(&legacy).is_err(), "the strict parse must refuse the legacy text");
+        std::fs::write(root.join("libraries/ds/1.json"), legacy).unwrap();
+        assert!(lib.load_snapshot("ds", None).unwrap().assets.iter().any(|a| a.name == "Button"));
         let _ = std::fs::remove_dir_all(root);
     }
 }
