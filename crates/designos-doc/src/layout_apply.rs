@@ -28,9 +28,9 @@ impl Document {
             })
             .unzip();
 
-        let out = compute(&al, frame, &kids);
+        let out = compute(&al, frame, own_limits, &kids);
         if let Some(fnode) = self.get_mut(root) {
-            fnode.size = own_limits.clamp(out.frame);
+            fnode.size = out.frame;
         }
         for (cid, r) in flow_ids.iter().zip(&out.rects) {
             let new_size = Vec2::new(r.w, r.h);

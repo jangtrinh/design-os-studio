@@ -78,8 +78,9 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
         children.iter().copied().filter(|c| doc.get(*c).map(|k| resolve_node(doc, k).visible && !k.layout_child.absolute).unwrap_or(false)).collect();
     let kids: Vec<ChildIn> = ids.iter().map(|c| child_in(doc, *c, horiz)).collect();
     let frame_size = doc.get(id).unwrap().size;
-    let out = compute(&al, frame_size, &kids);
-    let new_frame = SizeLimits::from(&doc.get(id).unwrap().layout_child).clamp(out.frame);
+    let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
+    let out = compute(&al, frame_size, own_limits, &kids);
+    let new_frame = out.frame;
     let frame_changed = (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3;
     if frame_changed {
         if let Some(n) = ed.node(doc, id) {
@@ -231,6 +232,10 @@ mod tests {
 
     fn kid(w: f32, h: f32) -> ChildIn {
         ChildIn { size: v2(w, h), ..Default::default() }
+    }
+    /// The solver for a frame with no min/max of its own.
+    fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> designos_doc::layout_solver::LayoutOut {
+        super::compute(al, frame, SizeLimits::default(), kids)
     }
     fn al() -> AutoLayout {
         AutoLayout { item_spacing: 10.0, padding: [5.0, 5.0, 5.0, 5.0], ..Default::default() }

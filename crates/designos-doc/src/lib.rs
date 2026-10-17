@@ -26,6 +26,7 @@ mod history;
 mod layout_apply;
 pub mod layout_solver;
 mod layout_solver_grid;
+mod layout_solver_grid_placement;
 mod layout_solver_types;
 mod library;
 mod library_ops;

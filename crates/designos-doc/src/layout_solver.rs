@@ -58,11 +58,13 @@ impl Axes {
     }
 }
 
-/// Solves an auto-layout frame. `frame` is the current frame size (used for
-/// fixed axes). Padding order is top, right, bottom, left.
-pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
+/// Solves an auto-layout frame. `frame` is the current frame size (used for fixed axes) and `own`
+/// the frame's own min/max: they clamp the frame before any child is aligned, so a hugging frame
+/// raised by its minimum centers its children in the raised box. Padding order is top, right,
+/// bottom, left.
+pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> LayoutOut {
     if al.direction == LayoutDirection::Grid {
-        return compute_grid(al, frame, kids);
+        return compute_grid(al, frame, own, kids);
     }
     let ax = Axes { horiz: al.direction == LayoutDirection::Horizontal };
     let [pt, pr, pb, pl] = al.padding;
@@ -71,18 +73,19 @@ pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
     let pc = pc_start + pc_end;
     let hug_main = al.primary_sizing == Sizing::Hug && !al.wrap;
     let hug_cross = al.counter_sizing == Sizing::Hug;
-    let mut frame_main = ax.main(frame);
-    let mut frame_cross = ax.cross(frame);
+    // a Fixed axis takes the clamped size; a hugging axis is clamped again once its content is known
+    let mut frame_main = ax.clamp_main(&own, ax.main(frame));
+    let mut frame_cross = ax.clamp_cross(&own, ax.cross(frame));
     // natural extents with the child's own min/max applied
     let nat_main = |k: &ChildIn| ax.clamp_main(&k.limits, ax.main(k.size));
     let nat_cross = |k: &ChildIn| ax.clamp_cross(&k.limits, ax.cross(k.size));
 
     if kids.is_empty() {
         if hug_main {
-            frame_main = pm;
+            frame_main = ax.clamp_main(&own, pm);
         }
         if hug_cross {
-            frame_cross = pc;
+            frame_cross = ax.clamp_cross(&own, pc);
         }
         return LayoutOut { frame: ax.vec(frame_main, frame_cross), rects: vec![] };
     }
@@ -114,28 +117,33 @@ pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
     // Hug along the primary axis (single line only).
     if hug_main {
         let total: f32 = kids.iter().map(nat_main).sum::<f32>() + al.item_spacing * (kids.len() as f32 - 1.0);
-        frame_main = total + pm;
+        frame_main = ax.clamp_main(&own, total + pm);
     }
     let main_avail = (frame_main - pm).max(0.0);
 
     // Cross extent of each line.
     let mut line_cross: Vec<f32> =
         lines.iter().map(|l| l.iter().filter(|i| !kids[**i].cross_fill || al.wrap).map(|i| nat_cross(&kids[*i])).fold(0.0, f32::max)).collect();
+    // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
+    let mut cross_has_slack = !hug_cross;
     if !al.wrap {
         if hug_cross {
-            frame_cross = line_cross[0] + pc;
-        } else {
+            frame_cross = ax.clamp_cross(&own, line_cross[0] + pc);
+            cross_has_slack = frame_cross - pc > line_cross[0] + 1e-3;
+        }
+        if cross_has_slack {
             line_cross[0] = (frame_cross - pc).max(0.0);
         }
     } else {
         let total: f32 = line_cross.iter().sum::<f32>() + al.counter_spacing * (lines.len() as f32 - 1.0);
         if hug_cross {
-            frame_cross = total + pc;
+            frame_cross = ax.clamp_cross(&own, total + pc);
+            cross_has_slack = frame_cross - pc > total + 1e-3;
         }
     }
 
     // Wrapped lines spread edge to edge (CSS align-content: space-between); the counter spacing stays the minimum gap.
-    let counter_gap = if al.wrap && al.counter_align_content == CounterAlignContent::SpaceBetween && lines.len() > 1 && !hug_cross {
+    let counter_gap = if al.wrap && al.counter_align_content == CounterAlignContent::SpaceBetween && lines.len() > 1 && cross_has_slack {
         ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(al.counter_spacing)
     } else {
         al.counter_spacing
