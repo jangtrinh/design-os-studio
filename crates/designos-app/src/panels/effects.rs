@@ -246,8 +246,8 @@ fn edit_effect(app: &mut App, tgt: FxTarget, i: usize, f: impl Fn(&mut Effect)) 
     }
 }
 
-fn num(ui: &mut Ui, r: Rect, key: impl widgets::Key, v: f32, suffix: &str) -> Option<f32> {
-    field::num_field(ui, r, key, Prefix::None, Some(v), suffix)
+fn num(ui: &mut Ui, r: Rect, key: impl widgets::Key, prefix: Prefix, v: f32, suffix: &str) -> Option<f32> {
+    field::num_field(ui, r, key, prefix, Some(v), suffix)
 }
 
 fn pct(v: f32) -> f32 {
@@ -330,22 +330,22 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     };
     if let Some((color, offset, radius, spread, behind)) = shadow {
         popover::row(ui, body, next(), "X", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-x", i), offset.x, "") {
+            if let Some(v) = num(ui, rc, ("fxp-x", i), Prefix::Text("X"), offset.x, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
             }
         });
         popover::row(ui, body, next(), "Y", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-y", i), offset.y, "") {
+            if let Some(v) = num(ui, rc, ("fxp-y", i), Prefix::Text("Y"), offset.y, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
             }
         });
         popover::row(ui, body, next(), "Blur", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-b", i), radius, "") {
+            if let Some(v) = num(ui, rc, ("fxp-b", i), Prefix::Text("B"), radius, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
             }
         });
         popover::row(ui, body, next(), "Spread", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-s", i), spread, "") {
+            if let Some(v) = num(ui, rc, ("fxp-s", i), Prefix::Text("S"), spread, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
             }
         });
@@ -370,7 +370,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     match e {
         Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } => {
             popover::row(ui, body, next(), "Blur", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-blur", i), *radius, "") {
+                if let Some(v) = num(ui, rc, ("fxp-blur", i), Prefix::Text("B"), *radius, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } = e {
                             *radius = v.max(0.0);
@@ -424,7 +424,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 });
             }
             popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-nsize", i), n.size, "") {
+                if let Some(v) = num(ui, rc, ("fxp-nsize", i), Prefix::Text("S"), n.size, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.size = v.max(0.1);
@@ -433,7 +433,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             });
             popover::row(ui, body, next(), "Density", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-dens", i), pct(n.density), "%") {
+                if let Some(v) = num(ui, rc, ("fxp-dens", i), Prefix::Text("D"), pct(n.density), "%") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.density = (v / 100.0).clamp(0.0, 1.0);
@@ -442,7 +442,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             });
             popover::row(ui, body, next(), "Opacity", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-nop", i), pct(n.opacity), "%") {
+                if let Some(v) = num(ui, rc, ("fxp-nop", i), Prefix::Icon(Icon::Opacity), pct(n.opacity), "%") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.opacity = (v / 100.0).clamp(0.0, 1.0);
@@ -453,7 +453,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         }
         Effect::Texture(t) => {
             popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-tsize", i), t.size, "") {
+                if let Some(v) = num(ui, rc, ("fxp-tsize", i), Prefix::Text("S"), t.size, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.size = v.max(0.1);
@@ -462,7 +462,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             });
             popover::row(ui, body, next(), "Radius", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-trad", i), t.radius, "") {
+                if let Some(v) = num(ui, rc, ("fxp-trad", i), Prefix::Text("R"), t.radius, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.radius = v.max(0.0);
@@ -485,7 +485,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 let dial_r = Rect::from_min_size(rc.min, Vec2::splat(24.0));
                 let num_r = Rect::from_min_max(Pos2::new(rc.left() + 32.0, rc.top()), rc.right_bottom());
                 let mut v = popover::dial(ui, dial_r, ("fxp-dial", i), g.light_angle);
-                if let Some(n) = field::num_field(ui, num_r, ("fxp-angle", i), Prefix::None, Some(g.light_angle), "°") {
+                if let Some(n) = field::num_field(ui, num_r, ("fxp-angle", i), Prefix::Icon(Icon::Rotation), Some(g.light_angle), "°") {
                     v = Some(n.rem_euclid(360.0));
                 }
                 if let Some(v) = v {
@@ -496,16 +496,16 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     });
                 }
             });
-            let sliders: [(&str, f32, &str, u8); 5] = [
-                ("Intensity", pct(g.light_intensity), "%", 0),
-                ("Refraction", pct(g.refraction), "%", 1),
-                ("Depth", g.depth, "", 2),
-                ("Dispersion", pct(g.dispersion), "%", 3),
-                ("Frost", g.frost, "", 4),
+            let sliders: [(&str, &'static str, f32, &str, u8); 5] = [
+                ("Intensity", "I", pct(g.light_intensity), "%", 0),
+                ("Refraction", "R", pct(g.refraction), "%", 1),
+                ("Depth", "D", g.depth, "", 2),
+                ("Dispersion", "D", pct(g.dispersion), "%", 3),
+                ("Frost", "F", g.frost, "", 4),
             ];
-            for (label, val, suffix, which) in sliders {
+            for (label, prefix, val, suffix, which) in sliders {
                 popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), val, suffix) {
+                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Text(prefix), val, suffix) {
                         edit_effect(app, tgt, i, |e| {
                             if let Effect::Glass(g) = e {
                                 let unit = (v / 100.0).clamp(0.0, 1.0);
