@@ -69,3 +69,4 @@ Source: `plans/261017-figma-gap-analysis/gap-list.md` (58 gaps, 10 epics) and th
 - A6 opacity variables: **replace** (value/100), not multiply.
 - A10 vector PDF: **follow-up issue**; raster ships in this wave.
 - Ship: **push + PR into `review-fixes-261016`** (stacked on PR #1) after the fix round and green gates.
+- **A13 (coordinator, 2026-10-17):** library styles are read-only in a consumer file, as in Figma; "Edit style" is disabled with the tooltip "Edit in the library file". Reason: the next library update would silently discard local edits (PR #44 review M2).
