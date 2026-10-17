@@ -909,6 +909,7 @@ name = "designos-app"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "base64",
  "cosmic-text",
  "designos-doc",
  "designos-export",
@@ -973,6 +974,7 @@ dependencies = [
 name = "designos-fig"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "designos-doc",
  "designos-render",
  "flate2",

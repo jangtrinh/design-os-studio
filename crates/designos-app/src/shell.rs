@@ -430,7 +430,10 @@ impl Shell {
                         ctx.copy_text(s);
                     }
                 }
-                Event::Paste(s) if !editing_text => self.app.paste(Some(&s)),
+                Event::Paste(s) if !editing_text => {
+                    let html = crate::clipboard::system_figma_html();
+                    self.app.paste_with_html(Some(&s), html.as_deref());
+                }
                 Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.try_typography_shortcut(key, modifiers) {
                         continue;
