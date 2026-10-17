@@ -2,15 +2,49 @@
 //! compressed schema + message.
 
 use crate::FigError;
+use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::rc::Rc;
 
-/// Hard cap on any single decompressed chunk / zip entry (zip-bomb guard).
-const MAX_INFLATED: u64 = 2 << 30;
-/// Cap on everything inflated while opening one archive (all entries together).
-const MAX_INFLATED_TOTAL: u64 = 4 << 30;
+/// Hard cap on any single decompressed chunk / zip entry (zip-bomb guard: 64 MiB).
+const MAX_INFLATED: u64 = 64 << 20;
+/// Cap on everything inflated while opening one archive (all entries together: 256 MiB).
+const MAX_INFLATED_TOTAL: u64 = 256 << 20;
 /// Cap on zip entries inspected; real files hold one entry per embedded image.
 const MAX_ZIP_ENTRIES: usize = 100_000;
+/// Grace window (1 MiB) before the streaming compression-ratio guard activates.
+const RATIO_GRACE_BYTES: u64 = 1 << 20;
+/// Maximum allowed `inflated_bytes / compressed_bytes_read` once past [`RATIO_GRACE_BYTES`].
+const MAX_INFLATE_RATIO: u64 = 100;
+/// Streaming read chunk size (64 KiB) so rejected streams never pre-allocate multi-GiB buffers.
+const STREAM_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Reader wrapper that counts how many compressed input bytes have been pulled so far.
+struct CountingReader<R> {
+    inner: R,
+    bytes_read: Rc<Cell<u64>>,
+}
+
+impl<R> CountingReader<R> {
+    fn new(inner: R, bytes_read: Rc<Cell<u64>>) -> Self {
+        Self { inner, bytes_read }
+    }
+}
+
+impl<R: Read> Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.bytes_read.set(self.bytes_read.get().saturating_add(n as u64));
+        Ok(n)
+    }
+}
+
+impl<R: Seek> Seek for CountingReader<R> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
 
 /// Inflate allowance shared by every read of one archive or container.
 struct Budget {
@@ -69,12 +103,28 @@ pub fn open_with_budget(bytes: &[u8], per_read: u64, total: u64) -> Result<Archi
     Ok(archive)
 }
 
-fn read_limited(r: impl Read, budget: &mut Budget) -> Result<Vec<u8>, FigError> {
+fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_read: Option<&Cell<u64>>) -> Result<Vec<u8>, FigError> {
     let cap = budget.per_read.min(budget.left);
     let mut out = Vec::new();
-    r.take(cap + 1).read_to_end(&mut out).map_err(|e| FigError::Format(format!("read error: {e}")))?;
-    if out.len() as u64 > cap {
-        return Err(FigError::Format("decompressed data too large".into()));
+    let mut chunk = [0u8; STREAM_CHUNK_BYTES];
+    loop {
+        let n = r.read(&mut chunk).map_err(|e| FigError::Format(format!("read error: {e}")))?;
+        if n == 0 {
+            break;
+        }
+        let next_len = (out.len() + n) as u64;
+        if next_len > cap {
+            return Err(FigError::Format("decompressed data too large".into()));
+        }
+        if next_len > RATIO_GRACE_BYTES {
+            if let Some(comp_cell) = compressed_read {
+                let comp = comp_cell.get().max(1);
+                if next_len / comp > MAX_INFLATE_RATIO {
+                    return Err(FigError::Format("decompressed data too large (compression ratio exceeded)".into()));
+                }
+            }
+        }
+        out.extend_from_slice(&chunk[..n]);
     }
     budget.left -= out.len() as u64;
     Ok(out)
@@ -88,7 +138,9 @@ fn open_zip(bytes: &[u8]) -> Result<Archive, FigError> {
 }
 
 fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Result<Archive, FigError> {
-    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| FigError::Format(format!("zip: {e}")))?;
+    let compressed_read = Rc::new(Cell::new(0u64));
+    let reader = CountingReader::new(Cursor::new(bytes), Rc::clone(&compressed_read));
+    let mut zip = zip::ZipArchive::new(reader).map_err(|e| FigError::Format(format!("zip: {e}")))?;
     if zip.len() > max_entries {
         return Err(FigError::Format(format!("zip has too many entries ({})", zip.len())));
     }
@@ -100,16 +152,27 @@ fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Resul
             continue;
         }
         let Ok(name) = file.name().map(|n| n.replace('\\', "/")) else { continue };
+        let cap = budget.per_read.min(budget.left);
+        let declared_too_large = file.size() > cap
+            || (file.size() > RATIO_GRACE_BYTES && file.compressed_size() > 0 && file.size() / file.compressed_size().max(1) > MAX_INFLATE_RATIO);
         if name == "canvas.fig" || name.ends_with("/canvas.fig") {
-            arch.canvas = read_limited(file, budget)?;
+            if declared_too_large {
+                return Err(FigError::Format("decompressed data too large".into()));
+            }
+            compressed_read.set(0);
+            arch.canvas = read_limited(file, budget, Some(&compressed_read))?;
             have_canvas = true;
         } else if name == "meta.json" {
-            if let Ok(data) = read_limited(file, budget) {
-                arch.meta = serde_json::from_slice(&data).ok();
+            if !declared_too_large {
+                compressed_read.set(0);
+                if let Ok(data) = read_limited(file, budget, Some(&compressed_read)) {
+                    arch.meta = serde_json::from_slice(&data).ok();
+                }
             }
         } else if let Some(h) = name.strip_prefix("images/") {
-            if !h.is_empty() && !h.contains('/') {
-                if let Ok(data) = read_limited(file, budget) {
+            if !h.is_empty() && !h.contains('/') && !declared_too_large {
+                compressed_read.set(0);
+                if let Ok(data) = read_limited(file, budget, Some(&compressed_read)) {
                     arch.images.insert(h.to_string(), data);
                 }
             }
@@ -167,15 +230,21 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, FigError> {
 }
 
 fn decompress_with(data: &[u8], budget: &mut Budget) -> Result<Vec<u8>, FigError> {
+    let compressed_read = Rc::new(Cell::new(0u64));
     if data.starts_with(&[0x28, 0xB5, 0x2F, 0xFD]) {
-        let dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| FigError::Format(format!("zstd: {e}")))?;
-        return read_limited(dec, budget);
+        let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
+        let dec = ruzstd::decoding::StreamingDecoder::new(reader).map_err(|e| FigError::Format(format!("zstd: {e}")))?;
+        return read_limited(dec, budget, Some(&compressed_read));
     }
-    match read_limited(flate2::read::DeflateDecoder::new(data), budget) {
+    let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
+    match read_limited(flate2::read::DeflateDecoder::new(reader), budget, Some(&compressed_read)) {
         Ok(v) => Ok(v),
+        Err(e) if e.to_string().contains("decompressed data too large") => Err(e),
         Err(e) => {
             // Some producers use zlib framing.
-            read_limited(flate2::read::ZlibDecoder::new(data), budget).map_err(|_| e)
+            compressed_read.set(0);
+            let reader = CountingReader::new(Cursor::new(data), Rc::clone(&compressed_read));
+            read_limited(flate2::read::ZlibDecoder::new(reader), budget, Some(&compressed_read)).map_err(|_| e)
         }
     }
 }
@@ -345,5 +414,160 @@ mod tests {
             let _ = read_chunks(&c[..n]);
         }
         assert!(decompress(&[0x28, 0xB5, 0x2F, 0xFD, 1, 2, 3]).is_err());
+    }
+
+    /// Builds a valid raw DEFLATE stream that inflates to `(2 GiB + 1)` bytes of zeros (~9.4 MB compressed)
+    /// in milliseconds by repeating a flushed 1 MiB zero block 2048 times.
+    fn deflate_bomb_2gib_plus_one() -> Vec<u8> {
+        use std::io::Write;
+        let one_mib = vec![0u8; 1 << 20];
+        let mut enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(&one_mib).unwrap();
+        enc.flush().unwrap();
+        let first_block = enc.get_ref().clone();
+        enc.write_all(&one_mib).unwrap();
+        enc.flush().unwrap();
+        let repeat_block = enc.get_ref()[first_block.len()..].to_vec();
+        let mut tail_enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+        tail_enc.write_all(&[0u8]).unwrap();
+        let tail_block = tail_enc.finish().unwrap();
+
+        let mut out = Vec::with_capacity(first_block.len() + repeat_block.len() * 2047 + tail_block.len());
+        out.extend_from_slice(&first_block);
+        for _ in 0..2047 {
+            out.extend_from_slice(&repeat_block);
+        }
+        out.extend_from_slice(&tail_block);
+        out
+    }
+
+    /// Wraps a raw DEFLATE stream as `canvas.fig` inside a minimal Zip64 PKZIP archive.
+    fn wrap_raw_deflate_in_zip(entry_name: &str, raw_deflate: &[u8], declared_uncompressed: u64) -> Vec<u8> {
+        let name_bytes = entry_name.as_bytes();
+        let comp_size = raw_deflate.len() as u64;
+        // Zip64 extra field (header ID 0x0001, data size 16: 8B uncompressed + 8B compressed)
+        let mut extra = Vec::with_capacity(20);
+        extra.extend_from_slice(&0x0001u16.to_le_bytes());
+        extra.extend_from_slice(&16u16.to_le_bytes());
+        extra.extend_from_slice(&declared_uncompressed.to_le_bytes());
+        extra.extend_from_slice(&comp_size.to_le_bytes());
+
+        let mut zip = Vec::with_capacity(raw_deflate.len() + 256);
+        // Local file header (PK\x03\x04)
+        zip.extend_from_slice(b"PK\x03\x04");
+        zip.extend_from_slice(&45u16.to_le_bytes()); // version needed (4.5 for Zip64)
+        zip.extend_from_slice(&0u16.to_le_bytes()); // flags
+        zip.extend_from_slice(&8u16.to_le_bytes()); // method = 8 (Deflate)
+        zip.extend_from_slice(&0u16.to_le_bytes()); // mod time
+        zip.extend_from_slice(&0u16.to_le_bytes()); // mod date
+        zip.extend_from_slice(&0u32.to_le_bytes()); // crc32 (checked only at EOF)
+        zip.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        zip.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        zip.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+        zip.extend_from_slice(name_bytes);
+        zip.extend_from_slice(&extra);
+        zip.extend_from_slice(raw_deflate);
+
+        let cd_offset = zip.len() as u32;
+        // Central directory header (PK\x01\x02)
+        zip.extend_from_slice(b"PK\x01\x02");
+        zip.extend_from_slice(&45u16.to_le_bytes()); // version made by
+        zip.extend_from_slice(&45u16.to_le_bytes()); // version needed
+        zip.extend_from_slice(&0u16.to_le_bytes()); // flags
+        zip.extend_from_slice(&8u16.to_le_bytes()); // method = 8 (Deflate)
+        zip.extend_from_slice(&0u16.to_le_bytes()); // mod time
+        zip.extend_from_slice(&0u16.to_le_bytes()); // mod date
+        zip.extend_from_slice(&0u32.to_le_bytes()); // crc32
+        zip.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        zip.extend_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        zip.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        zip.extend_from_slice(&0u16.to_le_bytes()); // disk number
+        zip.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
+        zip.extend_from_slice(&0u32.to_le_bytes()); // external attrs
+        zip.extend_from_slice(&0u32.to_le_bytes()); // local header offset
+        zip.extend_from_slice(name_bytes);
+        zip.extend_from_slice(&extra);
+        let cd_size = (zip.len() as u32) - cd_offset;
+
+        // End of central directory (PK\x05\x06)
+        zip.extend_from_slice(b"PK\x05\x06");
+        zip.extend_from_slice(&0u16.to_le_bytes()); // disk
+        zip.extend_from_slice(&0u16.to_le_bytes()); // cd start disk
+        zip.extend_from_slice(&1u16.to_le_bytes()); // entries on disk
+        zip.extend_from_slice(&1u16.to_le_bytes()); // total entries
+        zip.extend_from_slice(&cd_size.to_le_bytes());
+        zip.extend_from_slice(&cd_offset.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        zip
+    }
+
+    #[cfg(unix)]
+    fn peak_rss_bytes() -> u64 {
+        #[repr(C)]
+        struct Timeval {
+            tv_sec: isize,
+            tv_usec: isize,
+        }
+        #[repr(C)]
+        struct RUsage {
+            ru_utime: Timeval,
+            ru_stime: Timeval,
+            ru_maxrss: isize,
+            ru_ixrss: isize,
+            ru_idrss: isize,
+            ru_isrss: isize,
+            ru_minflt: isize,
+            ru_majflt: isize,
+            ru_nswap: isize,
+            ru_inblock: isize,
+            ru_oublock: isize,
+            ru_msgsnd: isize,
+            ru_msgrcv: isize,
+            ru_nsignals: isize,
+            ru_nvcsw: isize,
+            ru_nivcsw: isize,
+        }
+        unsafe extern "C" {
+            fn getrusage(who: i32, usage: *mut RUsage) -> i32;
+        }
+        let mut usage = std::mem::MaybeUninit::<RUsage>::zeroed();
+        let rc = unsafe { getrusage(0, usage.as_mut_ptr()) };
+        if rc != 0 {
+            return 0;
+        }
+        let raw = unsafe { usage.assume_init().ru_maxrss } as u64;
+        if cfg!(target_os = "macos") {
+            raw
+        } else {
+            raw * 1024
+        }
+    }
+
+    #[test]
+    fn zip_bomb_stream_rejected_under_100mb_rss() {
+        let raw_deflate = deflate_bomb_2gib_plus_one();
+        // ~2.1 MB compressed DEFLATE stream that inflates to 2 GiB + 1 byte of zeros.
+        assert!(raw_deflate.len() > 1_000_000 && raw_deflate.len() < 12_000_000, "compressed len={}", raw_deflate.len());
+        let bomb_zip = wrap_raw_deflate_in_zip("canvas.fig", &raw_deflate, (2u64 << 30) + 1);
+
+        let err = open(&bomb_zip).expect_err("2 GiB + 1 zip bomb must be rejected");
+        assert!(err.to_string().contains("decompressed data too large"), "unexpected error: {err}");
+
+        // Even with the old 2 GiB / 4 GiB budget and a declared size under the cap, streaming ratio guard rejects early.
+        let within_cap_zip = wrap_raw_deflate_in_zip("canvas.fig", &raw_deflate, 2u64 << 30);
+        let err_ratio = open_with_budget(&within_cap_zip, 2 << 30, 4 << 30).expect_err("streaming ratio guard must reject");
+        assert!(err_ratio.to_string().contains("decompressed data too large"), "unexpected error: {err_ratio}");
+
+        let err2 = decompress(&raw_deflate).expect_err("raw 2 GiB + 1 deflate bomb must be rejected");
+        assert!(err2.to_string().contains("decompressed data too large"), "unexpected error: {err2}");
+
+        #[cfg(unix)]
+        {
+            let rss = peak_rss_bytes();
+            assert!(rss < 100 << 20, "peak RSS reached {:.1} MiB (must stay under 100 MiB when rejecting 2 GiB zip bomb)", rss as f64 / (1024.0 * 1024.0));
+        }
     }
 }
