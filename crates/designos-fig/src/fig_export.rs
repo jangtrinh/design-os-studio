@@ -839,6 +839,16 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if lc.absolute {
         fields.push(("stackPositioning", en("ABSOLUTE")));
     }
+    for (val, key) in [
+        (lc.margin[0], "stackChildMarginTop"),
+        (lc.margin[1], "stackChildMarginRight"),
+        (lc.margin[2], "stackChildMarginBottom"),
+        (lc.margin[3], "stackChildMarginLeft"),
+    ] {
+        if val != 0.0 {
+            fields.push((key, fl(val)));
+        }
+    }
     if let Some(c) = lc.grid_column {
         fields.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
         fields.push(("gridColumnAnchor", V::Uint(u32::from(c))));
@@ -1450,6 +1460,16 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 }
                 if lc.row_span > 1 {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
+                }
+                for (val, key) in [
+                    (lc.margin[0], "stackChildMarginTop"),
+                    (lc.margin[1], "stackChildMarginRight"),
+                    (lc.margin[2], "stackChildMarginBottom"),
+                    (lc.margin[3], "stackChildMarginLeft"),
+                ] {
+                    if val != 0.0 {
+                        ov.push((key, fl(val)));
+                    }
                 }
             }
             if ovs.contains(&OverrideField::MainComponent) {

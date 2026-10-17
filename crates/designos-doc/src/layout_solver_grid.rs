@@ -6,7 +6,12 @@ use crate::{AutoLayout, GridTrack, Rect, Sizing, Vec2};
 
 /// Widest clamped natural child (single-column ones only) in column `c`.
 fn widest_in_column(kids: &[ChildIn], placements: &[Placed], c: usize) -> f32 {
-    placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1).map(|(_, k)| k.limits.clamp_w(k.size.x)).fold(0.0, f32::max)
+    placements
+        .iter()
+        .zip(kids)
+        .filter(|(p, _)| p.col == c && p.col_span == 1)
+        .map(|(_, k)| k.limits.clamp_w(k.size.x) + k.margin[1] + k.margin[3])
+        .fold(0.0, f32::max)
 }
 
 /// A child that spans several rows: the rows it covers, its first column and its clamped height.
@@ -131,7 +136,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     }
     for (p, k) in placements.iter().zip(kids) {
         if p.row_span == 1 && p.row < rows && fixed_row(p.row).is_none() {
-            let h = k.limits.clamp_h(k.size.y);
+            let h = k.limits.clamp_h(k.size.y) + k.margin[0] + k.margin[2];
             row_heights[p.row] = row_heights[p.row].max(h);
         }
     }
@@ -142,7 +147,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         .iter()
         .zip(kids)
         .filter(|(p, _)| p.row_span > 1)
-        .map(|(p, k)| RowSpan { start: p.row, end: (p.row + p.row_span).min(rows), col: p.col, need: k.limits.clamp_h(k.size.y) })
+        .map(|(p, k)| RowSpan { start: p.row, end: (p.row + p.row_span).min(rows), col: p.col, need: k.limits.clamp_h(k.size.y) + k.margin[0] + k.margin[2] })
         .filter(|s| s.end > s.start)
         .collect();
     spans.sort_by(|a, b| (a.end - a.start).cmp(&(b.end - b.start)).then(b.need.total_cmp(&a.need)).then(a.start.cmp(&b.start)).then(a.col.cmp(&b.col)));
@@ -168,11 +173,12 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
 
     let mut rects = Vec::with_capacity(kids.len());
     for (p, k) in placements.iter().zip(kids) {
+        let [mt, mr, mb, ml] = k.margin;
         let cell_w: f32 = (0..p.col_span).map(|dc| col_widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h: f32 = (0..p.row_span).map(|dr| row_heights[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
-        let w = k.limits.clamp_w(if k.main_fill { cell_w } else { k.size.x });
-        let h = k.limits.clamp_h(if k.cross_fill { cell_h } else { k.size.y });
-        rects.push(Rect::new(col_x[p.col], row_y[p.row], w, h));
+        let w = k.limits.clamp_w(if k.main_fill { (cell_w - ml - mr).max(0.0) } else { k.size.x });
+        let h = k.limits.clamp_h(if k.cross_fill { (cell_h - mt - mb).max(0.0) } else { k.size.y });
+        rects.push(Rect::new(col_x[p.col] + ml, row_y[p.row] + mt, w, h));
     }
 
     let total_w = col_widths.iter().sum::<f32>() + col_gap * (cols.saturating_sub(1) as f32) + pl + pr;
