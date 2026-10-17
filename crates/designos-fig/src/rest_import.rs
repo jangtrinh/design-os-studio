@@ -1183,6 +1183,16 @@ impl<'a> Ctx<'a> {
                     Some("SLOT") => {
                         if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object) {
                             let opt_u32 = |k: &str| cfg.get(k).and_then(Value::as_u64).map(|x| x.min(u64::from(u32::MAX)) as u32);
+                            let extra = cfg
+                                .iter()
+                                .filter(|(k, _)| {
+                                    !matches!(
+                                        k.as_str(),
+                                        "stretchChildOnInsert" | "displayByDefault" | "minChildren" | "maxChildren" | "allowPreferredValuesOnly"
+                                    )
+                                })
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect();
                             n.component.slot_configs.insert(
                                 name.clone(),
                                 SlotPropConfig {
@@ -1192,6 +1202,7 @@ impl<'a> Ctx<'a> {
                                     max_children: opt_u32("maxChildren"),
                                     allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
                                     preferred: Vec::new(),
+                                    extra,
                                 },
                             );
                         }

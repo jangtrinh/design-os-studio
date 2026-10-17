@@ -100,6 +100,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     n.id = id;
     n.parent = parent;
     n.source_id = None;
+    n.component.slot_content_id = None;
     n.children = Vec::new();
     if link {
         n.component.source = Some(src);
@@ -751,6 +752,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     if !top {
         n.component.bindings = r.component.bindings.clone();
         n.component.is_slot = r.component.is_slot;
+        n.component.is_slot_content = r.component.is_slot_content;
     }
     match (&r.kind, &n.kind) {
         (NodeKind::Text(_), NodeKind::Text(_)) => {}
