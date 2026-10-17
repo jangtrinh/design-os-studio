@@ -68,7 +68,7 @@ fn big_fixture() -> Fixture {
 }
 
 /// A session id no other test in any running test process uses (tests run in parallel).
-fn unique_tab_id() -> u64 {
+pub(crate) fn unique_tab_id() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     9_000_000 + (std::process::id() as u64 % 100_000) * 100 + NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }

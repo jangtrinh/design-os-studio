@@ -1221,7 +1221,6 @@ impl TerminalState {
             actions.push(TerminalAction::LiveSyncError(err));
         }
         if !patches.is_empty() {
-            self.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), self.live_patch.path.display()));
             actions.push(TerminalAction::ApplyLivePatch(patches));
         }
 

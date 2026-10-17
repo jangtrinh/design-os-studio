@@ -38,6 +38,9 @@ pub struct LivePatchLog {
     max_poll_bytes: u64,
     max_line_bytes: usize,
     pub state: LivePatchState,
+    /// Patches already read but not applied yet, because the user was in the middle of an edit.
+    /// The read position is past them, so they live only here.
+    pub pending: Vec<LivePatch>,
 }
 
 impl LivePatchLog {
@@ -51,6 +54,7 @@ impl LivePatchLog {
             max_poll_bytes: MAX_POLL_BYTES,
             max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
             state: LivePatchState::default(),
+            pending: Vec::new(),
             path,
         };
         log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();

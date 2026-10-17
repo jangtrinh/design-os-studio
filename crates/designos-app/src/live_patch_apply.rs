@@ -6,9 +6,32 @@
 //! again with their real children.
 
 use crate::app::App;
+use crate::canvas::Interaction;
 use crate::edit::Tx;
 use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchReport};
 use designos_doc::{Document, NodeId};
+
+/// The user is in the middle of an edit that holds an open transaction or a snapshot: a canvas
+/// drag, a text session, a vector point drag, a property scrub or an open colour picker. An agent
+/// edit applied now would land inside it, and cancelling the user's edit would drop it too.
+pub fn user_edit_in_progress(app: &App) -> bool {
+    !matches!(app.canvas.inter, Interaction::None)
+        || app.canvas.text.is_some()
+        || app.canvas.vedit.as_ref().is_some_and(|v| v.drag.is_some())
+        || app.scrub.is_some()
+        || app.props.picker.is_some()
+}
+
+/// Applies the agent edits waiting in the log, unless the user is mid-edit. Runs every frame.
+pub fn apply_pending_live_patches(app: &mut App) {
+    if app.terminal.live_patch.pending.is_empty() || user_edit_in_progress(app) {
+        return;
+    }
+    let patches = std::mem::take(&mut app.terminal.live_patch.pending);
+    app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
+    apply_live_patches(app, &patches);
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+}
 
 /// Replays `patches` on `app.doc`, one undo step per patch (one agent tool call), and reports
 /// the result in a toast. A patch that cannot be applied is reported and the rest still are: the

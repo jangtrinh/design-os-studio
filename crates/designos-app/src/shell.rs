@@ -1070,6 +1070,8 @@ impl Shell {
         if !bridge_actions.is_empty() {
             execute_terminal_actions(&mut self.app, bridge_actions);
         }
+        // Agent edits that arrived during a drag or text edit land once it has ended.
+        crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
         if full_vars {
             // The local-variables full view replaces the left panel, canvas and right panel.
             rail::show(&mut self.app, ui, rail_rect);
@@ -1245,8 +1247,11 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 Err(e) => app.show_toast(format!("Failed to read live doc {}: {e}", path.display()), true),
             },
             crate::terminal::TerminalAction::ApplyLivePatch(patches) => {
-                crate::live_patch_apply::apply_live_patches(app, &patches);
-                app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+                app.terminal.live_patch.pending.extend(patches);
+                crate::live_patch_apply::apply_pending_live_patches(app);
+                if !app.terminal.live_patch.pending.is_empty() {
+                    app.terminal.status_msg = Some("Agent edit waits until you finish the current edit".into());
+                }
             }
             crate::terminal::TerminalAction::LiveSyncError(msg) => app.show_toast(msg, true),
             crate::terminal::TerminalAction::ReloadFromDisk => {
