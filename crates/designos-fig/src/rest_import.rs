@@ -2288,21 +2288,11 @@ impl<'a> Ctx<'a> {
                     TextAutoResize::Height if !dir_h => Sizing::Hug,
                     _ => Sizing::Fixed,
                 },
-                k => match k.frame_props().and_then(|f| f.auto_layout) {
-                    Some(al) => {
-                        let along = (al.direction == LayoutDirection::Horizontal) == dir_h;
-                        if along {
-                            al.primary_sizing
-                        } else {
-                            al.counter_sizing
-                        }
-                    }
-                    None => Sizing::Fixed,
-                },
+                k => k.frame_props().and_then(|f| f.auto_layout).map_or(Sizing::Fixed, |al| al.sizing_along(dir_h)),
             }
         };
         if let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) {
-            let prim_h = al.direction == LayoutDirection::Horizontal;
+            let prim_h = al.primary_is_horizontal();
             if set.get("primaryAxisSizingMode").is_some() {
                 let slot = if prim_h { &mut n.layout_child.horizontal } else { &mut n.layout_child.vertical };
                 if *slot != Sizing::Fill {
@@ -3001,13 +2991,7 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
                 TextAutoResize::Height => !dir_h,
                 _ => false,
             },
-            k => match k.frame_props().and_then(|f| f.auto_layout) {
-                Some(al) => {
-                    let along = (al.direction == LayoutDirection::Horizontal) == dir_h;
-                    (if along { al.primary_sizing } else { al.counter_sizing }) == Sizing::Hug
-                }
-                None => false,
-            },
+            k => k.frame_props().and_then(|f| f.auto_layout).is_some_and(|al| al.sizing_along(dir_h) == Sizing::Hug),
         }
     };
     if own_hug(true) {

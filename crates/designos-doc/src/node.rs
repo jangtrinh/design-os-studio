@@ -695,6 +695,23 @@ pub struct AutoLayout {
     pub grid_row_tracks: [GridTrack; 8],
 }
 
+impl AutoLayout {
+    /// Whether the primary axis (and `primary_sizing`) runs along the width. Figma's convention: a
+    /// `Horizontal` frame and a `Grid` frame (columns) do, a `Vertical` frame runs along the height.
+    pub fn primary_is_horizontal(&self) -> bool {
+        self.direction != LayoutDirection::Vertical
+    }
+
+    /// The sizing mode this frame has along the width (`horizontal`) or the height.
+    pub fn sizing_along(&self, horizontal: bool) -> Sizing {
+        if self.primary_is_horizontal() == horizontal {
+            self.primary_sizing
+        } else {
+            self.counter_sizing
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChild {
     pub absolute: bool,
@@ -729,4 +746,22 @@ pub enum Constraint {
 pub struct Constraints {
     pub horizontal: Constraint,
     pub vertical: Constraint,
+}
+
+#[cfg(test)]
+mod auto_layout_axis_tests {
+    use super::*;
+
+    #[test]
+    fn primary_runs_along_the_width_for_horizontal_and_grid_frames_and_along_the_height_for_vertical() {
+        let al = |direction| AutoLayout { direction, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..Default::default() };
+        for direction in [LayoutDirection::Horizontal, LayoutDirection::Grid] {
+            let a = al(direction);
+            assert!(a.primary_is_horizontal(), "{direction:?}");
+            assert_eq!((a.sizing_along(true), a.sizing_along(false)), (Sizing::Hug, Sizing::Fixed), "{direction:?}");
+        }
+        let v = al(LayoutDirection::Vertical);
+        assert!(!v.primary_is_horizontal());
+        assert_eq!((v.sizing_along(true), v.sizing_along(false)), (Sizing::Fixed, Sizing::Hug));
+    }
 }
