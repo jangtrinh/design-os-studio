@@ -54,6 +54,10 @@ struct Shot {
     no_toast: bool,
 }
 
+/// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
+/// captures whatever is on screen (the run closes after 240).
+const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
+
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
 
@@ -408,7 +412,14 @@ impl Shell {
             let r = ctx.content_rect();
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
-        if !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60) {
+        // A GPU canvas first shows the capped interactive frame; the full-quality frame of the
+        // at-rest view follows once the idle refine has run. Capture that one, but never wait
+        // past the point where the run would give up (`shot.frames > 240` below).
+        let canvas_at_rest = self.app.canvas.gpu.at_rest() || shot.frames >= SHOT_GPU_SETTLE_FRAMES;
+        if !shot.requested && canvas_at_rest && ((shot.frames >= 12 && sized) || shot.frames >= 60) {
+            if !self.app.canvas.gpu.at_rest() {
+                eprintln!("designos: the GPU view did not settle in {SHOT_GPU_SETTLE_FRAMES} frames, capturing the interactive frame");
+            }
             shot.requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
         }
