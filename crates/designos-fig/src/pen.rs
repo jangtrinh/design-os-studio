@@ -407,6 +407,8 @@ fn parse_layout_align(s: Option<&str>) -> LayoutAlign {
         "center" | "middle" => LayoutAlign::Center,
         "end" | "flex_end" | "flex-end" | "right" | "bottom" => LayoutAlign::End,
         "space_between" | "space-between" => LayoutAlign::SpaceBetween,
+        "space_around" | "space-around" => LayoutAlign::SpaceAround,
+        "space_evenly" | "space-evenly" => LayoutAlign::SpaceEvenly,
         "baseline" => LayoutAlign::Baseline,
         _ => LayoutAlign::Start,
     }
@@ -1199,6 +1201,8 @@ fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
                 LayoutAlign::Center => "center",
                 LayoutAlign::End => "end",
                 LayoutAlign::SpaceBetween => "space_between",
+                LayoutAlign::SpaceAround => "space_around",
+                LayoutAlign::SpaceEvenly => "space_evenly",
                 LayoutAlign::Baseline => "baseline",
             };
             if al.primary_align != LayoutAlign::Start {

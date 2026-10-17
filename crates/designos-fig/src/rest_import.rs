@@ -2867,6 +2867,8 @@ fn frame_props(v: &Value) -> FrameProps {
             Some("CENTER") => LayoutAlign::Center,
             Some("MAX") => LayoutAlign::End,
             Some("SPACE_BETWEEN") => LayoutAlign::SpaceBetween,
+            Some("SPACE_AROUND") => LayoutAlign::SpaceAround,
+            Some("SPACE_EVENLY") => LayoutAlign::SpaceEvenly,
             Some("BASELINE") => LayoutAlign::Baseline,
             _ => LayoutAlign::Start,
         };
@@ -2884,6 +2886,12 @@ fn frame_props(v: &Value) -> FrameProps {
             padding: [p("paddingTop"), p("paddingRight"), p("paddingBottom"), p("paddingLeft")],
             primary_align: align(fstr(v, "primaryAxisAlignItems")),
             counter_align: align(fstr(v, "counterAxisAlignItems")),
+            counter_align_content: if fstr(v, "counterAxisAlignContent") == Some("SPACE_BETWEEN") {
+                CounterAlignContent::SpaceBetween
+            } else {
+                CounterAlignContent::Auto
+            },
+            layout_version: fnum(v, "stackLayoutVersion").map_or(0, |n| n.clamp(0.0, u8::MAX as f32) as u8),
             primary_sizing: sizing(fstr(v, "primaryAxisSizingMode")),
             counter_sizing: sizing(fstr(v, "counterAxisSizingMode")),
             stroke_included: fbool(v, "strokesIncludedInLayout").unwrap_or(false),
@@ -2918,7 +2926,12 @@ fn text_props(v: &Value) -> TextProps {
 
     let overrides: Vec<u64> = farr(v, "characterStyleOverrides").iter().map(|x| x.as_u64().unwrap_or(0)).collect();
     let runs = build_runs(&content, &style, &overrides, v.get("styleOverrideTable"));
-    let mut tp = TextProps { content, style, runs, auto_resize: auto, max_lines, auto_rename, decoration_skip_ink, ..Default::default() };
+    let text_wrap = match fstr(v, "textWrapStyle").or_else(|| st.and_then(|s| fstr(s, "textWrapStyle"))) {
+        Some("BALANCE") => TextWrap::Balance,
+        Some("PRETTY") => TextWrap::Pretty,
+        _ => TextWrap::Auto,
+    };
+    let mut tp = TextProps { content, style, runs, auto_resize: auto, max_lines, auto_rename, decoration_skip_ink, text_wrap, ..Default::default() };
     if let Some(st) = st {
         crate::textfmt::apply_paragraph(&mut tp, st);
     }

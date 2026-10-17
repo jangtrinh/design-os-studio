@@ -361,6 +361,27 @@ mod tests {
     }
 
     #[test]
+    fn text_wrap_changes_the_measured_lines() {
+        const HEADLINE: &str = "The quick brown fox jumps over the lazy dog";
+        let wrapped = |wrap| {
+            let mut p = props(HEADLINE, 16.0);
+            p.text_wrap = wrap;
+            p.auto_resize = d::TextAutoResize::Height;
+            p
+        };
+        let box_w = Vec2::new(230.0, 200.0);
+        // Inter 16px: greedy breaks after "jumps" (204.6px wide first line); balance after "fox" (180.8px widest line)
+        let auto = measure(&wrapped(d::TextWrap::Auto), Some(230.0));
+        let balanced = measure(&wrapped(d::TextWrap::Balance), Some(230.0));
+        assert!(auto.x > 204.0 && balanced.x < 182.0, "{auto:?} vs {balanced:?}");
+        assert_eq!(auto.y, balanced.y, "same line count, same height");
+        // editor geometry follows the balanced break: line 2 starts at "jumps" (byte 20), greedy at "over" (byte 26)
+        let lines = |wrap| geometry(&wrapped(wrap), box_w).lines.iter().map(|l| l.start).collect::<Vec<_>>();
+        assert_eq!(lines(d::TextWrap::Auto), vec![0, 26]);
+        assert_eq!(lines(d::TextWrap::Balance), vec![0, 20]);
+    }
+
+    #[test]
     fn measure_follows_run_styles() {
         let mut p = props("ab cd", 12.0);
         let small = measure(&p, None);

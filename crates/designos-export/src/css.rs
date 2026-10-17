@@ -112,6 +112,8 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
                 LayoutAlign::Center => Some("center"),
                 LayoutAlign::End => Some("flex-end"),
                 LayoutAlign::SpaceBetween => Some("space-between"),
+                LayoutAlign::SpaceAround => Some("space-around"),
+                LayoutAlign::SpaceEvenly => Some("space-evenly"),
             };
             if let Some(j) = justify {
                 push("justify-content", j.into());
@@ -119,7 +121,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push(
                 "align-items",
                 match al.counter_align {
-                    LayoutAlign::Start | LayoutAlign::SpaceBetween => "flex-start",
+                    LayoutAlign::Start | LayoutAlign::SpaceBetween | LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => "flex-start",
                     LayoutAlign::Center => "center",
                     LayoutAlign::End => "flex-end",
                     LayoutAlign::Baseline => "baseline",
@@ -128,14 +130,17 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             );
             if al.wrap {
                 push("flex-wrap", "wrap".into());
-                if al.primary_align != LayoutAlign::SpaceBetween || al.counter_spacing > 0.0 {
+                if al.counter_align_content == CounterAlignContent::SpaceBetween {
+                    push("align-content", "space-between".into());
+                }
+                if !distributes_space(al.primary_align) || al.counter_spacing > 0.0 {
                     let (row, col) =
                         if al.direction == LayoutDirection::Horizontal { (al.counter_spacing, al.item_spacing) } else { (al.item_spacing, al.counter_spacing) };
                     if row > 0.0 || col > 0.0 {
                         push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
                     }
                 }
-            } else if al.item_spacing > 0.0 && al.primary_align != LayoutAlign::SpaceBetween {
+            } else if al.item_spacing > 0.0 && !distributes_space(al.primary_align) {
                 push("gap", format!("{}px", num(al.item_spacing)));
             }
         }
@@ -419,6 +424,11 @@ pub fn text_style_css(st: &TextStyle) -> Vec<String> {
     out
 }
 
+/// Alignments that spread the free space, so the gap is not a fixed `item_spacing`.
+fn distributes_space(a: LayoutAlign) -> bool {
+    matches!(a, LayoutAlign::SpaceBetween | LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly)
+}
+
 fn text_block(t: &TextProps, out: &mut Vec<String>) {
     let st = &t.style;
     if let Some(p) = st.fills.iter().find(|p| p.visible && p.opacity > 0.0) {
@@ -437,6 +447,11 @@ fn text_block(t: &TextProps, out: &mut Vec<String>) {
         TextDirection::Auto => {}
         TextDirection::Ltr => out.push("direction: ltr;".into()),
         TextDirection::Rtl => out.push("direction: rtl;".into()),
+    }
+    match t.text_wrap {
+        TextWrap::Auto => {}
+        TextWrap::Balance => out.push("text-wrap: balance;".into()),
+        TextWrap::Pretty => out.push("text-wrap: pretty;".into()),
     }
     if t.paragraph.indent > 0.0 {
         out.push(format!("text-indent: {}px;", num(t.paragraph.indent)));
@@ -515,6 +530,45 @@ mod tests {
         assert_eq!(css_for(&d, id), "display: flex;\nwidth: 300px;\nheight: 80px;\npadding: 8px 16px;\njustify-content: space-between;\nalign-items: center;");
         let child = d.get(id).unwrap().children[0];
         assert_eq!(css_for(&d, child), "flex: 1 0 0;\nheight: 40px;\nbackground: #D9D9D9;");
+    }
+
+    #[test]
+    fn auto_spacing_modes_and_wrap_content_map_to_css() {
+        for (align, want) in [(LayoutAlign::SpaceAround, "space-around"), (LayoutAlign::SpaceEvenly, "space-evenly")] {
+            let (d, id) = doc_with(|d, page| {
+                let f = d.alloc_id();
+                let mut fr = Node::frame(f, Rect::new(0.0, 0.0, 300.0, 80.0));
+                fr.fills.clear();
+                if let NodeKind::Frame(fp) = &mut fr.kind {
+                    fp.auto_layout = Some(AutoLayout {
+                        direction: LayoutDirection::Vertical,
+                        wrap: true,
+                        item_spacing: 12.0,
+                        primary_align: align,
+                        counter_align_content: CounterAlignContent::SpaceBetween,
+                        ..Default::default()
+                    });
+                }
+                d.insert(page, fr).unwrap();
+            });
+            let css = css_for(&d, id);
+            assert!(css.contains(&format!("justify-content: {want};")), "{css}");
+            assert!(css.contains("flex-wrap: wrap;") && css.contains("align-content: space-between;"), "{css}");
+            assert!(!css.contains("gap:"), "the fixed gap does not apply with auto spacing: {css}");
+        }
+    }
+
+    #[test]
+    fn text_wrap_maps_to_css() {
+        let (d, id) = doc_with(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::text(i, Rect::new(0.0, 0.0, 120.0, 21.0), "Hi", TextStyle::default());
+            if let NodeKind::Text(t) = &mut n.kind {
+                t.text_wrap = TextWrap::Balance;
+            }
+            d.insert(page, n).unwrap();
+        });
+        assert!(css_for(&d, id).contains("text-wrap: balance;"));
     }
 
     #[test]

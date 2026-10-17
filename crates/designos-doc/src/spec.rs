@@ -29,7 +29,7 @@ pub struct LayoutSpec {
     /// `[top, right, bottom, left]` padding in px.
     #[serde(default)]
     pub padding: [f32; 4],
-    /// `"start"`, `"center"`, `"end"`, `"space-between"`, or `"baseline"`.
+    /// `"start"`, `"center"`, `"end"`, `"space-between"`, `"space-around"`, `"space-evenly"`, or `"baseline"`.
     #[serde(default, alias = "justify", skip_serializing_if = "String::is_empty")]
     pub primary_align: String,
     /// `"start"`, `"center"`, `"end"`, or `"baseline"`.
@@ -182,6 +182,8 @@ fn parse_align(s: &str) -> LayoutAlign {
         "center" | "middle" => LayoutAlign::Center,
         "end" | "right" | "bottom" => LayoutAlign::End,
         "space-between" | "between" | "space_between" => LayoutAlign::SpaceBetween,
+        "space-around" | "around" | "space_around" => LayoutAlign::SpaceAround,
+        "space-evenly" | "evenly" | "space_evenly" => LayoutAlign::SpaceEvenly,
         "baseline" | "first-baseline" => LayoutAlign::Baseline,
         _ => LayoutAlign::Start,
     }
@@ -929,6 +931,8 @@ impl Document {
             let sum_main: f32 = mains.iter().sum();
             let (start, gap) = match al.primary_align {
                 LayoutAlign::SpaceBetween if k_count > 1.0 => (0.0, ((main_avail - sum_main) / (k_count - 1.0)).max(0.0)),
+                LayoutAlign::SpaceAround if main_avail > sum_main => ((main_avail - sum_main) / k_count / 2.0, (main_avail - sum_main) / k_count),
+                LayoutAlign::SpaceEvenly if main_avail > sum_main => ((main_avail - sum_main) / (k_count + 1.0), (main_avail - sum_main) / (k_count + 1.0)),
                 LayoutAlign::Center => (((main_avail - sum_main - al.item_spacing * (k_count - 1.0)) / 2.0).max(0.0), al.item_spacing),
                 LayoutAlign::End => ((main_avail - sum_main - al.item_spacing * (k_count - 1.0)).max(0.0), al.item_spacing),
                 _ => (0.0, al.item_spacing),

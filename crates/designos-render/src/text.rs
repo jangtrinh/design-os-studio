@@ -284,6 +284,7 @@ struct Segment {
 }
 
 mod flow;
+mod wrap;
 use flow::{flow, glyph_outline, marker_outline, split_paragraphs, Flow, Para};
 
 /// Number of lines kept by `TextAutoResize::Truncate`: `max_lines`, or as many

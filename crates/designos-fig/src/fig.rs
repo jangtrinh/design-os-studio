@@ -1397,6 +1397,26 @@ fn stack_align(s: Option<&str>) -> &'static str {
     }
 }
 
+/// Primary-axis `StackJustify`: both the legacy `SPACE_EVENLY` (3) and the CSS-aligned
+/// `SPACE_EVENLY_CSS` (6) are space-evenly; `stackLayoutVersion` tells them apart on export.
+fn stack_justify(s: Option<&str>) -> &'static str {
+    match s {
+        Some("SPACE_AROUND") => "SPACE_AROUND",
+        Some("SPACE_EVENLY") | Some("SPACE_EVENLY_CSS") => "SPACE_EVENLY",
+        other => stack_align(other),
+    }
+}
+
+/// Wrap-line distribution and layout engine revision, which only matter once a stack is converted.
+fn convert_stack_extras(m: &mut Map<String, Value>, nc: &Value) {
+    if fstr(nc, "stackCounterAlignContent") == Some("SPACE_BETWEEN") {
+        m.insert("counterAxisAlignContent".into(), "SPACE_BETWEEN".into());
+    }
+    if let Some(n) = fnum(nc, "stackLayoutVersion").filter(|n| *n > 0.0) {
+        m.insert("stackLayoutVersion".into(), n.into());
+    }
+}
+
 fn stack_sizing(s: Option<&str>) -> &'static str {
     if s.map(|s| s.starts_with("RESIZE_TO_FIT") || s == "AUTO" || s == "HUG").unwrap_or(false) {
         "AUTO"
@@ -1621,7 +1641,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             }
         }
         if let Some(s) = fstr(o, "stackPrimaryAlignItems") {
-            m.insert("primaryAxisAlignItems".into(), stack_align(Some(s)).into());
+            m.insert("primaryAxisAlignItems".into(), stack_justify(Some(s)).into());
         }
         if let Some(s) = fstr(o, "stackCounterAlignItems") {
             m.insert("counterAxisAlignItems".into(), stack_align(Some(s)).into());
@@ -1753,7 +1773,7 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
     ins(m, "paddingTop", fnum(nc, "stackPaddingTop").or(v));
     ins(m, "paddingRight", fnum(nc, "stackPaddingRight").or(h));
     ins(m, "paddingBottom", fnum(nc, "stackPaddingBottom").or(v));
-    m.insert("primaryAxisAlignItems".into(), stack_align(fstr(nc, "stackPrimaryAlignItems")).into());
+    m.insert("primaryAxisAlignItems".into(), stack_justify(fstr(nc, "stackPrimaryAlignItems")).into());
     m.insert("counterAxisAlignItems".into(), stack_align(fstr(nc, "stackCounterAlignItems")).into());
     // Real files only ever write `FIXED` for the primary axis (absent = hug) and
     // `RESIZE_TO_FIT_WITH_IMPLICIT_SIZE` for the counter axis (absent = fixed).
@@ -1769,6 +1789,7 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
     if let Some(b) = rest_import::fbool(nc, "bordersTakeSpace") {
         m.insert("strokesIncludedInLayout".into(), b.into());
     }
+    convert_stack_extras(m, nc);
 }
 
 // ------------------------------------------------------------------ paint / effect
@@ -1943,6 +1964,7 @@ fn convert_text(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     copy(m, nc, "maxLines", "maxLines");
     copy(m, nc, "autoRename", "autoRename");
     copy(m, nc, "textDecorationSkipInk", "textDecorationSkipInk");
+    copy(m, nc, "textWrapStyle", "textWrapStyle");
     if let Some(lines) = td.and_then(|t| t.get("lines")).and_then(Value::as_array) {
         crate::textfmt::lines_from_kiwi(lines, m, &mut style);
     }
