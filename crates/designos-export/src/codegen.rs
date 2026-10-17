@@ -366,6 +366,27 @@ pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
     Sizes { w, h, in_flow, row_parent }
 }
 
+/// Width of a default (`1fr`) grid column when its frame hugs, as the layout solver sizes it: the
+/// widest single-column child, never less than this.
+pub(crate) const GRID_HUG_MIN_COLUMN_PX: f32 = 40.0;
+
+/// The axes `(width, height)` along which `n` is a grid frame that hugs. `1fr` tracks only split a
+/// size that is explicit, so such a frame gets a definite `max-content` size and content-sized
+/// tracks instead.
+pub(crate) fn grid_hug_axes(n: &Node, sz: &Sizes) -> (bool, bool) {
+    let grid = n.kind.frame_props().and_then(|f| f.auto_layout).is_some_and(|a| a.direction == LayoutDirection::Grid);
+    (grid && sz.w == Dim::Hug, grid && sz.h == Dim::Hug)
+}
+
+/// The axes `(width, height)` along which `n` takes its size from its own content: self-sizing
+/// text, or a flex frame hugging its children. Inside a grid such an item is neither given a
+/// pixel size nor stretched across its cell. Shapes have no content size, so a `Hug` sizing mode on
+/// one changes nothing: it keeps its pixels.
+pub(crate) fn content_sized_axes(n: &Node, sz: &Sizes) -> (bool, bool) {
+    let (grid_w, grid_h) = grid_hug_axes(n, sz);
+    (sz.w == Dim::Hug && !grid_w, sz.h == Dim::Hug && !grid_h)
+}
+
 /// Position offset for children that are not placed by auto layout.
 pub(crate) fn offset(n: &Node, parent: Parent, sz: &Sizes) -> Option<(f32, f32)> {
     if parent.root || sz.in_flow {
@@ -553,6 +574,26 @@ fn css_box(v: &[String]) -> String {
 #[cfg(test)]
 pub(crate) mod fixture {
     use super::*;
+
+    /// An empty grid frame on a fresh page. Insert children with [`add_rect`], then call
+    /// `Document::relayout_subtree` so the frame and its children hold the solver's output.
+    pub fn grid_frame(al: AutoLayout, size: Vec2) -> (Document, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut g = Node::frame(id, Rect::new(0.0, 0.0, size.x, size.y));
+        g.fills.clear();
+        if let NodeKind::Frame(fp) = &mut g.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Grid, ..al });
+        }
+        let id = d.insert(page, g).unwrap();
+        (d, id)
+    }
+
+    pub fn add_rect(d: &mut Document, parent: NodeId, size: Vec2) -> NodeId {
+        let id = d.alloc_id();
+        d.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, size.x, size.y))).unwrap()
+    }
 
     pub fn card() -> (Document, NodeId) {
         let mut d = Document::new("t");
