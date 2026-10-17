@@ -1079,12 +1079,22 @@ mod tests {
         );
     }
 
+    /// Steady-state `sync_live_file_context` on the synthetic doc may take at most this multiple of the
+    /// reference workload (serialize the doc once, write and rename 7 files), timed on the same runner.
+    /// Fastest of 40 each, measured 2026-10-17: sync/reference was 1.06 on macos-14 CI, 1.33 on Linux,
+    /// 1.15 on Windows and 1.05-1.10 on an Apple-silicon laptop; three syncs measured 3.17-3.87. So a
+    /// 3x slowdown fails on every OS while a healthy sync keeps at least 1.6x headroom.
+    const TERM_SYNC_MAX_REFERENCE_RATIO: f64 = 2.25;
+
     #[test]
     fn vsf_pcp_single_container_instance_and_multi_selection_under_2ms() {
-        let fig_path = std::path::Path::new("/Users/jangtrinh/Downloads/VSF - PCP.fig");
-        let doc = if fig_path.exists() {
-            let bytes = std::fs::read(fig_path).expect("read VSF - PCP.fig");
-            designos_fig::import_fig(&bytes).expect("import VSF - PCP.fig")
+        // The real "VSF - PCP.fig" bench is opt-in through DESIGNOS_BENCH_FIG. A hard-coded home path
+        // ties the test to one machine, and probing ~/Downloads blocks on the macOS privacy prompt.
+        let fig_path = std::env::var_os("DESIGNOS_BENCH_FIG").map(std::path::PathBuf::from);
+        let real_fixture = fig_path.is_some();
+        let doc = if let Some(fig_path) = fig_path {
+            let bytes = std::fs::read(&fig_path).unwrap_or_else(|e| panic!("read DESIGNOS_BENCH_FIG {}: {e}", fig_path.display()));
+            designos_fig::import_fig(&bytes).expect("import DESIGNOS_BENCH_FIG")
         } else {
             let mut d = Document::new("synth-multi");
             let p = d.add_page("V-Builder");
@@ -1191,9 +1201,58 @@ mod tests {
         app.fonts.load_for(&app.doc);
         let fonts_ms = t_fonts.elapsed().as_secs_f64() * 1000.0;
 
-        let t_sync = std::time::Instant::now();
+        // Every App::new binds the shared `tab-1` session dir, so tests running in parallel write and
+        // rename the same files. Give this one a private dir so it only times its own I/O.
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        app.terminal.bind_session(&format!("draw-bench-{}-{nonce}", std::process::id()));
+        let session_dir = app.terminal.session_dir.clone();
+
+        // The first sync of a tab creates the session directories and files.
+        let t_sync_cold = std::time::Instant::now();
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
-        let term_sync_ms = t_sync.elapsed().as_secs_f64() * 1000.0;
+        let term_sync_cold_ms = t_sync_cold.elapsed().as_secs_f64() * 1000.0;
+
+        // Steady state: the sync that runs on every page or selection change. Hosted runners differ in
+        // disk and CPU speed from run to run, so a fixed millisecond budget either flakes or misses a 3x
+        // slowdown. The synthetic doc is instead compared with a reference workload timed on the same
+        // runner: the work a sync cannot avoid (serialize the doc, write and rename 7 files). Both run
+        // interleaved and are compared by their fastest call, which file-I/O stalls can only raise:
+        // 10 pairs at least, then more until the sync is within budget or 5 s are up. A healthy sync
+        // passes after 10 pairs; a regressed one never gets under, however long it is sampled.
+        // DESIGNOS_BENCH_FIG docs keep a fixed 60 ms budget: they take the scoped >25k-node branch,
+        // which serializes far less than a full to_json.
+        let ref_dir = std::env::temp_dir().join(format!("draw-bench-ref-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&ref_dir).expect("create reference dir");
+        let filler = vec![b'x'; 1024];
+        let sample_until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut term_sync_ms = f64::INFINITY;
+        let mut reference_ms = f64::INFINITY;
+        let mut term_sync_calls = 0;
+        let term_sync_budget_ms = loop {
+            if !real_fixture {
+                let t = std::time::Instant::now();
+                let json = app.doc.to_json().expect("serialize reference doc");
+                for i in 0..7 {
+                    let tmp = ref_dir.join(format!("out-{i}.tmp"));
+                    std::fs::write(&tmp, if i == 0 { json.as_bytes() } else { &filler[..] }).expect("write reference file");
+                    std::fs::rename(&tmp, ref_dir.join(format!("out-{i}"))).expect("rename reference file");
+                }
+                reference_ms = reference_ms.min(t.elapsed().as_secs_f64() * 1000.0);
+            }
+
+            app.terminal.last_synced_key = None;
+            let t = std::time::Instant::now();
+            app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+            term_sync_ms = term_sync_ms.min(t.elapsed().as_secs_f64() * 1000.0);
+            term_sync_calls += 1;
+
+            let budget_ms = if real_fixture { 60.0 } else { TERM_SYNC_MAX_REFERENCE_RATIO * reference_ms };
+            if (term_sync_calls >= 10 && term_sync_ms < budget_ms) || std::time::Instant::now() >= sample_until {
+                break budget_ms;
+            }
+        };
+        let _ = std::fs::remove_dir_all(&ref_dir);
+        let _ = std::fs::remove_dir_all(&session_dir);
 
         // 6. Canvas Overlay Chrome, Label Rects & Hover Hit-Test at zoom=1.0
         app.view.zoom = 1.0;
@@ -1231,9 +1290,12 @@ mod tests {
             multi_sel_ms
         );
         eprintln!(
-            "[INTERACTION & POST-LOAD BENCH] fonts_load={:.3}ms | term_sync={:.3}ms | label_rects={:.3}ms | chrome_nodes({})={:.4}ms | hit_test={:.4}ms | with_sync={:.4}ms | layout_node={:.3}ms",
+            "[INTERACTION & POST-LOAD BENCH] fonts_load={:.3}ms | term_sync={:.3}ms (fastest of {} calls, reference {:.3}ms, cold {:.3}ms) | label_rects={:.3}ms | chrome_nodes({})={:.4}ms | hit_test={:.4}ms | with_sync={:.4}ms | layout_node={:.3}ms",
             fonts_ms,
             term_sync_ms,
+            term_sync_calls,
+            reference_ms,
+            term_sync_cold_ms,
             labels_ms,
             chrome_count,
             chrome_ms,
@@ -1247,7 +1309,10 @@ mod tests {
         assert!(instance_sel_ms < 25.0, "instance selection took {:.3}ms", instance_sel_ms);
         assert!(multi_sel_ms < 25.0, "200-node multi-selection + marquee took {:.3}ms", multi_sel_ms);
         assert!(fonts_ms < 60.0, "fonts.load_for took {:.3}ms", fonts_ms);
-        assert!(term_sync_ms < 60.0, "sync_live_file_context took {:.3}ms", term_sync_ms);
+        assert!(
+            term_sync_ms < term_sync_budget_ms,
+            "steady-state sync_live_file_context took {term_sync_ms:.3}ms at best over {term_sync_calls} calls; budget {term_sync_budget_ms:.3}ms (reference workload {reference_ms:.3}ms)"
+        );
         assert!(hit_ms < 10.0, "hit_test_with_index took {:.4}ms", hit_ms);
         assert!(with_sync_ms < 10.0, "comp_ops::with_sync took {:.4}ms", with_sync_ms);
         assert!(layout_ms < 30.0, "layout_node took {:.3}ms", layout_ms);
