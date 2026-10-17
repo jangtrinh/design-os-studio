@@ -262,6 +262,14 @@ impl Renderer {
         output
     }
 
+    /// Renders `frame` with an encoder of its own and submits it right away.
+    pub fn render_submitted(&mut self, frame: &Frame) -> Output {
+        let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu frame") });
+        let out = self.render(frame, &mut enc);
+        self.queue.submit([enc.finish()]);
+        out
+    }
+
     /// Renders `frame` and reads the result back as premultiplied RGBA8 rows.
     pub fn render_to_rgba(&mut self, frame: &Frame) -> Vec<u8> {
         let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu frame") });

@@ -76,6 +76,11 @@ pub struct Options {
     pub export_spec: Option<PathBuf>,
     /// Headless agent CLI: export the document to a native `.fig` binary file (`fig-kiwi` + ZIP).
     pub export_fig: Option<PathBuf>,
+    /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
+    /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
+    pub no_caption: bool,
+    /// With `--screenshot`: never paint transient toasts (e.g. "Opened <file>") into the capture.
+    pub no_toast: bool,
     pub help: bool,
 }
 
@@ -208,6 +213,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 o.panel = Some(t);
             }
             "--rulers" => o.rulers = true,
+            "--no-caption" => o.no_caption = true,
+            "--no-toast" => o.no_toast = true,
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
@@ -270,6 +277,8 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --gpu      draw the canvas on the GPU; --screenshot uses the CPU renderer unless this is given
   --library  use DIR as the projects library instead of the default location
   --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react); --dev-demo marks the selection Ready for dev with an annotation
+  --no-caption  with --panel micro-<slug>:seq:<N>: record frames without the top shortcut caption bar
+  --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig  headless Agent CLI inspection and mutation";
@@ -366,6 +375,10 @@ mod tests {
         assert_eq!(o.select_text, Some((2, 7)));
         assert_eq!(parse_zoom("50"), Some(50.0));
         assert!(p(&["--zoom", "0"]).is_err() && p(&["--zoom", "x"]).is_err() && p(&["--zoom"]).is_err());
+        assert!(!p(&["--panel", "micro-autolayout:seq:24"]).unwrap().no_caption, "recordings keep the caption bar by default");
+        assert!(p(&["--panel", "micro-autolayout:seq:24", "--no-caption"]).unwrap().no_caption);
+        assert!(!p(&["--screenshot", "x.png"]).unwrap().no_toast, "screenshots keep toasts by default");
+        assert!(p(&["--screenshot", "x.png", "--no-toast"]).unwrap().no_toast);
         assert!(p(&["--layout-grid", "diagonal"]).is_err());
         assert!(p(&["--select-text", "5"]).is_err());
     }

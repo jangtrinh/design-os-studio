@@ -18,7 +18,7 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
          `ui memory record gap`.
 
   2. G02 · `zero_fake_ui_gate`:
-     Executes `python3 scripts/zero_fake_ui_gate.py --json` and verifies `12/12 PASS`.
+     Executes `python3 scripts/zero_fake_ui_gate.py --json` and verifies every invariant passes (`passed == total`).
 
   3. G03 · `ui_ds_status`:
      Executes `ui ds status --dir . --json` and verifies compiled manifest + token & component registry health.
@@ -281,9 +281,9 @@ def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[
 def check_zero_fake_ui_gate() -> Tuple[bool, str, Dict[str, Any]]:
     code, payload, err = run_cli_json([sys.executable, str(ZERO_FAKE_GATE), "--json"])
     passed = payload.get("passed", 0)
-    total = payload.get("total", 12)
+    total = payload.get("total", 0)
     status = payload.get("status", "FAIL")
-    ok = (code == 0) and (status == "PASS") and (passed == 12) and (total == 12)
+    ok = (code == 0) and (status == "PASS") and (total > 0) and (passed == total)
     summary = f"{passed}/{total} Zero-Fake-UI invariants PASS (DIR-28 / BR-31 / REQ-25)"
     if not ok and err:
         summary = f"{summary} ({err})"
@@ -554,7 +554,7 @@ def main() -> int:
     # Execute G08 and G09 before G07 so that in evolve mode G07 harvests the latest gate/audit events
     execution_order = [
         ("G01", "check_rust_token_parity", "Rust theme.rs <-> design.tokens.json Parity & Purple Ban", lambda: check_rust_token_parity(record_gaps=args.record_gaps)),
-        ("G02", "zero_fake_ui_gate", "Zero Fake UI Deterministic Gate (12/12)", check_zero_fake_ui_gate),
+        ("G02", "zero_fake_ui_gate", "Zero Fake UI Deterministic Gate (all invariants)", check_zero_fake_ui_gate),
         ("G03", "ui_ds_status", "design:os Compiled Manifest & Component Registry", check_ui_ds_status),
         ("G04", "ui_ds_a11y", "WCAG Contrast Audit (ui ds a11y)", check_ui_ds_a11y),
         ("G05", "ui_ds_soul_check", "Ratified Soul Integrity (ui ds soul check)", check_ui_ds_soul),

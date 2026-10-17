@@ -38,6 +38,8 @@ struct MicroSeqCapture {
     base_doc: designos_doc::Document,
     hud: MicroSeqHud,
     wait_frames: u32,
+    /// `--no-caption`: every recorded frame drops the top shortcut caption bar.
+    no_caption: bool,
 }
 
 struct Shot {
@@ -48,6 +50,8 @@ struct Shot {
     frames: u32,
     requested: bool,
     seq: Option<MicroSeqCapture>,
+    /// --no-toast: transient toasts are never painted into the capture.
+    no_toast: bool,
 }
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
@@ -311,8 +315,11 @@ impl Shell {
                     app.ui.left_collapsed = true;
                 }
                 let base_doc = app.doc.clone();
-                let hud = apply_micro_interaction_continuous_frame(&mut app, &base_doc, slug, 0, total);
-                seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0 });
+                let mut hud = apply_micro_interaction_continuous_frame(&mut app, &base_doc, slug, 0, total);
+                if opts.no_caption {
+                    hud.caption.clear();
+                }
+                seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0, no_caption: opts.no_caption });
             }
         }
         let shot = opts.screenshot.map(|path| Shot {
@@ -322,6 +329,7 @@ impl Shell {
             frames: 0,
             requested: false,
             seq: seq_capture,
+            no_toast: opts.no_toast,
         });
         Self { app, shot, title: String::new(), paste_chord: Default::default() }
     }
@@ -355,6 +363,9 @@ impl Shell {
                         seq.cur += 1;
                         if seq.cur < seq.total {
                             seq.hud = apply_micro_interaction_continuous_frame(&mut self.app, &seq.base_doc, &seq.slug, seq.cur, seq.total);
+                            if seq.no_caption {
+                                seq.hud.caption.clear();
+                            }
                             shot.requested = false;
                             seq.wait_frames = 2;
                             shot.frames = 12;
@@ -838,6 +849,9 @@ impl Shell {
     }
 
     fn toast(&mut self, ui: &egui::Ui, screen: Rect) {
+        if self.shot.as_ref().is_some_and(|s| s.no_toast) {
+            return;
+        }
         let Some(t) = &self.app.toast else { return };
         if self.app.now > t.until {
             self.app.toast = None;
@@ -1401,7 +1415,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                         ("Stack · 01", Color::rgb(0xE3, 0x63, 0x23), Sizing::Fixed),
                         ("Stack · 02", Color::rgb(0x0D, 0x99, 0xFF), Sizing::Fixed),
                         ("Stack · 03", Color::rgb(0x14, 0xAE, 0x5C), Sizing::Fixed),
-                        ("Stack · 04", Color::rgb(0x97, 0x47, 0xFF), Sizing::Fixed),
+                        ("Stack · 04", Color::rgb(0xFF, 0xFF, 0xFF), Sizing::Fixed),
                     ],
                 ),
                 _ => (
@@ -1485,7 +1499,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     vec![
                         ("Hero 1×1", Color::rgb(0x0D, 0x99, 0xFF), 1, 1, 150.0, 120.0),
                         ("KPI Card", Color::rgb(0xE3, 0x63, 0x23), 1, 1, 150.0, 120.0),
-                        ("Users Cell", Color::rgb(0x97, 0x47, 0xFF), 1, 1, 150.0, 120.0),
+                        ("Users Cell", Color::rgb(0xFF, 0xFF, 0xFF), 1, 1, 150.0, 120.0),
                         ("Revenue Cell", Color::rgb(0x14, 0xAE, 0x5C), 1, 1, 150.0, 120.0),
                         ("Retention", Color::rgb(0x27, 0x27, 0x2A), 1, 1, 150.0, 120.0),
                         ("Latency", Color::rgb(0x3F, 0x3F, 0x46), 1, 1, 150.0, 120.0),
@@ -1501,7 +1515,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     vec![
                         ("Hero 1×1", Color::rgb(0x0D, 0x99, 0xFF), 1, 1, 160.0, 120.0),
                         ("KPI Fixed 160", Color::rgb(0xE3, 0x63, 0x23), 1, 1, 160.0, 120.0),
-                        ("Users Flex", Color::rgb(0x97, 0x47, 0xFF), 1, 1, 150.0, 120.0),
+                        ("Users Flex", Color::rgb(0xFF, 0xFF, 0xFF), 1, 1, 150.0, 120.0),
                         ("Revenue Cell", Color::rgb(0x14, 0xAE, 0x5C), 1, 1, 150.0, 120.0),
                         ("Retention", Color::rgb(0x27, 0x27, 0x2A), 1, 1, 160.0, 120.0),
                         ("Latency", Color::rgb(0x3F, 0x3F, 0x46), 1, 1, 150.0, 120.0),
@@ -1517,7 +1531,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     vec![
                         ("Hero Flex 1fr", Color::rgb(0x0D, 0x99, 0xFF), 1, 1, 180.0, 120.0),
                         ("KPI Fixed 160", Color::rgb(0xE3, 0x63, 0x23), 1, 1, 160.0, 120.0),
-                        ("Users Hug", Color::rgb(0x97, 0x47, 0xFF), 1, 1, 118.0, 120.0),
+                        ("Users Hug", Color::rgb(0xFF, 0xFF, 0xFF), 1, 1, 118.0, 120.0),
                         ("Revenue Cell", Color::rgb(0x14, 0xAE, 0x5C), 1, 1, 180.0, 120.0),
                         ("Retention", Color::rgb(0x27, 0x27, 0x2A), 1, 1, 160.0, 120.0),
                         ("Latency Hug", Color::rgb(0x3F, 0x3F, 0x46), 1, 1, 118.0, 120.0),
@@ -1535,7 +1549,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                         ("KPI Card", Color::rgb(0xE3, 0x63, 0x23), 1, 1, 130.0, 120.0),
                         ("Revenue Cell", Color::rgb(0x14, 0xAE, 0x5C), 1, 1, 150.0, 120.0),
                         ("Retention", Color::rgb(0x27, 0x27, 0x2A), 1, 1, 160.0, 120.0),
-                        ("Latency", Color::rgb(0x97, 0x47, 0xFF), 1, 1, 130.0, 120.0),
+                        ("Latency", Color::rgb(0xFF, 0xFF, 0xFF), 1, 1, 130.0, 120.0),
                     ],
                 ),
                 6 => (
@@ -1549,7 +1563,7 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                         ("Hero Span 2×1", Color::rgb(0x0D, 0x99, 0xFF), 2, 1, 280.0, 132.0),
                         ("KPI Card", Color::rgb(0xE3, 0x63, 0x23), 1, 1, 140.0, 132.0),
                         ("Revenue Cell", Color::rgb(0x14, 0xAE, 0x5C), 1, 1, 160.0, 132.0),
-                        ("Retention Span 2×1", Color::rgb(0x97, 0x47, 0xFF), 2, 1, 300.0, 132.0),
+                        ("Retention Span 2×1", Color::rgb(0xFF, 0xFF, 0xFF), 2, 1, 300.0, 132.0),
                     ],
                 ),
                 _ => (
@@ -2145,7 +2159,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     ("Stack · 01".into(), Color::rgb(0xE3, 0x63, 0x23), Sizing::Fixed),
                     ("Stack · 02".into(), Color::rgb(0x0D, 0x99, 0xFF), Sizing::Fixed),
                     ("Stack · 03".into(), Color::rgb(0x14, 0xAE, 0x5C), Sizing::Fixed),
-                    ("Stack · 04".into(), Color::rgb(0x97, 0x47, 0xFF), Sizing::Fixed),
+                    ("Stack · 04".into(), Color::rgb(0xFF, 0xFF, 0xFF), Sizing::Fixed),
                 ]
             } else {
                 let mid_sz = if u >= 0.55 { Sizing::Fill } else { Sizing::Fixed };
@@ -2276,7 +2290,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 ("Hero · Span", Color::rgb(0x0D, 0x99, 0xFF), hero_span, 1),
                 ("KPI · Fixed", Color::rgb(0xE3, 0x63, 0x23), 1, 1),
                 ("Revenue", Color::rgb(0x14, 0xAE, 0x5C), 1, 1),
-                ("Retention", Color::rgb(0x97, 0x47, 0xFF), ret_span, 1),
+                ("Retention", Color::rgb(0xFF, 0xFF, 0xFF), ret_span, 1),
             ];
             if hero_span == 1 {
                 specs.push(("Active Users", Color::rgb(0x27, 0x27, 0x2A), 1, 1));
@@ -2401,7 +2415,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 hud.drag_start_page = Some(DV::new(2572.0 + 74.0, 1195.0));
                 hud.dragging = true;
                 hud.accent_orange = true;
-                hud.badge_text = "Ring Swap: Plan · Pro ⇄ Plan · Starter".into();
+                hud.badge_text = "Ring Swap: Plan · Pro → Plan · Starter".into();
                 hud.keycap = "Swap".into();
                 hud.caption = "Dragging center concentric ring swaps sibling card order live".into();
             }
@@ -2918,7 +2932,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
             }
 
             let surf = if is_dark { Color::rgb(0x14, 0x14, 0x18) } else { Color::rgb(0xF4, 0xF4, 0xF6) };
-            let accent = if is_dark { Color::rgb(0x97, 0x47, 0xFF) } else { Color::rgb(0x0D, 0x99, 0xFF) };
+            let accent = if is_dark { Color::rgb(0xFF, 0xFF, 0xFF) } else { Color::rgb(0x0D, 0x99, 0xFF) };
             let inst_accent = Color::rgb(0xE3, 0x63, 0x23);
             let comp_w = lerp_f32(180.0, 212.0, (t * std::f32::consts::PI).sin());
 
@@ -2932,8 +2946,11 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     format!("◇ Instance {:02} · Mode={}", i, if is_dark { "Dark" } else { "Light" })
                 };
                 card.fills = vec![Paint::solid(surf)];
-                card.stroke =
-                    DStroke { paints: vec![Paint::solid(Color::rgb(0x97, 0x47, 0xFF))], weight: if i == 0 { 2.5 } else { 1.5 }, ..Default::default() };
+                card.stroke = DStroke {
+                    paints: vec![Paint::solid(if is_dark { Color::rgb(0xFF, 0xFF, 0xFF) } else { Color::rgb(0x12, 0x12, 0x15) })],
+                    weight: if i == 0 { 2.5 } else { 1.5 },
+                    ..Default::default()
+                };
                 card.corner_radii = [16.0; 4];
                 let cid = app.doc.insert(page, card).unwrap();
 
@@ -2954,7 +2971,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
             hud.badge_text = if u < 0.35 {
                 format!("❖ Master → 2 Instances Live Sync (W: {comp_w:.0}px)")
             } else if u < 0.72 {
-                "Variables (=) · Subtree Mode Switch: Light ⇄ Dark".into()
+                "Variables (=) · Subtree Mode Switch: Light → Dark".into()
             } else {
                 "Prototype Tab · Interactive Variant & Flow Wiring".into()
             };

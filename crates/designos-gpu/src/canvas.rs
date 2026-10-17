@@ -18,9 +18,15 @@ impl Canvas {
         Ok(Self { renderer, presenter: Presenter::new(dev, target_format, samples) })
     }
 
-    /// Records the frame's passes into the host encoder.
-    pub fn prepare(&mut self, dev: &wgpu::Device, enc: &mut wgpu::CommandEncoder, frame: &Frame) {
-        let out = self.renderer.render(frame, enc);
+    /// Renders the frame in a submission of its own, ahead of the host's.
+    ///
+    /// Frames whose uniforms span more than one ring chunk drew nothing when
+    /// their passes were recorded into the host (egui) encoder: the 68,698-node
+    /// `BW - DLS.fig` page at 3% zoom showed an empty canvas. Submitted on their
+    /// own they render; queue order still puts them before the host pass that
+    /// samples the output texture.
+    pub fn prepare(&mut self, dev: &wgpu::Device, _enc: &mut wgpu::CommandEncoder, frame: &Frame) {
+        let out = self.renderer.render_submitted(frame);
         self.presenter.set_source(dev, &out.view);
     }
 

@@ -82,7 +82,7 @@ cargo test -p designos-mcp
 
 4. **CAP offscreen GPU `Program` allocations (`self.progs.len() < 64`) and reuse `FrameKey` (`crates/designos-app/src/canvas/gpu.rs`):**
    - Unbounded offscreen render passes (`Program`s) on 723k-node pages exhaust `egui-wgpu`'s Metal staging ring buffer and crash the GPU driver. Keep offscreen layer/mask/clip/blend `Program` creation capped at `< 64` in `interactive()` mode (falling back to hardware scissor clips).
-   - Exception (owner ruling 2026-10-16): when the view is idle, `GpuView::plan` runs exactly ONE compile with `CompileOptions.uncap_programs = true`, caches it under the same `FrameKey` (`refined = true`), and from then on re-blits with `Cb { frame: None }`. Masks, blur, blend modes and group opacity render at full quality at rest. Any viewport or document change goes back to the capped interactive compile.
+   - Exception (owner ruling 2026-10-16, ratified 2026-10-17 after a live Metal check): when the view is idle, `GpuView::plan` runs exactly ONE compile with `CompileOptions.uncap_programs = true`, caches it under the same `FrameKey` (`refined = true`), and from then on re-blits with `Cb { frame: None }`. Masks, blur, blend modes and group opacity render at full quality at rest. Any viewport or document change goes back to the capped interactive compile.
    - Idle = the `FrameKey` stayed unchanged for `IDLE_REFINE_DELAY` (250 ms of `ctx.input(|i| i.time)`, no timer thread), `stale_hits == 0`, no pointer down, and no scroll or zoom delta in the last frame (a delta restarts the delay, so a trackpad pan or momentum scroll never triggers the refine). `plan` returns `FramePlan::Wait`, which re-blits the cache and requests ONE `request_repaint_after` for the remaining delay; after the refine every idle frame is `Reuse` (`Cb { frame: None }`) with no repaint request (0% idle CPU).
    - VRAM ceiling (owner ruling 2026-10-16, replaces any program-count limit for the refine): the uncapped compile accounts the GPU bytes of every offscreen target (`program_bytes`: pooled extent x `FORMAT` 4 B x (`MSAA` 4 + 1 resolve), plus blur/displace/backdrop scratch targets; formula mirrors `resources.rs` `Pool`) and opens a new `Program` only while the running total stays within `CompileOptions.refine_vram_budget_bytes` (default 512 MiB, `DEFAULT_REFINE_VRAM_BUDGET_BYTES`). Past the budget it degrades exactly like the capped path (scissor clip instead of a mask program, effect or layer skipped). Capped interactive and headless (`budget = None`) compiles never consult the budget.
    - In `canvas::gpu::paint`, when `last_key == Some(key) && compiler.geom.stale_hits == 0`, pass `Cb { frame: None }` so `Canvas` re-blits the cached `Output` texture at `0.0%` idle CPU without recompiling or re-uploading vertex buffers.
@@ -112,7 +112,7 @@ All UI chrome, design tokens, component definitions, and critique loops in `desi
 ```bash
 export PATH="/Users/jangtrinh/.local/bin:$HOME/.cargo/bin:$PATH"
 
-# 1. Zero Fake UI Deterministic Gate (12/12 invariants in crates/designos-app/src/)
+# 1. Zero Fake UI Deterministic Gate (14/14 invariants in crates/designos-app/src/)
 python3 scripts/zero_fake_ui_gate.py
 
 # 2. Automated Self-Evolution Engine & Rust <-> design:os Live Token Parity Audit (7/7 gates)
