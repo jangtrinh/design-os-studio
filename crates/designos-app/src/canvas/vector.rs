@@ -210,21 +210,15 @@ pub fn hit_test(
     radius: f32,
     seg_radius: f32,
 ) -> Option<Hit> {
-    for (s, e) in visible_handles(net, sel, seg_sel) {
-        if len(net.tangent(s, e)) < 1e-4 {
-            continue;
-        }
-        if dist(to_screen(handle_pos(net, s, e)), p) <= radius {
-            return Some(Hit::Handle(s, e));
-        }
-    }
-    for (i, v) in net.vertices.iter().enumerate().rev() {
-        if dist(to_screen(v.pos), p) <= radius {
-            return Some(Hit::Vertex(i));
-        }
-    }
-    // Scale handles come after points, so a point is never shadowed by the box frame. Against a
-    // segment the nearer one wins: a curve that bulges past the box can run through a handle.
+    let knob = visible_handles(net, sel, seg_sel)
+        .into_iter()
+        .filter(|(s, e)| len(net.tangent(*s, *e)) >= 1e-4)
+        .map(|(s, e)| (dist(to_screen(handle_pos(net, s, e)), p), Hit::Handle(s, e)))
+        .filter(|(d, _)| *d <= radius)
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let vertex = net.vertices.iter().enumerate().rev().find(|(_, v)| dist(to_screen(v.pos), p) <= radius).map(|(i, _)| Hit::Vertex(i));
+    // The scale frame is drawn over tangent handles and segments, so where one of them lies under a
+    // scale handle the nearer wins and the frame wins an exact tie. A point still outranks the frame.
     let box_hit = selected_bounds(net, sel).and_then(|b| {
         box_handle_points(b, to_screen)
             .into_iter()
@@ -232,6 +226,15 @@ pub fn hit_test(
             .filter(|(d, _)| *d <= radius)
             .min_by(|a, b| a.0.total_cmp(&b.0))
     });
+    if let Some((dk, k)) = knob {
+        return match box_hit {
+            Some((db, h)) if db <= dk && vertex.is_none() => Some(h),
+            _ => Some(k),
+        };
+    }
+    if vertex.is_some() {
+        return vertex;
+    }
     let mut best: Option<(f32, Hit)> = None;
     for seg in 0..net.segments.len() {
         let c = net.cubic(seg);
@@ -1997,5 +2000,85 @@ mod tests {
         // y dominant (-1.5x), x stays positive (0.5x): one factor of -1.5 on both axes
         let p = drag_corner(v2(-50.0, -250.0));
         assert!((p.x - 50.0).abs() < 1e-3 && (p.y + 50.0).abs() < 1e-3, "{p:?}");
+    }
+
+    /// Two selected points (0, 0) and (80, 60) whose first segment leaves the first one by
+    /// `tangent`. The top-left scale handle is at (-12, -12) on an identity screen.
+    fn tangent_near_scale_handle_app(tangent: DV) -> (App, NodeId) {
+        let path =
+            vec![Path { cmds: vec![PathCmd::MoveTo(v2(0.0, 0.0)), PathCmd::CubicTo(tangent, v2(60.0, 60.0), v2(80.0, 60.0))], fill_rule: FillRule::NonZero }];
+        let (mut app, id) = app_with_paths(path);
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1]);
+        (app, id)
+    }
+
+    #[test]
+    fn a_scale_handle_drawn_over_a_tangent_handle_wins_where_it_is_nearer() {
+        use super::super::handles::Handle as ScaleHandle;
+        let ident = |p: DV| p;
+        let hit = |app: &App, p: DV| {
+            let v = vedit(app);
+            hit_test(&v.net, &v.sel, None, &ident, p, theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT)
+        };
+        // the tangent handle sits exactly under the scale handle: the one drawn on top wins
+        let (app, _) = tangent_near_scale_handle_app(v2(-12.0, -12.0));
+        assert_eq!(hit(&app, v2(-12.0, -12.0)), Some(Hit::BoxHandle(ScaleHandle::TL)));
+        // four pixels apart: each wins on its own side of the midpoint
+        let (app, _) = tangent_near_scale_handle_app(v2(-8.0, -12.0));
+        assert_eq!(hit(&app, v2(-9.0, -12.0)), Some(Hit::Handle(0, End::Start)), "1 px from the tangent handle, 3 px from the scale handle");
+        assert_eq!(hit(&app, v2(-13.0, -12.0)), Some(Hit::BoxHandle(ScaleHandle::TL)), "1 px from the scale handle, 5 px from the tangent handle");
+    }
+
+    #[test]
+    fn a_point_under_the_pointer_keeps_the_scale_frame_from_taking_a_tangent_handle() {
+        // a third point sits on the tangent handle and under the top-left scale handle: tangent
+        // handles outranked points before the frame existed and the frame never outranks a point
+        let path = vec![Path {
+            cmds: vec![PathCmd::MoveTo(v2(0.0, 0.0)), PathCmd::CubicTo(v2(-12.0, -12.0), v2(60.0, 60.0), v2(80.0, 60.0)), PathCmd::LineTo(v2(-12.0, -12.0))],
+            fill_rule: FillRule::NonZero,
+        }];
+        let (mut app, id) = app_with_paths(path);
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1]);
+        let ident = |p: DV| p;
+        let v = vedit(&app);
+        let hit = hit_test(&v.net, &v.sel, None, &ident, v2(-12.0, -12.0), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT);
+        assert_eq!(hit, Some(Hit::Handle(0, End::Start)));
+    }
+
+    #[test]
+    fn a_tangent_handle_clear_of_every_scale_handle_is_still_grabbed() {
+        let ident = |p: DV| p;
+        let (app, _) = tangent_near_scale_handle_app(v2(-30.0, -30.0));
+        let v = vedit(&app);
+        let at_tangent = hit_test(&v.net, &v.sel, None, &ident, v2(-30.0, -30.0), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT);
+        assert_eq!(at_tangent, Some(Hit::Handle(0, End::Start)));
+        // 5 px off the tangent handle, 22 px from the scale handle
+        let near = hit_test(&v.net, &v.sel, None, &ident, v2(-30.0, -25.0), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT);
+        assert_eq!(near, Some(Hit::Handle(0, End::Start)));
+    }
+
+    #[test]
+    fn pressing_a_scale_handle_that_covers_a_tangent_handle_scales_instead_of_bending() {
+        let (mut app, id) = tangent_near_scale_handle_app(v2(-12.0, -12.0));
+        let rect = test_rect();
+        let from = {
+            let to_s = mapper(&app, rect, app.doc.world_transform(id));
+            let b = selected_bounds(&vedit(&app).net, &vedit(&app).sel).unwrap();
+            let tl = box_handle_points(b, &to_s)[0];
+            assert_eq!(tl.0, super::super::handles::Handle::TL);
+            Pos2::new(tl.1.x, tl.1.y)
+        };
+        let page0 = app.view.to_page(rect.min, from);
+        assert!(press(&mut app, rect, from, Modifiers::NONE));
+        assert!(matches!(vedit(&app).drag.as_ref().map(|d| &d.kind), Some(DragKind::ScaleBox { .. })), "a scale gesture started");
+        // the top-left handle moves by (-20, -20): the box grows from its bottom-right corner
+        drag(&mut app, add(page0, v2(-20.0, -20.0)), Modifiers::NONE);
+        release(&mut app);
+        assert_eq!(vedit(&app).sel, BTreeSet::from([0, 1]), "the selection is untouched");
+        let (p0, p1) = (world_pos(&app, id, 0), world_pos(&app, id, 1));
+        assert!((p1.x - 280.0).abs() < 1e-3 && (p1.y - 160.0).abs() < 1e-3, "the anchor corner stays: {p1:?}");
+        assert!((p0.x - 180.0).abs() < 1e-3 && (p0.y - 80.0).abs() < 1e-3, "the dragged corner followed the pointer: {p0:?}");
     }
 }
