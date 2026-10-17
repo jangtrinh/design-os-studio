@@ -101,6 +101,25 @@ fn probe_held_edit_does_not_land_on_a_document_the_agent_opened_later() {
     l.finish();
 }
 
+/// The canvas is republished after a drag ends, not on every frame of it.
+#[test]
+fn the_canvas_is_not_republished_during_a_drag_but_right_after_it() {
+    let mut l = live();
+    let hero = l.dragged;
+    let published_x = |l: &Live| {
+        let raw = std::fs::read_to_string(&l.app.terminal.live_canvas_path).unwrap();
+        Document::from_json(&raw).unwrap().get(hero).unwrap().transform.tx
+    };
+    assert_eq!(published_x(&l), 0.0, "precondition: the idle canvas is published");
+    l.start_drag();
+    crate::live_patch_apply::publish_live_context(&mut l.app);
+    assert_eq!(published_x(&l), 0.0, "a mid-drag state must not reach the agent");
+    l.app.canvas.inter = Interaction::None;
+    crate::live_patch_apply::publish_live_context(&mut l.app);
+    assert_eq!(published_x(&l), 50.0, "the first idle frame publishes");
+    l.finish();
+}
+
 /// Edits the agent makes on the new document queue behind it and land once the canvas is idle.
 #[test]
 fn edits_on_a_document_opened_during_a_drag_land_after_it_replaces_the_old_one() {
