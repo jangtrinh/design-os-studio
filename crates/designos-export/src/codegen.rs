@@ -340,8 +340,8 @@ pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
     let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
     let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
+    let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
+    let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;

@@ -40,8 +40,8 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     }
     let grid_parent = parent_al.is_some_and(|a| a.direction == LayoutDirection::Grid);
     let row_parent = parent_al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
+    let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
+    let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
     let text_auto_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_auto_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill);
@@ -55,6 +55,12 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         }
         if n.layout_child.row_span > 1 {
             push("grid-row", format!("span {}", n.layout_child.row_span));
+        }
+        if hug_w || text_auto_w || n.layout_child.horizontal == Sizing::Hug {
+            push("justify-self", "start".into());
+        }
+        if hug_h || text_auto_h || n.layout_child.vertical == Sizing::Hug {
+            push("align-self", "start".into());
         }
     } else {
         for (is_w, fill) in [(true, fill_w), (false, fill_h)] {
@@ -71,8 +77,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             }
         }
     }
-    let width_skipped = fill_w || (grows && row_parent) || hug_w || text_auto_w || (in_flow && grid_parent && n.layout_child.col_span > 1);
-    let height_skipped = fill_h || (grows && !row_parent) || hug_h || text_auto_h || (in_flow && grid_parent && n.layout_child.row_span > 1);
+    let width_skipped =
+        fill_w || (grows && !grid_parent && row_parent) || hug_w || text_auto_w || (in_flow && grid_parent && n.layout_child.horizontal == Sizing::Hug);
+    let height_skipped =
+        fill_h || (grows && !grid_parent && !row_parent) || hug_h || text_auto_h || (in_flow && grid_parent && n.layout_child.vertical == Sizing::Hug);
     if !width_skipped {
         push("width", format!("{}px", num(n.size.x)));
     }
@@ -663,5 +671,69 @@ mod tests {
         let css = css_for(&d, id);
         assert!(css.contains("background: radial-gradient(50% 50% at 50% 50%, #FFF 0%, #000 100%);"), "{css}");
         assert!(css.contains("border-radius: 50%;"), "{css}");
+    }
+
+    #[test]
+    fn grid_frame_and_children_sizing_in_css_and_codegen() {
+        let (d, grid_id) = doc_with(|d, page| {
+            let gid = d.alloc_id();
+            let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 200.0, 300.0));
+            g.fills.clear();
+            if let NodeKind::Frame(fp) = &mut g.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Grid,
+                    grid_columns: 3,
+                    primary_sizing: Sizing::Hug,
+                    counter_sizing: Sizing::Fixed,
+                    ..Default::default()
+                });
+            }
+            let gid = d.insert(page, g).unwrap();
+
+            // 1. Fixed child spanning 2 columns and 2 rows keeps its explicit width and height
+            let c1 = d.alloc_id();
+            let mut fixed_span = Node::rectangle(c1, Rect::new(0.0, 0.0, 80.0, 40.0));
+            fixed_span.layout_child.col_span = 2;
+            fixed_span.layout_child.row_span = 2;
+            d.insert(gid, fixed_span).unwrap();
+
+            // 2. Fill child skips width and height so the grid stretches it
+            let c2 = d.alloc_id();
+            let mut fill_child = Node::rectangle(c2, Rect::new(0.0, 0.0, 80.0, 40.0));
+            fill_child.layout_child.horizontal = Sizing::Fill;
+            fill_child.layout_child.vertical = Sizing::Fill;
+            d.insert(gid, fill_child).unwrap();
+
+            // 3. Hug child omits width and height and emits justify-self: start; align-self: start;
+            let c3 = d.alloc_id();
+            let mut hug_child = Node::frame(c3, Rect::new(0.0, 0.0, 60.0, 24.0));
+            hug_child.fills.clear();
+            if let NodeKind::Frame(fp) = &mut hug_child.kind {
+                fp.auto_layout =
+                    Some(AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() });
+            }
+            d.insert(gid, hug_child).unwrap();
+        });
+
+        let grid_css = css_for(&d, grid_id);
+        assert!(!grid_css.contains("width:"), "grid hugging width must omit width: {grid_css}");
+        assert!(grid_css.contains("height: 300px;"), "grid with fixed height must emit height: {grid_css}");
+        let tw = crate::tailwind_for(&d, grid_id);
+        assert!(tw.contains("h-[300px]") && !tw.contains("w-[200px]"), "codegen sizes must treat grid primary as width: {tw}");
+
+        let children = &d.get(grid_id).unwrap().children;
+        let fixed_css = css_for(&d, children[0]);
+        assert!(fixed_css.contains("grid-column: span 2;") && fixed_css.contains("grid-row: span 2;"), "{fixed_css}");
+        assert!(fixed_css.contains("width: 80px;") && fixed_css.contains("height: 40px;"), "spanning Fixed child in grid must keep its size: {fixed_css}");
+
+        let fill_css = css_for(&d, children[1]);
+        assert!(!fill_css.contains("width:") && !fill_css.contains("height:"), "Fill child in grid must skip width/height: {fill_css}");
+
+        let hug_css = css_for(&d, children[2]);
+        assert!(!hug_css.contains("width:") && !hug_css.contains("height:"), "Hug child in grid must skip width/height: {hug_css}");
+        assert!(
+            hug_css.contains("justify-self: start;") && hug_css.contains("align-self: start;"),
+            "Hug child in grid must emit justify-self: start and align-self: start: {hug_css}"
+        );
     }
 }
