@@ -29,6 +29,7 @@ fn themed() -> (T, NodeId, NodeId) {
             default_mode: "l".into(),
             variables: vec!["bg".into(), "w".into()],
             key: None,
+            source_library_key: None,
         },
     );
     let mk = |id: &str, kind, l, dk| Variable {
@@ -129,6 +130,7 @@ fn per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding() {
             default_mode: "on".into(),
             variables: vec!["vis".into()],
             key: None,
+            source_library_key: None,
         },
     );
     t.doc.variables.insert(

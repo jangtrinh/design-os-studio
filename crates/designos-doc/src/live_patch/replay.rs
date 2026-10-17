@@ -54,7 +54,7 @@ fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, Node
 /// Fields that describe a layer's shape in its own coordinate frame. The shape builder rebuilds
 /// a layer from geometry in the frame of its parent, so the agent's numbers for these do not
 /// apply to the replacement.
-const SHAPE_FIELDS: [&str; 3] = ["transform", "size", "kind"];
+const SHAPE_FIELDS: [&str; 6] = ["transform", "size", "kind", "fill_geometry", "stroke_geometry", "corner_radii"];
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -114,8 +114,15 @@ pub fn replay_live_patch(
 
 fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
-        LiveOp::Insert { parent, at, nodes } => {
-            let parent = state.target(doc, *parent);
+        LiveOp::Insert { parent: agent_parent, at, nodes } => {
+            let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
+            if redirected {
+                report.skipped.push(format!(
+                    "insert into layer {} refused: layer {} was reshaped by the shape builder while this edit waited",
+                    agent_parent.0, agent_parent.0
+                ));
+                return None;
+            }
             resolve_insert(doc, parent, at, nodes, state, report)
         }
         LiveOp::Update { id: agent_id, set, unset } => {
@@ -159,8 +166,22 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             }
             Some(Command::Update { node: Box::new(merged) })
         }
-        LiveOp::Reparent { id, parent, at } => {
-            let (id, parent) = (state.target(doc, *id), state.target(doc, *parent));
+        LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
+            let (id, id_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
+            let (parent, parent_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
+            if id_redirected {
+                report
+                    .skipped
+                    .push(format!("reparent of layer {} refused: layer {} was reshaped by the shape builder while this edit waited", agent_id.0, agent_id.0));
+                return None;
+            }
+            if parent_redirected {
+                report.skipped.push(format!(
+                    "reparent into layer {} refused: layer {} was reshaped by the shape builder while this edit waited",
+                    agent_parent.0, agent_parent.0
+                ));
+                return None;
+            }
             let at = remap_hint(at, state);
             let (Some(node), Some(p)) = (doc.get(id), doc.get(parent)) else {
                 report.skipped.push(format!("move of node {} into missing parent {}", id.0, parent.0));

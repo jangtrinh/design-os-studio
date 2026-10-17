@@ -152,21 +152,75 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     let mut cross_cursor = pc_start;
     for (li, line) in lines.iter().enumerate() {
         let k = line.len() as f32;
-        // Main sizes (distribute fill children by grow weight, then apply each child's min/max).
-        let fixed: f32 = line.iter().filter(|i| !kids[**i].main_fill || al.wrap).map(|i| nat_main(&kids[*i])).sum();
-        let weight: f32 = line.iter().filter(|i| kids[**i].main_fill && !al.wrap).map(|i| fill_weight(&kids[*i])).sum();
-        let free_for_fill = (main_avail - al.item_spacing * (k - 1.0) - fixed).max(0.0);
-        let mains: Vec<f32> = line
-            .iter()
-            .map(|i| {
-                let kid = &kids[*i];
-                if kid.main_fill && !al.wrap && !hug_main && weight > 0.0 {
-                    ax.clamp_main(&kid.limits, free_for_fill * fill_weight(kid) / weight)
-                } else {
-                    nat_main(kid)
+        // Main sizes (distribute fill children by grow weight with a CSS flex freeze loop for min/max clamping).
+        let mut mains: Vec<f32> = line.iter().map(|i| nat_main(&kids[*i])).collect();
+        if !al.wrap && !hug_main {
+            let mut frozen: Vec<bool> = line.iter().map(|i| !kids[*i].main_fill).collect();
+            let fixed: f32 = line.iter().zip(&frozen).filter(|(_, &f)| f).map(|(i, _)| nat_main(&kids[*i])).sum();
+            let mut rem_for_fill = (main_avail - al.item_spacing * (k - 1.0) - fixed).max(0.0);
+            loop {
+                let weight: f32 = line.iter().zip(&frozen).filter(|(_, &f)| !f).map(|(i, _)| fill_weight(&kids[*i])).sum();
+                if weight <= 0.0 {
+                    break;
                 }
-            })
-            .collect();
+                let mut total_violation = 0.0f32;
+                let mut any_violation = false;
+                for (j, i) in line.iter().enumerate() {
+                    if frozen[j] {
+                        continue;
+                    }
+                    let kid = &kids[*i];
+                    let raw = rem_for_fill * fill_weight(kid) / weight;
+                    let clamped = ax.clamp_main(&kid.limits, raw);
+                    let diff = clamped - raw;
+                    if diff.abs() > 1e-4 {
+                        any_violation = true;
+                        total_violation += diff;
+                    }
+                }
+                if !any_violation {
+                    for (j, i) in line.iter().enumerate() {
+                        if !frozen[j] {
+                            let kid = &kids[*i];
+                            mains[j] = ax.clamp_main(&kid.limits, rem_for_fill * fill_weight(kid) / weight);
+                        }
+                    }
+                    break;
+                }
+                let mut newly_frozen = false;
+                for (j, i) in line.iter().enumerate() {
+                    if frozen[j] {
+                        continue;
+                    }
+                    let kid = &kids[*i];
+                    let raw = rem_for_fill * fill_weight(kid) / weight;
+                    let clamped = ax.clamp_main(&kid.limits, raw);
+                    let diff = clamped - raw;
+                    let freeze_this = if total_violation > 1e-4 {
+                        diff > 1e-4
+                    } else if total_violation < -1e-4 {
+                        diff < -1e-4
+                    } else {
+                        diff.abs() > 1e-4
+                    };
+                    if freeze_this {
+                        frozen[j] = true;
+                        mains[j] = clamped;
+                        rem_for_fill = (rem_for_fill - clamped).max(0.0);
+                        newly_frozen = true;
+                    }
+                }
+                if !newly_frozen {
+                    for (j, i) in line.iter().enumerate() {
+                        if !frozen[j] {
+                            let kid = &kids[*i];
+                            mains[j] = ax.clamp_main(&kid.limits, rem_for_fill * fill_weight(kid) / weight);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
         let sum_main: f32 = mains.iter().sum();
         // CSS justify-content: the free space ignores the fixed gap; with no free space the items pack from the start.
         let free = main_avail - sum_main;

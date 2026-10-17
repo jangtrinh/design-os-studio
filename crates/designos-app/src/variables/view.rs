@@ -3,6 +3,7 @@
 //! Both are a Collections / Groups sidebar next to a top bar, a table (one column per mode)
 //! and a bottom bar with "Create variable".
 
+use super::library::{self, LIBRARY_TIP};
 use super::widgets::{
     arrows_glyph, cross_glyph, filter_glyph, from_c32, hexagon, kind_glyph, kind_name, picker, pill, sliders_glyph, to_c32, PickItem, PickResult,
 };
@@ -253,7 +254,7 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
     let g = Geom { panel: if floating { floating_rect(app, screen) } else { content }, floating, sidebar: !app.vars.sidebar_hidden };
     let view = VariableStore::from_doc(&app.doc);
     if !app.vars.collection.as_ref().is_some_and(|c| view.collections.contains_key(c)) {
-        app.vars.collection = view.collections.keys().next().cloned();
+        app.vars.collection = library::first_collection(&view);
         app.vars.group = None;
     }
     if let (Some(gp), Some(c)) = (app.vars.group.clone(), app.vars.collection.as_ref().and_then(|c| view.collections.get(c))) {
@@ -315,10 +316,11 @@ fn keys(app: &mut App, ctx: &Context, view: &VariableStore) {
     let events = ctx.input(|i| i.events.clone());
     for ev in events {
         let egui::Event::Key { key, pressed: true, modifiers, .. } = ev else { continue };
-        let sel: Vec<String> = app.vars.selected.iter().filter(|s| view.variables.contains_key(*s)).cloned().collect();
+        // library variables can be selected but never edited, renamed, duplicated or deleted
+        let sel: Vec<String> = app.vars.selected.iter().filter(|s| view.variables.contains_key(*s) && !view.is_library_variable(s)).cloned().collect();
         match key {
             Key::Escape => {
-                if !sel.is_empty() {
+                if !app.vars.selected.is_empty() {
                     app.vars.selected.clear();
                 } else {
                     app.close_variables();
@@ -407,6 +409,17 @@ fn rename_field(app: &mut App, ui: &mut Ui, rect: Rect, eid: Id, cur: &str, font
     r
 }
 
+/// The text field of a value cell; a read-only cell paints the same text and takes no input.
+#[allow(clippy::too_many_arguments)]
+fn edit_or_show(read_only: bool, ui: &mut Ui, rect: Rect, id: Id, display: &str, font: egui::FontId, color: Color32, pad_x: f32) -> Option<String> {
+    if !read_only {
+        return field::edit_text(ui, rect, id, display, font, color, pad_x);
+    }
+    let p = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    widgets::field_text(&p, rect, pad_x, pad_x, display, font, color);
+    None
+}
+
 fn cell_chrome(ui: &Ui, rect: Rect, id: Id) {
     let focused = ui.memory(|m| m.has_focus(id));
     let hovered = ui.rect_contains_pointer(rect);
@@ -467,14 +480,25 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         app.vars.scroll = 0.0;
     }
     let mut y = base + 44.0;
-    let ids: Vec<String> = fr.view.collections.keys().cloned().collect();
-    for id in &ids {
+    let (own, from_library) = library::split_collections(fr.view);
+    let ids: Vec<String> = own.iter().chain(&from_library).cloned().collect();
+    let heading_rows = usize::from(!from_library.is_empty());
+    for (n, id) in ids.iter().enumerate() {
+        if n == own.len() && !from_library.is_empty() {
+            let row = Rect::from_min_size(Pos2::new(left + if g.floating { 8.0 } else { 10.0 }, y), Vec2::new(224.0, theme::VAR_PILL_H));
+            y += theme::VAR_SIDE_ROW;
+            library::paint_heading(ui, row);
+        }
         let c = &fr.view.collections[id];
+        let read_only = c.is_library();
         let inset = if g.floating { 8.0 } else { 10.0 };
         let row = Rect::from_min_size(Pos2::new(left + inset, y), Vec2::new(224.0, theme::VAR_PILL_H));
         y += theme::VAR_SIDE_ROW;
         widgets::record(ui, &format!("vars-coll:{}", c.name), row);
-        let resp = ui.interact(row, Id::new(("vars-coll", id)), Sense::click());
+        let mut resp = ui.interact(row, Id::new(("vars-coll", id)), Sense::click());
+        if read_only {
+            resp = resp.on_hover_text(LIBRARY_TIP);
+        }
         let selected = app.vars.collection.as_deref() == Some(id.as_str());
         if selected {
             p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
@@ -482,7 +506,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
         }
         let name_rect = Rect::from_min_max(Pos2::new(left + 15.0, row.top()), Pos2::new(left + 190.0, row.bottom()));
-        if app.vars.renaming == Some(('c', id.clone())) {
+        if app.vars.renaming == Some(('c', id.clone())) && !read_only {
             let eid = Id::new(("vars-coll-name", id));
             if let Some(s) = rename_field(app, ui, name_rect.expand2(Vec2::new(4.0, 0.0)), eid, &c.name, theme::font_body_strong(), 4.0) {
                 if !s.trim().is_empty() {
@@ -492,7 +516,11 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         } else {
             let nm = widgets::elide(&p, &c.name, &theme::font_body_semibold(), name_rect.width());
             p.text(Pos2::new(name_rect.left(), row.center().y), Align2::LEFT_CENTER, nm, theme::font_body_semibold(), theme::TEXT);
-            p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, c.variables.len().to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            let count =
+                p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, c.variables.len().to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            if read_only {
+                library::paint_lock(ui, Pos2::new(count.left() - 10.0, row.center().y), 12.0);
+            }
         }
         if resp.clicked() && !selected {
             app.vars.collection = Some(id.clone());
@@ -501,7 +529,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             app.vars.scroll_x = 0.0;
             app.vars.selected.clear();
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !read_only {
             app.vars.renaming = Some(('c', id.clone()));
             app.vars.rename_frames = 0;
         }
@@ -515,7 +543,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     }
 
     // ---- groups
-    let sep_y = base + 48.0 + ids.len().max(1) as f32 * theme::VAR_SIDE_ROW;
+    let sep_y = base + 48.0 + (ids.len().max(1) + heading_rows) as f32 * theme::VAR_SIDE_ROW;
     widgets::hline(&p, left, left + inner_w, sep_y, theme::BORDER);
     let Some(cid) = app.vars.collection.clone() else { return };
     let Some(coll) = fr.view.collections.get(&cid) else { return };
@@ -586,7 +614,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                     app.vars.scroll = 0.0;
                 }
             }
-            if resp.secondary_clicked() && path.is_some() {
+            if resp.secondary_clicked() && path.is_some() && !coll.is_library() {
                 let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(row.left_bottom());
                 app.vars.menu = Some(VarMenu { kind: VarMenuKind::Folder(cid.clone(), key.clone()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
             }
@@ -685,10 +713,13 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             }
         } else {
             let shown = widgets::elide(&p, &coll.name, &theme::font_large(), title_rect.width() - 8.0);
-            p.text(Pos2::new(tx, cy), Align2::LEFT_CENTER, shown, theme::font_large(), theme::TEXT);
+            let title = p.text(Pos2::new(tx, cy), Align2::LEFT_CENTER, shown, theme::font_large(), theme::TEXT);
             let r = ui.interact(title_rect, Id::new(("vars-title-hit", &cid)), Sense::click());
             widgets::record(ui, "vars-title", title_rect);
-            if r.double_clicked() {
+            if coll.is_library() {
+                library::paint_lock(ui, Pos2::new(title.right() + 14.0, cy), 14.0);
+            }
+            if r.double_clicked() && !coll.is_library() {
                 app.vars.renaming = Some(('t', cid.clone()));
                 app.vars.rename_frames = 0;
             }
@@ -703,19 +734,26 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let p = ui.painter().clone();
     let x0 = g.main_left();
     widgets::hline(&p, x0, g.panel.right(), g.bottom_line(), theme::BORDER);
-    let w = 34.0 + widgets::text_width(&p, "Create variable", &theme::font_body()) + 8.0;
+    let read_only = coll.is_library();
+    let label = if read_only { library::NOTE } else { "Create variable" };
+    let w = 34.0 + widgets::text_width(&p, label, &theme::font_body()) + 8.0;
     let b = Rect::from_min_size(Pos2::new(x0 + 8.0, g.panel.bottom() - 8.0 - theme::VAR_FIELD_H), Vec2::new(w, theme::VAR_FIELD_H));
-    let open = app.vars.menu.as_ref().is_some_and(|m| m.kind == VarMenuKind::Create);
-    let r = ui.interact(b, Id::new("vars-create"), Sense::click());
-    if open || r.hovered() {
-        p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
-    }
-    icons::paint(&p, Icon::Plus, Pos2::new(b.left() + 14.0, b.center().y), 16.0, theme::ICON);
-    p.text(Pos2::new(b.left() + 34.0, b.center().y), Align2::LEFT_CENTER, "Create variable", theme::font_body(), theme::TEXT);
-    widgets::record(ui, "vars-create", b);
-    if r.clicked() {
-        let h = theme::MENU_PADDING * 2.0 + 4.0 * theme::MENU_ITEM_HEIGHT;
-        app.vars.menu = Some(VarMenu { kind: VarMenuKind::Create, pos: Pos2::new(b.left(), b.top() - h - 4.0), anchor: b });
+    if read_only {
+        // a library collection has no "Create variable": say why, in the space it would take
+        library::paint_read_only_note(ui, b);
+    } else {
+        let open = app.vars.menu.as_ref().is_some_and(|m| m.kind == VarMenuKind::Create);
+        let r = ui.interact(b, Id::new("vars-create"), Sense::click());
+        if open || r.hovered() {
+            p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
+        }
+        icons::paint(&p, Icon::Plus, Pos2::new(b.left() + 14.0, b.center().y), 16.0, theme::ICON);
+        p.text(Pos2::new(b.left() + 34.0, b.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
+        widgets::record(ui, "vars-create", b);
+        if r.clicked() {
+            let h = theme::MENU_PADDING * 2.0 + 4.0 * theme::MENU_ITEM_HEIGHT;
+            app.vars.menu = Some(VarMenu { kind: VarMenuKind::Create, pos: Pos2::new(b.left(), b.top() - h - 4.0), anchor: b });
+        }
     }
 
     // ---- Scoped Variables Filter Bar (`All`, `Fills`, `Strokes`, `Text`, `Radius`, `Gap & Size`)
@@ -755,6 +793,7 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
     let x0 = g.main_left();
     let right = g.panel.right();
     let n = coll.modes.len().max(1);
+    let read_only = coll.is_library();
     let mw = g.mode_w(n);
     let modes_left = g.modes_left();
     let hy = g.head_top();
@@ -844,7 +883,7 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
             let name_r = Rect::from_min_max(Pos2::new(cl + 8.0, hy + 8.0), Pos2::new(cl + mw - 8.0, hy + 32.0));
             let hit = ui.interact(cell, Id::new(("vars-mode-hit", &coll.id, &mode.id)), Sense::click());
             widgets::record(ui, &format!("vars-mode:{}", label), name_r);
-            if app.vars.renaming == Some(('m', mode.id.clone())) {
+            if app.vars.renaming == Some(('m', mode.id.clone())) && !read_only {
                 let eid = Id::new(("vars-mode-name", &coll.id, &mode.id));
                 if let Some(s) = rename_field(app, ui, name_r, eid, &mode.name, theme::font_body_strong(), 8.0) {
                     if !s.trim().is_empty() {
@@ -861,16 +900,19 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
                     }
                 }
             }
-            if hit.double_clicked() {
+            if hit.double_clicked() && !read_only {
                 app.vars.renaming = Some(('m', mode.id.clone()));
                 app.vars.rename_frames = 0;
             }
-            if hit.secondary_clicked() {
+            if hit.secondary_clicked() && !read_only {
                 let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(cell.left_bottom());
                 app.vars.menu = Some(VarMenu { kind: VarMenuKind::Mode(coll.id.clone(), mode.id.clone()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
             }
         }
         // add mode column
+        if read_only {
+            return;
+        }
         let al = col_left(n);
         let ab = Rect::from_min_size(Pos2::new(al, hy), Vec2::new(theme::VAR_ADD_COL, theme::VAR_HEAD_H));
         let r = ui.interact(ab, Id::new("vars-add-mode"), Sense::click());
@@ -932,7 +974,8 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
     let group_fg = Color32::from_rgb(0xB3, 0xB3, 0xB3);
     icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, Pos2::new(x + 4.0, r.center().y), 12.0, group_fg);
     let label = split_name(path).1;
-    let renaming = app.vars.renaming == Some(('f', key.clone()));
+    let read_only = fr.view.is_library_collection(coll);
+    let renaming = app.vars.renaming == Some(('f', key.clone())) && !read_only;
     let text_r = Rect::from_min_max(Pos2::new(x + 20.0, r.top() + 8.0), Pos2::new(name_cell.right() - 8.0, r.bottom() - 8.0));
     widgets::record(ui, &format!("vars-header:{path}"), text_r);
     if renaming {
@@ -953,12 +996,12 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
             app.vars.folded.remove(&key);
         }
     }
-    if resp.double_clicked() {
+    if resp.double_clicked() && !read_only {
         app.vars.folded.remove(&key);
         app.vars.renaming = Some(('f', key.clone()));
         app.vars.rename_frames = 0;
     }
-    if resp.secondary_clicked() {
+    if resp.secondary_clicked() && !read_only {
         let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(r.left_bottom());
         app.vars.menu = Some(VarMenu { kind: VarMenuKind::Folder(coll.to_string(), path.to_string()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
     }
@@ -969,6 +1012,7 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
 fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCollection, v: &Variable, hot: bool, mw: f32, sx: f32, fr: &mut Frame) {
     let p = ui.painter().clone();
     let selected = app.vars.selected.contains(&v.id);
+    let read_only = coll.is_library();
     let dragging = app.vars.drag.as_ref().is_some_and(|d| d.var == v.id);
     if selected {
         p.rect_filled(r, 0.0, theme::BG_SELECTED);
@@ -1012,7 +1056,7 @@ fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCo
             app.vars.renaming = Some(('v', v.id.clone()));
             app.vars.rename_frames = 0;
         }
-        if app.vars.renaming == Some(('v', v.id.clone())) {
+        if app.vars.renaming == Some(('v', v.id.clone())) && !read_only {
             let eid = Id::new(("vars-name", &v.id));
             if let Some(s) = rename_field(app, ui, text_rect, eid, &leaf, theme::font_body(), 6.0) {
                 let (folder, _) = split_name(&v.name);
@@ -1039,23 +1083,25 @@ fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCo
             let m = ui.input(|i| i.modifiers);
             select_row(app, fr, &v.id, m);
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !read_only {
             app.vars.selected = vec![v.id.clone()];
             app.vars.renaming = Some(('v', v.id.clone()));
             app.vars.rename_frames = 0;
         }
-        if resp.drag_started() {
+        if resp.drag_started() && !read_only {
             if !app.vars.selected.contains(&v.id) {
                 app.vars.selected = vec![v.id.clone()];
                 app.vars.anchor = Some(v.id.clone());
             }
             app.vars.drag = Some(RowDrag { var: v.id.clone() });
         }
-        if resp.dragged() {
+        if resp.dragged() && !read_only {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
     });
-    row_context(app, ui, r, v, fr);
+    if !read_only {
+        row_context(app, ui, r, v, fr);
+    }
     let _ = x0;
 }
 
@@ -1216,6 +1262,8 @@ fn move_into_group(store: &mut VariableStore, id: &str, group: Option<&str>) {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, mode: &str, hot: bool, opacity: bool, fr: &mut Frame) {
+    // a variable of a library collection is shown, never edited
+    let ro = fr.view.is_library_variable(&v.id);
     let id = Id::new(("vars-cell", &v.id, mode, opacity));
     let value = v.values.get(mode).cloned().unwrap_or_else(|| default_value(v.kind));
     let p = ui.painter().clone();
@@ -1233,8 +1281,10 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         let w = (tw + 12.0 + 12.0 + if swatch_c.is_some() { 18.0 } else { 0.0 } + 8.0 + 22.0).min(cell.width() - 16.0);
         let pr_rect = Rect::from_min_size(Pos2::new(cell.left() + 8.0, cy - fh / 2.0), Vec2::new(w, fh));
         widgets::record(ui, &format!("vars-alias:{}:{}", v.name, mode), pr_rect);
-        let pr = pill(ui, pr_rect, id, &label, swatch_c, true);
-        if pr.detach {
+        let pr = pill(ui, pr_rect, id, &label, swatch_c, !ro);
+        if ro {
+            pr.body.on_hover_text(LIBRARY_TIP);
+        } else if pr.detach {
             fr.work.detach_alias(&v.id, mode);
         } else if pr.body.clicked() {
             app.vars.alias_picker = Some(AliasPicker { var: v.id.clone(), mode: mode.to_string(), anchor: pr_rect, query: String::new() });
@@ -1243,7 +1293,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
     }
     let bind_rect = Rect::from_center_size(Pos2::new(cell.right() - 16.0, cy), Vec2::splat(20.0));
     let mut field_right = cell.right() - 8.0;
-    if hot && opacity {
+    if hot && opacity && !ro {
         field_right = bind_rect.left() - 4.0;
     }
     match &value {
@@ -1259,16 +1309,18 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             );
             let op_shown = opacity && (hot || ui.memory(|m| m.has_focus(oid)) || ui.memory(|m| m.has_focus(eid)));
             let hex_r = if op_shown { Rect::from_min_max(hex_r.min, Pos2::new(hex_r.right().min(op_r.left() - 4.0), hex_r.bottom())) } else { hex_r };
-            cell_chrome(ui, hex_r, eid);
+            if !ro {
+                cell_chrome(ui, hex_r, eid);
+            }
             let hex_text = Rect::from_min_max(Pos2::new(cell.left() + 36.0, hex_r.top()), hex_r.max);
             let swr = ui.interact(sw.expand(2.0), id.with("sw"), Sense::click());
             swatch(&p, sw, to_c32(*c));
             widgets::record(ui, &format!("vars-swatch:{}:{}", v.name, mode), sw);
             widgets::record(ui, &format!("vars-hex:{}:{}", v.name, mode), hex_r);
-            if swr.clicked() {
+            if swr.clicked() && !ro {
                 app.vars.cell_picker = Some(CellPicker { var: v.id.clone(), mode: mode.to_string(), color: to_c32(*c), anchor: sw, before: fr.view.clone() });
             }
-            if let Some(s) = field::edit_text(ui, hex_text, eid, &c.to_hex(), theme::font_body(), theme::TEXT, 0.0) {
+            if let Some(s) = edit_or_show(ro, ui, hex_text, eid, &c.to_hex(), theme::font_body(), theme::TEXT, 0.0) {
                 if let Some(nc) = Color::from_hex(&s) {
                     fr.work.set_value(&v.id, mode, VariableValue::Color(Color { a: if s.trim_start_matches('#').len() == 8 { nc.a } else { c.a }, ..nc }));
                 }
@@ -1281,7 +1333,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
                 }
                 widgets::record(ui, &format!("vars-opacity:{}:{}", v.name, mode), op_r);
                 let shown = format!("{}%", fmt_num((c.a * 100.0).round()));
-                if let Some(s) = field::edit_text(ui, op_r, oid, &shown, theme::font_body(), theme::TEXT, 8.0) {
+                if let Some(s) = edit_or_show(ro, ui, op_r, oid, &shown, theme::font_body(), theme::TEXT, 8.0) {
                     if let Some(x) = field::parse_number(&s) {
                         fr.work.set_value(&v.id, mode, VariableValue::Color(Color { a: (x / 100.0).clamp(0.0, 1.0), ..*c }));
                     }
@@ -1291,10 +1343,12 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         VariableValue::Number(n) => {
             let eid = id.with("num");
             let edit_r = Rect::from_min_max(Pos2::new(cell.left() + 8.0, cy - fh / 2.0), Pos2::new(field_right.min(cell.left() + 8.0 + 140.0), cy + fh / 2.0));
-            cell_chrome(ui, edit_r, eid);
+            if !ro {
+                cell_chrome(ui, edit_r, eid);
+            }
             widgets::record(ui, &format!("vars-num:{}:{}", v.name, mode), edit_r);
             let text_r = Rect::from_min_max(edit_r.min + Vec2::new(8.0, 0.0), edit_r.max);
-            if let Some(s) = field::edit_text(ui, text_r, eid, &fmt_num(*n), theme::font_body(), theme::TEXT, 0.0) {
+            if let Some(s) = edit_or_show(ro, ui, text_r, eid, &fmt_num(*n), theme::font_body(), theme::TEXT, 0.0) {
                 if let Some(x) = field::parse_number(&s) {
                     fr.work.set_value(&v.id, mode, VariableValue::Number(x));
                 }
@@ -1303,10 +1357,12 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         VariableValue::String(s0) => {
             let eid = id.with("str");
             let edit_r = Rect::from_min_max(Pos2::new(cell.left() + 8.0, cy - fh / 2.0), Pos2::new(field_right.min(cell.left() + 8.0 + 140.0), cy + fh / 2.0));
-            cell_chrome(ui, edit_r, eid);
+            if !ro {
+                cell_chrome(ui, edit_r, eid);
+            }
             widgets::record(ui, &format!("vars-str:{}:{}", v.name, mode), edit_r);
             let text_r = Rect::from_min_max(edit_r.min + Vec2::new(8.0, 0.0), edit_r.max);
-            if let Some(s) = field::edit_text(ui, text_r, eid, s0, theme::font_body(), theme::TEXT, 0.0) {
+            if let Some(s) = edit_or_show(ro, ui, text_r, eid, s0, theme::font_body(), theme::TEXT, 0.0) {
                 fr.work.set_value(&v.id, mode, VariableValue::String(s));
             }
         }
@@ -1318,13 +1374,13 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             let kx = if *b { sw.right() - 8.0 } else { sw.left() + 8.0 };
             p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
             p.text(Pos2::new(sw.right() + 8.0, cy), Align2::LEFT_CENTER, if *b { "True" } else { "False" }, theme::font_body(), theme::TEXT);
-            if resp.clicked() {
+            if resp.clicked() && !ro {
                 fr.work.set_value(&v.id, mode, VariableValue::Boolean(!b));
             }
         }
         VariableValue::Alias(_) => {}
     }
-    if hot && opacity {
+    if hot && opacity && !ro {
         let br = ui.interact(bind_rect, id.with("bind"), Sense::click());
         if br.hovered() {
             p.rect_filled(bind_rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_PRESSED);
@@ -1383,7 +1439,11 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 MenuItem::new("Delete mode").disabled(!multi),
             ]
         }
-        VarMenuKind::Collection(_) => vec![MenuItem::new("Rename"), MenuItem::new("Duplicate"), MenuItem::new("Delete")],
+        // a library collection can be duplicated into an editable local copy, nothing else
+        VarMenuKind::Collection(id) => {
+            let read_only = fr.view.is_library_collection(id);
+            vec![MenuItem::new("Rename").disabled(read_only), MenuItem::new("Duplicate"), MenuItem::new("Delete").disabled(read_only)]
+        }
         VarMenuKind::Folder(..) => vec![MenuItem::new("Rename group")],
         VarMenuKind::Settings => vec![MenuItem::new("Import variables..."), MenuItem::new("Export variables...")],
         VarMenuKind::Filter => [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean]
@@ -1471,7 +1531,7 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                     let gone = fr.work.delete_collection(id);
                     fr.removed_vars.extend(gone);
                     fr.removed_colls.push(id.clone());
-                    app.vars.collection = fr.work.collections.keys().find(|k| *k != id).cloned();
+                    app.vars.collection = library::first_collection(&fr.work);
                     app.vars.group = None;
                 }
                 (VarMenuKind::Folder(c, f), _) => {

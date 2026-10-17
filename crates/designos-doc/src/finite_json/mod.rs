@@ -33,11 +33,22 @@ use std::cell::Cell;
 #[cfg(test)]
 thread_local! {
     static LENIENT_PARSES: Cell<usize> = const { Cell::new(0) };
+    static WRAPPED_STR_VISITS: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
 pub(crate) fn lenient_parses_on_this_thread() -> usize {
     LENIENT_PARSES.with(Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn record_wrapped_str_visit() {
+    WRAPPED_STR_VISITS.with(|n| n.set(n.get() + 1));
+}
+
+#[cfg(test)]
+pub(crate) fn wrapped_str_visits_on_this_thread() -> usize {
+    WRAPPED_STR_VISITS.with(Cell::get)
 }
 
 /// The value a non-finite number is replaced with, by the name of the field that holds it.

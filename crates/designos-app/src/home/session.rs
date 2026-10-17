@@ -22,6 +22,25 @@ pub struct LibFile {
     pub name: String,
 }
 
+struct DiskWatcherInner {
+    state: std::sync::Mutex<(Option<PathBuf>, Option<std::time::SystemTime>, bool)>,
+    cvar: std::sync::Condvar,
+    dirty: std::sync::atomic::AtomicBool,
+}
+
+pub struct DiskWatcher {
+    inner: std::sync::Arc<DiskWatcherInner>,
+}
+
+impl Drop for DiskWatcher {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.inner.state.lock() {
+            guard.2 = true;
+            self.inner.cvar.notify_all();
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Autosave {
     /// Last canvas revision seen (a change bumps it).
@@ -39,12 +58,88 @@ pub struct Autosave {
     pub disk_mtime: Option<std::time::SystemTime>,
     /// Last `self.now` timestamp when the disk mtime was polled.
     pub last_mtime_poll: f64,
+    /// When the last save of unsaved edits failed. Those edits stay in the editor and the next frame
+    /// after `AUTOSAVE_IDLE` tries again; no timer is scheduled for it.
+    pub save_failed_at: Option<f64>,
+    /// Background thread watching `watched_disk_path()` off the UI thread.
+    watcher: Option<DiskWatcher>,
 }
 
 impl Autosave {
     /// An edit is waiting for the idle delay before it is saved.
     pub fn pending(&self) -> bool {
         self.changed_at.is_some() && self.confirmed
+    }
+
+    fn note_known_mtime(&self, mtime: Option<std::time::SystemTime>) {
+        if let Some(w) = &self.watcher {
+            if let Ok(mut guard) = w.inner.state.lock() {
+                guard.1 = mtime;
+            }
+        }
+    }
+
+    fn take_watcher_dirty(&self) -> bool {
+        self.watcher.as_ref().is_some_and(|w| w.inner.dirty.swap(false, std::sync::atomic::Ordering::AcqRel))
+    }
+
+    /// Whether the watcher saw a write that no frame has looked at yet.
+    fn watcher_dirty(&self) -> bool {
+        self.watcher.as_ref().is_some_and(|w| w.inner.dirty.load(std::sync::atomic::Ordering::Acquire))
+    }
+
+    fn sync_watcher(&mut self, ctx: &egui::Context, path: Option<PathBuf>, mtime: Option<std::time::SystemTime>) {
+        if path.is_none() {
+            if let Some(w) = &self.watcher {
+                if let Ok(mut guard) = w.inner.state.lock() {
+                    guard.0 = None;
+                    guard.1 = None;
+                }
+            }
+            return;
+        }
+        if let Some(w) = &self.watcher {
+            if let Ok(mut guard) = w.inner.state.lock() {
+                if guard.0 != path || (mtime.is_some() && guard.1.is_none()) {
+                    guard.0 = path;
+                    if mtime.is_some() {
+                        guard.1 = mtime;
+                    }
+                }
+            }
+            return;
+        }
+        let inner = std::sync::Arc::new(DiskWatcherInner {
+            state: std::sync::Mutex::new((path, mtime, false)),
+            cvar: std::sync::Condvar::new(),
+            dirty: std::sync::atomic::AtomicBool::new(false),
+        });
+        let inner_bg = inner.clone();
+        let ctx_bg = ctx.clone();
+        let _ = std::thread::Builder::new().name("designos-disk-watch".into()).spawn(move || loop {
+            let (watched_path, known_mtime) = {
+                let Ok(guard) = inner_bg.state.lock() else { break };
+                let Ok((guard, _)) = inner_bg.cvar.wait_timeout(guard, std::time::Duration::from_millis(500)) else { break };
+                if guard.2 {
+                    break;
+                }
+                (guard.0.clone(), guard.1)
+            };
+            let Some(p) = watched_path else { continue };
+            let current_mtime = std::fs::metadata(&p).ok().and_then(|m| m.modified().ok());
+            if current_mtime.is_some() && current_mtime != known_mtime {
+                if let Ok(mut guard) = inner_bg.state.lock() {
+                    if guard.0.as_ref() == Some(&p) && guard.1 == known_mtime {
+                        guard.1 = current_mtime;
+                        if known_mtime.is_some() {
+                            inner_bg.dirty.store(true, std::sync::atomic::Ordering::Release);
+                            ctx_bg.request_repaint();
+                        }
+                    }
+                }
+            }
+        });
+        self.watcher = Some(DiskWatcher { inner });
     }
 }
 
@@ -486,7 +581,9 @@ impl App {
         lib.save_file(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
         self.autosave.saved_hash = doc_hash(&self.doc);
         self.autosave.changed_at = None;
+        self.autosave.save_failed_at = None;
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+        self.autosave.note_known_mtime(self.autosave.disk_mtime);
         if self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
@@ -521,6 +618,7 @@ impl App {
     pub fn autosave_tick(&mut self, ctx: &egui::Context) {
         if self.home.is_some() || self.history.viewing.is_some() {
             self.autosave.changed_at = None;
+            self.autosave.sync_watcher(ctx, None, None);
             return;
         }
         if self.lib_file.is_some() {
@@ -533,53 +631,91 @@ impl App {
         } else {
             self.autosave.changed_at = None;
         }
-        if !self.autosave.pending() && self.now - self.autosave.last_mtime_poll >= 0.5 {
-            self.autosave.last_mtime_poll = self.now;
-            if let Some(path) = self.watched_disk_path() {
-                let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
-                if self.autosave.disk_mtime.is_none() {
-                    self.autosave.disk_mtime = mtime;
-                    if self.autosave.saved_hash == 0 {
-                        self.autosave.saved_hash = doc_hash(&self.doc);
-                    }
-                } else if mtime.is_some() && mtime != self.autosave.disk_mtime {
-                    self.autosave.disk_mtime = mtime;
-                    let loaded_doc = if self.lib_file.is_some() {
-                        self.lib.as_ref().zip(self.lib_file.as_ref()).and_then(|(l, lf)| l.load_file(&lf.id).ok())
-                    } else {
-                        crate::io::load_path(&path).ok()
-                    };
-                    if let Some(mut new_doc) = loaded_doc {
-                        if let Some(lf) = &self.lib_file {
-                            new_doc.name = lf.name.clone();
-                        }
-                        let new_hash = doc_hash(&new_doc);
-                        if new_hash != self.autosave.saved_hash {
-                            let old_page = self.page;
-                            let old_sel = self.selection.clone();
-                            self.doc = new_doc;
-                            if !self.doc.pages.contains(&old_page) {
-                                if let Some(&p) = self.doc.pages.first() {
-                                    self.page = p;
-                                }
-                            }
-                            self.selection = old_sel.into_iter().filter(|id| self.doc.get(*id).is_some()).collect();
-                            self.changed();
-                            self.autosave.saved_hash = new_hash;
-                            self.autosave.seen_rev = self.canvas.tiles.rev();
-                            self.autosave.changed_at = None;
-                            self.show_toast("Synced external agent changes", false);
-                            ctx.request_repaint();
-                        }
-                    }
+        let watched_path = self.watched_disk_path();
+        if self.autosave.disk_mtime.is_none() {
+            if let Some(ref p) = watched_path {
+                self.autosave.disk_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
+                if self.autosave.saved_hash == 0 {
+                    self.autosave.saved_hash = doc_hash(&self.doc);
                 }
             }
         }
-        if self.watched_disk_path().is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
-        }
-        let Some(t) = self.autosave.changed_at else { return };
+        self.autosave.sync_watcher(ctx, watched_path.clone(), self.autosave.disk_mtime);
         let busy = ctx.input(|i| i.pointer.any_down()) || self.canvas.text.is_some();
+        self.reload_external_write(ctx, watched_path, busy);
+        self.save_when_settled(ctx, busy);
+        if !busy && self.autosave.changed_at.is_none() && self.autosave.watcher_dirty() {
+            // A write was held back while an edit was under way and that edit is over: look at it on the next frame.
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+
+    /// Loads the file again when it changed on disk (a write by an agent or another tool).
+    /// Nothing is replaced while an edit is under way or unsaved edits exist; the write the watcher
+    /// reported stays flagged for the frame after the edit is over.
+    fn reload_external_write(&mut self, ctx: &egui::Context, watched_path: Option<PathBuf>, busy: bool) {
+        if busy || self.autosave.changed_at.is_some() {
+            return;
+        }
+        let watcher_woke = self.autosave.take_watcher_dirty();
+        if !watcher_woke && self.now - self.autosave.last_mtime_poll < 0.5 {
+            return;
+        }
+        self.autosave.last_mtime_poll = self.now;
+        let Some(path) = watched_path else { return };
+        let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+        if mtime.is_none() || mtime == self.autosave.disk_mtime {
+            return;
+        }
+        if self.lib_file.is_some() && doc_hash(&self.doc) != self.autosave.saved_hash {
+            // Edits no save has written yet, as after a failed save: they stay. The modification time is not
+            // taken over, so a later frame looks at the file again once those edits are saved or undone.
+            return;
+        }
+        self.autosave.disk_mtime = mtime;
+        self.autosave.note_known_mtime(mtime);
+        let loaded_doc = if self.lib_file.is_some() {
+            self.lib.as_ref().zip(self.lib_file.as_ref()).and_then(|(l, lf)| l.load_file(&lf.id).ok())
+        } else {
+            crate::io::load_path(&path).ok()
+        };
+        let Some(mut new_doc) = loaded_doc else { return };
+        if let Some(lf) = &self.lib_file {
+            new_doc.name = lf.name.clone();
+        }
+        let new_hash = doc_hash(&new_doc);
+        if new_hash == self.autosave.saved_hash {
+            return;
+        }
+        let old_page = self.page;
+        let old_sel = self.selection.clone();
+        self.doc = new_doc;
+        if !self.doc.pages.contains(&old_page) {
+            if let Some(&p) = self.doc.pages.first() {
+                self.page = p;
+            }
+        }
+        self.selection = old_sel.into_iter().filter(|id| self.doc.get(*id).is_some()).collect();
+        self.changed();
+        self.autosave.saved_hash = new_hash;
+        self.autosave.seen_rev = self.canvas.tiles.rev();
+        self.autosave.changed_at = None;
+        self.show_toast("Synced external agent changes", false);
+        ctx.request_repaint();
+    }
+
+    /// Debounced autosave: probes a changed revision once it settled, then saves after `AUTOSAVE_IDLE`.
+    fn save_when_settled(&mut self, ctx: &egui::Context, busy: bool) {
+        let Some(t) = self.autosave.changed_at else {
+            if let Some(failed_at) = self.autosave.save_failed_at {
+                // The last save failed and the edits are still here. Retry on a frame that comes anyway: a timer
+                // that keeps firing while the disk stays unwritable is not worth the wakeups.
+                if !busy && self.now - failed_at >= AUTOSAVE_IDLE {
+                    self.save_unsaved_edits();
+                }
+            }
+            return;
+        };
         if busy {
             self.autosave.changed_at = Some(self.now);
             self.autosave.confirmed = false;
@@ -592,15 +728,25 @@ impl App {
             self.autosave.confirmed = true;
         } else if self.autosave.confirmed && self.now - t >= AUTOSAVE_IDLE {
             self.autosave.changed_at = None;
-            if doc_hash(&self.doc) != self.autosave.saved_hash {
-                match self.save_library_file() {
-                    Ok(()) => self.autosave.saves += 1,
-                    Err(e) => self.show_toast(e, true),
-                }
-            }
+            self.save_unsaved_edits();
             return;
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
+    /// Writes the open library file if the document differs from what was last saved.
+    fn save_unsaved_edits(&mut self) {
+        if doc_hash(&self.doc) == self.autosave.saved_hash {
+            self.autosave.save_failed_at = None;
+            return;
+        }
+        match self.save_library_file() {
+            Ok(()) => self.autosave.saves += 1,
+            Err(e) => {
+                self.autosave.save_failed_at = Some(self.now);
+                self.show_toast(e, true);
+            }
+        }
     }
 
     /// Renames the open library file (header double-click).
@@ -675,5 +821,340 @@ impl App {
             Section::Project(p, f) => Some((p.clone(), f.clone())),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_editor_with_open_file_requests_no_periodic_repaint() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_idle_repaint_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut doc = Document::new("Test");
+        doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.attach_library(dir.clone());
+        app.new_file_here();
+        app.toast = None;
+        app.now = 10.0;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        let repaint_delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(repaint_delay, std::time::Duration::MAX, "idle editor with an unchanged open library file must not schedule a 500ms wakeup timer");
+    }
+
+    #[test]
+    fn external_disk_write_wakes_idle_editor_and_hot_reloads_document() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_idle_hot_reload_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut doc = Document::new("Test");
+        doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.attach_library(dir.clone());
+        app.new_file_here();
+        app.toast = None;
+        app.now = 10.0;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        assert_eq!(out.viewport_output[&egui::ViewportId::ROOT].repaint_delay, Duration::MAX);
+
+        let wakeups = Arc::new(AtomicUsize::new(0));
+        let wakeups_cb = wakeups.clone();
+        ctx.set_request_repaint_callback(move |info| {
+            if info.delay == Duration::ZERO {
+                wakeups_cb.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        // Wait 650ms with no disk write: must produce 0 wakeups.
+        std::thread::sleep(Duration::from_millis(650));
+        assert_eq!(wakeups.load(Ordering::SeqCst), 0, "untouched file must not wake the UI thread");
+
+        // Now simulate an external MCP/CLI write to the watched file on disk.
+        let path = app.watched_disk_path().expect("watched disk path");
+        let mut ext_doc = app.doc.clone();
+        let page = ext_doc.pages[0];
+        let nid = ext_doc.alloc_id();
+        ext_doc.insert(page, designos_doc::Node::frame(nid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        // Ensure mtime advances even on coarse-grained filesystems.
+        std::thread::sleep(Duration::from_millis(20));
+        designos_library::write_atomic(&path, ext_doc.to_json().unwrap().as_bytes()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while wakeups.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(wakeups.load(Ordering::SeqCst) > 0, "external disk write must wake the idle editor via request_repaint");
+
+        // Run one frame on wakeup: the editor hot-reloads the external document even if <0.5s of app.now elapsed.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(app.doc.get(nid).is_some(), "woken editor must hot-reload the external node");
+        assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some("Synced external agent changes"));
+    }
+
+    /// A library file open in an idle editor whose disk watcher has settled on the file's modification time.
+    struct IdleEditor {
+        app: App,
+        ctx: egui::Context,
+        dir: PathBuf,
+        /// Every repaint delay requested since the last `take_requests`.
+        requests: std::sync::Arc<std::sync::Mutex<Vec<std::time::Duration>>>,
+    }
+
+    impl IdleEditor {
+        fn open(tag: &str) -> Self {
+            let mut dir = std::env::temp_dir();
+            dir.push(format!("designos_{tag}_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let mut doc = Document::new("Test");
+            doc.add_page("Page 1");
+            let mut app = App::new(doc);
+            app.attach_library(dir.clone());
+            app.new_file_here();
+            app.toast = None;
+            app.now = 10.0;
+
+            let ctx = egui::Context::default();
+            let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+            // Baseline frame: starts the watcher on the freshly opened file.
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.autosave_tick(ui.ctx());
+            });
+            let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let requests_cb = requests.clone();
+            ctx.set_request_repaint_callback(move |info| requests_cb.lock().unwrap().push(info.delay));
+            Self { app, ctx, dir, requests }
+        }
+
+        /// One frame of `autosave_tick` with the given input events.
+        fn tick(&mut self, events: Vec<egui::Event>) {
+            let input = egui::RawInput { events, ..Default::default() };
+            let _ = self.ctx.run_ui(input, |ui| {
+                self.app.autosave_tick(ui.ctx());
+            });
+        }
+
+        fn take_requests(&self) -> Vec<std::time::Duration> {
+            std::mem::take(&mut *self.requests.lock().unwrap())
+        }
+
+        /// A delayed (not immediate, not unbounded) repaint request among `requests`.
+        fn follow_up(requests: &[std::time::Duration]) -> Option<std::time::Duration> {
+            requests.iter().copied().find(|d| *d > std::time::Duration::ZERO && *d < std::time::Duration::MAX)
+        }
+
+        /// A local edit as a canvas gesture makes it: the document changes and the revision moves on.
+        fn edit_locally(&mut self) -> designos_doc::NodeId {
+            let page = self.app.doc.pages[0];
+            let id = self.app.doc.alloc_id();
+            self.app.doc.insert(page, designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+            self.app.changed();
+            crate::canvas::tiles::take_rev(&mut self.app);
+            id
+        }
+
+        /// An agent adding a node to the file on disk. Waits until the watcher woke the editor.
+        fn write_external_node(&mut self) -> designos_doc::NodeId {
+            use std::time::{Duration, Instant};
+            let path = self.app.watched_disk_path().expect("watched disk path");
+            let mut ext_doc = Document::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let page = ext_doc.pages[0];
+            // Past every id the editor hands out, so the two sides never share a node id.
+            for _ in 0..8 {
+                ext_doc.alloc_id();
+            }
+            let id = ext_doc.alloc_id();
+            ext_doc.insert(page, designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+            // Frames until egui has no repaint left to hand out, so the watcher's request is the next one reported.
+            for _ in 0..4 {
+                let _ = self.ctx.run_ui(egui::RawInput::default(), |_| {});
+            }
+            self.take_requests();
+            std::thread::sleep(Duration::from_millis(20));
+            designos_library::write_atomic(&path, ext_doc.to_json().unwrap().as_bytes()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while self.requests.lock().unwrap().is_empty() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            assert!(!self.requests.lock().unwrap().is_empty(), "external disk write must wake the editor");
+            // The wake-up request belongs to the frame about to run, not to the ones after it.
+            for _ in 0..4 {
+                let _ = self.ctx.run_ui(egui::RawInput::default(), |_| {});
+            }
+            self.take_requests();
+            id
+        }
+
+        /// Frames until the edit made by `edit_locally` is confirmed as a real change and waits for its save.
+        fn settle_edit(&mut self) {
+            for t in [10.0, 10.4] {
+                self.app.now = t;
+                self.tick(vec![]);
+            }
+            assert!(self.app.autosave.pending(), "the edit should be waiting for its save");
+        }
+
+        fn synced_toast(&self) -> bool {
+            self.app.toast.as_ref().map(|t| t.text.as_str()) == Some("Synced external agent changes")
+        }
+    }
+
+    impl Drop for IdleEditor {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn pointer_event(pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos: egui::pos2(20.0, 20.0), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }
+    }
+
+    #[test]
+    fn external_write_does_not_replace_an_edit_that_has_not_settled() {
+        let mut ed = IdleEditor::open("unsettled_edit");
+        let local_id = ed.edit_locally();
+        let ext_id = ed.write_external_node();
+
+        ed.app.now = 10.1;
+        ed.tick(vec![]);
+
+        assert!(ed.app.doc.get(local_id).is_some(), "an edit the debounce has not looked at yet must survive an external write");
+        assert!(ed.app.doc.get(ext_id).is_none());
+        assert!(!ed.synced_toast());
+    }
+
+    #[test]
+    fn external_write_during_a_drag_waits_for_the_gesture_to_end() {
+        let mut ed = IdleEditor::open("drag_edit");
+        ed.tick(vec![egui::Event::PointerMoved(egui::pos2(20.0, 20.0)), pointer_event(true)]);
+        let first = ed.edit_locally();
+        ed.app.now = 10.05;
+        ed.tick(vec![]);
+        let ext_id = ed.write_external_node();
+        let mut moved = vec![first];
+        for step in 0..3 {
+            moved.push(ed.edit_locally());
+            ed.app.now = 10.1 + step as f64 * 0.05;
+            ed.tick(vec![]);
+            for id in &moved {
+                assert!(ed.app.doc.get(*id).is_some(), "drag step {step} lost an edit to the external write");
+            }
+        }
+        assert!(ed.app.doc.get(ext_id).is_none());
+
+        // Pointer up and quiet: the edits are saved, never replaced.
+        ed.tick(vec![pointer_event(false)]);
+        for (i, t) in [10.4, 10.8, 12.5].into_iter().enumerate() {
+            ed.app.now = t;
+            ed.tick(vec![]);
+            assert!(ed.app.doc.get(first).is_some(), "settling step {i} lost the dragged edit");
+        }
+        assert_eq!(ed.app.autosave.saves, 1, "the dragged edits are saved once the gesture settled");
+    }
+
+    #[test]
+    fn external_write_waits_for_a_revision_that_turns_out_to_change_nothing() {
+        let mut ed = IdleEditor::open("no_op_revision");
+        // A revision that moves on without touching the document, as a selection change does.
+        ed.app.changed();
+        crate::canvas::tiles::take_rev(&mut ed.app);
+        let ext_id = ed.write_external_node();
+
+        ed.app.now = 10.1;
+        ed.tick(vec![]);
+        assert!(ed.app.doc.get(ext_id).is_none(), "the file is not read while a revision is being checked");
+
+        // The check finds nothing to save; the write that was held back is then picked up on the next frame.
+        ed.app.now = 10.5;
+        ed.take_requests();
+        ed.tick(vec![]);
+        let follow_up = IdleEditor::follow_up(&ed.take_requests()).expect("the held-back write must get a frame once the edit is settled");
+        ed.app.now += follow_up.as_secs_f64();
+        ed.tick(vec![]);
+        assert!(ed.app.doc.get(ext_id).is_some());
+        assert!(ed.synced_toast());
+    }
+
+    #[test]
+    fn failed_autosave_keeps_the_edit_and_its_error_while_the_file_changed_on_disk() {
+        let mut ed = IdleEditor::open("failed_autosave");
+        let local_id = ed.edit_locally();
+        ed.settle_edit();
+        let ext_id = ed.write_external_node();
+
+        // The save that is due now cannot write: the file turned read-only.
+        let path = ed.app.watched_disk_path().unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        ed.app.now = 12.0;
+        ed.tick(vec![]);
+        assert_eq!(ed.app.toast.as_ref().map(|t| t.error), Some(true), "the save must have failed for this test to mean anything");
+        let follow_up = IdleEditor::follow_up(&ed.take_requests()).expect("the write that arrived meanwhile must still get a frame");
+
+        ed.app.now += follow_up.as_secs_f64();
+        ed.tick(vec![]);
+        assert!(ed.app.doc.get(local_id).is_some(), "an edit that could not be saved must not be replaced by the file on disk");
+        assert!(ed.app.doc.get(ext_id).is_none());
+        assert_eq!(ed.app.toast.as_ref().map(|t| t.error), Some(true), "the save error stays on screen");
+        assert!(IdleEditor::follow_up(&ed.take_requests()).is_none(), "holding the write back must not start a timer");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_autosave_is_retried_by_the_next_frame_after_the_retry_delay() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut ed = IdleEditor::open("failed_autosave_retry");
+        let local_id = ed.edit_locally();
+        ed.settle_edit();
+
+        let path = ed.app.watched_disk_path().unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+        ed.app.now = 12.0;
+        ed.tick(vec![]);
+        assert_eq!(ed.app.toast.as_ref().map(|t| t.error), Some(true));
+        assert_eq!(ed.app.autosave.saves, 0);
+
+        // The disk recovers. Nothing wakes the editor on its own: the retry rides on the next frame.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        ed.take_requests();
+        ed.app.now = 12.5;
+        ed.tick(vec![]);
+        assert_eq!(ed.app.autosave.saves, 0, "too soon after the failure to try again");
+        assert!(IdleEditor::follow_up(&ed.take_requests()).is_none(), "waiting for the retry must not start a timer");
+        ed.app.now = 14.0;
+        ed.tick(vec![]);
+        assert_eq!(ed.app.autosave.saves, 1);
+        let lib = ed.app.lib.clone().unwrap();
+        let id = ed.app.lib_file.as_ref().unwrap().id.clone();
+        assert!(lib.load_file(&id).unwrap().get(local_id).is_some(), "the retried save wrote the edit to disk");
     }
 }

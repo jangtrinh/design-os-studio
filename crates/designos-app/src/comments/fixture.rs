@@ -12,7 +12,7 @@ const SOURCE_IDS: [(&str, &str); 3] = [("Welcome", "10:1"), ("Hero", "10:2"), ("
 
 fn msg(id: &str, author: &str, text: &str, minutes_ago: u64) -> Comment {
     let at = time::now_ms().saturating_sub(minutes_ago * 60_000);
-    Comment { id: id.into(), author: author.into(), text: text.into(), created: time::format_rfc3339(at), edited: None }
+    Comment { id: id.into(), author: author.into(), author_id: None, author_color: None, text: text.into(), created: time::format_rfc3339(at), edited: None }
 }
 
 pub fn apply(app: &mut App) {
