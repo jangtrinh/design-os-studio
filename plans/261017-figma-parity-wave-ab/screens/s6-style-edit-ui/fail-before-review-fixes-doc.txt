@@ -1,0 +1,18 @@
+test styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer ... FAILED
+test styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides ... FAILED
+test styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file ... FAILED
+test library_ops::tests::style_update_reaches_layers_that_use_the_style_as_a_stroke ... FAILED
+thread 'styles_ops::tests::a_colour_style_edit_recolours_every_run_of_a_rich_text_layer' (39838538) panicked at crates/designos-doc/src/styles_ops.rs:465:21:
+assertion `left == right` failed: run 0..1 keeps its old colour
+  left: [Paint { kind: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }]
+ right: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }]
+thread 'styles_ops::tests::a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides' (39838539) panicked at crates/designos-doc/src/styles_ops.rs:432:9:
+assertion `left == right` failed
+  left: Node { id: NodeId(8), source_id: None, name: "Rectangle", kind: Rectangle, parent: Some(NodeId(7)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0
+ right: Node { id: NodeId(8), source_id: None, name: "Rectangle", kind: Rectangle, parent: Some(NodeId(7)), children: [], visible: true, locked: false, opacity: 1.0, blend: PassThrough, transform: Affine { a: 1.0, b: 0.0
+thread 'styles_ops::tests::a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file' (39838540) panicked at crates/designos-doc/src/styles_ops.rs:483:85:
+thread 'library_ops::tests::style_update_reaches_layers_that_use_the_style_as_a_stroke' (39838537) panicked at crates/designos-doc/src/library_ops.rs:1590:9:
+assertion `left == right` failed: stroke-only link
+  left: []
+ right: [Paint { kind: Solid(Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }]
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.00s

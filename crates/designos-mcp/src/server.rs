@@ -289,12 +289,13 @@ impl Session {
                 }
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
+                let mut repaired_non_finite_numbers = 0;
                 if !matches!(path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("fig" | "svg")) {
                     if let Ok(raw) = fs::read_to_string(&path) {
-                        if let Err(e) = parse_unrepaired_native(&raw) {
-                            if e.starts_with(REPAIR_PREFIX) {
-                                return Err(e);
-                            }
+                        match parse_native_checked(&raw) {
+                            Err(e) if e.starts_with(REPAIR_PREFIX) => return Err(e),
+                            Ok((_, report)) => repaired_non_finite_numbers = report.non_finite_numbers,
+                            Err(_) => {}
                         }
                     }
                 }
@@ -305,7 +306,15 @@ impl Session {
                 self.engine.doc = doc;
                 self.dirty = false;
                 self.publish_live_doc_sync();
-                self.engine.call("designos_get_document", json!({}))
+                let mut summary = self.engine.call("designos_get_document", json!({}))?;
+                // Numbers saved as `null` were read as their neutral value. They carry no data to lose, so
+                // the file opens, but the caller is told.
+                if repaired_non_finite_numbers > 0 {
+                    if let Some(fields) = summary.as_object_mut() {
+                        fields.insert("repaired_non_finite_numbers".into(), json!(repaired_non_finite_numbers));
+                    }
+                }
+                Ok(summary)
             }
             "designos_new_document" => {
                 let a: NewArgs = parse(args)?;
@@ -410,10 +419,16 @@ const REPAIR_PREFIX: &str = "Document node graph is malformed";
 /// Parses a native document and refuses one whose node graph needed repair on load. Text that is
 /// not a native document yields a parse error (not prefixed by [`REPAIR_PREFIX`]).
 fn parse_unrepaired_native(raw: &str) -> Result<designos_doc::Document, String> {
+    parse_native_checked(raw).map(|(doc, _)| doc)
+}
+
+/// [`parse_unrepaired_native`], also returning the load report so a caller can tell the user about
+/// the repairs that do not cause a refusal (numbers saved as `null`).
+fn parse_native_checked(raw: &str) -> Result<(designos_doc::Document, designos_doc::RepairReport), String> {
     let (doc, report) = designos_doc::Document::from_json_with_report(raw).map_err(|e| e.to_string())?;
     match report.structural_summary() {
         Some(what) => Err(format!("{REPAIR_PREFIX} ({what}); fix the file instead of relying on load-time repair")),
-        None => Ok(doc),
+        None => Ok((doc, report)),
     }
 }
 

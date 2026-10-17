@@ -211,12 +211,39 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
 }
 
 // ---------------------------------------------------------------- popover
-fn edit_effect(app: &mut App, ids: &[NodeId], i: usize, f: impl Fn(&mut Effect)) {
-    app.edit_nodes(ids, |n| {
-        if let Some(e) = n.effects.get_mut(i) {
-            f(e);
+/// What the effect settings rows edit: the effects of layers, or those of a shared effect style
+/// (the "Edit style" popover).
+#[derive(Clone, Copy)]
+pub(super) enum FxTarget<'a> {
+    Nodes(&'a [NodeId]),
+    Style,
+}
+
+impl<'a> FxTarget<'a> {
+    /// The colour picker target of a colour row; a style's colours are edited as hex only.
+    fn picker(self, target: PickTarget) -> Option<(PickTarget, &'a [NodeId])> {
+        match self {
+            Self::Nodes(ids) => Some((target, ids)),
+            Self::Style => None,
         }
-    });
+    }
+}
+
+fn edit_effect(app: &mut App, tgt: FxTarget, i: usize, f: impl Fn(&mut Effect)) {
+    match tgt {
+        FxTarget::Nodes(ids) => app.edit_nodes(ids, |n| {
+            if let Some(e) = n.effects.get_mut(i) {
+                f(e);
+            }
+        }),
+        FxTarget::Style => super::style_edit::edit(app, |s| {
+            if let Style::Effect(fx) = s {
+                if let Some(e) = fx.get_mut(i) {
+                    f(e);
+                }
+            }
+        }),
+    }
 }
 
 fn num(ui: &mut Ui, r: Rect, key: impl widgets::Key, v: f32, suffix: &str) -> Option<f32> {
@@ -227,18 +254,19 @@ fn pct(v: f32) -> f32 {
     (v * 100.0).round()
 }
 
-/// Colour row: swatch (opens the picker) and hex.
-fn color_row(app: &mut App, ui: &mut Ui, r: Rect, key: (usize, u8), c: Color, target: PickTarget, ids: &[NodeId]) -> Option<Color> {
+/// Colour row: swatch (opens the picker when `picker` names a target) and hex.
+pub(super) fn color_row(app: &mut App, ui: &mut Ui, r: Rect, key: (usize, u8), c: Color, picker: Option<(PickTarget, &[NodeId])>) -> Option<Color> {
     let sw = Rect::from_min_size(Pos2::new(r.left() + 4.0, r.center().y - 8.0), Vec2::splat(theme::SWATCH_SIZE));
     let hex_r = Rect::from_min_max(Pos2::new(r.left() + 24.0, r.top()), r.right_bottom());
     let mut out = None;
     let id = ui.id().with(("fx-color", key));
     field::field_bg(ui, r, id.with("hex"));
-    let swr = ui.interact(sw.expand(2.0), id.with("sw"), egui::Sense::click());
-    widgets::swatch(ui.painter(), sw, Color32::from_rgb((c.r * 255.0).round() as u8, (c.g * 255.0).round() as u8, (c.b * 255.0).round() as u8));
-    if swr.clicked() {
-        let c32 = Color32::from_rgb((c.r * 255.0).round() as u8, (c.g * 255.0).round() as u8, (c.b * 255.0).round() as u8);
-        open_picker(app, target, c32, sw, ids.to_vec());
+    let c32 = Color32::from_rgb((c.r * 255.0).round() as u8, (c.g * 255.0).round() as u8, (c.b * 255.0).round() as u8);
+    widgets::swatch(ui.painter(), sw, c32);
+    if let Some((target, ids)) = picker {
+        if ui.interact(sw.expand(2.0), id.with("sw"), egui::Sense::click()).clicked() {
+            open_picker(app, target, c32, sw, ids.to_vec());
+        }
     }
     if let Some(s) = field::edit_hex_text(ui, hex_r, id.with("hex"), &c.to_hex(), theme::font_body(), theme::TEXT, 0.0) {
         if let Some(nc) = Color::from_hex(&s) {
@@ -257,22 +285,11 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
                 app.props.pop = None;
                 return;
             };
-            let rows = match &e {
-                Effect::DropShadow { .. } => 6,
-                Effect::InnerShadow { .. } => 5,
-                Effect::LayerBlur { .. } | Effect::BackgroundBlur { .. } => 1,
-                Effect::Noise(n) => match n.mode {
-                    NoiseMode::Mono { .. } => 5,
-                    NoiseMode::Duo { .. } => 6,
-                    NoiseMode::Multi => 4,
-                },
-                Effect::Texture(_) => 3,
-                Effect::Glass(_) => 6,
-            };
+            let rows = effect_rows(&e);
             let title = KINDS[kind_of(&e)].0;
             let ids = st.ids.clone();
             let pop = popover::show(&ctx, Id::new("inspector-popover"), st.anchor, region, 240.0, popover::height(rows), title, |ui, body| {
-                effect_body(app, ui, body, &e, i, &ids);
+                effect_body(app, ui, body, &e, i, FxTarget::Nodes(&ids), 0);
             });
             if pop {
                 app.props.pop = None;
@@ -283,8 +300,25 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
     }
 }
 
-fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids: &[NodeId]) {
-    let mut r = 0usize;
+/// Number of setting rows of the popover of effect `e`.
+pub(super) fn effect_rows(e: &Effect) -> usize {
+    match e {
+        Effect::DropShadow { .. } => 6,
+        Effect::InnerShadow { .. } => 5,
+        Effect::LayerBlur { .. } | Effect::BackgroundBlur { .. } => 1,
+        Effect::Noise(n) => match n.mode {
+            NoiseMode::Mono { .. } => 5,
+            NoiseMode::Duo { .. } => 6,
+            NoiseMode::Multi => 4,
+        },
+        Effect::Texture(_) => 3,
+        Effect::Glass(_) => 6,
+    }
+}
+
+/// The setting rows of effect `e` (index `i`), starting at popover row `first_row`.
+pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, tgt: FxTarget, first_row: usize) {
+    let mut r = first_row;
     let mut next = || {
         r += 1;
         r - 1
@@ -297,33 +331,33 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
     if let Some((color, offset, radius, spread, behind)) = shadow {
         popover::row(ui, body, next(), "X", |ui, rc| {
             if let Some(v) = num(ui, rc, ("fxp-x", i), offset.x, "") {
-                edit_effect(app, ids, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
+                edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
             }
         });
         popover::row(ui, body, next(), "Y", |ui, rc| {
             if let Some(v) = num(ui, rc, ("fxp-y", i), offset.y, "") {
-                edit_effect(app, ids, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
+                edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
             }
         });
         popover::row(ui, body, next(), "Blur", |ui, rc| {
             if let Some(v) = num(ui, rc, ("fxp-b", i), radius, "") {
-                edit_effect(app, ids, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
+                edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
             }
         });
         popover::row(ui, body, next(), "Spread", |ui, rc| {
             if let Some(v) = num(ui, rc, ("fxp-s", i), spread, "") {
-                edit_effect(app, ids, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
+                edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
             }
         });
         popover::row(ui, body, next(), "Color", |ui, rc| {
-            if let Some(nc) = color_row(app, ui, rc, (i, 0), color, PickTarget::Shadow(i), ids) {
-                edit_effect(app, ids, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+            if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
             }
         });
         if let Some(b) = behind {
             popover::row(ui, body, next(), "Show behind", |ui, rc| {
                 if let Some(v) = popover::check(ui, rc, ("fxp-behind", i), b) {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::DropShadow { show_behind, .. } = e {
                             *show_behind = v;
                         }
@@ -337,7 +371,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
         Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } => {
             popover::row(ui, body, next(), "Blur", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-blur", i), *radius, "") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } = e {
                             *radius = v.max(0.0);
                         }
@@ -354,7 +388,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             };
             popover::row(ui, body, next(), "Mode", |ui, rc| {
                 if let Some(k) = dropdown(ui, rc, ("fxp-mode", i), &modes[cur], &modes) {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             let (a, b) = match &n.mode {
                                 NoiseMode::Mono { color } => (*color, Color::WHITE),
@@ -377,21 +411,21 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             };
             if let Some(c) = c1 {
                 popover::row(ui, body, next(), if c2.is_some() { "Color 1" } else { "Color" }, |ui, rc| {
-                    if let Some(nc) = color_row(app, ui, rc, (i, 1), c, PickTarget::NoiseColor(i, false), ids) {
-                        edit_effect(app, ids, i, |e| set_noise_color(e, false, nc));
+                    if let Some(nc) = color_row(app, ui, rc, (i, 1), c, tgt.picker(PickTarget::NoiseColor(i, false))) {
+                        edit_effect(app, tgt, i, |e| set_noise_color(e, false, nc));
                     }
                 });
             }
             if let Some(c) = c2 {
                 popover::row(ui, body, next(), "Color 2", |ui, rc| {
-                    if let Some(nc) = color_row(app, ui, rc, (i, 2), c, PickTarget::NoiseColor(i, true), ids) {
-                        edit_effect(app, ids, i, |e| set_noise_color(e, true, nc));
+                    if let Some(nc) = color_row(app, ui, rc, (i, 2), c, tgt.picker(PickTarget::NoiseColor(i, true))) {
+                        edit_effect(app, tgt, i, |e| set_noise_color(e, true, nc));
                     }
                 });
             }
             popover::row(ui, body, next(), "Size", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-nsize", i), n.size, "") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.size = v.max(0.1);
                         }
@@ -400,7 +434,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             });
             popover::row(ui, body, next(), "Density", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-dens", i), pct(n.density), "%") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.density = (v / 100.0).clamp(0.0, 1.0);
                         }
@@ -409,7 +443,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             });
             popover::row(ui, body, next(), "Opacity", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-nop", i), pct(n.opacity), "%") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.opacity = (v / 100.0).clamp(0.0, 1.0);
                         }
@@ -420,7 +454,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
         Effect::Texture(t) => {
             popover::row(ui, body, next(), "Size", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-tsize", i), t.size, "") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.size = v.max(0.1);
                         }
@@ -429,7 +463,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             });
             popover::row(ui, body, next(), "Radius", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-trad", i), t.radius, "") {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.radius = v.max(0.0);
                         }
@@ -438,7 +472,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             });
             popover::row(ui, body, next(), "Clip to shape", |ui, rc| {
                 if let Some(v) = popover::check(ui, rc, ("fxp-clip", i), t.clip_to_shape) {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.clip_to_shape = v;
                         }
@@ -455,7 +489,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
                     v = Some(n.rem_euclid(360.0));
                 }
                 if let Some(v) = v {
-                    edit_effect(app, ids, i, |e| {
+                    edit_effect(app, tgt, i, |e| {
                         if let Effect::Glass(g) = e {
                             g.light_angle = v;
                         }
@@ -472,7 +506,7 @@ fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i: usize, ids
             for (label, val, suffix, which) in sliders {
                 popover::row(ui, body, next(), label, |ui, rc| {
                     if let Some(v) = num(ui, rc, ("fxp-glass", i, which), val, suffix) {
-                        edit_effect(app, ids, i, |e| {
+                        edit_effect(app, tgt, i, |e| {
                             if let Effect::Glass(g) = e {
                                 let unit = (v / 100.0).clamp(0.0, 1.0);
                                 match which {

@@ -1,0 +1,5 @@
+    | -------------- method `update_style_values` not found for this struct
+error[E0599]: no method named `update_style_values` found for struct `app::App` in the current scope
+    |                     ^^^^^^^^^^^^^^^^^^^ method not found in `app::App`
+    | -------------- method `update_style_values` not found for this struct
+error: could not compile `designos-app` (bin "designos-studio" test) due to 4 previous errors

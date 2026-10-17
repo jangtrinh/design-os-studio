@@ -647,14 +647,34 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
     }
 }
 
+/// Text whose characters differ from the main `r` (overridden, or driven by a bound property that
+/// has a value) or whose text style is its own, and that sizes itself to its content, keeps its own,
+/// already fitted, size.
+fn keeps_own_text_size(r: &Node, n: &Node, values: &BTreeMap<String, PropValue>) -> bool {
+    let bound_text = r.component.bindings.get(&OverrideField::Characters).is_some_and(|p| values.contains_key(p));
+    (n.component.overrides.contains(&OverrideField::Characters) || n.component.overrides.contains(&OverrideField::TextStyle) || bound_text)
+        && matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height))
+}
+
+/// True when a sync copies the size of node `id` from the main it mirrors. False for a node that is
+/// not linked, one that overrides its size, and text that keeps its own fitted size
+/// (see [`keeps_own_text_size`]): whoever changes the type of such text must re-fit it, because no
+/// sync will.
+pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
+    let Some(n) = doc.get(id).filter(|n| is_linked(n)) else { return false };
+    let Some(r) = reference_of(doc, id).and_then(|r| doc.get(r)) else { return false };
+    if n.component.overrides.contains(&OverrideField::Size) {
+        return false;
+    }
+    let no_values = BTreeMap::new();
+    let values = doc.get(holder_of(doc, id)).map_or(&no_values, |h| &h.component.values);
+    !keeps_own_text_size(r, n, values)
+}
+
 /// Copies every field of `r` that `n` does not override onto `n`.
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
     let ov = n.component.overrides.clone();
-    // Text whose characters differ from the main (override or bound property)
-    // keeps its own, already fitted, size when it sizes itself to its content.
-    let bound_text = r.component.bindings.get(&OverrideField::Characters).is_some_and(|p| values.contains_key(p));
-    let own_text = (ov.contains(&OverrideField::Characters) || bound_text)
-        && matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
+    let own_text = keeps_own_text_size(r, n, values);
     for f in OverrideField::ALL {
         if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
             continue;
@@ -1592,6 +1612,58 @@ mod tests {
         apply(&mut f.d, c);
         assert_eq!(text_of(&f.d, nl), "Live");
         assert_eq!(f.d.get(nested).unwrap().children.len(), 3);
+    }
+
+    fn set_auto_resize(d: &mut Document, id: NodeId, mode: TextAutoResize) {
+        let mut n = d.get(id).unwrap().clone();
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.auto_resize = mode;
+        }
+        apply(d, Command::Update { node: Box::new(n) });
+    }
+
+    #[test]
+    fn size_comes_from_main_only_where_a_sync_copies_it() {
+        let mut f = fx();
+        set_auto_resize(&mut f.d, f.label, TextAutoResize::WidthAndHeight);
+        let i = inst(&mut f, (200.0, 0.0));
+        let label_i = child_named(&f.d, i, "label");
+        assert!(!size_comes_from_main(&f.d, f.label), "the main itself is not mirrored");
+        assert!(!size_comes_from_main(&f.d, NodeId(u64::MAX)), "an unknown node has nothing to copy");
+        assert!(size_comes_from_main(&f.d, label_i), "an untouched copy takes the size of its main");
+
+        // Its own characters on self-sizing text: the copy keeps the size it fitted itself.
+        let mut n = f.d.get(label_i).unwrap().clone();
+        n.component.overrides.insert(OverrideField::Characters);
+        apply(&mut f.d, Command::Update { node: Box::new(n) });
+        assert!(!size_comes_from_main(&f.d, label_i));
+        // ... but fixed-size text takes the main's size whatever its characters are.
+        set_auto_resize(&mut f.d, label_i, TextAutoResize::None);
+        assert!(size_comes_from_main(&f.d, label_i));
+        set_auto_resize(&mut f.d, label_i, TextAutoResize::Height);
+        assert!(!size_comes_from_main(&f.d, label_i));
+        // An overridden size is the copy's own, with the characters back to the main's.
+        let mut n = f.d.get(label_i).unwrap().clone();
+        n.component.overrides.remove(&OverrideField::Characters);
+        n.component.overrides.insert(OverrideField::Size);
+        apply(&mut f.d, Command::Update { node: Box::new(n) });
+        assert!(!size_comes_from_main(&f.d, label_i));
+    }
+
+    #[test]
+    fn size_comes_from_main_ignores_a_bound_property_without_a_value() {
+        let mut f = fx();
+        set_auto_resize(&mut f.d, f.label, TextAutoResize::WidthAndHeight);
+        let c = add_prop(&mut f.d, f.comp, ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Label".into()) });
+        apply(&mut f.d, c);
+        let c = bind_prop(&mut f.d, f.label, OverrideField::Characters, Some("Label"));
+        apply(&mut f.d, c);
+        let i = inst(&mut f, (200.0, 0.0));
+        let label_i = child_named(&f.d, i, "label");
+        assert!(size_comes_from_main(&f.d, label_i), "the property has no value on this instance: the main's text shows");
+        let c = set_instance_prop(&mut f.d, i, "Label", Some(PropValue::Text("Pay now".into())));
+        apply(&mut f.d, c);
+        assert!(!size_comes_from_main(&f.d, label_i), "the property drives the characters: the copy keeps its fitted size");
     }
 
     #[test]

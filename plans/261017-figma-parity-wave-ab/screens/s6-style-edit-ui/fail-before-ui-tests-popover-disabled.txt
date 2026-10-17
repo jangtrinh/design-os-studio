@@ -1,0 +1,16 @@
+test shell::tests::style_edit::editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one_undo_step ... FAILED
+test shell::tests::style_edit::a_drag_is_recorded_once_when_the_pointer_is_released ... FAILED
+test shell::tests::style_edit::editing_a_text_style_from_the_list_restyles_every_linked_text_layer ... FAILED
+test shell::tests::style_edit::editing_a_color_style_from_the_list_updates_every_linked_layer_in_one_undo_step ... FAILED
+test shell::tests::style_edit::editing_a_grid_style_from_the_style_menu_updates_the_linked_frame ... FAILED
+thread 'shell::tests::style_edit::editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one_undo_step' (39656464) panicked at crates/designos-app/src/shell/tests/style_edit.rs:108:5:
+  left: None
+thread 'shell::tests::style_edit::a_drag_is_recorded_once_when_the_pointer_is_released' (39656460) panicked at crates/designos-app/src/shell/tests/style_edit.rs:18:112:
+no field ("fxp-b", 0)
+thread 'shell::tests::style_edit::editing_a_text_style_from_the_list_restyles_every_linked_text_layer' (39656463) panicked at crates/designos-app/src/shell/tests.rs:105:116:
+no field se-size
+thread 'shell::tests::style_edit::editing_a_color_style_from_the_list_updates_every_linked_layer_in_one_undo_step' (39656461) panicked at crates/designos-app/src/shell/tests/style_edit.rs:49:5:
+  left: None
+thread 'shell::tests::style_edit::editing_a_grid_style_from_the_style_menu_updates_the_linked_frame' (39656462) panicked at crates/designos-app/src/shell/tests/style_edit.rs:131:5:
+  left: None
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 937 filtered out; finished in 0.49s

@@ -1,0 +1,17 @@
+Fail-before (tests added, fix not yet applied; skip rule was `is_linked`):
+
+cargo test -p designos-app instance_refit
+test styles::instance_refit_tests::instance_text_with_its_own_characters_refits_when_the_style_grows_in_width_and_height_mode ... FAILED
+  the label grows with its type: Vec2 { x: 201.0, y: 15.0 } -> Vec2 { x: 201.0, y: 15.0 }
+test styles::instance_refit_tests::instance_text_with_its_own_characters_refits_when_the_style_grows_in_height_mode ... FAILED
+  the label gets taller with its type: Vec2 { x: 100.0, y: 30.0 } -> Vec2 { x: 100.0, y: 30.0 }
+test styles::instance_refit_tests::instance_text_whose_characters_come_from_a_property_refits_when_the_style_changes ... FAILED
+  WidthAndHeight: the label gets taller: Vec2 { x: 201.0, y: 15.0 } -> Vec2 { x: 201.0, y: 15.0 }
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test result: FAILED. 1 passed; 3 failed
+
+Pass-after (skip rule is `size_comes_from_main`): WidthAndHeight label 201x15 -> 667x49 (Body 12 -> 40).
+
+Library-style menu row (a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu):
+with `.disabled(!linked || read_only)` changed to `.disabled(!linked)` in style_picker.rs menu_model:
+  panicked at style_edit.rs:209: Effect: the menu row is disabled for a library style
