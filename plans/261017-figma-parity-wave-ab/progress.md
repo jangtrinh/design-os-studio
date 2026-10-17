@@ -20,3 +20,11 @@
 2. Launch S4 (auto layout + text wrap) and S5 (variables + codegen).
 3. Independent Opus verifier, then a fix round.
 4. Write the final report with the morning assumptions.
+- 08:58 S3 PDF merged (raster PDF; multi-frame one file; AC11-13 tests)
+- 09:01 S1 clipboard merged (AC1-5; risks: real payload unverified; empty text/plain → Cmd+V may not fire Event::Paste)
+- 09:16 S2 effect/grid styles merged clean (AC6-10; style edit UI = later slice)
+- 09:33 Merged-tree gates: parallel app tests SIGSEGV ~50% (root cause FACT via crash report: Shell::handle_keys→system_figma_html reads real NSPasteboard from parallel Sim test threads; also non-hermetic). Fix agent dispatched (injectable clipboard seam + Cmd+V empty text/plain). Freed disk: removed target/debug/incremental (10G).
+- 09:35 S4 merged clean (space around/evenly, vertical wrap UI, counter spread, text wrap balance/pretty). Open: spec.rs/changelog_features.rs duplicate solvers lack counter_align_content.
+- 09:45 clipboard fix merged (injectable App::system_html seam; 0/8 parallel crashes; Cmd+V w/o Paste event)
+- 09:47 S5 merged clean. All 5 slices + clipboard fix on figma-parity-wave-ab. Running final gates.
+- 09:55 final gates d4f2eca: fmt/clippy 0, test 2587/0, app parallel 0/3 crash, fakeui 14/14, selftest 10/10, 0 new allow in code. Verifier running.

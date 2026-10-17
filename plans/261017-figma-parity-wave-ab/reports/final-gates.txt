@@ -1,0 +1,9 @@
+== figma-parity-wave-ab @ d4f2eca — 2026-10-17 09:48 ==
+fmt       exit=0
+clippy    exit=0
+test      exit=0
+          binaries=83 passed=2587 failed=0 ignored=15
+app parallel reruns crashes=0/3
+fakeui    exit=0   Gate Verdict: PASS (14/14 invariants satisfied)
+selftest  exit=0  SELF-TEST PASS: 10/10 regressions caught, 2/2 controls clean
+allow+    0 new #[allow] in code (1 grep hit = plan.md prose)

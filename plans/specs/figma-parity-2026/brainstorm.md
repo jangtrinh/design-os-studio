@@ -28,7 +28,7 @@ Source: `plans/261017-figma-gap-analysis/gap-list.md` (58 gaps, 10 epics) and th
 6. Text wrap Balance / Pretty.
 7. Variable code syntax (Web/iOS/Android) shown in Dev Mode and used by codegen.
 8. Composed color + opacity variables.
-9. Vue and HTML codegen targets.
+9. UIKit and Android XML codegen targets (retargeted 2026-10-17 by REA R4: Figma's native Dev Mode languages are CSS, SwiftUI, UIKit, Compose and Android XML. Vue and HTML are only Code Connect labels).
 
 **Could (later waves):**
 - slots, check designs, progressive blur, grid 2.0 (more than 8 tracks, auto-position), PPTX, the Figma Plugin API runtime (P1, XL, its own epic).
@@ -55,3 +55,11 @@ Source: `plans/261017-figma-gap-analysis/gap-list.md` (58 gaps, 10 epics) and th
 - A2. The Paste of a Figma payload uses the normal Cmd+V. The new nodes are placed centered in the viewport (Figma's behavior when the source frame is not on the page). Images in the payload embed into the document.
 - A3. PDF is added to the export format dropdown as "PDF" (Figma lists PNG/JPG/SVG/PDF). Multiple selected frames become a multi-page PDF, one page per frame, as Figma does.
 - A4. Wave B text wrap uses the labels "Balance" and "Pretty" in the type settings popover, matching Figma.
+- **A5 (codegen naming parity).** CSS, React and Tailwind variable references now follow Figma's sanitizer. A valid name keeps its case, so the output is `var(--Color-Primary, #0D99FF)` with the resolved fallback, where it used to be lowercase `var(--color-primary)`. A `codeSyntax.WEB` string wins whenever it is set. Tailwind keeps the name only.
+- **A6 (composed opacity).** A FLOAT variable bound to a paint or effect opacity REPLACES the opacity (value/100). Replace was chosen because it is idempotent (the fix round removed the multiply, which compounded on every edit). Figma's own semantics were not verified.
+- **A7.** SwiftUI, UIKit, Compose and Android XML print the iOS/ANDROID `codeSyntax` verbatim for bound variables.
+- **A8.** Paint opacity bindings use the keys `fills/N/opacity`, `strokes/N/opacity` and `effects/N/opacity`. In REST they are `fillOpacities[i]`, `strokeOpacities[i]` and `effects[i].opacity`.
+- **A9 (layout enum, real-file evidence).** Legacy `stackPrimaryAlignItems` SPACE_EVENLY (3) means SPACE BETWEEN (`crates/designos-fig/FIELDS.md`, confirmed on real files). Mapping: 4 → Between, 5 → Around, 6 (SPACE_EVENLY_CSS) → Evenly. Export writes Evenly as 6.
+- **A10 (PDF).** Frame PDF export is raster, one image per page, because the existing `pdf.rs` engine is raster-only. Vector PDF is a follow-up.
+- **A11 (paste).** Pasted Figma layers keep their computed sizes. Styles, variable bindings, prototype links and library refs in the payload are not merged; resolved values stay. Cmd+V pastes a Figma payload even when the clipboard has no plain text.
+- **A12 (labels).** "Auto spacing: Between / Around / Evenly" and "Wrap style: Auto / Balance / Pretty" come from Figma's en.json strings. The counter-spread control uses our own labels "Auto" and "Between", because Figma's labels were not found.

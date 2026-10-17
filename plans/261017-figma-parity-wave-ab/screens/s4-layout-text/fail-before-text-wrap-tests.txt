@@ -1,0 +1,5 @@
+test text::wrap::tests::shaped_pretty_does_not_leave_a_single_word_on_the_last_line ... FAILED
+test text::wrap::tests::shaped_auto_and_a_fitting_paragraph_are_untouched ... ok
+test text::wrap::tests::shaped_balance_narrows_the_gap_between_the_longest_and_shortest_line ... FAILED
+test text::wrap::tests::shaped_balance_keeps_centered_lines_centered_in_the_full_box ... ok
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.05s

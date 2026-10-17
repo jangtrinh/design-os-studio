@@ -1,0 +1,118 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a0e2277f32c75cc67/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a0e2277f32c75cc67/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-app v0.1.0 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a0e2277f32c75cc67/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.27s
+     Running unittests src/main.rs (target/debug/deps/designos_studio-4f73a782c177a045)
+
+running 28 tests
+test layout::tests::empty_hug_collapses_to_padding ... ok
+test layout::tests::cross_fill_stretches ... ok
+test layout::tests::horizontal_start_fixed ... ok
+test layout::tests::counter_space_between_with_a_single_line_stays_at_the_start ... ok
+test layout::tests::fill_children_share_space ... ok
+test layout::tests::hug_both_axes ... ok
+test layout::tests::counter_space_between_keeps_the_counter_spacing_as_a_minimum ... ok
+test layout::tests::counter_space_between_spreads_wrapped_vertical_columns ... FAILED
+test layout::tests::space_around_gives_each_item_equal_space_on_both_sides ... FAILED
+test layout::tests::counter_space_between_with_three_unequal_lines ... FAILED
+test layout::tests::counter_space_between_spreads_wrapped_horizontal_lines ... FAILED
+test layout::tests::space_around_applies_to_each_wrapped_line ... FAILED
+test layout::tests::space_around_respects_padding_and_ignores_the_fixed_gap ... FAILED
+test layout::tests::space_around_and_evenly_fall_back_to_start_when_items_overflow ... FAILED
+test layout::tests::space_around_and_evenly_center_a_single_item ... FAILED
+test layout::tests::space_between ... ok
+test layout::tests::vertical_center_alignment ... ok
+test layout::tests::space_evenly_makes_every_gap_equal_edges_included ... FAILED
+test layout::tests::vertical_wrap_flows_down_then_into_new_columns ... ok
+test layout::tests::vertical_wrap_hugs_the_columns_across ... ok
+test layout::tests::vertical_wrap_one_item_taller_than_the_frame_gets_its_own_column ... ok
+test layout::tests::vertical_wrap_with_zero_counter_spacing_packs_columns ... ok
+test layout::tests::wrap_breaks_lines ... ok
+test layout::tests::constraints_on_resize ... ok
+test layout::tests::group_fit_follows_children ... ok
+test layout::tests::applies_to_document_and_hugs ... ok
+test layout::tests::gap_bound_to_a_variable_follows_the_mode ... ok
+test layout::tests::text_estimate_scales_with_content ... ok
+
+failures:
+
+---- layout::tests::counter_space_between_spreads_wrapped_vertical_columns stdout ----
+
+thread 'layout::tests::counter_space_between_spreads_wrapped_vertical_columns' (38772536) panicked at crates/designos-app/src/layout.rs:790:9:
+assertion `left == right` failed
+  left: (36.0, 36.0)
+ right: (175.0, 175.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- layout::tests::space_around_gives_each_item_equal_space_on_both_sides stdout ----
+
+thread 'layout::tests::space_around_gives_each_item_equal_space_on_both_sides' (38772549) panicked at crates/designos-app/src/layout.rs:667:13:
+assertion `left == right` failed: horizontal=true
+  left: [0.0, 10.0, 20.0, 30.0]
+ right: [10.0, 40.0, 70.0, 100.0]
+
+---- layout::tests::counter_space_between_with_three_unequal_lines stdout ----
+
+thread 'layout::tests::counter_space_between_with_three_unequal_lines' (38772538) panicked at crates/designos-app/src/layout.rs:804:9:
+assertion `left == right` failed
+  left: [0.0, 10.0, 30.0]
+ right: [0.0, 40.0, 90.0]
+
+---- layout::tests::counter_space_between_spreads_wrapped_horizontal_lines stdout ----
+
+thread 'layout::tests::counter_space_between_spreads_wrapped_horizontal_lines' (38772535) panicked at crates/designos-app/src/layout.rs:779:9:
+assertion `left == right` failed
+  left: 10.0
+ right: 90.0
+
+---- layout::tests::space_around_applies_to_each_wrapped_line stdout ----
+
+thread 'layout::tests::space_around_applies_to_each_wrapped_line' (38772548) panicked at crates/designos-app/src/layout.rs:723:9:
+assertion `left == right` failed
+  left: [0.0, 30.0, 0.0]
+ right: [5.0, 45.0, 25.0]
+
+---- layout::tests::space_around_respects_padding_and_ignores_the_fixed_gap stdout ----
+
+thread 'layout::tests::space_around_respects_padding_and_ignores_the_fixed_gap' (38772550) panicked at crates/designos-app/src/layout.rs:711:9:
+assertion `left == right` failed
+  left: [5.0, 114.0, 223.0, 332.0]
+ right: [15.0, 45.0, 75.0, 105.0]
+
+---- layout::tests::space_around_and_evenly_fall_back_to_start_when_items_overflow stdout ----
+
+thread 'layout::tests::space_around_and_evenly_fall_back_to_start_when_items_overflow' (38772547) panicked at crates/designos-app/src/layout.rs:699:13:
+assertion `left == right` failed: SpaceAround
+  left: (0.0, 40.0)
+ right: (0.0, 30.0)
+
+---- layout::tests::space_around_and_evenly_center_a_single_item stdout ----
+
+thread 'layout::tests::space_around_and_evenly_center_a_single_item' (38772546) panicked at crates/designos-app/src/layout.rs:687:13:
+assertion `left == right` failed: SpaceAround
+  left: 0.0
+ right: 40.0
+
+---- layout::tests::space_evenly_makes_every_gap_equal_edges_included stdout ----
+
+thread 'layout::tests::space_evenly_makes_every_gap_equal_edges_included' (38772552) panicked at crates/designos-app/src/layout.rs:675:13:
+assertion `left == right` failed: horizontal=true
+  left: [0.0, 10.0, 20.0, 30.0]
+ right: [16.0, 42.0, 68.0, 94.0]
+
+
+failures:
+    layout::tests::counter_space_between_spreads_wrapped_horizontal_lines
+    layout::tests::counter_space_between_spreads_wrapped_vertical_columns
+    layout::tests::counter_space_between_with_three_unequal_lines
+    layout::tests::space_around_and_evenly_center_a_single_item
+    layout::tests::space_around_and_evenly_fall_back_to_start_when_items_overflow
+    layout::tests::space_around_applies_to_each_wrapped_line
+    layout::tests::space_around_gives_each_item_equal_space_on_both_sides
+    layout::tests::space_around_respects_padding_and_ignores_the_fixed_gap
+    layout::tests::space_evenly_makes_every_gap_equal_edges_included
+
+test result: FAILED. 19 passed; 9 failed; 0 ignored; 0 measured; 874 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p designos-app --bin designos-studio`

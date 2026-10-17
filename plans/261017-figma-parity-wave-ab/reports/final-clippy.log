@@ -1,0 +1,15 @@
+warning: /Users/jang/Products/design-os-studio/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Checking designos-doc v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-doc)
+    Checking designos-diff v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-diff)
+   Compiling designos-app v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-app)
+    Checking designos-fonts v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-fonts)
+    Checking designos-fig v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-fig)
+    Checking designos-render v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-render)
+    Checking designos-export v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-export)
+    Checking designos-svg v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-svg)
+    Checking designos-gpu v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-gpu)
+    Checking designos-library v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-library)
+    Checking designos-mcp v0.1.0 (/Users/jang/Products/design-os-studio/crates/designos-mcp)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.49s
