@@ -97,7 +97,7 @@ impl<'de, 'a, D: Deserializer<'de>> Deserializer<'de> for Lenient<'a, D> {
         self.inner.deserialize_tuple_struct(name, len, wrapped)
     }
     fn deserialize_struct<V: Visitor<'de>>(self, name: &'static str, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error> {
-        let wrapped = self.wrap(visitor);
+        let wrapped = self.wrap(visitor).for_struct();
         self.inner.deserialize_struct(name, fields, wrapped)
     }
     fn deserialize_enum<V: Visitor<'de>>(self, name: &'static str, variants: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error> {

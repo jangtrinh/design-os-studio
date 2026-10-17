@@ -14,11 +14,20 @@ pub(super) struct Wrap<'a, V> {
     replaced: &'a Cell<usize>,
     neutral: f64,
     key_note: Option<&'a Cell<f64>>,
+    /// The visitor is a struct's (or struct variant's): only then do its keys name fields whose
+    /// neutral value may differ from zero. A map's keys are data, and its values always read zero,
+    /// which is what the writer gives a map value too.
+    struct_fields: bool,
 }
 
 impl<'a, V> Wrap<'a, V> {
     pub(super) fn slot(visitor: V, replaced: &'a Cell<usize>, neutral: f64, key_note: Option<&'a Cell<f64>>) -> Self {
-        Self { visitor, replaced, neutral, key_note }
+        Self { visitor, replaced, neutral, key_note, struct_fields: false }
+    }
+
+    pub(super) fn for_struct(mut self) -> Self {
+        self.struct_fields = true;
+        self
     }
 
     fn nested(visitor: V, replaced: &'a Cell<usize>) -> Self {
@@ -94,7 +103,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<'_, V> {
         self.visitor.visit_seq(Items { inner: seq, replaced: self.replaced })
     }
     fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        self.visitor.visit_map(Entries { inner: map, replaced: self.replaced, field_neutral: Cell::new(0.0) })
+        self.visitor.visit_map(Entries { inner: map, replaced: self.replaced, field_neutral: Cell::new(0.0), struct_fields: self.struct_fields })
     }
     fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
         self.visitor.visit_enum(Variants { inner: data, replaced: self.replaced })
@@ -122,13 +131,15 @@ struct Entries<'a, A> {
     replaced: &'a Cell<usize>,
     /// Neutral value of the field whose key was read last, taken by the value that follows.
     field_neutral: Cell<f64>,
+    struct_fields: bool,
 }
 
 impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<'_, A> {
     type Error = A::Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error> {
-        self.inner.next_key_seed(Seed { seed, replaced: self.replaced, neutral: 0.0, key_note: Some(&self.field_neutral) })
+        let key_note = self.struct_fields.then_some(&self.field_neutral);
+        self.inner.next_key_seed(Seed { seed, replaced: self.replaced, neutral: 0.0, key_note })
     }
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, Self::Error> {
         let neutral = self.field_neutral.replace(0.0);
@@ -172,6 +183,6 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Variant<'_, A> {
         self.inner.tuple_variant(len, Wrap::nested(visitor, self.replaced))
     }
     fn struct_variant<V: Visitor<'de>>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value, Self::Error> {
-        self.inner.struct_variant(fields, Wrap::nested(visitor, self.replaced))
+        self.inner.struct_variant(fields, Wrap::nested(visitor, self.replaced).for_struct())
     }
 }

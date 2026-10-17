@@ -46,6 +46,13 @@ impl RepairReport {
     /// Names the node-graph defects that were repaired (dangling ids, cycles or duplicate claims,
     /// over-deep nesting, wrong parent links, mismatched node ids), or `None` when there were none.
     /// A merely stale id counter is not a graph defect: the repair raises it and nothing is lost.
+    ///
+    /// [`RepairReport::non_finite_numbers`] is left out on purpose. A caller that refuses a
+    /// repaired document does so because the repair guessed at structure it could not know (which
+    /// parent, which duplicate). A number saved as `null` has no data to lose: the value was
+    /// already NaN or infinite when it was written, and it reads back as its neutral value. Refusing
+    /// would lock agents out of every file an older release saved with one, so those callers still
+    /// open the file and report the count to the user instead.
     pub fn structural_summary(&self) -> Option<String> {
         let mut parts: Vec<String> = [
             ("dangling ids", self.dangling_ids),

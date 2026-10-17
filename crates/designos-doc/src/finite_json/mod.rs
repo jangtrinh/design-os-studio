@@ -11,11 +11,12 @@
 //!   `null`, and substitutes the same replacement value. A file that parses is read exactly as
 //!   `serde_json::from_str` reads it, at the same speed.
 //!
-//! The replacement is the neutral value of the slot: `1.0` for the fields whose default is one
+//! The replacement is the neutral value of the slot: `1.0` for a struct field whose default is one
 //! (`opacity`, a colour's alpha `a`, the diagonal `a` / `d` of an identity matrix) and `0.0` for
-//! every other number. Zero also keeps infinity out of later transform math, which a clamp to
-//! `f32::MAX` would not. An `Option<f32>` is left alone: a non-finite value there is written as
-//! `null`, which reads back as `None`, so nothing is lost and nothing fails.
+//! every other number, including every map value and sequence element whatever its key is called,
+//! so a write and a read of the same slot agree. Zero also keeps infinity out of later transform
+//! math, which a clamp to `f32::MAX` would not. An `Option<f32>` is left alone: a non-finite value
+//! there is written as `null`, which reads back as `None`, so nothing is lost and nothing fails.
 //!
 //! Both work on any `serde` type, so a number added to the model later is covered without
 //! touching a field attribute. Every replacement is counted so the caller can report it.
@@ -26,6 +27,18 @@ mod ser;
 
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
+
+// Counts the lenient parses a thread has started, so a test can show that an unrelated error never
+// costs a second parse of the whole file.
+#[cfg(test)]
+thread_local! {
+    static LENIENT_PARSES: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn lenient_parses_on_this_thread() -> usize {
+    LENIENT_PARSES.with(Cell::get)
+}
 
 /// The value a non-finite number is replaced with, by the name of the field that holds it.
 pub(crate) fn neutral_for(field: &str) -> f64 {
@@ -51,6 +64,8 @@ pub fn to_string_finite<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<
 /// field instead of failing. Returns the value and how many nulls were replaced. Slower than
 /// `serde_json::from_str`; use it only after the strict parse failed.
 pub fn from_str_lenient<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Result<(T, usize)> {
+    #[cfg(test)]
+    LENIENT_PARSES.with(|n| n.set(n.get() + 1));
     let replaced = Cell::new(0);
     let mut parser = serde_json::Deserializer::from_str(s);
     let value = T::deserialize(de::Lenient::new(&mut parser, &replaced))?;
@@ -58,14 +73,24 @@ pub fn from_str_lenient<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Resul
     Ok((value, replaced.get()))
 }
 
-/// `serde_json::from_str`, falling back to [`from_str_lenient`] when the strict parse says the data
-/// was wrong (typically a `null` number saved by an older version). Returns the value and how many
-/// nulls were replaced (zero when the file parsed strictly). When both fail, the lenient error is
-/// returned: it comes from the first problem that is not a `null` number.
+/// Whether a strict parse failed on a `null` where an `f32` / `f64` belongs, the one error a lenient
+/// parse can repair. serde_json words it `invalid type: null, expected f32 at line L column C`.
+fn is_null_number_error(error: &serde_json::Error) -> bool {
+    error.is_data() && {
+        let message = error.to_string();
+        message.starts_with("invalid type: null, expected f32") || message.starts_with("invalid type: null, expected f64")
+    }
+}
+
+/// `serde_json::from_str`, falling back to [`from_str_lenient`] only when the strict parse failed on
+/// a `null` number (what an older version saved for a NaN or infinity). Any other error is returned
+/// at once from the strict parse, without a second pass over the text. Returns the value and how
+/// many nulls were replaced (zero when the text parsed strictly). When the lenient parse fails too,
+/// its error is returned: it comes from the first problem that is not a `null` number.
 pub fn from_str_repairing<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Result<(T, usize)> {
     match serde_json::from_str(s) {
         Ok(value) => Ok((value, 0)),
-        Err(strict) if strict.is_data() => from_str_lenient(s),
+        Err(strict) if is_null_number_error(&strict) => from_str_lenient(s),
         Err(strict) => Err(strict),
     }
 }

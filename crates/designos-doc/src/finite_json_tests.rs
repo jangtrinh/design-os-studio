@@ -208,3 +208,73 @@ fn the_neutral_values_match_the_model_defaults() {
     assert_eq!((f64::from(Affine::IDENTITY.a), f64::from(Affine::IDENTITY.d)), (neutral_for("a"), neutral_for("d")));
     assert_eq!(neutral_for("width"), 0.0, "every other number is neutral at zero");
 }
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Styled {
+    opacity: f32,
+    width: f32,
+}
+
+#[test]
+fn only_struct_fields_get_a_neutral_of_one_never_map_values() {
+    // A struct's `opacity` reads one; its other numbers read zero.
+    let (styled, replaced): (Styled, usize) = from_str_lenient(r#"{"opacity":null,"width":null}"#).unwrap();
+    assert_eq!((styled, replaced), (Styled { opacity: 1.0, width: 0.0 }, 2));
+
+    // A map value reads zero whatever its key says, and writing a NaN there gives the same zero.
+    let (map, replaced): (BTreeMap<String, f32>, usize) = from_str_lenient(r#"{"a":null,"d":null,"opacity":null,"x":null}"#).unwrap();
+    assert_eq!(replaced, 4);
+    assert!(map.values().all(|v| *v == 0.0), "{map:?}");
+    let written: BTreeMap<String, f32> = ["a", "d", "opacity", "x"].into_iter().map(|k| (k.to_string(), f32::NAN)).collect();
+    let (text, replaced) = to_string_finite(&written).unwrap();
+    assert_eq!(replaced, 4);
+    assert_eq!(serde_json::from_str::<BTreeMap<String, f32>>(&text).unwrap(), map, "read and write agree for a map");
+
+    // Read and write agree for a struct as well.
+    let (text, _) = to_string_finite(&Styled { opacity: f32::NAN, width: f32::NAN }).unwrap();
+    assert_eq!(serde_json::from_str::<Styled>(&text).unwrap(), Styled { opacity: 1.0, width: 0.0 });
+
+    // A map key does not leak into the struct that is its value.
+    let (nested, _): (BTreeMap<String, Styled>, usize) = from_str_lenient(r#"{"opacity":{"opacity":null,"width":null}}"#).unwrap();
+    assert_eq!(nested["opacity"], Styled { opacity: 1.0, width: 0.0 });
+}
+
+#[test]
+fn only_a_null_number_error_triggers_the_second_parse() {
+    use crate::finite_json::{from_str_repairing, lenient_parses_on_this_thread as lenient_parses};
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct Slots {
+        name: String,
+        count: u32,
+        value: f32,
+        wide: f64,
+    }
+    let unrelated = [
+        r#"{"name":"n","count":1,"value":"text","wide":2.5}"#, // a string where a number belongs
+        r#"{"name":null,"count":1,"value":1.5,"wide":2.5}"#,   // null for a string
+        r#"{"name":"n","count":null,"value":1.5,"wide":2.5}"#, // null for an integer
+        r#"{"name":"n","count":1,"value":1.5}"#,               // a missing field
+        r#"{"name":"n","count":1,"value":1.5,"wide":[}"#,      // a syntax error
+        r#"{"name":"n","count":1,"value":1.5,"wide":2.5"#,     // truncated text
+    ];
+    for text in unrelated {
+        let before = lenient_parses();
+        assert!(from_str_repairing::<Slots>(text).is_err(), "{text}");
+        assert_eq!(lenient_parses(), before, "{text}: an unrelated error must fail after the strict parse alone");
+    }
+
+    for text in [r#"{"name":"n","count":1,"value":null,"wide":2.5}"#, r#"{"name":"n","count":1,"value":1.5,"wide":null}"#] {
+        let before = lenient_parses();
+        let (_, replaced) = from_str_repairing::<Slots>(text).unwrap();
+        assert_eq!((replaced, lenient_parses() - before), (1, 1), "{text}: a null number takes exactly one lenient parse");
+    }
+
+    // The same through a document: a wrong type fails fast.
+    let before = lenient_parses();
+    let mut value: serde_json::Value = serde_json::from_str(&Document::new("x").to_json().unwrap()).unwrap();
+    value["name"] = serde_json::json!(5);
+    assert!(Document::from_json_with_report(&value.to_string()).is_err());
+    assert_eq!(lenient_parses(), before);
+}
