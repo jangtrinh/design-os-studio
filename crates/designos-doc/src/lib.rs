@@ -387,6 +387,11 @@ impl Document {
     }
 
     #[inline]
+    pub fn bump_mutation_epoch(&mut self) {
+        self.dirty.epoch += 1;
+    }
+
+    #[inline]
     pub fn mark_full_dirty(&mut self) {
         self.dirty.epoch += 1;
         self.dirty.geom_full_epoch = self.dirty.epoch;
