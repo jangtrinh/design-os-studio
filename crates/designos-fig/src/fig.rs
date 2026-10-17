@@ -1849,12 +1849,44 @@ fn convert_paint(p: &Value) -> Option<Value> {
 fn convert_effect(e: &Value) -> Option<Value> {
     let ty = match fstr(e, "type")? {
         "FOREGROUND_BLUR" => "LAYER_BLUR",
+        "GRAIN" => "TEXTURE",
         other => other,
     };
     let mut m = Map::new();
     m.insert("type".into(), ty.into());
-    for k in ["color", "offset", "radius", "spread", "visible", "showShadowBehindNode"] {
+    for k in
+        ["color", "secondaryColor", "offset", "radius", "spread", "visible", "showShadowBehindNode", "blendMode", "density", "opacity", "seed", "clipToShape"]
+    {
         copy(&mut m, e, k, k);
+    }
+    if let Some(nt) = fstr(e, "noiseType") {
+        let norm = match nt {
+            "MONO" => "MONOTONE",
+            "DUO" => "DUOTONE",
+            "MULTI" => "MULTITONE",
+            other => other,
+        };
+        m.insert("noiseType".into(), norm.into());
+    }
+    if let Some(ns) = e.get("noiseSize") {
+        if ns.is_number() {
+            m.insert("noiseSize".into(), ns.clone());
+        } else if let Some(sz) = fnum(ns, "x").or_else(|| fnum(ns, "y")) {
+            m.insert("noiseSize".into(), json!(kiwi::clean_f32(sz)));
+        }
+    }
+    for (kiwi_key, rest_key) in [
+        ("specularAngle", "lightAngle"),
+        ("specularIntensity", "lightIntensity"),
+        ("refractionIntensity", "refraction"),
+        ("refractionRadius", "depth"),
+        ("chromaticAberration", "dispersion"),
+    ] {
+        if e.get(kiwi_key).is_some() {
+            copy(&mut m, e, kiwi_key, rest_key);
+        } else {
+            copy(&mut m, e, rest_key, rest_key);
+        }
     }
     Some(Value::Object(m))
 }

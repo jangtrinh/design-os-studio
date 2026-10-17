@@ -112,43 +112,45 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let col = v.get("color").and_then(color).unwrap_or(Color::BLACK.with_alpha(0.25));
     let offset = v.get("offset").and_then(vec2).unwrap_or(Vec2::ZERO);
     let spread = fnum(v, "spread").unwrap_or(0.0);
+    let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
+    let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
         "DROP_SHADOW" => Effect::DropShadow { color: col, offset, radius, spread, visible, show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false) },
         "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible },
         "LAYER_BLUR" => Effect::LayerBlur { radius, visible },
         "BACKGROUND_BLUR" => Effect::BackgroundBlur { radius, visible },
         // Noise / texture / glass: every field is optional; missing ones fall back to the
-        // editor defaults. Names match what `export.rs` writes.
+        // editor defaults. Names match what `export.rs` and `fig.rs` write.
         "NOISE" => {
             let primary = v.get("color").and_then(color).unwrap_or(Color::BLACK);
             let mode = match fstr(v, "noiseType").map(str::to_ascii_uppercase).as_deref() {
-                Some("DUOTONE") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
-                Some("MULTITONE") => NoiseMode::Multi,
+                Some("DUOTONE" | "DUO") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
+                Some("MULTITONE" | "MULTI") => NoiseMode::Multi,
                 _ => NoiseMode::Mono { color: primary },
             };
             Effect::Noise(NoiseEffect {
                 mode,
-                size: fnum(v, "noiseSize").unwrap_or(1.0),
+                size: noise_size(v).unwrap_or(1.0),
                 density: fnum(v, "density").unwrap_or(0.5).clamp(0.0, 1.0),
                 opacity: fnum(v, "opacity").unwrap_or(0.25).clamp(0.0, 1.0),
                 blend: fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal),
-                seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+                seed: parse_seed(v),
                 visible,
             })
         }
-        "TEXTURE" => Effect::Texture(TextureEffect {
-            size: fnum(v, "noiseSize").unwrap_or(2.0),
+        "TEXTURE" | "GRAIN" => Effect::Texture(TextureEffect {
+            size: noise_size(v).unwrap_or(2.0),
             radius: fnum(v, "radius").unwrap_or(2.0),
             clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
-            seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+            seed: parse_seed(v),
             visible,
         }),
         "GLASS" => Effect::Glass(GlassEffect {
-            light_angle: fnum(v, "lightAngle").unwrap_or(315.0),
-            light_intensity: fnum(v, "lightIntensity").unwrap_or(0.5).clamp(0.0, 1.0),
-            refraction: fnum(v, "refraction").unwrap_or(0.5).clamp(0.0, 1.0),
-            depth: fnum(v, "depth").unwrap_or(10.0),
-            dispersion: fnum(v, "dispersion").unwrap_or(0.25).clamp(0.0, 1.0),
+            light_angle: fnum(v, "lightAngle").or_else(|| fnum(v, "specularAngle")).unwrap_or(315.0),
+            light_intensity: fnum(v, "lightIntensity").or_else(|| fnum(v, "specularIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            refraction: fnum(v, "refraction").or_else(|| fnum(v, "refractionIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            depth: fnum(v, "depth").or_else(|| fnum(v, "refractionRadius")).unwrap_or(10.0),
+            dispersion: fnum(v, "dispersion").or_else(|| fnum(v, "chromaticAberration")).unwrap_or(0.25).clamp(0.0, 1.0),
             frost: fnum(v, "radius").unwrap_or(4.0),
             visible,
         }),

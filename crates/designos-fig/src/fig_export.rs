@@ -527,7 +527,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
                 append_text_style_fields(&mut fields, ts);
             }
             Style::Effect(effects) => {
-                fields.push(("effects", V::Array(effects.iter().filter_map(|e| encode_effect(e, None, None)).collect())));
+                fields.push(("effects", V::Array(effects.iter().map(|e| encode_effect(e, None, None)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -722,7 +722,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
-    let effects: Vec<V> = node.effects.iter().enumerate().filter_map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -1358,7 +1358,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     .effects
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, e)| {
+                    .map(|(i, e)| {
                         let cv = n.variables.bindings.get(&format!("effects/{i}/color")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
                         encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
                     })
@@ -1637,7 +1637,7 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     msg(fields)
 }
 
-fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Option<V> {
+fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
             ("type", en("DROP_SHADOW")),
@@ -1658,7 +1658,50 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Op
         ],
         Effect::LayerBlur { radius, visible } => vec![("type", en("FOREGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
         Effect::BackgroundBlur { radius, visible } => vec![("type", en("BACKGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
-        _ => return None,
+        Effect::Noise(n) => {
+            let mut f = vec![
+                ("type", en("NOISE")),
+                ("noiseSize", vec2(n.size, n.size)),
+                ("density", fl(n.density)),
+                ("opacity", fl_one(n.opacity)),
+                ("blendMode", en(blend_name(n.blend))),
+                ("seed", V::Uint(n.seed)),
+                ("visible", V::Bool(n.visible)),
+            ];
+            match &n.mode {
+                NoiseMode::Mono { color: c } => {
+                    f.push(("noiseType", en("MONOTONE")));
+                    f.push(("color", color(c.r, c.g, c.b, c.a)));
+                }
+                NoiseMode::Duo { color: c, secondary: s } => {
+                    f.push(("noiseType", en("DUOTONE")));
+                    f.push(("color", color(c.r, c.g, c.b, c.a)));
+                    f.push(("secondaryColor", color(s.r, s.g, s.b, s.a)));
+                }
+                NoiseMode::Multi => {
+                    f.push(("noiseType", en("MULTITONE")));
+                }
+            }
+            f
+        }
+        Effect::Texture(t) => vec![
+            ("type", en("GRAIN")),
+            ("noiseSize", vec2(t.size, t.size)),
+            ("radius", fl(t.radius)),
+            ("clipToShape", V::Bool(t.clip_to_shape)),
+            ("seed", V::Uint(t.seed)),
+            ("visible", V::Bool(t.visible)),
+        ],
+        Effect::Glass(g) => vec![
+            ("type", en("GLASS")),
+            ("specularAngle", fl(g.light_angle)),
+            ("specularIntensity", fl(g.light_intensity)),
+            ("refractionIntensity", fl(g.refraction)),
+            ("refractionRadius", fl(g.depth)),
+            ("chromaticAberration", fl(g.dispersion)),
+            ("radius", fl(g.frost)),
+            ("visible", V::Bool(g.visible)),
+        ],
     };
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
@@ -1666,7 +1709,7 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Op
     if let Some(ov) = opacity_var {
         fields.push(("effectOpacityVar", ov));
     }
-    Some(msg(fields))
+    msg(fields)
 }
 
 fn encode_grid(g: &LayoutGrid) -> V {
