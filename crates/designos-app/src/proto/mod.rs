@@ -234,7 +234,8 @@ impl App {
     }
 
     /// Creates a new top-level frame on the active page sized and named from a [`FramePreset`]. It opens
-    /// centred on the viewport, moved right past any top-level frame it would otherwise cover.
+    /// centred on the viewport, moved right past any top-level frame it would otherwise cover; when that
+    /// pushes its centre off screen the view pans to it (the zoom stays).
     pub fn create_preset_frame(&mut self, preset_name: &str) -> Option<NodeId> {
         let preset = find_frame_preset(preset_name)?;
         let at = self.preset_frame_origin(preset.width, preset.height);
@@ -244,8 +245,22 @@ impl App {
         let index = self.doc.get(self.page).map(|p| p.children.len()).unwrap_or(0);
         self.hist.exec(&mut self.doc, Command::Insert { parent: self.page, index, nodes: vec![frame] }).ok()?;
         self.selection = vec![id];
+        self.pan_to_show_centre_of(id);
         self.changed();
         Some(id)
+    }
+
+    /// Pans (never zooms) so the centre of `id` is on screen, centring it the way `zoom_on_content` does.
+    fn pan_to_show_centre_of(&mut self, id: NodeId) {
+        let b = crate::util::world_aabb(&self.doc, id);
+        let centre = Vec2::new(b.x + b.w / 2.0, b.y + b.h / 2.0);
+        let (top_left, bottom_right) =
+            (self.view.to_page(self.canvas_rect.min, self.canvas_rect.min), self.view.to_page(self.canvas_rect.min, self.canvas_rect.max));
+        if (top_left.x..=bottom_right.x).contains(&centre.x) && (top_left.y..=bottom_right.y).contains(&centre.y) {
+            return;
+        }
+        let size = self.canvas_rect.size();
+        self.view.offset = Vec2::new(centre.x - size.x / 2.0 / self.view.zoom, centre.y - size.y / 2.0 / self.view.zoom);
     }
 
     /// Top-left page position for a new `w` x `h` top-level frame: its centre on the viewport centre
@@ -1156,6 +1171,24 @@ mod tests {
         let count = app.doc.nodes.len();
         app.undo();
         assert_eq!(app.doc.nodes.len(), count - 1, "one undo removes the frame");
+    }
+
+    #[test]
+    fn preset_frame_stays_in_view_when_existing_frames_cover_the_viewport_center() {
+        let mut app = preset_app();
+        let (page, existing) = (app.page, app.doc.alloc_id());
+        app.doc.insert(page, Node::frame(existing, Rect::new(-1000.0, -200.0, 3000.0, 1200.0))).unwrap();
+        let zoom = app.view.zoom;
+        let id = app.create_preset_frame("iPhone 17").expect("created frame");
+        let (b, covered) = (crate::util::world_aabb(&app.doc, id), crate::util::world_aabb(&app.doc, existing));
+        assert!(!b.intersects(&covered), "the new frame {b:?} must not sit on top of the existing one {covered:?}");
+        let (top_left, bottom_right) = (app.view.to_page(app.canvas_rect.min, app.canvas_rect.min), app.view.to_page(app.canvas_rect.min, app.canvas_rect.max));
+        let centre = Vec2::new(b.x + b.w / 2.0, b.y + b.h / 2.0);
+        assert!(
+            (top_left.x..=bottom_right.x).contains(&centre.x) && (top_left.y..=bottom_right.y).contains(&centre.y),
+            "the new frame's centre {centre:?} must be inside the visible page area {top_left:?}..{bottom_right:?}"
+        );
+        assert_eq!(app.view.zoom, zoom, "revealing the frame pans, it does not zoom");
     }
 
     #[test]
