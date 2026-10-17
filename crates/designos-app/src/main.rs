@@ -1,6 +1,7 @@
 mod app;
 mod board;
 mod canvas;
+mod check_designs;
 mod cli;
 mod clipboard;
 mod cmdk;

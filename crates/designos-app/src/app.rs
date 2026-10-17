@@ -193,6 +193,8 @@ pub struct App {
     pub terminal: crate::terminal::TerminalState,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
+    /// Check designs panel: hard-coded values, contrast and detached instances.
+    pub check_designs: crate::check_designs::CheckDesignsState,
     /// 1:1 Figma UI3 Multi-Tab Project Workspace state (`US-10`).
     pub tabs: crate::tabs::TabsState,
     /// Two-digit rapid opacity keystroke buffer (`(digit, timestamp)` within 400ms).
@@ -249,6 +251,7 @@ impl App {
             specs: Default::default(),
             terminal: Default::default(),
             cmdk: Default::default(),
+            check_designs: Default::default(),
             tabs: Default::default(),
             opacity_buffer: None,
         }
