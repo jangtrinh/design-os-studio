@@ -966,7 +966,7 @@ impl<'a> Ctx<'a> {
             other => NodeKind::Unknown { type_name: other.to_string() },
         };
         let is_text = matches!(kind, NodeKind::Text(_));
-        let my_layout = kind.frame_props().and_then(|f| f.auto_layout).map(|a| a.direction);
+        let my_layout = kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
         let default_blend = if matches!(kind, NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Line | NodeKind::Vector { .. } | NodeKind::Text(_)) {
             BlendMode::Normal
         } else {
@@ -2100,7 +2100,7 @@ impl<'a> Ctx<'a> {
             .and_then(|n| n.parent)
             .and_then(|p| self.doc.get(p))
             .and_then(|p| p.kind.frame_props())
-            .and_then(|f| f.auto_layout)
+            .and_then(|f| f.auto_layout.as_ref())
             .map(|a| a.direction);
         let Some(n) = self.doc.get_mut(id) else { return swapped };
         let keep = |k: &str| !derived_only || matches!(k, "size" | "relativeTransform" | "fillGeometry" | "strokeGeometry");
@@ -2324,21 +2324,22 @@ impl<'a> Ctx<'a> {
                     TextAutoResize::Height if !dir_h => Sizing::Hug,
                     _ => Sizing::Fixed,
                 },
-                k => k.frame_props().and_then(|f| f.auto_layout).map_or(Sizing::Fixed, |al| al.sizing_along(dir_h)),
+                k => k.frame_props().and_then(|f| f.auto_layout.as_ref()).map_or(Sizing::Fixed, |al| al.sizing_along(dir_h)),
             }
         };
-        if let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) {
-            let prim_h = al.primary_is_horizontal();
+        if let Some((prim_h, prim_sz, counter_sz)) =
+            n.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()).map(|al| (al.primary_is_horizontal(), al.primary_sizing, al.counter_sizing))
+        {
             if set.get("primaryAxisSizingMode").is_some() {
                 let slot = if prim_h { &mut n.layout_child.horizontal } else { &mut n.layout_child.vertical };
                 if *slot != Sizing::Fill {
-                    *slot = al.primary_sizing;
+                    *slot = prim_sz;
                 }
             }
             if set.get("counterAxisSizingMode").is_some() {
                 let slot = if prim_h { &mut n.layout_child.vertical } else { &mut n.layout_child.horizontal };
                 if *slot != Sizing::Fill {
-                    *slot = al.counter_sizing;
+                    *slot = counter_sz;
                 }
             }
         }
@@ -2759,8 +2760,8 @@ fn parse_geometry_cached(items: &[Value], cache: &mut HashMap<String, Path>, blo
 }
 
 /// Parses `.fig` v106 CSS-grid track strings (e.g. `"1fr 2fr 120px auto"`,
-/// `"repeat(3, 1fr)"`, `"minmax(0, 1fr)"`) into track count + up to 8 [`GridTrack`]s.
-fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
+/// `"repeat(3, 1fr)"`, `"minmax(0, 1fr)"`) into track count + up to [`MAX_GRID_TRACKS`] [`GridTrack`]s.
+fn parse_grid_sizing(s: &str) -> (u32, GridTracks) {
     fn parse_one(tok: &str) -> GridTrack {
         let t = tok.trim();
         let lower = t.to_ascii_lowercase();
@@ -2814,7 +2815,7 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
         }
     }
 
-    const KEPT_TRACKS: usize = 8;
+    const KEPT_TRACKS: usize = MAX_GRID_TRACKS;
     const MAX_TRACK_COUNT: u32 = 1024;
     const MAX_REPEAT_DEPTH: usize = 8;
 
@@ -2875,11 +2876,7 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
 
     let mut list = Tracks::default();
     collect_tokens(s, &mut list, 0);
-    let mut tracks = [GridTrack::default(); KEPT_TRACKS];
-    for (slot, t) in tracks.iter_mut().zip(list.kept.iter().copied()) {
-        *slot = t;
-    }
-    (list.count, tracks)
+    (list.count, GridTracks::from(list.kept))
 }
 
 fn frame_props(v: &Value) -> FrameProps {
@@ -3028,7 +3025,7 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
                 TextAutoResize::Height => !dir_h,
                 _ => false,
             },
-            k => k.frame_props().and_then(|f| f.auto_layout).is_some_and(|al| al.sizing_along(dir_h) == Sizing::Hug),
+            k => k.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|al| al.sizing_along(dir_h) == Sizing::Hug),
         }
     };
     if own_hug(true) {

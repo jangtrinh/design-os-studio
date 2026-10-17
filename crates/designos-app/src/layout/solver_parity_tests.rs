@@ -194,9 +194,9 @@ fn solve_everywhere(al: AutoLayout, frame: Vec2, kids: &[Kid]) -> Solved {
 }
 
 fn solve_everywhere_with_frame_limits(al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid]) -> Solved {
-    let editor = solve_through(Entry::Editor, al, frame, frame_lc, kids);
+    let editor = solve_through(Entry::Editor, al.clone(), frame, frame_lc, kids);
     for entry in ENTRIES {
-        assert_eq!(solve_through(entry, al, frame, frame_lc, kids), editor, "{entry:?} drifted from the editor solver");
+        assert_eq!(solve_through(entry, al.clone(), frame, frame_lc, kids), editor, "{entry:?} drifted from the editor solver");
     }
     editor
 }
@@ -439,7 +439,7 @@ fn grid_row_span_does_not_inflate_rows_that_already_hold_it() {
     al.counter_sizing = Sizing::Hug;
     // Row 0 is 40 high, row 1 is 15 high; with the 10 gap they already provide 65 >= 50.
     let spanning_fits = kid_with(40.0, 50.0, |lc| lc.row_span = 2);
-    let solved = solve_everywhere(al, v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
+    let solved = solve_everywhere(al.clone(), v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
     assert_eq!(solved.frame, (300.0, 65.0));
     assert_eq!(solved.kids[2], [155.0, 50.0, 40.0, 15.0]);
 
@@ -652,4 +652,82 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     let solved = solve_everywhere_with_frame_limits(al, v2(100.0, 50.0), frame_lc, &[fill, fill]);
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
+}
+
+#[test]
+fn twelve_column_grid_lays_out_correctly_and_old_eight_track_json_loads() {
+    let mut al = grid(12);
+    al.item_spacing = 10.0;
+    // Set explicit track kinds across all 12 columns (including tracks 8..12):
+    // 0..8: Fixed(50) each (8 * 50 = 400)
+    // 8: Fixed(80)
+    // 9: Hug (child width 60)
+    // 10: Flex(1.0)
+    // 11: Flex(2.0)
+    for c in 0..8 {
+        if let Some(t) = al.grid_col_tracks.get_mut(c) {
+            *t = GridTrack::Fixed(50.0);
+        }
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(8) {
+        *t = GridTrack::Fixed(80.0);
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(9) {
+        *t = GridTrack::Hug;
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(10) {
+        *t = GridTrack::Flex(1.0);
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(11) {
+        *t = GridTrack::Flex(2.0);
+    }
+
+    // Frame width = 950:
+    // 11 gaps * 10 = 110 -> inner_w = 840
+    // Fixed + Hug used = 400 + 80 + 60 = 540 -> rem_w = 300
+    // col 10 (1fr) = 100, col 11 (2fr) = 200
+    let mut kids = Vec::new();
+    for c in 0..12 {
+        let w = if c == 9 { 60.0 } else { 30.0 };
+        let h_sizing = if c >= 10 { Sizing::Fill } else { Sizing::Fixed };
+        kids.push(kid_with(w, 20.0, |lc| lc.horizontal = h_sizing));
+    }
+    let solved = solve_everywhere(al, v2(950.0, 100.0), &kids);
+    assert_eq!(solved.kids[8], [480.0, 0.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[9], [570.0, 0.0, 60.0, 20.0]);
+    assert_eq!(solved.kids[10], [640.0, 0.0, 100.0, 20.0]);
+    assert_eq!(solved.kids[11], [750.0, 0.0, 200.0, 20.0]);
+
+    // Backward-compatible serde: an old file with an 8-element array loads unchanged.
+    let legacy_json = r#"{
+        "direction": "Grid",
+        "wrap": false,
+        "item_spacing": 8.0,
+        "counter_spacing": 8.0,
+        "padding": [0.0, 0.0, 0.0, 0.0],
+        "primary_align": "Start",
+        "counter_align": "Start",
+        "primary_sizing": "Fixed",
+        "counter_sizing": "Fixed",
+        "stroke_included": false,
+        "reverse_z": false,
+        "grid_columns": 8,
+        "grid_rows": 2,
+        "grid_col_tracks": [
+            {"Fixed": 100.0},
+            {"Flex": 1.0},
+            "Hug",
+            {"Flex": 2.0},
+            {"Fixed": 80.0},
+            {"Flex": 1.0},
+            {"Flex": 1.0},
+            "Hug"
+        ]
+    }"#;
+    let loaded: AutoLayout = serde_json::from_str(legacy_json).expect("legacy 8-track JSON loads");
+    assert_eq!(loaded.grid_columns, 8);
+    assert_eq!(loaded.grid_col_tracks.first(), Some(&GridTrack::Fixed(100.0)));
+    assert_eq!(loaded.grid_col_tracks.get(2), Some(&GridTrack::Hug));
+    assert_eq!(loaded.grid_col_tracks.get(7), Some(&GridTrack::Hug));
+    assert_eq!(loaded.grid_col_tracks.get(8), Some(&GridTrack::Flex(1.0)));
 }

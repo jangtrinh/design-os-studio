@@ -254,13 +254,13 @@ fn call(name: &str, args: &[String]) -> String {
     format!("{name}({})", args.join(", "))
 }
 
-fn view(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
+fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible {
         return;
     }
     let sz = sizes(n, parent);
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let kids = visible_children(doc, n);
     let mut mods: Vec<String> = Vec::new();
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
@@ -323,7 +323,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
             _ => (false, false, false),
         };
         body = Some(kids.iter().map(|k| k.id).collect());
-        padding_mods(doc, n, &al, &mut mods);
+        padding_mods(doc, n, al, &mut mods);
         let pos = |a: LayoutAlign| match a {
             LayoutAlign::Center => 1,
             LayoutAlign::End => 2,

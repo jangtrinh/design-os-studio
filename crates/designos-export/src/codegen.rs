@@ -313,17 +313,17 @@ pub(crate) enum Dim {
 
 /// The auto-layout parent context of a node.
 #[derive(Clone, Copy)]
-pub(crate) struct Parent {
-    pub al: Option<AutoLayout>,
+pub(crate) struct Parent<'a> {
+    pub al: Option<&'a AutoLayout>,
     pub root: bool,
 }
 
-impl Parent {
+impl<'a> Parent<'a> {
     pub fn root() -> Self {
         Self { al: None, root: true }
     }
-    pub fn of(n: &Node) -> Self {
-        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout), root: false }
+    pub fn of(n: &'a Node) -> Self {
+        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()), root: false }
     }
 }
 
@@ -336,9 +336,9 @@ pub(crate) struct Sizes {
     pub row_parent: bool,
 }
 
-pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
+pub(crate) fn sizes(n: &Node, parent: Parent<'_>) -> Sizes {
     let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
     let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
     let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
@@ -367,7 +367,7 @@ pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
 }
 
 /// Position offset for children that are not placed by auto layout.
-pub(crate) fn offset(n: &Node, parent: Parent, sz: &Sizes) -> Option<(f32, f32)> {
+pub(crate) fn offset(n: &Node, parent: Parent<'_>, sz: &Sizes) -> Option<(f32, f32)> {
     if parent.root || sz.in_flow {
         return None;
     }
@@ -516,7 +516,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     // padding: expand to a 4-value shorthand when any side is bound
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if sides.iter().any(|k| bound(doc, n, k).is_some()) {
-        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));
             let value = css_box(&vals);

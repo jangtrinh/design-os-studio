@@ -702,7 +702,7 @@ impl App {
         let mut tx = Tx::new();
         if let Some(n) = tx.ed.node(&mut self.doc, fid) {
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
-                al.grid_rows = (al.grid_rows.max(1) + 1).min(8);
+                al.grid_rows = (al.grid_rows.max(1) + 1).min(designos_doc::MAX_GRID_TRACKS as u32);
             }
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, fid);
@@ -728,7 +728,7 @@ impl App {
         let mut tx = Tx::new();
         if let Some(n) = tx.ed.node(&mut self.doc, fid) {
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
-                al.grid_columns = (al.grid_columns.max(1) + 1).min(8);
+                al.grid_columns = (al.grid_columns.max(1) + 1).min(designos_doc::MAX_GRID_TRACKS as u32);
             }
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, fid);
@@ -1977,12 +1977,12 @@ mod tests {
         app.selection = vec![fid];
         app.insert_table_row();
         app.insert_table_column();
-        let al = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(al.grid_rows, 3);
         assert_eq!(al.grid_columns, 3);
         app.delete_table_row();
         app.delete_table_column();
-        let al2 = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al2 = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(al2.grid_rows, 2);
         assert_eq!(al2.grid_columns, 2);
     }

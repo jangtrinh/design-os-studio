@@ -17,7 +17,7 @@ pub struct Insertion {
 /// pointer at `page_pt` (page space). `None` if `parent` has no auto-layout.
 pub fn insertion_at(doc: &Document, parent: NodeId, dragged: NodeId, page_pt: DV) -> Option<Insertion> {
     let pn = doc.get(parent)?;
-    let al = pn.kind.frame_props()?.auto_layout?;
+    let al = pn.kind.frame_props()?.auto_layout.as_ref()?;
     let horiz = al.direction == LayoutDirection::Horizontal;
     let world = doc.world_transform(parent);
     let p = world.invert()?.apply(page_pt);

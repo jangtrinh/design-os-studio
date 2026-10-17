@@ -253,13 +253,13 @@ fn text_args(doc: &Document, n: &Node, t: &TextProps, args: &mut Vec<Arg>) {
     }
 }
 
-fn emit(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
+fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible {
         return;
     }
     let sz = sizes(n, parent);
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let kids = visible_children(doc, n);
     let mut mods: Vec<String> = Vec::new();
     if let Some((x, y)) = offset(n, parent, &sz) {
@@ -310,7 +310,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         name = if horizontal { "Row" } else { "Column" };
         block = true;
-        padding_mods(doc, n, &al, &mut mods);
+        padding_mods(doc, n, al, &mut mods);
         finish_mods(doc, n, rot, &mut mods);
         args.extend(modifier_arg(&mods));
         let spacing = (al.item_spacing > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", al.item_spacing));
