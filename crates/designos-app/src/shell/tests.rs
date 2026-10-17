@@ -947,6 +947,7 @@ mod figma_paste;
 mod find;
 mod history;
 mod home;
+mod live_agent_edits;
 mod menus;
 mod proto;
 mod proto_vars;

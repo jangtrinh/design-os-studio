@@ -51,27 +51,28 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 
 ## Checklist
 
-1. Make sure `main` is green (tests on Linux, Windows and macOS, Clippy).
-2. Bump `version` under `[workspace.package]` in the root `Cargo.toml`, run `cargo build --workspace` so `Cargo.lock` updates, and commit both (`release: 0.2.0`).
-3. Tag and push:
+1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and Windows and Linux are tested by their users.
+2. On a branch, bump `version` under `[workspace.package]` in the root `Cargo.toml` and run `cargo update -w` so `Cargo.lock` updates. Commit both (`release: 0.3.0`) and open a PR. `main` is protected, so the release commit lands through a squash merge like any other change. The workflow's `version-check` job fails the release when the tag and this version differ.
+3. Once the release PR is merged, run the dry run (below) on `main` and smoke-test its `.dmg`. Then tag that same squash commit and push the tag. Release tags cannot be moved or deleted afterwards, so the tagged commit must be the one you tested:
 
    ```sh
-   git tag -a v0.2.0 -m "designos 0.2.0"
-   git push origin v0.2.0
+   git fetch origin
+   git tag -a v0.3.0 origin/main -m "designos 0.3.0"
+   git push origin v0.3.0
    ```
 
    A tag containing a hyphen (`v0.2.0-rc.1`) is published as a pre-release.
-4. Watch the Release workflow. When all builds pass, a GitHub Release is created with auto-generated notes. Edit the notes if needed.
+4. Watch the Release workflow. When the macOS build passes, a GitHub Release is created with auto-generated notes. Windows and Linux packages are attached if their builds pass, and a failure there does not block the release. Edit the notes if needed.
 
 ## What gets built
 
 | Job | Runner | Output |
 |---|---|---|
-| `build` `x86_64-pc-windows-msvc` | `windows-latest` | `designos-<version>-<target>.zip` (the exe has the icon and version info embedded by `crates/designos-app/build.rs`) |
-| `build` `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `designos-<version>-<target>.tar.gz` (adds `designos.desktop`, `icons/`, `install.sh`) |
+| `build` `x86_64-pc-windows-msvc` | `windows-latest` | `designos-<version>-<target>.zip` with `install.ps1` (the exe has the icon and version info embedded by `crates/designos-app/build.rs`). A `-setup.exe` NSIS installer is added only when `makensis` is on the runner's `PATH`; `windows-latest` does not have it, so v0.2.0 shipped the zip only. |
+| `build` `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `designos-<version>-<target>.tar.gz` (adds `designos.desktop`, `icons/`, `install.sh`) and `designos_<version>_amd64.deb` (built when `dpkg-deb` is available) |
 | `macos` | `macos-14` (builds `aarch64-apple-darwin` and cross-compiles `x86_64-apple-darwin`; `macos-13` is retired) | `designos-<version>-macos.dmg` and `designos-<version>-macos-universal.tar.gz` |
 
-The Windows and Linux archives hold `designos`, `designos-diff`, `LICENSE-MIT`, `LICENSE-APACHE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
+Every package holds all four tools (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) plus `LICENSE-MIT`, `LICENSE-APACHE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
 
 The macOS job runs `scripts/package-macos.sh <version>`. It `lipo`s a universal `designos` and `designos-diff`, assembles `designos.app` (bundle id `os.design.studio`, `Info.plist` from `packaging/macos/Info.plist.in`, `designos.icns` built with `iconutil` from `assets/icon/designos.iconset`), ad-hoc signs it, and writes the `.dmg` (app, `Applications` link, `Read me first.txt`) and the universal `.tar.gz` (app, licenses, README). It needs a Mac, so test changes to it with a dry run (below).
 
@@ -89,10 +90,16 @@ This rewrites `assets/icon/png/`, `designos.ico`, `designos.iconset/` and `desig
 
 ## Dry run
 
-Run the workflow from the Actions tab (Release, Run workflow) on any branch. It builds and packages everything and uploads the archives as workflow artifacts, but creates no release. Run it after any change to `scripts/package-macos.sh` or the macOS plist, then open the downloaded `.dmg` on a Mac to check the icon, the drag-to-Applications layout and the Open Anyway flow. The version is stamped `0.0.0-dev.<sha>`.
+Run the workflow from the Actions tab (Release, Run workflow) on any branch, or `gh workflow run release.yml --ref <branch>`. It builds and packages everything and uploads the archives as workflow artifacts, but creates no release. The file names are stamped `0.0.0-dev.<sha>`, and the app inside reports the `Cargo.toml` version.
+
+Before every release tag, run it on `main` after the version bump has merged, so the commit you smoke-test is the commit you tag. Also run it on a branch after any change to `release.yml`, `scripts/package-macos.sh` or the macOS plist. Release tags cannot be moved or deleted, so a broken tagged build costs a version number. Then open the downloaded `.dmg` on a Mac and check:
+
+- the icon, the drag-to-Applications layout and the Open Anyway flow;
+- the About dialog shows the new version;
+- a large `.fig` opens and renders.
 
 ## Not covered yet
 
 - macOS: the app is ad-hoc signed but not signed with a Developer ID or notarized, so Gatekeeper asks for a one-time Open Anyway. Double-clicking a file in Finder does not pass it to designos (winit 0.30 does not expose `application:openFiles:`); "Open With" lists designos through `CFBundleDocumentTypes`.
-- Windows binaries are unsigned (SmartScreen warning). There is no installer; the zip is the download.
+- Windows binaries are unsigned (SmartScreen warning). In practice there is no installer, because the runner has no `makensis`; the zip with `install.ps1` is the download. Windows and Linux builds are tested by their users; releases are verified on macOS.
 - Linux binaries link the build runner's glibc; they run on that distribution or newer.
