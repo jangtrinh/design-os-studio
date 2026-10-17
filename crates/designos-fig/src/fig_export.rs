@@ -7,11 +7,45 @@
 use crate::container::{self, Compression};
 use crate::kiwi::KiwiValue as V;
 use crate::rest_import::utf16_to_byte_offsets;
-use crate::testkit::{color, en, figma_like_schema, fl, guid, msg, st, vec2};
+use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
+
+// The kiwi encoder writes whatever float bits it is given, and a reader treats a NaN or an infinity
+// as an absent field, so a single bad number would drop a whole `size` or transform on the way back.
+// The exporter therefore never hands the encoder a non-finite float: it writes the neutral value of
+// the slot instead, one for opacity, alpha and the diagonal of a matrix, zero for every other number.
+fn finite_or(x: f32, neutral: f32) -> f32 {
+    if x.is_finite() {
+        x
+    } else {
+        neutral
+    }
+}
+
+fn fl(x: f32) -> V {
+    testkit::fl(finite_or(x, 0.0))
+}
+
+/// [`fl`] for a number whose neutral value is one: opacity, alpha, the diagonal of a matrix.
+fn fl_one(x: f32) -> V {
+    testkit::fl(finite_or(x, 1.0))
+}
+
+fn vec2(x: f32, y: f32) -> V {
+    st(vec![("x", fl(x)), ("y", fl(y))])
+}
+
+fn color(r: f32, g: f32, b: f32, a: f32) -> V {
+    st(vec![("r", fl(r)), ("g", fl(g)), ("b", fl(b)), ("a", fl_one(a))])
+}
+
+/// Little-endian bytes of a float inside a binary blob, with the same rule.
+fn blob_f32(x: f32) -> [u8; 4] {
+    finite_or(x, 0.0).to_le_bytes()
+}
 
 /// Encodes a [`Path`] into Figma's binary path-commands blob format
 /// (`0` = Close, `1` = MoveTo, `2` = LineTo, `3` = QuadTo, `4` = CubicTo,
@@ -19,8 +53,8 @@ use std::collections::{BTreeMap, HashSet};
 pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
     let mut out = Vec::new();
     let push_pt = |out: &mut Vec<u8>, p: Vec2| {
-        out.extend_from_slice(&p.x.to_le_bytes());
-        out.extend_from_slice(&p.y.to_le_bytes());
+        out.extend_from_slice(&blob_f32(p.x));
+        out.extend_from_slice(&blob_f32(p.y));
     };
     for cmd in &path.cmds {
         match *cmd {
@@ -493,7 +527,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
                 append_text_style_fields(&mut fields, ts);
             }
             Style::Effect(effects) => {
-                fields.push(("effects", V::Array(effects.iter().filter_map(|e| encode_effect(e, None, None)).collect())));
+                fields.push(("effects", V::Array(effects.iter().map(|e| encode_effect(e, None, None)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -544,7 +578,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         ("name", V::String(node.name.clone())),
         ("visible", V::Bool(node.visible)),
         ("locked", V::Bool(node.locked)),
-        ("opacity", fl(node.opacity)),
+        ("opacity", fl_one(node.opacity)),
         ("size", vec2(node.size.x, node.size.y)),
         ("transform", encode_matrix(&node.transform)),
         ("blendMode", en(blend_name(node.blend))),
@@ -601,6 +635,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if let Some(ds) = node.detached_symbol_id.as_deref().or(node.component.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
         fields.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
+    }
+    if node.component.is_slot {
+        fields.push(("isSlot", V::Bool(true)));
+    }
+    if node.component.is_slot_content {
+        fields.push(("isSlotContent", V::Bool(true)));
+    }
+    if let Some(g) = node.component.slot_content_id.as_deref().and_then(parse_guid_pair) {
+        fields.push(("jsonSerialized", msg(vec![("slot-content-id", msg(vec![("guid", guid(g.0, g.1))]))])));
     }
     append_fig_metadata(&mut fields, &node.fig_metadata);
     if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
@@ -688,7 +731,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
-    let effects: Vec<V> = node.effects.iter().enumerate().filter_map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -949,6 +992,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 PropKind::Slot => {
                     df.push(("type", en("SLOT")));
                     df.push(("initialValue", msg(vec![("textValue", msg(vec![("characters", V::String(String::new()))]))])));
+                    if let Some(cfg) = node.component.slot_configs.get(&p.name) {
+                        df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
+                        let prefs: Vec<V> = cfg.preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
+                        if !prefs.is_empty() {
+                            df.push(("preferredValues", V::Array(prefs)));
+                        }
+                    }
                 }
             }
             prop_defs.push(msg(df));
@@ -1157,6 +1207,7 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
     (0..count.min(8) as usize)
         .map(|i| match tracks[i] {
             GridTrack::Flex(w) => {
+                let w = finite_or(w, 1.0);
                 if (w - w.round()).abs() < 1e-4 {
                     format!("{}fr", w.round() as i32)
                 } else {
@@ -1164,6 +1215,7 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
                 }
             }
             GridTrack::Fixed(px) => {
+                let px = finite_or(px, 0.0);
                 if (px - px.round()).abs() < 1e-4 {
                     format!("{}px", px.round() as i32)
                 } else {
@@ -1270,7 +1322,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("locked", V::Bool(n.locked)));
             }
             if ovs.contains(&OverrideField::Opacity) {
-                ov.push(("opacity", fl(n.opacity)));
+                ov.push(("opacity", fl_one(n.opacity)));
             }
             if ovs.contains(&OverrideField::Blend) {
                 ov.push(("blendMode", en(blend_name(n.blend))));
@@ -1324,7 +1376,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     .effects
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, e)| {
+                    .map(|(i, e)| {
                         let cv = n.variables.bindings.get(&format!("effects/{i}/color")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
                         encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
                     })
@@ -1507,17 +1559,17 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
             0
         };
         b.extend_from_slice(&sid.to_le_bytes());
-        b.extend_from_slice(&v.pos.x.to_le_bytes());
-        b.extend_from_slice(&v.pos.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(v.pos.x));
+        b.extend_from_slice(&blob_f32(v.pos.y));
     }
     for seg in &net.segments {
         b.extend_from_slice(&0u32.to_le_bytes());
         b.extend_from_slice(&(seg.a as u32).to_le_bytes());
-        b.extend_from_slice(&seg.ta.x.to_le_bytes());
-        b.extend_from_slice(&seg.ta.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(seg.ta.x));
+        b.extend_from_slice(&blob_f32(seg.ta.y));
         b.extend_from_slice(&(seg.b as u32).to_le_bytes());
-        b.extend_from_slice(&seg.tb.x.to_le_bytes());
-        b.extend_from_slice(&seg.tb.y.to_le_bytes());
+        b.extend_from_slice(&blob_f32(seg.tb.x));
+        b.extend_from_slice(&blob_f32(seg.tb.y));
     }
     for reg in &net.regions {
         let rule = if reg.rule == FillRule::NonZero { 1u32 } else { 0u32 };
@@ -1534,7 +1586,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
 }
 
 fn encode_matrix(xf: &Affine) -> V {
-    st(vec![("m00", fl(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl(xf.d)), ("m12", fl(xf.ty))])
+    st(vec![("m00", fl_one(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl_one(xf.d)), ("m12", fl(xf.ty))])
 }
 
 fn gradient_matrix_from_handles(h: &[Vec2; 3]) -> V {
@@ -1591,7 +1643,7 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
             fields.push(("imageScaleMode", en(sm)));
         }
     }
-    fields.push(("opacity", fl(p.opacity)));
+    fields.push(("opacity", fl_one(p.opacity)));
     fields.push(("visible", V::Bool(p.visible)));
     fields.push(("blendMode", en(blend_name(p.blend))));
     if let Some(cv) = color_var {
@@ -1603,7 +1655,7 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     msg(fields)
 }
 
-fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Option<V> {
+fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
             ("type", en("DROP_SHADOW")),
@@ -1624,7 +1676,50 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Op
         ],
         Effect::LayerBlur { radius, visible } => vec![("type", en("FOREGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
         Effect::BackgroundBlur { radius, visible } => vec![("type", en("BACKGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
-        _ => return None,
+        Effect::Noise(n) => {
+            let mut f = vec![
+                ("type", en("NOISE")),
+                ("noiseSize", vec2(n.size, n.size)),
+                ("density", fl(n.density)),
+                ("opacity", fl_one(n.opacity)),
+                ("blendMode", en(blend_name(n.blend))),
+                ("seed", V::Uint(n.seed)),
+                ("visible", V::Bool(n.visible)),
+            ];
+            match &n.mode {
+                NoiseMode::Mono { color: c } => {
+                    f.push(("noiseType", en("MONOTONE")));
+                    f.push(("color", color(c.r, c.g, c.b, c.a)));
+                }
+                NoiseMode::Duo { color: c, secondary: s } => {
+                    f.push(("noiseType", en("DUOTONE")));
+                    f.push(("color", color(c.r, c.g, c.b, c.a)));
+                    f.push(("secondaryColor", color(s.r, s.g, s.b, s.a)));
+                }
+                NoiseMode::Multi => {
+                    f.push(("noiseType", en("MULTITONE")));
+                }
+            }
+            f
+        }
+        Effect::Texture(t) => vec![
+            ("type", en("GRAIN")),
+            ("noiseSize", vec2(t.size, t.size)),
+            ("radius", fl(t.radius)),
+            ("clipToShape", V::Bool(t.clip_to_shape)),
+            ("seed", V::Uint(t.seed)),
+            ("visible", V::Bool(t.visible)),
+        ],
+        Effect::Glass(g) => vec![
+            ("type", en("GLASS")),
+            ("specularAngle", fl(g.light_angle)),
+            ("specularIntensity", fl(g.light_intensity)),
+            ("refractionIntensity", fl(g.refraction)),
+            ("refractionRadius", fl(g.depth)),
+            ("chromaticAberration", fl(g.dispersion)),
+            ("radius", fl(g.frost)),
+            ("visible", V::Bool(g.visible)),
+        ],
     };
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
@@ -1632,7 +1727,7 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Op
     if let Some(ov) = opacity_var {
         fields.push(("effectOpacityVar", ov));
     }
-    Some(msg(fields))
+    msg(fields)
 }
 
 fn encode_grid(g: &LayoutGrid) -> V {
@@ -1701,6 +1796,27 @@ fn encode_detached_symbol_id(ds: &str) -> V {
         return msg(vec![("guid", guid(g.0, g.1))]);
     }
     msg(vec![("assetRef", msg(vec![("key", V::String(ds.to_string()))]))])
+}
+
+/// `SlotPropConfig`: only the fields the document holds are written.
+fn encode_slot_prop_config(cfg: &designos_doc::SlotPropConfig) -> V {
+    let mut f: Vec<(&str, V)> = Vec::new();
+    if let Some(b) = cfg.stretch_child_on_insert {
+        f.push(("stretchChildOnInsert", V::Bool(b)));
+    }
+    if let Some(b) = cfg.display_by_default {
+        f.push(("displayByDefault", V::Bool(b)));
+    }
+    if let Some(n) = cfg.min_children {
+        f.push(("minChildren", V::Uint(n)));
+    }
+    if let Some(n) = cfg.max_children {
+        f.push(("maxChildren", V::Uint(n)));
+    }
+    if let Some(b) = cfg.allow_preferred_values_only {
+        f.push(("allowPreferredValuesOnly", V::Bool(b)));
+    }
+    msg(f)
 }
 
 fn append_fig_metadata(fields: &mut Vec<(&'static str, V)>, meta: &BTreeMap<String, String>) {

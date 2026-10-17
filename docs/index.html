@@ -137,15 +137,83 @@
         <a class="text-link" href="https://github.com/jangtrinh/design-os-studio#readme"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>Read the README on GitHub <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
       </div>
 
-      <figure class="ds-card branch-page-media">
-        <div class="ds-card-stage capture-stage">
-          <img src="images/designos-hero.png" width="1600" height="1000" alt="DESIGN:OS Studio rendering the 112,474-node VSF-PCP enterprise Figma workspace at 60% zoom with 1:1 Figma UI3 dark chrome and unified Phosphor icons" loading="eager" onerror="this.onerror=null;this.closest('figure').hidden=true">
+      <figure id="film" class="ds-card branch-page-media film-hero" data-playing="true">
+        <div class="ds-card-stage capture-stage film-stage">
+          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-promo-16x9-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio promo film, 70 seconds">
+            <source src="videos/designos-studio-promo-16x9.mp4" type="video/mp4">
+            <p>Your browser cannot play this video. <a href="videos/designos-studio-promo-16x9.mp4">Download the 70-second film (MP4, 1080p)</a>.</p>
+          </video>
+          <button type="button" class="film-overlay" id="film-overlay" tabindex="-1" hidden><span class="film-overlay-label">Play film</span><span class="film-overlay-disc"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></svg></span></button>
         </div>
-        <figcaption class="case-plate-caption">
-          <p>DESIGN:OS Studio rendering an enterprise <code>.fig</code> v106 design system (723,136 Kiwi records / 112,474 scene nodes) natively on Apple Silicon Metal in 1.54s with 0.0% idle CPU.</p>
-          <cite>387 / 387 parity · 100 / 100 micro-interactions · 856 tests passing</cite>
+        <figcaption class="case-plate-caption film-caption">
+          <div class="film-controls" id="film-controls" role="group" aria-label="Film controls" hidden>
+            <button type="button" class="ds-btn-pill film-btn" id="film-sound" data-tone="solid" aria-pressed="false">
+              <svg class="ph film-ico-off" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M32 104h40l72-56v160l-72-56H32z"/><path d="M48 40l160 176"/></svg>
+              <svg class="ph film-ico-on" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M32 104h40l72-56v160l-72-56H32z"/><path d="M176 104a32 32 0 0 1 0 48"/><path d="M204 76a64 64 0 0 1 0 104"/></svg>
+              <span>Sound</span><span data-state aria-hidden="true">Off</span>
+            </button>
+            <button type="button" class="ds-btn-pill film-btn" id="film-toggle">
+              <svg class="ph film-ico-pause" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M64 48h32v160H64z"/><path d="M160 48h32v160h-32z"/></svg>
+              <svg class="ph film-ico-play" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></svg>
+              <span id="film-toggle-label">Pause</span>
+            </button>
+          </div>
+          <p>DESIGN:OS Studio promo film. Starts muted and loops.</p>
+          <cite>70 s · 60 fps</cite>
         </figcaption>
       </figure>
+      <script>
+      (function () {
+        var fig = document.getElementById('film'), v = document.getElementById('film-video');
+        if (!fig || !v || typeof v.play !== 'function') return;
+        // Same query as the .film-stage rule in assets/site.css: phones held upright get the 9:16 film.
+        var narrow = matchMedia('(max-width:640px) and (orientation:portrait)');
+        var calm = matchMedia('(prefers-reduced-motion: reduce)');
+        var cut = {
+          land: { src: 'videos/designos-studio-promo-16x9.mp4', poster: 'videos/designos-studio-promo-16x9-poster.png' },
+          port: { src: 'videos/designos-studio-promo-9x16.mp4', poster: 'videos/designos-studio-promo-9x16-poster.png' }
+        };
+        var kind = 'land';
+        var bar = document.getElementById('film-controls'), overlay = document.getElementById('film-overlay'),
+            toggle = document.getElementById('film-toggle'), label = document.getElementById('film-toggle-label'),
+            sound = document.getElementById('film-sound'), state = sound.querySelector('[data-state]');
+        function sync() {
+          var playing = !v.paused && !v.ended;
+          fig.setAttribute('data-playing', playing ? 'true' : 'false');
+          label.textContent = playing ? 'Pause' : 'Play';
+          overlay.hidden = playing;
+          sound.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
+          state.textContent = v.muted ? 'Off' : 'On';
+        }
+        function start() { var p = v.play(); if (p && p.catch) p.catch(sync); }
+        function use(next, keepPlace) {
+          if (next === kind) return;
+          var at = keepPlace ? v.currentTime : 0, was = !v.paused;
+          kind = next;
+          v.poster = cut[next].poster;
+          v.src = cut[next].src; // an explicit src replaces the <source> fallback before anything plays
+          v.load();
+          if (!keepPlace) return;
+          v.addEventListener('loadedmetadata', function once() {
+            v.removeEventListener('loadedmetadata', once);
+            if (at && isFinite(v.duration)) v.currentTime = Math.min(at, v.duration - 0.05);
+            if (was) start();
+          });
+        }
+        function listen(mq, fn) { if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn); }
+        ['play', 'playing', 'pause', 'ended', 'volumechange', 'loadedmetadata'].forEach(function (e) { v.addEventListener(e, sync); });
+        toggle.addEventListener('click', function () { if (v.paused) start(); else v.pause(); });
+        overlay.addEventListener('click', start);
+        sound.addEventListener('click', function () { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1; });
+        listen(narrow, function () { use(narrow.matches ? 'port' : 'land', true); });
+        listen(calm, function () { if (calm.matches) v.pause(); });
+        // Start-up: pick the source first, then play (unless the visitor asked for reduced motion).
+        v.removeAttribute('autoplay'); v.removeAttribute('controls');
+        use(narrow.matches ? 'port' : 'land', false);
+        if (calm.matches) v.pause(); else start();
+        bar.hidden = false; sync();
+      })();
+      </script>
 
       <figure class="ds-card branch-page-media" style="margin-top:var(--s-12)">
         <div class="ds-card-stage capture-stage">

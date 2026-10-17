@@ -1,149 +1,11 @@
-//! Easing curves for prototype transitions.
+//! Easing curves for prototype transitions (re-exported from `designos_doc`).
 
-use designos_doc::Easing;
-
-/// CSS-style control points of the cubic-bezier based presets.
-pub fn control_points(e: &Easing) -> Option<[f32; 4]> {
-    Some(match e {
-        Easing::Linear | Easing::Spring { .. } => return None,
-        Easing::EaseIn => [0.42, 0.0, 1.0, 1.0],
-        Easing::EaseOut => [0.0, 0.0, 0.58, 1.0],
-        Easing::EaseInOut => [0.42, 0.0, 0.58, 1.0],
-        Easing::EaseInBack => [0.36, 0.0, 0.66, -0.56],
-        Easing::EaseOutBack => [0.34, 1.56, 0.64, 1.0],
-        Easing::EaseInOutBack => [0.68, -0.6, 0.32, 1.6],
-        Easing::Bezier(c) => *c,
-    })
-}
-
-/// y(t) of the unit cubic bezier through (0,0), (x1,y1), (x2,y2), (1,1).
-pub fn cubic_bezier(c: [f32; 4], t: f32) -> f32 {
-    let [x1, y1, x2, y2] = c;
-    let t = t.clamp(0.0, 1.0);
-    if t == 0.0 || t == 1.0 {
-        return t;
-    }
-    let sample = |p1: f32, p2: f32, s: f32| {
-        let u = 1.0 - s;
-        3.0 * u * u * s * p1 + 3.0 * u * s * s * p2 + s * s * s
-    };
-    let dx = |s: f32| {
-        let u = 1.0 - s;
-        3.0 * u * u * x1 + 6.0 * u * s * (x2 - x1) + 3.0 * s * s * (1.0 - x2)
-    };
-    // Newton first, bisection when the slope is flat or Newton leaves [0,1].
-    let mut s = t;
-    for _ in 0..8 {
-        let err = sample(x1, x2, s) - t;
-        if err.abs() < 1e-6 {
-            return sample(y1, y2, s);
-        }
-        let d = dx(s);
-        if d.abs() < 1e-6 {
-            break;
-        }
-        s -= err / d;
-    }
-    let (mut lo, mut hi) = (0.0f32, 1.0f32);
-    s = t;
-    for _ in 0..40 {
-        let x = sample(x1, x2, s);
-        if (x - t).abs() < 1e-6 {
-            break;
-        }
-        if x < t {
-            lo = s;
-        } else {
-            hi = s;
-        }
-        s = (lo + hi) / 2.0;
-    }
-    sample(y1, y2, s)
-}
-
-/// Seconds a spring needs to settle (envelope below 0.1%), capped at 4s.
-pub fn spring_settle_secs(mass: f32, stiffness: f32, damping: f32) -> f32 {
-    let (m, k, c) = (mass.max(0.01), stiffness.max(0.01), damping.max(0.0));
-    let w0 = (k / m).sqrt();
-    let zeta = c / (2.0 * (k * m).sqrt());
-    let rate = if zeta < 1.0 { zeta * w0 } else { w0 * (zeta - (zeta * zeta - 1.0).sqrt()) };
-    if rate <= 1e-3 {
-        return 4.0;
-    }
-    (6.9 / rate).clamp(0.1, 4.0)
-}
-
-/// Spring step response at time `tau` seconds (starts at 0, settles at 1).
-pub fn spring_at(mass: f32, stiffness: f32, damping: f32, tau: f32) -> f32 {
-    let (m, k, c) = (mass.max(0.01), stiffness.max(0.01), damping.max(0.0));
-    let w0 = (k / m).sqrt();
-    let zeta = c / (2.0 * (k * m).sqrt());
-    if zeta < 1.0 - 1e-4 {
-        let wd = w0 * (1.0 - zeta * zeta).sqrt();
-        let a = zeta * w0;
-        1.0 - (-a * tau).exp() * ((wd * tau).cos() + a / wd * (wd * tau).sin())
-    } else if zeta <= 1.0 + 1e-4 {
-        1.0 - (-w0 * tau).exp() * (1.0 + w0 * tau)
-    } else {
-        let s = (zeta * zeta - 1.0).sqrt();
-        let (r1, r2) = (-w0 * (zeta - s), -w0 * (zeta + s));
-        1.0 - (r2 * (r1 * tau).exp() - r1 * (r2 * tau).exp()) / (r2 - r1)
-    }
-}
-
-/// Eased progress for linear progress `t` in 0..1 (may overshoot for back and spring curves).
-pub fn ease(e: &Easing, t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    match e {
-        Easing::Linear => t,
-        Easing::Spring { mass, stiffness, damping } => {
-            if t >= 1.0 {
-                1.0
-            } else {
-                spring_at(*mass, *stiffness, *damping, t * spring_settle_secs(*mass, *stiffness, *damping))
-            }
-        }
-        other => control_points(other).map(|c| cubic_bezier(c, t)).unwrap_or(t),
-    }
-}
-
-/// Duration actually used: springs run for their settle time, others as requested.
-pub fn effective_duration_ms(e: &Easing, requested: u32) -> u32 {
-    match e {
-        Easing::Spring { mass, stiffness, damping } => (spring_settle_secs(*mass, *stiffness, *damping) * 1000.0) as u32,
-        _ => requested,
-    }
-}
-
-/// Preset names shown in the easing picker, with the curve each stands for.
-pub const PRESETS: &[(&str, Easing)] = &[
-    ("Linear", Easing::Linear),
-    ("Ease in", Easing::EaseIn),
-    ("Ease out", Easing::EaseOut),
-    ("Ease in and out", Easing::EaseInOut),
-    ("Ease in back", Easing::EaseInBack),
-    ("Ease out back", Easing::EaseOutBack),
-    ("Ease in and out back", Easing::EaseInOutBack),
-    ("Gentle", Easing::Spring { mass: 1.0, stiffness: 100.0, damping: 15.0 }),
-    ("Quick", Easing::Spring { mass: 1.0, stiffness: 300.0, damping: 20.0 }),
-    ("Bouncy", Easing::Spring { mass: 1.0, stiffness: 600.0, damping: 15.0 }),
-    ("Slow", Easing::Spring { mass: 1.0, stiffness: 80.0, damping: 20.0 }),
-];
-
-pub fn preset_name(e: &Easing) -> String {
-    if let Some((n, _)) = PRESETS.iter().find(|(_, p)| p == e) {
-        return (*n).into();
-    }
-    match e {
-        Easing::Bezier(_) => "Custom bezier".into(),
-        Easing::Spring { .. } => "Custom spring".into(),
-        _ => "Custom".into(),
-    }
-}
+pub use designos_doc::{ease, effective_duration_ms, preset_name, PRESETS};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::{control_points, cubic_bezier, spring_at, spring_settle_secs, Easing, EasingType, DEFAULT_BEZIER};
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-3
@@ -168,9 +30,10 @@ mod tests {
     fn standard_curves_have_expected_shape() {
         assert!(ease(&Easing::EaseIn, 0.5) < 0.5);
         assert!(ease(&Easing::EaseOut, 0.5) > 0.5);
-        assert!(close(ease(&Easing::EaseInOut, 0.5), 0.5));
-        // known css value: ease-in-out(0.25) ~ 0.129
-        assert!((ease(&Easing::EaseInOut, 0.25) - 0.129).abs() < 0.01);
+        // REA R5 INOUT = [0.645, 0.045, 0.355, 1.0] -> at s=0.5, x=0.5 and y=0.516875
+        assert!(close(ease(&Easing::EaseInOut, 0.5), 0.516875));
+        // CSS ease-in-out [0.42, 0.0, 0.58, 1.0] at t=0.25 ~ 0.129
+        assert!((cubic_bezier([0.42, 0.0, 0.58, 1.0], 0.25) - 0.129).abs() < 0.01);
     }
 
     #[test]
@@ -238,5 +101,24 @@ mod tests {
         assert_eq!(preset_name(&Easing::EaseOut), "Ease out");
         assert_eq!(preset_name(&Easing::Bezier([0.1, 0.2, 0.3, 0.4])), "Custom bezier");
         assert_eq!(preset_name(&Easing::Spring { mass: 2.0, stiffness: 5.0, damping: 1.0 }), "Custom spring");
+    }
+
+    #[test]
+    fn rea_r5_presets_match_figma_cubic_and_spring_values() {
+        assert_eq!(control_points(&Easing::EaseIn), Some([0.55, 0.055, 0.675, 0.19]));
+        assert_eq!(control_points(&Easing::EaseOut), Some([0.215, 0.61, 0.355, 1.0]));
+        assert_eq!(control_points(&Easing::EaseInOut), Some([0.645, 0.045, 0.355, 1.0]));
+        assert_eq!(control_points(&Easing::EaseInBack), Some([0.3, -0.05, 0.7, -0.5]));
+        assert_eq!(control_points(&Easing::EaseOutBack), Some([0.45, 1.45, 0.8, 1.0]));
+        assert_eq!(control_points(&Easing::EaseInOutBack), Some([0.7, -0.4, 0.4, 1.4]));
+        assert_eq!(DEFAULT_BEZIER, [0.0, 0.0, 0.58, 1.0]);
+        assert_eq!(EasingType::ALL.len(), 15);
+        for (i, et) in EasingType::ALL.iter().enumerate() {
+            assert_eq!(et.kiwi_tag() as usize, i);
+            assert_eq!(EasingType::from_kiwi_tag(i as u32), Some(*et));
+            assert_eq!(EasingType::from_kiwi_name(et.kiwi_name()), Some(*et));
+        }
+        assert_eq!(EasingType::Hold.ease_at(None, None, 0.5), 0.0);
+        assert_eq!(EasingType::Hold.ease_at(None, None, 1.0), 1.0);
     }
 }

@@ -157,6 +157,8 @@ pub struct PropsState {
     pub style_menu: Option<StyleProperty>,
     /// The name of the style the Effects or Layout guide row shows is being edited.
     pub style_rename: Option<StyleProperty>,
+    /// The "Edit style" popover.
+    pub style_edit: Option<super::style_edit::StyleEdit>,
     /// Cached `(selection_hash, tile_rev, unique_colors, usage_counts)` for Selection colors.
     pub sel_colors_cache: Option<(u64, u64, Vec<Color>, Vec<usize>)>,
     /// Cached `(doc_node_count_and_epoch, sorted_component_ids)` for instance swap menus.
@@ -237,16 +239,34 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
             .filter(|e| app.doc.style_meta.get(&e.key).map(|m| m.property).unwrap_or(StyleProperty::Fill) == want)
             .map(|e| (e.key.clone(), app.doc.style_name(&e.key).to_string()))
             .collect();
-        let items: Vec<crate::widgets::menu::MenuItem> = if entries.is_empty() {
+        let mut items: Vec<crate::widgets::menu::MenuItem> = if entries.is_empty() {
             vec![crate::widgets::menu::MenuItem::new("No color styles").disabled(true)]
         } else {
             entries.iter().map(|(_, n)| crate::widgets::menu::MenuItem::new(n.clone())).collect()
         };
+        // The style this selection is linked to can be edited from here.
+        let linked = sel
+            .first()
+            .and_then(|s| app.doc.get(*s))
+            .and_then(|n| n.style_refs.get(if stroke { "stroke" } else { "fill" }))
+            .filter(|k| app.doc.styles.contains_key(*k))
+            .cloned();
+        if let Some(last) = items.last_mut() {
+            last.separator_after = true;
+        }
+        let edit_row = items.len();
+        let read_only = linked.as_deref().is_some_and(|k| super::style_edit::is_read_only(app, k));
+        let edit_label = if read_only { super::style_edit::LIBRARY_STYLE_TIP } else { "Edit style" };
+        items.push(crate::widgets::menu::MenuItem::new(edit_label).disabled(linked.is_none() || read_only));
         let pos = Pos2::new(styles.right() - 168.0, styles.bottom() + 4.0);
         match crate::widgets::menu::popup_menu(ui.ctx(), egui::Id::new(("styles-menu", stroke)), pos, 168.0, &items, Some(styles)) {
             crate::widgets::menu::MenuResult::Picked(i) => {
                 app.props.styles_menu = None;
-                if let Some((key, _)) = entries.get(i) {
+                if i == edit_row {
+                    if let Some(key) = &linked {
+                        super::style_edit::toggle(app, key, styles);
+                    }
+                } else if let Some((key, _)) = entries.get(i) {
                     app.apply_style(sel, key);
                 }
             }
@@ -353,6 +373,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     }
     picker_popup(app, ui, region);
     super::effects::popover_ui(app, ui, region);
+    super::style_edit::popover_ui(app, ui, region);
 }
 
 // ---------------------------------------------------------------- no selection
@@ -545,7 +566,26 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 let nm = widgets::elide(ui.painter(), &e.leaf, &theme::font_body(), 130.0 - indent);
                 ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X + indent, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
             }
-            if resp.clicked() && !target.is_empty() {
+            // "Edit style" appears on the row under the pointer (and stays while its popover is open).
+            let editing = app.props.style_edit.as_ref().is_some_and(|s| s.key == e.key);
+            let mut edit_clicked = false;
+            if editing || ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| r.contains(p)) {
+                let edit_r = Rect::from_min_size(
+                    Pos2::new(r.right() - theme::PANEL_ACTION_BUTTON - 4.0, r.center().y - theme::PANEL_ACTION_BUTTON / 2.0),
+                    Vec2::splat(theme::PANEL_ACTION_BUTTON),
+                );
+                widgets::record(ui, &format!("style-edit:{}", e.key), edit_r);
+                ui.painter().rect_filled(
+                    edit_r.expand2(Vec2::new(4.0, 0.0)),
+                    theme::cr(theme::RADIUS_MEDIUM),
+                    if is_current { theme::BG_SELECTED } else { theme::BG_HOVER },
+                );
+                edit_clicked = super::style_edit::edit_button(app, ui, edit_r, ("style-edit", &e.key), &e.key);
+                if edit_clicked {
+                    super::style_edit::toggle(app, &e.key, edit_r);
+                }
+            }
+            if resp.clicked() && !edit_clicked && !target.is_empty() {
                 app.apply_style(target, &e.key);
             }
             pane.y += theme::STYLE_ROW_H;
@@ -2060,7 +2100,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
         open_picker(app, PickTarget::PageBg, to_c32(bg, 1.0), sw, vec![app.page]);
         return;
     }
-    if spec == "type-details" {
+    if spec == "type-details" || spec == "edit-style-text" {
         let has_text = app.selection.first().and_then(|id| app.doc.get(*id)).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)));
         if !has_text {
             if let Some(tid) = find_node_in_page(&app.doc, app.page, &|n| matches!(n.kind, NodeKind::Text(_))) {
@@ -2115,6 +2155,42 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             }
             app.props.scroll = 1.0e6;
             app.props.style_menu = Some(prop);
+        }
+        "edit-style-color" | "edit-style-text" | "edit-style-effect" | "edit-style-grid" => {
+            // The "Edit style" popover on the first style of its kind, linked to the selection. A
+            // frame without guides gets the usual 12 column ones and a layer without effects a
+            // drop shadow, so the style is created from real values like the effect-styles panel.
+            app.props.scroll = 1.0e6;
+            let kind = match spec {
+                "edit-style-color" => StyleKind::Color,
+                "edit-style-text" => StyleKind::Text,
+                "edit-style-effect" => StyleKind::Effect,
+                _ => StyleKind::Grid,
+            };
+            if kind == StyleKind::Effect && app.doc.get(id).is_some_and(|n| n.effects.is_empty()) {
+                let fx = super::effects::default_effect(1, 1);
+                app.edit_nodes(&[id], |n| n.effects.push(fx.clone()));
+            }
+            if kind == StyleKind::Grid && app.doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.grids.is_empty()) {
+                let grid = LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) };
+                app.edit_nodes(&[id], |n| {
+                    if let Some(f) = n.kind.frame_props_mut() {
+                        f.grids.push(grid.clone());
+                    }
+                });
+            }
+            if crate::styles::style_entries_of(&app.doc, kind).is_empty() {
+                match kind {
+                    StyleKind::Effect => app.create_style_from(id, StyleProperty::Effect),
+                    StyleKind::Grid => app.create_style_from(id, StyleProperty::Grid),
+                    _ => None,
+                };
+            }
+            if let Some(entry) = crate::styles::style_entries_of(&app.doc, kind).into_iter().next() {
+                app.apply_style(&[id], &entry.key);
+                let anchor = Rect::from_min_size(Pos2::new(screen.x - 56.0, 420.0), Vec2::splat(24.0));
+                super::style_edit::toggle(app, &entry.key, anchor);
+            }
         }
         "stroke-settings" => {
             app.props.scroll = 1.0e6;

@@ -15,8 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  # The binaries report CARGO_PKG_VERSION (About dialog, self-updater), so a tag
+  # that differs from the workspace version ships an app that misreports itself.
+  version-check:
+    name: Tag matches Cargo version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare tag and [workspace.package] version
+        shell: bash
+        run: |
+          cargo_version=$(sed -n '/^\[workspace.package\]/,/^\[/ s/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "workspace version: ${cargo_version}"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME#v}" != "${cargo_version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${cargo_version}. Bump [workspace.package] version first (docs/releasing.md, step 2)."
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: version-check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -82,6 +101,7 @@ jobs:
   # (.dmg for users + install-cli.command, .tar.gz for scripts & self-updater).
   macos:
     name: Build macOS universal app
+    needs: version-check
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -124,9 +144,14 @@ jobs:
 
   release:
     name: Publish release
-    needs: [build, macos]
+    needs: [version-check, build, macos]
     # Tags only: manual (workflow_dispatch) runs stop after uploading artifacts.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # macOS is the verified platform: a failed Windows or Linux build leaves its
+    # package out of the release instead of blocking the macOS release.
+    if: >-
+      always() && startsWith(github.ref, 'refs/tags/v')
+      && needs.version-check.result == 'success'
+      && needs.macos.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -158,7 +183,7 @@ jobs:
               - Download `designos-<version>-macos.dmg`, open it, and drag **designos.app** to **Applications**.
               - *(Optional)* Double-click `install-cli.command` inside the DMG to clear the macOS quarantine attribute and symlink `designos-studio`, `designos`, `designos-mcp`, and `designos-diff` onto your `PATH`.
             - **Windows (x64):**
-              - **GUI Installer:** Download and run `designos-<version>-x86_64-pc-windows-msvc-setup.exe` (per-user install, no Administrator prompt required; creates Desktop & Start Menu shortcuts and registers `.designos` / `.fig` files).
+              - **GUI Installer (when attached):** `designos-<version>-x86_64-pc-windows-msvc-setup.exe` is a per-user install with no Administrator prompt. It creates Desktop and Start Menu shortcuts and registers `.designos` and `.fig` files. It is only built when the runner has NSIS; otherwise use the ZIP below.
               - **Portable ZIP / PowerShell:** Unzip `designos-<version>-x86_64-pc-windows-msvc.zip` and run `powershell -ExecutionPolicy Bypass -File .\install.ps1`.
             - **Linux (x64):**
               - **Ubuntu / Debian (`.deb`):** `sudo apt install ./designos_<version>_amd64.deb`

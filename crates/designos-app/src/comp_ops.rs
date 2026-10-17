@@ -87,7 +87,14 @@ pub fn record_overrides(doc: &Document, before: &BTreeMap<NodeId, Node>, cmds: &
                 if derived {
                     ov.remove(&OverrideField::Size);
                 }
-            } else if matches!(&node.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight) {
+            } else if matches!(
+                &node.kind,
+                NodeKind::Text(t)
+                    if t.auto_resize == TextAutoResize::WidthAndHeight
+                        || (t.auto_resize == TextAutoResize::Height
+                            && old.size.x == node.size.x
+                            && node.size == crate::layout::fit_text(t, node.size))
+            ) {
                 ov.remove(&OverrideField::Size);
             }
         }

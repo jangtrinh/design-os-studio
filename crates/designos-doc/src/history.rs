@@ -150,7 +150,10 @@ impl Command {
                 doc.mark_full_dirty();
                 Command::SetStyles { styles: std::mem::replace(&mut doc.styles, styles), style_meta: std::mem::replace(&mut doc.style_meta, style_meta) }
             }
-            Command::SetComments { comments } => Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) },
+            Command::SetComments { comments } => {
+                doc.bump_mutation_epoch();
+                Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
+            }
             Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
                 state: std::mem::replace(&mut doc.library, state),
                 library_page: std::mem::replace(&mut doc.library_page, library_page),
@@ -222,8 +225,33 @@ impl History {
         self.undo.push(c.apply(doc)?);
         Ok(true)
     }
+    /// The command [`Self::undo`] would apply next.
+    pub fn peek_undo(&self) -> Option<&Command> {
+        self.undo.last()
+    }
+    /// The command [`Self::redo`] would apply next.
+    pub fn peek_redo(&self) -> Option<&Command> {
+        self.redo.last()
+    }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
+    }
+    /// Number of steps [`Self::undo`] can take.
+    pub fn undo_depth(&self) -> usize {
+        self.undo.len()
+    }
+    /// Forgets undo steps past `depth` without applying them, for edits the caller already
+    /// reverted another way (by restoring a snapshot of the document).
+    pub fn drop_undo_steps_after(&mut self, depth: usize) {
+        self.undo.truncate(depth);
+    }
+    /// The steps [`Self::redo`] can take, oldest first, for [`Self::restore_redo`].
+    pub fn redo_steps(&self) -> Vec<Command> {
+        self.redo.clone()
+    }
+    /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
+    pub fn restore_redo(&mut self, steps: Vec<Command>) {
+        self.redo = steps;
     }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()

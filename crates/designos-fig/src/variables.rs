@@ -163,10 +163,23 @@ pub fn import_variables_json(doc: &mut Document, json: &str) -> Result<usize, Fi
     Ok(import_variables_value(doc, &v))
 }
 
+fn finite_or(x: f32, neutral: f32) -> f32 {
+    if x.is_finite() {
+        x
+    } else {
+        neutral
+    }
+}
+
 fn value_json(v: &VariableValue) -> Value {
     match v {
-        VariableValue::Color(c) => json!({"r": c.r, "g": c.g, "b": c.b, "a": c.a}),
-        VariableValue::Number(n) => json!(n),
+        VariableValue::Color(c) => json!({
+            "r": finite_or(c.r, 0.0),
+            "g": finite_or(c.g, 0.0),
+            "b": finite_or(c.b, 0.0),
+            "a": finite_or(c.a, 1.0),
+        }),
+        VariableValue::Number(n) => json!(finite_or(*n, 0.0)),
         VariableValue::String(s) => json!(s),
         VariableValue::Boolean(b) => json!(b),
         VariableValue::Alias(id) => json!({"type": "VARIABLE_ALIAS", "id": id}),
@@ -486,5 +499,61 @@ mod tests {
         assert_eq!(v.values["1:6"], VariableValue::Number(4.0));
         assert_eq!(v.values["1:7"], VariableValue::Alias("VariableID:1:9".into()));
         assert!(from_fig_entries(&[]).is_none());
+    }
+
+    #[test]
+    fn export_variables_json_replaces_non_finite_numbers_and_roundtrips() {
+        let mut doc = Document::new("vars");
+        doc.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Light".into() }, VariableMode { id: "m2".into(), name: "Dark".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v_num".into(), "v_col".into()],
+                key: None,
+            },
+        );
+        doc.variables.insert(
+            "v_num".into(),
+            Variable {
+                id: "v_num".into(),
+                name: "spacing".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Number,
+                values: BTreeMap::from([("m1".into(), VariableValue::Number(f32::NAN)), ("m2".into(), VariableValue::Number(f32::INFINITY))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+            },
+        );
+        doc.variables.insert(
+            "v_col".into(),
+            Variable {
+                id: "v_col".into(),
+                name: "accent".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("m1".into(), VariableValue::Color(Color { r: f32::NAN, g: 0.5, b: f32::NEG_INFINITY, a: f32::NAN }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+            },
+        );
+
+        let exported = export_variables_json(&doc);
+        let text = serde_json::to_string(&exported).unwrap();
+        assert!(!text.contains("null"), "variable export must not write null for non-finite numbers: {text}");
+
+        let mut reimported = Document::new("back");
+        assert_eq!(import_variables_json(&mut reimported, &text).unwrap(), 2);
+        assert_eq!(reimported.variables["v_num"].values.get("m1"), Some(&VariableValue::Number(0.0)));
+        assert_eq!(reimported.variables["v_num"].values.get("m2"), Some(&VariableValue::Number(0.0)));
+        assert_eq!(reimported.variables["v_col"].values.get("m1"), Some(&VariableValue::Color(Color { r: 0.0, g: 0.5, b: 0.0, a: 1.0 })));
     }
 }

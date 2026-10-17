@@ -241,3 +241,35 @@ ol.steps .ds-code{margin-top:var(--s-3)}
 .showcase-card-actions a .ph{width:14px;height:14px}
 @media(prefers-reduced-motion:no-preference){.track{scroll-behavior:smooth}}
 
+/* ---------------------------------------------------------------- Hero film (#film)
+   One stage, two sources. The stage ratio follows the same query the inline script in index.html
+   uses to pick the 9:16 film, so a phone gets no layout shift. Keep the two queries identical:
+   (max-width:640px) and (orientation:portrait). Controls stay hidden until the script wires them. */
+.film-hero{scroll-margin-top:var(--s-12)}
+.film-stage{aspect-ratio:16/9;background:var(--c-gray-1200)}
+.film-stage video{display:block;width:100%;height:100%;object-fit:cover}
+@media (max-width:640px) and (orientation:portrait){
+  .film-stage{aspect-ratio:9/16;width:min(100%,calc(80svh * 9 / 16));margin-inline:auto}
+}
+.film-caption{align-items:center}
+.film-controls{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-4)}
+.film-controls[hidden],.film-overlay[hidden]{display:none}
+.film-btn{position:relative}
+/* 32px control, 44px hit area (same expansion the nav tabs use). */
+.film-btn::after{content:"";position:absolute;inset:calc((var(--tap-min) - var(--ctl-32)) / -2)}
+.film-btn .ph{width:var(--icon-16);height:var(--icon-16)}
+.film-btn [data-state]{color:var(--c-gray-900)}
+.film-btn[data-tone="solid"] [data-state]{color:var(--c-gray-500)}
+.ds-btn-pill.film-btn[aria-pressed="true"]{background:var(--c-preview-bg);color:var(--c-accent-text);box-shadow:var(--shadow-custom)}
+.ds-btn-pill.film-btn[aria-pressed="true"] [data-state]{color:var(--c-accent-text)}
+.film-btn[aria-pressed="true"] .film-ico-off,.film-btn[aria-pressed="false"] .film-ico-on{display:none}
+.film-hero[data-playing="true"] .film-ico-play,.film-hero[data-playing="false"] .film-ico-pause{display:none}
+/* Paused state: the whole stage is one real play control, centred on the poster. */
+.film-overlay{position:absolute;inset:0;display:grid;place-items:center;padding:0;border:0;background:transparent;cursor:pointer}
+.film-overlay-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.film-overlay-disc{display:grid;place-items:center;width:64px;height:64px;border-radius:var(--r-pill);background:color-mix(in srgb,var(--c-canvas) 92%,transparent);color:var(--c-gray-1200);box-shadow:var(--shadow-custom)}
+.film-overlay-disc .ph{width:var(--icon-20);height:var(--icon-20);margin-left:2px}
+@media (hover: hover){
+  .film-overlay:hover .film-overlay-disc{background:var(--c-canvas);box-shadow:var(--shadow-custom-hover)}
+}
+

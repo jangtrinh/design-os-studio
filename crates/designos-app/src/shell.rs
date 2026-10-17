@@ -120,6 +120,10 @@ impl Shell {
             None if opts.file.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
             _ => demo::demo_document(),
         });
+        // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
+        // session directory once; bind the terminal to the id the tab bar keeps before any can start.
+        let session_id = app.tabs.active_session_id();
+        app.terminal.bind_session(&session_id);
         if !matches!(opts.fixture.as_deref(), Some("variables" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)) {
             app.doc.name = "Untitled".into();
         }
@@ -1072,7 +1076,7 @@ impl Shell {
         if self.shot.is_none() && (is_ai_panel || self.app.terminal.dock_open) {
             self.app.terminal.ensure_default_tab(self.app.file_path.as_deref());
         }
-        self.app.terminal.sync_live_file_context(&self.app.doc, self.app.page, &self.app.selection, self.app.file_path.as_deref());
+        crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
         }
@@ -1080,6 +1084,8 @@ impl Shell {
         if !bridge_actions.is_empty() {
             execute_terminal_actions(&mut self.app, bridge_actions);
         }
+        // Agent edits that arrived during a drag or text edit land once it has ended.
+        crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
         if full_vars {
             // The local-variables full view replaces the left panel, canvas and right panel.
             rail::show(&mut self.app, ui, rail_rect);
@@ -1238,23 +1244,16 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 },
                 Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
             },
-            crate::terminal::TerminalAction::SyncLiveDoc(path) => match std::fs::read_to_string(&path) {
-                Ok(raw) => match designos_doc::Document::from_json(&raw) {
-                    Ok(mut new_doc) => {
-                        crate::io::ensure_page(&mut new_doc);
-                        let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
-                        app.doc = new_doc;
-                        app.page = keep_page;
-                        app.sanitize();
-                        app.changed();
-                        app.fit_all();
-                        app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
-                        app.show_toast("Applied live Agent changes to current page", false);
-                    }
-                    Err(e) => app.show_toast(format!("Live doc parse error: {e}"), true),
-                },
-                Err(e) => app.show_toast(format!("Failed to read live doc {}: {e}", path.display()), true),
-            },
+            crate::terminal::TerminalAction::ApplyLiveLog(lines) => {
+                for error in app.terminal.live_patch.ingest(lines) {
+                    app.show_toast(error, true);
+                }
+                crate::live_patch_apply::apply_pending_live_patches(app);
+                if app.terminal.live_patch.has_held() {
+                    app.terminal.status_msg = Some("Agent edit waits until you finish the current edit".into());
+                }
+            }
+            crate::terminal::TerminalAction::LiveSyncError(msg) => app.show_toast(msg, true),
             crate::terminal::TerminalAction::ReloadFromDisk => {
                 if let Some(p) = app.file_path.clone() {
                     app.open_path(p);
