@@ -14,6 +14,7 @@ pub mod prototype;
 pub mod rail;
 pub mod right;
 pub mod stroke;
+pub mod style_picker;
 pub mod toolbar;
 pub mod typography;
 pub mod var_bind;

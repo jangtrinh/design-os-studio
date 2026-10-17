@@ -936,6 +936,7 @@ mod comments;
 mod components;
 mod decks;
 mod dev;
+mod effect_grid_styles;
 mod find;
 mod history;
 mod home;

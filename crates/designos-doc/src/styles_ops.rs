@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(d.get(g).unwrap().style_refs.get("grid"), Some(&grid_key));
         assert_eq!(grids(&d, g), vec![cols(12)]);
         h.undo(&mut d).unwrap();
-        assert!(d.get(g).unwrap().style_refs.get("grid").is_none());
+        assert!(!d.get(g).unwrap().style_refs.contains_key("grid"));
         assert!(grids(&d, g).is_empty());
         assert!(matches!(apply_style(&d, &[b], "nope").unwrap_err(), StyleOpError::UnknownStyle(k) if k == "nope"));
     }
