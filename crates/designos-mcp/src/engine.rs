@@ -830,6 +830,7 @@ mod tests {
                     default_mode: "light".into(),
                     variables: vec![],
                     key: None,
+                    source_library_key: None,
                 },
             );
         }

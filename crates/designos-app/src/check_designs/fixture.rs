@@ -39,6 +39,7 @@ pub fn document() -> Document {
             default_mode: "default".into(),
             variables: vec!["primary".into()],
             key: None,
+            source_library_key: None,
         },
     );
     d.variables.insert(

@@ -110,6 +110,7 @@ impl Shell {
         let mut app = App::new(match opts.fixture.as_deref() {
             Some("no-selection") => demo::reference_document(),
             Some("variables") => demo::variables_document(),
+            Some("variables-library" | "variables-library-open") => demo::variables_library_document(),
             Some(crate::showcase::FIXTURE) => crate::showcase::document(),
             Some(crate::protovars::FIXTURE) => crate::protovars::document(),
             Some(crate::check_designs::FIXTURE) => crate::check_designs::fixture::document(),
@@ -124,7 +125,10 @@ impl Shell {
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
         let session_id = app.tabs.active_session_id();
         app.terminal.bind_session(&session_id);
-        if !matches!(opts.fixture.as_deref(), Some("variables" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)) {
+        if !matches!(
+            opts.fixture.as_deref(),
+            Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE | crate::check_designs::FIXTURE)
+        ) {
             app.doc.name = "Untitled".into();
         }
         if opts.fixture.as_deref() == Some("deck") {
@@ -308,6 +312,10 @@ impl Shell {
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
                 app.open_variables();
+                if opts.fixture.as_deref() == Some("variables-library-open") {
+                    // the capture of a library collection: start on it rather than on the file's own
+                    app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
+                }
             }
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {

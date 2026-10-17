@@ -566,6 +566,7 @@ pub(crate) mod fixture {
                 default_mode: "light".into(),
                 variables: vec!["primary".into(), "muted".into(), "md".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         let var = |id: &str, name: &str, kind, values: Vec<(&str, VariableValue)>| Variable {

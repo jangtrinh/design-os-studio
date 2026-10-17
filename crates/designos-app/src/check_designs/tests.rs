@@ -65,6 +65,7 @@ impl Fx {
             default_mode: "light".into(),
             variables: vec![],
             key: None,
+            source_library_key: None,
         });
         let id = format!("var:{name}");
         coll.variables.push(id.clone());
