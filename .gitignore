@@ -11,3 +11,6 @@
 
 # Private design files used for local import checks: never committed
 /reference/*.fig
+
+# Claude Code session-state written by hooks into nested working dirs
+**/.claude/session-state/
