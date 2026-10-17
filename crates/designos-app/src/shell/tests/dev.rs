@@ -81,7 +81,10 @@ fn language_dropdown_switches_the_code_and_copy_reports() {
     for (i, lang) in Language::ALL.into_iter().enumerate() {
         let dd = s.rect_of("dev-lang");
         s.click(dd.center());
-        let y = dd.bottom() + 2.0 + theme::MENU_PADDING + i as f32 * 24.0 + 12.0;
+        // the popup sits under the dropdown, shifted up when the longer list would leave the screen
+        let menu_h = Language::ALL.len() as f32 * 24.0 + 2.0 * theme::MENU_PADDING;
+        let top = (dd.bottom() + 2.0).min(s.ctx.content_rect().bottom() - menu_h - 2.0);
+        let y = top + theme::MENU_PADDING + i as f32 * 24.0 + 12.0;
         s.click(Pos2::new(dd.center().x, y));
         assert_eq!(s.app().dev.lang, lang, "option {i}");
         frames(&mut s, 2);
@@ -263,7 +266,9 @@ fn token_handoff_copies_codegen_reference_and_effective_value_without_editing() 
     let index = used.iter().position(|u| u.name == "Surface/Card").unwrap();
     let token = &s.app().doc.variables[&used[index].id];
     let reference = designos_export::css_variable_reference(token);
-    assert!(designos_export::css_for(&s.app().doc, card).contains(&reference));
+    // the code prints the reference with the resolved value as its fallback: `var(--Surface-Card, #FFF)`
+    let name_part = reference.trim_end_matches(')');
+    assert!(designos_export::css_for(&s.app().doc, card).contains(&format!("{name_part}, ")));
     let designos_doc::VariableValue::Color(color) = used[index].effective[0].value.clone().unwrap() else { panic!("color token") };
     let value = crate::dev::color::ColorFormat::Rgb.value(color, color.a);
     let before = s.app().doc.to_json().unwrap();
@@ -299,6 +304,58 @@ fn token_handoff_copies_codegen_reference_and_effective_value_without_editing() 
             ]));
         }
         assert_eq!(copied, vec![expected]);
+    }
+    assert_eq!(s.app().doc.to_json().unwrap(), before, "inspection is read-only");
+}
+
+#[test]
+fn token_code_syntax_rows_copy_each_platforms_syntax() {
+    use designos_doc::CodeSyntaxPlatform;
+    let (mut s, card) = dev_sim();
+    let used = crate::dev::data::variables_used(&s.app().doc, card);
+    let index = used.iter().position(|u| u.name == "Surface/Card").unwrap();
+    let id = used[index].id.clone();
+    let syntax = s.shell.app.doc.variables.get_mut(&id).unwrap();
+    syntax.code_syntax.insert(CodeSyntaxPlatform::Web, "var(--surface-card, #fff)".into());
+    syntax.code_syntax.insert(CodeSyntaxPlatform::Android, "R.color.surfaceCard".into());
+    syntax.code_syntax.insert(CodeSyntaxPlatform::Ios, "Color.surfaceCard".into());
+    let before = s.app().doc.to_json().unwrap();
+    let ctx = s.ctx.clone();
+    let mut time = 0.0;
+    let mut draw = |events| {
+        time += 0.05;
+        let output = ctx.run_ui(
+            RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 4000.0))), time: Some(time), events, ..Default::default() },
+            |ui| {
+                let mut c = crate::panels::inspect::Cur { x0: 0.0, oy: 0.0, y: 0.0, w: 240.0 };
+                crate::dev::sections::variables_section(&mut s.shell.app, ui, &mut c, card);
+            },
+        );
+        output
+            .platform_output
+            .commands
+            .into_iter()
+            .filter_map(|cmd| match cmd {
+                egui::OutputCommand::CopyText(text) => Some(text),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    draw(vec![]);
+    for (key, expected) in [
+        (format!("dev-token-ref-{index}"), "var(--surface-card, #fff)"),
+        (format!("dev-token-syntax-{index}-android"), "R.color.surfaceCard"),
+        (format!("dev-token-syntax-{index}-ios"), "Color.surfaceCard"),
+    ] {
+        let r = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.clone())))).unwrap_or_else(|| panic!("no row {key}"));
+        let mut copied = Vec::new();
+        for pressed in [true, false] {
+            copied.extend(draw(vec![
+                Event::PointerMoved(r.center()),
+                Event::PointerButton { pos: r.center(), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE },
+            ]));
+        }
+        assert_eq!(copied, vec![expected.to_string()], "{key}");
     }
     assert_eq!(s.app().doc.to_json().unwrap(), before, "inspection is read-only");
 }

@@ -17,14 +17,14 @@ pub fn compose_for(doc: &Document, node: NodeId) -> String {
 
 fn dp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => format!("Tokens.{}", token_camel(var, false)),
+        Some(var) => token_text(var, CodeSyntaxPlatform::Android, || format!("Tokens.{}", token_camel(var, false))),
         None => format!("{}.dp", num(v)),
     }
 }
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
     if let Some(v) = bound(doc, n, key) {
-        return format!("MaterialTheme.colorScheme.{}", token_camel(v, true));
+        return token_text(v, CodeSyntaxPlatform::Android, || format!("MaterialTheme.colorScheme.{}", token_camel(v, true)));
     }
     let a = ((c.a * opacity).clamp(0.0, 1.0) * 255.0).round() as u8;
     format!("Color(0x{a:02X}{})", c.to_hex())
@@ -221,7 +221,7 @@ fn text_args(doc: &Document, n: &Node, t: &TextProps, args: &mut Vec<Arg>) {
     args.push(arg(format!(
         "fontSize = {}",
         match bound(doc, n, "fontSize") {
-            Some(v) => format!("Tokens.{}", token_camel(v, false)),
+            Some(v) => token_text(v, CodeSyntaxPlatform::Android, || format!("Tokens.{}", token_camel(v, false))),
             None => format!("{}.sp", num(s.font_size)),
         }
     )));
@@ -359,7 +359,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
 
 fn finish_mods(doc: &Document, n: &Node, rot: f32, mods: &mut Vec<String>) {
     match bound(doc, n, "opacity") {
-        Some(v) => mods.push(format!(".alpha(Tokens.{} / 100f)", token_camel(v, false))),
+        Some(v) => mods.push(format!(".alpha({} / 100f)", token_text(v, CodeSyntaxPlatform::Android, || format!("Tokens.{}", token_camel(v, false))))),
         None if n.opacity < 0.999 => mods.push(format!(".alpha({}f)", num((n.opacity * 100.0).round() / 100.0))),
         None => {}
     }

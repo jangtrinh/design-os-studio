@@ -164,7 +164,9 @@ impl Shell {
             app.dev.lang = match l.as_str() {
                 "tailwind" => crate::dev::Language::Tailwind,
                 "swiftui" => crate::dev::Language::SwiftUi,
+                "uikit" => crate::dev::Language::UiKit,
                 "compose" => crate::dev::Language::Compose,
+                "android-xml" => crate::dev::Language::AndroidXml,
                 "react" => crate::dev::Language::React,
                 _ => crate::dev::Language::Css,
             };
@@ -2675,7 +2677,9 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 crate::dev::Language::Tailwind => "Tailwind v4",
                 crate::dev::Language::Css => "CSS Flexbox/Grid",
                 crate::dev::Language::SwiftUi => "SwiftUI",
+                crate::dev::Language::UiKit => "UIKit",
                 crate::dev::Language::Compose => "Jetpack Compose",
+                crate::dev::Language::AndroidXml => "Android XML",
             };
             hud.badge_text = format!("Dev Mode · Box Model · {lang_name}");
             hud.keycap = "⇧D".into();

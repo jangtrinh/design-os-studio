@@ -59,6 +59,16 @@ fn kind_of(ty: &str) -> Option<VariableKind> {
     })
 }
 
+/// REST `codeSyntax`: `{WEB?, ANDROID?, iOS?}` with non-empty strings.
+fn parse_code_syntax(v: Option<&Value>) -> CodeSyntax {
+    let Some(o) = v.and_then(Value::as_object) else { return CodeSyntax::new() };
+    o.iter().filter_map(|(label, code)| Some((CodeSyntaxPlatform::from_label(label)?, code.as_str().filter(|c| !c.is_empty())?.to_string()))).collect()
+}
+
+fn code_syntax_json(c: &CodeSyntax) -> Value {
+    Value::Object(c.iter().map(|(p, code)| (p.label().to_string(), Value::String(code.clone()))).collect())
+}
+
 fn type_name(k: VariableKind) -> &'static str {
     match k {
         VariableKind::Color => "COLOR",
@@ -122,6 +132,7 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
                 scopes: farr(v, "scopes").iter().filter_map(|s| s.as_str().filter(|s| *s != "ALL_SCOPES").map(String::from)).collect(),
                 hidden_from_publishing: fbool(v, "hiddenFromPublishing").unwrap_or(false),
                 key: fstr(v, "key").map(String::from),
+                code_syntax: parse_code_syntax(v.get("codeSyntax")),
             },
         );
     }
@@ -179,7 +190,7 @@ pub fn export_variables_meta(doc: &Document) -> Value {
         m.insert("description".into(), v.description.clone().into());
         m.insert("hiddenFromPublishing".into(), v.hidden_from_publishing.into());
         m.insert("scopes".into(), json!(if v.scopes.is_empty() { vec!["ALL_SCOPES".to_string()] } else { v.scopes.clone() }));
-        m.insert("codeSyntax".into(), json!({}));
+        m.insert("codeSyntax".into(), code_syntax_json(&v.code_syntax));
         vars.insert(v.id.clone(), Value::Object(m));
     }
     let mut colls = Map::new();
@@ -221,6 +232,31 @@ fn collect_aliases(v: &Value, key: String, out: &mut BTreeMap<String, String>) {
     }
 }
 
+/// REST has no slot for a paint's opacity variable, so `boundVariables` carries it as
+/// `fillOpacities[i]` / `strokeOpacities[i]` (effects use `effects[i].opacity`). These are the
+/// matching binding keys, `fills/i/opacity` etc.
+fn opacity_binding_key(rest_key: &str) -> Option<String> {
+    let (list, i) = rest_key.split_once('/')?;
+    let list = match list {
+        "fillOpacities" => "fills",
+        "strokeOpacities" => "strokes",
+        "effects" if i.ends_with("/opacity") => return Some(rest_key.to_string()),
+        _ => return None,
+    };
+    Some(format!("{list}/{i}/opacity"))
+}
+
+fn opacity_rest_path(binding_key: &str) -> Option<String> {
+    let rest = binding_key.strip_suffix("/opacity")?;
+    let (list, i) = rest.split_once('/')?;
+    match list {
+        "fills" => Some(format!("fillOpacities/{i}")),
+        "strokes" => Some(format!("strokeOpacities/{i}")),
+        "effects" => Some(binding_key.to_string()),
+        _ => None,
+    }
+}
+
 /// `boundVariables` and `explicitVariableModes` of a REST node.
 pub(crate) fn parse_node_variables(v: &Value) -> NodeVariables {
     let mut nv = NodeVariables::default();
@@ -233,7 +269,7 @@ pub(crate) fn parse_node_variables(v: &Value) -> NodeVariables {
             let k = match k.as_str() {
                 "size/x" => "width".to_string(),
                 "size/y" => "height".to_string(),
-                _ => k,
+                _ => opacity_binding_key(&k).unwrap_or(k),
             };
             nv.bindings.insert(k, id);
         }
@@ -283,10 +319,11 @@ pub(crate) fn export_node_variables(node: &Node, m: &mut Map<String, Value>) {
     if !node.variables.bindings.is_empty() {
         let mut root = Value::Object(Map::new());
         for (k, id) in &node.variables.bindings {
+            let rest_path = opacity_rest_path(k);
             let key = match k.as_str() {
                 "width" => "size/x",
                 "height" => "size/y",
-                other => other,
+                other => rest_path.as_deref().unwrap_or(other),
             };
             let parts: Vec<&str> = key.split('/').collect();
             put(&mut root, &parts, json!({"type": "VARIABLE_ALIAS", "id": id}));
@@ -410,6 +447,16 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
                    "description": fstr(e, "description").unwrap_or(""), "hiddenFromPublishing": false});
         if let Some(k) = fstr(e, "key").filter(|k| !k.is_empty()) {
             v["key"] = k.into();
+        }
+        let syntax: Map<String, Value> = e
+            .get("codeSyntax")
+            .map(|m| farr(m, "entries"))
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|x| Some((fstr(x, "platform")?.to_string(), Value::String(fstr(x, "value")?.to_string()))))
+            .collect();
+        if !syntax.is_empty() {
+            v["codeSyntax"] = Value::Object(syntax);
         }
         vars.insert(id, v);
     }

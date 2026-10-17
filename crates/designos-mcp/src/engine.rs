@@ -86,7 +86,8 @@ impl Engine {
                                 json!({
                                     "property":property,"variable_id":variable,
                                     "mode_id":self.doc.variables.get(variable).and_then(|v|self.doc.variable_mode(n.id,&v.collection)),
-                                    "value":self.doc.resolve_variable(n.id,variable)
+                                    "value":self.doc.resolve_variable(n.id,variable),
+                                    "code_syntax":self.doc.variables.get(variable).map(|v|&v.code_syntax)
                                 })
                             })
                             .collect::<Vec<_>>(),
@@ -94,7 +95,12 @@ impl Engine {
                 } else {
                     None
                 };
-                Ok(json!({"variables":self.doc.variables,"collections":self.doc.variable_collections,"effective_bindings":effective}))
+                // `code_syntax` is skipped in the native format when empty; tools get a stable shape.
+                let mut variables = json!(self.doc.variables);
+                for v in variables.as_object_mut().into_iter().flat_map(|m| m.values_mut()).filter_map(|v| v.as_object_mut()) {
+                    v.entry("code_syntax").or_insert_with(|| json!({}));
+                }
+                Ok(json!({"variables":variables,"collections":self.doc.variable_collections,"effective_bindings":effective}))
             }
             "designos_generate_code" => {
                 let a: CodeArgs = parse(args)?;
@@ -105,9 +111,11 @@ impl Engine {
                     "tailwind" => designos_export::tailwind_for(&doc, id),
                     "react" => designos_export::react_for(&doc, id),
                     "swiftui" => designos_export::swiftui_for(&doc, id),
+                    "uikit" => designos_export::uikit_for(&doc, id),
                     "compose" => designos_export::compose_for(&doc, id),
+                    "android-xml" => designos_export::android_xml_for(&doc, id),
                     "svg" => designos_export::export_svg(&doc, id, &Default::default()),
-                    _ => return Err("language must be css, tailwind, react, swiftui, compose, or svg".into()),
+                    _ => return Err("language must be css, tailwind, react, swiftui, uikit, compose, android-xml, or svg".into()),
                 };
                 Ok(json!({"node_id":id,"language":a.language,"code":code}))
             }
@@ -681,7 +689,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "generate_code",
         "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
-        json!({"node_id":id,"language":{"type":"string","enum":["css","tailwind","react","swiftui","compose","svg"]}}),
+        json!({"node_id":id,"language":{"type":"string","enum":["css","tailwind","react","swiftui","uikit","compose","android-xml","svg"]}}),
         vec!["node_id", "language"],
         true,
         true,
@@ -805,14 +813,24 @@ mod tests {
                     scopes: vec![],
                     hidden_from_publishing: false,
                     key: None,
+
+                    code_syntax: Default::default(),
                 },
             );
         }
         e.doc.get_mut(NodeId(1)).unwrap().variables.modes.insert("size".into(), "dark".into());
         e.doc.get_mut(NodeId(id)).unwrap().variables.bindings.insert("width".into(), "bound".into());
+        e.doc.variables.get_mut("bound").unwrap().code_syntax.insert(designos_doc::CodeSyntaxPlatform::Web, "var(--size-bound, 240px)".into());
+        e.doc.variables.get_mut("bound").unwrap().code_syntax.insert(designos_doc::CodeSyntaxPlatform::Ios, "Size.bound".into());
         let before = e.doc.to_json().unwrap();
         let values = e.call("designos_get_variables", json!({"node_id":id})).unwrap();
         assert_eq!(values["effective_bindings"][0]["value"], json!({"Number":240.0}));
+        let syntax = json!({"WEB": "var(--size-bound, 240px)", "iOS": "Size.bound"});
+        assert_eq!(values["variables"]["bound"]["code_syntax"], syntax);
+        assert_eq!(values["effective_bindings"][0]["code_syntax"], syntax);
+        assert_eq!(values["variables"]["width"]["code_syntax"], json!({}));
+        let css = e.call("designos_generate_code", json!({"node_id":id,"language":"css"})).unwrap();
+        assert!(css["code"].as_str().unwrap().contains("width: var(--size-bound, 240px);"), "{css}");
         let svg = e.call("designos_generate_code", json!({"node_id":id,"language":"svg"})).unwrap();
         assert!(svg["code"].as_str().unwrap().contains("width=\"240\""));
         assert_eq!(e.doc.to_json().unwrap(), before);
@@ -896,10 +914,16 @@ mod tests {
         assert_eq!(result["total"], 2);
         assert_eq!(result["nodes"][0]["node_id"], id);
         assert_eq!(result["next_offset"], 1);
-        for language in ["css", "tailwind", "react", "swiftui", "compose", "svg"] {
+        for language in ["css", "tailwind", "react", "swiftui", "uikit", "compose", "android-xml", "svg"] {
             let output = e.call("designos_generate_code", json!({"node_id":id,"language":language})).unwrap();
             assert!(!output["code"].as_str().unwrap().is_empty());
         }
+        let uikit = e.call("designos_generate_code", json!({"node_id":id,"language":"uikit"})).unwrap();
+        assert!(uikit["code"].as_str().unwrap().starts_with("let card = "), "{uikit}");
+        let xml = e.call("designos_generate_code", json!({"node_id":id,"language":"android-xml"})).unwrap();
+        assert!(xml["code"].as_str().unwrap().starts_with("<!-- res/layout/card.xml -->"), "{xml}");
+        let err = e.call("designos_generate_code", json!({"node_id":id,"language":"vue"})).unwrap_err();
+        assert!(err.contains("uikit") && err.contains("android-xml"), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
     }

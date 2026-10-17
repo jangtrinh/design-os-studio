@@ -372,13 +372,15 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         theme::font_small_strong(),
         if more_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY },
     );
-    if more_resp.on_hover_text("Copy full multi-language code bundle (CSS + React + SwiftUI + Compose)").clicked() {
+    if more_resp.on_hover_text("Copy full multi-language code bundle (CSS + React + SwiftUI + UIKit + Compose + Android XML)").clicked() {
         let bundle = format!(
-            "/* === CSS === */\n{}\n\n// === React ===\n{}\n\n// === SwiftUI ===\n{}\n\n// === Compose ===\n{}",
+            "/* === CSS === */\n{}\n\n// === React ===\n{}\n\n// === SwiftUI ===\n{}\n\n// === UIKit ===\n{}\n\n// === Compose ===\n{}\n\n<!-- === Android XML === -->\n{}",
             crate::dev::Language::Css.generate(&app.doc, id, false),
             crate::dev::Language::React.generate(&app.doc, id, app.dev.react_tailwind),
             crate::dev::Language::SwiftUi.generate(&app.doc, id, false),
+            crate::dev::Language::UiKit.generate(&app.doc, id, false),
             crate::dev::Language::Compose.generate(&app.doc, id, false),
+            crate::dev::Language::AndroidXml.generate(&app.doc, id, false),
         );
         copy(app, ui, bundle, "multi-language code bundle");
     }
@@ -918,6 +920,8 @@ mod tests {
                 scopes: vec![],
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
         assert_eq!(collect_colors(&d, id)[0].hex(), "#FFFFFF");

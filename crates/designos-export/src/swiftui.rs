@@ -17,7 +17,7 @@ pub fn swiftui_for(doc: &Document, node: NodeId) -> String {
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
     if let Some(v) = bound(doc, n, key) {
-        return format!("Color(\"{}\")", token_camel(v, true));
+        return token_text(v, CodeSyntaxPlatform::Ios, || format!("Color(\"{}\")", token_camel(v, true)));
     }
     let a = (c.a * opacity).clamp(0.0, 1.0);
     let base = if c.r == 1.0 && c.g == 1.0 && c.b == 1.0 {
@@ -75,7 +75,7 @@ fn fill_expr(doc: &Document, n: &Node, key: &str, p: &Paint) -> String {
 
 fn dimension(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => format!("Tokens.{}", token_camel(var, false)),
+        Some(var) => token_text(var, CodeSyntaxPlatform::Ios, || format!("Tokens.{}", token_camel(var, false))),
         None => num(v),
     }
 }
@@ -154,7 +154,7 @@ fn frame_args(w: Dim, h: Dim, align: Option<&str>, n: &Node, doc: &Document) -> 
     Some(format!(".frame({})", a.join(", ")))
 }
 
-fn weight_name(w: u16) -> &'static str {
+pub(crate) fn weight_name(w: u16) -> &'static str {
     match w {
         0..=149 => ".ultraLight",
         150..=249 => ".thin",
@@ -382,7 +382,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out) {
         }
     }
     match bound(doc, n, "opacity") {
-        Some(v) => mods.push(format!(".opacity(Tokens.{} / 100)", token_camel(v, false))),
+        Some(v) => mods.push(format!(".opacity({} / 100)", token_text(v, CodeSyntaxPlatform::Ios, || format!("Tokens.{}", token_camel(v, false))))),
         None if n.opacity < 0.999 => mods.push(format!(".opacity({})", num((n.opacity * 100.0).round() / 100.0))),
         None => {}
     }

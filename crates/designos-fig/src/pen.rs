@@ -144,6 +144,8 @@ fn import_pen_variables(doc: &mut Document, obj: &Map<String, Value>) {
                 scopes: Vec::new(),
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
     }

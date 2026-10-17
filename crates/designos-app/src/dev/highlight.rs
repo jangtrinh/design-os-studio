@@ -47,7 +47,10 @@ pub fn color(t: Tok) -> Color32 {
 fn keywords(lang: Language) -> &'static [&'static str] {
     match lang {
         Language::Css | Language::Tailwind => &["true", "false"],
-        Language::SwiftUi => &["let", "var", "func", "struct", "some", "return", "if", "else", "true", "false", "nil", "import", "self", "in"],
+        Language::SwiftUi | Language::UiKit => {
+            &["let", "var", "func", "struct", "some", "return", "if", "else", "true", "false", "nil", "import", "self", "in"]
+        }
+        Language::AndroidXml => &["true", "false"],
         Language::Compose => &["val", "var", "fun", "return", "if", "else", "true", "false", "null", "import", "class", "object"],
         Language::React => &["export", "function", "return", "const", "true", "false", "null", "import"],
     }
@@ -63,6 +66,10 @@ pub fn highlight(lang: Language, code: &str) -> Vec<Vec<Span>> {
 }
 
 fn line(lang: Language, src: &str) -> Vec<Span> {
+    // XML comments (file headers, notes) are always one line in the generated layouts
+    if lang == Language::AndroidXml && src.trim_start().starts_with("<!--") {
+        return vec![span(Tok::Comment, src)];
+    }
     let chars: Vec<char> = src.chars().collect();
     let mut out: Vec<Span> = Vec::new();
     let mut i = 0;
@@ -223,6 +230,24 @@ mod tests {
         assert!(kinds(l).contains(&(Tok::Str, "\"Hi\"")));
         let l = &highlight(Language::Compose, "color = Color(0xFF111111)")[0];
         assert!(kinds(l).contains(&(Tok::Type, "Color")));
+    }
+
+    #[test]
+    fn uikit_and_android_xml() {
+        let l = &highlight(Language::UiKit, "let card = UIStackView()")[0];
+        assert_eq!(kinds(l)[0], (Tok::Keyword, "let"));
+        assert!(kinds(l).contains(&(Tok::Type, "UIStackView")));
+        let l = &highlight(Language::UiKit, "card.spacing = 8")[0];
+        assert!(kinds(l).contains(&(Tok::Number, "8")));
+        // an XML file header is one comment, even though it holds slashes and dots
+        let l = &highlight(Language::AndroidXml, "<!-- res/layout/card.xml -->")[0];
+        assert_eq!(kinds(l), vec![(Tok::Comment, "<!-- res/layout/card.xml -->")]);
+        let l = &highlight(Language::AndroidXml, "    android:text=\"Hi\"")[0];
+        assert!(kinds(l).contains(&(Tok::Property, "android")));
+        assert!(kinds(l).contains(&(Tok::Property, "text")));
+        assert!(kinds(l).contains(&(Tok::Str, "\"Hi\"")));
+        let l = &highlight(Language::AndroidXml, "<LinearLayout")[0];
+        assert_eq!(kinds(l)[1], (Tok::Type, "LinearLayout"));
     }
 
     #[test]

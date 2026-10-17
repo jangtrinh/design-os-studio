@@ -1,6 +1,6 @@
 //! Helpers shared by the code generators (Tailwind, SwiftUI, Compose, React).
 
-use crate::util::num;
+use crate::util::{css_color, num};
 use designos_doc::*;
 
 /// Indenting line writer.
@@ -110,13 +110,101 @@ fn segments(v: &Variable) -> Vec<String> {
     }
 }
 
-/// `var(--color-primary)` for a variable named `Color/Primary`.
-pub fn css_var(v: &Variable) -> String {
-    let mut s = segments(v);
-    if s.len() == 1 && v.kind == VariableKind::Color {
-        s.insert(0, "color".into());
+/// Figma's custom-property name sanitizer for a variable name (`Color/Primary` -> `Color-Primary`):
+/// 1. strip non-ASCII characters, quotes and newlines, then trim;
+/// 2. turn runs of whitespace and `/` into `-`;
+/// 3. a result made only of `[-A-Za-z0-9_]` keeps its case;
+/// 4. anything else becomes lower kebab-case (camelCase split) without leading non-alphanumerics;
+/// 5. an empty result is `unnamed`.
+pub(crate) fn css_var_name(name: &str) -> String {
+    let stripped: String = name.chars().filter(|c| c.is_ascii() && !matches!(c, '"' | '\'' | '\n' | '\r')).collect();
+    let mut joined = String::new();
+    let mut in_run = false;
+    for c in stripped.trim().chars() {
+        if c.is_whitespace() || c == '/' {
+            if !in_run {
+                joined.push('-');
+            }
+            in_run = true;
+        } else {
+            joined.push(c);
+            in_run = false;
+        }
     }
-    format!("var(--{})", s.join("-"))
+    let plain = joined.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let out = if plain {
+        joined
+    } else {
+        let mut kebab = String::new();
+        let mut prev: Option<char> = None;
+        for c in joined.chars() {
+            if c.is_ascii_uppercase() && prev.is_some_and(|p| p.is_ascii_lowercase() || p.is_ascii_digit()) {
+                kebab.push('-');
+            }
+            kebab.push(c.to_ascii_lowercase());
+            prev = Some(c);
+        }
+        kebab.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()).to_string()
+    };
+    if out.is_empty() {
+        "unnamed".into()
+    } else {
+        out
+    }
+}
+
+/// `var(--Color-Primary)` for a variable named `Color/Primary`, with no fallback (what Tailwind
+/// arbitrary values can hold). Ignores the variable's code syntax.
+pub fn css_var(v: &Variable) -> String {
+    format!("var(--{})", css_var_name(&v.name))
+}
+
+/// How a bound variable's resolved value is spelled as the `var()` fallback.
+#[derive(Clone, Copy)]
+enum Fallback {
+    Color,
+    /// A length in pixels.
+    Px,
+    /// A bare number (font weight, opacity percent).
+    Raw,
+}
+
+fn fallback_text(value: &VariableValue, fmt: Fallback) -> Option<String> {
+    match (value, fmt) {
+        (VariableValue::Color(c), _) => Some(css_color(c, 1.0)),
+        (VariableValue::Number(x), Fallback::Px) => Some(format!("{}px", num(*x))),
+        (VariableValue::Number(x), Fallback::Raw) => Some(num(*x)),
+        _ => None,
+    }
+}
+
+/// The reference CSS prints for a variable, as Figma Dev Mode does: a WEB code syntax is printed
+/// verbatim (when it contains `var(--` this keeps the user's own fallback, otherwise it is any
+/// custom text), else `var(--<name>)` without a value.
+pub fn css_var_display(v: &Variable) -> String {
+    match v.code_syntax_for(CodeSyntaxPlatform::Web) {
+        Some(code) => code.to_string(),
+        None => css_var(v),
+    }
+}
+
+/// [`css_var_display`] plus, when there is no code syntax, the value `v` resolves to at `n` as the
+/// fallback: `var(--Color-Primary, #0D99FF)`.
+fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback) -> String {
+    if let Some(code) = v.code_syntax_for(CodeSyntaxPlatform::Web) {
+        return code.to_string();
+    }
+    let name = css_var_name(&v.name);
+    match doc.resolve_variable(n.id, &v.id).and_then(|value| fallback_text(&value, fmt)) {
+        Some(fallback) => format!("var(--{name}, {fallback})"),
+        None => format!("var(--{name})"),
+    }
+}
+
+/// What a bound variable prints as in `platform`'s code: its code syntax for that platform verbatim
+/// when set, else the generator's own token reference (`fallback`).
+pub(crate) fn token_text(v: &Variable, platform: CodeSyntaxPlatform, fallback: impl FnOnce() -> String) -> String {
+    v.code_syntax_for(platform).map(str::to_string).unwrap_or_else(fallback)
 }
 
 /// camelCase token name, dropping a leading `color` segment (`Color/Brand/Primary` -> `brandPrimary`).
@@ -318,6 +406,26 @@ pub(crate) fn quote(s: &str) -> String {
     o
 }
 
+/// A Swift string literal. Escapes the backslash, `"`, newline, carriage return, tab and every other control
+/// character (as `\u{..}`), so a layer name or font family can never end the literal early. Unlike
+/// [`quote`] it leaves `$` alone, which Swift does not treat as special.
+pub(crate) fn swift_quote(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if c.is_control() => o.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
 /// Visible effects of a given sort.
 pub(crate) fn drop_shadows(n: &Node) -> Vec<(&Color, &Vec2, f32, f32)> {
     n.effects
@@ -351,14 +459,14 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     if n.variables.bindings.is_empty() {
         return;
     }
-    let b = |key: &str| bound(doc, n, key).map(css_var);
+    let b = |key: &str, fmt: Fallback| bound(doc, n, key).map(|v| css_var_with_fallback(doc, n, v, fmt));
     let is_text = matches!(n.kind, NodeKind::Text(_));
     let visible_fills = if is_text {
         text_of(n).map(|t| t.style.fills.iter().filter(|p| p.visible).count()).unwrap_or(0)
     } else {
         n.fills.iter().filter(|p| p.visible).count()
     };
-    if let Some(v) = b("fills/0") {
+    if let Some(v) = b("fills/0", Fallback::Color) {
         if is_text {
             if has_decl(lines, "color") {
                 set_decl(lines, "color", v);
@@ -367,7 +475,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             set_decl(lines, "background", v);
         }
     }
-    if let Some(v) = b("strokes/0") {
+    if let Some(v) = b("strokes/0", Fallback::Color) {
         for prop in ["border", "outline"] {
             let pre = format!("{prop}: ");
             if let Some(l) = lines.iter_mut().find(|l| l.starts_with(&pre)) {
@@ -383,24 +491,24 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             }
         }
     }
-    for (key, prop) in [
-        ("width", "width"),
-        ("height", "height"),
-        ("fontSize", "font-size"),
-        ("fontWeight", "font-weight"),
-        ("lineHeight", "line-height"),
-        ("letterSpacing", "letter-spacing"),
+    for (key, prop, fmt) in [
+        ("width", "width", Fallback::Px),
+        ("height", "height", Fallback::Px),
+        ("fontSize", "font-size", Fallback::Px),
+        ("fontWeight", "font-weight", Fallback::Raw),
+        ("lineHeight", "line-height", Fallback::Px),
+        ("letterSpacing", "letter-spacing", Fallback::Px),
     ] {
-        if let Some(v) = b(key) {
+        if let Some(v) = b(key, fmt) {
             if has_decl(lines, prop) {
                 set_decl(lines, prop, v);
             }
         }
     }
-    if let Some(v) = b("opacity") {
+    if let Some(v) = b("opacity", Fallback::Raw) {
         set_decl(lines, "opacity", format!("calc({} / 100)", v.trim()));
     }
-    if let Some(v) = b("itemSpacing") {
+    if let Some(v) = b("itemSpacing", Fallback::Px) {
         if has_decl(lines, "gap") {
             set_decl(lines, "gap", v);
         }
@@ -409,7 +517,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if sides.iter().any(|k| bound(doc, n, k).is_some()) {
         if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
-            let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
+            let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));
             let value = css_box(&vals);
             // keep declaration order: padding follows the size declarations
@@ -422,7 +530,8 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     }
     let corners = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
     if corners.iter().any(|k| bound(doc, n, k).is_some()) {
-        let vals: Vec<String> = corners.iter().enumerate().map(|(i, k)| b(k).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
+        let vals: Vec<String> =
+            corners.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
         set_decl(lines, "border-radius", css_box(&vals));
     }
 }
@@ -469,6 +578,8 @@ pub(crate) mod fixture {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         };
         d.variables.insert(
             "primary".into(),
@@ -626,12 +737,83 @@ mod tests {
         let (d, card) = fixture::card();
         let row = d.get(card).unwrap().children[2];
         let css = crate::css_for(&d, row);
-        assert!(css.contains("background: var(--color-primary);"), "{css}");
-        assert!(css.contains("gap: var(--spacing-md);"), "{css}");
+        assert!(css.contains("background: var(--Color-Primary, #0D99FF);"), "{css}");
+        assert!(css.contains("gap: var(--Spacing-Md, 12px);"), "{css}");
         let body = d.get(card).unwrap().children[1];
-        assert!(crate::css_for(&d, body).contains("color: var(--color-text-muted);"));
+        assert!(crate::css_for(&d, body).contains("color: var(--Color-Text-Muted, #666);"));
         // unbound properties keep their literal values
         assert!(crate::css_for(&d, card).contains("background: #FFF;"));
+    }
+
+    fn named(name: &str, kind: VariableKind) -> Variable {
+        Variable {
+            id: "x".into(),
+            name: name.into(),
+            collection: "c1".into(),
+            kind,
+            values: Default::default(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        }
+    }
+
+    /// Figma's custom-property name sanitizer: separators become `-`, a name made only of
+    /// `[-A-Za-z0-9_]` keeps its case, anything else becomes lower kebab-case.
+    #[test]
+    fn css_variable_names_follow_figmas_sanitizer() {
+        for (name, expected) in [
+            ("Color/Primary", "Color-Primary"),
+            ("spacing / md", "spacing-md"),
+            ("Brand  Primary", "Brand-Primary"),
+            ("snake_case-ok", "snake_case-ok"),
+            ("Color/BrandPrimary (dark)", "color-brand-primary-(dark)"),
+            ("Radius.lg", "radius.lg"),
+            ("\u{201C}Q\u{201D} \"quoted\" 'x'\nline", "Q-quoted-xline"),
+            ("Caf\u{e9}/Bar", "Caf-Bar"),
+            ("!!bang", "bang"),
+            ("@@@", "unnamed"),
+            ("   ", "unnamed"),
+            ("", "unnamed"),
+        ] {
+            assert_eq!(crate::css_variable_reference(&named(name, VariableKind::Number)), format!("var(--{expected})"), "{name:?}");
+        }
+    }
+
+    /// A bound variable prints `var(--name, resolved value)`; a WEB code syntax is printed verbatim
+    /// (a user fallback inside `var(--` stays as written).
+    #[test]
+    fn css_prints_code_syntax_verbatim_else_name_with_resolved_fallback() {
+        let (mut d, card) = fixture::card();
+        let row = d.get(card).unwrap().children[2];
+        let body = d.get(card).unwrap().children[1];
+        let css = crate::css_for(&d, row);
+        assert!(css.contains("background: var(--Color-Primary, #0D99FF);"), "{css}");
+        assert!(css.contains("gap: var(--Spacing-Md, 12px);"), "{css}");
+        assert!(crate::css_for(&d, body).contains("color: var(--Color-Text-Muted, #666);"));
+
+        let web = |d: &mut Document, id: &str, code: &str| {
+            d.variables.get_mut(id).unwrap().code_syntax.insert(CodeSyntaxPlatform::Web, code.into());
+        };
+        web(&mut d, "primary", "var(--brand-primary, #123456)");
+        web(&mut d, "md", "tokens.space.md");
+        let css = crate::css_for(&d, row);
+        assert!(css.contains("background: var(--brand-primary, #123456);"), "{css}");
+        assert!(css.contains("gap: tokens.space.md;"), "{css}");
+        // other platforms never leak into CSS
+        d.variables.get_mut("muted").unwrap().code_syntax.insert(CodeSyntaxPlatform::Ios, "Color.muted".into());
+        assert!(crate::css_for(&d, body).contains("color: var(--Color-Text-Muted, #666);"));
+    }
+
+    /// The fallback is the value in the mode the node sees.
+    #[test]
+    fn css_fallback_follows_the_node_mode() {
+        let (mut d, card) = fixture::card();
+        let row = d.get(card).unwrap().children[2];
+        d.get_mut(card).unwrap().variables.modes.insert("c1".into(), "dark".into());
+        assert!(crate::css_for(&d, row).contains("background: var(--Color-Primary, #4DB8FF);"));
     }
 
     #[test]
@@ -656,8 +838,8 @@ mod tests {
     fn variable_names() {
         let (d, _) = fixture::card();
         let v = &d.variables["primary"];
-        assert_eq!(css_var(v), "var(--color-primary)");
+        assert_eq!(css_var(v), "var(--Color-Primary)");
         assert_eq!(token_camel(&d.variables["muted"], true), "textMuted");
-        assert_eq!(css_var(&d.variables["md"]), "var(--spacing-md)");
+        assert_eq!(css_var(&d.variables["md"]), "var(--Spacing-Md)");
     }
 }
