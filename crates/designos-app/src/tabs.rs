@@ -1422,6 +1422,36 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_last_tab_of_a_repaired_library_file_saves_the_edit_and_keeps_the_backup() {
+        let (lib, dir, file_id, _rect) = library_with_one_file("repaired_last");
+        let entry = lib.file(&file_id).unwrap();
+        let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{file_id}.designos"));
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        let damaged_bytes = damaged.to_json().unwrap().into_bytes();
+        std::fs::write(&disk_path, &damaged_bytes).unwrap();
+
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&disk_path), "the repaired library file holds its original bytes");
+        let page = app.page;
+        app.rename(page, "Edited");
+        let backup = crate::io::backup_path(&disk_path);
+
+        assert!(app.close_tab(0));
+
+        assert!(disk_has_edit(&lib, &file_id), "the edit is saved when the last tab closes");
+        assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "the pre-repair bytes are backed up by that save");
+        assert!(!crate::io::has_repaired_original(&disk_path), "a successful save consumes the pending backup");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn closing_the_active_library_tab_with_other_tabs_open_saves_its_edit() {
         let (lib, dir, file_id, rect) = library_with_one_file("active");
         let mut app = App::new(Document::new("Scratch"));
