@@ -155,6 +155,11 @@ impl App {
         let linked: Vec<NodeId> = self.doc.nodes.values().filter(|n| n.style_refs.values().any(|k| k == key)).map(|n| n.id).collect();
         self.run_style_op_then(op, |app, tx| {
             for id in linked {
+                // A layer inside an instance mirrors its main: the main is re-fitted here and the
+                // instance sync carries the size over, so no Size override gets recorded on the copy.
+                if app.doc.get(id).is_some_and(is_linked) {
+                    continue;
+                }
                 if let Some(n) = tx.ed.node(&mut app.doc, id) {
                     if let NodeKind::Text(t) = &mut n.kind {
                         n.size = layout::fit_text(t, n.size);
@@ -474,6 +479,39 @@ mod tests {
         assert!(!ed.update_style_values("nope", Style::Fill(vec![])));
         assert_eq!(ed.hist.can_undo(), depth);
         assert!(ed.toast.is_some());
+    }
+
+    #[test]
+    fn editing_a_text_style_refits_the_main_and_the_instance_follows_without_a_size_override() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let f = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let tid = d.alloc_id();
+        let mut t = Node::text(tid, Rect::new(10.0, 10.0, 100.0, 20.0), "A long label that wraps over a few lines in a narrow box", TextStyle::default());
+        if let NodeKind::Text(tp) = &mut t.kind {
+            tp.auto_resize = TextAutoResize::Height;
+        }
+        let t = d.insert(f, t).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        let mut app = App::new(d);
+        app.apply_style(&[t], "Body");
+        app.selection = vec![f];
+        app.create_component();
+        let comp = app.doc.get(t).and_then(|n| n.parent).expect("component root");
+        let inst = app.insert_instance(comp, Vec2::new(500.0, 100.0)).expect("instance");
+        let inst_text = app.doc.get(inst).unwrap().children[0];
+        assert_eq!(app.doc.get(inst_text).unwrap().component.source, Some(t), "the instance text mirrors the main text");
+        assert_eq!(app.doc.get(inst_text).unwrap().style_refs.get("text").map(String::as_str), Some("Body"));
+        let main_height = app.doc.get(t).unwrap().size.y;
+
+        assert!(app.update_style_values("Body", Style::Text(TextStyle { font_size: 40.0, ..Default::default() })));
+
+        let (main, copy) = (app.doc.get(t).unwrap(), app.doc.get(inst_text).unwrap());
+        assert!(main.size.y > main_height, "the main text is re-fitted to its new type");
+        assert_eq!(copy.size, main.size, "the instance takes the size from its main");
+        assert!(!copy.component.overrides.contains(&OverrideField::Size), "re-fitting is not a user override of the instance: {:?}", copy.component.overrides);
+        assert!(matches!(&copy.kind, NodeKind::Text(tp) if tp.style.font_size == 40.0), "the instance follows the new style");
     }
 
     #[test]
