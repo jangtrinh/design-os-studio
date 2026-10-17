@@ -41,6 +41,8 @@ fn themed() -> (T, NodeId, NodeId) {
         scopes: vec![],
         hidden_from_publishing: false,
         key: None,
+
+        code_syntax: Default::default(),
     };
     d.variables.insert("bg".into(), mk("bg", VariableKind::Color, VariableValue::Color(LIGHT), VariableValue::Color(DARK)));
     d.variables.insert("w".into(), mk("w", VariableKind::Number, VariableValue::Number(60.0), VariableValue::Number(30.0)));
@@ -141,6 +143,8 @@ fn per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding() {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         },
     );
 

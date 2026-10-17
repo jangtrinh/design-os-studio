@@ -329,6 +329,8 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         };
         d.variables.insert("base".into(), var("base", vec![("l", VariableValue::Color(Color::WHITE)), ("d", VariableValue::Color(Color::BLACK))]));
         d.variables.insert("bg".into(), var("bg", vec![("l", VariableValue::Alias("base".into())), ("d", VariableValue::Alias("base".into()))]));

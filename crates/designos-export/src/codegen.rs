@@ -469,6 +469,8 @@ pub(crate) mod fixture {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         };
         d.variables.insert(
             "primary".into(),

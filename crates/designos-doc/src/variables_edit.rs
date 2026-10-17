@@ -262,6 +262,8 @@ impl VariableStore {
                 scopes: Vec::new(),
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
         Some(id)

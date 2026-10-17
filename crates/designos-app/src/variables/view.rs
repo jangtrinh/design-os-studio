@@ -1603,6 +1603,8 @@ mod tests {
             description: String::new(),
             scopes: vec!["CORNER_RADIUS".into()],
             hidden_from_publishing: false,
+
+            code_syntax: Default::default(),
         };
         assert!(matches_scope_filter(&var, 0)); // All
         assert!(!matches_scope_filter(&var, 1)); // Fills

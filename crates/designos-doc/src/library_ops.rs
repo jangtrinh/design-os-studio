@@ -1299,6 +1299,8 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         };
         d.variables.insert("v1".into(), mk("v1", "Base", "c1", VariableValue::Number(8.0)));
         d.variables.insert("v2".into(), mk("v2", "Gap", "c2", VariableValue::Alias("v1".into())));

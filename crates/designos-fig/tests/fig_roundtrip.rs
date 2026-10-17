@@ -94,6 +94,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             scopes: vec!["ALL_FILLS".into()],
             hidden_from_publishing: false,
             key: Some("var_bg_key".into()),
+
+            code_syntax: Default::default(),
         },
     );
     let mut pad_vals = BTreeMap::new();
@@ -111,6 +113,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             scopes: vec!["GAP".into()],
             hidden_from_publishing: false,
             key: Some("var_pad_key".into()),
+
+            code_syntax: Default::default(),
         },
     );
     let mut alias_vals = BTreeMap::new();
@@ -128,6 +132,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             scopes: vec!["ALL_FILLS".into()],
             hidden_from_publishing: false,
             key: Some("var_alias_key".into()),
+
+            code_syntax: Default::default(),
         },
     );
 

@@ -213,6 +213,14 @@ pub fn figma_like_schema() -> Schema {
     let vdvs = b.define("VariableDataValues", DefKind::Message);
     b.field(vdvs, "entries", FieldType::Def(vdve), true, 1);
 
+    enum_def(&mut b, "CodeSyntaxPlatform", &["WEB", "ANDROID", "iOS"]);
+    let cse = b.define("CodeSyntaxMapEntry", DefKind::Message);
+    let cspt = def(&b, "CodeSyntaxPlatform");
+    b.field(cse, "platform", cspt, false, 1);
+    b.field(cse, "value", nat(String), false, 2);
+    let csm = b.define("CodeSyntaxMap", DefKind::Message);
+    b.field(csm, "entries", FieldType::Def(cse), true, 1);
+
     let paint = b.define("Paint", DefKind::Message);
     let t = def(&b, "PaintType");
     b.field(paint, "type", t, false, 1);
@@ -232,6 +240,8 @@ pub fn figma_like_schema() -> Schema {
     b.field(paint, "imageScaleMode", t, false, 9);
     b.field(paint, "colorVar", FieldType::Def(vd), false, 10);
     b.field(paint, "imageHash", nat(String), false, 11);
+    // Figma's own field id (rea-findings: Paint.opacityVar = 38).
+    b.field(paint, "opacityVar", FieldType::Def(vd), false, 38);
 
     let eff = b.define("Effect", DefKind::Message);
     let t = def(&b, "EffectType");
@@ -245,6 +255,8 @@ pub fn figma_like_schema() -> Schema {
     b.field(eff, "visible", nat(Bool), false, 6);
     b.field(eff, "showShadowBehindNode", nat(Bool), false, 7);
     b.field(eff, "colorVar", FieldType::Def(vd), false, 8);
+    // Figma's own field id (rea-findings: Effect.effectOpacityVar = 53).
+    b.field(eff, "effectOpacityVar", FieldType::Def(vd), false, 53);
 
     let fg = b.define("FillGeometry", DefKind::Message);
     let t = def(&b, "WindingRule");
@@ -568,6 +580,9 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "variableResolvedType", vrdtt, false);
     f(&mut b, "variableDataType", vdtt, false);
     f(&mut b, "variableScopes", nat(String), true);
+    // Figma's own field id (rea-findings: NodeChange.codeSyntax = 358); the sequential ids above stay below it.
+    let csmt = def(&b, "CodeSyntaxMap");
+    b.field(nc, "codeSyntax", csmt, false, 358);
     f(&mut b, "variableDataValues", vdvt, false);
     f(&mut b, "sortPosition", nat(String), false);
     f(&mut b, "description", nat(String), false);

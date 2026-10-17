@@ -1180,17 +1180,33 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst) in [("fillPaints", "fills"), ("strokePaints", "strokes")] {
+    for (src, dst, opacity_dst) in [("fillPaints", "fills", "fillOpacities"), ("strokePaints", "strokes", "strokeOpacities")] {
         let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
         }
+        // `Paint.opacityVar`: REST has no field for it, `variables::parse_node_variables` reads this key.
+        let opacities: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("opacityVar").and_then(alias).unwrap_or(Value::Null)).collect();
+        if opacities.iter().any(|v| !v.is_null()) {
+            out.insert(opacity_dst.into(), Value::Array(opacities));
+        }
     }
     let fx: Vec<Value> = rest_import::farr(nc, "effects")
         .iter()
-        .map(|e| match e.get("colorVar").and_then(alias) {
-            Some(a) => json!({"color": a}),
-            None => Value::Null,
+        .map(|e| {
+            let mut bound = Map::new();
+            if let Some(a) = e.get("colorVar").and_then(alias) {
+                bound.insert("color".into(), a);
+            }
+            // `Effect.effectOpacityVar`
+            if let Some(a) = e.get("effectOpacityVar").and_then(alias) {
+                bound.insert("opacity".into(), a);
+            }
+            if bound.is_empty() {
+                Value::Null
+            } else {
+                Value::Object(bound)
+            }
         })
         .collect();
     if fx.iter().any(|v| !v.is_null()) {

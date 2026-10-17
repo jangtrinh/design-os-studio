@@ -8,6 +8,11 @@
 //! `fontWeight`, `lineHeight`, `letterSpacing`, `strokeWeight` (and the
 //! per-side `strokeTopWeight`...). Opacity variables hold percent (0..=100),
 //! as in Figma; line height is in pixels.
+//!
+//! A paint or effect colour can also bind an opacity variable
+//! (`fills/N/opacity`, `strokes/N/opacity`, `effects/N/opacity`, scope
+//! `COLOR_OPACITY`); it composes with the colour's own alpha, see
+//! [`set_bound_property`].
 
 use crate::*;
 use std::borrow::Cow;
@@ -15,6 +20,7 @@ use std::borrow::Cow;
 /// Kind of variable a binding key accepts, or `None` for unknown keys.
 pub fn property_kind(key: &str) -> Option<VariableKind> {
     Some(match key {
+        k if paint_opacity_key(k).is_some() => VariableKind::Number,
         k if k.starts_with("fills/") || k.starts_with("strokes/") => VariableKind::Color,
         "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
         | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing"
@@ -33,6 +39,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
     }
     let has = |names: &[&str]| scopes.iter().any(|s| names.contains(&s.as_str()));
     match key {
+        k if paint_opacity_key(k).is_some() => has(&["COLOR_OPACITY"]),
         k if k.starts_with("fills/") => {
             let specific = match kind {
                 NodeKind::Text(_) => "TEXT_FILL",
@@ -72,6 +79,54 @@ pub fn bindable_keys(kind: &NodeKind) -> Vec<&'static str> {
     v
 }
 
+/// Which list a composed-opacity binding key (`fills/N/opacity`, `strokes/N/opacity`,
+/// `effects/N/opacity`) addresses, and the index into it.
+enum OpacityTarget {
+    Fill(usize),
+    Stroke(usize),
+    Effect(usize),
+}
+
+fn paint_opacity_key(key: &str) -> Option<OpacityTarget> {
+    let (list, rest) = key.split_once('/')?;
+    let index: usize = rest.strip_suffix("/opacity")?.parse().ok()?;
+    match list {
+        "fills" => Some(OpacityTarget::Fill(index)),
+        "strokes" => Some(OpacityTarget::Stroke(index)),
+        "effects" => Some(OpacityTarget::Effect(index)),
+        _ => None,
+    }
+}
+
+/// Multiplies the opacity of the paint or effect colour a composed-opacity key addresses by
+/// `percent` / 100, clamped to 0..=1. A missing target is ignored.
+// es-debt: multiply vs replace unverified (Figma may replace the colour alpha), flip to replace if a real file shows it
+fn compose_opacity(n: &mut Node, target: OpacityTarget, percent: f32) {
+    let factor = percent / 100.0;
+    let scale = |v: f32| (v * factor).clamp(0.0, 1.0);
+    match target {
+        OpacityTarget::Fill(i) => {
+            let paints = match &mut n.kind {
+                NodeKind::Text(t) => &mut t.style.fills,
+                _ => &mut n.fills,
+            };
+            if let Some(p) = paints.get_mut(i) {
+                p.opacity = scale(p.opacity);
+            }
+        }
+        OpacityTarget::Stroke(i) => {
+            if let Some(p) = n.stroke.paints.get_mut(i) {
+                p.opacity = scale(p.opacity);
+            }
+        }
+        OpacityTarget::Effect(i) => {
+            if let Some(Effect::DropShadow { color, .. } | Effect::InnerShadow { color, .. }) = n.effects.get_mut(i) {
+                color.a = scale(color.a);
+            }
+        }
+    }
+}
+
 fn color_of(v: &VariableValue) -> Option<Color> {
     match v {
         VariableValue::Color(c) => Some(*c),
@@ -94,6 +149,12 @@ fn paint_at<'a>(paints: &'a mut [Paint], key: &str, prefix: &str) -> Option<&'a 
 /// Writes `value` into the node property named by `key`; mismatched types and
 /// unknown keys are ignored.
 pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
+    if let Some(target) = paint_opacity_key(key) {
+        if let Some(x) = number_of(value) {
+            compose_opacity(n, target, x);
+        }
+        return;
+    }
     if key.starts_with("fills/") {
         let Some(c) = color_of(value) else { return };
         let paints = match &mut n.kind {
@@ -257,6 +318,7 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+            code_syntax: Default::default(),
         }
     }
 
@@ -367,6 +429,83 @@ mod tests {
         let r = apply_bound_variables(&d);
         assert_eq!(r.get(frame).unwrap().size.x, 240.0);
         assert_eq!(d.get(frame).unwrap().size.x, 100.0);
+    }
+
+    fn composed_setup() -> (Document, NodeId) {
+        let (mut d, _, frame, _) = setup();
+        let teal = Color { r: 0.2, g: 0.4, b: 0.6, a: 1.0 };
+        d.variables.insert("brand".into(), var("brand", VariableKind::Color, VariableValue::Color(teal), VariableValue::Color(teal)));
+        let mut fade = var("fade", VariableKind::Number, VariableValue::Number(50.0), VariableValue::Number(25.0));
+        fade.scopes = vec!["COLOR_OPACITY".into()];
+        d.variables.insert("fade".into(), fade);
+        let n = d.get_mut(frame).unwrap();
+        n.variables.bindings.clear();
+        n.fills = vec![Paint { opacity: 0.8, ..Paint::solid(Color::WHITE) }];
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.effects = vec![Effect::DropShadow {
+            color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.5 },
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        }];
+        for (k, v) in [("fills/0", "brand"), ("fills/0/opacity", "fade"), ("strokes/0/opacity", "fade"), ("effects/0/opacity", "fade")] {
+            n.variables.bindings.insert(k.into(), v.into());
+        }
+        (d, frame)
+    }
+
+    #[test]
+    fn color_and_opacity_variables_compose_into_one_rgba() {
+        let (d, frame) = composed_setup();
+        let f = resolved_node(&d, frame).unwrap();
+        // colour from the colour variable, alpha = paint opacity 0.8 x 50 %
+        assert_eq!(f.fills[0].kind, PaintKind::Solid(Color { r: 0.2, g: 0.4, b: 0.6, a: 1.0 }));
+        assert!((f.fills[0].opacity - 0.4).abs() < 1e-6, "fill opacity {}", f.fills[0].opacity);
+        // an opacity variable alone scales an unbound colour
+        assert_eq!(f.stroke.paints[0].kind, PaintKind::Solid(Color::BLACK));
+        assert!((f.stroke.paints[0].opacity - 0.5).abs() < 1e-6);
+        // effect colour alpha 0.5 x 50 %
+        let Effect::DropShadow { color, .. } = &f.effects[0] else { panic!() };
+        assert!((color.a - 0.25).abs() < 1e-6, "shadow alpha {}", color.a);
+        assert_eq!((color.r, color.g, color.b), (0.0, 0.0, 0.0));
+        // the raw node is untouched
+        assert_eq!(d.get(frame).unwrap().fills[0].opacity, 0.8);
+    }
+
+    #[test]
+    fn opacity_variable_follows_the_mode_and_clamps() {
+        let (mut d, frame) = composed_setup();
+        d.get_mut(frame).unwrap().variables.modes.insert("c".into(), "dark".into());
+        let f = resolved_node(&d, frame).unwrap();
+        assert!((f.fills[0].opacity - 0.2).abs() < 1e-6, "dark mode 25 %");
+        d.variables.get_mut("fade").unwrap().values.insert("dark".into(), VariableValue::Number(900.0));
+        assert_eq!(resolved_node(&d, frame).unwrap().fills[0].opacity, 1.0);
+    }
+
+    #[test]
+    fn opacity_binding_needs_a_number_and_a_paint_that_exists() {
+        let (mut d, frame) = composed_setup();
+        let n = d.get_mut(frame).unwrap();
+        n.variables.bindings.insert("fills/0/opacity".into(), "brand".into()); // colour into a number slot
+        n.variables.bindings.insert("fills/7/opacity".into(), "fade".into()); // no such paint
+        let f = resolved_node(&d, frame).unwrap();
+        assert_eq!(f.fills[0].opacity, 0.8);
+        assert_eq!(property_kind("fills/0/opacity"), Some(VariableKind::Number));
+        assert_eq!(property_kind("effects/1/opacity"), Some(VariableKind::Number));
+    }
+
+    #[test]
+    fn color_opacity_scope_gates_paint_opacity_bindings() {
+        let frame = NodeKind::Frame(FrameProps::default());
+        let only = |s: &str| vec![s.to_string()];
+        assert!(scope_allows(&only("COLOR_OPACITY"), "fills/0/opacity", &frame));
+        assert!(scope_allows(&only("COLOR_OPACITY"), "strokes/0/opacity", &frame));
+        assert!(scope_allows(&only("COLOR_OPACITY"), "effects/0/opacity", &frame));
+        assert!(!scope_allows(&only("OPACITY"), "fills/0/opacity", &frame));
+        assert!(!scope_allows(&only("COLOR_OPACITY"), "opacity", &frame));
+        assert!(scope_allows(&[], "fills/0/opacity", &frame));
     }
 
     #[test]

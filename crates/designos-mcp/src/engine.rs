@@ -792,6 +792,8 @@ mod tests {
                     scopes: vec![],
                     hidden_from_publishing: false,
                     key: None,
+
+                    code_syntax: Default::default(),
                 },
             );
         }

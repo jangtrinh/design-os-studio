@@ -205,6 +205,8 @@ fn pillar3_variable_bindings_and_subtree_mode_switching() {
                 scopes: Vec::new(),
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
     };
@@ -379,6 +381,8 @@ fn pillar4_interactive_prototype_runtime() {
                 scopes: Vec::new(),
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
     };

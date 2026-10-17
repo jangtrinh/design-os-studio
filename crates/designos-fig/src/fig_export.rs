@@ -217,6 +217,13 @@ impl<'a> ExportCtx<'a> {
         idx
     }
 
+    /// `Paint.opacityVar` / `Effect.effectOpacityVar` for the composed-opacity binding `key`
+    /// (`fills/0/opacity`, `strokes/0/opacity`, `effects/0/opacity`).
+    fn opacity_var_data(&self, vars: &NodeVariables, key: &str) -> Option<V> {
+        let vg = self.resolve_var_guid(vars.bindings.get(key)?)?;
+        Some(alias_var_data(vg))
+    }
+
     fn resolve_var_guid(&self, id: &str) -> Option<(u32, u32)> {
         self.var_guids.get(id).copied().or_else(|| self.var_guids.get(&format!("VariableID:{id}")).copied()).or_else(|| parse_guid_pair(id))
     }
@@ -435,6 +442,15 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
         if !scopes.is_empty() {
             fields.push(("variableScopes", V::Array(scopes)));
         }
+        let syntax: Vec<V> = v
+            .code_syntax
+            .iter()
+            .filter(|(_, code)| !code.is_empty())
+            .map(|(p, code)| msg(vec![("platform", en(p.label())), ("value", V::String(code.clone()))]))
+            .collect();
+        if !syntax.is_empty() {
+            fields.push(("codeSyntax", msg(vec![("entries", V::Array(syntax))])));
+        }
         if let Some(k) = &v.key {
             fields.push(("key", V::String(k.clone())));
         }
@@ -471,13 +487,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         }
         match &style {
             Style::Fill(paints) => {
-                fields.push(("fillPaints", V::Array(paints.iter().map(|p| encode_paint(p, None)).collect())));
+                fields.push(("fillPaints", V::Array(paints.iter().map(|p| encode_paint(p, None, None)).collect())));
             }
             Style::Text(ts) => {
                 append_text_style_fields(&mut fields, ts);
             }
             Style::Effect(effects) => {
-                fields.push(("effects", V::Array(effects.iter().filter_map(|e| encode_effect(e, None)).collect())));
+                fields.push(("effects", V::Array(effects.iter().filter_map(|e| encode_effect(e, None, None)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -612,6 +628,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
+    let opacity_var = |list: &str, i: usize| -> Option<V> { cx.opacity_var_data(&node.variables, &format!("{list}/{i}/opacity")) };
     let sticky_fill_buf;
     let fills_slice: &[Paint] = match &node.kind {
         NodeKind::Text(t) => &t.style.fills,
@@ -621,10 +638,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         _ => &node.fills,
     };
-    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint(p, fill_color_var(i))).collect();
+    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint(p, fill_color_var(i), opacity_var("fills", i))).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> = node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint(p, stroke_color_var(i))).collect();
+    let stroke_paints: Vec<V> = node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint(p, stroke_color_var(i), opacity_var("strokes", i))).collect();
     fields.push(("strokePaints", V::Array(stroke_paints)));
     fields.push(("strokeWeight", fl(node.stroke.weight)));
     fields.push((
@@ -671,7 +688,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
-    let effects: Vec<V> = node.effects.iter().enumerate().filter_map(|(i, e)| encode_effect(e, effect_color_var(i))).collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().filter_map(|(i, e)| encode_effect(e, effect_color_var(i), opacity_var("effects", i))).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -1259,7 +1276,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     .enumerate()
                     .map(|(i, p)| {
                         let cv = n.variables.bindings.get(&format!("fills/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv)
+                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("fills/{i}/opacity")))
                     })
                     .collect();
                 ov.push(("fillPaints", V::Array(fps)));
@@ -1273,7 +1290,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     .enumerate()
                     .map(|(i, p)| {
                         let cv = n.variables.bindings.get(&format!("strokes/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv)
+                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("strokes/{i}/opacity")))
                     })
                     .collect();
                 ov.push(("strokePaints", V::Array(sps)));
@@ -1293,7 +1310,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     .enumerate()
                     .filter_map(|(i, e)| {
                         let cv = n.variables.bindings.get(&format!("effects/{i}/color")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_effect(e, cv)
+                        encode_effect(e, cv, cx.opacity_var_data(&n.variables, &format!("effects/{i}/opacity")))
                     })
                     .collect();
                 ov.push(("effects", V::Array(fx)));
@@ -1525,7 +1542,7 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
 }
 
-fn encode_paint(p: &Paint, color_var: Option<V>) -> V {
+fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     let mut fields = Vec::new();
     let push_grad = |fields: &mut Vec<(&str, V)>, ty: &str, handles: &[Vec2; 3], stops: &[GradientStop]| {
         fields.push(("type", en(ty)));
@@ -1564,10 +1581,13 @@ fn encode_paint(p: &Paint, color_var: Option<V>) -> V {
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
     }
+    if let Some(ov) = opacity_var {
+        fields.push(("opacityVar", ov));
+    }
     msg(fields)
 }
 
-fn encode_effect(e: &Effect, color_var: Option<V>) -> Option<V> {
+fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> Option<V> {
     let mut fields = match e {
         Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
             ("type", en("DROP_SHADOW")),
@@ -1592,6 +1612,9 @@ fn encode_effect(e: &Effect, color_var: Option<V>) -> Option<V> {
     };
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
+    }
+    if let Some(ov) = opacity_var {
+        fields.push(("effectOpacityVar", ov));
     }
     Some(msg(fields))
 }
@@ -1931,7 +1954,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
                     "fontName",
                     st(vec![("family", V::String(r.style.font_family.clone())), ("style", V::String(st_name)), ("postscript", V::String(String::new()))]),
                 ),
-                ("fillPaints", V::Array(r.style.fills.iter().map(|p| encode_paint(p, None)).collect())),
+                ("fillPaints", V::Array(r.style.fills.iter().map(|p| encode_paint(p, None, None)).collect())),
                 (
                     "textDecoration",
                     en(match r.style.decoration {

@@ -918,6 +918,8 @@ mod tests {
                 scopes: vec![],
                 hidden_from_publishing: false,
                 key: None,
+
+                code_syntax: Default::default(),
             },
         );
         assert_eq!(collect_colors(&d, id)[0].hex(), "#FFFFFF");

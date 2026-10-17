@@ -46,6 +46,38 @@ pub enum VariableValue {
     Alias(String),
 }
 
+/// Platform a variable's code syntax is written for. Serialized with Figma's labels
+/// (`WEB`, `ANDROID`, `iOS`), as in the REST `codeSyntax` object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum CodeSyntaxPlatform {
+    #[serde(rename = "WEB")]
+    Web,
+    #[serde(rename = "ANDROID")]
+    Android,
+    #[serde(rename = "iOS")]
+    Ios,
+}
+
+impl CodeSyntaxPlatform {
+    pub const ALL: [CodeSyntaxPlatform; 3] = [Self::Web, Self::Android, Self::Ios];
+
+    /// Figma's label: `WEB`, `ANDROID` or `iOS`.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Web => "WEB",
+            Self::Android => "ANDROID",
+            Self::Ios => "iOS",
+        }
+    }
+
+    pub fn from_label(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.label() == s)
+    }
+}
+
+/// Per-platform code a variable prints as in Dev Mode (`var(--color-primary)`, `Color.primary`, ...).
+pub type CodeSyntax = BTreeMap<CodeSyntaxPlatform, String>;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Variable {
     pub id: String,
@@ -60,9 +92,17 @@ pub struct Variable {
     pub scopes: Vec<String>,
     pub hidden_from_publishing: bool,
     pub key: Option<String>,
+    /// Code written per platform; an empty string is not stored.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub code_syntax: CodeSyntax,
 }
 
 impl Variable {
+    /// The code syntax for `platform`, when one is set.
+    pub fn code_syntax_for(&self, platform: CodeSyntaxPlatform) -> Option<&str> {
+        self.code_syntax.get(&platform).map(String::as_str).filter(|s| !s.is_empty())
+    }
+
     pub fn matches_scope(&self, target_scope: &str) -> bool {
         self.scopes.is_empty()
             || target_scope.is_empty()
@@ -171,6 +211,8 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
+
+            code_syntax: Default::default(),
         };
         d.variables.insert("base".into(), var("base", vec![("light", VariableValue::Color(Color::WHITE)), ("dark", VariableValue::Color(Color::BLACK))]));
         d.variables.insert("bg".into(), var("bg", vec![("light", VariableValue::Alias("base".into())), ("dark", VariableValue::Alias("base".into()))]));
