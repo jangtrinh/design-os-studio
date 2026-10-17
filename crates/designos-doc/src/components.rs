@@ -105,6 +105,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
         n.component.source = Some(src);
         n.component.overrides.clear();
         n.component.props.clear();
+        n.component.slot_configs.clear();
     }
     let idx = out.len();
     out.push(n);
@@ -749,6 +750,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     n.is_mask = r.is_mask;
     if !top {
         n.component.bindings = r.component.bindings.clone();
+        n.component.is_slot = r.component.is_slot;
     }
     match (&r.kind, &n.kind) {
         (NodeKind::Text(_), NodeKind::Text(_)) => {}

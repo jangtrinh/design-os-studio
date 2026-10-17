@@ -636,6 +636,15 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if let Some(ds) = node.detached_symbol_id.as_deref().or(node.component.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
         fields.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
     }
+    if node.component.is_slot {
+        fields.push(("isSlot", V::Bool(true)));
+    }
+    if node.component.is_slot_content {
+        fields.push(("isSlotContent", V::Bool(true)));
+    }
+    if let Some(g) = node.component.slot_content_id.as_deref().and_then(parse_guid_pair) {
+        fields.push(("jsonSerialized", msg(vec![("slot-content-id", msg(vec![("guid", guid(g.0, g.1))]))])));
+    }
     append_fig_metadata(&mut fields, &node.fig_metadata);
     if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
         fields.push(("overrideKey", guid(src.0, src.1)));
@@ -983,6 +992,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 PropKind::Slot => {
                     df.push(("type", en("SLOT")));
                     df.push(("initialValue", msg(vec![("textValue", msg(vec![("characters", V::String(String::new()))]))])));
+                    if let Some(cfg) = node.component.slot_configs.get(&p.name) {
+                        df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
+                        let prefs: Vec<V> = cfg.preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
+                        if !prefs.is_empty() {
+                            df.push(("preferredValues", V::Array(prefs)));
+                        }
+                    }
                 }
             }
             prop_defs.push(msg(df));
@@ -1780,6 +1796,27 @@ fn encode_detached_symbol_id(ds: &str) -> V {
         return msg(vec![("guid", guid(g.0, g.1))]);
     }
     msg(vec![("assetRef", msg(vec![("key", V::String(ds.to_string()))]))])
+}
+
+/// `SlotPropConfig`: only the fields the document holds are written.
+fn encode_slot_prop_config(cfg: &designos_doc::SlotPropConfig) -> V {
+    let mut f: Vec<(&str, V)> = Vec::new();
+    if let Some(b) = cfg.stretch_child_on_insert {
+        f.push(("stretchChildOnInsert", V::Bool(b)));
+    }
+    if let Some(b) = cfg.display_by_default {
+        f.push(("displayByDefault", V::Bool(b)));
+    }
+    if let Some(n) = cfg.min_children {
+        f.push(("minChildren", V::Uint(n)));
+    }
+    if let Some(n) = cfg.max_children {
+        f.push(("maxChildren", V::Uint(n)));
+    }
+    if let Some(b) = cfg.allow_preferred_values_only {
+        f.push(("allowPreferredValuesOnly", V::Bool(b)));
+    }
+    msg(f)
 }
 
 fn append_fig_metadata(fields: &mut Vec<(&'static str, V)>, meta: &BTreeMap<String, String>) {
