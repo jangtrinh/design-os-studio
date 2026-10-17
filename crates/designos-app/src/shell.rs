@@ -1229,15 +1229,10 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 },
                 Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
             },
-            crate::terminal::TerminalAction::SyncLiveDoc(path) => match std::fs::read_to_string(&path) {
-                Ok(raw) => match designos_doc::Document::from_json(&raw) {
-                    Ok(new_doc) => crate::live_patch_apply::sync_live_document(app, new_doc),
-                    Err(e) => app.show_toast(format!("Live doc parse error: {e}"), true),
-                },
-                Err(e) => app.show_toast(format!("Failed to read live doc {}: {e}", path.display()), true),
-            },
-            crate::terminal::TerminalAction::ApplyLivePatch(patches) => {
-                app.terminal.live_patch.pending.extend(patches);
+            crate::terminal::TerminalAction::ApplyLiveLog(lines) => {
+                for error in app.terminal.live_patch.ingest(lines) {
+                    app.show_toast(error, true);
+                }
                 crate::live_patch_apply::apply_pending_live_patches(app);
                 if app.terminal.live_patch.has_held() {
                     app.terminal.status_msg = Some("Agent edit waits until you finish the current edit".into());

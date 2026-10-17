@@ -45,6 +45,60 @@ impl LivePatch {
     }
 }
 
+/// The agent's session switched to another document (`designos_open_file`,
+/// `designos_new_document`). One line of `doc-patch.jsonl`, written after the document itself
+/// (`doc-sync.designos`) so the one log fixes the order: patches above it were made on the
+/// previous document, patches below it on the new one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocEpoch {
+    pub v: u32,
+    /// Counts the switches of one agent session.
+    pub doc_epoch: u64,
+    /// Size and hash of the document bytes written for this switch. The file is overwritten by
+    /// the next switch, so a reader that finds other bytes knows this switch was superseded.
+    pub bytes: u64,
+    pub hash: u64,
+}
+
+impl DocEpoch {
+    pub fn of(doc_epoch: u64, doc_bytes: &[u8]) -> Self {
+        Self { v: LIVE_PATCH_VERSION, doc_epoch, bytes: doc_bytes.len() as u64, hash: fnv1a(doc_bytes) }
+    }
+
+    /// True when `doc_bytes` is the document this switch published.
+    pub fn matches(&self, doc_bytes: &[u8]) -> bool {
+        self.bytes == doc_bytes.len() as u64 && self.hash == fnv1a(doc_bytes)
+    }
+}
+
+/// FNV-1a, 64 bit. Both sides run the same build, and the hash only has to tell two documents apart.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// One line of `doc-patch.jsonl`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiveLogLine {
+    Patch(LivePatch),
+    DocEpoch(DocEpoch),
+}
+
+impl LiveLogLine {
+    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit.
+    pub fn parse(line: &[u8]) -> Result<Self, serde_json::Error> {
+        #[derive(Deserialize)]
+        struct Probe {
+            #[serde(default)]
+            doc_epoch: Option<u64>,
+        }
+        if serde_json::from_slice::<Probe>(line)?.doc_epoch.is_some() {
+            serde_json::from_slice(line).map(Self::DocEpoch)
+        } else {
+            serde_json::from_slice(line).map(Self::Patch)
+        }
+    }
+}
+
 /// Where an inserted or moved node goes among its new siblings, named by its neighbours
 /// because the two sides may hold different subsets of the parent's children.
 /// `before == None` means "on top" (last child).
@@ -140,6 +194,10 @@ pub const MAX_LIVE_PATCH_LINE_BYTES: usize = 16 << 20;
 /// Fields that structural ops own; field updates never touch them.
 pub(crate) const STRUCTURAL_FIELDS: [&str; 3] = ["id", "parent", "children"];
 
+#[cfg(test)]
+mod builder_redirect_tests;
+#[cfg(test)]
+mod log_line_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -34,13 +34,27 @@ impl LivePatchState {
 
     /// The editor-side id for an id from the agent's document.
     fn target(&self, doc: &Document, id: NodeId) -> NodeId {
-        let id = self.remap.get(&id).copied().unwrap_or(id);
-        if doc.get(id).is_some() {
-            return id;
-        }
-        self.replaced.get(&id).copied().unwrap_or(id)
+        resolve_id(&self.remap, &self.replaced, doc, id).0
     }
 }
+
+/// The editor-side id for an id from the agent's document, and whether it is a layer the
+/// editor replaced by another one (so the agent's shape numbers describe a different layer).
+fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, NodeId>, doc: &Document, id: NodeId) -> (NodeId, bool) {
+    let id = remap.get(&id).copied().unwrap_or(id);
+    if doc.get(id).is_some() {
+        return (id, false);
+    }
+    match replaced.get(&id) {
+        Some(new) => (*new, true),
+        None => (id, false),
+    }
+}
+
+/// Fields that describe a layer's shape in its own coordinate frame. The shape builder rebuilds
+/// a layer from geometry in the frame of its parent, so the agent's numbers for these do not
+/// apply to the replacement.
+const SHAPE_FIELDS: [&str; 3] = ["transform", "size", "kind"];
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -79,6 +93,11 @@ pub fn replay_live_patch(
         // now send its edits to the wrong node or thread.
         state.remap.clear();
         state.comments = CommentRemap::default();
+        // Its replaced layers are gone from that canvas, so their old ids mean nothing there. The
+        // first patch of a session has no earlier canvas to be newer than.
+        if state.base.is_some() {
+            state.replaced.clear();
+        }
         state.base = patch.base;
     }
     for op in &patch.ops {
@@ -99,8 +118,18 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             let parent = state.target(doc, *parent);
             resolve_insert(doc, parent, at, nodes, state, report)
         }
-        LiveOp::Update { id, set, unset } => {
-            let id = state.target(doc, *id);
+        LiveOp::Update { id: agent_id, set, unset } => {
+            let (id, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
+            let kept;
+            let (set, unset) = if redirected {
+                kept = without_shape_fields(*agent_id, set, unset, report);
+                if kept.0.is_empty() && kept.1.is_empty() {
+                    return None;
+                }
+                (&kept.0, &kept.1)
+            } else {
+                (set, unset)
+            };
             let Some(cur) = doc.get(id) else {
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
@@ -165,10 +194,36 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             Some(Command::Remove { id })
         }
         LiveOp::Comments { added, changed, removed } => {
-            let node = |id: NodeId| state.remap.get(&id).copied().unwrap_or(id);
+            let (remap, replaced) = (&state.remap, &state.replaced);
+            let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
             resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
         }
     }
+}
+
+/// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
+/// reported as refused.
+fn without_shape_fields(agent_id: NodeId, set: &Map<String, Value>, unset: &[String], report: &mut LivePatchReport) -> (Map<String, Value>, Vec<String>) {
+    let mut refuse = |field: &str| {
+        report.skipped.push(format!("{field} change refused: layer {} was reshaped by the shape builder while this edit waited", agent_id.0));
+    };
+    let mut kept_set = Map::new();
+    for (field, value) in set {
+        if SHAPE_FIELDS.contains(&field.as_str()) {
+            refuse(field);
+        } else {
+            kept_set.insert(field.clone(), value.clone());
+        }
+    }
+    let mut kept_unset = Vec::new();
+    for field in unset {
+        if SHAPE_FIELDS.contains(&field.as_str()) {
+            refuse(field);
+        } else {
+            kept_unset.push(field.clone());
+        }
+    }
+    (kept_set, kept_unset)
 }
 
 fn resolve_insert(

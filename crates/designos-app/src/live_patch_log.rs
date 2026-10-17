@@ -3,7 +3,7 @@
 //! Runs on the UI thread every frame, so each poll reads a bounded amount, and a log that was
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
-use designos_doc::live_patch::{LivePatch, LivePatchState, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES};
 use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -45,6 +45,16 @@ pub struct LivePatchLog {
     /// A document the agent switched to while the user was mid-edit. It replaces the open one
     /// once the canvas is idle, before any patch in `pending` (those were made on it).
     pub pending_doc: Option<Document>,
+    /// Where the agent's documents are written: `doc-sync.designos` next to the log.
+    doc_sync_path: PathBuf,
+    /// Edits dropped because they were made on a document the agent had already left. Shown
+    /// with the next document switch.
+    pub dropped_old_epoch: usize,
+    /// The document the agent works on could not be loaded, so its edits are dropped until the
+    /// next document switch.
+    discarding: bool,
+    /// `discarding` is not a superseded switch but a failure the user must be told about.
+    load_failed: bool,
 }
 
 impl LivePatchLog {
@@ -60,6 +70,10 @@ impl LivePatchLog {
             state: LivePatchState::default(),
             pending: Vec::new(),
             pending_doc: None,
+            doc_sync_path: path.with_file_name("doc-sync.designos"),
+            dropped_old_epoch: 0,
+            discarding: false,
+            load_failed: false,
             path,
         };
         log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
@@ -71,9 +85,9 @@ impl LivePatchLog {
         !self.pending.is_empty() || self.pending_doc.is_some()
     }
 
-    /// Complete patch lines appended since the last poll. Unreadable and oversized lines come
-    /// back as errors; nothing is skipped silently.
-    pub fn poll(&mut self) -> (Vec<LivePatch>, Vec<String>) {
+    /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
+    /// lines come back as errors; nothing is skipped silently.
+    pub fn poll(&mut self) -> (Vec<LiveLogLine>, Vec<String>) {
         let Ok(meta) = std::fs::metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
         if len == self.offset && self.identity == Some(id) {
@@ -98,7 +112,7 @@ impl LivePatchLog {
         (patches, errors)
     }
 
-    fn split_lines(&mut self, buf: &[u8]) -> (usize, Vec<LivePatch>, Vec<String>) {
+    fn split_lines(&mut self, buf: &[u8]) -> (usize, Vec<LiveLogLine>, Vec<String>) {
         let (mut patches, mut errors) = (Vec::new(), Vec::new());
         let mut pos = 0;
         if self.skipping {
@@ -112,7 +126,7 @@ impl LivePatchLog {
             if line.len() > self.max_line_bytes {
                 errors.push(self.too_large(line.len()));
             } else if !line.iter().all(u8::is_ascii_whitespace) {
-                match serde_json::from_slice::<LivePatch>(line) {
+                match LiveLogLine::parse(line) {
                     Ok(p) => patches.push(p),
                     Err(e) => errors.push(format!("Unreadable agent edit in {}: {e}", display_name(&self.path))),
                 }
@@ -126,6 +140,60 @@ impl LivePatchLog {
             pos = buf.len();
         }
         (pos, patches, errors)
+    }
+
+    /// Sorts what a poll read into what is held. The log is the one source of order: a document
+    /// switch drops every edit still held for the previous document and makes the switched-to
+    /// document the one to open; edits after it are held for that document. Returns what the
+    /// user must be told.
+    pub fn ingest(&mut self, lines: Vec<LiveLogLine>) -> Vec<String> {
+        let (mut errors, mut dropped_while_stuck) = (Vec::new(), 0);
+        for line in lines {
+            match line {
+                LiveLogLine::Patch(_) if self.discarding => {
+                    self.dropped_old_epoch += 1;
+                    dropped_while_stuck += 1;
+                }
+                LiveLogLine::Patch(patch) => self.pending.push(patch),
+                LiveLogLine::DocEpoch(epoch) => {
+                    self.dropped_old_epoch += self.pending.len();
+                    self.pending.clear();
+                    self.pending_doc = None;
+                    self.load_failed = false;
+                    self.discarding = true;
+                    match self.load_epoch(&epoch) {
+                        Ok(Some(doc)) => {
+                            self.pending_doc = Some(doc);
+                            self.discarding = false;
+                        }
+                        // Overwritten by a later switch, whose own line follows.
+                        Ok(None) => {}
+                        Err(e) => {
+                            self.load_failed = true;
+                            errors.push(e);
+                        }
+                    }
+                }
+            }
+        }
+        if self.load_failed && dropped_while_stuck > 0 {
+            errors.push(format!("{dropped_while_stuck} agent edit(s) were not applied: Studio could not load the document the agent opened"));
+        }
+        errors
+    }
+
+    /// The document written for `epoch`; `None` when a later switch has already replaced it.
+    fn load_epoch(&self, epoch: &DocEpoch) -> Result<Option<Document>, String> {
+        if epoch.v != LIVE_PATCH_VERSION {
+            return Err(format!("Agent opened a document with an unsupported log version {}", epoch.v));
+        }
+        let bytes =
+            std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
+        if !epoch.matches(&bytes) {
+            return Ok(None);
+        }
+        let raw = String::from_utf8(bytes).map_err(|e| format!("The document the agent opened is not valid text: {e}"))?;
+        Document::from_json(&raw).map(Some).map_err(|e| format!("Cannot parse the document the agent opened: {e}"))
     }
 
     fn too_large(&self, bytes: usize) -> String {
@@ -160,8 +228,15 @@ mod tests {
         serde_json::to_string(&LivePatch::new(vec![LiveOp::Remove { id: NodeId(id) }])).unwrap() + "\n"
     }
 
-    fn ids(patches: &[LivePatch]) -> Vec<u64> {
-        patches.iter().flat_map(|p| &p.ops).map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 }).collect()
+    fn ids(lines: &[LiveLogLine]) -> Vec<u64> {
+        lines
+            .iter()
+            .flat_map(|l| match l {
+                LiveLogLine::Patch(p) => p.ops.iter().collect(),
+                LiveLogLine::DocEpoch(_) => Vec::new(),
+            })
+            .map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 })
+            .collect()
     }
 
     fn temp_log(name: &str) -> PathBuf {
@@ -220,5 +295,67 @@ mod tests {
         assert_eq!(seen, [1, 2]);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("over the"), "{}", errors[0]);
+    }
+
+    fn switch_line(doc: &Document, epoch: u64) -> (String, Vec<u8>) {
+        let bytes = doc.to_json().unwrap().into_bytes();
+        (serde_json::to_string(&DocEpoch::of(epoch, &bytes)).unwrap() + "\n", bytes)
+    }
+
+    #[test]
+    fn a_document_switch_drops_the_edits_held_before_it_and_keeps_those_after_it() {
+        let path = temp_log("switch");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Switched");
+        doc.add_page("Page");
+        let (mark, bytes) = switch_line(&doc, 1);
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes).unwrap();
+        append(&path, &(line(1) + &line(2) + &mark + &line(3)));
+        let (lines, errors) = log.poll();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.pending.iter().flat_map(|p| &p.ops).count(), 1, "only the edit after the switch is held");
+        assert_eq!(log.dropped_old_epoch, 2);
+        assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Switched"));
+    }
+
+    #[test]
+    fn a_switch_whose_document_was_overwritten_by_a_later_one_waits_for_that_later_switch() {
+        let path = temp_log("superseded");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut first = Document::new("First");
+        first.add_page("Page");
+        let mut second = Document::new("Second");
+        second.add_page("Page");
+        let (mark1, _) = switch_line(&first, 1);
+        let (mark2, bytes2) = switch_line(&second, 2);
+        // Only the second document is on disk when the editor reads the first switch.
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes2).unwrap();
+        append(&path, &(mark1 + &line(1)));
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty(), "a superseded switch is not an error");
+        assert!(log.pending.is_empty() && log.pending_doc.is_none());
+        assert_eq!(log.dropped_old_epoch, 1, "the edit made on the first document is dropped");
+        append(&path, &(mark2 + &line(2)));
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Second"));
+        assert_eq!(log.pending.len(), 1);
+    }
+
+    #[test]
+    fn a_switch_to_a_document_that_cannot_be_read_is_reported_and_its_edits_are_dropped() {
+        let path = temp_log("unreadable");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Gone");
+        doc.add_page("Page");
+        let (mark, _) = switch_line(&doc, 1);
+        append(&path, &(mark + &line(1)));
+        let (lines, _) = log.poll();
+        let errors = log.ingest(lines);
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors[0].contains("Cannot read the document"), "{}", errors[0]);
+        assert!(errors[1].contains("1 agent edit(s) were not applied"), "{}", errors[1]);
+        assert!(log.pending.is_empty() && log.pending_doc.is_none());
     }
 }

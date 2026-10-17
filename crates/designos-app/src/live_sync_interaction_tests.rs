@@ -11,15 +11,15 @@ use designos_doc::{Document, Node, NodeId, Rect, Vec2};
 use serde_json::json;
 use std::path::PathBuf;
 
-struct Live {
-    app: App,
-    session: designos_mcp::server::Session,
-    dir: PathBuf,
-    workspace: PathBuf,
-    dragged: NodeId,
+pub(crate) struct Live {
+    pub(crate) app: App,
+    pub(crate) session: designos_mcp::server::Session,
+    pub(crate) dir: PathBuf,
+    pub(crate) workspace: PathBuf,
+    pub(crate) dragged: NodeId,
 }
 
-fn live() -> Live {
+pub(crate) fn live() -> Live {
     let mut doc = Document::new("Live");
     let page = doc.add_page("Page");
     let id = doc.alloc_id();
@@ -36,18 +36,18 @@ fn live() -> Live {
 }
 
 impl Live {
-    fn agent_renames(&mut self, id: NodeId, name: &str) {
+    pub(crate) fn agent_renames(&mut self, id: NodeId, name: &str) {
         self.session.call("designos_update_node", json!({ "node_id": id.0, "name": name })).expect("update_node");
     }
 
     /// The editor reads the log and runs what it finds, as every frame does.
-    fn deliver(&mut self) {
+    pub(crate) fn deliver(&mut self) {
         let actions = self.app.terminal.poll_live_agent_bridge();
         crate::shell::execute_terminal_actions(&mut self.app, actions);
     }
 
     /// The user is dragging `dragged` 50 px to the right; the document already shows it.
-    fn start_drag(&mut self) {
+    pub(crate) fn start_drag(&mut self) {
         let mut tx = Tx::new();
         tx.ed.node(&mut self.app.doc, self.dragged).unwrap().transform.tx += 50.0;
         let state = MoveState {
@@ -62,7 +62,7 @@ impl Live {
         self.app.canvas.inter = Interaction::Move(state);
     }
 
-    fn finish(mut self) {
+    pub(crate) fn finish(mut self) {
         self.app.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&self.dir);
         let _ = std::fs::remove_dir_all(&self.workspace);
@@ -70,7 +70,7 @@ impl Live {
 }
 
 /// True when held patches were waiting and the idle-frame hook applied all of them.
-fn apply_pending(app: &mut App) -> bool {
+pub(crate) fn apply_pending(app: &mut App) -> bool {
     let had = !app.terminal.live_patch.pending.is_empty();
     crate::live_patch_apply::apply_pending_live_patches(app);
     had && app.terminal.live_patch.pending.is_empty()
@@ -129,7 +129,10 @@ fn edits_on_a_document_opened_during_a_drag_land_after_it_replaces_the_old_one()
     l.agent_renames(hero, "Agent hero");
     let mut other = Document::new("Other");
     let op = other.add_page("Page");
+    // Its layer must not share an id with the old document's hero, or the old edit could land on it.
+    other.reserve_ids(NodeId(99));
     let theirs = other.alloc_id();
+    assert_ne!(theirs, hero);
     other.insert(op, Node::frame(theirs, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
     other.get_mut(theirs).unwrap().name = "Fresh".into();
     std::fs::write(l.workspace.join("other.designos"), other.to_json().unwrap()).unwrap();
@@ -143,6 +146,9 @@ fn edits_on_a_document_opened_during_a_drag_land_after_it_replaces_the_old_one()
     assert_eq!(l.app.doc.name, "Other");
     let names: Vec<String> = l.app.doc.nodes.values().map(|n| n.name.clone()).collect();
     assert!(names.iter().any(|n| n == "Agent fresh") && !names.iter().any(|n| n == "Agent hero"), "{names:?}");
+    // The old edit was dropped on purpose; it was not tried on the new document and found missing.
+    let toast = l.app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(toast.contains("1 earlier edit"), "the dropped edit is reported: {toast:?}");
     l.finish();
 }
 
@@ -167,7 +173,9 @@ fn probe_agent_still_sees_its_held_edit_after_the_editor_republishes() {
     l.finish();
 }
 
-/// Shape builder session open (between strokes): an agent move of one of its shapes must survive finishing the builder.
+/// Shape builder session open (between strokes): the builder rebuilds the layers it touched from
+/// geometry it captured, in a different coordinate frame. An agent move of such a layer is
+/// refused and reported; an appearance edit still follows the layer to its replacement.
 #[test]
 fn probe_agent_move_survives_an_open_shape_builder() {
     let mut doc = Document::new("Live");
@@ -186,6 +194,7 @@ fn probe_agent_move_survives_an_open_shape_builder() {
     app.selection = vec![a, b];
     assert!(crate::canvas::builder::start(&mut app));
     session.call("designos_update_node", json!({ "node_id": a.0, "x": 500.0 })).expect("agent move");
+    session.call("designos_update_node", json!({ "node_id": a.0, "name": "Agent A" })).expect("agent rename");
     let actions = app.terminal.poll_live_agent_bridge();
     crate::shell::execute_terminal_actions(&mut app, actions);
     // The user brushes the part of A that only A covers, then leaves the tool.
@@ -193,8 +202,11 @@ fn probe_agent_move_survives_an_open_shape_builder() {
     crate::canvas::builder::release(&mut app);
     crate::canvas::builder::finish(&mut app);
     apply_pending(&mut app);
-    let xs: Vec<(String, f32)> = app.doc.nodes.values().filter(|n| n.parent == Some(page)).map(|n| (n.name.clone(), n.transform.tx)).collect();
-    assert!(xs.iter().any(|(_, x)| *x >= 400.0), "agent's move of A to x=500 was lost by the builder: {xs:?}");
+    let layers: Vec<(String, f32)> = app.doc.nodes.values().filter(|n| n.parent == Some(page)).map(|n| (n.name.clone(), n.transform.tx)).collect();
+    assert!(layers.iter().all(|(_, x)| *x < 400.0), "the agent's move landed on a layer in another coordinate frame: {layers:?}");
+    assert!(layers.iter().any(|(name, _)| name == "Agent A"), "the rename did not follow A to its replacement: {layers:?}");
+    let toast = app.toast.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+    assert!(toast.contains("reshaped by the shape builder"), "the refused move is reported: {toast:?}");
     app.terminal.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&workspace);

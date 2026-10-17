@@ -21,6 +21,8 @@ mod libraries;
 #[cfg(test)]
 mod lint;
 mod live_canvas_scope;
+#[cfg(test)]
+mod live_doc_epoch_tests;
 mod live_patch_apply;
 mod live_patch_log;
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::Engine;
-use designos_doc::live_patch::{LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -25,6 +25,10 @@ pub struct LiveSessionBridge {
     /// Append-only log of [`LivePatch`] lines the editor replays (`doc-patch.jsonl`).
     pub live_doc_patch_path: Option<PathBuf>,
     pub last_canvas_mtime: Option<std::time::SystemTime>,
+    /// Document switches announced in the log so far.
+    doc_epoch: u64,
+    /// The editor was not told about the current document: edits must not reach its log until it is.
+    doc_unannounced: bool,
 }
 
 impl LiveSessionBridge {
@@ -59,7 +63,17 @@ impl LiveSessionBridge {
             .or_else(|| session_dir.as_ref().map(|d| d.join("doc-patch.jsonl")))
             .or_else(|| live_doc_sync_path.as_ref().map(|p| p.with_file_name("doc-patch.jsonl")));
 
-        Self { session_dir, live_canvas_path, live_doc_sync_path, live_spec_path, context_json_path, live_doc_patch_path, last_canvas_mtime: None }
+        Self {
+            session_dir,
+            live_canvas_path,
+            live_doc_sync_path,
+            live_spec_path,
+            context_json_path,
+            live_doc_patch_path,
+            last_canvas_mtime: None,
+            doc_epoch: 0,
+            doc_unannounced: false,
+        }
     }
 
     /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
@@ -73,6 +87,8 @@ impl LiveSessionBridge {
             live_doc_patch_path: Some(dir.join("doc-patch.jsonl")),
             session_dir: Some(dir),
             last_canvas_mtime: None,
+            doc_epoch: 0,
+            doc_unannounced: false,
         }
     }
 }
@@ -84,6 +100,16 @@ fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp_path = path.with_extension(format!("tmp-{}", std::process::id()));
     fs::write(&tmp_path, bytes).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
     fs::rename(&tmp_path, path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
+}
+
+/// Appends one line to the edit log in a single write, so the editor never reads a line that
+/// mixes two entries.
+fn append_log_line(path: &Path, line: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
 pub struct Session {
@@ -230,12 +256,12 @@ impl Session {
         };
         let base = self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64);
         let line = live_patch_line(&LivePatch::new(ops).with_base(base), MAX_LIVE_PATCH_LINE_BYTES)?;
-        if let Some(parent) = path.parent() {
-            let _ = fs::create_dir_all(parent);
+        let path = path.clone();
+        // An edit logged behind a switch the editor never heard of would land on the wrong document.
+        if self.bridge.doc_unannounced {
+            self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"))?;
         }
-        // One write per line, so the editor never reads a line that mixes two patches.
-        let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-        file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+        append_log_line(&path, &line)
     }
 
     /// Reverts the tool call `name` whose edit could not be sent to the editor, without recording
@@ -258,22 +284,33 @@ impl Session {
 
     /// Atomically publishes the whole `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
     /// and `live_canvas_path` (`canvas.designos`) after the session switched to a different document
-    /// (`designos_open_file`, `designos_new_document`). Edits go through [`Self::publish_live_patch`].
-    pub fn publish_live_doc_sync(&mut self) {
+    /// (`designos_open_file`, `designos_new_document`), then marks the switch in the edit log.
+    /// The editor reads that one log in order: edits above the mark were made on the previous
+    /// document and are dropped, edits below it belong to this one. Edits go through
+    /// [`Self::publish_live_patch`].
+    pub fn publish_live_doc_sync(&mut self) -> Result<(), String> {
         if self.bridge.live_doc_sync_path.is_none() && self.bridge.live_canvas_path.is_none() {
-            return;
+            return Ok(());
         }
-        let Ok(json_str) = self.engine.doc.to_json() else {
-            return;
-        };
+        // Until the mark is in the log the editor does not know about this document.
+        self.bridge.doc_unannounced = true;
+        let json_str = self.engine.doc.to_json().map_err(|e| format!("serialize the document: {e}"))?;
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
-            let _ = atomic_write_file(canvas_path, bytes);
+            atomic_write_file(canvas_path, bytes)?;
             self.bridge.last_canvas_mtime = fs::metadata(canvas_path).and_then(|m| m.modified()).ok();
         }
         if let Some(sync_path) = &self.bridge.live_doc_sync_path {
-            let _ = atomic_write_file(sync_path, bytes);
+            atomic_write_file(sync_path, bytes)?;
         }
+        if let Some(log) = self.bridge.live_doc_patch_path.clone() {
+            let mark = DocEpoch::of(self.bridge.doc_epoch + 1, bytes);
+            let line = serde_json::to_string(&mark).map_err(|e| format!("serialize document switch: {e}"))? + "\n";
+            append_log_line(&log, &line)?;
+            self.bridge.doc_epoch += 1;
+        }
+        self.bridge.doc_unannounced = false;
+        Ok(())
     }
 
     fn input_path(&self, path: &str) -> Result<PathBuf, String> {
@@ -374,7 +411,8 @@ impl Session {
                 self.engine.doc = doc;
                 self.record_live_ops();
                 self.dirty = false;
-                self.publish_live_doc_sync();
+                self.publish_live_doc_sync()
+                    .map_err(|e| format!("Opened the design, but the editor was not told, so it still shows the previous document: {e}"))?;
                 let mut summary = self.engine.call("designos_get_document", json!({}))?;
                 // Numbers saved as `null` were read as their neutral value. They carry no data to lose, so
                 // the file opens, but the caller is told.
@@ -397,7 +435,8 @@ impl Session {
                 self.engine.doc.name = a.name;
                 self.record_live_ops();
                 self.dirty = true;
-                self.publish_live_doc_sync();
+                self.publish_live_doc_sync()
+                    .map_err(|e| format!("Created the document, but the editor was not told, so it still shows the previous document: {e}"))?;
                 self.engine.call("designos_get_document", json!({}))
             }
             "designos_save_file" => {

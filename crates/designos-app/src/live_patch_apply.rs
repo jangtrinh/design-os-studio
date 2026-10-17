@@ -30,19 +30,6 @@ pub fn publish_live_context(app: &mut App) {
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
 }
 
-/// The agent switched to another document. Replaced at once on an idle canvas; otherwise it
-/// waits like the patches do, and edits held for the old document are dropped, since the agent's
-/// document they were made on is gone.
-pub fn sync_live_document(app: &mut App, new_doc: Document) {
-    if user_edit_in_progress(app) {
-        app.terminal.live_patch.pending.clear();
-        app.terminal.live_patch.pending_doc = Some(new_doc);
-        app.terminal.status_msg = Some("Agent document waits until you finish the current edit".into());
-    } else {
-        replace_live_document(app, new_doc);
-    }
-}
-
 fn replace_live_document(app: &mut App, mut new_doc: Document) {
     crate::io::ensure_page(&mut new_doc);
     let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
@@ -57,12 +44,16 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     app.show_toast("Applied live Agent changes to current page", false);
 }
 
-/// Applies the agent edits waiting in the log, unless the user is mid-edit. Runs every frame.
+/// Opens the document the agent switched to and applies the edits it made on it, unless the
+/// user is mid-edit. Runs every frame. What the log held for the previous document was already
+/// dropped when the switch was read (`LivePatchLog::ingest`); the toast says how many.
 pub fn apply_pending_live_patches(app: &mut App) {
     if !app.terminal.live_patch.has_held() || user_edit_in_progress(app) {
         return;
     }
+    let mut dropped = 0;
     if let Some(doc) = app.terminal.live_patch.pending_doc.take() {
+        dropped = std::mem::take(&mut app.terminal.live_patch.dropped_old_epoch);
         replace_live_document(app, doc);
     }
     let patches = std::mem::take(&mut app.terminal.live_patch.pending);
@@ -70,7 +61,18 @@ pub fn apply_pending_live_patches(app: &mut App) {
         app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
         apply_live_patches(app, &patches);
     }
+    if dropped > 0 {
+        note_dropped_edits(app, dropped);
+    }
     publish_live_context(app);
+}
+
+/// Adds to the toast on screen that edits made on the previous document were dropped.
+fn note_dropped_edits(app: &mut App, dropped: usize) {
+    let edits = if dropped == 1 { "1 earlier edit".to_string() } else { format!("{dropped} earlier edits") };
+    let note = format!("{edits} made on the previous document dropped");
+    let text = app.toast.as_ref().map_or(note.clone(), |t| format!("{} ({note})", t.text));
+    app.show_toast(text, true);
 }
 
 /// Replays `patches` on `app.doc`, one undo step per patch (one agent tool call), and reports

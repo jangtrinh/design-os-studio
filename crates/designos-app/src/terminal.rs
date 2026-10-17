@@ -313,11 +313,9 @@ pub enum TerminalAction {
     ApplySpecJson(String),
     /// Loads and applies a `.spec.json` file from disk.
     ApplySpecFile(PathBuf),
-    /// Hot-syncs a full `Document` JSON written by `designos-mcp` (`doc-sync.designos`) after the
-    /// agent opened or created a different document.
-    SyncLiveDoc(PathBuf),
-    /// Replays agent edits appended by `designos-mcp` to `doc-patch.jsonl` on the open document.
-    ApplyLivePatch(Vec<designos_doc::live_patch::LivePatch>),
+    /// What `designos-mcp` appended to `doc-patch.jsonl`, in log order: edits to replay on the
+    /// open document, and the points where the agent opened or created a different one.
+    ApplyLiveLog(Vec<designos_doc::live_patch::LiveLogLine>),
     /// An agent edit in `doc-patch.jsonl` could not be read (unreadable or over the size limit).
     LiveSyncError(String),
     /// Triggers immediate hot-reload of `save_path` into the Canvas.
@@ -543,7 +541,6 @@ pub struct TerminalState {
     pub live_canvas_path: PathBuf,
     pub context_json_path: PathBuf,
     pub selection_spec_path: PathBuf,
-    pub last_doc_sync_mtime: Option<std::time::SystemTime>,
     /// Agent edits log (`doc-patch.jsonl`) written by `designos-mcp`, with its read position.
     pub live_patch: crate::live_patch_log::LivePatchLog,
     pub last_synced_key: Option<(u64, u64, u64)>,
@@ -565,7 +562,6 @@ pub struct TerminalState {
     pub left_scroll: f32,
     pub last_watched_mtime: Option<std::time::SystemTime>,
     pub last_fallback_spec_mtime: Option<std::time::SystemTime>,
-    pub last_fallback_doc_sync_mtime: Option<std::time::SystemTime>,
     /// Whether the legacy credits banner flag is set (kept for test compatibility).
     #[allow(dead_code)]
     pub credits_banner_dismissed: bool,
@@ -616,9 +612,7 @@ impl TerminalState {
         let context_json_path = session_dir.join("context.json");
         let selection_spec_path = session_dir.join("selection.spec.json");
         let initial_spec_mtime = std::fs::metadata(&live_spec_path).and_then(|m| m.modified()).ok();
-        let initial_doc_mtime = std::fs::metadata(&live_doc_sync_path).and_then(|m| m.modified()).ok();
         let fallback_spec_mtime = std::fs::metadata("/tmp/designos-live-agent-out.spec.json").and_then(|m| m.modified()).ok();
-        let fallback_doc_mtime = std::fs::metadata("/tmp/designos-live-doc-sync.designos").and_then(|m| m.modified()).ok();
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         Self {
             session_id,
@@ -628,7 +622,6 @@ impl TerminalState {
             live_canvas_path,
             context_json_path,
             selection_spec_path,
-            last_doc_sync_mtime: initial_doc_mtime,
             live_patch,
             last_synced_key: None,
             edit_in_progress: false,
@@ -646,7 +639,6 @@ impl TerminalState {
             left_scroll: 0.0,
             last_watched_mtime: initial_spec_mtime,
             last_fallback_spec_mtime: fallback_spec_mtime,
-            last_fallback_doc_sync_mtime: fallback_doc_mtime,
             credits_banner_dismissed: true,
             side_panel_pty_open: true,
             chat_mode: false,
@@ -677,7 +669,6 @@ impl TerminalState {
         self.selection_spec_path = session_dir.join("selection.spec.json");
         self.session_dir = session_dir;
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
-        self.last_doc_sync_mtime = std::fs::metadata(&self.live_doc_sync_path).and_then(|m| m.modified()).ok();
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.last_synced_key = None;
     }
@@ -884,7 +875,7 @@ impl TerminalState {
              - **Live Context JSON**: `{ctx}` (`$DESIGNOS_CONTEXT_JSON`)\n\
              - **Live Spec Drop Path**: `{spec}` (`$DESIGNOS_LIVE_SPEC`)\n\
              - **Live Doc Sync Path**: `{doc_sync}` (`$DESIGNOS_LIVE_DOC_SYNC`)\n\
-             - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio)\n\n\
+             - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio in order, with a mark wherever you open another document)\n\n\
              ## Automatic Current-Page Delivery Rules\n\
              1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
              2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n",
@@ -1169,10 +1160,9 @@ impl TerminalState {
         self.tabs.get(idx)
     }
 
-    /// Dual-channel live bridge polling (`<50ms` hot-apply):
+    /// Live bridge polling (`<50ms` hot-apply):
     /// 1. Polls `self.live_spec_path` (`live-spec.json`) and `/tmp/designos-live-agent-out.spec.json` -> `TerminalAction::ApplySpecFile(...)`
-    /// 2. Polls `self.live_doc_sync_path` (`doc-sync.designos` written by `designos-mcp`) and `/tmp/designos-live-doc-sync.designos` -> `TerminalAction::SyncLiveDoc(...)`,
-    ///    and `doc-patch.jsonl` (agent edits) -> `TerminalAction::ApplyLivePatch(...)`
+    /// 2. Polls `doc-patch.jsonl` (agent edits and document switches written by `designos-mcp`) -> `TerminalAction::ApplyLiveLog(...)`
     pub fn poll_live_agent_bridge(&mut self) -> Vec<TerminalAction> {
         let mut actions = Vec::new();
 
@@ -1210,48 +1200,15 @@ impl TerminalState {
             }
         }
 
-        // Channel 2: Scoped doc-sync.designos (written by designos-mcp tools)
-        let doc_sync = self.live_doc_sync_path.clone();
-        if let Ok(meta) = std::fs::metadata(&doc_sync) {
-            if let Ok(mtime) = meta.modified() {
-                let is_newer = match self.last_doc_sync_mtime {
-                    Some(prev) => mtime > prev,
-                    None => true,
-                };
-                if is_newer {
-                    self.last_doc_sync_mtime = Some(mtime);
-                    self.status_msg = Some(format!("Synced live MCP document {} (<50ms)", doc_sync.display()));
-                    actions.push(TerminalAction::SyncLiveDoc(doc_sync));
-                }
-            }
-        }
-
-        // Channel 2a: Scoped doc-patch.jsonl (edits made by designos-mcp tools)
-        let (patches, errors) = self.live_patch.poll();
+        // Channel 2: doc-patch.jsonl (written by designos-mcp tools). Edits and document switches
+        // share this one log, so their order is the log's order.
+        let (lines, errors) = self.live_patch.poll();
         for err in errors {
             self.status_msg = Some(err.clone());
             actions.push(TerminalAction::LiveSyncError(err));
         }
-        if !patches.is_empty() {
-            actions.push(TerminalAction::ApplyLivePatch(patches));
-        }
-
-        // Channel 2b: Global fallback /tmp/designos-live-doc-sync.designos
-        let fallback_doc = PathBuf::from("/tmp/designos-live-doc-sync.designos");
-        if !cfg!(test) && fallback_doc != self.live_doc_sync_path {
-            if let Ok(meta) = std::fs::metadata(&fallback_doc) {
-                if let Ok(mtime) = meta.modified() {
-                    let is_newer = match self.last_fallback_doc_sync_mtime {
-                        Some(prev) => mtime > prev,
-                        None => true,
-                    };
-                    if is_newer {
-                        self.last_fallback_doc_sync_mtime = Some(mtime);
-                        self.status_msg = Some("Synced /tmp/designos-live-doc-sync.designos (<50ms)".into());
-                        actions.push(TerminalAction::SyncLiveDoc(fallback_doc));
-                    }
-                }
-            }
+        if !lines.is_empty() {
+            actions.push(TerminalAction::ApplyLiveLog(lines));
         }
 
         // Channel 3: Scoped agent-status.json written by Claude/Codex/Grok/AGY session hooks
@@ -4300,14 +4257,18 @@ Done!
         assert_eq!(ctx_val["current_page_id"].as_u64(), Some(page2.0));
         assert_eq!(ctx_val["current_page_name"].as_str(), Some("Page 2 — Agent Target"));
 
-        // Simulate MCP server writing doc-sync.designos into session 1
+        // Simulate MCP server writing doc-sync.designos into session 1 and the switch into its log
         let mut mutated = doc1.clone();
         let _ = mutated
             .apply_spec(page2, &NodeSpec { kind: "frame".into(), name: "MCP Synced Frame".into(), preset: Some("easeui-card".into()), ..Default::default() });
-        std::fs::write(&st1.live_doc_sync_path, mutated.to_json().expect("json")).expect("save doc-sync.designos");
+        let json = mutated.to_json().expect("json");
+        std::fs::write(&st1.live_doc_sync_path, &json).expect("save doc-sync.designos");
+        let marker = designos_doc::live_patch::DocEpoch::of(1, json.as_bytes());
+        let line = serde_json::to_string(&marker).expect("marker json") + "\n";
+        std::fs::write(st1.session_dir.join("doc-patch.jsonl"), line).expect("append switch");
 
         let actions1 = st1.poll_live_agent_bridge();
-        assert_eq!(actions1, vec![TerminalAction::SyncLiveDoc(st1.live_doc_sync_path.clone())]);
+        assert_eq!(actions1, vec![TerminalAction::ApplyLiveLog(vec![designos_doc::live_patch::LiveLogLine::DocEpoch(marker)])]);
         // Session 2 must remain completely unaffected
         assert!(st2.poll_live_agent_bridge().is_empty());
 
