@@ -55,6 +55,32 @@ fn size_and_kind_of_a_replaced_layer_are_refused_each_on_its_own() {
 }
 
 #[test]
+fn local_geometry_fields_of_a_replaced_layer_are_refused_in_set_and_unset() {
+    let (mut doc, mut state, _, old, fresh) = replaced_layer();
+    doc.get_mut(fresh).unwrap().corner_radii = [6.0; 4];
+    let before = doc.get(fresh).unwrap().clone();
+    let path = serde_json::to_value(vec![crate::Path::default()]).unwrap();
+    let report = apply(
+        &mut doc,
+        &mut state,
+        LiveOp::Update {
+            id: old,
+            set: serde_json::from_value(json!({
+                "fill_geometry": path,
+                "stroke_geometry": path,
+                "corner_radii": [16.0, 16.0, 16.0, 16.0],
+            }))
+            .unwrap(),
+            unset: vec!["fill_geometry".into(), "stroke_geometry".into(), "corner_radii".into()],
+        },
+    );
+    assert_eq!(*doc.get(fresh).unwrap(), before);
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.skipped.len(), 6, "{:?}", report.skipped);
+    assert!(report.skipped.iter().all(|s| s.contains(REFUSAL)), "{:?}", report.skipped);
+}
+
+#[test]
 fn appearance_edits_still_follow_the_replacement_while_its_shape_edits_are_refused() {
     let (mut doc, mut state, _, old, fresh) = replaced_layer();
     let before = doc.get(fresh).unwrap().transform;

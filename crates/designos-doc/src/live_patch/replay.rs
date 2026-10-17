@@ -54,7 +54,7 @@ fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, Node
 /// Fields that describe a layer's shape in its own coordinate frame. The shape builder rebuilds
 /// a layer from geometry in the frame of its parent, so the agent's numbers for these do not
 /// apply to the replacement.
-const SHAPE_FIELDS: [&str; 3] = ["transform", "size", "kind"];
+const SHAPE_FIELDS: [&str; 6] = ["transform", "size", "kind", "fill_geometry", "stroke_geometry", "corner_radii"];
 
 /// What a replay did, for the toast, the post-replay layout pass and tests.
 #[derive(Clone, Debug, Default, PartialEq)]
