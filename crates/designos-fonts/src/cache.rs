@@ -173,10 +173,177 @@ impl FontCache {
     }
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+/// Distinguishes the temporary files of concurrent saves within one process.
+static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Writes `bytes` to `path` via a temporary file next to it, so a crash mid-write never leaves a
+/// truncated file behind.
+///
+/// Behaviour a plain `std::fs::write` has and this keeps:
+/// - a symlink (including a dangling symlink) is saved *through*: the target file receives the
+///   bytes (and is created along with its parent directories if missing) while the link stays a link;
+/// - the existing file's permission mode is applied at temp-file creation time (never briefly wider);
+/// - a read-only or non-writable target (including a `0644` file owned by another user or denied by
+///   ACL/flags in a writable folder) is refused with `PermissionDenied` instead of being replaced;
+/// - filenames of 249–255 bytes (e.g. ~80+ Vietnamese UTF-8 characters) truncate the temp prefix on
+///   a char boundary so the temp filename never hits `ENAMETOOLONG`;
+/// - leftover `<prefix>.<pid>-<seq>.tmp` files from crashed saves (dead PIDs) are swept on save.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let (target, existing) = resolve_save_target(path)?;
+    let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix = tmp_prefix(&name);
+    sweep_stale_temps(dir, &name, prefix);
+    write_via_tmp(&target, dir, prefix, bytes, existing.as_ref())
+}
+
+/// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
+/// the 255-byte / 255-char filesystem filename limit (`ENAMETOOLONG`).
+fn tmp_prefix(name: &str) -> &str {
+    const MAX_PREFIX_BYTES: usize = 200;
+    if name.len() <= MAX_PREFIX_BYTES {
+        return name;
+    }
+    let mut end = MAX_PREFIX_BYTES;
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &name[..end]
+}
+
+#[cfg(unix)]
+fn is_process_dead(pid: u32) -> bool {
+    const ESRCH: i32 = 3;
+    if pid == std::process::id() || (pid as i32) <= 0 {
+        return false;
+    }
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    if unsafe { kill(pid as i32, 0) } == 0 {
+        return false;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(ESRCH)
+}
+
+#[cfg(not(unix))]
+fn is_process_dead(_pid: u32) -> bool {
+    false
+}
+
+/// Best-effort sweep of leftover `.tmp` files for `target` left behind by crashed processes.
+fn sweep_stale_temps(dir: &Path, target_name: &str, prefix: &str) {
+    let legacy = dir.join(format!("{target_name}.tmp"));
+    let _ = std::fs::remove_file(legacy);
+
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let prefix_dot = format!("{prefix}.");
+    let target_dot = format!("{target_name}.");
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let Some(s) = fname.to_str() else { continue };
+        let Some(stem) = s.strip_suffix(".tmp") else { continue };
+        let mid = stem.strip_prefix(&prefix_dot).or_else(|| stem.strip_prefix(&target_dot));
+        let Some(mid) = mid else { continue };
+        let stale_by_pid = match mid.split_once('-') {
+            Some((pid_str, seq_str))
+                if !pid_str.is_empty() && pid_str.bytes().all(|b| b.is_ascii_digit()) && !seq_str.is_empty() && seq_str.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                match pid_str.parse::<u32>() {
+                    Ok(pid) => is_process_dead(pid),
+                    Err(_) => false,
+                }
+            }
+            _ => false,
+        };
+        if stale_by_pid {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Follows symlinks (including dangling chains) to the file that must really change. Returns the
+/// metadata of that file when it exists, and refuses a directory or a non-writable file.
+fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs::Metadata>)> {
+    use std::io::{Error, ErrorKind};
+    let mut cur = path.to_path_buf();
+    for _ in 0..40 {
+        match std::fs::symlink_metadata(&cur) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let link_target = std::fs::read_link(&cur)?;
+                let parent = cur.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+                cur = parent.join(link_target);
+            }
+            Ok(meta) => {
+                if meta.is_dir() {
+                    return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", cur.display())));
+                }
+                if meta.permissions().readonly() {
+                    return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only", cur.display())));
+                }
+                if let Err(e) = std::fs::OpenOptions::new().write(true).open(&cur) {
+                    return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", cur.display())));
+                }
+                let real = std::fs::canonicalize(&cur).unwrap_or(cur);
+                return Ok((real, Some(meta)));
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                return Ok((cur, None));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(Error::new(ErrorKind::InvalidInput, format!("too many levels of symbolic links: {}", path.display())))
+}
+
+fn write_via_tmp(target: &Path, dir: &Path, prefix: &str, bytes: &[u8], existing: Option<&std::fs::Metadata>) -> std::io::Result<()> {
+    use std::io::{ErrorKind, Write};
+    use std::sync::atomic::Ordering;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let initial_mode = existing.map(|m| m.permissions().mode() & 0o7777).unwrap_or(0o666);
+        opts.mode(initial_mode);
+    }
+
+    let (tmp, mut file) = loop {
+        let tmp = dir.join(format!("{prefix}.{}-{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
+        match opts.open(&tmp) {
+            Ok(file) => break (tmp, file),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    };
+    let res = (|| -> std::io::Result<()> {
+        if let Some(meta) = existing {
+            file.set_permissions(meta.permissions())?;
+        }
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, target)
+    })();
+    if res.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return res;
+    }
+    sync_dir(dir)
+}
+
+/// Makes the rename itself durable. Platforms that cannot open or sync a directory are skipped.
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    match std::fs::File::open(dir).and_then(|d| d.sync_all()) {
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::InvalidInput | std::io::ErrorKind::Unsupported) => {}
+        other => return other,
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 #[cfg(test)]
