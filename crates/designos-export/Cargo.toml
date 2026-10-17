@@ -10,5 +10,5 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 base64 = "0.22"
 designos-doc.workspace = true
 designos-render.workspace = true
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 tiny-skia.workspace = true

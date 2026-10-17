@@ -308,30 +308,27 @@ fn pixel_grid(app: &App, p: &Painter, rect: ERect) {
 }
 
 fn layout_grids(app: &App, p: &Painter, rect: ERect) {
+    layout_grids_in(app, p, rect, super::interact::active_index(app));
+}
+
+/// Paints the layout grids of the visible frames, taking them from `idx` when there is one.
+fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_render::SceneIndex>) {
     let z = app.view.zoom.max(1e-3);
     let view = Rect::new(app.view.offset.x, app.view.offset.y, rect.width() / z, rect.height() / z);
     let win = (view.x, view.y, view.x + view.w, view.y + view.h);
     let overlaps_win = |(x0, y0, x1, y1): (f32, f32, f32, f32)| x0 <= win.2 && win.0 <= x1 && y0 <= win.3 && win.1 <= y1;
     let Some(page) = app.doc.get(app.page) else { return };
-    let idx = super::interact::active_index(app);
 
+    // Painted back to front: the stack pops from its end, so everything is pushed in reverse.
     let mut stack: Vec<(NodeId, Affine)> = Vec::new();
     if let Some(index) = idx {
-        if page.children.len() > 32 {
-            let mut roots = Vec::new();
-            index.query_top_level(win, &mut roots);
-            for cid in roots {
-                stack.push((cid, Affine::IDENTITY));
-            }
-        } else {
-            for &cid in &page.children {
-                if index.bounds_of(cid).is_none_or(overlaps_win) {
-                    stack.push((cid, Affine::IDENTITY));
-                }
+        for &id in index.grid_nodes().iter().rev() {
+            if index.bounds_of(id).is_none_or(overlaps_win) {
+                stack.push((id, super::fast_world_transform(&app.doc, id)));
             }
         }
     } else {
-        for &cid in &page.children {
+        for &cid in page.children.iter().rev() {
             stack.push((cid, Affine::IDENTITY));
         }
     }
@@ -346,15 +343,13 @@ fn layout_grids(app: &App, p: &Painter, rect: ERect) {
                 continue;
             }
         }
-        let w = parent_world * n.transform;
+        let w = if idx.is_some() { parent_world } else { parent_world * n.transform };
         let own_bb = super::affine_rect_aabb(&w, n.size);
-        if !n.children.is_empty() {
-            let descend = if idx.is_none() && n.kind.frame_props().is_some_and(|f| f.clips_content) { own_bb.intersects(&view) } else { true };
+        if idx.is_none() && !n.children.is_empty() {
+            let descend = if n.kind.frame_props().is_some_and(|f| f.clips_content) { own_bb.intersects(&view) } else { true };
             if descend {
-                for &cid in &n.children {
-                    if idx.and_then(|i| i.bounds_of(cid)).is_none_or(overlaps_win) {
-                        stack.push((cid, w));
-                    }
+                for &cid in n.children.iter().rev() {
+                    stack.push((cid, w));
                 }
             }
         }
@@ -456,5 +451,55 @@ mod tests {
         assert_eq!(format_grid_track(ov.col_tracks[1]), "1fr");
         assert_eq!(format_grid_track(ov.col_tracks[2]), "2fr");
         assert_eq!(format_grid_track(GridTrack::Hug), "Hug");
+    }
+
+    fn gridded_frame(app: &mut App, parent: NodeId, rect: Rect, color: Color) -> NodeId {
+        let id = app.doc.alloc_id();
+        let mut frame = designos_doc::Node::frame(id, rect);
+        if let NodeKind::Frame(fp) = &mut frame.kind {
+            fp.grids.push(LayoutGrid::Columns { count: 1, gutter: 0.0, offset: 0.0, color });
+        }
+        app.doc.insert(parent, frame).unwrap()
+    }
+
+    /// Fill colours of the stripes painted for the layout grids, in paint order.
+    fn painted_stripe_fills(app: &App, idx: Option<&designos_render::SceneIndex>) -> Vec<Color32> {
+        let ctx = egui::Context::default();
+        let rect = ERect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.painter().clone();
+            layout_grids_in(app, &painter, rect, idx);
+        });
+        out.shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Path(path) => Some(path.fill),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn layout_grids_paint_parents_beneath_children_and_lower_siblings_beneath_upper_ones() {
+        let mut doc = Document::new("grid-paint-order");
+        doc.add_page("page-1");
+        let mut app = App::new(doc);
+        let page = app.page;
+        let parent_color = Color::rgba(255, 0, 0, 40);
+        let child_color = Color::rgba(0, 0, 255, 40);
+        let lower_color = Color::rgba(0, 255, 0, 40);
+        let upper_color = Color::rgba(255, 255, 0, 40);
+        let parent = gridded_frame(&mut app, page, Rect::new(0.0, 0.0, 400.0, 300.0), parent_color);
+        gridded_frame(&mut app, parent, Rect::new(20.0, 20.0, 200.0, 200.0), child_color);
+        gridded_frame(&mut app, page, Rect::new(600.0, 0.0, 200.0, 200.0), lower_color);
+        gridded_frame(&mut app, page, Rect::new(600.0, 0.0, 200.0, 200.0), upper_color);
+
+        let expected = [parent_color, child_color, lower_color, upper_color].map(|c| c32(&c)).to_vec();
+
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&app.doc, app.page, 1);
+        assert_eq!(painted_stripe_fills(&app, Some(&idx)), expected, "with a scene index");
+        assert_eq!(painted_stripe_fills(&app, None), expected, "without a scene index");
     }
 }

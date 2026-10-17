@@ -4,7 +4,7 @@ use super::*;
 use egui::text::{CCursor, CCursorRange};
 use egui::{Align, Margin, TextEdit};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Prefix {
     None,
     Text(&'static str),
@@ -510,7 +510,11 @@ pub(crate) fn parse_number(s: &str) -> Option<f32> {
 /// in `text_secondary`. Integers print without decimals, other values with at most two.
 pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
     #[cfg(test)]
-    ui.ctx().data_mut(|d| d.insert_temp(Id::new(("field-rect", format!("{key:?}"))), rect));
+    ui.ctx().data_mut(|d| {
+        let k = format!("{key:?}");
+        d.insert_temp(Id::new(("field-rect", k.clone())), rect);
+        d.insert_temp(Id::new(("field-prefix", k)), prefix);
+    });
     let id = ui.id().with(("num", key));
     let display = value.map(fmt_num).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);

@@ -90,6 +90,42 @@ impl VariableStore {
         }
     }
 
+    /// True when `coll` is a subscribed copy of a library's collection: it is edited in its library
+    /// file, so every edit that would reach it, or its variables, is refused.
+    pub fn is_library_collection(&self, coll: &str) -> bool {
+        self.collections.get(coll).is_some_and(VariableCollection::is_library)
+    }
+
+    /// True when `var` lives in a library collection.
+    pub fn is_library_variable(&self, var: &str) -> bool {
+        self.variables.get(var).is_some_and(|v| self.is_library_collection(&v.collection))
+    }
+
+    /// Puts every library collection and its variables back to how `original` has them. The panel
+    /// calls this before it commits, so a path that edits the maps directly cannot change a library.
+    pub fn enforce_library_read_only(&mut self, original: &VariableStore) {
+        let is_library = |id: &str| original.is_library_collection(id);
+        // a variable of the file's own that an edit pointed at a library collection
+        let moved_in: Vec<String> = self.variables.iter().filter(|(_, v)| is_library(&v.collection)).map(|(id, _)| id.clone()).collect();
+        self.collections.retain(|id, _| !is_library(id));
+        self.variables.retain(|_, v| !is_library(&v.collection));
+        for (id, c) in original.collections.iter().filter(|(id, _)| is_library(id)) {
+            self.collections.insert(id.clone(), c.clone());
+        }
+        for (id, v) in original.variables.iter().filter(|(_, v)| is_library(&v.collection)) {
+            self.variables.insert(id.clone(), v.clone());
+        }
+        for id in moved_in {
+            if let Some(v) = original.variables.get(&id).filter(|v| !is_library(&v.collection)) {
+                self.variables.insert(id, v.clone());
+            }
+        }
+        // only its own collection lists a library variable
+        for c in self.collections.values_mut().filter(|c| !c.is_library()) {
+            c.variables.retain(|v| !original.is_library_variable(v));
+        }
+    }
+
     // ------------------------------------------------------------ collections
 
     pub fn add_collection(&mut self, name: &str) -> String {
@@ -104,12 +140,16 @@ impl VariableStore {
                 default_mode: mode,
                 variables: Vec::new(),
                 key: None,
+                source_library_key: None,
             },
         );
         id
     }
 
     pub fn rename_collection(&mut self, id: &str, name: &str) {
+        if self.is_library_collection(id) {
+            return;
+        }
         if let Some(c) = self.collections.get_mut(id) {
             c.name = name.to_string();
         }
@@ -157,18 +197,31 @@ impl VariableStore {
         }
         self.collections.insert(
             new_id.clone(),
-            VariableCollection { id: new_id.clone(), name: format!("{} copy", src.name), modes, default_mode, variables: var_ids, key: None },
+            VariableCollection {
+                id: new_id.clone(),
+                name: format!("{} copy", src.name),
+                modes,
+                default_mode,
+                variables: var_ids,
+                key: None,
+                source_library_key: None,
+            },
         );
         Some(new_id)
     }
 
     /// Removes a collection with its variables. Returns the removed variable ids.
     pub fn delete_collection(&mut self, id: &str) -> Vec<String> {
+        if self.is_library_collection(id) {
+            return Vec::new();
+        }
         let Some(c) = self.collections.remove(id) else { return Vec::new() };
         let mut gone: Vec<String> = c.variables.clone();
         gone.extend(self.variables.values().filter(|v| v.collection == id).map(|v| v.id.clone()));
         gone.sort();
         gone.dedup();
+        // a list that names a variable of a library collection does not make it this collection's to delete
+        gone.retain(|g| !self.is_library_variable(g));
         for g in &gone {
             self.remove_variable_inner(g);
         }
@@ -178,6 +231,9 @@ impl VariableStore {
     // ------------------------------------------------------------ modes
 
     pub fn add_mode(&mut self, coll: &str, name: &str) -> Option<String> {
+        if self.is_library_collection(coll) {
+            return None;
+        }
         let id = self.fresh_id("VariableModeId");
         let c = self.collections.get(coll)?;
         let base = c.default_mode.clone();
@@ -193,12 +249,18 @@ impl VariableStore {
     }
 
     pub fn rename_mode(&mut self, coll: &str, mode: &str, name: &str) {
+        if self.is_library_collection(coll) {
+            return;
+        }
         if let Some(m) = self.collections.get_mut(coll).and_then(|c| c.modes.iter_mut().find(|m| m.id == mode)) {
             m.name = name.to_string();
         }
     }
 
     pub fn duplicate_mode(&mut self, coll: &str, mode: &str) -> Option<String> {
+        if self.is_library_collection(coll) {
+            return None;
+        }
         let name = self.collections.get(coll)?.modes.iter().find(|m| m.id == mode)?.name.clone();
         let id = self.fresh_id("VariableModeId");
         let ids = self.collections.get(coll)?.variables.clone();
@@ -217,6 +279,9 @@ impl VariableStore {
 
     /// Deletes a mode (the last one cannot be deleted). Returns whether it was removed.
     pub fn delete_mode(&mut self, coll: &str, mode: &str) -> bool {
+        if self.is_library_collection(coll) {
+            return false;
+        }
         let Some(c) = self.collections.get_mut(coll) else { return false };
         if c.modes.len() <= 1 || !c.modes.iter().any(|m| m.id == mode) {
             return false;
@@ -235,6 +300,9 @@ impl VariableStore {
     }
 
     pub fn set_default_mode(&mut self, coll: &str, mode: &str) {
+        if self.is_library_collection(coll) {
+            return;
+        }
         if let Some(c) = self.collections.get_mut(coll) {
             if c.modes.iter().any(|m| m.id == mode) {
                 c.default_mode = mode.to_string();
@@ -245,6 +313,9 @@ impl VariableStore {
     // ------------------------------------------------------------ variables
 
     pub fn add_variable(&mut self, coll: &str, name: &str, kind: VariableKind) -> Option<String> {
+        if self.is_library_collection(coll) {
+            return None;
+        }
         let id = self.fresh_id("VariableID");
         let name = self.unique_variable_name(coll, name, None);
         let c = self.collections.get_mut(coll)?;
@@ -270,6 +341,9 @@ impl VariableStore {
     }
 
     pub fn rename_variable(&mut self, id: &str, name: &str) {
+        if self.is_library_variable(id) {
+            return;
+        }
         let Some(coll) = self.variables.get(id).map(|v| v.collection.clone()) else { return };
         let name = name.trim().trim_matches('/');
         if name.is_empty() {
@@ -282,6 +356,9 @@ impl VariableStore {
     }
 
     pub fn duplicate_variable(&mut self, id: &str) -> Option<String> {
+        if self.is_library_variable(id) {
+            return None;
+        }
         let src = self.variables.get(id)?.clone();
         let nid = self.fresh_id("VariableID");
         let name = self.unique_variable_name(&src.collection, &src.name, None);
@@ -345,6 +422,9 @@ impl VariableStore {
 
     /// Sets a literal value; ignored when its type does not match the variable.
     pub fn set_value(&mut self, var: &str, mode: &str, value: VariableValue) -> bool {
+        if self.is_library_variable(var) {
+            return false;
+        }
         let Some(v) = self.variables.get_mut(var) else { return false };
         match value_kind(&value) {
             Some(k) if k == v.kind => {}
@@ -356,7 +436,7 @@ impl VariableStore {
 
     /// Makes the value in `mode` an alias of `target`.
     pub fn set_alias(&mut self, var: &str, mode: &str, target: &str) -> bool {
-        if !self.can_alias(var, target) {
+        if self.is_library_variable(var) || !self.can_alias(var, target) {
             return false;
         }
         if let Some(v) = self.variables.get_mut(var) {
@@ -368,6 +448,9 @@ impl VariableStore {
 
     /// Replaces an alias by the literal it currently resolves to.
     pub fn detach_alias(&mut self, var: &str, mode: &str) -> bool {
+        if self.is_library_variable(var) {
+            return false;
+        }
         let Some(lit) = self.resolve(var, mode) else { return false };
         match self.variables.get_mut(var) {
             Some(v) => {
@@ -408,12 +491,18 @@ impl VariableStore {
     }
 
     pub fn delete_variable(&mut self, id: &str) {
+        if self.is_library_variable(id) {
+            return;
+        }
         self.remove_variable_inner(id);
     }
 
     /// Moves `id` to sit right before `before` (or to the end). When the two
     /// live in different folders, `id` joins the folder of `before`.
     pub fn move_variable(&mut self, id: &str, before: Option<&str>) {
+        if self.is_library_variable(id) {
+            return;
+        }
         let Some(coll) = self.variables.get(id).map(|v| v.collection.clone()) else { return };
         if before == Some(id) {
             return;
@@ -435,6 +524,9 @@ impl VariableStore {
 
     /// Renames a folder: every variable of `coll` whose name starts with `old/`.
     pub fn rename_folder(&mut self, coll: &str, old: &str, new: &str) {
+        if self.is_library_collection(coll) {
+            return;
+        }
         let new = new.trim().trim_matches('/');
         if new.is_empty() {
             return;
@@ -610,5 +702,114 @@ mod tests {
         assert_eq!(d.variables.len(), 4);
         h.undo(&mut d).unwrap();
         assert!(d.variables.is_empty());
+    }
+
+    /// A store with a local `Theme` and a subscribed-library `Theme`, each holding one color variable.
+    fn local_and_library() -> (VariableStore, (String, String), (String, String)) {
+        let (mut s, local, local_var) = store();
+        let lib = s.add_collection("Theme");
+        let lib_var = s.add_variable(&lib, "Color/Text", VariableKind::Color).unwrap();
+        s.collections.get_mut(&lib).unwrap().source_library_key = Some("lk-83c0".into());
+        (s, (local, local_var), (lib, lib_var))
+    }
+
+    #[test]
+    fn library_collections_ignore_every_edit() {
+        let (mut s, (local, local_var), (lib, lib_var)) = local_and_library();
+        let before = s.clone();
+        let mode = s.collections[&lib].default_mode.clone();
+        s.rename_collection(&lib, "Mine");
+        assert!(s.add_mode(&lib, "Dark").is_none());
+        s.rename_mode(&lib, &mode, "Renamed");
+        assert!(s.duplicate_mode(&lib, &mode).is_none());
+        assert!(!s.delete_mode(&lib, &mode));
+        s.set_default_mode(&lib, &mode);
+        assert!(s.add_variable(&lib, "New", VariableKind::Number).is_none());
+        s.rename_variable(&lib_var, "Renamed");
+        assert!(s.duplicate_variable(&lib_var).is_none());
+        assert!(!s.set_value(&lib_var, &mode, VariableValue::Color(Color::WHITE)));
+        assert!(!s.set_alias(&lib_var, &mode, &local_var));
+        assert!(!s.detach_alias(&lib_var, &mode));
+        s.move_variable(&lib_var, None);
+        s.rename_folder(&lib, "Color", "Paint");
+        s.delete_variable(&lib_var);
+        assert!(s.delete_collection(&lib).is_empty());
+        assert_eq!(s, before, "nothing about the library collection changed");
+        // the local collection of the same name still edits
+        assert!(s.set_value(&local_var, &s.collections[&local].default_mode.clone(), VariableValue::Color(Color::WHITE)));
+    }
+
+    #[test]
+    fn a_local_variable_may_alias_a_library_variable() {
+        let (mut s, (local, local_var), (_, lib_var)) = local_and_library();
+        let mode = s.collections[&local].default_mode.clone();
+        assert!(s.set_alias(&local_var, &mode, &lib_var));
+        assert_eq!(s.variables[&local_var].values[&mode], VariableValue::Alias(lib_var));
+    }
+
+    #[test]
+    fn a_duplicate_of_a_library_collection_is_a_local_editable_copy() {
+        let (mut s, _, (lib, _)) = local_and_library();
+        let copy = s.duplicate_collection(&lib).expect("a library collection can be duplicated");
+        assert!(!s.collections[&copy].is_library());
+        let var = s.collections[&copy].variables[0].clone();
+        assert!(s.set_value(&var, &s.collections[&copy].default_mode.clone(), VariableValue::Color(Color::WHITE)));
+    }
+
+    #[test]
+    fn enforce_library_read_only_reverts_direct_pokes() {
+        let (original, _, (lib, lib_var)) = local_and_library();
+        let mut work = original.clone();
+        work.variables.get_mut(&lib_var).unwrap().name = "Hacked".into();
+        work.collections.get_mut(&lib).unwrap().name = "Hacked".into();
+        let ghost = "VariableID:ghost".to_string();
+        work.variables.insert(ghost.clone(), Variable { id: ghost.clone(), collection: lib.clone(), ..original.variables[&lib_var].clone() });
+        work.collections.get_mut(&lib).unwrap().variables.push(ghost);
+        work.enforce_library_read_only(&original);
+        assert_eq!(work, original);
+        // a library collection removed outright comes back too
+        let mut gone = original.clone();
+        gone.delete_collection(&lib);
+        gone.enforce_library_read_only(&original);
+        assert_eq!(gone, original);
+        // edits to local collections pass through
+        let mut local_edit = original.clone();
+        let local_var = original.variables.keys().find(|k| **k != lib_var).unwrap().clone();
+        local_edit.variables.get_mut(&local_var).unwrap().name = "Renamed".into();
+        let expected = local_edit.clone();
+        local_edit.enforce_library_read_only(&original);
+        assert_eq!(local_edit, expected);
+    }
+
+    #[test]
+    fn enforce_library_read_only_restores_a_local_variable_pointed_at_a_library_collection() {
+        let (original, (_, local_var), (lib, _)) = local_and_library();
+        let mut work = original.clone();
+        work.variables.get_mut(&local_var).unwrap().collection = lib;
+        work.enforce_library_read_only(&original);
+        assert_eq!(work, original, "the local variable is back where it was, not dropped");
+    }
+
+    #[test]
+    fn enforce_library_read_only_unlinks_library_variables_from_local_collections() {
+        let (original, (local, _), (_, lib_var)) = local_and_library();
+        let mut work = original.clone();
+        work.collections.get_mut(&local).unwrap().variables.push(lib_var);
+        work.enforce_library_read_only(&original);
+        assert_eq!(work, original);
+    }
+
+    #[test]
+    fn deleting_a_collection_never_removes_a_library_variable_its_list_names() {
+        let (mut s, (local, local_var), (lib, lib_var)) = local_and_library();
+        let mode = s.collections[&local].default_mode.clone();
+        assert!(s.set_alias(&local_var, &mode, &lib_var));
+        let other = s.add_collection("Other");
+        s.collections.get_mut(&other).unwrap().variables.push(lib_var.clone());
+        let library_before = (s.collections[&lib].clone(), s.variables[&lib_var].clone());
+        assert!(s.delete_collection(&other).is_empty(), "nothing of the library was removed");
+        assert!(!s.collections.contains_key(&other));
+        assert_eq!((s.collections[&lib].clone(), s.variables[&lib_var].clone()), library_before);
+        assert_eq!(s.variables[&local_var].values[&mode], VariableValue::Alias(lib_var), "the alias was not baked into a literal");
     }
 }

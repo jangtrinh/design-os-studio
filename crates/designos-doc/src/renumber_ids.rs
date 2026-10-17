@@ -101,6 +101,9 @@ fn remap_component_link(link: &mut ComponentLink, f: &impl Fn(NodeId) -> NodeId)
         }
     }
     link.values.values_mut().for_each(|v| remap_prop_value(v, f));
+    for cfg in link.slot_configs.values_mut() {
+        cfg.preferred.iter_mut().for_each(|p| *p = f(*p));
+    }
 }
 
 fn remap_prop_value(value: &mut PropValue, f: &impl Fn(NodeId) -> NodeId) {

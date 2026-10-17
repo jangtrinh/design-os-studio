@@ -2,6 +2,7 @@
 //! binding picker and the App operations behind them. Every change goes through `Command::SetVariables`
 //! (or ordinary node updates for bindings) so it is one undo step.
 
+pub mod library;
 pub mod popover;
 pub mod view;
 pub mod widgets;
@@ -152,7 +153,7 @@ impl App {
         self.vars.open = true;
         let known = self.vars.collection.as_ref().is_some_and(|c| self.doc.variable_collections.contains_key(c));
         if !known {
-            self.vars.collection = self.doc.variable_collections.keys().next().cloned();
+            self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
         }
         self.ui.menu = None;
     }
@@ -189,10 +190,16 @@ impl App {
     /// Installs an edited variable store as one undo step. `removed_*` list
     /// variables / collections that disappeared so their bindings are dropped
     /// from nodes in the same step.
-    pub fn commit_store(&mut self, store: VariableStore, removed_vars: &[String], removed_colls: &[String]) -> bool {
+    pub fn commit_store(&mut self, mut store: VariableStore, removed_vars: &[String], removed_colls: &[String]) -> bool {
+        // A collection subscribed from a library is edited in its library file, whichever path got here.
+        store.enforce_library_read_only(&VariableStore::from_doc(&self.doc));
         if store.matches_doc(&self.doc) {
             return false;
         }
+        // a removal the guard refused leaves the variable in place, so its bindings stay too
+        let removed_vars: Vec<String> = removed_vars.iter().filter(|v| !store.variables.contains_key(*v)).cloned().collect();
+        let removed_colls: Vec<String> = removed_colls.iter().filter(|c| !store.collections.contains_key(*c)).cloned().collect();
+        let (removed_vars, removed_colls) = (&removed_vars[..], &removed_colls[..]);
         let cleanup = dangling_binding_cleanup(&self.doc, removed_vars, removed_colls);
         let mut cleaned = Vec::new();
         for mut n in cleanup {
@@ -323,24 +330,26 @@ impl App {
         });
     }
 
-    /// Merges a `variables/local` JSON payload into the document (one undo step).
-    /// Returns how many variables the payload held.
-    pub fn import_variables_text(&mut self, text: &str) -> Result<usize, String> {
+    /// Merges a `variables/local` JSON payload into the document (one undo step). Records that
+    /// would change a library collection, or that would take the id of a library one, are left out
+    /// and counted as skipped (see [`library::drop_refused_records`]).
+    pub fn import_variables_text(&mut self, text: &str) -> Result<library::VariablesImport, String> {
         let mut tmp = Document::new("import");
-        let n = designos_fig::import_variables_json(&mut tmp, text).map_err(|e| e.to_string())?;
+        let total = designos_fig::import_variables_json(&mut tmp, text).map_err(|e| e.to_string())?;
         let mut store = VariableStore::from_doc(&self.doc);
+        let skipped = library::drop_refused_records(&store, &mut tmp.variable_collections, &mut tmp.variables);
         store.collections.extend(tmp.variable_collections);
         store.variables.extend(tmp.variables);
         self.commit_store(store, &[], &[]);
         if self.vars.collection.is_none() {
-            self.vars.collection = self.doc.variable_collections.keys().next().cloned();
+            self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
         }
-        Ok(n)
+        Ok(library::VariablesImport { imported: total - skipped, skipped_library: skipped })
     }
 
     pub fn import_variables_file(&mut self, path: &Path) {
         match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| self.import_variables_text(&t)) {
-            Ok(n) => self.show_toast(format!("Imported {n} variables"), false),
+            Ok(done) => self.show_toast(done.message(), false),
             Err(e) => self.show_toast(format!("Cannot import variables: {e}"), true),
         }
     }
@@ -608,7 +617,7 @@ mod tests {
         assert!(!is_variables_payload("{\"document\": {}}"));
         assert!(!is_variables_payload("nope"));
         let mut other = App::new(Document::new("o"));
-        assert_eq!(other.import_variables_text(&json).unwrap(), before);
+        assert_eq!(other.import_variables_text(&json).unwrap(), library::VariablesImport { imported: before, skipped_library: 0 });
         assert_eq!(other.doc.variables, app.doc.variables);
         other.undo();
         assert!(other.doc.variables.is_empty());

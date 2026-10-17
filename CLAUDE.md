@@ -58,9 +58,10 @@ cp target/release/designos-mcp "target/release/bundle/DESIGN-OS Studio.app/Conte
 # Launch the packaged macOS app bundle
 open "target/release/bundle/DESIGN-OS Studio.app"
 
-# Launch directly into the 112,474-node (723,136 Kiwi records) "VSF - PCP" enterprise benchmark fixture
-# (or `--open-id 18de8bff2547cd200000` for the full 31-page 1,082,324-node import)
-"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" --open-id 18de678a186512c80000
+# Launch directly into the "VSF - PCP.fig" enterprise benchmark
+# (1,058,895 Kiwi records -> 336,214 initial / 1,082,324 full scene nodes across 31 pages;
+#  112,474 scene nodes / 723,136 Kiwi records on the 7-page subset)
+"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" "$HOME/Downloads/VSF - PCP.fig"
 
 # Run verification suites
 cargo test --workspace --lib
@@ -83,7 +84,8 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
 
 - Every piece of demo UI in a project video (launch and promo films, micro clips, GIFs, long-form captures) comes from the Untitled UI PRO VARIABLES v8.0 kit, `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`, opened in Studio. Never show a blank or self-built demo file, another kit, or a client file (e.g. VSF - PCP).
 - Work from a copy (a `.fig` import saved as `.designos`) so takes never save over the original. Feature demos may edit that copy through Studio or `designos-mcp`. Extra demo frames go on a scratch page inside it.
-- The kit's default brand colour is purple. Use neutral frames, or re-theme through the kit's own colour variables (Purple Ban). Never recolour pixels, and show no photos of people.
+- Kit content keeps the kit's original colours, purple included (owner: "Purple này là style của Untitled nên chấp nhận", i.e. this purple is Untitled's own style, so accept it). The Purple Ban still applies to the film's own chrome and type, not to kit content. Never recolour pixels. Photos of people in kit content are allowed (owner: "Show people cũng được, kệ đi").
+- Demos must be true to the released build. Pick kit frames that the release renders the way Figma does: the CPU and `--gpu` renders match, and no known render bug is hit. Never show behaviour the code does not have. For example, agent undo is one step per tool call, and a paste from Figma drops styles.
 - Credit "Untitled UI PRO v8.0 kit by Untitled UI" in the end card.
 
 ## 4. Non-Negotiable Performance & Safety Invariants
@@ -104,7 +106,9 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
    - Exception (owner ruling 2026-10-16, ratified 2026-10-17 after a live Metal check): when the view is idle, `GpuView::plan` runs exactly ONE compile with `CompileOptions.uncap_programs = true`, caches it under the same `FrameKey` (`refined = true`), and from then on re-blits with `Cb { frame: None }`. Masks, blur, blend modes and group opacity render at full quality at rest. Any viewport or document change goes back to the capped interactive compile.
    - Idle = the `FrameKey` stayed unchanged for `IDLE_REFINE_DELAY` (250 ms of `ctx.input(|i| i.time)`, no timer thread), `stale_hits == 0`, no pointer down, and no scroll or zoom delta in the last frame (a delta restarts the delay, so a trackpad pan or momentum scroll never triggers the refine). `plan` returns `FramePlan::Wait`, which re-blits the cache and requests ONE `request_repaint_after` for the remaining delay; after the refine every idle frame is `Reuse` (`Cb { frame: None }`) with no repaint request (0% idle CPU).
    - VRAM ceiling (owner ruling 2026-10-16, replaces any program-count limit for the refine): the uncapped compile accounts the GPU bytes of every offscreen target (`program_bytes`: pooled extent x `FORMAT` 4 B x (`MSAA` 4 + 1 resolve), plus blur/displace/backdrop scratch targets; formula mirrors `resources.rs` `Pool`) and opens a new `Program` only while the running total stays within `CompileOptions.refine_vram_budget_bytes` (default 512 MiB, `DEFAULT_REFINE_VRAM_BUDGET_BYTES`). Past the budget it degrades exactly like the capped path (scissor clip instead of a mask program, effect or layer skipped). Capped interactive and headless (`budget = None`) compiles never consult the budget.
-   - In `canvas::gpu::paint`, when `last_key == Some(key) && compiler.geom.stale_hits == 0`, pass `Cb { frame: None }` so `Canvas` re-blits the cached `Output` texture at `0.0%` idle CPU without recompiling or re-uploading vertex buffers.
+   - In `canvas::gpu::paint`, when `last_key == Some(key) && compiler.geom.stale_hits == 0`, pass `Cb { frame: None }` so `Canvas` re-blits the cached `Output` texture at `0.00%` idle CPU without recompiling or re-uploading vertex buffers.
+   - `Autosave::autosave_tick` (`crates/designos-app/src/home/session.rs`) MUST watch `watched_disk_path()` off the UI thread (`DiskWatcher`) and call `ctx.request_repaint()` only when the on-disk `modified()` timestamp changes — never schedule a periodic UI-thread `request_repaint_after` when idle. `canvas::grids::paint` MUST take its frames from `SceneIndex::grid_nodes()` (drawn frames only, kept in paint order) rather than walking the page tree; it walks `page.children` only when no scene index is available.
+   - **Measured Idle CPU & Method**: `0.00% / 0.00%` (`dCPU = 0.000s` across two 20 s idle windows / 40 s total on Apple M4 Max), measured via cumulative process CPU time (`ps -p <pid> -o time=`) on `target/release/designos "VSF - PCP (Copy).fig" --gpu --select billing` after initial load and the 250 ms `IDLE_REFINE_DELAY` settle.
    - `GeomCache::get` MUST track cumulative `frame_build_nanos` against the 8ms per-frame budget (`compiler.geom.budget`) and defer uncached `Text`/`Vector`/`BooleanOp` tessellation across subsequent frames via `stale_hits`.
 
 ---

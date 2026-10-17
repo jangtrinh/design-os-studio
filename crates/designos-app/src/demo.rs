@@ -66,6 +66,30 @@ pub fn variables_document() -> Document {
     d
 }
 
+/// Document of the library-collections capture (`--fixture variables-library`): the file's own
+/// "Brand colors" collection next to a subscribed copy of a shared library's collection of the same name.
+pub fn variables_library_document() -> Document {
+    let mut d = Document::new("Consumer file");
+    d.add_page("Page 1");
+    let mut store = VariableStore::default();
+    let fill = |store: &mut VariableStore, coll: &str, vars: &[(&str, &str)]| {
+        let mode = store.collections[coll].default_mode.clone();
+        for (name, hex) in vars {
+            let id = store.add_variable(coll, name, VariableKind::Color).expect("collection exists");
+            store.set_value(&id, &mode, VariableValue::Color(Color::from_hex(hex).expect("demo colour")));
+        }
+    };
+    let local = store.add_collection("Brand colors");
+    fill(&mut store, &local, &[("Brand/Ink", "1E1E1E"), ("Brand/Sea", "0C8CE9"), ("Brand/Sand", "F2E8CF")]);
+    let library = store.add_collection("Brand colors");
+    fill(&mut store, &library, &[("Brand/Ink", "101828"), ("Brand/Sea", "1570EF")]);
+    if let Some(c) = store.collections.get_mut(&library) {
+        c.source_library_key = Some("lk-shared-brand".into());
+    }
+    let _ = store.command().apply(&mut d);
+    d
+}
+
 pub fn demo_document() -> Document {
     let mut d = Document::new("Untitled");
     let page = d.add_page("Page 1");

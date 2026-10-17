@@ -3,6 +3,7 @@
 //! its busy canvas happen to batch the log.
 
 use crate::live_sync_interaction_tests::{apply_pending, live, Live};
+use designos_doc::live_patch::{DocEpoch, LIVE_PATCH_VERSION};
 use designos_doc::{Document, Node, NodeId, Rect};
 use serde_json::json;
 
@@ -111,6 +112,72 @@ fn only_the_last_of_several_switches_in_one_poll_is_opened_and_edits_between_the
     assert_eq!(l.app.doc.name, "Last");
     assert_eq!(name_of(&l, fresh), "Last fresh");
     assert!(toast(&l).contains("1 earlier edit"), "{:?}", toast(&l));
+    l.finish();
+}
+
+/// A document switch the editor cannot honour: the log says it was written by a newer version.
+fn append_unsupported_switch(l: &Live) {
+    use std::io::Write;
+    let switch = DocEpoch { v: LIVE_PATCH_VERSION + 1, doc_epoch: 1, bytes: 0, hash: 0 };
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&l.app.terminal.live_patch.path).unwrap();
+    writeln!(log, "{}", serde_json::to_string(&switch).unwrap()).unwrap();
+}
+
+#[test]
+fn edits_dropped_on_a_failed_switch_are_still_reported_when_a_later_switch_in_the_same_poll_loads() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    append_unsupported_switch(&l);
+    l.agent_renames(hero, "Edit made on the unloadable document");
+    agent_opens(&mut l, &other);
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Other");
+    assert_eq!(name_of(&l, theirs), "Fresh");
+    let shown = toast(&l);
+    assert!(shown.contains("1 earlier edit made on the previous document dropped"), "the dropped edit is reported: {shown:?}");
+    assert_eq!(shown.matches("earlier edit").count(), 1, "reported once: {shown:?}");
+    assert!(!shown.contains("not applied"), "reported once, not also as a failed load: {shown:?}");
+    l.finish();
+}
+
+#[test]
+fn edits_dropped_after_a_failed_load_are_reported_when_the_next_poll_brings_a_switch_that_loads() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    agent_opens(&mut l, &other);
+    // The editor cannot read what the agent published.
+    std::fs::remove_file(l.dir.join("doc-sync.designos")).unwrap();
+    l.deliver();
+    assert!(toast(&l).contains("Cannot read the document"), "the failed load is reported: {:?}", toast(&l));
+    l.agent_renames(theirs, "Edit made while the document could not be loaded");
+    let (mut second, _) = other_document_with_colliding_id(l.dragged);
+    second.name = "Second".into();
+    agent_opens(&mut l, &second);
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Second");
+    let shown = toast(&l);
+    assert_eq!(shown.matches("1 earlier edit").count(), 1, "the dropped edit is reported once: {shown:?}");
+    l.finish();
+}
+
+#[test]
+fn edits_dropped_on_a_failed_switch_are_reported_when_the_good_switch_waits_for_a_drag_to_end() {
+    let mut l = live();
+    let (other, theirs) = other_document_with_colliding_id(l.dragged);
+    let hero = l.dragged;
+    l.start_drag();
+    append_unsupported_switch(&l);
+    l.agent_renames(hero, "Edit made on the unloadable document");
+    agent_opens(&mut l, &other);
+    l.deliver();
+    assert_eq!(l.app.doc.name, "Live", "the document is not replaced in the middle of a drag");
+    l.app.canvas.inter = crate::canvas::Interaction::None;
+    apply_pending(&mut l.app);
+    assert_eq!(l.app.doc.name, "Other");
+    assert_eq!(name_of(&l, theirs), "Fresh");
+    let shown = toast(&l);
+    assert_eq!(shown.matches("1 earlier edit").count(), 1, "the dropped edit is reported once: {shown:?}");
     l.finish();
 }
 
