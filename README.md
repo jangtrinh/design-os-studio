@@ -457,7 +457,7 @@ design-os-studio/
 ├── crates/
 │   ├── designos-doc/               # Core scene graph, NodeSpec builder, Auto-Layout 5.0
 │   ├── designos-fig/               # Figma .fig (fig-kiwi v106 binary) & REST JSON read/write
-│   ├── designos-render/            # Deterministic tiny-skia CPU renderer & 2048x2048 SceneIndex
+│   ├── designos-render/            # Deterministic tiny-skia CPU renderer & SceneIndex (2048-unit grid cells)
 │   ├── designos-gpu/               # wgpu GPU compiler (SceneCompiler, GeomCache, WGSL shaders)
 │   ├── designos-app/               # UI3 desktop studio, micro-interactions, PTY Chat, Variables & Dev Mode
 │   ├── designos-library/           # Local library, 8 KB fast header probe, zero-alloc autosave
