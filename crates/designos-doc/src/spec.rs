@@ -864,6 +864,8 @@ mod tests {
             messages: vec![Comment {
                 id: "m1".into(),
                 author: "Jang".into(),
+                author_id: None,
+                author_color: None,
                 text: "Make button height 44px".into(),
                 created: "2026-10-14T23:30:00Z".into(),
                 edited: None,
