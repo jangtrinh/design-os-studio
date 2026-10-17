@@ -1063,6 +1063,8 @@ mod tests {
 
         let budget = std::time::Duration::from_millis(5);
         let (elapsed, (labels, hit, marquee, snapped)) = crate::test_timing::fastest_within(budget, std::time::Duration::from_secs(2), || {
+            // Every sample times the cache-miss path, as the single sample did before.
+            LABEL_RECTS_CACHE.with(|c| *c.borrow_mut() = None);
             let labels = label_rects(&app, screen_rect);
             let hit = super::super::hit::hit_test_with_index(&app.doc, app.page, v2(25.0, 25.0), 2.0, false, &[], Some(&idx));
             let marquee = super::super::hit::marquee_select_with_index(&app.doc, app.page, &Rect::new(0.0, 0.0, 120.0, 100.0), Some(&idx));

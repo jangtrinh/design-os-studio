@@ -37,7 +37,7 @@ mod tests {
             calls
         });
         assert!(fastest < Duration::from_millis(5), "{fastest:?}");
-        assert_eq!(calls_seen, 2, "stops at the first run inside the budget");
+        assert!(calls_seen >= 2, "keeps sampling past the stalled first run, saw {calls_seen}");
     }
 
     #[test]
