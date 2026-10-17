@@ -29,6 +29,8 @@ pub enum StyleOpError {
     EmptyName,
     #[error("style {0:?} holds a different kind of values than the ones given")]
     KindMismatch(String),
+    #[error("style {0:?} belongs to a library; edit it in the library file")]
+    LibraryStyle(String),
 }
 
 /// Key of the `style_refs` entry that links a node to a style of `prop`.
@@ -57,7 +59,7 @@ fn link(n: &mut Node, key: &str, style: &Style, prop: StyleProperty, ref_key: &s
         return false;
     }
     n.style_refs.insert(ref_key.into(), key.into());
-    apply_style_values(n, style, prop, key);
+    apply_style_values(n, style, key);
     true
 }
 
@@ -125,35 +127,39 @@ pub fn apply_style(doc: &Document, nodes: &[NodeId], key: &str) -> Result<Comman
     Ok(Command::Batch(cmds))
 }
 
-/// Key of the `style_refs` entry that links a node to `style`. The kind of the values decides, so
-/// metadata naming another property (a text style filed under the default `Fill`) cannot hide the
-/// linked nodes; the metadata only tells a stroke style from a fill style.
-fn any_ref_key(style: &Style, prop: StyleProperty) -> &'static str {
+/// The `style_refs` entries through which a node can be linked to a style of this kind. The kind
+/// of the values decides, so metadata naming another property (a text style filed under the
+/// default `Fill`) cannot hide the linked nodes. A colour style can be linked as a fill, as a
+/// stroke, or both.
+fn ref_keys(style: &Style) -> &'static [&'static str] {
     match style {
-        Style::Fill(_) if prop == StyleProperty::Stroke => "stroke",
-        Style::Fill(_) => "fill",
-        Style::Text(_) => "text",
-        Style::Effect(_) => "effect",
-        Style::Grid(_) => "grid",
+        Style::Fill(_) => &["fill", "stroke"],
+        Style::Text(_) => &["text"],
+        Style::Effect(_) => &["effect"],
+        Style::Grid(_) => &["grid"],
     }
 }
 
 /// Replaces the values of style `key` and pushes them to every linked node, as one command (one
 /// undo step). Works for fill, stroke, text, effect and grid styles; `style` must be the same
-/// kind as the stored one.
+/// kind as the stored one. A style published by a library is refused: it is edited in its library
+/// file and reaches this one through a library update.
 pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, StyleOpError> {
     let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
     if std::mem::discriminant(stored) != std::mem::discriminant(&style) {
         return Err(StyleOpError::KindMismatch(key.into()));
     }
-    let prop = style_property(doc, key);
-    let ref_key = any_ref_key(stored, prop);
+    let refs = ref_keys(stored);
     let mut styles = doc.styles.clone();
     styles.insert(key.to_string(), style.clone());
     let mut cmds = vec![Command::SetStyles { styles, style_meta: doc.style_meta.clone() }];
-    for n in doc.nodes.values().filter(|n| n.style_refs.get(ref_key).is_some_and(|k| k == key)) {
+    let linked = |n: &&Node| refs.iter().any(|r| n.style_refs.get(*r).is_some_and(|k| k == key)) && !is_library_node(doc, n.id);
+    for n in doc.nodes.values().filter(linked) {
         let mut copy = n.clone();
-        if apply_style_values(&mut copy, &style, prop, key) {
+        if apply_style_values(&mut copy, &style, key) {
             cmds.push(Command::Update { node: Box::new(copy) });
         }
     }
@@ -400,6 +406,88 @@ mod tests {
         }
         h.undo(&mut d).unwrap();
         assert_eq!(d.get(stroke_node).unwrap().stroke.paints, stroke_before);
+    }
+
+    #[test]
+    fn a_fill_style_linked_as_fill_and_as_stroke_updates_both_sides() {
+        let (mut d, [fill_node, stroke_node, text_node, _loose]) = paint_and_text_fixture();
+        let mut h = History::default();
+        // The shape imports give one style that is used as a fill and as a stroke the property `Fill`.
+        d.style_meta.remove("Brand");
+        d.get_mut(stroke_node).unwrap().style_refs.clear();
+        d.get_mut(stroke_node).unwrap().style_refs.insert("stroke".into(), "Brand".into());
+        let both = d.alloc_id();
+        let page = d.pages[0];
+        let mut n = Node::rectangle(both, Rect::new(0.0, 100.0, 50.0, 50.0));
+        n.style_refs.insert("fill".into(), "Brand".into());
+        n.style_refs.insert("stroke".into(), "Brand".into());
+        d.insert(page, n).unwrap();
+        // A copy on the hidden library page is not the file's own layer: it keeps its values.
+        let lp = crate::library_ops::ensure_library_page(&mut d);
+        let hidden = d.alloc_id();
+        let mut n = Node::rectangle(hidden, Rect::new(0.0, 0.0, 5.0, 5.0));
+        n.style_refs.insert("fill".into(), "Brand".into());
+        d.insert(lp, n).unwrap();
+        let hidden_before = d.get(hidden).unwrap().clone();
+        let stroke_before = d.get(stroke_node).unwrap().stroke.paints.clone();
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        let c = update_style(&d, "Brand", Style::Fill(vec![blue.clone()]));
+        run(&mut d, &mut h, c);
+        assert_eq!(d.get(hidden).unwrap(), &hidden_before);
+        assert_eq!(d.get(fill_node).unwrap().fills, vec![blue.clone()]);
+        assert_eq!(d.get(stroke_node).unwrap().stroke.paints, vec![blue.clone()], "a stroke-only link is updated");
+        assert_eq!(d.get(both).unwrap().fills, vec![blue.clone()]);
+        assert_eq!(d.get(both).unwrap().stroke.paints, vec![blue.clone()], "one node linked on both sides gets both");
+        match &d.get(text_node).unwrap().kind {
+            NodeKind::Text(t) => assert_eq!(t.style.fills, vec![blue]),
+            other => panic!("{other:?}"),
+        }
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(stroke_node).unwrap().stroke.paints, stroke_before);
+    }
+
+    #[test]
+    fn a_colour_style_edit_recolours_every_run_of_a_rich_text_layer() {
+        let (mut d, [_, _, text_node, _]) = paint_and_text_fixture();
+        let mut h = History::default();
+        let red = Paint::solid(Color::rgb(255, 0, 0));
+        let green = Paint::solid(Color::rgb(0, 255, 0));
+        if let NodeKind::Text(t) = &mut d.get_mut(text_node).unwrap().kind {
+            t.runs = vec![
+                TextRun { start: 0, end: 1, style: TextStyle { font_size: 12.0, fills: vec![red.clone()], ..Default::default() } },
+                TextRun { start: 1, end: 2, style: TextStyle { font_size: 12.0, fills: vec![green], ..Default::default() } },
+            ];
+        }
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        let c = update_style(&d, "Brand", Style::Fill(vec![blue.clone()]));
+        run(&mut d, &mut h, c);
+        match &d.get(text_node).unwrap().kind {
+            NodeKind::Text(t) => {
+                assert_eq!(t.style.fills, vec![blue.clone()]);
+                assert_eq!(t.runs.len(), 2);
+                for r in &t.runs {
+                    assert_eq!(r.style.fills, vec![blue.clone()], "run {}..{} keeps its old colour", r.start, r.end);
+                    assert_eq!(r.style.font_size, 12.0, "only the colour changes");
+                }
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_style_that_belongs_to_a_library_cannot_be_edited_in_the_consumer_file() {
+        let (mut d, [fill_node, ..]) = paint_and_text_fixture();
+        d.library.external.insert(
+            "L1/Brand".into(),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some("Brand".into()) },
+        );
+        assert!(is_library_style(&d, "Brand"));
+        assert!(!is_library_style(&d, "Line"));
+        let blue = Paint::solid(Color::rgb(0, 0, 255));
+        assert!(matches!(update_style(&d, "Brand", Style::Fill(vec![blue.clone()])).unwrap_err(), StyleOpError::LibraryStyle(k) if k == "Brand"));
+        assert_ne!(d.get(fill_node).unwrap().fills, vec![blue.clone()]);
+        // A file's own styles stay editable.
+        assert!(update_style(&d, "Line", Style::Fill(vec![blue])).is_ok());
     }
 
     #[test]
