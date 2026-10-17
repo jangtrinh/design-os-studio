@@ -113,6 +113,48 @@ fn a_rotated_frame_paints_its_rotated_shape_not_its_bounding_box() {
     assert_eq!(only(&f.report(), Rule::Contrast).node, t);
 }
 
+// ---------------------------------------------------------------- clipping frames
+
+fn clip(f: &mut Fx, id: NodeId) {
+    f.doc.get_mut(id).unwrap().kind.frame_props_mut().expect("a frame").clips_content = true;
+}
+
+#[test]
+fn text_overflowing_a_clipping_frame_is_scored_on_the_frame_fill_it_shows_on() {
+    let mut f = fx();
+    let card = f.frame(f.page, "Card", Some(Color::WHITE));
+    clip(&mut f, card);
+    // 50 px of the 100 px wide text hang outside the card, where the card clips them away.
+    let t = f.text(card, "Overflowing label", 14.0, 400, gray(0x77));
+    place(&mut f, t, 150.0, 8.0);
+    let found = only(&f.report(), Rule::Contrast);
+    assert_eq!(found.node, t);
+    assert_eq!(found.message, "Contrast 4.47:1 is below 4.5:1 (WCAG AA)");
+}
+
+#[test]
+fn text_entirely_outside_a_clipping_frame_is_not_painted_so_it_is_not_checked() {
+    let mut f = fx();
+    let card = f.frame(f.page, "Card", Some(Color::WHITE));
+    clip(&mut f, card);
+    let t = f.text(card, "Clipped away", 14.0, 400, gray(0x77));
+    place(&mut f, t, 500.0, 500.0);
+    assert!(f.report().findings.is_empty(), "{:#?}", f.report().findings);
+}
+
+#[test]
+fn only_the_visible_part_of_overflowing_text_has_to_sit_on_the_fills_around_it() {
+    let mut f = fx();
+    let outer = f.frame(f.page, "Outer", Some(Color::WHITE));
+    let dark = f.frame(outer, "Dark chip", Some(gray(0x10)));
+    resize(&mut f, dark, 50.0, 50.0);
+    clip(&mut f, dark);
+    // Visible only over the chip (x 10..50): #202020 on #101010 fails, whatever the white card is.
+    let t = f.text(dark, "Chip label", 14.0, 400, gray(0x20));
+    place(&mut f, t, 10.0, 10.0);
+    assert_eq!(only(&f.report(), Rule::Contrast).node, t);
+}
+
 // ---------------------------------------------------------------- blend modes
 
 #[test]
