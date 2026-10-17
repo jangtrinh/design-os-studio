@@ -64,6 +64,123 @@ fn refined_interactive_gpu_frame_cuts_by_the_children() {
     assert_cut_by_the_child(&pm, "refined");
 }
 
+// ----- interactive approximations must not empty a mask -----------------------
+// The interactive compile defers uncached vector geometry past the frame budget
+// and skips the children of tiny frames when zoomed far out. A fill-less frame
+// mask takes its alpha from its children, so either approximation would leave
+// the mask program empty and multiply the siblings it cuts by zero.
+
+/// A square vector path spanning `size` x `size`.
+fn square_vector(id: NodeId, size: f32) -> Node {
+    let corner = |x: f32, y: f32| Vec2::new(x, y);
+    let path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(corner(0.0, 0.0)),
+            PathCmd::LineTo(corner(size, 0.0)),
+            PathCmd::LineTo(corner(size, size)),
+            PathCmd::LineTo(corner(0.0, size)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut n = Node::new(id, NodeKind::Vector { paths: vec![path], network: None });
+    n.size = Vec2::new(size, size);
+    n.fills = vec![Paint::solid(BLUE)];
+    n
+}
+
+/// A fill-less mask frame of `size` x `size` at the origin, then a red rectangle
+/// over the whole 80 x 80 page. `child` fills the mask frame.
+fn mask_frame_over_red(size: f32, radius: f32, child: impl FnOnce(NodeId) -> Node) -> (Document, NodeId) {
+    let mut b = common::T::new();
+    let mask = b.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, size, size));
+        n.fills.clear();
+        n.is_mask = true;
+        n.corner_radii = [radius; 4];
+        n
+    });
+    b.add(Some(mask), child);
+    b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+    (b.doc, b.page)
+}
+
+#[test]
+fn a_deferred_vector_child_does_not_empty_the_mask() {
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 60.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    // a zero budget defers every uncached vector, as a frame that is already over budget does;
+    // the headless render has no budget and builds everything. Each case starts on a fresh
+    // device: a built vector stays cached and would hide the deferral from the next case.
+    for (label, budget, uncap) in [("headless", None, false), ("capped", Some(Duration::ZERO), false), ("refined", Some(Duration::ZERO), true)] {
+        let Some(mut g) = common::gpu() else { return };
+        g.compiler.geom.budget = budget;
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        assert_eq!(px(&pm, 30, 30), [255, 0, 0, 255], "{label}: inside the mask frame, where its vector child is not built yet");
+        assert_eq!(px(&pm, 70, 70), [255, 255, 255, 255], "{label}: outside the mask frame");
+    }
+}
+
+#[test]
+fn a_tiny_zoomed_out_mask_frame_keeps_cutting() {
+    // 12 x 12 world units are 4.8 device pixels at zoom 0.4: the children of a frame that
+    // small are skipped; radius 0 takes the unit-quad path, radius 3 the general one
+    for radius in [0.0, 3.0] {
+        let (doc, page) = mask_frame_over_red(12.0, radius, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 12.0, 12.0));
+            n.fills = vec![Paint::solid(BLUE)];
+            n
+        });
+        let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 0.4, dpr: 1.0 };
+        for (label, budget) in [("headless", None), ("interactive", Some(Duration::from_millis(8)))] {
+            let Some(mut g) = common::gpu() else { return };
+            g.compiler.geom.budget = budget;
+            let pm = g.render_page(&doc, page, &vp, (40, 40));
+            assert_eq!(px(&pm, 2, 2), [255, 0, 0, 255], "{label}, radius {radius}: inside the tiny mask frame");
+            assert_eq!(px(&pm, 20, 20), [255, 255, 255, 255], "{label}, radius {radius}: outside the tiny mask frame");
+        }
+    }
+}
+
+#[test]
+fn a_built_vector_child_still_cuts_by_its_shape() {
+    let Some(mut g) = common::gpu() else { return };
+    // the vector covers the top-left quarter of the mask frame
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 30.0));
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    // a headless render builds the vector once, so the zero budget has nothing left to defer
+    g.compiler.geom.budget = None;
+    g.render_page(&doc, page, &vp, SIZE);
+    for (label, uncap) in [("capped", false), ("refined", true)] {
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        assert_eq!(px(&pm, 15, 15), [255, 0, 0, 255], "{label}: inside the vector");
+        assert_eq!(px(&pm, 45, 45), [255, 255, 255, 255], "{label}: inside the mask frame but outside the vector");
+        assert_eq!(px(&pm, 70, 70), [255, 255, 255, 255], "{label}: outside the mask frame");
+    }
+}
+
+#[test]
+fn standing_in_the_frame_box_opens_no_extra_program() {
+    let (doc, page) = mask_frame_over_red(60.0, 0.0, |id| square_vector(id, 60.0));
+    let programs = |budget: Duration, max: usize| {
+        let mut c = refine_compiler();
+        c.geom.budget = Some(budget);
+        c.opts.refine_max_programs = max;
+        compile(&mut c, &doc, page).programs.len()
+    };
+    // root, the layer of the cut siblings and the mask program
+    let built = programs(Duration::from_millis(8), usize::MAX);
+    assert_eq!(built, 3, "the vector builds within the budget");
+    assert_eq!(programs(Duration::ZERO, usize::MAX), built, "the vector is deferred and the frame box stands in");
+    for max in 1..=built + 1 {
+        let n = programs(Duration::ZERO, max);
+        assert!(n <= max, "refine_max_programs {max}: opened {n} programs");
+    }
+}
+
 // ----- program and VRAM ceilings of the refine compile -----------------------
 // A mask frame without fills draws its children into the mask program, so the
 // children open programs of their own while the mask program is open.
