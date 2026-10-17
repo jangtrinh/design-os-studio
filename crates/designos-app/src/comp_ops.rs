@@ -41,6 +41,7 @@ fn ids_of(doc: &Document, cmd: &Command, out: &mut Vec<NodeId>) {
         | Command::SetPrototypeDevice { .. }
         | Command::SetComments { .. }
         | Command::SetLibraryState { .. }
+        | Command::SetImages { .. }
         | Command::SetStyles { .. } => {}
     }
 }

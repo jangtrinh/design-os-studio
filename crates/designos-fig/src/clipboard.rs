@@ -121,7 +121,8 @@ fn import_with_limits(clip: &FigClipboard, inflate_budget: u64, decoded_values: 
     let schema = Schema::decode(&schema_bin).map_err(|e| FigError::Format(format!("kiwi schema: {e}")))?;
     drop(schema_bin);
     let root = schema.root_message().ok_or_else(|| FigError::Format("schema has no message definition".into()))?;
-    let mut message = schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
+    let mut message =
+        schema.decode_message_for_import_with_values(root, &msg_bin, decoded_values).map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
     drop(msg_bin);
 
     adopt_orphan_roots(&mut message);

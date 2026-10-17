@@ -135,15 +135,19 @@ fn place_figma(app: &mut App, html: &str) -> Result<Vec<NodeId>, String> {
         }
     }
     let mut tx = Tx::new();
+    // Image bytes go through the same undo step as the layers that reference them.
+    if !frag.images.is_empty() {
+        if let Err(e) = tx.cmd(&mut app.doc, Command::SetImages { add: frag.images, remove: Vec::new() }) {
+            tx.cancel(&mut app.doc);
+            return Err(format!("Cannot paste from Figma: {e}"));
+        }
+    }
     for nodes in lists {
         let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
         if let Err(e) = tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }) {
             tx.cancel(&mut app.doc);
             return Err(format!("Cannot paste from Figma: {e}"));
         }
-    }
-    for (hash, bytes) in frag.images {
-        app.doc.images.entry(hash).or_insert(bytes);
     }
     // Figma already laid the payload out, so its layers keep their sizes; only the ancestors (an auto-layout
     // or group parent) re-flow around them.
@@ -399,6 +403,48 @@ pub(crate) mod tests {
 
         app.undo();
         assert_eq!(page_children(&app), 1, "one undo removes every pasted layer");
+        assert_eq!(app.doc.nodes.len(), nodes_before);
+    }
+
+    #[test]
+    fn undoing_a_figma_paste_takes_its_images_along_and_redo_brings_them_back() {
+        let mut app = app_with_one_rect();
+        let images_before = app.doc.images.len();
+        let html = figma_html(&designos_fig::testkit::sample_fig(Compression::Zstd, true));
+
+        assert!(paste_figma(&mut app, &html));
+        assert!(app.doc.images.contains_key("deadbeef"));
+        assert_eq!(app.doc.images.len(), images_before + 1);
+
+        app.undo();
+        assert_eq!(app.doc.images.len(), images_before, "no orphaned image bytes after undo");
+        app.redo();
+        assert_eq!(app.doc.images.get("deadbeef").map(Vec::as_slice), Some(&[0x89, b'P', b'N', b'G'][..]), "redo restores the bytes the layers reference");
+        app.undo();
+        assert_eq!(app.doc.images.len(), images_before);
+    }
+
+    #[test]
+    fn undoing_a_figma_paste_keeps_an_image_the_document_already_held() {
+        let mut app = app_with_one_rect();
+        app.doc.images.insert("deadbeef".into(), vec![1, 2, 3]);
+        let html = figma_html(&designos_fig::testkit::sample_fig(Compression::Zstd, true));
+        assert!(paste_figma(&mut app, &html));
+        assert_eq!(app.doc.images["deadbeef"], vec![1, 2, 3], "the document's own bytes win");
+        app.undo();
+        assert_eq!(app.doc.images["deadbeef"], vec![1, 2, 3], "undo only removes what the paste added");
+    }
+
+    #[test]
+    fn a_figma_payload_over_the_clipboard_budget_toasts_instead_of_aborting() {
+        let mut app = app_with_one_rect();
+        let nodes_before = app.doc.nodes.len();
+        let schema = designos_fig::testkit::figma_like_schema();
+        // 300 MiB of zeros deflate to ~300 KB, yet exceed the 256 MiB clipboard inflate budget
+        let bomb = designos_fig::container::write_container(&schema.encode(), &vec![0u8; 300 << 20], Compression::Deflate, 101);
+        assert!(paste_figma(&mut app, &figma_html(&bomb)), "a Figma marker is claimed even when the payload is over budget");
+        let toast = app.toast.as_ref().expect("a toast explains the failure");
+        assert!(toast.error && toast.text.starts_with("Cannot paste from Figma") && toast.text.contains("too large"), "{}", toast.text);
         assert_eq!(app.doc.nodes.len(), nodes_before);
     }
 
