@@ -39,6 +39,12 @@ impl Engine {
                     "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(summary).collect::<Vec<_>>(),
                     "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
                     "comment_count":self.doc.comments.len(),
+                    "style_count":self.doc.styles.len(),
+                    "styles":self.doc.styles.iter().map(|(key,values)|{
+                        let meta=self.doc.style_meta.get(key);
+                        json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
+                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),"values":values})
+                    }).collect::<Vec<_>>(),
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
             "designos_list_nodes" => {
@@ -647,7 +653,14 @@ pub fn tools() -> Vec<Value> {
             "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
             "annotations":{"readOnlyHint":read_only,"destructiveHint":!read_only,"idempotentHint":idempotent,"openWorldHint":false}}));
     };
-    add("get_document", "Summarize the current in-memory document, pages, counts, and undo state.", json!({}), vec![], true, true);
+    add(
+        "get_document",
+        "Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state.",
+        json!({}),
+        vec![],
+        true,
+        true,
+    );
     add(
         "list_nodes",
         "List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate.",
@@ -803,6 +816,33 @@ mod tests {
         let svg = e.call("designos_generate_code", json!({"node_id":id,"language":"svg"})).unwrap();
         assert!(svg["code"].as_str().unwrap().contains("width=\"240\""));
         assert_eq!(e.doc.to_json().unwrap(), before);
+    }
+    #[test]
+    fn get_document_lists_shared_effect_and_grid_styles_and_nodes_carry_their_links() {
+        use designos_doc::{Color, Effect, LayoutGrid, Style, StyleMeta, StyleProperty, Vec2};
+        let mut e = Engine::default();
+        let id = create(&mut e, "frame", "Card");
+        assert_eq!(e.call("designos_get_document", json!({})).unwrap()["styles"], json!([]), "no styles yet");
+        let shadow =
+            Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false };
+        e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
+        e.doc
+            .styles
+            .insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) }]));
+        for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {
+            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property });
+        }
+        e.doc.get_mut(NodeId(id)).unwrap().style_refs.insert("effect".into(), "Shadow/Card".into());
+        let doc = e.call("designos_get_document", json!({})).unwrap();
+        assert_eq!(doc["style_count"], 2);
+        let styles = doc["styles"].as_array().unwrap();
+        let by_key = |k: &str| styles.iter().find(|s| s["key"] == k).unwrap_or_else(|| panic!("style {k} listed"));
+        assert_eq!((by_key("Shadow/Card")["property"].as_str(), by_key("Shadow/Card")["name"].as_str()), (Some("Effect"), Some("Shadow/Card")));
+        assert_eq!(by_key("Shadow/Card")["values"]["Effect"][0]["DropShadow"]["radius"], 8.0);
+        assert_eq!((by_key("Layout/Cols")["property"].as_str(), by_key("Layout/Cols")["name"].as_str()), (Some("Grid"), Some("Layout / 12 col")));
+        assert_eq!(by_key("Layout/Cols")["values"]["Grid"][0]["Columns"]["count"], 12);
+        let node = e.call("designos_get_node", json!({"node_id":id})).unwrap();
+        assert_eq!(node["node"]["style_refs"]["effect"], "Shadow/Card");
     }
     fn create(e: &mut Engine, kind: &str, name: &str) -> u64 {
         e.call("designos_create_node", json!({"parent_id":1,"kind":kind,"name":name})).unwrap()["node"]["id"].as_u64().unwrap()
