@@ -509,7 +509,8 @@ impl Ctx<'_> {
 
     /// Interactive approximations (greeking, sub-pixel culling, effect skips)
     /// apply to index-culled drawing only: a silhouette draws its children at
-    /// full detail. Resource limits do not follow this switch (see `refining`).
+    /// full detail. The offscreen-program and VRAM limits do not follow this
+    /// switch: they follow `live` (see `prog_cap_hit` and `over_budget`).
     fn interactive(&self) -> bool {
         self.cull && self.geom.budget.is_some()
     }
@@ -523,12 +524,13 @@ impl Ctx<'_> {
 
     /// Whether interactive mode forbids opening more offscreen programs once
     /// `limit` exist (replaced by `CompileOptions::refine_max_programs`,
-    /// counting reserved programs, when `CompileOptions::uncap_programs` is set).
+    /// counting reserved programs, when `CompileOptions::uncap_programs` is
+    /// set). Holds for the whole page, silhouette subtrees included.
     fn prog_cap_hit(&self, limit: usize) -> bool {
         if self.refining() {
             return self.progs.len().saturating_add(self.reserved.0) >= self.opts.refine_max_programs;
         }
-        self.interactive() && self.progs.len() >= limit
+        self.live && self.progs.len() >= limit
     }
 
     /// Whether the idle refine compile must not open `progs` more offscreen
@@ -756,7 +758,8 @@ impl Ctx<'_> {
         self.progs[layer as usize].needs_backdrop = self.has_bg_blur(n);
         // draws inside the layer keep the parent's clip (mask and scissor)
         let lclip = self.narrow_clip(clip, rect);
-        self.with_prog(layer, |c| c.draw_body(n, ts, lclip, 1.0, true));
+        // the blur targets are accounted only once the body (and its children) drew
+        self.reserving(0, blur_cost, |c| c.with_prog(layer, |c| c.draw_body(n, ts, lclip, 1.0, true)));
         if layer_blur > 0.0 {
             self.push_post(layer, Post::Blur { sigma, clamp: false });
         }
@@ -899,7 +902,7 @@ impl Ctx<'_> {
         }
 
         let g = self.geom_of(n, &ts);
-        let allow_fx = !interactive || (!self.prog_cap_hit(64) && (bb.2 - bb.0).max(bb.3 - bb.1) >= 4.0);
+        let allow_fx = !self.prog_cap_hit(64) && (!interactive || (bb.2 - bb.0).max(bb.3 - bb.1) >= 4.0);
 
         // 1. drop shadows + background blur (behind the node)
         if allow_fx {

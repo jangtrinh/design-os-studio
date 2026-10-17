@@ -387,6 +387,63 @@ fn capped_and_headless_group_compiles_ignore_the_refine_limits() {
     }
 }
 
+#[test]
+fn capped_silhouette_subtrees_keep_the_interactive_program_cap() {
+    // The cap of 64 is checked before an effect opens its programs, so the last
+    // effect of a frame can end up to two programs past it.
+    for (name, effect) in silhouette_effects() {
+        let (doc, page) = effect_group_page(GROUP_CHILDREN, effect);
+        let mut c = interactive_compiler();
+        let n = compile(&mut c, &doc, page).programs.len();
+        assert!((60..=66).contains(&n), "{name}: a capped frame opened {n} programs for {GROUP_CHILDREN} blurred children, cap is 64");
+    }
+}
+
+/// A group with a layer blur over `count` blurred rectangles; `shadowed` puts it
+/// inside a group with a drop shadow, so it is also drawn as a silhouette.
+fn blurred_parent_page(count: usize, shadowed: bool) -> (Document, NodeId) {
+    let mut doc = Document::new("blurred parent");
+    let page = doc.add_page("Page");
+    let outer = if shadowed {
+        let mut shell = Node::new(doc.alloc_id(), NodeKind::Group);
+        shell.size = Vec2::new(250.0, 250.0);
+        shell.effects = vec![drop_shadow(false)];
+        doc.insert(page, shell).unwrap()
+    } else {
+        page
+    };
+    let mut parent = Node::new(doc.alloc_id(), NodeKind::Group);
+    parent.size = Vec2::new(250.0, 250.0);
+    parent.effects = vec![Effect::LayerBlur { radius: 6.0, visible: true }];
+    let parent = doc.insert(outer, parent).unwrap();
+    for i in 0..count {
+        let mut n = Node::rectangle(doc.alloc_id(), Rect::new((i % 10) as f32 * 22.0, (i / 10) as f32 * 22.0, 12.0, 12.0));
+        n.effects = vec![Effect::LayerBlur { radius: 2.0, visible: true }];
+        doc.insert(parent, n).unwrap();
+    }
+    (doc, page)
+}
+
+#[test]
+fn a_blurred_layer_reserves_its_blur_targets_while_its_children_draw() {
+    let mut violations = Vec::new();
+    for shadowed in [false, true] {
+        let (doc, page) = blurred_parent_page(100, shadowed);
+        for step in 0..=100u64 {
+            let budget = ROOT_BYTES_1000 + step * 100_000;
+            let mut c = refine_compiler();
+            c.opts.refine_vram_budget_bytes = budget;
+            let frame = compile(&mut c, &doc, page);
+            let bytes = recount(&frame);
+            assert_eq!(c.last_vram_bytes, bytes, "shadowed {shadowed}, budget {budget}: running total must equal the recount");
+            if bytes > budget {
+                violations.push(format!("shadowed {shadowed}, budget {budget}: frame holds {bytes} bytes in {} programs", frame.programs.len()));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
 /// `[blur, mask, blur, blur, blur]` and, inside a frame, the same again, so a
 /// mask program is opened after the layer that holds the masked siblings and
 /// again one level down.
@@ -443,6 +500,29 @@ fn mask_programs_are_budgeted_before_the_masked_siblings_are_drawn() {
         let bytes = recount(&frame);
         assert!(bytes <= budget, "budget {budget}: frame holds {bytes} bytes in {} programs", frame.programs.len());
         assert_eq!(c.last_vram_bytes, bytes, "budget {budget}: running total must equal the recount");
+    }
+}
+
+#[test]
+fn frames_at_the_refine_limits_render_on_the_gpu() {
+    let Some(mut g) = common::gpu() else { return };
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    g.compiler.opts.uncap_programs = true;
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+    let (masked, masked_root) = masked_page();
+    let (shadowed, shadowed_root) = effect_group_page(100, drop_shadow(false));
+    // each document gets its own revision: the geometry cache is keyed by it
+    for (rev, name, doc, page, limited) in [(1u64, "masks", &masked, masked_root, 4usize), (2, "shadowed-group", &shadowed, shadowed_root, 40)] {
+        for (label, max) in [("limited", limited), ("full", DEFAULT_REFINE_MAX_PROGRAMS)] {
+            g.compiler.opts.refine_max_programs = max;
+            let frame = g.compiler.compile(doc, page, rev, &vp, SIZE);
+            assert!(frame.programs.len() <= max, "{name} {label}: {} programs, limit {max}", frame.programs.len());
+            let img = common::to_img(&g.render_frame(&frame, SIZE));
+            img.save(common::out_dir().join(format!("refine-limits-{name}-{label}.png"))).unwrap();
+            let background = *img.get_pixel(0, 0);
+            let painted = img.pixels().filter(|p| **p != background).count();
+            assert!(painted > 0, "{name} {label}: the frame is blank");
+        }
     }
 }
 
