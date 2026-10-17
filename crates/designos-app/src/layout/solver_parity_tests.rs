@@ -277,6 +277,43 @@ fn child_limits_clamp_the_distributed_size_and_siblings_follow() {
 }
 
 #[test]
+fn fill_siblings_redistribute_space_after_min_or_max_clamping_freeze_loop() {
+    // Width 300, Fill A capped at 60 and Fill B uncapped: B must be 240, not 150.
+    let fill_a_capped = kid_with(10.0, 10.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.max_w = Some(60.0);
+    });
+    let fill_b = kid_with(10.0, 10.0, |lc| lc.horizontal = Sizing::Fill);
+    let solved = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[fill_a_capped, fill_b]);
+    assert_eq!(solved.kids[0], [0.0, 0.0, 60.0, 10.0]);
+    assert_eq!(solved.kids[1], [60.0, 0.0, 240.0, 10.0]);
+
+    // Min-clamped Fill child freezes at 200 and leaves 100 for its Fill sibling.
+    let fill_a_min = kid_with(10.0, 10.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.min_w = Some(200.0);
+    });
+    let solved_min = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[fill_a_min, fill_b]);
+    assert_eq!(solved_min.kids[0], [0.0, 0.0, 200.0, 10.0]);
+    assert_eq!(solved_min.kids[1], [200.0, 0.0, 100.0, 10.0]);
+
+    // Multi-pass cascade: A (grow 1, max 50) freezes first, then B (grow 1, max 80) exceeds 80 on pass 2 and freezes, leaving 170 for C (grow 2).
+    let a = kid_with(10.0, 10.0, |lc| {
+        lc.grow = 1.0;
+        lc.max_w = Some(50.0);
+    });
+    let b = kid_with(10.0, 10.0, |lc| {
+        lc.grow = 1.0;
+        lc.max_w = Some(80.0);
+    });
+    let c = kid_with(10.0, 10.0, |lc| lc.grow = 2.0);
+    let solved_cascade = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[a, b, c]);
+    assert_eq!(solved_cascade.kids[0], [0.0, 0.0, 50.0, 10.0]);
+    assert_eq!(solved_cascade.kids[1], [50.0, 0.0, 80.0, 10.0]);
+    assert_eq!(solved_cascade.kids[2], [130.0, 0.0, 170.0, 10.0]);
+}
+
+#[test]
 fn child_minimums_raise_natural_sizes_and_cross_fill_respects_maximums() {
     let raised = kid_with(10.0, 10.0, |lc| {
         lc.min_w = Some(30.0);
