@@ -32,6 +32,59 @@ pub fn system_figma_html() -> Option<String> {
     designos_fig::looks_like_figma_clipboard(&html).then_some(html)
 }
 
+/// Tells a Figma-HTML-only paste apart from the key events egui-winit really produces.
+///
+/// egui-winit (0.35, `src/lib.rs:1000-1015`) turns a V press with the command modifier into `Event::Paste(text)`
+/// when the clipboard has plain text and into nothing at all otherwise, and never forwards that press as an
+/// `Event::Key`. A Figma copy can carry HTML alone, so the only trace of such a paste is the V *release*
+/// (`lib.rs:1018`; winit still delivers a keyUp while Cmd is held, `platform_impl/macos/app.rs:25-34`).
+/// Shift or Alt change nothing: egui-winit ignores them for paste, so Shift+Cmd+V is the normal paste too.
+///
+/// Feed every key event of a frame through [`PasteChord::on_event`] and call [`PasteChord::begin_frame`] once
+/// per frame; `on_event` returns true when the clipboard HTML must be read now.
+#[derive(Default, Debug)]
+pub struct PasteChord {
+    /// A plain V press arrived (a tool shortcut), so its release is not the end of a paste chord.
+    plain_v_down: bool,
+    /// An `Event::Paste` already handled the chord, so its release must not paste again.
+    text_paste_seen: bool,
+    /// Whether the command modifier was down in the previous frame; Cmd may be let go before V.
+    command_last_frame: bool,
+    command_now: bool,
+}
+
+impl PasteChord {
+    pub fn begin_frame(&mut self, command_down: bool) {
+        self.command_last_frame = self.command_now;
+        self.command_now = command_down;
+    }
+
+    pub fn on_event(&mut self, ev: &egui::Event) -> bool {
+        match ev {
+            egui::Event::Paste(_) => {
+                self.text_paste_seen = true;
+                false
+            }
+            egui::Event::WindowFocused(false) => {
+                // a release that happens while unfocused never arrives
+                self.plain_v_down = false;
+                self.text_paste_seen = false;
+                false
+            }
+            egui::Event::Key { key: egui::Key::V, pressed: true, .. } => {
+                self.plain_v_down = true;
+                false
+            }
+            egui::Event::Key { key: egui::Key::V, pressed: false, modifiers, .. } => {
+                let plain = std::mem::take(&mut self.plain_v_down);
+                let handled = std::mem::take(&mut self.text_paste_seen);
+                !plain && !handled && (modifiers.command || self.command_last_frame)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Pastes `html` if it carries a Figma clipboard payload: the copied layers appear centered in the
 /// viewport, as one undo step, selected. Returns whether the HTML was a Figma payload (even when it
 /// failed to import, then a toast says why), so the caller can fall back to text otherwise.
