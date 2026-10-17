@@ -1233,6 +1233,47 @@ mod tests {
             term_sync_ms = term_sync_ms.min(t.elapsed().as_secs_f64() * 1000.0);
             term_sync_calls += 1;
         }
+        // DIAG (temporary): fixed reference vs sync vs 3 syncs, interleaved.
+        let ref_dir = std::env::temp_dir().join(format!("draw-bench-ref-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&ref_dir).unwrap();
+        let small = vec![b'x'; 1024];
+        let (mut r_v, mut s_v, mut s3_v) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..40 {
+            let t = std::time::Instant::now();
+            let json = app.doc.to_json().unwrap();
+            for i in 0..7 {
+                let bytes = if i == 0 { json.as_bytes() } else { &small[..] };
+                let tmp = ref_dir.join(format!("out-{i}.tmp"));
+                std::fs::write(&tmp, bytes).unwrap();
+                std::fs::rename(&tmp, ref_dir.join(format!("out-{i}"))).unwrap();
+            }
+            r_v.push(t.elapsed().as_secs_f64() * 1000.0);
+
+            app.terminal.last_synced_key = None;
+            let t = std::time::Instant::now();
+            app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+            s_v.push(t.elapsed().as_secs_f64() * 1000.0);
+
+            let t = std::time::Instant::now();
+            for _ in 0..3 {
+                app.terminal.last_synced_key = None;
+                app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+            }
+            s3_v.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        let _ = std::fs::remove_dir_all(&ref_dir);
+        let stats = |v: &mut Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            (v[0], v[v.len() / 2])
+        };
+        let ((r_min, r_med), (s_min, s_med), (s3_min, s3_med)) = (stats(&mut r_v), stats(&mut s_v), stats(&mut s3_v));
+        let diag = format!(
+            "[DIAG2 os={}] ref min/med={r_min:.2}/{r_med:.2} sync={s_min:.2}/{s_med:.2} sync3={s3_min:.2}/{s3_med:.2} | ratio sync/ref={:.2} sync3/ref={:.2}",
+            std::env::consts::OS,
+            s_min / r_min,
+            s3_min / r_min
+        );
+        eprintln!("{diag}");
         let _ = std::fs::remove_dir_all(&session_dir);
 
         // 6. Canvas Overlay Chrome, Label Rects & Hover Hit-Test at zoom=1.0
@@ -1283,6 +1324,8 @@ mod tests {
             with_sync_ms,
             layout_ms
         );
+
+        panic!("{diag}"); // DIAG (temporary): surface per-OS numbers in CI logs
 
         assert!(single_leaf_ms < 25.0, "single leaf selection took {:.3}ms", single_leaf_ms);
         assert!(container_sel_ms < 25.0, "big container selection took {:.3}ms", container_sel_ms);
