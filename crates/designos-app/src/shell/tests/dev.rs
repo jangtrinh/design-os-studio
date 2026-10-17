@@ -263,7 +263,9 @@ fn token_handoff_copies_codegen_reference_and_effective_value_without_editing() 
     let index = used.iter().position(|u| u.name == "Surface/Card").unwrap();
     let token = &s.app().doc.variables[&used[index].id];
     let reference = designos_export::css_variable_reference(token);
-    assert!(designos_export::css_for(&s.app().doc, card).contains(&reference));
+    // the code prints the reference with the resolved value as its fallback: `var(--Surface-Card, #FFF)`
+    let name_part = reference.trim_end_matches(')');
+    assert!(designos_export::css_for(&s.app().doc, card).contains(&format!("{name_part}, ")));
     let designos_doc::VariableValue::Color(color) = used[index].effective[0].value.clone().unwrap() else { panic!("color token") };
     let value = crate::dev::color::ColorFormat::Rgb.value(color, color.a);
     let before = s.app().doc.to_json().unwrap();

@@ -25,7 +25,7 @@ mod text;
 mod util;
 
 pub use bounds::render_bounds;
-pub use codegen::css_var as css_variable_reference;
+pub use codegen::css_var_display as css_variable_reference;
 pub use codegen::{is_vector_asset, vector_assets};
 pub use compose::compose_for;
 pub use css::{css_for, font_family_css, paint_css, text_style_css};

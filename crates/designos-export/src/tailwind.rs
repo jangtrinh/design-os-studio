@@ -7,7 +7,7 @@ use designos_doc::*;
 
 /// HTML with Tailwind utility classes for `node` and its descendants. Values on the Tailwind
 /// scale use tokens (`p-4`, `rounded-lg`), everything else exact arbitrary values (`w-[312px]`);
-/// bound variables become CSS variable references (`bg-[var(--color-primary)]`). Instances
+/// bound variables become CSS variable references (`bg-[var(--Color-Primary)]`). Instances
 /// are written as `<Component prop="value" />`.
 pub fn tailwind_for(doc: &Document, node: NodeId) -> String {
     let mut o = Out::new("  ");
@@ -526,8 +526,8 @@ mod tests {
         let (d, id) = fixture::card();
         let expected = r####"<div class="flex flex-col items-start gap-2 p-4 w-[312px] h-[200px] bg-[#FFFFFF] border border-[#E5E5E5] rounded-lg overflow-hidden shadow-[0px_4px_8px_0px_rgba(0,0,0,0.25)]">
   <p class="font-['Inter'] text-xl font-semibold text-[#111111]">Hello world</p>
-  <p class="self-stretch font-['Inter'] text-sm font-normal leading-5 text-center text-[color:var(--color-text-muted)]">Body copy</p>
-  <div class="flex justify-center items-center gap-[var(--spacing-md)] px-3 py-2 self-stretch bg-[var(--color-primary)] rounded">
+  <p class="self-stretch font-['Inter'] text-sm font-normal leading-5 text-center text-[color:var(--Color-Text-Muted)]">Body copy</p>
+  <div class="flex justify-center items-center gap-[var(--Spacing-Md)] px-3 py-2 self-stretch bg-[var(--Color-Primary)] rounded">
     <Button label="Save" disabled class="w-20 h-8 shrink-0" />
     <div class="w-6 h-6 shrink-0 bg-[#FF0000] rounded-full"></div>
   </div>
