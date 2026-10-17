@@ -52,12 +52,13 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 ## Checklist
 
 1. Make sure `main` is green. macOS tests and Clippy must pass; we verify releases on macOS, and Windows and Linux are tested by their users.
-2. Bump `version` under `[workspace.package]` in the root `Cargo.toml`, run `cargo update -w` so `Cargo.lock` updates, and commit both (`release: 0.3.0`). The workflow's `version-check` job fails the release when the tag and this version differ.
-3. Tag and push:
+2. On a branch, bump `version` under `[workspace.package]` in the root `Cargo.toml` and run `cargo update -w` so `Cargo.lock` updates. Commit both (`release: 0.3.0`) and open a PR. `main` is protected, so the release commit lands through a squash merge like any other change. The workflow's `version-check` job fails the release when the tag and this version differ.
+3. Once the release PR is merged, tag its squash commit on `main` and push the tag. Release tags cannot be moved or deleted afterwards, so check the commit first:
 
    ```sh
-   git tag -a v0.2.0 -m "designos 0.2.0"
-   git push origin v0.2.0
+   git fetch origin
+   git tag -a v0.3.0 origin/main -m "designos 0.3.0"
+   git push origin v0.3.0
    ```
 
    A tag containing a hyphen (`v0.2.0-rc.1`) is published as a pre-release.
