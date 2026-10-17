@@ -556,3 +556,84 @@ pub fn resolve_builder(originals: &[Shapes], cells: &[Cell], group: &[Option<usi
 pub fn flattened_area(paths: &[d::Path]) -> f32 {
     paths.iter().flat_map(|p| flatten_path(p, 0.01)).filter(|(_, c)| *c).map(|(pts, _)| polygon_area(&pts)).sum()
 }
+
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// using Figma's default round join semantics. Open sub-paths pass through unchanged.
+pub fn offset_path(paths: &[d::Path], delta: f32) -> Vec<d::Path> {
+    offset_paths(paths, delta, d::StrokeJoin::Round, 4.0)
+}
+
+/// `(closed, open)` sub-path counts of `paths`.
+pub fn count_subpaths(paths: &[d::Path]) -> (usize, usize) {
+    paths.iter().flat_map(subpaths).fold((0, 0), |(closed, open), (_, is_closed)| if is_closed { (closed + 1, open) } else { (closed, open + 1) })
+}
+
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// with explicit corner join (`Round`, `Miter`, `Bevel`) and miter limit.
+///
+/// An open sub-path has no inside to grow or shrink, and a parallel curve of it is not
+/// what a centred stroke gives (that is a ribbon around it), so open sub-paths are carried
+/// into the result exactly as they were. [`count_subpaths`] tells a caller whether there are any.
+pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_limit: f32) -> Vec<d::Path> {
+    if paths.is_empty() || !delta.is_finite() {
+        return Vec::new();
+    }
+    if delta.abs() < 1e-5 {
+        return paths.to_vec();
+    }
+    let stroke = d::Stroke {
+        weight: delta.abs() * 2.0,
+        align: d::StrokeAlign::Center,
+        cap: d::StrokeCap::Round,
+        join,
+        miter_limit: miter_limit.max(1.0),
+        ..Default::default()
+    };
+    let st = sk_stroke(&stroke, delta.abs() * 2.0, d::StrokeCap::Round);
+
+    let mut out: Vec<d::Path> = Vec::new();
+    let mut closed_paths: Vec<d::Path> = Vec::new();
+    let mut closed_subs: Vec<d::Path> = Vec::new();
+
+    for p in paths {
+        let mut p_closed_cmds: Vec<d::PathCmd> = Vec::new();
+        for (sub, closed) in subpaths(p) {
+            if closed {
+                p_closed_cmds.extend(sub.cmds.iter().copied());
+                closed_subs.push(sub);
+            } else {
+                out.push(sub);
+            }
+        }
+        if !p_closed_cmds.is_empty() {
+            closed_paths.push(d::Path { cmds: p_closed_cmds, fill_rule: p.fill_rule });
+        }
+    }
+
+    if !closed_paths.is_empty() {
+        let fill = paths_to_shapes(&closed_paths, 0.02);
+        let mut ring: Shapes = Vec::new();
+        for c in &closed_subs {
+            let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
+            let Some(o) = expand(&skp, &st) else { continue };
+            let polys = flatten(&o, 0.02).simplify_shape(FillRule::NonZero);
+            ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
+        }
+        let combined = if delta > 0.0 {
+            if ring.is_empty() {
+                fill
+            } else {
+                fill.overlay(&ring, OverlayRule::Union, FillRule::NonZero)
+            }
+        } else if ring.is_empty() {
+            Vec::new()
+        } else {
+            fill.overlay(&ring, OverlayRule::Difference, FillRule::NonZero)
+        };
+        if !combined.is_empty() && shapes_area(&combined) > 1e-3 {
+            out.extend(shapes_to_paths(&combined, 0.05));
+        }
+    }
+
+    out
+}
