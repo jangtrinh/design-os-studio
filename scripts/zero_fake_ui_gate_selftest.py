@@ -131,6 +131,43 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "if crate::home::updater::UPDATER_UI_ENABLED {",
         "use crate::home::updater as upd;\n    let _ = upd::UpdaterState::new();\n    if crate::home::updater::UPDATER_UI_ENABLED {",
     ),
+    (
+        "17. adjacent literals joined by a macro in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        "pub mod toolbar;\n"
+        "macro_rules! join_label { ($a:literal $b:literal) => { concat!($a, $b) }; }\n"
+        'pub const RETIRED_LABEL: &str = join_label!("Remove " "background");',
+    ),
+    (
+        '18. concat!(r"Remove ", r"background") with raw-string pieces in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = concat!(r"Remove ", r"background");',
+    ),
+    (
+        "19. concat! with a char piece spelling ctx-crop in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        "pub mod toolbar;\npub const RETIRED_ACTION: &str = concat!(\"ctx-cro\", 'p');",
+    ),
+    (
+        "20. retired label split by a backslash line continuation in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove\\\n    background";',
+    ),
+    (
+        r'21. retired label with a \t escape between the words in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove\\tbackground";',
+    ),
 ]
 
 
@@ -181,6 +218,34 @@ def main() -> int:
             "cmdk.rs",
             "#[cfg(test)]\nmod tests {",
             '#[cfg(test)]\nmod tests {\n    const RETIRED: &str = "ctx-crop";',
+        ),
+        (
+            "raw string holding escape-looking text is not decoded into a retired name",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const NOTE: &str = r"ctx-\\u{63}rop is not decoded in a raw string";',
+        ),
+        (
+            "escaped-backslash and raw u{_} text is left alone, not a crash",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const NOTE: &str = "\\\\u{_}";\npub const RAW_NOTE: &str = r"\\u{_}";',
+        ),
+        (
+            "two separate literals in an array do not form a retired label",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const WORDS: [&str; 2] = ["Remove ", "background"];',
+        ),
+        (
+            "a quote char literal does not desynchronise literal scanning",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            "pub mod toolbar;\npub const QUOTE: char = '\"';\npub const NEXT: &str = \"Boost resolution\";",
         ),
     ]
     for label, check_id, rel, anchor, replacement in controls:

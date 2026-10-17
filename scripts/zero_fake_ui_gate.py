@@ -40,7 +40,9 @@ Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
          CODE (comments stripped) in every entry point: the `tabs.rs` button, the Home sidebar card
          and the update modal.
 
-All source matching runs on shipped code: `//` comments and `#[cfg(test)]` items are stripped first.
+All source matching runs on shipped code: `//` comments and `#[cfg(test)]` items are stripped first, then
+every string literal is rewritten to the text the Rust compiler builds from it (escapes decoded, raw strings quoted,
+`concat!` of literals and adjacent literals joined).
 `scripts/zero_fake_ui_gate_selftest.py` re-introduces each fake-UI regression in memory and asserts
 this gate fails.
   - Z12: `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `app.doc.images`
@@ -164,40 +166,211 @@ def strip_cfg_test_items(src: str) -> str:
         pos = i
 
 
-_UNICODE_ESCAPE_RE = re.compile(r"\\u\{([0-9a-fA-F_]{1,6})\}|\\x([0-9a-fA-F]{2})")
-_CONCAT_MACRO_RE = re.compile(r'\bconcat!\s*\(\s*((?:"(?:\\.|[^"\\])*"\s*,\s*)*"(?:\\.|[^"\\])*"\s*,?\s*)\)')
-_STRING_LITERAL_RE = re.compile(r'"((?:\\.|[^"\\])*)"')
+_SIMPLE_ESCAPES = {"n": "\n", "r": "\r", "t": "\t", "0": "\0", "\\": "\\", "'": "'", '"': '"'}
+_HEX_BYTE_RE = re.compile(r"[0-9a-fA-F]{2}")
+_UNICODE_BODY_RE = re.compile(r"\{([0-9a-fA-F_]*)\}")
+_RAW_STRING_OPEN_RE = re.compile(r'b?r(#*)"')
+_LITERAL_START_RE = re.compile(r"[\"'rb]")
+_CODE_TOKEN_RE = re.compile(r"[A-Za-z_]\w*|\d[\w.]*|\s+|.", re.S)
+
+# One lexical token: (kind, source text, value). Kinds: "str" (any string literal; `value` is the text it holds),
+# "chr" (char literal; `value` is the char), "id", "num", "ws", and "p" (any other single character).
+RustToken = Tuple[str, str, str]
 
 
-def _decode_rust_escapes_in_literal(match: re.Match[str]) -> str:
-    body = match.group(1)
+def decode_rust_escapes(body: str) -> str:
+    """Value of a non-raw string / char literal body, as the compiler reads it.
 
-    def _sub_esc(m: re.Match[str]) -> str:
-        hex_str = (m.group(1) or m.group(2) or "").replace("_", "")
-        codepoint = int(hex_str, 16)
-        if codepoint in (0x22, 0x5C):
-            return "\\" + chr(codepoint)
-        if 0x20 <= codepoint <= 0x10FFFF:
-            return chr(codepoint)
-        return m.group(0)
+    Decodes `\\n \\r \\t \\0 \\\\ \\' \\"`, `\\xHH`, `\\u{H..}` and the backslash-newline continuation (which also
+    swallows the whitespace that opens the next line). An escape the compiler rejects stays verbatim.
+    """
+    out: List[str] = []
+    i, n = 0, len(body)
+    while i < n:
+        ch = body[i]
+        if ch != "\\" or i + 1 >= n:
+            out.append(ch)
+            i += 1
+            continue
+        nxt = body[i + 1]
+        if nxt in _SIMPLE_ESCAPES:
+            out.append(_SIMPLE_ESCAPES[nxt])
+            i += 2
+        elif nxt == "x" and _HEX_BYTE_RE.fullmatch(body[i + 2 : i + 4]):
+            out.append(chr(int(body[i + 2 : i + 4], 16)))
+            i += 4
+        elif nxt == "u" and (unicode_body := _UNICODE_BODY_RE.match(body, i + 2)):
+            digits = unicode_body.group(1).replace("_", "")
+            codepoint = int(digits, 16) if 1 <= len(digits) <= 6 else -1
+            if 0 <= codepoint <= 0x10FFFF and not 0xD800 <= codepoint <= 0xDFFF:
+                out.append(chr(codepoint))
+            else:
+                out.append(body[i : unicode_body.end()])
+            i = unicode_body.end()
+        elif nxt in "\r\n":
+            i += 2
+            while i < n and body[i] in " \t\r\n":
+                i += 1
+        else:
+            out.append(body[i : i + 2])
+            i += 2
+    return "".join(out)
 
-    return '"' + _UNICODE_ESCAPE_RE.sub(_sub_esc, body) + '"'
+
+def _literal_token(text: str) -> RustToken:
+    """Token for a literal span returned by `literal_end`: normal string, raw string or char."""
+    if text[0] in "'\"":
+        closed = len(text) >= 2 and text.endswith(text[0])
+        body = decode_rust_escapes(text[1:-1] if closed else text[1:])
+        return ("chr" if text[0] == "'" else "str", text, body)
+    opening = _RAW_STRING_OPEN_RE.match(text)
+    if not opening:
+        return ("str", text, text)
+    body = text[opening.end() :]
+    closing = '"' + opening.group(1)
+    return ("str", text, body[: -len(closing)] if body.endswith(closing) else body)
+
+
+def _code_tokens(text: str) -> List[RustToken]:
+    tokens: List[RustToken] = []
+    for m in _CODE_TOKEN_RE.finditer(text):
+        piece = m.group(0)
+        if piece[0].isspace():
+            kind = "ws"
+        elif piece[0].isalpha() or piece[0] == "_":
+            kind = "id"
+        elif piece[0].isdigit():
+            kind = "num"
+        else:
+            kind = "p"
+        tokens.append((kind, piece, ""))
+    return tokens
+
+
+def lex_rust(src: str) -> List[RustToken]:
+    """Splits Rust source into literal tokens (found with `literal_end`, so a `'"'` char or a raw string cannot
+    desynchronise string pairing) and code tokens."""
+    tokens: List[RustToken] = []
+    pending: List[str] = []
+    i = 0
+    while True:
+        start = _LITERAL_START_RE.search(src, i)
+        if not start:
+            pending.append(src[i:])
+            break
+        at = start.start()
+        end = literal_end(src, at)
+        if end:
+            pending.append(src[i:at])
+            tokens.extend(_code_tokens("".join(pending)))
+            pending.clear()
+            tokens.append(_literal_token(src[at:end]))
+            i = end
+        else:
+            pending.append(src[i : at + 1])
+            i = at + 1
+    tokens.extend(_code_tokens("".join(pending)))
+    return tokens
+
+
+def quote_rust_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _skip_whitespace(tokens: List[RustToken], i: int) -> int:
+    while i < len(tokens) and tokens[i][0] == "ws":
+        i += 1
+    return i
+
+
+def _is_punct(tokens: List[RustToken], i: int, ch: str) -> bool:
+    return i < len(tokens) and tokens[i][0] == "p" and tokens[i][1] == ch
+
+
+def _parse_concat_macro(tokens: List[RustToken], i: int) -> Optional[Tuple[str, int]]:
+    """`concat!(...)` starting at `tokens[i]` whose pieces are all literals the compiler can join (string, raw
+    string, char, number, bool, nested `concat!`): returns (joined text, index after the closing paren)."""
+    if tokens[i][0] != "id" or tokens[i][1] != "concat":
+        return None
+    j = _skip_whitespace(tokens, i + 1)
+    if not _is_punct(tokens, j, "!"):
+        return None
+    j = _skip_whitespace(tokens, j + 1)
+    if not _is_punct(tokens, j, "("):
+        return None
+    j += 1
+    parts: List[str] = []
+    while True:
+        j = _skip_whitespace(tokens, j)
+        if j >= len(tokens):
+            return None
+        kind, text, value = tokens[j]
+        if kind in ("str", "chr"):
+            parts.append(value)
+            j += 1
+        elif kind == "num" or (kind == "id" and text in ("true", "false")):
+            parts.append(text)
+            j += 1
+        elif _is_punct(tokens, j, "-") and (k := _skip_whitespace(tokens, j + 1)) < len(tokens) and tokens[k][0] == "num":
+            parts.append("-" + tokens[k][1])
+            j = k + 1
+        elif kind == "id" and text == "concat":
+            nested = _parse_concat_macro(tokens, j)
+            if nested is None:
+                return None
+            parts.append(nested[0])
+            j = nested[1]
+        else:
+            return None
+        j = _skip_whitespace(tokens, j)
+        if _is_punct(tokens, j, ")"):
+            return "".join(parts), j + 1
+        if not _is_punct(tokens, j, ","):
+            return None
+        j = _skip_whitespace(tokens, j + 1)
+        if _is_punct(tokens, j, ")"):
+            return "".join(parts), j + 1
+
+
+def fold_compile_time_strings(tokens: List[RustToken]) -> List[RustToken]:
+    """Joins what the compiler joins into one `&'static str`: `concat!` of literal pieces (nested too) and string
+    literals that sit next to each other (valid Rust only as macro input, e.g. `join!("a" "b")`)."""
+    changed = True
+    while changed:
+        changed = False
+        out: List[RustToken] = []
+        i = 0
+        while i < len(tokens):
+            joined = _parse_concat_macro(tokens, i)
+            if joined is not None:
+                out.append(("str", "", joined[0]))
+                i = joined[1]
+                changed = True
+                continue
+            if tokens[i][0] == "str":
+                value = tokens[i][2]
+                j = _skip_whitespace(tokens, i + 1)
+                while j < len(tokens) and tokens[j][0] == "str":
+                    value += tokens[j][2]
+                    i = j
+                    j = _skip_whitespace(tokens, j + 1)
+                    changed = True
+                out.append(("str", "", value))
+                i += 1
+                continue
+            out.append(tokens[i])
+            i += 1
+        tokens = out
+    return tokens
 
 
 def normalize_rust_literals(src: str) -> str:
-    """Decodes `\\u{HEX}`/`\\xHH` escapes inside string literals and folds `concat!("a", "b")` into `"ab"`."""
-    decoded = _STRING_LITERAL_RE.sub(_decode_rust_escapes_in_literal, src)
-
-    def _fold_concat(m: re.Match[str]) -> str:
-        parts = [p.group(1) for p in _STRING_LITERAL_RE.finditer(m.group(1))]
-        return '"' + "".join(parts) + '"'
-
-    prev = None
-    cur = decoded
-    while prev != cur:
-        prev = cur
-        cur = _CONCAT_MACRO_RE.sub(_fold_concat, cur)
-    return cur
+    """Source with every string literal rewritten to the text it holds: escapes decoded, raw strings quoted,
+    `concat!` of literals and adjacent literals folded into one `"..."`."""
+    return "".join(
+        quote_rust_string(value) if kind == "str" else text
+        for kind, text, value in fold_compile_time_strings(lex_rust(src))
+    )
 
 
 def shipped_code(src: str) -> str:
@@ -228,7 +401,11 @@ class SourceSet:
             raise AssertionError(f"mutation anchor not found in {rel_path}: {old!r}")
         files = dict(self.files)
         files[rel_path] = text.replace(old, new, 1)
-        return SourceSet(files)
+        mutated = SourceSet(files)
+        # Only `rel_path` changed, so every other file's already-computed views stay valid.
+        mutated._code = {rel: code for rel, code in self._code.items() if rel != rel_path}
+        mutated._unnormalized_code = {rel: code for rel, code in self._unnormalized_code.items() if rel != rel_path}
+        return mutated
 
     def raw(self, rel_path: str) -> str:
         return self.files.get(rel_path, "")
