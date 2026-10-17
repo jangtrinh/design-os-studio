@@ -83,6 +83,7 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "TextWrapStyle", &["AUTO", "BALANCE", "PRETTY"]);
     enum_def(&mut b, "StackSize", &["FIXED", "RESIZE_TO_FIT", "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE"]);
     enum_def(&mut b, "StackCounterAlign", &["STRETCH", "AUTO"]);
+    enum_def(&mut b, "GridChildAlign", &["AUTO", "MIN", "CENTER", "MAX"]);
     enum_def(&mut b, "StackPositioning", &["AUTO", "ABSOLUTE"]);
     enum_def(&mut b, "StackWrap", &["NO_WRAP", "WRAP"]);
     enum_def(&mut b, "TextAlignHorizontal", &["LEFT", "CENTER", "RIGHT", "JUSTIFIED"]);
@@ -656,6 +657,7 @@ pub fn figma_like_schema() -> Schema {
         def(&b, "PluginData"),
         def(&b, "TargetAspectRatio"),
     );
+    let gca = def(&b, "GridChildAlign");
     f(&mut b, "gridColumns", nat(Uint), false);
     f(&mut b, "gridRows", nat(Uint), false);
     f(&mut b, "gridColumnSpan", nat(Uint), false);
@@ -664,6 +666,8 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "gridRowAnchorIndex", nat(Uint), false);
     f(&mut b, "gridColumnAnchor", nat(Uint), false);
     f(&mut b, "gridRowAnchor", nat(Uint), false);
+    f(&mut b, "gridChildVerticalAlign", gca, false);
+    f(&mut b, "gridChildHorizontalAlign", gca, false);
     f(&mut b, "gridColumnGap", nat(Float), false);
     f(&mut b, "gridRowGap", nat(Float), false);
     f(&mut b, "gridColumnsSizing", nat(String), false);

@@ -865,6 +865,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if lc.row_span > 1 {
         fields.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
     }
+    for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
+        if let Some(s) = grid_child_align_name(a) {
+            fields.push((k, en(s)));
+        }
+    }
     if lc.min_w.is_some() || lc.min_h.is_some() {
         let mut s = Vec::new();
         if let Some(x) = lc.min_w {
@@ -1231,6 +1236,15 @@ fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
         .join(" ")
 }
 
+fn grid_child_align_name(a: GridChildAlign) -> Option<&'static str> {
+    match a {
+        GridChildAlign::Start => None,
+        GridChildAlign::Center => Some("CENTER"),
+        GridChildAlign::End => Some("MAX"),
+        GridChildAlign::Auto => Some("AUTO"),
+    }
+}
+
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     let mut var_entries = Vec::new();
     for (k, vid) in &vars.bindings {
@@ -1469,6 +1483,11 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 }
                 if lc.row_span > 1 {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
+                }
+                for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
+                    if let Some(s) = grid_child_align_name(a) {
+                        ov.push((k, en(s)));
+                    }
                 }
             }
             if ovs.contains(&OverrideField::MainComponent) {

@@ -658,7 +658,6 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "maskType"
             | "scrollDirection"
             | "lockMode"
-            | "gridChildVerticalAlign"
             | "codeExportName"
             | "documentColorProfile"
             | "codeObjectType"
@@ -1028,7 +1027,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     if fstr(nc, "stackPositioning") == Some("ABSOLUTE") {
         m.insert("layoutPositioning".into(), "ABSOLUTE".into());
     }
-    for k in ["gridColumnSpan", "gridRowSpan"] {
+    for k in ["gridColumnSpan", "gridRowSpan", "gridChildHorizontalAlign", "gridChildVerticalAlign"] {
         copy(&mut m, nc, k, k);
     }
     if let Some(c) = nc.get("gridColumnAnchor").or_else(|| nc.get("gridColumnAnchorIndex")) {
@@ -1570,7 +1569,9 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridColumnAnchor"
             | "gridColumnAnchorIndex"
             | "gridRowAnchor"
-            | "gridRowAnchorIndex" => {
+            | "gridRowAnchorIndex"
+            | "gridChildHorizontalAlign"
+            | "gridChildVerticalAlign" => {
                 has_layout = true;
             }
             "fontName"
@@ -1707,7 +1708,16 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         copy(&mut m, o, "layoutSizingHorizontal", "layoutSizingHorizontal");
         copy(&mut m, o, "layoutSizingVertical", "layoutSizingVertical");
-        for k in ["gridColumns", "gridRows", "gridColumnsSizing", "gridRowsSizing", "gridColumnSpan", "gridRowSpan"] {
+        for k in [
+            "gridColumns",
+            "gridRows",
+            "gridColumnsSizing",
+            "gridRowsSizing",
+            "gridColumnSpan",
+            "gridRowSpan",
+            "gridChildHorizontalAlign",
+            "gridChildVerticalAlign",
+        ] {
             copy(&mut m, o, k, k);
         }
         if let Some(c) = obj.get("gridColumnAnchor").or_else(|| obj.get("gridColumnAnchorIndex")) {

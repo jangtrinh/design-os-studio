@@ -754,6 +754,19 @@ impl AutoLayout {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridChildAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+    Auto,
+}
+
+fn is_default_grid_child_align(a: &GridChildAlign) -> bool {
+    *a == GridChildAlign::Start
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChild {
     pub absolute: bool,
@@ -772,6 +785,10 @@ pub struct LayoutChild {
     pub col_span: u16,
     #[serde(default, skip_serializing_if = "is_zero_or_one_u16")]
     pub row_span: u16,
+    #[serde(default, skip_serializing_if = "is_default_grid_child_align")]
+    pub grid_align_h: GridChildAlign,
+    #[serde(default, skip_serializing_if = "is_default_grid_child_align")]
+    pub grid_align_v: GridChildAlign,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

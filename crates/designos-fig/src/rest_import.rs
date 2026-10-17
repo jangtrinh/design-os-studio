@@ -2396,6 +2396,12 @@ impl<'a> Ctx<'a> {
         if let Some(r) = set.get("gridRowSpan").and_then(Value::as_u64) {
             n.layout_child.row_span = (r as u16).max(1);
         }
+        if let Some(h) = fstr(set, "gridChildHorizontalAlign") {
+            n.layout_child.grid_align_h = parse_grid_child_align(Some(h));
+        }
+        if let Some(v) = fstr(set, "gridChildVerticalAlign") {
+            n.layout_child.grid_align_v = parse_grid_child_align(Some(v));
+        }
         if let Some(h) = fstr(set, "layoutSizingHorizontal") {
             n.layout_child.horizontal = match h {
                 "FILL" => Sizing::Fill,
@@ -2708,7 +2714,9 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "gridColumnSpan"
         | "gridRowSpan"
         | "gridColumnAnchorIndex"
-        | "gridRowAnchorIndex" => OverrideField::Layout,
+        | "gridRowAnchorIndex"
+        | "gridChildHorizontalAlign"
+        | "gridChildVerticalAlign" => OverrideField::Layout,
         "componentId" | "mainComponent" | "overrides" => OverrideField::MainComponent,
         "slotContent" => OverrideField::SlotContent,
         _ => return None,
@@ -2995,6 +3003,15 @@ fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<
     runs
 }
 
+fn parse_grid_child_align(s: Option<&str>) -> GridChildAlign {
+    match s {
+        Some("CENTER") => GridChildAlign::Center,
+        Some("MAX") | Some("END") => GridChildAlign::End,
+        Some("AUTO") => GridChildAlign::Auto,
+        _ => GridChildAlign::Start,
+    }
+}
+
 fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> LayoutChild {
     let sizing = |s: Option<&str>| match s {
         Some("HUG") => Some(Sizing::Hug),
@@ -3015,6 +3032,8 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
         grid_row: u("gridRowAnchorIndex"),
         col_span: u("gridColumnSpan").unwrap_or(1).max(1),
         row_span: u("gridRowSpan").unwrap_or(1).max(1),
+        grid_align_h: parse_grid_child_align(fstr(v, "gridChildHorizontalAlign")),
+        grid_align_v: parse_grid_child_align(fstr(v, "gridChildVerticalAlign")),
         ..Default::default()
     };
     let (sh, sv) = (sizing(fstr(v, "layoutSizingHorizontal")), sizing(fstr(v, "layoutSizingVertical")));
