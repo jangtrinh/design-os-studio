@@ -50,9 +50,10 @@ cargo build --release -p designos-app
 cp target/release/designos-studio "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio"
 cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos"
 
-# 3. Run the 112,474-node (723,136 Kiwi records) "VSF - PCP" benchmark fixture directly
-# (or `--open-id 18de8bff2547cd200000` for the full 31-page 1,082,324-node import)
-"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" --open-id 18de678a186512c80000
+# 3. Open the "VSF - PCP.fig" enterprise benchmark directly
+# (1,058,895 Kiwi records -> 336,214 initial / 1,082,324 full scene nodes across 31 pages;
+#  112,474 scene nodes / 723,136 Kiwi records on the 7-page subset)
+"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" "$HOME/Downloads/VSF - PCP.fig"
 
 # 4. Run test gates
 cargo test --workspace --lib

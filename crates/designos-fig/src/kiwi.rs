@@ -22,8 +22,10 @@ const MAX_DEPTH: usize = 96;
 ///
 /// It is independent of the input length on purpose: zero-byte elements and zero padding inflate to far more
 /// values than the input holds, so any length-scaled allowance is attacker-controlled.
-/// Sizing: a measured real file (723k-node page, 1,058,895 nodes in total) decodes 54,870,017 values, i.e. ~52 per
-/// node (the figure in `KIWI_VALUES_PER_NODE`). 1.06M nodes therefore need ~55M; the cap is 2^28 = 268M, about 4.9x that.
+/// Sizing: a measured real file (`VSF - PCP.fig`: 1,058,895 Kiwi `nodeChanges` records across 31 pages -> 1,082,324
+/// expanded scene nodes, or 723,136 Kiwi records -> 112,474 scene nodes on the 7-page subset) decodes 54,870,017
+/// values, i.e. ~52 per record (the figure in `KIWI_VALUES_PER_NODE`). 1.06M records therefore need ~55M; the cap is
+/// 2^28 = 268M, about 4.9x that.
 const MAX_DECODED_VALUES: usize = 1 << 28;
 /// Absolute cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
 ///
