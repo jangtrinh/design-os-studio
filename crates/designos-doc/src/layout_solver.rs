@@ -11,7 +11,7 @@
 //! Flow frames (`Horizontal` / `Vertical`) live here; the 2D `Grid` solver is in
 //! `layout_solver_grid.rs` and is reached through [`compute`] too.
 
-use crate::{AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
+use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
 
 pub use crate::layout_solver_grid::compute_grid;
 pub use crate::layout_solver_types::{ChildIn, GridCell, LayoutOut, SizeLimits};
@@ -122,8 +122,15 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     let main_avail = (frame_main - pm).max(0.0);
 
     // Cross extent of each line.
-    let mut line_cross: Vec<f32> =
-        lines.iter().map(|l| l.iter().filter(|i| !kids[**i].cross_fill || al.wrap).map(|i| nat_cross(&kids[*i])).fold(0.0, f32::max)).collect();
+    let mut line_cross: Vec<f32> = lines
+        .iter()
+        .map(|l| {
+            l.iter()
+                .filter(|i| !(kids[**i].cross_fill || kids[**i].align_self == AlignSelf::Stretch) || al.wrap)
+                .map(|i| nat_cross(&kids[*i]))
+                .fold(0.0, f32::max)
+        })
+        .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
     if !al.wrap {
@@ -237,11 +244,16 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         for (j, i) in line.iter().enumerate() {
             let kid = &kids[*i];
             let m = mains[j];
-            let c = if kid.cross_fill { ax.clamp_cross(&kid.limits, line_cross[li]) } else { nat_cross(kid) };
-            let off = match al.counter_align {
-                LayoutAlign::Center => (line_cross[li] - c) / 2.0,
-                LayoutAlign::End => line_cross[li] - c,
-                _ => 0.0,
+            let c = if kid.cross_fill || kid.align_self == AlignSelf::Stretch { ax.clamp_cross(&kid.limits, line_cross[li]) } else { nat_cross(kid) };
+            let off = match kid.align_self {
+                AlignSelf::Start | AlignSelf::Stretch => 0.0,
+                AlignSelf::Center => (line_cross[li] - c) / 2.0,
+                AlignSelf::End => line_cross[li] - c,
+                AlignSelf::Auto | AlignSelf::Baseline => match al.counter_align {
+                    LayoutAlign::Center => (line_cross[li] - c) / 2.0,
+                    LayoutAlign::End => line_cross[li] - c,
+                    _ => 0.0,
+                },
             };
             let pos = ax.vec(cursor, cross_cursor + off);
             let size = ax.vec(m, c);

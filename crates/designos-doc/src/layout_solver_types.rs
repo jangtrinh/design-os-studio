@@ -1,6 +1,6 @@
 //! Input and output types of the one auto-layout solver (see `layout_solver.rs`).
 
-use crate::{LayoutChild, Rect, Sizing, Vec2};
+use crate::{AlignSelf, LayoutChild, Rect, Sizing, Vec2};
 
 /// Optional min/max size of a layout child, in px (`x` = width, `y` = height).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -62,6 +62,7 @@ pub struct ChildIn {
     /// Stretches along the counter axis.
     pub cross_fill: bool,
     pub grow: f32,
+    pub align_self: AlignSelf,
     pub limits: SizeLimits,
     pub cell: GridCell,
 }
@@ -73,8 +74,9 @@ impl ChildIn {
         Self {
             size,
             main_fill: main_s == Sizing::Fill || lc.grow > 0.0,
-            cross_fill: cross_s == Sizing::Fill,
+            cross_fill: cross_s == Sizing::Fill || lc.align_self == AlignSelf::Stretch,
             grow: lc.grow,
+            align_self: lc.align_self,
             limits: SizeLimits::from(lc),
             cell: GridCell { column: lc.grid_column, row: lc.grid_row, col_span: lc.col_span.max(1), row_span: lc.row_span.max(1) },
         }
