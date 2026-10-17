@@ -56,7 +56,8 @@ cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/
 # Launch the packaged macOS app bundle
 open "target/release/bundle/DESIGN-OS Studio.app"
 
-# Launch directly into the 723,136-node "VSF - PCP" enterprise benchmark fixture
+# Launch directly into the 112,474-node (723,136 Kiwi records) "VSF - PCP" enterprise benchmark fixture
+# (or `--open-id 18de8bff2547cd200000` for the full 31-page 1,082,324-node import)
 "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" --open-id 18de678a186512c80000
 
 # Run verification suites
@@ -70,7 +71,7 @@ cargo test -p designos-mcp
 ## 4. Non-Negotiable Performance & Safety Invariants
 
 1. **NEVER call `doc.to_json()` inside `doc_hash` or on the UI thread (`crates/designos-app/src/home/session.rs`):**
-   - `doc_hash(doc: &Document) -> u64` MUST use the zero-allocation `HashSerializer` streaming directly into `DefaultHasher` (and sampling image byte headers/tails). Allocating a JSON string on a 723k-node document stalls the UI thread and spikes memory by gigabytes.
+   - `doc_hash(doc: &Document) -> u64` MUST use the zero-allocation `HashSerializer` streaming directly into `DefaultHasher` (and sampling image byte headers/tails). Allocating a JSON string on a 112,474-node (723,136 Kiwi records) document stalls the UI thread and spikes memory by gigabytes.
    - Viewport-only operations (pan, zoom, fit-to-screen, marquee selection) MUST NEVER call `app.changed()` or increment `TileView::rev`.
 
 2. **NEVER call `ctx.load_texture` inside `ctx.data_mut` (`crates/designos-app/src/icons.rs` & all `egui` code):**
@@ -81,7 +82,7 @@ cargo test -p designos-mcp
    - All interactive fast-paths (pre-resolve `< 0.75px` sub-pixel culling, `< 3.5px` text greeking, hardware scissor fallback on rounded clips, and offscreen `Program` caps) MUST stay gated behind `self.interactive()` so `cargo test -p designos-gpu` headless CPU-vs-GPU pixel-diff tests remain bit-exact.
 
 4. **CAP offscreen GPU `Program` allocations (`self.progs.len() < 64`) and reuse `FrameKey` (`crates/designos-app/src/canvas/gpu.rs`):**
-   - Unbounded offscreen render passes (`Program`s) on 723k-node pages exhaust `egui-wgpu`'s Metal staging ring buffer and crash the GPU driver. Keep offscreen layer/mask/clip/blend `Program` creation capped at `< 64` in `interactive()` mode (falling back to hardware scissor clips).
+   - Unbounded offscreen render passes (`Program`s) on 112,474-node (723,136 Kiwi records) pages exhaust `egui-wgpu`'s Metal staging ring buffer and crash the GPU driver. Keep offscreen layer/mask/clip/blend `Program` creation capped at `< 64` in `interactive()` mode (falling back to hardware scissor clips).
    - Exception (owner ruling 2026-10-16, ratified 2026-10-17 after a live Metal check): when the view is idle, `GpuView::plan` runs exactly ONE compile with `CompileOptions.uncap_programs = true`, caches it under the same `FrameKey` (`refined = true`), and from then on re-blits with `Cb { frame: None }`. Masks, blur, blend modes and group opacity render at full quality at rest. Any viewport or document change goes back to the capped interactive compile.
    - Idle = the `FrameKey` stayed unchanged for `IDLE_REFINE_DELAY` (250 ms of `ctx.input(|i| i.time)`, no timer thread), `stale_hits == 0`, no pointer down, and no scroll or zoom delta in the last frame (a delta restarts the delay, so a trackpad pan or momentum scroll never triggers the refine). `plan` returns `FramePlan::Wait`, which re-blits the cache and requests ONE `request_repaint_after` for the remaining delay; after the refine every idle frame is `Reuse` (`Cb { frame: None }`) with no repaint request (0% idle CPU).
    - VRAM ceiling (owner ruling 2026-10-16, replaces any program-count limit for the refine): the uncapped compile accounts the GPU bytes of every offscreen target (`program_bytes`: pooled extent x `FORMAT` 4 B x (`MSAA` 4 + 1 resolve), plus blur/displace/backdrop scratch targets; formula mirrors `resources.rs` `Pool`) and opens a new `Program` only while the running total stays within `CompileOptions.refine_vram_budget_bytes` (default 512 MiB, `DEFAULT_REFINE_VRAM_BUDGET_BYTES`). Past the budget it degrades exactly like the capped path (scissor clip instead of a mask program, effect or layer skipped). Capped interactive and headless (`budget = None`) compiles never consult the budget.
