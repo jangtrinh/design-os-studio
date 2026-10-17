@@ -542,10 +542,19 @@ impl TabsState {
         }
         let mut removed = self.entries.remove(idx);
         removed.terminal.shutdown();
+        let closed_path = removed.file_path.clone().or_else(|| (!was_home && idx == old_active).then(|| app.file_path.clone()).flatten());
+        if let Some(p) = closed_path.as_deref() {
+            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
+            if !still_open {
+                crate::io::drop_repaired_original(p);
+            }
+        }
         if self.entries.is_empty() {
             self.active_idx = 0;
             self.hist_in_app = false;
             self.parked_in_home = true;
+            app.file_path = None;
+            app.lib_file = None;
             if !was_home {
                 if app.lib.is_some() {
                     app.go_home();
@@ -591,12 +600,22 @@ impl TabsState {
             self.park_active_from_app(app);
         }
         let keep_id = self.entries[keep_idx].id;
+        let mut closed_paths = Vec::new();
         for t in &mut self.entries {
             if t.id != keep_id && !t.pinned {
                 t.terminal.shutdown();
+                if let Some(p) = t.file_path.clone() {
+                    closed_paths.push(p);
+                }
             }
         }
         self.entries.retain(|t| t.id == keep_id || t.pinned);
+        for p in &closed_paths {
+            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
+            if !still_open {
+                crate::io::drop_repaired_original(p);
+            }
+        }
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
             self.active_idx = new_idx;
@@ -1239,5 +1258,61 @@ mod tests {
         assert_eq!(app.tabs.active_idx, 0);
         assert_eq!(app.doc.name, "File Two");
         assert_eq!(app.terminal.input_line, "codex --file-two");
+    }
+
+    #[test]
+    fn closing_repaired_tab_without_saving_drops_repaired_original_bytes() {
+        let mut damaged1 = Document::new("DamagedOne");
+        let p1 = damaged1.add_page("P1");
+        damaged1.nodes.get_mut(&p1).unwrap().children.push(designos_doc::NodeId(9999));
+
+        let mut damaged2 = Document::new("DamagedTwo");
+        let p2 = damaged2.add_page("P2");
+        damaged2.nodes.get_mut(&p2).unwrap().children.push(designos_doc::NodeId(8888));
+
+        let mut path1 = std::env::temp_dir();
+        path1.push(format!("designos_tab_close_repaired_1_{}.designos", std::process::id()));
+        let mut path2 = std::env::temp_dir();
+        path2.push(format!("designos_tab_close_repaired_2_{}.designos", std::process::id()));
+
+        std::fs::write(&path1, damaged1.to_json().unwrap()).unwrap();
+        std::fs::write(&path2, damaged2.to_json().unwrap()).unwrap();
+
+        let mut app = make_app_with_doc("Initial");
+        app.open_path(path1.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        let idx2 = tabs.open_or_focus_path(&mut app, &path2).expect("opened second repaired tab");
+        app.tabs = tabs;
+        assert_eq!(idx2, 1);
+
+        assert!(crate::io::has_repaired_original(&path1), "tab 0 holds repaired original bytes");
+        assert!(crate::io::has_repaired_original(&path2), "tab 1 holds repaired original bytes");
+
+        // Closing background tab 0 without saving drops its repaired original bytes immediately
+        assert!(app.close_tab(0));
+        assert!(!crate::io::has_repaired_original(&path1), "closed tab 0 must drop its repaired original bytes");
+        assert!(crate::io::has_repaired_original(&path2), "remaining tab 1 keeps its repaired original bytes");
+
+        // Closing the active last tab without saving drops its repaired original bytes too
+        assert!(app.close_tab(0));
+        assert!(!crate::io::has_repaired_original(&path2), "closed active tab must drop its repaired original bytes");
+
+        // Re-open both repaired files and verify close_other_tabs and new_document also drop repaired bytes
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.open_or_focus_path(&mut app, &path1).expect("re-opened first repaired tab");
+        tabs.open_or_focus_path(&mut app, &path2).expect("re-opened second repaired tab");
+        assert!(crate::io::has_repaired_original(&path1));
+        assert!(crate::io::has_repaired_original(&path2));
+        tabs.close_other_tabs(1, &mut app);
+        app.tabs = tabs;
+        assert!(!crate::io::has_repaired_original(&path1), "close_other_tabs drops closed tab's repaired bytes");
+        assert!(crate::io::has_repaired_original(&path2), "close_other_tabs preserves kept tab's repaired bytes");
+
+        app.new_document();
+        assert!(!crate::io::has_repaired_original(&path2), "replacing active document without saving drops its repaired bytes");
+
+        std::fs::remove_file(&path1).ok();
+        std::fs::remove_file(&path2).ok();
     }
 }

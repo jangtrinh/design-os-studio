@@ -1551,6 +1551,20 @@ impl App {
         // Pending edits of the library file being left are saved first (from the live state, not an old version).
         self.exit_version_view();
         self.flush_autosave();
+        if !self.tabs.parked_in_home {
+            if let Some(old_path) = self.file_path.take() {
+                let same_as_new = path.as_deref().is_some_and(|np| io::same_repair_key(&old_path, np));
+                let held_by_other_tab = self
+                    .tabs
+                    .entries
+                    .iter()
+                    .enumerate()
+                    .any(|(i, t)| i != self.tabs.active_idx && t.file_path.as_deref().is_some_and(|tp| io::same_repair_key(tp, &old_path)));
+                if !same_as_new && !held_by_other_tab {
+                    io::drop_repaired_original(&old_path);
+                }
+            }
+        }
         self.lib_file = None;
         self.renaming_file = false;
         let mut doc = doc;
