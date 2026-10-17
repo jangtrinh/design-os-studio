@@ -84,7 +84,8 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
 
 - Every piece of demo UI in a project video (launch and promo films, micro clips, GIFs, long-form captures) comes from the Untitled UI PRO VARIABLES v8.0 kit, `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`, opened in Studio. Never show a blank or self-built demo file, another kit, or a client file (e.g. VSF - PCP).
 - Work from a copy (a `.fig` import saved as `.designos`) so takes never save over the original. Feature demos may edit that copy through Studio or `designos-mcp`. Extra demo frames go on a scratch page inside it.
-- The kit's default brand colour is purple. Use neutral frames, or re-theme through the kit's own colour variables (Purple Ban). Never recolour pixels, and show no photos of people.
+- Kit content keeps the kit's original colours, purple included (owner: "Purple này là style của Untitled nên chấp nhận", i.e. this purple is Untitled's own style, so accept it). The Purple Ban still applies to the film's own chrome and type, not to kit content. Never recolour pixels. Photos of people in kit content are allowed (owner: "Show people cũng được, kệ đi").
+- Demos must be true to the released build. Pick kit frames that the release renders the way Figma does: the CPU and `--gpu` renders match, and no known render bug is hit. Never show behaviour the code does not have. For example, agent undo is one step per tool call, and a paste from Figma drops styles.
 - Credit "Untitled UI PRO v8.0 kit by Untitled UI" in the end card.
 
 ## 4. Non-Negotiable Performance & Safety Invariants
