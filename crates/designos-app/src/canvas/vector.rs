@@ -223,12 +223,15 @@ pub fn hit_test(
             return Some(Hit::Vertex(i));
         }
     }
-    // scale handles come after points, so a point is never shadowed by the box frame
-    if let Some(b) = selected_bounds(net, sel) {
-        if let Some((h, _)) = box_handle_points(b, to_screen).into_iter().find(|(_, c)| dist(*c, p) <= radius) {
-            return Some(Hit::BoxHandle(h));
-        }
-    }
+    // Scale handles come after points, so a point is never shadowed by the box frame. Against a
+    // segment the nearer one wins: a curve that bulges past the box can run through a handle.
+    let box_hit = selected_bounds(net, sel).and_then(|b| {
+        box_handle_points(b, to_screen)
+            .into_iter()
+            .map(|(h, c)| (dist(c, p), Hit::BoxHandle(h)))
+            .filter(|(d, _)| *d <= radius)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+    });
     let mut best: Option<(f32, Hit)> = None;
     for seg in 0..net.segments.len() {
         let c = net.cubic(seg);
@@ -246,7 +249,12 @@ pub fn hit_test(
             prev = cur;
         }
     }
-    best.map(|b| b.1)
+    match (box_hit, best) {
+        (Some((dh, h)), Some((ds, _))) if dh <= ds => Some(h),
+        (_, Some((_, s))) => Some(s),
+        (Some((_, h)), None) => Some(h),
+        (None, None) => None,
+    }
 }
 
 /// Distance from `p` to segment `a`-`b` and the position along it (0..1).
@@ -557,9 +565,10 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
             let mut sy =
                 if handle.affects_y() && (handle_pt0.y - anchor_pt.y).abs() > 1e-4 { (target.y - anchor_pt.y) / (handle_pt0.y - anchor_pt.y) } else { 1.0 };
             if mods.shift && handle.is_corner() {
-                let mag = sx.abs().max(sy.abs());
-                sx = if sx < 0.0 { -mag } else { mag };
-                sy = if sy < 0.0 { -mag } else { mag };
+                // one signed factor from the axis the pointer moved furthest, so crossing the anchor on the other axis never mirrors
+                let s = if sx.abs() >= sy.abs() { sx } else { sy };
+                sx = s;
+                sy = s;
             }
             for &i in &v.sel {
                 if let Some(vx) = net.vertices.get_mut(i) {
@@ -1917,5 +1926,76 @@ mod tests {
         assert!((p0.x - 200.0).abs() < 1e-3 && (p0.y - 130.0).abs() < 1e-3, "{p0:?}");
         assert!((p1.x - 300.0).abs() < 1e-3 && (p1.y - 130.0).abs() < 1e-3, "{p1:?}");
         assert!((p2.x - 300.0).abs() < 1e-3 && (p2.y - 200.0).abs() < 1e-3, "the other point stays: {p2:?}");
+    }
+
+    /// One segment from (0, 0) to (100, 0) that bulges to y = 15 at its middle, both ends selected:
+    /// its box is flat, so the lower scale handle is at (50, 12), 3 px from the curve.
+    fn shallow_curve_app() -> (App, NodeId) {
+        let path = vec![Path {
+            cmds: vec![PathCmd::MoveTo(v2(0.0, 0.0)), PathCmd::CubicTo(v2(30.0, 20.0), v2(70.0, 20.0), v2(100.0, 0.0))],
+            fill_rule: FillRule::NonZero,
+        }];
+        let (mut app, id) = app_with_paths(path);
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1]);
+        (app, id)
+    }
+
+    #[test]
+    fn a_curve_that_runs_through_a_scale_handle_keeps_its_gestures_where_it_is_closer() {
+        let (mut app, id) = shallow_curve_app();
+        let ident = |p: DV| p;
+        let sel01 = vedit(&app).sel.clone();
+        let net = vedit(&app).net.clone();
+        assert!(matches!(hit_test(&net, &sel01, None, &ident, v2(50.0, 15.0), 6.0, 5.0), Some(Hit::Segment(0, _))), "on the curve, 3 px from the handle");
+        assert_eq!(
+            hit_test(&net, &sel01, None, &ident, v2(50.0, 12.0), 6.0, 5.0),
+            Some(Hit::BoxHandle(super::super::handles::Handle::B)),
+            "on the handle, 3 px from the curve"
+        );
+        // a click on the curve adds a point, as it did before points could be scaled
+        let rect = test_rect();
+        let on_curve = screen_of(&app, rect, app.doc.world_transform(id).apply(net.point_on(0, 0.5)));
+        gesture(&mut app, rect, on_curve, &[], Modifiers::NONE);
+        assert_eq!(vedit(&app).net.vertices.len(), 3, "a point was inserted");
+    }
+
+    #[test]
+    fn dragging_a_curve_that_runs_through_a_scale_handle_moves_the_segment() {
+        let (mut app, id) = shallow_curve_app();
+        let rect = test_rect();
+        let net = vedit(&app).net.clone();
+        let on_curve = world_pos_of(&app, id, net.point_on(0, 0.5));
+        let from = screen_of(&app, rect, on_curve);
+        gesture(&mut app, rect, from, &[add(on_curve, v2(0.0, 15.0)), add(on_curve, v2(0.0, 30.0))], Modifiers::NONE);
+        let (p0, p1) = (world_pos(&app, id, 0), world_pos(&app, id, 1));
+        assert!((p0.x - 200.0).abs() < 1e-3 && (p0.y - 130.0).abs() < 1e-3, "{p0:?}");
+        assert!((p1.x - 300.0).abs() < 1e-3 && (p1.y - 130.0).abs() < 1e-3, "{p1:?}");
+    }
+
+    fn world_pos_of(app: &App, id: NodeId, local: DV) -> DV {
+        app.doc.world_transform(id).apply(local)
+    }
+
+    #[test]
+    fn shift_scales_uniformly_even_when_the_pointer_crosses_the_anchor_on_one_axis() {
+        // The bottom-right corner of the 100 x 100 box moves by `travel`; Shift keeps the aspect.
+        // Returns where vertex 2, the corner that was dragged, ends up.
+        let drag_corner = |travel: DV| -> DV {
+            let (mut app, id) = app_with_vector();
+            enter(&mut app, id);
+            sel(&mut app, &[0, 2]);
+            let rect = test_rect();
+            let from = scale_handle_pos(&app, rect, super::super::handles::Handle::BR);
+            let page0 = app.view.to_page(rect.min, from);
+            gesture(&mut app, rect, from, &[add(page0, travel)], Modifiers::SHIFT);
+            world_pos(&app, id, 2)
+        };
+        // x dominant (2x), y crosses the anchor (-0.01x): one factor of 2 on both axes, no mirror
+        let p = drag_corner(v2(100.0, -101.0));
+        assert!((p.x - 400.0).abs() < 1e-3 && (p.y - 300.0).abs() < 1e-3, "{p:?}");
+        // y dominant (-1.5x), x stays positive (0.5x): one factor of -1.5 on both axes
+        let p = drag_corner(v2(-50.0, -250.0));
+        assert!((p.x - 50.0).abs() < 1e-3 && (p.y + 50.0).abs() < 1e-3, "{p:?}");
     }
 }
