@@ -189,6 +189,8 @@ impl Engine {
                     messages: vec![Comment {
                         id: msg_id,
                         author: a.author.unwrap_or_else(|| "Agent".into()),
+                        author_id: None,
+                        author_color: None,
                         text: a.text.trim().into(),
                         created: "2026-10-14T23:30:00Z".into(),
                         edited: None,
@@ -219,6 +221,8 @@ impl Engine {
                 t.messages.push(Comment {
                     id: msg_id,
                     author: a.author.unwrap_or_else(|| "Agent".into()),
+                    author_id: None,
+                    author_color: None,
                     text: a.text.trim().into(),
                     created: "2026-10-14T23:30:00Z".into(),
                     edited: None,

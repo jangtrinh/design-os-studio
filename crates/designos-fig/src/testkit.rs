@@ -356,14 +356,28 @@ pub fn figma_like_schema() -> Schema {
     b.field(cpv, "boolValue", nat(Bool), false, 1);
     b.field(cpv, "textValue", cptvt, false, 2);
     b.field(cpv, "guidValue", gt, false, 3);
+    let spc = b.define("SlotPropConfig", DefKind::Message);
+    b.field(spc, "stretchChildOnInsert", nat(Bool), false, 1);
+    b.field(spc, "displayByDefault", nat(Bool), false, 2);
+    b.field(spc, "minChildren", nat(Uint), false, 3);
+    b.field(spc, "maxChildren", nat(Uint), false, 4);
+    b.field(spc, "allowPreferredValuesOnly", nat(Bool), false, 5);
     let cpd = b.define("ComponentPropDef", DefKind::Message);
-    let (gt, cptt, cpvt) = (def(&b, "GUID"), def(&b, "ComponentPropType"), def(&b, "ComponentPropValue"));
+    let (gt, cptt, cpvt, spct) = (def(&b, "GUID"), def(&b, "ComponentPropType"), def(&b, "ComponentPropValue"), def(&b, "SlotPropConfig"));
     b.field(cpd, "id", gt, false, 1);
     b.field(cpd, "name", nat(String), false, 2);
     b.field(cpd, "type", cptt, false, 3);
     b.field(cpd, "initialValue", cpvt, false, 4);
     b.field(cpd, "parentPropDefId", gt, false, 5);
     b.field(cpd, "preferredValues", gt, true, 6);
+    b.field(cpd, "slotPropConfig", spct, false, 7);
+    // Real schema: `SlotContentId { guid }`. Stored on a node under the non-kiwi `jsonSerialized`
+    // bag, key `slot-content-id` (INFERENCE from the editor, not seen in a real file).
+    let sci = b.define("SlotContentId", DefKind::Message);
+    b.field(sci, "guid", gt, false, 1);
+    let jsf = b.define("JsonSerializedFields", DefKind::Message);
+    let scit = def(&b, "SlotContentId");
+    b.field(jsf, "slot-content-id", scit, false, 1);
     let cpa = b.define("ComponentPropAssignment", DefKind::Message);
     b.field(cpa, "defID", gt, false, 1);
     b.field(cpa, "value", cpvt, false, 2);
@@ -735,6 +749,10 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "inheritEffectStyleID", guid_ty, false);
     f(&mut b, "inheritGridStyleID", guid_ty, false);
     f(&mut b, "isSoftDeletedStyle", nat(Bool), false);
+    let jsft = def(&b, "JsonSerializedFields");
+    f(&mut b, "isSlot", nat(Bool), false);
+    f(&mut b, "isSlotContent", nat(Bool), false);
+    f(&mut b, "jsonSerialized", jsft, false);
 
     let blob = b.define("Blob", DefKind::Message);
     b.field(blob, "bytes", nat(Byte), true, 1);
