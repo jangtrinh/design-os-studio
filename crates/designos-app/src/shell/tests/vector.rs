@@ -315,6 +315,40 @@ fn marquee_selects_vertices_and_a_click_on_empty_space_clears() {
 }
 
 #[test]
+fn scaling_selected_points_bounding_box_scales_only_selected_points() {
+    let (mut s, id) = editing();
+    // Split segment 0 ((300,800) -> (370,840)) at t=0.5 so vertex 3 is at (335, 820)
+    crate::canvas::vector::insert_point(&mut s.shell.app, 0, 0.5);
+    // Select vertices 0 ((300,800)), 3 ((335,820)), and 1 ((370,840)); leave vertex 2 ((300,880)) unselected
+    s.shell.app.canvas.vedit.as_mut().unwrap().sel = BTreeSet::from([0, 1, 3]);
+    s.frame(vec![]);
+
+    // Drag the BR corner handle of the selected points' box from (370, 840) to (440, 880) (2x scale in X and Y)
+    s.drag(at(&s, 370.0, 840.0), at(&s, 440.0, 880.0));
+
+    let w = s.app().doc.world_transform(id);
+    let net = network(&s, id);
+    let p0 = w.apply(net.vertices[0].pos);
+    let p3 = w.apply(net.vertices[3].pos);
+    let p1 = w.apply(net.vertices[1].pos);
+    let p2 = w.apply(net.vertices[2].pos);
+
+    assert!((p0.x - 300.0).abs() < 1.0 && (p0.y - 800.0).abs() < 1.0, "anchor TL stayed at (300,800), got {p0:?}");
+    assert!((p3.x - 370.0).abs() < 1.0 && (p3.y - 840.0).abs() < 1.0, "midpoint scaled 2x to (370,840), got {p3:?}");
+    assert!((p1.x - 440.0).abs() < 1.0 && (p1.y - 880.0).abs() < 1.0, "BR corner scaled 2x to (440,880), got {p1:?}");
+    assert!((p2.x - 300.0).abs() < 1.0 && (p2.y - 880.0).abs() < 1.0, "unselected vertex stayed at (300,880), got {p2:?}");
+
+    // Undo restores all vertices in one step
+    s.cmd_key(Key::Z);
+    let w_undo = s.app().doc.world_transform(id);
+    let net_undo = network(&s, id);
+    let p1_undo = w_undo.apply(net_undo.vertices[1].pos);
+    let p3_undo = w_undo.apply(net_undo.vertices[3].pos);
+    assert!((p1_undo.x - 370.0).abs() < 1.0 && (p1_undo.y - 840.0).abs() < 1.0, "{p1_undo:?}");
+    assert!((p3_undo.x - 335.0).abs() < 1.0 && (p3_undo.y - 820.0).abs() < 1.0, "{p3_undo:?}");
+}
+
+#[test]
 fn alt_drag_lassos_the_vertices_it_encloses() {
     let (mut s, _) = editing();
     mods(&mut s, Modifiers::ALT);

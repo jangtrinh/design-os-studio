@@ -47,6 +47,8 @@ impl VTool {
 pub enum Hit {
     Vertex(usize),
     Handle(usize, End),
+    /// Bounding-box resize handle when 2 or more vertices are selected.
+    BoxHandle(super::handles::Handle),
     /// Segment, at parameter `t`.
     Segment(usize, f32),
 }
@@ -56,6 +58,11 @@ pub enum DragKind {
     /// Move the selected vertices.
     Vertices,
     Handle(usize, End),
+    /// Scale the selected vertices' bounding box from `handle`.
+    ScaleBox {
+        handle: super::handles::Handle,
+        box0: Rect,
+    },
     /// Reshape a segment so it passes through the pointer.
     Bend {
         seg: usize,
@@ -114,6 +121,35 @@ fn sp(p: DV) -> Pos2 {
     Pos2::new(p.x, p.y)
 }
 
+/// Axis-aligned bounding box in node-local coordinates of the selected vertices when `sel.len() >= 2`.
+pub fn selected_bounds(net: &VectorNetwork, sel: &BTreeSet<usize>) -> Option<Rect> {
+    if sel.len() < 2 {
+        return None;
+    }
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    let mut count = 0usize;
+    for &i in sel {
+        if let Some(vx) = net.vertices.get(i) {
+            min_x = min_x.min(vx.pos.x);
+            min_y = min_y.min(vx.pos.y);
+            max_x = max_x.max(vx.pos.x);
+            max_y = max_y.max(vx.pos.y);
+            count += 1;
+        }
+    }
+    if count < 2 || ((max_x - min_x) < 1e-4 && (max_y - min_y) < 1e-4) {
+        return None;
+    }
+    Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+}
+
+fn box_screen_corners(b: Rect, to_screen: &dyn Fn(DV) -> DV) -> [DV; 4] {
+    [to_screen(v2(b.x, b.y)), to_screen(v2(b.x + b.w, b.y)), to_screen(v2(b.x + b.w, b.y + b.h)), to_screen(v2(b.x, b.y + b.h))]
+}
+
 /// Handles worth showing: those of the selected vertices and of their neighbours,
 /// and both ends of the selected segment.
 fn visible_handles(net: &VectorNetwork, sel: &BTreeSet<usize>, seg: Option<usize>) -> BTreeSet<(usize, End)> {
@@ -155,6 +191,14 @@ pub fn hit_test(
         }
         if dist(to_screen(handle_pos(net, s, e)), p) <= radius {
             return Some(Hit::Handle(s, e));
+        }
+    }
+    if let Some(b) = selected_bounds(net, sel) {
+        let corners = box_screen_corners(b, to_screen);
+        for h in super::handles::Handle::ALL {
+            if dist(super::handles::handle_pos(&corners, h), p) <= radius {
+                return Some(Hit::BoxHandle(h));
+            }
         }
     }
     for (i, v) in net.vertices.iter().enumerate().rev() {
@@ -361,10 +405,17 @@ pub fn press(app: &mut App, rect: ERect, pos: Pos2, mods: Modifiers) -> bool {
         bucket_click(app, rect, pos);
         return true;
     }
-    let hit = {
+    let mut hit = {
         let to_s = mapper(app, rect, world);
         hit_test(&v.net, &v.sel, v.seg.map(|s| s.0), &to_s, v2(pos.x, pos.y), theme::VEDIT_HIT, theme::VEDIT_SEGMENT_HIT)
     };
+    if matches!(hit, Some(Hit::BoxHandle(_))) && (mods.shift || mods.command || tool == VTool::Bend) {
+        let to_s = mapper(app, rect, world);
+        let p = v2(pos.x, pos.y);
+        if let Some((i, _)) = v.net.vertices.iter().enumerate().rev().find(|(_, vx)| dist(to_s(vx.pos), p) <= theme::VEDIT_HIT) {
+            hit = Some(Hit::Vertex(i));
+        }
+    }
     let vertex_of = |app: &App, seg: usize, end: End| app.canvas.vedit.as_ref().map(|v| v.net.vertex_of(seg, end));
     match hit {
         Some(Hit::Handle(seg, end)) => {
@@ -376,6 +427,14 @@ pub fn press(app: &mut App, rect: ERect, pos: Pos2, mods: Modifiers) -> bool {
                 }
             }
             begin_drag(app, DragKind::Handle(seg, end), world, t0, page);
+        }
+        Some(Hit::BoxHandle(h)) => {
+            if let Some(box0) = selected_bounds(&v.net, &v.sel) {
+                if let Some(v) = app.canvas.vedit.as_mut() {
+                    v.seg = None;
+                }
+                begin_drag(app, DragKind::ScaleBox { handle: h, box0 }, world, t0, page);
+            }
         }
         Some(Hit::Vertex(i)) => {
             let Some(v) = app.canvas.vedit.as_mut() else { return true };
@@ -466,6 +525,40 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
                 }
             }
         }
+        DragKind::ScaleBox { handle, box0 } => {
+            if dist(cur, d.anchor_page) * zoom <= theme::DRAG_THRESHOLD_PX && !d.changed {
+                return;
+            }
+            let (hx, hy) = handle.norm();
+            let (ax, ay) =
+                if mods.alt { (0.5, 0.5) } else { (if handle.affects_x() { 1.0 - hx } else { 0.5 }, if handle.affects_y() { 1.0 - hy } else { 0.5 }) };
+            let anchor_pt = v2(box0.x + ax * box0.w, box0.y + ay * box0.h);
+            let handle_pt0 = v2(box0.x + hx * box0.w, box0.y + hy * box0.h);
+            let mut sx =
+                if handle.affects_x() && (handle_pt0.x - anchor_pt.x).abs() > 1e-4 { (local.x - anchor_pt.x) / (handle_pt0.x - anchor_pt.x) } else { 1.0 };
+            let mut sy =
+                if handle.affects_y() && (handle_pt0.y - anchor_pt.y).abs() > 1e-4 { (local.y - anchor_pt.y) / (handle_pt0.y - anchor_pt.y) } else { 1.0 };
+            if mods.shift && handle.is_corner() {
+                let mag = sx.abs().max(sy.abs());
+                sx = if sx < 0.0 { -mag } else { mag };
+                sy = if sy < 0.0 { -mag } else { mag };
+            }
+            for &i in &v.sel {
+                if let Some(vx) = net.vertices.get_mut(i) {
+                    let p0 = d.start.vertices[i].pos;
+                    vx.pos = v2(anchor_pt.x + (p0.x - anchor_pt.x) * sx, anchor_pt.y + (p0.y - anchor_pt.y) * sy);
+                }
+            }
+            for (si, seg) in net.segments.iter_mut().enumerate() {
+                let orig = &d.start.segments[si];
+                if v.sel.contains(&orig.a) {
+                    seg.ta = v2(orig.ta.x * sx, orig.ta.y * sy);
+                }
+                if v.sel.contains(&orig.b) {
+                    seg.tb = v2(orig.tb.x * sx, orig.tb.y * sy);
+                }
+            }
+        }
         DragKind::Handle(seg, end) => {
             let vi = net.vertex_of(seg, end);
             let mut t = sub(local, net.pos(vi));
@@ -545,6 +638,19 @@ pub fn release(app: &mut App) {
     let Some(d) = v.drag.take() else { return };
     if !d.changed {
         match d.kind {
+            DragKind::ScaleBox { .. } => {
+                d.tx.cancel(&mut app.doc);
+                let world = d.world0;
+                if let Some(v) = app.canvas.vedit.as_mut() {
+                    let hit_r = theme::VEDIT_HIT / zoom.max(1e-3);
+                    let p_page = world.apply(d.anchor);
+                    if let Some((vi, _)) = v.net.vertices.iter().enumerate().rev().find(|(_, vx)| dist(world.apply(vx.pos), p_page) <= hit_r) {
+                        v.sel = BTreeSet::from([vi]);
+                        app.changed();
+                    }
+                }
+                return;
+            }
             DragKind::Segment { seg, t } => {
                 // a click on a segment adds a point
                 d.tx.cancel(&mut app.doc);
@@ -951,6 +1057,19 @@ pub fn overlay(app: &App, p: &Painter, rect: ERect) {
         if vx.corner_radius > 0.0 {
             // a ring marks vertices with a rounded corner
             p.circle_stroke(sp(to_s(vx.pos)), theme::VEDIT_POINT_SIZE * 1.1, Stroke::new(1.0, col));
+        }
+    }
+    // multi-point bounding box and 8 resize handles
+    if let Some(b) = selected_bounds(&v.net, &v.sel) {
+        let corners = box_screen_corners(b, &to_s);
+        let pts = [sp(corners[0]), sp(corners[1]), sp(corners[2]), sp(corners[3]), sp(corners[0])];
+        p.add(egui::Shape::line(pts.to_vec(), Stroke::new(1.0, col)));
+        for h in super::handles::Handle::ALL {
+            let hovered = v.hover == Some(Hit::BoxHandle(h));
+            let size = theme::VEDIT_POINT_SIZE * if hovered { 1.4 } else { 1.0 };
+            let hr = ERect::from_center_size(sp(super::handles::handle_pos(&corners, h)), egui::Vec2::splat(size));
+            p.rect_filled(hr, 0.0, if hovered { col } else { theme::CANVAS_HANDLE_FILL });
+            p.rect_stroke(hr, 0.0, Stroke::new(1.0, col), StrokeKind::Inside);
         }
     }
     // marquee / lasso
@@ -1570,5 +1689,35 @@ mod tests {
         assert_eq!(net3.vertices.len(), 2);
         assert_eq!(net3.segments.len(), 1);
         assert!(!net3.is_straight(0), "healed segment preserves curve tangents");
+    }
+
+    #[test]
+    fn scale_box_respects_shift_aspect_and_alt_center_and_scales_tangents() {
+        let (mut app, id) = app_with_paths(smooth_path());
+        enter(&mut app, id);
+        sel(&mut app, &[0, 1]);
+        let box0 = selected_bounds(&vedit(&app).net, &vedit(&app).sel).unwrap();
+        assert_eq!(box0, Rect::new(0.0, 0.0, 50.0, 50.0));
+        let t0_before = vedit(&app).net.segments[0].ta;
+
+        // Alt + Shift corner scale from BR (local (50, 50) = page (250, 150)) to (275, 140):
+        // Center is local (25, 25) = page (225, 125); dx = 50 (2x from center), dy = 15 (0.6x) -> Shift locks to 2x!
+        press_drag(&mut app, DragKind::ScaleBox { handle: super::super::handles::Handle::BR, box0 }, v2(250.0, 150.0));
+        drag(&mut app, v2(275.0, 140.0), Modifiers::ALT | Modifiers::SHIFT);
+        release(&mut app);
+
+        let w = app.doc.world_transform(id);
+        let net = net_of(&app, id);
+        let p0 = w.apply(net.vertices[0].pos);
+        let p1 = w.apply(net.vertices[1].pos);
+        let p2 = w.apply(net.vertices[2].pos);
+        // Center (225, 125) stays fixed; v0 (200, 150) -> (175, 175), v1 (250, 100) -> (275, 75)
+        assert!((p0.x - 175.0).abs() < 1e-3 && (p0.y - 175.0).abs() < 1e-3, "{p0:?}");
+        assert!((p1.x - 275.0).abs() < 1e-3 && (p1.y - 75.0).abs() < 1e-3, "{p1:?}");
+        // Unselected vertex 2 stayed at page (300, 150)
+        assert!((p2.x - 300.0).abs() < 1e-3 && (p2.y - 150.0).abs() < 1e-3, "{p2:?}");
+        // Segment 0's start tangent (attached to selected vertex 0) scaled by 2x
+        assert!((net.segments[0].ta.x - t0_before.x * 2.0).abs() < 1e-3);
+        assert!((net.segments[0].ta.y - t0_before.y * 2.0).abs() < 1e-3);
     }
 }
