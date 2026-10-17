@@ -119,3 +119,37 @@ Method:
   - The shell `lazy/external/codegen_mcp_server.js` serves `127.0.0.1:<port>/mcp` (Streamable HTTP).
   - The tools are defined in editor chunks.
   - `figma_agent` is a font/URL helper, not MCP.
+
+## R4: Dev Mode / Code Connect / MCP (FACT unless marked)
+- **Native Dev Mode codegen languages:** WEB (CSS), IOS (SwiftUI), IOS_UIKIT (UIKit), ANDROID (Compose), ANDROID_XML (XML). Codegen plugins add more.
+  - Vue, HTML, Svelte and Web Components are Code Connect labels only, NOT native codegen.
+  - Tailwind exists only via MCP `format: react/tailwind`.
+- **Language → codeSyntax platform:** WEB and CSSBUILDER → WEB; ANDROID and ANDROID_XML → ANDROID; IOS and IOS_UIKIT → iOS.
+- **CSS printing of a bound variable:**
+  - a `codeSyntax.WEB` string that contains `var(--` is printed verbatim, keeping the user fallback;
+  - any other `codeSyntax.WEB` string is printed verbatim;
+  - otherwise print `var(--<sanitize(name)>, <resolved value>)`;
+  - a definition line is `--<name>: <value>`;
+  - the MCP path prints `codeSyntax.WEB`, else `var(--<name with [^a-zA-Z0-9-] removed>)`.
+- **Name sanitizer (OX):**
+  1. Strip non-ASCII characters, quotes and newlines; trim.
+  2. Replace runs of `[\s/]+` with `-`.
+  3. If the result matches `^[-A-Za-z0-9_]*$`, keep it as is, case preserved.
+  4. Otherwise convert camelCase to lower kebab-case and strip leading non-alphanumerics.
+  5. An empty result becomes `unnamed`.
+- **Dev status:**
+  - `SectionStatus{NONE=0, BUILD=1 (Ready for dev), COMPLETED=2}`.
+  - `sectionStatusInfo=355 {status, lastUpdateUnixTimestamp, description, userId, prevStatus}`, `handoffStatusMap=361`.
+  - "Changed" is derived (status set + an edited-since flag), not stored.
+- **Annotations:** `annotations=369 {label (Lexical|plain), properties[] (33-value AnnotationPropertyType), labelV2, categoryId}`, `measurements=384`, document `annotationCategories=453` (5 presets + 8 colors + custom).
+- **Desktop MCP:**
+  - `codegen_mcp_server.js` only proxies to the editor.
+  - Local tools: `get_design_context`, `get_variable_defs`, `get_screenshot`, `get_metadata`, `get_figjam`, `get_motion_context` (gated), the code connect tools (get/add map, suggestions, send mappings), and `set_codegen_config`.
+  - `get_design_context` returns code, hints and a PNG. Above 40k chars it falls back to sparse XML metadata.
+- **Code Connect:** a server-side entity `{id, nodeId, fileKey, figmadoc, instanceFigmadocs, label, type, userRules}`. The resolved mapping is `{componentName, source, snippet, snippetImports, snippetOptions, version}`.
+- **MCP parity gaps in studio, ranked:**
+  1. `get_screenshot` returning image/png base64;
+  2. `get_design_context` (code + hints + screenshot);
+  3. XML `get_metadata`;
+  4. `codeSyntax` in `get_variables`;
+  5. Code Connect store + 4 tools.

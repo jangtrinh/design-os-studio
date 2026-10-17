@@ -46,4 +46,4 @@ Acceptance:
 - UC-B3 **Text wrap Balance / Pretty.** AC: Balance equalizes line widths (test: max−min line width shrinks against greedy); Pretty avoids a single-word last line (test); the setting is stored on TextProps and round-trips.
 - UC-B4 **Variable code syntax.** AC: per-variable WEB/iOS/ANDROID strings are stored, round-trip through `.fig` (`codeSyntax`), and are shown in Dev Mode; CSS codegen uses the WEB syntax when present.
 - UC-B5 **Composed color + opacity variables.** AC: a color bound to a variable with opacity bound to a number variable resolves to the composed RGBA; `.fig` mapping follows `COLOR_OPACITY`.
-- UC-B6 **Vue and HTML codegen.** AC: the `generate_code` targets `vue` and `html` exist; snapshot tests on a fixture node; MCP lists them.
+- UC-B6 **UIKit and Android XML codegen** (Figma's native Dev Mode set; Vue/HTML are only Code Connect labels). AC: the `generate_code` targets `uikit` and `android-xml` exist; snapshot tests on a fixture node; MCP lists them.
