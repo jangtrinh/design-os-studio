@@ -320,6 +320,52 @@ fn gradient_stops_keep_their_positions() {
     assert_eq!(out.kind, PageKind::Vector, "plain two-stop gradients stay vector");
 }
 
+/// `/Bounds` of every stitching function used by the page's shadings.
+fn stitching_bounds(bytes: &[u8]) -> Vec<Vec<f32>> {
+    let pdf = Pdf::parse(bytes);
+    let pages = pdf.pages();
+    let Val::Dict(shadings) = pdf.deref(&pages[0].resources["Shading"]) else { panic!("the page has shadings") };
+    shadings
+        .values()
+        .filter_map(|sh| {
+            let function = sh.dict()["Function"].dict();
+            (function["FunctionType"].num() == 3.0).then(|| function["Bounds"].nums())
+        })
+        .collect()
+}
+
+/// A stitching function needs bounds that increase strictly and stay strictly inside its `[0 1]` domain.
+fn assert_valid_bounds(label: &str, bounds: &[f32]) {
+    assert!(bounds.iter().all(|b| *b > 0.0 && *b < 1.0), "{label}: bounds {bounds:?} must lie strictly inside (0, 1)");
+    assert!(bounds.windows(2).all(|w| w[0] < w[1]), "{label}: bounds {bounds:?} must increase strictly");
+}
+
+/// Exports a horizontal gradient with stops at `positions` and checks the stitching function and the pixels.
+fn assert_gradient_with_close_stops_is_valid(label: &str, positions: &[f32]) {
+    let (mut doc, _page, frame) = frame_doc(200.0, 40.0);
+    let colors = [Color::rgb(255, 0, 0), Color::rgb(0, 200, 0), Color::rgb(0, 0, 255), Color::rgb(250, 200, 0)];
+    let stops: Vec<GradientStop> = positions.iter().zip(colors).map(|(pos, color)| stop(*pos, color)).collect();
+    rect(&mut doc, frame, Rect::new(0.0, 0.0, 200.0, 40.0), gradient(linear, stops, unit_handles()));
+    let out = export(&doc, frame);
+    let functions = stitching_bounds(&out.bytes);
+    assert!(!functions.is_empty(), "{label}: the gradient is written as a stitching function");
+    for bounds in functions {
+        assert_valid_bounds(label, &bounds);
+    }
+    out.assert_agree_at(label, &[(2.0, 20.0), (60.0, 20.0), (99.0, 20.0), (101.0, 20.0), (190.0, 20.0)], 4);
+    assert_eq!(out.kind, PageKind::Vector);
+}
+
+#[test]
+fn gradient_stop_a_hair_after_the_start_keeps_valid_stitching_bounds() {
+    assert_gradient_with_close_stops_is_valid("stop 0.0004 from the start", &[0.0, 0.0004]);
+}
+
+#[test]
+fn gradient_stops_a_hair_apart_keep_distinct_stitching_bounds() {
+    assert_gradient_with_close_stops_is_valid("0.00002 between two stops", &[0.0, 0.5, 0.50002, 1.0]);
+}
+
 #[test]
 fn gradient_fading_to_transparent_matches_the_canvas() {
     let (mut doc, _page, frame) = frame_doc(200.0, 40.0);
@@ -424,6 +470,102 @@ fn inside_and_centered_strokes_match_the_canvas() {
         out.assert_agree_at("stroke alignment", &[(80.0, 24.0), (80.0, 27.0), (80.0, 33.0), (80.0, 36.0), (80.0, 60.0)], 3);
         assert_eq!(out.kind, PageKind::Vector);
     }
+}
+
+/// A closed pentagram (five vertices joined to every second one) in a 120 x 120 box at (40, 40): its centre
+/// pentagon is covered twice, so the non-zero rule fills it and the even-odd rule leaves it empty.
+fn pentagram(doc: &mut Document, parent: NodeId, rule: FillRule, stroke: Stroke) -> NodeId {
+    let point = |k: usize| {
+        let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * k as f32 / 5.0;
+        Vec2::new(60.0 + 58.0 * a.cos(), 60.0 + 58.0 * a.sin())
+    };
+    let cmds = vec![
+        PathCmd::MoveTo(point(0)),
+        PathCmd::LineTo(point(2)),
+        PathCmd::LineTo(point(4)),
+        PathCmd::LineTo(point(1)),
+        PathCmd::LineTo(point(3)),
+        PathCmd::Close,
+    ];
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Vector { paths: vec![Path { cmds, fill_rule: rule }], network: None });
+    n.size = Vec2::new(120.0, 120.0);
+    n.transform = Affine::translate(40.0, 40.0);
+    n.fills = vec![solid(240, 240, 240)];
+    n.stroke = stroke;
+    doc.insert(parent, n).unwrap()
+}
+
+#[test]
+fn outside_stroke_around_a_star_node_matches_the_canvas() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 200.0);
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Star { count: 5, inner_ratio: 0.4 });
+    n.size = Vec2::new(120.0, 120.0);
+    n.transform = Affine::translate(40.0, 40.0);
+    n.fills = vec![solid(240, 240, 240)];
+    n.stroke = red_stroke(10.0, StrokeAlign::Outside);
+    doc.insert(frame, n).unwrap();
+    let out = export(&doc, frame);
+    out.assert_canvas_shows("star centre keeps its fill", (100.0, 100.0), [240, 240, 240], 3);
+    out.assert_whole_page_agrees("star", 200.0, 200.0);
+    assert_eq!(out.kind, PageKind::Vector, "a star outline does not cross itself, so its outside stroke stays vector");
+}
+
+#[test]
+fn outside_stroke_around_a_self_overlapping_path_leaves_the_overlap_unstroked() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 200.0);
+    pentagram(&mut doc, frame, FillRule::NonZero, red_stroke(10.0, StrokeAlign::Outside));
+    let out = export(&doc, frame);
+    // 6 px inside the centre pentagon, where the stroke band of its top edge would reach if the page ignored the fill rule
+    out.assert_canvas_shows("centre pentagon keeps its fill", (100.0, 88.0), [240, 240, 240], 3);
+    out.assert_canvas_shows("stroke above the tip", (100.0, 36.0), [200, 30, 30], 3);
+    out.assert_agree_at("pentagram", &[(100.0, 88.0), (100.0, 100.0), (100.0, 36.0), (60.0, 74.0), (140.0, 74.0)], 3);
+    out.assert_whole_page_agrees("pentagram", 200.0, 200.0);
+}
+
+#[test]
+fn outside_gradient_stroke_around_a_self_overlapping_path_matches_the_canvas() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 200.0);
+    let mut stroke = red_stroke(10.0, StrokeAlign::Outside);
+    stroke.paints = vec![gradient(linear, vec![stop(0.0, Color::rgb(255, 0, 0)), stop(1.0, Color::rgb(0, 0, 255))], unit_handles())];
+    pentagram(&mut doc, frame, FillRule::NonZero, stroke);
+    let out = export(&doc, frame);
+    out.assert_canvas_shows("centre pentagon keeps its fill", (100.0, 88.0), [240, 240, 240], 3);
+    out.assert_whole_page_agrees("pentagram with a gradient stroke", 200.0, 200.0);
+}
+
+#[test]
+fn outside_stroke_around_an_even_odd_path_follows_the_even_odd_rule() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 200.0);
+    pentagram(&mut doc, frame, FillRule::EvenOdd, red_stroke(10.0, StrokeAlign::Outside));
+    let out = export(&doc, frame);
+    // the centre pentagon is outside an even-odd fill, so the outside stroke covers it
+    out.assert_canvas_shows("centre pentagon is outside the shape", (100.0, 88.0), [200, 30, 30], 3);
+    out.assert_whole_page_agrees("even-odd pentagram", 200.0, 200.0);
+    assert_eq!(out.kind, PageKind::Vector, "an even-odd outside stroke is an even-odd clip");
+}
+
+#[test]
+fn outside_stroke_around_a_simple_vector_outline_stays_vector() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 200.0);
+    let id = doc.alloc_id();
+    let cmds = vec![
+        PathCmd::MoveTo(Vec2::new(10.0, 40.0)),
+        PathCmd::LineTo(Vec2::new(60.0, 0.0)),
+        PathCmd::CubicTo(Vec2::new(100.0, 10.0), Vec2::new(120.0, 60.0), Vec2::new(90.0, 100.0)),
+        PathCmd::LineTo(Vec2::new(20.0, 110.0)),
+        PathCmd::Close,
+    ];
+    let mut n = Node::new(id, NodeKind::Vector { paths: vec![Path { cmds, fill_rule: FillRule::NonZero }], network: None });
+    n.size = Vec2::new(120.0, 120.0);
+    n.transform = Affine::translate(40.0, 40.0);
+    n.fills = vec![solid(240, 240, 240)];
+    n.stroke = red_stroke(8.0, StrokeAlign::Outside);
+    doc.insert(frame, n).unwrap();
+    let out = export(&doc, frame);
+    out.assert_whole_page_agrees("simple vector outline", 200.0, 200.0);
+    assert_eq!(out.kind, PageKind::Vector, "a non-crossing outline needs no flattening");
 }
 
 #[test]
@@ -578,6 +720,62 @@ fn ascii_text_keeps_its_plain_text_run() {
     let out = export(&doc, frame);
     out.assert_whole_page_agrees("ascii text outlines", 300.0, 60.0);
     assert_eq!(out.kind, PageKind::Vector);
+}
+
+fn clipping_frame(doc: &mut Document, parent: NodeId, r: Rect) -> NodeId {
+    let id = doc.alloc_id();
+    let mut f = Node::frame(id, r);
+    f.kind = NodeKind::Frame(FrameProps { clips_content: true, ..Default::default() });
+    doc.insert(parent, f).unwrap()
+}
+
+#[test]
+fn text_a_clipping_frame_hides_is_not_extractable() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 100.0);
+    let inner = clipping_frame(&mut doc, frame, Rect::new(20.0, 20.0, 100.0, 40.0));
+    text_node(&mut doc, inner, Rect::new(4.0, 4.0, 80.0, 20.0), "Shown", 14.0);
+    text_node(&mut doc, inner, Rect::new(150.0, 4.0, 80.0, 20.0), "Overflow", 14.0);
+    let out = export(&doc, frame);
+    let text = page_text(&out.bytes);
+    assert!(text.contains("Shown"), "the visible caption stays selectable, found {text:?}");
+    assert!(!text.contains("Overflow"), "text outside the clipping frame is not in the text layer, found {text:?}");
+    assert_eq!(out.kind, PageKind::Vector);
+}
+
+#[test]
+fn text_beyond_the_frame_bounds_is_not_extractable() {
+    let (mut doc, _page, frame) = frame_doc(100.0, 60.0);
+    text_node(&mut doc, frame, Rect::new(10.0, 10.0, 60.0, 20.0), "Within", 14.0);
+    text_node(&mut doc, frame, Rect::new(150.0, 10.0, 60.0, 20.0), "Beyond", 14.0);
+    let text = page_text(&export(&doc, frame).bytes);
+    assert!(text.contains("Within") && !text.contains("Beyond"), "only text inside the page is searchable, found {text:?}");
+}
+
+#[test]
+fn text_a_mask_hides_is_not_extractable() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 60.0);
+    let m = rect(&mut doc, frame, Rect::new(0.0, 0.0, 100.0, 60.0), solid(10, 10, 10));
+    doc.get_mut(m).unwrap().is_mask = true;
+    text_node(&mut doc, frame, Rect::new(5.0, 5.0, 80.0, 20.0), "Under", 14.0);
+    text_node(&mut doc, frame, Rect::new(120.0, 5.0, 70.0, 20.0), "Masked", 14.0);
+    let out = export(&doc, frame);
+    let text = page_text(&out.bytes);
+    assert!(text.contains("Under") && !text.contains("Masked"), "text outside the mask is not in the text layer, found {text:?}");
+    assert_eq!(out.kind, PageKind::Vector);
+}
+
+#[test]
+fn flattened_page_leaves_clipped_away_text_out_of_its_text_layer() {
+    let (mut doc, _page, frame) = frame_doc(200.0, 100.0);
+    doc.images.insert("photo".into(), photo_png([0, 200, 0]));
+    rect(&mut doc, frame, Rect::new(130.0, 60.0, 60.0, 30.0), image_paint("photo"));
+    let inner = clipping_frame(&mut doc, frame, Rect::new(20.0, 20.0, 100.0, 40.0));
+    text_node(&mut doc, inner, Rect::new(4.0, 4.0, 80.0, 20.0), "Shown", 14.0);
+    text_node(&mut doc, inner, Rect::new(150.0, 4.0, 80.0, 20.0), "Overflow", 14.0);
+    let out = export(&doc, frame);
+    assert_eq!(out.kind, PageKind::Raster);
+    let text = page_text(&out.bytes);
+    assert!(text.contains("Shown") && !text.contains("Overflow"), "found {text:?}");
 }
 
 #[test]
