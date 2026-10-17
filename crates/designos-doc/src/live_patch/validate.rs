@@ -23,6 +23,9 @@ pub(super) fn insert_problem(doc: &Document, parent: NodeId, nodes: &[Node]) -> 
         return Some(format!("the first node {} is inside its own subtree", root.id.0));
     }
     for n in nodes {
+        if !n.children.is_empty() && !n.kind.is_container() {
+            return Some(format!("node {} lists children but cannot hold them", n.id.0));
+        }
         for c in n.children.iter().filter_map(|c| by_id.get(c)) {
             if c.parent != Some(n.id) || n.children.iter().filter(|x| **x == c.id).count() != 1 {
                 return Some(format!("node {} is not listed exactly once by its own parent", c.id.0));

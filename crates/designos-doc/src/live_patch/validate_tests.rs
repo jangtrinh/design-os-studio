@@ -22,6 +22,13 @@ fn frame(id: u64, parent: Option<u64>, kids: &[u64]) -> Node {
     n
 }
 
+/// A rectangle (which cannot hold layers) that lists `kid` as its child.
+fn leaf_with_child(id: u64, kid: u64) -> Node {
+    let mut n = Node::rectangle(NodeId(id), Rect::new(0.0, 0.0, 5.0, 5.0));
+    n.children = vec![NodeId(kid)];
+    n
+}
+
 fn apply(doc: &mut Document, state: &mut LivePatchState, op: LiveOp) -> LivePatchReport {
     replay_live_patch(doc, &LivePatch::new(vec![op]), state, &mut |d, c| c.apply(d).map(|_| ())).unwrap()
 }
@@ -39,6 +46,7 @@ fn malformed_inserts_are_refused_without_touching_the_document() {
         ("unreachable cycle", vec![frame(100, None, &[]), frame(101, Some(102), &[102]), frame(102, Some(101), &[101])]),
         ("too deep", deep),
         ("id near the end of the id space", vec![frame(u64::MAX - MIN_ID_HEADROOM + 1, None, &[])]),
+        ("leaf with children", vec![leaf_with_child(100, 101), frame(101, Some(100), &[])]),
     ];
     for (what, nodes) in cases {
         let mut doc = base.clone();
