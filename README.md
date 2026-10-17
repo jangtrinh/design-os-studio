@@ -1,5 +1,13 @@
 # DESIGN:OS Studio (`design-os-studio`)
 
+<p align="center">
+  <a href="https://jangtrinh.github.io/design-os-studio/#film">
+    <img src="docs/videos/designos-studio-promo-teaser.gif" alt="DESIGN:OS Studio promo film teaser. Title cards: &quot;I am Jang Trinh.&quot;, &quot;Autonomous systems architect.&quot;, &quot;I rebuilt the Figma engine.&quot;, &quot;From scratch. In Rust.&quot;, &quot;Open source.&quot; and &quot;Own your design canvas.&quot;, then &quot;Everything you use in Figma —&quot; over four features running in the native canvas: Auto-Layout, CSS Grid, Smart Selection and Shape Controls" width="880">
+  </a>
+  <br>
+  <sub>70-second film. Click to watch it with sound.</sub>
+</p>
+
 **Native GPU-accelerated interface design studio, enterprise Figma `.fig` v106 binary read/write engine, Agentic PTY Chat UI, Live Variables & Multi-Edit (`Q`), and 22-tool Model Context Protocol server built in 100% Rust.**
 
 Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.5s with `0.0%` idle CPU on Metal, DirectX 12, and Vulkan (`wgpu` + `tiny-skia`). Execute all **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)** natively on canvas, run **Claude Code (`claude`)**, **OpenAI Codex (`codex`)**, **Antigravity CLI (`agy`)**, **Gemini CLI (`gemini`)**, and **Grok CLI (`grok`)** directly inside the native **Agentic PTY Chat UI** with zero paid external API keys, switch live Design Variables across `Light` and `Dark` modes with Multi-Edit (`Q`) and Suggest Auto-Layout (`⇧A`), generate multi-target Dev Mode code (React, Tailwind, CSS, SwiftUI, Jetpack Compose, Flutter, Rust `egui`), and automate headless GPU visual QA from any terminal or CI pipeline.
@@ -18,20 +26,6 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 
 <p align="center">
   <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#video-showcase">Video Showcase</a> · <a href="#what-it-makes">What it makes</a> · <a href="#visual-proof-gallery">Visual Proof</a> · <a href="#100-figma-micro-interactions">100 Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
-</p>
-
-<p align="center">
-  <img src="docs/images/designos-hero.png" alt="DESIGN:OS Studio rendering the 112,474-node VSF-PCP enterprise Figma workspace at 60% zoom with 1:1 Figma UI3 dark chrome and unified Phosphor icons" width="880">
-  <br>
-  <sub><b>Verified Production Build:</b> <b>DESIGN:OS Studio</b> rendering an enterprise <code>.fig</code> v106 design system (<b>723,136 Kiwi records / 112,474 scene nodes</b>) natively on Apple Silicon Metal in <b>1.54s</b> with <b>0.0% idle CPU</b> · <b>387 / 387 (100.00%)</b> Figma <code>126.9.13</code> UI3 &amp; <code>.fig</code> v106 parity · <b>100 / 100 (100.00%)</b> Figma A-to-Z Micro-Interactions · <b>856</b> automated workspace tests passing · <b>12 / 12</b> Zero-Fake-UI invariants · <b>9 / 9</b> Self-Evolution ALIVE gates.</sub>
-</p>
-
-<p align="center">
-  <a href="https://jangtrinh.github.io/design-os-studio/#videos">
-    <img src="docs/videos/designos-studio-launch-preview.gif" alt="DESIGN:OS Studio Native GPU Canvas, Agentic PTY Chat, Live Variables Mode Switching, and Dev Mode" width="640">
-  </a>
-  <br>
-  <sub><b>Interactive Desktop Overview:</b> Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>⌘K</code> AI Synthesis, and 5-target Dev Mode codegen on <a href="https://jangtrinh.github.io/design-os-studio/#videos">GitHub Pages</a>.</sub>
 </p>
 
 ---
@@ -134,6 +128,14 @@ Open your project in your AI coding agent (or inside the Studio's `Agents` left-
 ## Interactive Functional Showcase — 12 Core Capabilities & Micro-Interactions (`#1..#100`)
 
 Every one of the **100 Figma A-to-Z Micro-Interactions (`#1..#100`)** runs natively in 100% Rust (`wgpu` + `egui` + `designos-doc`) and is captured below directly from live `designos-studio` desktop workflows.
+
+<p align="center">
+  <a href="https://jangtrinh.github.io/design-os-studio/#videos">
+    <img src="docs/videos/designos-studio-launch-preview.gif" alt="DESIGN:OS Studio Native GPU Canvas, Agentic PTY Chat, Live Variables Mode Switching, and Dev Mode" width="640">
+  </a>
+  <br>
+  <sub><b>Interactive Desktop Overview:</b> Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>⌘K</code> AI Synthesis, and 5-target Dev Mode codegen on <a href="https://jangtrinh.github.io/design-os-studio/#videos">GitHub Pages</a>.</sub>
+</p>
 
 ### 01. Auto-Layout 5.0 & Edge Sizing (`#10..#15`)
 
