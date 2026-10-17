@@ -186,8 +186,10 @@ pub struct SceneIndex {
     pub(crate) chrome_nodes: Vec<NodeId>,
     /// Visible nodes with layout grids, in paint order (see `restore_grid_order`).
     pub(crate) grid_nodes: Vec<NodeId>,
-    /// A node was listed in `grid_nodes` by an edit of a built index, which may have broken paint order.
+    /// An edit of a built index may have broken the paint order of `grid_nodes`.
     grid_order_stale: bool,
+    /// Child ids of the page as of the last build; the page has no `Entry` to remember them in.
+    page_children: Box<[NodeId]>,
     top_has_mask: bool,
 }
 
@@ -234,6 +236,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.top_has_mask = false;
         let Some(p) = doc.get(page) else { return };
+        self.page_children = p.children.as_slice().into();
         for (order, &cid) in p.children.iter().enumerate() {
             let Some(n) = doc.get(cid) else { continue };
             if !n.visible {
@@ -277,6 +280,7 @@ impl SceneIndex {
                         self.doc_epoch = doc.mutation_epoch();
                         return;
                     }
+                    self.note_child_order_changes(doc, page, &dirty);
                     let mut top_dirty = false;
                     for &rid in &removed {
                         if let Some(old_e) = self.entries.remove(&rid) {
@@ -415,6 +419,22 @@ impl SceneIndex {
         }
     }
 
+    /// Flags `grid_nodes` for re-sorting when a dirty container lists its children in another order
+    /// than the build saw: every grid node beneath it then paints at a different position.
+    /// Must run before the dirty nodes are re-indexed, which overwrite the remembered child lists.
+    fn note_child_order_changes(&mut self, doc: &Document, page: NodeId, dirty: &[NodeId]) {
+        if self.grid_order_stale || self.grid_nodes.len() < 2 {
+            return;
+        }
+        self.grid_order_stale = dirty.iter().any(|&id| {
+            let Some(n) = doc.get(id) else { return false };
+            if id == page {
+                return *self.page_children != *n.children;
+            }
+            n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
+        });
+    }
+
     /// Re-sorts `grid_nodes` into paint order after an edit listed nodes out of order.
     fn restore_grid_order(&mut self, doc: &Document) {
         if std::mem::take(&mut self.grid_order_stale) && self.grid_nodes.len() > 1 {
@@ -517,6 +537,9 @@ impl SceneIndex {
     /// Incrementally rebuilds `dirty_id`'s subtree and updates ancestor `Entry.bounds`
     /// up to `self.page`, stopping early when an ancestor's `bounds` does not change.
     pub fn update_subtree(&mut self, doc: &Document, dirty_id: NodeId, rev: u64) -> bool {
+        if let Some(page) = self.page {
+            self.note_child_order_changes(doc, page, &[page, dirty_id]);
+        }
         let updated = self.apply_subtree_update(doc, dirty_id, rev);
         self.restore_grid_order(doc);
         updated
@@ -603,7 +626,12 @@ impl SceneIndex {
                             if stationary || pure_translate {
                                 let children_box = if pure_translate {
                                     self.translate_descendants(dirty_id, dx, dy, rev);
-                                    old_e.children
+                                    // Same children can still have been put in another order.
+                                    if *old_e.children == *n.children {
+                                        old_e.children
+                                    } else {
+                                        n.children.as_slice().into()
+                                    }
                                 } else {
                                     for &c in &n.children {
                                         if self.entries.get(&c).is_none_or(|ce| ce.parent != Some(dirty_id)) {
@@ -1333,5 +1361,102 @@ mod tests {
         let expected = [outer, inner, below, above];
         assert_eq!(idx.grid_nodes(), &expected);
         assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_siblings_on_the_page_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-page-reorder");
+        let page = doc.add_page("page-1");
+        let a = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        doc.reparent(a, page, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a], "the frame that moved up now paints last");
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_siblings_inside_a_group_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-group-reorder");
+        let page = doc.add_page("page-1");
+        let group = insert_group(&mut doc, page, true);
+        let a = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, group, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        doc.reparent(a, group, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn swapping_two_artboards_re_sorts_the_layout_grids_inside_them() {
+        let mut doc = Document::new("grid-artboard-swap");
+        let page = doc.add_page("page-1");
+        let first = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 400.0, 400.0), false);
+        let first_child = insert_frame(&mut doc, first, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+        let second = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 400.0, 400.0), false);
+        let second_child = insert_frame(&mut doc, second, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[first_child, second_child]);
+
+        doc.reparent(first, page, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[second_child, first_child]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn moving_a_listed_frame_into_another_group_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-move-between-groups");
+        let page = doc.add_page("page-1");
+        let group = insert_group(&mut doc, page, true);
+        let inside = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let moving = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[inside, moving]);
+
+        doc.reparent(moving, group, 0).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[moving, inside]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_while_the_group_is_translated_still_re_sorts_later_reorders() {
+        let mut doc = Document::new("grid-translate-and-reorder");
+        let page = doc.add_page("page-1");
+        let group = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 600.0, 400.0), false);
+        let a = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, group, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        // One batch: the group moves and its children swap places.
+        doc.get_mut(group).unwrap().transform.tx += 50.0;
+        doc.reparent(a, group, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a]);
+
+        // Swapping back must be noticed too: the index has to remember the new child order.
+        doc.reparent(a, group, 0).unwrap();
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
     }
 }
