@@ -1,5 +1,5 @@
 //! In-app clipboard: nodes (with subtrees) serialized as JSON, plus subtree cloning,
-//! and SVG markup pasted as text.
+//! SVG markup pasted as text, and Figma clipboard payloads pasted as HTML.
 
 use crate::app::App;
 use crate::edit::Tx;
@@ -23,6 +23,109 @@ pub fn paste_svg(app: &mut App, text: &str) -> bool {
         app.show_toast(e, true);
     }
     true
+}
+
+/// The system clipboard's `text/html`, only when it carries a Figma payload. `egui` hands the app text
+/// only, so the paste handlers ask the pasteboard for the HTML flavour themselves.
+pub fn system_figma_html() -> Option<String> {
+    let html = arboard::Clipboard::new().ok()?.get().html().ok()?;
+    designos_fig::looks_like_figma_clipboard(&html).then_some(html)
+}
+
+/// Pastes `html` if it carries a Figma clipboard payload: the copied layers appear centered in the
+/// viewport, as one undo step, selected. Returns whether the HTML was a Figma payload (even when it
+/// failed to import, then a toast says why), so the caller can fall back to text otherwise.
+pub fn paste_figma(app: &mut App, html: &str) -> bool {
+    if !designos_fig::looks_like_figma_clipboard(html) {
+        return false;
+    }
+    if let Err(e) = place_figma(app, html) {
+        app.show_toast(e, true);
+    }
+    true
+}
+
+/// Decodes a Figma payload and appends its top-level layers to the insert container, centered on the
+/// viewport (rounded to whole pixels), as one undoable step. Returns the new top-level layers.
+///
+/// es-debt: styles, variables, prototype links and library components of the payload are not merged
+/// into the document, so those references are dropped (resolved paint, text and effect values stay on
+/// the layers); upgrade when a paste must keep shared styles or flows.
+fn place_figma(app: &mut App, html: &str) -> Result<Vec<NodeId>, String> {
+    let payload = designos_fig::parse_figma_clipboard_html(html).map_err(|e| format!("Cannot paste from Figma: {e}"))?;
+    let frag = designos_fig::import_figma_clipboard(&payload).map_err(|e| format!("Cannot paste from Figma: {e}"))?;
+    let roots: Vec<NodeId> = frag.pages.iter().filter_map(|p| frag.get(*p)).flat_map(|p| p.children.iter().copied()).collect();
+    let mut clip = capture(&frag, &roots).ok_or("The Figma clipboard holds no layers")?;
+    // Ids of the payload and of this document are unrelated: a connector end outside the payload must not
+    // fall back to a same-numbered node here.
+    let inside: std::collections::HashSet<NodeId> = clip.nodes.iter().map(|n| n.id).collect();
+    for n in &mut clip.nodes {
+        if let NodeKind::Connector(c) = &mut n.kind {
+            for e in [&mut c.start, &mut c.end] {
+                e.node = e.node.filter(|t| inside.contains(t));
+            }
+        }
+    }
+
+    let parent = app.container_for_insert();
+    let view = app.canvas_rect;
+    let target = app.view.to_page(view.min, view.center());
+
+    let (mut lists, map) = instantiate_mapped(&mut app.doc, &clip);
+    let mut new_roots = Vec::new();
+    for nodes in &mut lists {
+        for n in nodes.iter_mut() {
+            detach_foreign_refs(n, &map);
+        }
+        if let Some(root) = nodes.first() {
+            new_roots.push(root.id);
+        }
+    }
+    let mut tx = Tx::new();
+    for nodes in lists {
+        let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
+        if let Err(e) = tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }) {
+            tx.cancel(&mut app.doc);
+            return Err(format!("Cannot paste from Figma: {e}"));
+        }
+    }
+    for (hash, bytes) in frag.images {
+        app.doc.images.entry(hash).or_insert(bytes);
+    }
+    // Figma already laid the payload out, so its layers keep their sizes; only the ancestors (an auto-layout
+    // or group parent) re-flow around them.
+    for r in &new_roots {
+        layout::relayout_up(&mut app.doc, &mut tx.ed, *r);
+    }
+    // An auto-layout parent owns the position of its children, so there the layers stay where it puts them.
+    let parent_laid_out = app.doc.get(parent).and_then(|p| p.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
+    if let (false, Some(placed)) = (parent_laid_out, crate::util::union_all(new_roots.iter().map(|r| crate::util::world_aabb(&app.doc, *r)))) {
+        let shift = Vec2::new((target.x - (placed.x + placed.w / 2.0)).round(), (target.y - (placed.y + placed.h / 2.0)).round());
+        let shift = crate::util::delta_to_parent(&app.doc, new_roots[0], shift);
+        for r in &new_roots {
+            if let Some(n) = tx.ed.node(&mut app.doc, *r) {
+                n.transform.tx += shift.x;
+                n.transform.ty += shift.y;
+            }
+        }
+    }
+    app.run_tx(tx);
+    app.selection = new_roots.clone();
+    app.fonts.load_for(&app.doc);
+    Ok(new_roots)
+}
+
+/// Rewrites references that pointed into the payload's document: component links follow `map` to the
+/// pasted copies, anything else (styles, variable bindings, prototype links) is dropped.
+fn detach_foreign_refs(n: &mut Node, map: &HashMap<NodeId, NodeId>) {
+    if let NodeKind::Instance { component, .. } = &mut n.kind {
+        *component = component.and_then(|c| map.get(&c).copied());
+    }
+    n.component.source = n.component.source.and_then(|s| map.get(&s).copied());
+    n.style_refs.clear();
+    n.variables = Default::default();
+    n.prototype.reactions.clear();
+    n.prototype.fixed_children = n.prototype.fixed_children.iter().filter_map(|c| map.get(c).copied()).collect();
 }
 
 /// Places a dropped `.svg` file's markup centered on screen position `at`
@@ -94,6 +197,11 @@ pub fn from_json(s: &str) -> Option<Clip> {
 /// Creates fresh-id copies of the clip: one root-first node list per root.
 /// Roots have `parent = None`; the Insert command assigns the new parent.
 pub fn instantiate(doc: &mut Document, clip: &Clip) -> Vec<Vec<Node>> {
+    instantiate_mapped(doc, clip).0
+}
+
+/// [`instantiate`] plus the old-id -> new-id map of every copied node.
+fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashMap<NodeId, NodeId>) {
     let mut map: HashMap<NodeId, NodeId> = HashMap::new();
     for n in &clip.nodes {
         map.insert(n.id, doc.alloc_id());
@@ -122,7 +230,7 @@ pub fn instantiate(doc: &mut Document, clip: &Clip) -> Vec<Vec<Node>> {
         }
         out.push(list);
     }
-    out
+    (out, map)
 }
 
 /// Fresh-id deep copy of the subtree rooted at `id` (root first).
@@ -186,5 +294,94 @@ mod tests {
         assert_eq!(ids.len(), 4);
         assert_eq!(ids.iter().collect::<std::collections::BTreeSet<_>>().len(), 4, "{ids:?}");
         assert!(ids.iter().all(|id| d.get(*id).is_none()), "none collides with an existing node");
+    }
+
+    // ---- paste from Figma
+
+    use base64::Engine;
+    use designos_fig::container::Compression;
+
+    fn figma_html(buffer: &[u8]) -> String {
+        let b64 = base64::engine::general_purpose::STANDARD;
+        format!(
+            "<meta charset=\"utf-8\"><div><span data-metadata=\"<!--(figmeta){}(/figmeta)-->\"></span><span data-buffer=\"<!--(figma){}(/figma)-->\"></span></div>",
+            b64.encode(r#"{"dataType":"scene"}"#),
+            b64.encode(buffer)
+        )
+    }
+
+    fn app_with_one_rect() -> App {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        d.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        App::new(d)
+    }
+
+    fn page_children(app: &App) -> usize {
+        app.doc.get(app.page).unwrap().children.len()
+    }
+
+    fn by_name(app: &App, name: &str) -> Node {
+        app.doc.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("no node named {name}")).clone()
+    }
+
+    #[test]
+    fn figma_paste_adds_the_layers_centered_selected_with_one_undo_step() {
+        let mut app = app_with_one_rect();
+        let nodes_before = app.doc.nodes.len();
+        let html = figma_html(&designos_fig::testkit::sample_fig(Compression::Zstd, true));
+
+        assert!(paste_figma(&mut app, &html));
+
+        // the payload has four top-level layers: Card, Pie, Star, Note
+        assert_eq!(page_children(&app), 1 + 4);
+        assert!(app.toast.is_none(), "{:?}", app.toast.as_ref().map(|t| &t.text));
+        assert_eq!(app.selection.len(), 4);
+        let center = crate::util::union_all(app.selection.iter().map(|id| crate::util::world_aabb(&app.doc, *id))).unwrap();
+        let (cx, cy) = (center.x + center.w / 2.0, center.y + center.h / 2.0);
+        assert!((cx - 400.0).abs() <= 0.5 && (cy - 300.0).abs() <= 0.5, "centered on the 800x600 viewport, got ({cx}, {cy})");
+        assert_eq!(by_name(&app, "Card").size, Vec2::new(200.0, 300.0));
+        assert!(app.doc.images.contains_key("deadbeef"), "embedded image hash");
+
+        app.undo();
+        assert_eq!(page_children(&app), 1, "one undo removes every pasted layer");
+        assert_eq!(app.doc.nodes.len(), nodes_before);
+    }
+
+    #[test]
+    fn figma_paste_points_instances_at_the_pasted_component_and_drops_foreign_refs() {
+        let mut app = app_with_one_rect();
+        assert!(paste_figma(&mut app, &figma_html(&designos_fig::testkit::sample_fig(Compression::Zstd, true))));
+        let button = by_name(&app, "Button");
+        let copy = by_name(&app, "Button copy");
+        let NodeKind::Instance { component, .. } = copy.kind else { panic!("Button copy is an instance") };
+        assert_eq!(component, Some(button.id));
+        assert!(app.doc.get(button.id).is_some());
+        assert!(app.doc.nodes.values().all(|n| n.style_refs.is_empty()));
+    }
+
+    #[test]
+    fn malformed_figma_payload_toasts_and_leaves_the_document_alone() {
+        let mut app = app_with_one_rect();
+        let nodes_before = app.doc.nodes.len();
+        for html in [figma_html(b"not a fig archive"), "<!--(figma)@@@(/figma)-->".to_string(), "<!--(figma)aGVsbG8=".to_string()] {
+            app.toast = None;
+            assert!(paste_figma(&mut app, &html), "a Figma marker is claimed even when the payload is bad");
+            let toast = app.toast.as_ref().expect("a toast explains the failure");
+            assert!(toast.error && toast.text.starts_with("Cannot paste from Figma"), "{}", toast.text);
+            assert_eq!(app.doc.nodes.len(), nodes_before);
+        }
+    }
+
+    #[test]
+    fn non_figma_html_falls_through_to_svg_and_text_paste() {
+        let mut app = app_with_one_rect();
+        assert!(!paste_figma(&mut app, "<b>just html with (figma) in prose</b>"));
+        assert_eq!(page_children(&app), 1);
+
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>"#;
+        app.paste_with_html(Some(svg), Some("<b>plain</b>"));
+        assert_eq!(page_children(&app), 2, "svg text still pastes when the HTML is not Figma's");
     }
 }

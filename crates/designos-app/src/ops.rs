@@ -447,6 +447,14 @@ impl App {
         s
     }
 
+    /// Paste with the system clipboard's HTML flavour at hand: a Figma payload wins over SVG and text.
+    pub fn paste_with_html(&mut self, system_text: Option<&str>, system_html: Option<&str>) {
+        if system_html.is_some_and(|h| clipboard::paste_figma(self, h)) {
+            return;
+        }
+        self.paste(system_text);
+    }
+
     pub fn paste(&mut self, system_text: Option<&str>) {
         // SVG markup on the system clipboard becomes layers.
         if system_text.is_some_and(|t| clipboard::paste_svg(self, t)) {
