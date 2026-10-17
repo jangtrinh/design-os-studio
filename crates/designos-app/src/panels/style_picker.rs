@@ -77,6 +77,12 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     (items, picks)
 }
 
+/// The "Edit style" row of the menu (always the last one), so tests can read its label and state.
+#[cfg(test)]
+pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    menu_model(app, sel, prop).0.pop().expect("the menu always ends with the Edit style row")
+}
+
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and
 /// its menu while open.
 pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[NodeId], prop: StyleProperty) {

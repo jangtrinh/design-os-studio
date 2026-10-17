@@ -157,7 +157,8 @@ impl App {
             for id in linked {
                 // A layer inside an instance mirrors its main: the main is re-fitted here and the
                 // instance sync carries the size over, so no Size override gets recorded on the copy.
-                if app.doc.get(id).is_some_and(is_linked) {
+                // Text that keeps its own size (own characters, size override) gets no sync: re-fit it.
+                if size_comes_from_main(&app.doc, id) {
                     continue;
                 }
                 if let Some(n) = tx.ed.node(&mut app.doc, id) {
@@ -327,6 +328,9 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
         }
     }
 }
+
+#[cfg(test)]
+mod instance_refit_tests;
 
 #[cfg(test)]
 mod tests {

@@ -2,7 +2,7 @@
 //! layer follow, as one undo step.
 
 use super::*;
-use crate::panels::style_edit;
+use crate::panels::{style_edit, style_picker};
 use designos_doc::{Effect, ExternalAsset, LayoutGrid, LibraryAssetKind, Style, StyleProperty};
 
 fn shadow(radius: f32) -> Effect {
@@ -193,17 +193,25 @@ fn a_library_style_cannot_be_edited_from_the_list() {
 #[test]
 fn a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu() {
     let (mut s, ..) = welcome_with_styles();
-    make_library_style(&mut s, "Effect style 1");
-    make_library_style(&mut s, "Grid style 1");
+    let sel = s.app().selection.clone();
+    let props = [(StyleProperty::Effect, "Effect style 1"), (StyleProperty::Grid, "Grid style 1")];
+    // A local style: the menu row reads "Edit style" and can be picked.
+    for (prop, _) in props {
+        let row = style_picker::edit_style_row(s.app(), &sel, prop);
+        assert_eq!((row.label.as_str(), row.disabled), ("Edit style", false), "{prop:?}: a local style can be edited from the menu");
+    }
+    for (_, key) in props {
+        make_library_style(&mut s, key);
+    }
+    // A library style: the same row is disabled and says where the style is edited.
+    for (prop, _) in props {
+        let row = style_picker::edit_style_row(s.app(), &sel, prop);
+        assert!(row.disabled, "{prop:?}: the menu row is disabled for a library style");
+        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the row names where to edit");
+    }
+    // The linked row's edit button opens nothing either.
     let button = s.rect_of("effect-style-edit");
     s.click(button.center());
     s.frame(vec![]);
     assert!(s.app().props.style_edit.is_none(), "the linked row's edit button does nothing");
-    // The style menu keeps "Edit style" as a disabled row.
-    let r = s.rect_of("grid-style-button");
-    s.click(r.center());
-    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
-    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
-    s.frame(vec![]);
-    assert!(s.app().props.style_edit.is_none(), "the disabled menu row does not open the popover");
 }
