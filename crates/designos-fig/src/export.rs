@@ -255,6 +255,8 @@ fn align_name(a: LayoutAlign) -> &'static str {
         LayoutAlign::Center => "CENTER",
         LayoutAlign::End => "MAX",
         LayoutAlign::SpaceBetween => "SPACE_BETWEEN",
+        LayoutAlign::SpaceAround => "SPACE_AROUND",
+        LayoutAlign::SpaceEvenly => "SPACE_EVENLY",
         LayoutAlign::Baseline => "BASELINE",
     }
 }
@@ -299,6 +301,12 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
     m.insert("counterAxisAlignItems".into(), align_name(al.counter_align).into());
     m.insert("primaryAxisSizingMode".into(), if al.primary_sizing == Sizing::Hug { "AUTO" } else { "FIXED" }.into());
     m.insert("counterAxisSizingMode".into(), if al.counter_sizing == Sizing::Hug { "AUTO" } else { "FIXED" }.into());
+    if al.counter_align_content == CounterAlignContent::SpaceBetween {
+        m.insert("counterAxisAlignContent".into(), "SPACE_BETWEEN".into());
+    }
+    if al.layout_version > 0 {
+        m.insert("stackLayoutVersion".into(), al.layout_version.into());
+    }
     m.insert("strokesIncludedInLayout".into(), al.stroke_included.into());
     m.insert("itemReverseZIndex".into(), al.reverse_z.into());
 }
@@ -566,6 +574,15 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 crate::textfmt::export_paragraph(t, sm);
             }
             m.insert("style".into(), style);
+            match t.text_wrap {
+                TextWrap::Auto => {}
+                TextWrap::Balance => {
+                    m.insert("textWrapStyle".into(), "BALANCE".into());
+                }
+                TextWrap::Pretty => {
+                    m.insert("textWrapStyle".into(), "PRETTY".into());
+                }
+            }
             crate::textfmt::export_lines(t, &mut m);
             if !t.runs.is_empty() {
                 let offs = utf16_to_byte_offsets(&t.content);

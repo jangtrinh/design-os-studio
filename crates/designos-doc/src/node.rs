@@ -48,6 +48,9 @@ fn is_default_constraints(c: &Constraints) -> bool {
 fn is_default_layout_child(l: &LayoutChild) -> bool {
     *l == LayoutChild::default()
 }
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
+}
 fn is_zero_u32(v: &u32) -> bool {
     *v == 0
 }
@@ -556,6 +559,25 @@ pub struct TextProps {
     /// Whether underlines skip glyph descenders (`textDecorationSkipInk`, tag=412).
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub decoration_skip_ink: bool,
+    /// Line-breaking strategy (`textWrapStyle`, tag=594).
+    #[serde(default, skip_serializing_if = "is_default_text_wrap")]
+    pub text_wrap: TextWrap,
+}
+
+/// CSS `text-wrap` for a text node.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextWrap {
+    /// Greedy: fill each line, break at the last word that fits.
+    #[default]
+    Auto,
+    /// Even line widths for the same line count (`text-wrap: balance`).
+    Balance,
+    /// Avoid a single-word last line (`text-wrap: pretty`).
+    Pretty,
+}
+
+fn is_default_text_wrap(w: &TextWrap) -> bool {
+    *w == TextWrap::default()
 }
 
 impl Default for TextProps {
@@ -571,6 +593,7 @@ impl Default for TextProps {
             direction: TextDirection::default(),
             auto_rename: true,
             decoration_skip_ink: true,
+            text_wrap: TextWrap::Auto,
         }
     }
 }
@@ -614,6 +637,24 @@ pub enum LayoutAlign {
     End,
     SpaceBetween,
     Baseline,
+    /// CSS `justify-content: space-around`: equal space on both sides of every item, so the edge gap is half the inner gap.
+    SpaceAround,
+    /// CSS `justify-content: space-evenly`: every gap, edges included, is equal.
+    SpaceEvenly,
+}
+
+/// How wrapped lines distribute along the counter axis (`stackCounterAlignContent`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CounterAlignContent {
+    /// Lines sit at the start, `counter_spacing` apart.
+    #[default]
+    Auto,
+    /// Lines spread over the frame's counter extent, edge to edge.
+    SpaceBetween,
+}
+
+fn is_default_counter_align_content(c: &CounterAlignContent) -> bool {
+    *c == CounterAlignContent::default()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -634,6 +675,12 @@ pub struct AutoLayout {
     pub padding: [f32; 4],
     pub primary_align: LayoutAlign,
     pub counter_align: LayoutAlign,
+    /// Wrapped lines along the counter axis (`stackCounterAlignContent`); only used when `wrap` is on.
+    #[serde(default, skip_serializing_if = "is_default_counter_align_content")]
+    pub counter_align_content: CounterAlignContent,
+    /// Layout engine revision (`stackLayoutVersion`); 1 and up is the CSS-aligned layout.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub layout_version: u8,
     pub primary_sizing: Sizing,
     pub counter_sizing: Sizing,
     pub stroke_included: bool,

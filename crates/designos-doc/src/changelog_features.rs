@@ -475,6 +475,15 @@ fn relayout_single_container(doc: &mut Document, container_id: NodeId) {
                 (start_pad, 0.0)
             }
         }
+        // free space beyond the fixed gaps is shared the CSS way
+        LayoutAlign::SpaceAround => {
+            let share = (inner_primary - total_actual_primary).max(0.0) / n.max(1) as f32;
+            (start_pad + share * 0.5, share)
+        }
+        LayoutAlign::SpaceEvenly => {
+            let share = (inner_primary - total_actual_primary).max(0.0) / (n + 1) as f32;
+            (start_pad + share, share)
+        }
     };
 
     for &cid in &flow_children {
@@ -483,7 +492,7 @@ fn relayout_single_container(doc: &mut Document, container_id: NodeId) {
         let child_c = if is_horiz { c.size.y } else { c.size.x };
 
         let counter_pos = match al.counter_align {
-            LayoutAlign::Start | LayoutAlign::SpaceBetween | LayoutAlign::Baseline => counter_pad,
+            LayoutAlign::Start | LayoutAlign::SpaceBetween | LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly | LayoutAlign::Baseline => counter_pad,
             LayoutAlign::Center => counter_pad + (inner_counter - child_c) * 0.5,
             LayoutAlign::End => counter_pad + (inner_counter - child_c),
         };

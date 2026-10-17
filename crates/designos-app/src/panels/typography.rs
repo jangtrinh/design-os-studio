@@ -565,7 +565,7 @@ fn details_rows(sets: usize, active_tab: usize) -> f32 {
         // Details tab: 3-tab bar + Ag live preview + 7 OpenType rows + stylistic set chips
         1 => (1 + 7 + chips) as f32 + 2.5,
         // Basic tab (default): 3-tab bar + Ag live preview + OpenType + Paragraph (hides Variable Axes to save 136px)
-        _ => (1 + 7 + chips + 7) as f32 + 3.0,
+        _ => (1 + 7 + chips + 8) as f32 + 3.0,
     }
 }
 
@@ -824,6 +824,18 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                 if let Some(i) = seg_rect(ui, r, "det-dir", &["Auto", "LTR", "RTL"], Some(cur)) {
                     let d = [TextDirection::Auto, TextDirection::Ltr, TextDirection::Rtl][i];
                     set_text_props(app, &ids, |t| t.direction = d);
+                }
+            });
+            detail_row(ui, body, next(), "Wrap style", false, |ui, r| {
+                let cur = match t.text_wrap {
+                    TextWrap::Auto => 0,
+                    TextWrap::Balance => 1,
+                    TextWrap::Pretty => 2,
+                };
+                widgets::record(ui, "det-wrap", r);
+                if let Some(i) = seg_rect(ui, r, "det-wrap", &["Auto", "Balance", "Pretty"], Some(cur)) {
+                    let w = [TextWrap::Auto, TextWrap::Balance, TextWrap::Pretty][i];
+                    set_text_props(app, &ids, |t| t.text_wrap = w);
                 }
             });
         }

@@ -282,6 +282,41 @@ fn shape_block(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, segs: &[Se
     out
 }
 
+/// Width and word count of shaped lines, for choosing a `text-wrap` width.
+fn line_stats(lines: &[RawLine], text: &str) -> Vec<wrap::LineStat> {
+    lines
+        .iter()
+        .map(|l| {
+            let (start, end) = (l.glyphs.iter().map(|g| g.start).min().unwrap_or(0), l.glyphs.iter().map(|g| g.end).max().unwrap_or(0));
+            wrap::LineStat { width: l.width, words: text.get(start..end).map_or(0, |t| t.split_whitespace().count()) }
+        })
+        .collect()
+}
+
+/// Shapes a paragraph in `avail` px and, for `text-wrap: balance | pretty`, re-breaks it at the
+/// width the style picks. Returns the lines, the shift that keeps the lines aligned inside the
+/// full `avail` box, and the width they were broken at.
+fn shape_paragraph(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, para: &Para, avail: f32, wrap_mode: Wrap) -> (Vec<RawLine>, f32, f32) {
+    let greedy = shape_block(fonts, shaper, props, &para.segs, Some(avail), wrap_mode);
+    // es-debt: justified text keeps greedy breaks (the lines would justify to the narrower width), upgrade when justify is measured against the full box
+    let applies = props.text_wrap != d::TextWrap::Auto && wrap_mode != Wrap::None && greedy.len() > 1 && props.style.align_h != d::TextAlignH::Justified;
+    if !applies {
+        return (greedy, 0.0, avail);
+    }
+    let stats = line_stats(&greedy, &para.text);
+    let width =
+        wrap::wrap_width(props.text_wrap, avail, &stats, &mut |w| line_stats(&shape_block(fonts, shaper, props, &para.segs, Some(w), wrap_mode), &para.text));
+    if avail - width <= 0.01 {
+        return (greedy, 0.0, avail);
+    }
+    let shift = match props.style.align_h {
+        d::TextAlignH::Center => (avail - width) / 2.0,
+        d::TextAlignH::Right => avail - width,
+        _ => 0.0,
+    };
+    (shape_block(fonts, shaper, props, &para.segs, Some(width), wrap_mode), shift, width)
+}
+
 fn is_opening_punct(c: char) -> bool {
     matches!(c, '"' | '\'' | '(' | '[' | '{' | '\u{201C}' | '\u{2018}' | '\u{00AB}' | '\u{201E}' | '\u{201A}' | '\u{2039}' | '\u{00BF}' | '\u{00A1}')
 }
@@ -343,7 +378,14 @@ fn flow_pass(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, paras: &[Par
         let first_avail = avail.map(|a| (a - fi).max(1.0));
         let first_dx = region_left + if para.rtl && box_w.is_some() { 0.0 } else { fi };
         let mut blocks: Vec<(Vec<RawLine>, f32, usize, Option<f32>)> = Vec::new();
-        let first = shape_block(fonts, shaper, props, &para.segs, if fi > 0.0 { first_avail } else { avail }, wrap);
+        // text-wrap balance / pretty applies to paragraphs without a first-line indent
+        let (first, wrap_shift, wrap_w) = match avail {
+            Some(a) if fi == 0.0 => {
+                let (lines, shift, w) = shape_paragraph(fonts, shaper, props, para, a, wrap);
+                (lines, shift, Some(w))
+            }
+            _ => (shape_block(fonts, shaper, props, &para.segs, if fi > 0.0 { first_avail } else { avail }, wrap), 0.0, avail),
+        };
         if fi > 0.0 && first.len() > 1 && avail.is_some() && wrap != Wrap::None {
             let cut = first[0].cut.min(para.text.len());
             let (_, mut rest) = split_segments(&para.segs, cut);
@@ -364,7 +406,7 @@ fn flow_pass(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, paras: &[Par
             blocks.push((vec![first_line], first_dx, 0, first_avail));
             blocks.push((rest_lines, region_left, cut + skipped, avail));
         } else {
-            blocks.push((first, if fi > 0.0 { first_dx } else { region_left }, 0, if fi > 0.0 { first_avail } else { avail }));
+            blocks.push((first, if fi > 0.0 { first_dx } else { region_left + wrap_shift }, 0, if fi > 0.0 { first_avail } else { wrap_w }));
         }
 
         let para_first_line = lines.len();

@@ -745,9 +745,25 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 LayoutAlign::End => "MAX",
                 LayoutAlign::SpaceBetween => "SPACE_BETWEEN",
                 LayoutAlign::Baseline => "BASELINE",
+                // never reached for the counter axis; the nearest StackAlign
+                LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => "SPACE_BETWEEN",
             };
-            fields.push(("stackPrimaryAlignItems", en(align_name(al.primary_align))));
+            // StackJustify has no baseline and no distribution beyond the main axis.
+            let justify_name = match al.primary_align {
+                LayoutAlign::SpaceAround => "SPACE_AROUND",
+                LayoutAlign::SpaceEvenly if al.layout_version >= 1 => "SPACE_EVENLY_CSS",
+                LayoutAlign::SpaceEvenly => "SPACE_EVENLY",
+                LayoutAlign::Baseline => "MIN",
+                other => align_name(other),
+            };
+            fields.push(("stackPrimaryAlignItems", en(justify_name)));
             fields.push(("stackCounterAlignItems", en(align_name(al.counter_align))));
+            if al.counter_align_content == CounterAlignContent::SpaceBetween {
+                fields.push(("stackCounterAlignContent", en("SPACE_BETWEEN")));
+            }
+            if al.layout_version > 0 {
+                fields.push(("stackLayoutVersion", V::Uint(al.layout_version as u32)));
+            }
             fields.push(("stackPrimarySizing", en(if al.primary_sizing == Sizing::Hug { "RESIZE_TO_FIT" } else { "FIXED" })));
             fields.push(("stackCounterSizing", en(if al.counter_sizing == Sizing::Hug { "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" } else { "FIXED" })));
             fields.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
@@ -1874,6 +1890,11 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
     append_text_style_fields(fields, &tp.style);
     fields.push(("autoRename", V::Bool(tp.auto_rename)));
     fields.push(("textDecorationSkipInk", V::Bool(tp.decoration_skip_ink)));
+    match tp.text_wrap {
+        TextWrap::Auto => {}
+        TextWrap::Balance => fields.push(("textWrapStyle", en("BALANCE"))),
+        TextWrap::Pretty => fields.push(("textWrapStyle", en("PRETTY"))),
+    }
     fields.push((
         "textAutoResize",
         en(match tp.auto_resize {

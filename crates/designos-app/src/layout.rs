@@ -7,7 +7,8 @@
 use crate::edit::Edit;
 use crate::util::{aabb_of, rect_corners, v2};
 use designos_doc::{
-    resolve_node, AutoLayout, Constraint, Document, GridTrack, LayoutAlign, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2,
+    resolve_node, AutoLayout, Constraint, CounterAlignContent, Document, GridTrack, LayoutAlign, LayoutDirection, NodeId, NodeKind, Rect, Sizing,
+    TextAutoResize, TextProps, Vec2,
 };
 
 /// One participating child, as seen by the solver.
@@ -283,6 +284,12 @@ pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
         }
     }
 
+    // Wrapped lines spread edge to edge (CSS align-content: space-between); the counter spacing stays the minimum gap.
+    let counter_gap = if al.wrap && al.counter_align_content == CounterAlignContent::SpaceBetween && lines.len() > 1 && !hug_cross {
+        ((frame_cross - pc - line_cross.iter().sum::<f32>()) / (lines.len() as f32 - 1.0)).max(al.counter_spacing)
+    } else {
+        al.counter_spacing
+    };
     let mut rects = vec![Rect::default(); kids.len()];
     let mut cross_cursor = pc_start;
     for (li, line) in lines.iter().enumerate() {
@@ -303,8 +310,13 @@ pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
             })
             .collect();
         let sum_main: f32 = mains.iter().sum();
+        // CSS justify-content: the free space ignores the fixed gap; with no free space the items pack from the start.
+        let free = main_avail - sum_main;
         let (start, gap) = match al.primary_align {
-            LayoutAlign::SpaceBetween if k > 1.0 => (0.0, ((main_avail - sum_main) / (k - 1.0)).max(al.item_spacing.min(0.0))),
+            LayoutAlign::SpaceBetween if k > 1.0 => (0.0, (free / (k - 1.0)).max(al.item_spacing.min(0.0))),
+            LayoutAlign::SpaceAround if free > 0.0 => (free / k / 2.0, free / k),
+            LayoutAlign::SpaceEvenly if free > 0.0 => (free / (k + 1.0), free / (k + 1.0)),
+            LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => (0.0, 0.0),
             LayoutAlign::Center => (((main_avail - sum_main - al.item_spacing * (k - 1.0)) / 2.0).max(0.0), al.item_spacing),
             LayoutAlign::End => ((main_avail - sum_main - al.item_spacing * (k - 1.0)).max(0.0), al.item_spacing),
             _ => (0.0, al.item_spacing),
@@ -324,7 +336,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> LayoutOut {
             rects[*i] = Rect::new(pos.x, pos.y, size.x, size.y);
             cursor += m + gap;
         }
-        cross_cursor += line_cross[li] + al.counter_spacing;
+        cross_cursor += line_cross[li] + counter_gap;
     }
     LayoutOut { frame: ax.vec(frame_main, frame_cross), rects }
 }
@@ -646,6 +658,185 @@ mod tests {
         assert_eq!(out.rects[1].x, 40.0);
         assert_eq!(out.rects[2].x, 0.0);
         assert_eq!(out.rects[2].y, 24.0); // line 1 cross = 20, + counter spacing 4
+    }
+
+    /// Frame 120 wide, four 10-wide items, no padding or gap.
+    fn spaced(align: LayoutAlign, horizontal: bool) -> Vec<f32> {
+        let mut a = al();
+        a.primary_align = align;
+        a.padding = [0.0; 4];
+        a.item_spacing = 0.0;
+        a.direction = if horizontal { LayoutDirection::Horizontal } else { LayoutDirection::Vertical };
+        let frame = if horizontal { v2(120.0, 20.0) } else { v2(20.0, 120.0) };
+        let out = compute(&a, frame, &[kid(10.0, 10.0), kid(10.0, 10.0), kid(10.0, 10.0), kid(10.0, 10.0)]);
+        out.rects.iter().map(|r| if horizontal { r.x } else { r.y }).collect()
+    }
+
+    #[test]
+    fn space_around_gives_each_item_equal_space_on_both_sides() {
+        // free = 120 - 4*10 = 80; per item 80/4 = 20, so 10 before the first item and 10 after the last
+        for horizontal in [true, false] {
+            assert_eq!(spaced(LayoutAlign::SpaceAround, horizontal), vec![10.0, 40.0, 70.0, 100.0], "horizontal={horizontal}");
+        }
+    }
+
+    #[test]
+    fn space_evenly_makes_every_gap_equal_edges_included() {
+        // free = 80 over 5 gaps (4 items + 1) = 16: items at 16, 16+10+16, ...
+        for horizontal in [true, false] {
+            assert_eq!(spaced(LayoutAlign::SpaceEvenly, horizontal), vec![16.0, 42.0, 68.0, 94.0], "horizontal={horizontal}");
+        }
+    }
+
+    #[test]
+    fn space_around_and_evenly_center_a_single_item() {
+        // free = 100 - 20 = 80: around 80/1 -> 40 before; evenly 80/2 = 40 before
+        for align in [LayoutAlign::SpaceAround, LayoutAlign::SpaceEvenly] {
+            let mut a = al();
+            a.primary_align = align;
+            a.padding = [0.0; 4];
+            let out = compute(&a, v2(100.0, 20.0), &[kid(20.0, 10.0)]);
+            assert_eq!(out.rects[0].x, 40.0, "{align:?}");
+        }
+    }
+
+    #[test]
+    fn space_around_and_evenly_fall_back_to_start_when_items_overflow() {
+        // 30 + 30 > 50: no free space, items pack from the start with no gap
+        for align in [LayoutAlign::SpaceAround, LayoutAlign::SpaceEvenly] {
+            let mut a = al();
+            a.primary_align = align;
+            a.padding = [0.0; 4];
+            let out = compute(&a, v2(50.0, 20.0), &[kid(30.0, 10.0), kid(30.0, 10.0)]);
+            assert_eq!((out.rects[0].x, out.rects[1].x), (0.0, 30.0), "{align:?}");
+        }
+    }
+
+    #[test]
+    fn space_around_respects_padding_and_ignores_the_fixed_gap() {
+        let mut a = al();
+        a.primary_align = LayoutAlign::SpaceAround;
+        a.padding = [0.0, 5.0, 0.0, 5.0];
+        a.item_spacing = 99.0;
+        // inner width 130 - 10 = 120, same as the unpadded case shifted by the left padding
+        let out = compute(&a, v2(130.0, 20.0), &[kid(10.0, 10.0), kid(10.0, 10.0), kid(10.0, 10.0), kid(10.0, 10.0)]);
+        assert_eq!(out.rects.iter().map(|r| r.x).collect::<Vec<_>>(), vec![15.0, 45.0, 75.0, 105.0]);
+    }
+
+    #[test]
+    fn space_around_applies_to_each_wrapped_line() {
+        let mut a = al();
+        a.primary_align = LayoutAlign::SpaceAround;
+        a.padding = [0.0; 4];
+        a.item_spacing = 0.0;
+        a.wrap = true;
+        // 30 + 30 = 60 <= 80 < 90: line 1 holds two items (free 20 -> 10 each: x = 5, 45); line 2 one item (free 50 -> x = 25)
+        let out = compute(&a, v2(80.0, 100.0), &[kid(30.0, 10.0), kid(30.0, 10.0), kid(30.0, 10.0)]);
+        assert_eq!(out.rects.iter().map(|r| r.x).collect::<Vec<_>>(), vec![5.0, 45.0, 25.0]);
+    }
+
+    /// Vertical wrap: A and B fill the first column (40 + 10 + 40 = 90 <= 100), C does not fit under them.
+    fn vertical_wrap() -> AutoLayout {
+        AutoLayout { direction: LayoutDirection::Vertical, wrap: true, item_spacing: 10.0, counter_spacing: 6.0, padding: [0.0; 4], ..Default::default() }
+    }
+    fn vertical_kids() -> [ChildIn; 4] {
+        [kid(30.0, 40.0), kid(20.0, 40.0), kid(25.0, 40.0), kid(10.0, 30.0)]
+    }
+
+    #[test]
+    fn vertical_wrap_flows_down_then_into_new_columns() {
+        let out = compute(&vertical_wrap(), v2(200.0, 100.0), &vertical_kids());
+        // column 1 is 30 wide (A), so column 2 starts at 30 + counter spacing 6 = 36; D sits under C at 40 + 10
+        assert_eq!(out.rects[0], Rect::new(0.0, 0.0, 30.0, 40.0));
+        assert_eq!(out.rects[1], Rect::new(0.0, 50.0, 20.0, 40.0));
+        assert_eq!(out.rects[2], Rect::new(36.0, 0.0, 25.0, 40.0));
+        assert_eq!(out.rects[3], Rect::new(36.0, 50.0, 10.0, 30.0));
+        assert_eq!(out.frame, v2(200.0, 100.0));
+    }
+
+    #[test]
+    fn vertical_wrap_hugs_the_columns_across() {
+        let mut a = vertical_wrap();
+        a.counter_sizing = Sizing::Hug;
+        // columns 30 and 25 wide + 6 between
+        let out = compute(&a, v2(0.0, 100.0), &vertical_kids());
+        assert_eq!(out.frame, v2(61.0, 100.0));
+    }
+
+    #[test]
+    fn vertical_wrap_with_zero_counter_spacing_packs_columns() {
+        let mut a = vertical_wrap();
+        a.counter_spacing = 0.0;
+        let out = compute(&a, v2(200.0, 100.0), &vertical_kids());
+        assert_eq!(out.rects[2].x, 30.0);
+    }
+
+    #[test]
+    fn vertical_wrap_one_item_taller_than_the_frame_gets_its_own_column() {
+        let out = compute(&vertical_wrap(), v2(200.0, 100.0), &[kid(30.0, 150.0), kid(20.0, 20.0)]);
+        assert_eq!(out.rects[0], Rect::new(0.0, 0.0, 30.0, 150.0));
+        assert_eq!(out.rects[1], Rect::new(36.0, 0.0, 20.0, 20.0));
+    }
+
+    #[test]
+    fn counter_space_between_spreads_wrapped_horizontal_lines() {
+        let mut a = al();
+        a.wrap = true;
+        a.padding = [0.0; 4];
+        a.item_spacing = 0.0;
+        a.counter_spacing = 0.0;
+        a.counter_align_content = CounterAlignContent::SpaceBetween;
+        // 40 + 40 = 80 fits in 100, a third does not: lines of cross 10 and 10; free 100 - 20 = 80 -> line 2 at 10 + 80
+        let kids = [kid(40.0, 10.0), kid(40.0, 10.0), kid(40.0, 10.0)];
+        assert_eq!(compute(&a, v2(100.0, 100.0), &kids).rects[2].y, 90.0);
+        a.counter_align_content = CounterAlignContent::Auto;
+        assert_eq!(compute(&a, v2(100.0, 100.0), &kids).rects[2].y, 10.0);
+    }
+
+    #[test]
+    fn counter_space_between_spreads_wrapped_vertical_columns() {
+        let mut a = vertical_wrap();
+        a.counter_align_content = CounterAlignContent::SpaceBetween;
+        // columns 30 and 25 wide in 200: free 145 over one gap -> column 2 at 30 + 145 = 175
+        let out = compute(&a, v2(200.0, 100.0), &vertical_kids());
+        assert_eq!((out.rects[2].x, out.rects[3].x), (175.0, 175.0));
+        assert_eq!((out.rects[0].x, out.rects[1].x), (0.0, 0.0));
+    }
+
+    #[test]
+    fn counter_space_between_with_three_unequal_lines() {
+        let mut a = al();
+        a.wrap = true;
+        a.padding = [0.0; 4];
+        a.item_spacing = 0.0;
+        a.counter_spacing = 0.0;
+        a.counter_align_content = CounterAlignContent::SpaceBetween;
+        // widths 60 each, frame 60 wide: one item per line; crosses 10, 20, 10 = 40; free 100 - 40 = 60 over 2 gaps = 30
+        let out = compute(&a, v2(60.0, 100.0), &[kid(60.0, 10.0), kid(60.0, 20.0), kid(60.0, 10.0)]);
+        assert_eq!(out.rects.iter().map(|r| r.y).collect::<Vec<_>>(), vec![0.0, 40.0, 90.0]);
+    }
+
+    #[test]
+    fn counter_space_between_keeps_the_counter_spacing_as_a_minimum() {
+        let mut a = al();
+        a.wrap = true;
+        a.padding = [0.0; 4];
+        a.item_spacing = 0.0;
+        a.counter_spacing = 40.0;
+        a.counter_align_content = CounterAlignContent::SpaceBetween;
+        // free per gap would be (100 - 30) / 2 = 35 < 40: the lines overflow at the minimum gap
+        let out = compute(&a, v2(60.0, 100.0), &[kid(60.0, 10.0), kid(60.0, 10.0), kid(60.0, 10.0)]);
+        assert_eq!(out.rects.iter().map(|r| r.y).collect::<Vec<_>>(), vec![0.0, 50.0, 100.0]);
+    }
+
+    #[test]
+    fn counter_space_between_with_a_single_line_stays_at_the_start() {
+        let mut a = al();
+        a.wrap = true;
+        a.padding = [0.0; 4];
+        a.counter_align_content = CounterAlignContent::SpaceBetween;
+        let out = compute(&a, v2(200.0, 100.0), &[kid(40.0, 10.0)]);
+        assert_eq!(out.rects[0].y, 0.0);
     }
 
     #[test]
