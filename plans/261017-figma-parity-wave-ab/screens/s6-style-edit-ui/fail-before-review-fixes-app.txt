@@ -1,0 +1,3 @@
+M3 fail-before (app, styles::tests::editing_a_text_style_refits_the_main_and_the_instance_follows_without_a_size_override):
+thread panicked at crates/designos-app/src/styles.rs:508:9: re-fitting is not a user override of the instance: {Size}
+M2 UI fail-before (shell::tests::style_edit): a_library_style_cannot_be_edited_from_the_list -> "the popover stays closed for a library style"; a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu -> "the linked row edit button does nothing"
