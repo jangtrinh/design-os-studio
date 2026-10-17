@@ -4,7 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing};
+use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, LayoutGridAlign, NodeKind, Sizing};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
 /// One resolved `(row, col)` cell in a `LayoutDirection::Grid` container (frame-local coordinates).
@@ -245,7 +245,7 @@ pub fn node_css_grid_overlay(doc: &Document, id: NodeId) -> Option<CssGridOverla
 /// Start and length of each stripe of a columns / rows grid along an extent.
 /// `count` stripes separated by `gutter`, inset by `offset` on both ends.
 pub fn stripes(count: u32, gutter: f32, offset: f32, extent: f32) -> Vec<(f32, f32)> {
-    if count == 0 {
+    if count == 0 || !extent.is_finite() || extent <= 0.0 || !gutter.is_finite() || gutter < 0.0 || !offset.is_finite() || offset < 0.0 {
         return vec![];
     }
     let avail = extent - 2.0 * offset;
@@ -254,6 +254,49 @@ pub fn stripes(count: u32, gutter: f32, offset: f32, extent: f32) -> Vec<(f32, f
         return vec![];
     }
     (0..count).map(|i| (offset + i as f32 * (w + gutter), w)).collect()
+}
+
+/// Start and length of each stripe of a columns / rows guide with `alignment`, fixed `section_size`,
+/// and `count == 0` meaning auto-count (`(avail + gutter) / (section_size + gutter)`).
+pub fn stripes_aligned(count: u32, gutter: f32, offset: f32, section_size: f32, alignment: LayoutGridAlign, extent: f32) -> Vec<(f32, f32)> {
+    if !extent.is_finite() || extent <= 0.0 || !gutter.is_finite() || gutter < 0.0 || !offset.is_finite() || offset < 0.0 {
+        return vec![];
+    }
+    let n = if count > 0 {
+        count
+    } else {
+        if !section_size.is_finite() || section_size <= 0.0 {
+            return vec![];
+        }
+        let avail = (extent - 2.0 * offset).max(0.0);
+        let step = section_size + gutter;
+        if step <= 0.0 {
+            return vec![];
+        }
+        ((avail + gutter) / step).floor().max(0.0) as u32
+    };
+    if n == 0 {
+        return vec![];
+    }
+    match alignment {
+        LayoutGridAlign::Stretch => stripes(n, gutter, offset, extent),
+        LayoutGridAlign::Min | LayoutGridAlign::Center | LayoutGridAlign::Max => {
+            let w = if section_size.is_finite() && section_size > 0.0 {
+                section_size
+            } else {
+                let avail = extent - 2.0 * offset;
+                ((avail - gutter * (n - 1) as f32) / n as f32).max(1.0)
+            };
+            let total = n as f32 * w + (n - 1) as f32 * gutter;
+            let start0 = match alignment {
+                LayoutGridAlign::Min => offset,
+                LayoutGridAlign::Center => (extent - total) * 0.5,
+                LayoutGridAlign::Max => extent - offset - total,
+                LayoutGridAlign::Stretch => offset,
+            };
+            (0..n).map(|i| (start0 + i as f32 * (w + gutter), w)).collect()
+        }
+    }
 }
 
 /// Positions of the lines of a square grid with cells of `size` inside `extent`.
@@ -362,8 +405,11 @@ fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_re
             p.add(Shape::convex_polygon(vec![to_s(x0, y0), to_s(x1, y0), to_s(x1, y1), to_s(x0, y1)], col, Stroke::NONE));
         };
         for g in &fp.grids {
+            if !g.is_visible() {
+                continue;
+            }
             match g {
-                LayoutGrid::Grid { size, color } => {
+                LayoutGrid::Grid { size, color, .. } => {
                     // too dense to read: skip below 4 screen px per cell
                     if *size * z < 4.0 {
                         continue;
@@ -376,13 +422,13 @@ fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_re
                         p.line_segment([to_s(0.0, y), to_s(n.size.x, y)], stroke);
                     }
                 }
-                LayoutGrid::Columns { count, gutter, offset, color } => {
-                    for (x, cw) in stripes(*count, *gutter, *offset, n.size.x) {
+                LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color, .. } => {
+                    for (x, cw) in stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, n.size.x) {
                         quad(x, 0.0, x + cw, n.size.y, c32(color));
                     }
                 }
-                LayoutGrid::Rows { count, gutter, offset, color } => {
-                    for (y, rh) in stripes(*count, *gutter, *offset, n.size.y) {
+                LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color, .. } => {
+                    for (y, rh) in stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, n.size.y) {
                         quad(0.0, y, n.size.x, y + rh, c32(color));
                     }
                 }
@@ -457,7 +503,7 @@ mod tests {
         let id = app.doc.alloc_id();
         let mut frame = designos_doc::Node::frame(id, rect);
         if let NodeKind::Frame(fp) = &mut frame.kind {
-            fp.grids.push(LayoutGrid::Columns { count: 1, gutter: 0.0, offset: 0.0, color });
+            fp.grids.push(LayoutGrid::columns(1, 0.0, 0.0, color));
         }
         app.doc.insert(parent, frame).unwrap()
     }
@@ -501,5 +547,49 @@ mod tests {
         idx.ensure(&app.doc, app.page, 1);
         assert_eq!(painted_stripe_fills(&app, Some(&idx)), expected, "with a scene index");
         assert_eq!(painted_stripe_fills(&app, None), expected, "without a scene index");
+    }
+
+    #[test]
+    fn centred_12x60_columns_draw_at_literal_x_and_hidden_guides_do_not_draw() {
+        use designos_doc::LayoutGridAlign;
+        let cols = stripes_aligned(12, 20.0, 0.0, 60.0, LayoutGridAlign::Center, 1440.0);
+        let expected_cols: Vec<(f32, f32)> = (0..12).map(|i| (250.0 + i as f32 * 80.0, 60.0)).collect();
+        assert_eq!(cols, expected_cols);
+
+        let auto_cols = stripes_aligned(0, 20.0, 20.0, 60.0, LayoutGridAlign::Center, 400.0);
+        assert_eq!(auto_cols, vec![(50.0, 60.0), (130.0, 60.0), (210.0, 60.0), (290.0, 60.0)]);
+
+        let mut doc = Document::new("grid-parity");
+        doc.add_page("page-1");
+        let mut app = App::new(doc);
+        let page = app.page;
+        let id = app.doc.alloc_id();
+        let mut frame = designos_doc::Node::frame(id, Rect::new(0.0, 0.0, 1440.0, 400.0));
+        let vis_col = Color::rgba(255, 0, 0, 40);
+        let hid_col = Color::rgba(0, 255, 0, 40);
+        if let NodeKind::Frame(fp) = &mut frame.kind {
+            fp.grids.push(LayoutGrid::Columns {
+                count: 12,
+                gutter: 20.0,
+                offset: 0.0,
+                section_size: 60.0,
+                alignment: LayoutGridAlign::Center,
+                color: vis_col,
+                visible: true,
+            });
+            fp.grids.push(LayoutGrid::Rows {
+                count: 4,
+                gutter: 16.0,
+                offset: 0.0,
+                section_size: 40.0,
+                alignment: LayoutGridAlign::Min,
+                color: hid_col,
+                visible: false,
+            });
+        }
+        app.doc.insert(page, frame).unwrap();
+        let fills = painted_stripe_fills(&app, None);
+        assert_eq!(fills.len(), 12, "only the 12 visible column stripes should paint");
+        assert!(fills.iter().all(|c| *c == c32(&vis_col)));
     }
 }
