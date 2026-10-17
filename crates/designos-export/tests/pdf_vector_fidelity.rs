@@ -192,6 +192,7 @@ fn variable_doc() -> (Document, NodeId) {
             default_mode: "light".into(),
             variables: vec![],
             key: None,
+            source_library_key: None,
         },
     );
     let teal = Color::rgb(20, 120, 140);
