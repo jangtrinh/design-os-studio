@@ -77,6 +77,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             default_mode: "10:0".into(),
             variables: vec!["VariableID:10:10".into(), "VariableID:10:11".into(), "VariableID:10:12".into()],
             key: Some("theme_key".into()),
+            source_library_key: None,
         },
     );
     let mut bg_vals = BTreeMap::new();

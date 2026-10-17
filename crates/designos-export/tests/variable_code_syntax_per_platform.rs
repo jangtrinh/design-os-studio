@@ -18,6 +18,7 @@ fn doc_with_syntax(platform: CodeSyntaxPlatform, brand: &str, gap: &str) -> (Doc
             default_mode: "m".into(),
             variables: vec!["brand".into(), "gap".into()],
             key: None,
+            source_library_key: None,
         },
     );
     let var = |id: &str, name: &str, kind, value, code: &str| Variable {

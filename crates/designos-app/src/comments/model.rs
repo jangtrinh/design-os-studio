@@ -32,7 +32,7 @@ pub fn pin_point(doc: &Document, a: &CommentAnchor) -> Option<Vec2> {
 }
 
 pub fn comment(id: String, author: &str, text: &str) -> Comment {
-    Comment { id, author: author.to_string(), text: text.trim().to_string(), created: time::now_rfc3339(), edited: None }
+    Comment { id, author: author.to_string(), author_id: None, author_color: None, text: text.trim().to_string(), created: time::now_rfc3339(), edited: None }
 }
 
 pub fn add_thread(threads: &[CommentThread], t: CommentThread) -> Vec<CommentThread> {
@@ -159,6 +159,8 @@ mod tests {
                 .map(|(i, t)| Comment {
                     id: format!("{id}-{i}"),
                     author: "Kir".into(),
+                    author_id: None,
+                    author_color: None,
                     text: t.to_string(),
                     created: time::format_rfc3339(1_000_000 + i as u64),
                     edited: None,

@@ -60,7 +60,15 @@ fn big_fixture() -> Fixture {
     doc.comments.push(CommentThread {
         id: "thread-1".into(),
         anchor: CommentAnchor { page, node: Some(screens[0]), offset: Vec2::new(4.0, 4.0) },
-        messages: vec![Comment { id: "m1".into(), author: "Jang".into(), text: "Keep this".into(), created: "2026-10-16T23:00:00Z".into(), edited: None }],
+        messages: vec![Comment {
+            id: "m1".into(),
+            author: "Jang".into(),
+            author_id: None,
+            author_color: None,
+            text: "Keep this".into(),
+            created: "2026-10-16T23:00:00Z".into(),
+            edited: None,
+        }],
         resolved: false,
     });
     assert!(doc.nodes.len() > 25_000, "fixture must take the scoped-canvas path");
@@ -198,7 +206,15 @@ fn user_thread(id: &str, page: NodeId, text: &str) -> CommentThread {
     CommentThread {
         id: id.into(),
         anchor: CommentAnchor { page, node: None, offset: Vec2::new(10.0, 10.0) },
-        messages: vec![Comment { id: format!("{id}-1"), author: "Jang".into(), text: text.into(), created: "2026-10-17T09:00:00Z".into(), edited: None }],
+        messages: vec![Comment {
+            id: format!("{id}-1"),
+            author: "Jang".into(),
+            author_id: None,
+            author_color: None,
+            text: text.into(),
+            created: "2026-10-17T09:00:00Z".into(),
+            edited: None,
+        }],
         resolved: false,
     }
 }
@@ -256,7 +272,15 @@ fn agent_comments_never_overwrite_user_threads() {
 
     // 3. The user and the agent both reply to t1; both replies survive.
     let mut t1 = thread(&app, "t1").unwrap();
-    t1.messages.push(Comment { id: "t1-2".into(), author: "Jang".into(), text: "User reply".into(), created: "2026-10-17T09:05:00Z".into(), edited: None });
+    t1.messages.push(Comment {
+        id: "t1-2".into(),
+        author: "Jang".into(),
+        author_id: None,
+        author_color: None,
+        text: "User reply".into(),
+        created: "2026-10-17T09:05:00Z".into(),
+        edited: None,
+    });
     if let Some(t) = app.doc.comments.iter_mut().find(|t| t.id == "t1") {
         *t = t1;
     }

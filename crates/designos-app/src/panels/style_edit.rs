@@ -230,18 +230,18 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, t: &TextStyle, first: usize
         }
     });
     popover::row(ui, body, first + 2, "Size", |ui, rc| {
-        if let Some(v) = field::num_field(ui, rc, "se-size", Prefix::Text("S"), Some(t.font_size), "") {
+        if let Some(v) = field::num_field(ui, rc, "se-size", Prefix::Icon(Icon::Text), Some(t.font_size), "") {
             set(app, &|ts| ts.font_size = v.max(1.0));
         }
     });
     let line = richtext::display_line_height_px(t.line_height, t.font_size);
     popover::row(ui, body, first + 3, "Line height", |ui, rc| {
-        if let Some(v) = field::num_field(ui, rc, "se-line-height", Prefix::Text("\u{2195}"), Some(line), "") {
+        if let Some(v) = field::num_field(ui, rc, "se-line-height", Prefix::Icon(Icon::PaddingV), Some(line), "") {
             set(app, &|ts| ts.line_height = LineHeight::Pixels(v.max(1.0)));
         }
     });
     popover::row(ui, body, first + 4, "Letter spacing", |ui, rc| {
-        if let Some(v) = field::num_field(ui, rc, "se-letter-spacing", Prefix::Text("\u{2194}"), Some(t.letter_spacing), "") {
+        if let Some(v) = field::num_field(ui, rc, "se-letter-spacing", Prefix::Icon(Icon::PaddingH), Some(t.letter_spacing), "") {
             set(app, &|ts| ts.letter_spacing = v);
         }
     });

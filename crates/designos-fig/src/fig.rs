@@ -856,6 +856,15 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     if let Some(ds) = nc.get("detachedSymbolId").and_then(symbol_id_str) {
         m.insert("detachedSymbolId".into(), Value::String(ds));
     }
+    for flag in ["isSlot", "isSlotContent"] {
+        if nc.get(flag).and_then(Value::as_bool) == Some(true) {
+            m.insert(flag.into(), Value::Bool(true));
+        }
+    }
+    // Slot content guid: the editor reads it from the `jsonSerialized` bag, key `slot-content-id`.
+    if let Some(g) = nc.get("jsonSerialized").and_then(|j| j.get("slot-content-id")).and_then(|s| s.get("guid")).and_then(guid_str) {
+        m.insert("slotContentId".into(), Value::String(g));
+    }
     if let Some(fm) = extract_fig_metadata(nc, orig_ty, lk.large_file) {
         m.insert("figMetadata".into(), fm);
     }
@@ -1296,10 +1305,14 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
                 .map(|o| rest_import::farr(o, "values").to_vec())
                 .unwrap_or_default();
             def.insert("variantOptions".into(), Value::Array(options));
-        } else if *ty == "INSTANCE_SWAP" {
+        } else if *ty == "INSTANCE_SWAP" || *ty == "SLOT" {
             let prefs: Vec<Value> = rest_import::farr(d, "preferredValues").iter().filter_map(|p| guid_str(p).map(Value::String)).collect();
             if !prefs.is_empty() {
                 def.insert("preferredValues".into(), Value::Array(prefs));
+            }
+            // Only the keys the file wrote are carried; an empty object still marks "settings present".
+            if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object).filter(|_| *ty == "SLOT") {
+                def.insert("slotPropConfig".into(), Value::Object(cfg.clone()));
             }
         }
         defs.insert(key.clone(), Value::Object(def));
@@ -1849,12 +1862,44 @@ fn convert_paint(p: &Value) -> Option<Value> {
 fn convert_effect(e: &Value) -> Option<Value> {
     let ty = match fstr(e, "type")? {
         "FOREGROUND_BLUR" => "LAYER_BLUR",
+        "GRAIN" => "TEXTURE",
         other => other,
     };
     let mut m = Map::new();
     m.insert("type".into(), ty.into());
-    for k in ["color", "offset", "radius", "spread", "visible", "showShadowBehindNode"] {
+    for k in
+        ["color", "secondaryColor", "offset", "radius", "spread", "visible", "showShadowBehindNode", "blendMode", "density", "opacity", "seed", "clipToShape"]
+    {
         copy(&mut m, e, k, k);
+    }
+    if let Some(nt) = fstr(e, "noiseType") {
+        let norm = match nt {
+            "MONO" => "MONOTONE",
+            "DUO" => "DUOTONE",
+            "MULTI" => "MULTITONE",
+            other => other,
+        };
+        m.insert("noiseType".into(), norm.into());
+    }
+    if let Some(ns) = e.get("noiseSize") {
+        if ns.is_number() {
+            m.insert("noiseSize".into(), ns.clone());
+        } else if let Some(sz) = fnum(ns, "x").or_else(|| fnum(ns, "y")) {
+            m.insert("noiseSize".into(), json!(kiwi::clean_f32(sz)));
+        }
+    }
+    for (kiwi_key, rest_key) in [
+        ("specularAngle", "lightAngle"),
+        ("specularIntensity", "lightIntensity"),
+        ("refractionIntensity", "refraction"),
+        ("refractionRadius", "depth"),
+        ("chromaticAberration", "dispersion"),
+    ] {
+        if e.get(kiwi_key).is_some() {
+            copy(&mut m, e, kiwi_key, rest_key);
+        } else {
+            copy(&mut m, e, rest_key, rest_key);
+        }
     }
     Some(Value::Object(m))
 }

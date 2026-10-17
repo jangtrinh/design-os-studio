@@ -152,7 +152,15 @@ fn import_pen_variables(doc: &mut Document, obj: &Map<String, Value>) {
 
     doc.variable_collections.insert(
         PEN_COLLECTION_ID.into(),
-        VariableCollection { id: PEN_COLLECTION_ID.into(), name: "Tokens".into(), modes, default_mode, variables: var_ids, key: None },
+        VariableCollection {
+            id: PEN_COLLECTION_ID.into(),
+            name: "Tokens".into(),
+            modes,
+            default_mode,
+            variables: var_ids,
+            key: None,
+            source_library_key: None,
+        },
     );
 }
 
