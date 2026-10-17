@@ -176,7 +176,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
                 ctx.copy_text(s);
             }
         }
-        Action::Paste => app.paste_with_html(None, crate::clipboard::system_figma_html().as_deref()),
+        Action::Paste => app.paste_from_system(None),
         Action::PasteOverSelection => app.paste_over_selection(),
         Action::PasteToReplace => app.paste_to_replace(),
         Action::CopyProperties => app.copy_properties(),

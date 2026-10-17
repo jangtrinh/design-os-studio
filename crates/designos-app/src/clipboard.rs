@@ -240,7 +240,7 @@ pub fn clone_subtree(doc: &mut Document, id: NodeId) -> Vec<Node> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use designos_doc::Rect;
 
@@ -301,7 +301,7 @@ mod tests {
     use base64::Engine;
     use designos_fig::container::Compression;
 
-    fn figma_html(buffer: &[u8]) -> String {
+    pub(crate) fn figma_html(buffer: &[u8]) -> String {
         let b64 = base64::engine::general_purpose::STANDARD;
         format!(
             "<meta charset=\"utf-8\"><div><span data-metadata=\"<!--(figmeta){}(/figmeta)-->\"></span><span data-buffer=\"<!--(figma){}(/figma)-->\"></span></div>",

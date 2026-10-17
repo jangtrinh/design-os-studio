@@ -154,6 +154,9 @@ pub struct App {
     pub clip: Option<Clip>,
     pub copied_style: Option<CopiedStyle>,
     pub paste_count: u32,
+    /// Reads the system clipboard's Figma HTML payload. The seam the paste paths go through: production
+    /// reads the OS pasteboard, tests script it (the pasteboard is global and not thread-safe).
+    pub system_html: fn() -> Option<String>,
     pub toast: Option<Toast>,
     pub file_path: Option<PathBuf>,
     pub now: f64,
@@ -223,6 +226,7 @@ impl App {
             clip: None,
             copied_style: None,
             paste_count: 0,
+            system_html: crate::clipboard::system_figma_html,
             toast: None,
             file_path: None,
             now: 0.0,
