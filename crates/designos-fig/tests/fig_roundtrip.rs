@@ -1515,3 +1515,325 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     assert_eq!(rt_inst_child.component.override_level, Some(1));
     assert_eq!(rt_inst_child.component.detached_symbol_id.as_deref(), Some("guid:1:20"));
 }
+
+#[test]
+fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 120.0, "y": 60.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+
+    let build_passthrough_changes = |pad_count: usize| -> Value {
+        let mut changes = vec![
+            node((0, 0), (0, 0), "", "DOCUMENT", "PassthroughX1Doc", json!({})),
+            node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+            // 1. Draw: BRUSH node with variableWidthPoints, dynamic/scatter/stretch settings, pathTrim, strokeData
+            node(
+                (1, 10),
+                (0, 1),
+                "!",
+                "BRUSH",
+                "ScatterBrushStroke",
+                json!({
+                    "brushType": "SCATTER",
+                    "strokeSeed": 42,
+                    "strokeOffset": 2.5,
+                    "strokeBrushGuid": g(10, 20),
+                    "variableWidthPoints": [
+                        {"asymmetricStroke": true, "position": 0.25, "leadingWidth": 3.5, "trailingWidth": 4.25}
+                    ],
+                    "dynamicStrokeSettings": {"frequency": 8.0, "wiggle": 1.5, "smoothen": 0.75},
+                    "scatterStrokeSettings": {
+                        "gap": 12.0,
+                        "wiggle": 2.0,
+                        "angularJitter": 15.0,
+                        "sizeJitter": 0.5,
+                        "rotation": "DIRECTION"
+                    },
+                    "stretchStrokeSettings": {"orientation": "FORWARD"},
+                    "scatterBrushTransforms": [
+                        {"m00": 1.0, "m01": 0.0, "m02": 5.0, "m10": 0.0, "m11": 1.0, "m12": 2.0}
+                    ],
+                    "pathTrim": {"start": 0.1, "end": 0.9, "offset": 0.05},
+                    "strokeData": {
+                        "dynamicStrokeSeed": 77,
+                        "variableWidthPoints": [
+                            {"asymmetricStroke": false, "position": 0.5, "leadingWidth": 2.0, "trailingWidth": 2.0}
+                        ]
+                    }
+                }),
+            ),
+            // Draw: TRANSFORM node with transformModifiers
+            node(
+                (1, 11),
+                (0, 1),
+                "\"",
+                "TRANSFORM",
+                "RadialRepeater",
+                json!({
+                    "transformModifiers": [
+                        {
+                            "type": "REPEAT",
+                            "count": 4,
+                            "countType": "NUMBER",
+                            "unit": "PIXELS",
+                            "offset": {"x": 16.0, "y": 8.0}
+                        }
+                    ]
+                }),
+            ),
+            // Draw: TEXT_PATH node with textPathStart
+            node(
+                (1, 12),
+                (0, 1),
+                "#",
+                "TEXT_PATH",
+                "CurvedBannerPath",
+                json!({
+                    "textPathStart": 12.5
+                }),
+            ),
+            // 2. Motion: FRAME with timelineDefinitions & timelineAssignments + KEYFRAME_TRACK + KEYFRAME + ANIMATION_PRESET_INSTANCE
+            node(
+                (1, 20),
+                (0, 1),
+                "$",
+                "FRAME",
+                "MotionStage",
+                json!({
+                    "timelineDefinitions": [
+                        {"id": g(3, 10), "name": "HeroEnter"}
+                    ],
+                    "timelineAssignments": [
+                        {"timelineId": g(3, 10), "targetNodeId": g(1, 20)}
+                    ],
+                    "animationPresets": [
+                        {"presetGuid": g(3, 99), "delay": 0.25, "duration": 0.5}
+                    ],
+                    "textElementDelayBehaviour": "BY_WORD"
+                }),
+            ),
+            node(
+                (1, 21),
+                (1, 20),
+                "!",
+                "KEYFRAME_TRACK",
+                "OpacityTrack",
+                json!({
+                    "keyframeOperation": "OPACITY",
+                    "trackLoopMode": "PING_PONG",
+                    "timelineDuration": 1.5,
+                    "timelineOffset": 0.25,
+                    "timelineDisabled": false,
+                    "styleIdsForAnimation": [
+                        {"guid": g(4, 1)}
+                    ]
+                }),
+            ),
+            node(
+                (1, 22),
+                (1, 21),
+                "!",
+                "KEYFRAME",
+                "MidKeyframe",
+                json!({
+                    "timelinePosition": 0.5,
+                    "keyframeValue": {"floatValue": 0.75},
+                    "interpolationType": "BEZIER",
+                    "bezierHandles": {
+                        "inTangent": {"x": -0.25, "y": 0.0},
+                        "outTangent": {"x": 0.25, "y": 1.0}
+                    },
+                    "easingData": {
+                        "easingType": "CUSTOM_CUBIC_BEZIER",
+                        "easingFunctionCubicBezier": {"x1": 0.5, "y1": 0.0, "x2": 0.25, "y2": 1.0}
+                    },
+                    "easingType": "OUT_BACK",
+                    "interpolationColorSpace": "OKLCH"
+                }),
+            ),
+            node(
+                (1, 23),
+                (1, 20),
+                "\"",
+                "ANIMATION_PRESET_INSTANCE",
+                "PresetBounce",
+                json!({
+                    "timelineDuration": 0.75
+                }),
+            ),
+            // 3. Table: TABLE and TABLE_CELL
+            node(
+                (1, 30),
+                (0, 1),
+                "%",
+                "TABLE",
+                "PricingTable",
+                json!({
+                    "tableRowPositions": [
+                        {"id": g(5, 1), "position": "!"},
+                        {"id": g(5, 2), "position": "\""}
+                    ],
+                    "tableColumnPositions": [
+                        {"id": g(5, 3), "position": "!"}
+                    ],
+                    "tableRowHeights": [
+                        {"id": g(5, 1), "size": 44.0}
+                    ],
+                    "tableColumnWidths": [
+                        {"id": g(5, 3), "size": 180.0}
+                    ],
+                    "tableMergedCells": {
+                        "entries": [
+                            {"rowId": g(5, 1), "colId": g(5, 3), "rowSpan": 2, "colSpan": 1}
+                        ]
+                    }
+                }),
+            ),
+            node(
+                (1, 31),
+                (1, 30),
+                "!",
+                "TABLE_CELL",
+                "CellR1C1",
+                json!({
+                    "gridChildVerticalAlign": "CENTER",
+                    "gridChildHorizontalAlign": "MAX"
+                }),
+            ),
+            // 4. Slide: SLIDE_GRID -> SLIDE_ROW -> SLIDE -> INTERACTIVE_SLIDE_ELEMENT
+            node((1, 40), (0, 1), "&", "SLIDE_GRID", "DeckGrid", json!({})),
+            node((1, 41), (1, 40), "!", "SLIDE_ROW", "IntroRow", json!({})),
+            node(
+                (1, 42),
+                (1, 41),
+                "!",
+                "SLIDE",
+                "OpeningSlide",
+                json!({
+                    "slideSpeakerNotes": "Highlight typed Kiwi passthrough X1",
+                    "isSkippedSlide": false,
+                    "slideNumber": "03",
+                    "slideNumberSeparator": "/",
+                    "objectAnimations": [
+                        {
+                            "target": g(1, 43),
+                            "transitionType": "SMART_ANIMATE",
+                            "transitionDuration": 0.5,
+                            "easingType": "IN_OUT_CUBIC",
+                            "timing": {"type": "ON_CLICK", "delay": 0.0},
+                            "phase": "IN"
+                        }
+                    ]
+                }),
+            ),
+            node((1, 43), (1, 42), "!", "INTERACTIVE_SLIDE_ELEMENT", "LivePollWidget", json!({})),
+        ];
+
+        for i in 0..pad_count {
+            let local = 1000 + i as u64;
+            changes.push(node((9, local), (0, 1), &format!("p{i:04}"), "ROUNDED_RECTANGLE", &format!("PadRect_{i}"), json!({})));
+        }
+
+        Value::Array(changes)
+    };
+
+    let verify_doc = |doc: &Document, label: &str| {
+        // Export to .fig binary and re-import
+        let bytes = export_fig(doc).unwrap_or_else(|e| panic!("{label}: export_fig failed: {e}"));
+        let rt = import_fig(&bytes).unwrap_or_else(|e| panic!("{label}: import_fig failed: {e}"));
+
+        for name in [
+            "ScatterBrushStroke",
+            "RadialRepeater",
+            "CurvedBannerPath",
+            "MotionStage",
+            "OpacityTrack",
+            "MidKeyframe",
+            "PresetBounce",
+            "PricingTable",
+            "CellR1C1",
+            "DeckGrid",
+            "IntroRow",
+            "OpeningSlide",
+            "LivePollWidget",
+        ] {
+            let before = find(doc, name);
+            let after = find(&rt, name);
+            assert_eq!(after.kind, before.kind, "{label}: NodeKind mismatch on {name}");
+            assert!(
+                !before.fig_metadata.is_empty() || matches!(name, "DeckGrid" | "IntroRow" | "LivePollWidget"),
+                "{label}: expected non-empty fig_metadata on {name}"
+            );
+            assert_eq!(after.fig_metadata, before.fig_metadata, "{label}: fig_metadata mismatch on {name}");
+        }
+
+        // Spot-check specific typed passthrough fields after round-trip
+        let brush = find(&rt, "ScatterBrushStroke");
+        assert_eq!(brush.fig_metadata.get("brushType").map(String::as_str), Some("SCATTER"));
+        assert_eq!(brush.fig_metadata.get("strokeSeed").map(String::as_str), Some("42"));
+        assert_eq!(brush.fig_metadata.get("strokeOffset").map(String::as_str), Some("2.5"));
+        assert!(brush.fig_metadata.contains_key("variableWidthPoints"));
+        assert!(brush.fig_metadata.contains_key("dynamicStrokeSettings"));
+        assert!(brush.fig_metadata.contains_key("scatterStrokeSettings"));
+        assert!(brush.fig_metadata.contains_key("stretchStrokeSettings"));
+        assert!(brush.fig_metadata.contains_key("scatterBrushTransforms"));
+        assert!(brush.fig_metadata.contains_key("pathTrim"));
+        assert!(brush.fig_metadata.contains_key("strokeData"));
+
+        let xform = find(&rt, "RadialRepeater");
+        assert_eq!(xform.kind, NodeKind::Unknown { type_name: "TRANSFORM".into() });
+        assert!(xform.fig_metadata.contains_key("transformModifiers"));
+
+        let tpath = find(&rt, "CurvedBannerPath");
+        assert_eq!(tpath.kind, NodeKind::Unknown { type_name: "TEXT_PATH".into() });
+        assert_eq!(tpath.fig_metadata.get("textPathStart").map(String::as_str), Some("12.5"));
+
+        let kf = find(&rt, "MidKeyframe");
+        assert_eq!(kf.kind, NodeKind::Unknown { type_name: "KEYFRAME".into() });
+        assert_eq!(kf.fig_metadata.get("timelinePosition").map(String::as_str), Some("0.5"));
+        assert_eq!(kf.fig_metadata.get("interpolationType").map(String::as_str), Some("BEZIER"));
+        assert_eq!(kf.fig_metadata.get("interpolationColorSpace").map(String::as_str), Some("OKLCH"));
+        assert!(kf.fig_metadata.contains_key("bezierHandles"));
+        assert!(kf.fig_metadata.contains_key("easingData"));
+
+        let tbl = find(&rt, "PricingTable");
+        assert_eq!(tbl.kind, NodeKind::Unknown { type_name: "TABLE".into() });
+        assert!(tbl.fig_metadata.contains_key("tableRowPositions"));
+        assert!(tbl.fig_metadata.contains_key("tableColumnPositions"));
+        assert!(tbl.fig_metadata.contains_key("tableRowHeights"));
+        assert!(tbl.fig_metadata.contains_key("tableColumnWidths"));
+        assert!(tbl.fig_metadata.contains_key("tableMergedCells"));
+
+        let slide = find(&rt, "OpeningSlide");
+        assert_eq!(slide.kind, NodeKind::Unknown { type_name: "SLIDE".into() });
+        assert_eq!(slide.fig_metadata.get("slideSpeakerNotes").map(String::as_str), Some("Highlight typed Kiwi passthrough X1"));
+        assert_eq!(slide.fig_metadata.get("isSkippedSlide").map(String::as_str), Some("false"));
+        assert_eq!(slide.fig_metadata.get("slideNumber").map(String::as_str), Some("03"));
+        assert!(slide.fig_metadata.contains_key("objectAnimations"));
+    };
+
+    // 1. Standard file (< 5,000 entries)
+    let small_changes = build_passthrough_changes(0);
+    let small_doc = import_fig_node_changes(&small_changes, "PassthroughSmall").expect("import small");
+    verify_doc(&small_doc, "small_file");
+
+    // 2. Large file (> 5,000 entries) — must preserve all typed passthrough fields identically!
+    let large_changes = build_passthrough_changes(5_005);
+    let large_doc = import_fig_node_changes(&large_changes, "PassthroughLarge").expect("import large");
+    verify_doc(&large_doc, "large_file_5000_plus");
+}
