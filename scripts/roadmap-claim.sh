@@ -33,7 +33,9 @@ item_id=$(gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"${RE
 machine_field=$(gh project field-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --jq '.fields[]|select(.name=="Machine")|.id')
 
 set_status() { gh project item-edit --id "$item_id" --project-id "$PROJECT_ID" --field-id "$STATUS_FIELD" --single-select-option-id "$(status_option "$1")" >/dev/null; }
-current_status() { gh project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 300 --jq ".items[]|select(.content.number==$issue)|.status"; }
+# One small query for this issue only; listing the whole board trips GitHub's secondary rate limit.
+current_status() { gh api graphql -f query="query{repository(owner:\"$OWNER\",name:\"${REPO#*/}\"){issue(number:$issue){projectItems(first:10){nodes{project{number} fieldValueByName(name:\"Status\"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}" \
+  --jq ".data.repository.issue.projectItems.nodes[]|select(.project.number==$PROJECT_NUMBER)|.fieldValueByName.name"; }
 claims() { gh issue view "$issue" --repo "$REPO" --json comments --jq '[.comments[]|select(.body|test("^claim "))|.body]'; }
 
 case "$action" in
