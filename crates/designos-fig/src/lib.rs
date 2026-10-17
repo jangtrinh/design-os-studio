@@ -11,6 +11,7 @@
 //!   always supplied by the caller at runtime and never stored or logged.
 
 mod board;
+mod clipboard;
 pub mod container;
 mod dev;
 mod export;
@@ -29,6 +30,7 @@ mod textfmt;
 mod variables;
 mod vecnet;
 
+pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
 #[doc(hidden)]
