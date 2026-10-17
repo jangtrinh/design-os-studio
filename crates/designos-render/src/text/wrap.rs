@@ -101,7 +101,7 @@ mod tests {
     fn greedy(text: &str, width: f32) -> Vec<LineStat> {
         let mut lines: Vec<LineStat> = Vec::new();
         let mut cur: Vec<usize> = Vec::new(); // word lengths on the current line
-        let mut fits = |cur: &Vec<usize>, extra: usize| (cur.iter().sum::<usize>() + cur.len() + extra) as f32 * ADV <= width + 1e-3;
+        let fits = |cur: &Vec<usize>, extra: usize| (cur.iter().sum::<usize>() + cur.len() + extra) as f32 * ADV <= width + 1e-3;
         for w in text.split(' ') {
             if !cur.is_empty() && !fits(&cur, w.len()) {
                 lines.push(stat(&cur));
