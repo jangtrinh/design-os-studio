@@ -541,13 +541,7 @@ impl Ctx<'_> {
         self.progs[layer as usize].needs_backdrop = needs_back;
         let lclip = self.narrow_clip(clip, rect);
         self.with_prog(layer, |c| c.draw_children(rest, parent_ts, lclip));
-        let mut mask_node = mask.clone();
-        mask_node.blend = d::BlendMode::Normal;
-        mask_node.effects.clear();
-        mask_node.stroke.paints.clear();
-        if !matches!(mask_node.kind, NodeKind::Text(_) | NodeKind::Group) && !mask_node.fills.iter().any(|p| p.visible) {
-            mask_node.fills = vec![d::Paint::solid(d::Color::BLACK)];
-        }
+        let mask_node = designos_render::mask_stencil(mask);
         let mprog = self.new_prog(rect);
         let mclip = self.full_clip(rect);
         self.with_prog(mprog, |c| c.draw_node(&mask_node, ts, mclip));
