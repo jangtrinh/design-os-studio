@@ -43,7 +43,7 @@
           "name": "What is DESIGN:OS Studio (design-os-studio)?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Gemini CLI, Grok CLI), Live Variables Mode Switching & Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp)."
+            "text": "DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Grok CLI), Live Variables Mode Switching & Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp)."
           }
         },
         {
@@ -75,7 +75,7 @@
           "name": "How fast does DESIGN:OS Studio render massive enterprise Figma files?",
           "acceptedAnswer": {
             "@type": "Answer",
-            "text": "On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records / 112,474 scene nodes), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse)."
+            "text": "On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse)."
           }
         },
         {
@@ -116,7 +116,7 @@
     <section aria-labelledby="title">
       <p class="ds-heading eyebrow" data-level="3">DESIGN:OS Toolchain · DESIGN:OS Studio</p>
       <h1 id="title" class="ds-heading" data-level="1">Native GPU-accelerated interface design studio, enterprise Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Live Variables &amp; Multi-Edit (Q), and 22-tool Model Context Protocol server built in 100% Rust.</h1>
-      <p class="lede">Open and save 723,136-record enterprise Figma <code>.fig</code> v106 binary archives in ~1.5s with 0.0% idle CPU on Metal, DirectX 12, and Vulkan (<code>wgpu</code> + <code>tiny-skia</code>). Execute all 100 / 100 Figma A-to-Z Micro-Interactions (<code>#1..#100</code>) natively on canvas, run Claude Code (<code>claude</code>), OpenAI Codex (<code>codex</code>), Antigravity CLI (<code>agy</code>), Gemini CLI (<code>gemini</code>), and Grok CLI (<code>grok</code>) directly inside the native Agentic PTY Chat UI with zero paid external API keys, switch live Design Variables across <code>Light</code> and <code>Dark</code> modes with Multi-Edit (<code>Q</code>) and Suggest Auto-Layout (<code>&#8679;A</code>), and generate multi-target Dev Mode code offline.</p>
+      <p class="lede">Open and save 723,136-record enterprise Figma <code>.fig</code> v106 binary archives in ~1.5s with 0.0% idle CPU on Metal, DirectX 12, and Vulkan (<code>wgpu</code> + <code>tiny-skia</code>). Execute all 100 / 100 Figma A-to-Z Micro-Interactions (<code>#1..#100</code>) natively on canvas, run Claude Code (<code>claude</code>), OpenAI Codex (<code>codex</code>), Antigravity CLI (<code>agy</code>), and Grok CLI (<code>grok</code>) directly inside the native Agentic PTY Chat UI with zero paid external API keys, switch live Design Variables across <code>Light</code> and <code>Dark</code> modes with Multi-Edit (<code>Q</code>) and Add auto layout (<code>&#8679;A</code>), and generate multi-target Dev Mode code offline.</p>
 
       <p class="badges">
         <a href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT_%2F_Apache--2.0-202020?style=flat-square&labelColor=202020&color=444444" alt="Dual MIT OR Apache-2.0 License" height="28" onerror="this.onerror=null;this.hidden=true"></a>
@@ -220,7 +220,7 @@
           <img src="videos/designos-studio-launch-preview.gif" width="1440" height="1440" alt="DESIGN:OS Studio interactive desktop workflow preview showing UI3 dark canvas, Agentic PTY Chat, Live Variables Mode Switching, and Dev Mode" loading="lazy" style="width:100%;max-height:640px;object-fit:contain;display:block;background:#f4f3ef">
         </div>
         <figcaption class="case-plate-caption">
-          <p>Interactive Desktop Overview: Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>&#8984;K</code> AI Synthesis, and 5-target Dev Mode codegen.</p>
+          <p>Interactive Desktop Overview: Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>&#8984;K</code> AI Synthesis, and 7-target Dev Mode codegen.</p>
           <cite><a href="#videos">12 Core Functional Capabilities &amp; Micro-Interactions</a></cite>
         </figcaption>
       </figure>
@@ -234,7 +234,7 @@
         <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z"/></svg>Engine Stack</dt><dd>100% Rust + <code>wgpu</code> + <code>tiny-skia</code><small>Metal · DX12 · Vulkan · Zero Electron</small></dd></div>
         <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,160H40V56H216V200ZM80,84A12,12,0,1,1,68,72,12,12,0,0,1,80,84Zm40,0a12,12,0,1,1-12-12A12,12,0,0,1,120,84Z"/></svg>Figma Parity</dt><dd><code>.fig</code> v106 + 100/100 Micro-UX<small>387 / 387 UI3 (487 / 487) · 856 tests</small></dd></div>
         <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M237.66,18.34a8,8,0,0,0-11.32,0l-52.4,52.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L100,88.69l-6.34-6.35A8,8,0,0,0,82.34,93.66L88.69,100,65.37,123.31a32,32,0,0,0,0,45.26l5.38,5.37-52.41,52.4a8,8,0,0,0,11.32,11.32l52.4-52.41,5.37,5.38a32,32,0,0,0,45.26,0L156,167.31l6.34,6.35a8,8,0,0,0,11.32-11.32L167.31,156l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,52.41-52.4A8,8,0,0,0,237.66,18.34Zm-116.29,161a16,16,0,0,1-22.62,0L76.69,157.25a16,16,0,0,1,0-22.62L100,111.31,144.69,156Zm57.94-57.94L156,144.69,111.31,100l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,179.31,121.37ZM88.57,35A8,8,0,0,1,103.43,29l8,20A8,8,0,0,1,96.57,55ZM24.57,93A8,8,0,0,1,35,88.57l20,8A8,8,0,0,1,49,111.43l-20-8A8,8,0,0,1,24.57,93ZM231.43,163a8,8,0,0,1-10.4,4.46l-20-8A8,8,0,1,1,207,144.57l20,8A8,8,0,0,1,231.43,163Zm-64,58.06A8,8,0,0,1,152.57,227l-8-20A8,8,0,0,1,159.43,201Z"/></svg>Agent Surface</dt><dd>22 MCP Tools + PTY Chat<small>Claude · Codex · Antigravity · Grok</small></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,48H136V16a8,8,0,0,0-16,0V48H56A32,32,0,0,0,24,80V192a32,32,0,0,0,32,32H200a32,32,0,0,0,32-32V80A32,32,0,0,0,200,48Zm16,144a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V80A16,16,0,0,1,56,64H200a16,16,0,0,1,16,16Zm-52-56H92a28,28,0,0,0,0,56h72a28,28,0,0,0,0-56Zm-24,16v24H116V152ZM80,164a12,12,0,0,1,12-12h8v24H92A12,12,0,0,1,80,164Zm84,12h-8V152h8a12,12,0,0,1,0,24ZM72,108a12,12,0,1,1,12,12A12,12,0,0,1,72,108Zm88,0a12,12,0,1,1,12,12A12,12,0,0,1,160,108Z"/></svg>Telemetry</dt><dd>Zero Tracking<small>100% offline local-first</small></dd></div>
+        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,48H136V16a8,8,0,0,0-16,0V48H56A32,32,0,0,0,24,80V192a32,32,0,0,0,32,32H200a32,32,0,0,0,32-32V80A32,32,0,0,0,200,48Zm16,144a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V80A16,16,0,0,1,56,64H200a16,16,0,0,1,16,16Zm-52-56H92a28,28,0,0,0,0,56h72a28,28,0,0,0,0-56Zm-24,16v24H116V152ZM80,164a12,12,0,0,1,12-12h8v24H92A12,12,0,0,1,80,164Zm84,12h-8V152h8a12,12,0,0,1,0,24ZM72,108a12,12,0,1,1,12,12A12,12,0,0,1,72,108Zm88,0a12,12,0,1,1,12,12A12,12,0,0,1,160,108Z"/></svg>Telemetry</dt><dd>Zero Tracking<small>Local-first, works offline</small></dd></div>
         <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M239.43,133l-32-80h0a8,8,0,0,0-9.16-4.84L136,62V40a8,8,0,0,0-16,0V65.58L54.26,80.19A8,8,0,0,0,48.57,85h0v.06L16.57,165a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32a7.92,7.92,0,0,0-.57-3L66.92,93.77,120,82V208H104a8,8,0,0,0,0,16h48a8,8,0,0,0,0-16H136V78.42L187,67.1,160.57,133a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32A7.92,7.92,0,0,0,239.43,133ZM56,184c-7.53,0-22.76-3.61-23.93-14.64L56,109.54l23.93,59.82C78.76,180.39,63.53,184,56,184Zm144-32c-7.53,0-22.76-3.61-23.93-14.64L200,77.54l23.93,59.82C222.76,148.39,207.53,152,200,152Z"/></svg>License</dt><dd>MIT OR Apache-2.0<small>macOS · Windows · Linux</small></dd></div>
       </dl>
     </section>
@@ -248,7 +248,7 @@
         <div class="register-row">
           <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M230.33,141.06a24.43,24.43,0,0,0-21.24-4.23l-41.84,9.62A28,28,0,0,0,140,112H89.94a31.82,31.82,0,0,0-22.63,9.37L44.69,144H16A16,16,0,0,0,0,160v40a16,16,0,0,0,16,16H120a7.93,7.93,0,0,0,1.94-.24l64-16a6.94,6.94,0,0,0,1.19-.4L226,182.82l.44-.2a24.6,24.6,0,0,0,3.93-41.56ZM16,160H40v40H16Zm203.43,8.21-38,16.18L119,200H56V155.31l22.63-22.62A15.86,15.86,0,0,1,89.94,128H140a12,12,0,0,1,0,24H112a8,8,0,0,0,0,16h32a8.32,8.32,0,0,0,1.79-.2l67-15.41.31-.08a8.6,8.6,0,0,1,6.3,15.9ZM164,96a36,36,0,0,0,5.9-.48,36,36,0,1,0,28.22-47A36,36,0,1,0,164,96Zm60-12a20,20,0,1,1-20-20A20,20,0,0,1,224,84ZM164,40a20,20,0,0,1,19.25,14.61,36,36,0,0,0-15,24.93A20.42,20.42,0,0,1,164,80a20,20,0,0,1,0-40Z"/></svg>
           <h3>723k-record enterprise scale &amp; 0.0% idle CPU</h3>
-          <p>Uniform <code>2048x2048</code> spatial grid culling (<code>SceneIndex</code>), 4-tier semantic zoom LOD, canonical <code>GeomCache</code> mesh sharing, and <code>FrameKey</code> GPU texture reuse render 112,474-node files in 1.54s on Metal with zero idle repaints.</p>
+          <p>Uniform <code>2048x2048</code> spatial grid culling (<code>SceneIndex</code>), 4-tier semantic zoom LOD, canonical <code>GeomCache</code> mesh sharing, and <code>FrameKey</code> GPU texture reuse render 723,136-record files in 1.54s on Metal with zero idle repaints.</p>
         </div>
         <div class="register-row">
           <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M224,128a8,8,0,0,1-8,8H104a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM104,72H216a8,8,0,0,0,0-16H104a8,8,0,0,0,0,16ZM216,184H104a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM43.58,55.16,48,52.94V104a8,8,0,0,0,16,0V40a8,8,0,0,0-11.58-7.16l-16,8a8,8,0,0,0,7.16,14.32ZM79.77,156.72a23.73,23.73,0,0,0-9.6-15.95,24.86,24.86,0,0,0-34.11,4.7,23.63,23.63,0,0,0-3.57,6.46,8,8,0,1,0,15,5.47,7.84,7.84,0,0,1,1.18-2.13,8.76,8.76,0,0,1,12-1.59A7.91,7.91,0,0,1,63.93,159a7.64,7.64,0,0,1-1.57,5.78,1,1,0,0,0-.08.11L33.59,203.21A8,8,0,0,0,40,216H72a8,8,0,0,0,0-16H56l19.08-25.53A23.47,23.47,0,0,0,79.77,156.72Z"/></svg>
@@ -262,7 +262,7 @@
         </div>
         <div class="register-row">
           <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/></svg>
-          <h3>Pillar 2 &mdash; Live Variables Mode Switching, Multi-Edit (<code>Q</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>)</h3>
+          <h3>Pillar 2 &mdash; Live Variables Mode Switching, Multi-Edit (<code>Q</code>) &amp; Add auto layout (<code>&#8679;A</code>)</h3>
           <p>Switch multi-mode token collections (<code>Light</code> / <code>Dark</code>) live on canvas (<a href="images/designos-variables.png"><code>docs/images/designos-variables.png</code></a> via <code>--fixture showcase --panel variables --size 1440x900 --scale 2 --screenshot docs/images/designos-variables.png</code>), batch-edit matching sibling layers with <code>Q</code> Multi-Edit, and infer nested Auto-Layout 5.0 frames in one shortcut (<code>&#8679;A</code>).</p>
         </div>
       </div>
@@ -285,7 +285,7 @@
               <td><strong>100% Rust (<code>wgpu</code> Metal / DX12 / Vulkan + <code>tiny-skia</code>)</strong>, <strong><code>0.0%</code> static viewport CPU</strong></td>
             </tr>
             <tr>
-              <td>Enterprise Scale (<code>723k</code> Records / <code>112k</code> Nodes)</td>
+              <td>Enterprise Scale (<code>723k</code> Kiwi Records)</td>
               <td>Browser tab OOM crashes, multi-second cloud streaming stalls</td>
               <td>DOM / SVG layout bottlenecks above <code>5k&ndash;10k</code> nodes</td>
               <td><strong>Uniform <code>2048x2048</code> <code>SceneIndex</code> culling + 4-tier semantic zoom LOD</strong>, <strong><code>1.54s</code> cold load</strong>, <strong><code>-96.5%</code> disk size (<code>242 MB</code> vs <code>6.80 GB</code>)</strong></td>
@@ -306,13 +306,13 @@
               <td>Agentic Workflow &amp; API Cost</td>
               <td>Paid per-seat AI credits or read-only <code>155K</code>-char REST JSON dumps</td>
               <td>External MCP plugins or paid API key wrappers (<code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code>)</td>
-              <td><strong>Native Agentic PTY Chat UI</strong> (<code>Claude Code</code> &middot; <code>Codex</code> &middot; <code>Antigravity</code> &middot; <code>Gemini</code> &middot; <code>Grok</code> &mdash; zero extra API cost) + <strong>22-tool <code>designos-mcp</code></strong></td>
+              <td><strong>Native Agentic PTY Chat UI</strong> (<code>Claude Code</code> &middot; <code>Codex</code> &middot; <code>Antigravity</code> &middot; <code>Grok</code> &mdash; zero extra API cost) + <strong>22-tool <code>designos-mcp</code></strong></td>
             </tr>
             <tr>
               <td>Variables, Multi-Edit (<code>Q</code>) &amp; Auto-Layout</td>
               <td>Cloud-bound variable collections &amp; manual frame nesting</td>
-              <td>Partial variable support; no <code>Q</code> Multi-Edit or <code>&#8679;A</code> heuristic inference</td>
-              <td><strong>Live Variables Mode Switching (<code>Light</code> / <code>Dark</code>), Multi-Edit (<code>Q</code> / <code>&#8984;E</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>)</strong> (<code>COLOR</code>, <code>FLOAT</code>, <code>STRING</code>, <code>BOOLEAN</code> + <code>=</code> alias picker)</td>
+              <td>Partial variable support; no <code>Q</code> Multi-Edit or <code>&#8679;A</code> Add auto layout</td>
+              <td><strong>Live Variables Mode Switching (<code>Light</code> / <code>Dark</code>), Multi-Edit (<code>Q</code> / <code>&#8984;E</code>) &amp; Add auto layout (<code>&#8679;A</code>)</strong> (<code>COLOR</code>, <code>FLOAT</code>, <code>STRING</code>, <code>BOOLEAN</code> + <code>=</code> alias picker)</td>
             </tr>
             <tr>
               <td>Dev Mode Codegen &amp; Visual QA</td>
@@ -324,7 +324,7 @@
               <td>Privacy, Offline &amp; Licensing</td>
               <td>Mandatory cloud sign-in, proprietary license, background telemetry</td>
               <td>Self-hosted Docker stack or Electron runtime telemetry</td>
-              <td><strong>Zero telemetry &mdash; 100% local offline execution</strong> (<code>PRIVACY.md</code> audited), dual <strong><code>MIT OR Apache-2.0</code></strong></td>
+              <td><strong>Zero telemetry &mdash; local-first; works offline (fonts download on demand and fall back to Inter)</strong> (<code>PRIVACY.md</code> audited), dual <strong><code>MIT OR Apache-2.0</code></strong></td>
             </tr>
           </tbody>
         </table>
@@ -463,11 +463,11 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
 
         <li class="showcase-card">
           <div class="showcase-card-stage">
-            <img src="videos/micro-07-devmode-boxmodel-16x9.gif" width="800" height="450" alt="07 Dev Mode Box-Model and 5-Target Codegen" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
+            <img src="videos/micro-07-devmode-boxmodel-16x9.gif" width="800" height="450" alt="07 Dev Mode Box-Model and 7-Target Codegen" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
           </div>
           <div class="showcase-card-body">
             <div class="showcase-card-meta"><span>07 &middot; Dev Mode Box-Model</span><span>#46..#47</span></div>
-            <h3 class="showcase-card-title">Dev Mode Box-Model &amp; 5-Target Codegen</h3>
+            <h3 class="showcase-card-title">Dev Mode Box-Model &amp; 7-Target Codegen</h3>
             <p class="showcase-card-desc">Toggle <code>Shift+D</code> to inspect emerald padding (<code>24px</code>) and orange gap (<code>16px</code>) overlays while switching live across production <code>React</code>, <code>Tailwind v4</code>, <code>CSS</code>, <code>SwiftUI</code>, and <code>Jetpack Compose</code> codegen.</p>
           </div>
         </li>
@@ -544,7 +544,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
           <div class="showcase-card-body">
             <div class="showcase-card-meta"><span>01 &middot; Canvas &amp; UI3</span><span>1.54s &middot; 0.0% CPU</span></div>
             <h3 class="showcase-card-title"><a href="images/designos-hero.png">1:1 Figma UI3 Dark Chrome &amp; GPU Canvas</a></h3>
-            <p class="showcase-card-desc">Renders 112,474 scene nodes (723,136 Kiwi records) at 60% zoom with <code>#1e1e1e</code> UI3 chrome and unified Phosphor icons.</p>
+            <p class="showcase-card-desc">Renders a 723,136-record file at 60% zoom with <code>#1e1e1e</code> UI3 chrome and unified Phosphor icons.</p>
             <div class="showcase-card-actions">
               <a href="images/designos-hero.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
             </div>
@@ -569,14 +569,14 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
 
         <li class="showcase-card">
           <div class="showcase-card-stage">
-            <a href="images/09-micro-autolayout.png" aria-label="Open 03 Auto-Layout 5.0 and Suggest Auto-Layout capture">
-              <img src="images/09-micro-autolayout.png" width="800" height="500" alt="03 DESIGN:OS Studio Auto-Layout 5.0 and Suggest Auto-Layout with on-canvas pink gap and padding handles" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
+            <a href="images/09-micro-autolayout.png" aria-label="Open 03 Auto-Layout 5.0 and Add auto layout capture">
+              <img src="images/09-micro-autolayout.png" width="800" height="500" alt="03 DESIGN:OS Studio Auto-Layout 5.0 and Add auto layout with on-canvas pink gap and padding handles" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
             </a>
           </div>
           <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>03 &middot; Auto-Layout 5.0 &amp; Suggest Auto-Layout</span><span>--micro-showcase autolayout</span></div>
-            <h3 class="showcase-card-title"><a href="images/09-micro-autolayout.png">03 &middot; Auto-Layout 5.0 &amp; Suggest Auto-Layout</a></h3>
-            <p class="showcase-card-desc">On-canvas pink gap/padding handles, inline value editing, edge double-click <code>Fixed -&gt; Hug -&gt; Fill</code>, and <code>&#8679;A</code> Suggest Auto-Layout.</p>
+            <div class="showcase-card-meta"><span>03 &middot; Auto-Layout 5.0 &amp; Add auto layout</span><span>--micro-showcase autolayout</span></div>
+            <h3 class="showcase-card-title"><a href="images/09-micro-autolayout.png">03 &middot; Auto-Layout 5.0 &amp; Add auto layout</a></h3>
+            <p class="showcase-card-desc">On-canvas pink gap/padding handles, inline value editing, edge double-click <code>Fixed -&gt; Hug -&gt; Fill</code>, and <code>&#8679;A</code> Add auto layout.</p>
             <div class="showcase-card-actions">
               <a href="images/09-micro-autolayout.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
             </div>
@@ -623,7 +623,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
           </div>
           <div class="showcase-card-body">
             <div class="showcase-card-meta"><span>06 &middot; Dev Mode (&lt;/&gt;)</span><span>--tab dev</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-devmode.png">Dev Mode &amp; 5-Target Codegen</a></h3>
+            <h3 class="showcase-card-title"><a href="images/designos-devmode.png">Dev Mode &amp; 7-Target Codegen</a></h3>
             <p class="showcase-card-desc">CSS Box Model diagram, resolved variable tokens, and live codegen for React, Tailwind, CSS, SwiftUI, and Jetpack Compose.</p>
             <div class="showcase-card-actions">
               <a href="images/designos-devmode.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
@@ -900,7 +900,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
             </tr>
             <tr>
               <td>8. Dev Mode, Prototype &amp; Agentic Hub</td>
-              <td>Box-model inspector, 5-target codegen, prototype noodle flows, <code>Actions (Cmd+K)</code>, Multi-Edit (<code>Q</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>), Agentic PTY Chat UI, 22 MCP tools</td>
+              <td>Box-model inspector, 7-target codegen, prototype noodle flows, <code>Actions (Cmd+K)</code>, Multi-Edit (<code>Q</code>) &amp; Add auto layout (<code>&#8679;A</code>), Agentic PTY Chat UI, 22 MCP tools</td>
               <td><code>80 / 80</code></td>
               <td><strong>100.00%</strong></td>
             </tr>
@@ -921,7 +921,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
       </div>
 
       <!-- Table 2: Verified Enterprise Benchmark -->
-      <h3 class="ds-heading" data-level="3" style="margin-top:var(--s-24)">Enterprise Benchmark (VSF - PCP.fig &mdash; 723,136 Kiwi Records / 112,474 Nodes)</h3>
+      <h3 class="ds-heading" data-level="3" style="margin-top:var(--s-24)">Enterprise Benchmark (VSF - PCP.fig &mdash; 723,136 Kiwi Records)</h3>
       <p>Measured on Apple Silicon Metal comparing unoptimized JSON/CPU baselines against the Phase 2 <code>wgpu</code> + <code>SceneIndex</code> architecture.</p>
       <div class="table-scroll">
         <table class="ds-table">
@@ -960,7 +960,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
             </tr>
             <tr>
               <td>Single-Node Drag / Resize Index Update</td>
-              <td>Full 112k-node <code>SceneIndex::ensure</code></td>
+              <td>Full-document <code>SceneIndex::ensure</code></td>
               <td><code>O(subtree)</code> Incremental Propagation</td>
               <td><strong>SceneIndex::update_subtree</strong></td>
             </tr>
@@ -1016,7 +1016,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
       <h2 id="faq-h" class="ds-heading" data-level="2">Frequently asked questions</h2>
       <details>
         <summary>What is DESIGN:OS Studio (design-os-studio)? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Gemini CLI, Grok CLI), Live Variables Mode Switching &amp; Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp).</p>
+        <p>DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Grok CLI), Live Variables Mode Switching &amp; Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp).</p>
       </details>
       <details>
         <summary>How does DESIGN:OS Studio compare with Figma Desktop, Penpot, and Pencil/OpenPencil? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
@@ -1032,7 +1032,7 @@ designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.
       </details>
       <details>
         <summary>How fast does DESIGN:OS Studio render massive enterprise Figma files? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records / 112,474 scene nodes), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse).</p>
+        <p>On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse).</p>
       </details>
       <details>
         <summary>How is DESIGN:OS Studio installed and licensed? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
