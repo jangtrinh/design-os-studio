@@ -6,7 +6,7 @@ use crate::edit::Tx;
 use crate::util::*;
 use designos_doc::VectorNetwork;
 use designos_doc::*;
-use designos_render::vectorops::{flatten_nodes, node_paths, outline_stroke};
+use designos_render::vectorops::{flatten_nodes, node_paths, offset_paths, outline_stroke};
 
 /// A new Vector node holding `paths` (in the coordinates of the parent it will live in) with the
 /// appearance of `template`. The node box is fitted to the geometry.
@@ -142,6 +142,56 @@ impl App {
         self.selection = made;
     }
 
+    /// Offsets each selected shape's paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
+    /// using Figma's default round join semantics.
+    pub fn offset_path_selection(&mut self, delta: f32) {
+        self.offset_path_selection_with(delta, StrokeJoin::Round, 4.0);
+    }
+
+    /// Offsets each selected shape's paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
+    /// with an explicit join and miter limit as a single Undo step.
+    pub fn offset_path_selection_with(&mut self, delta: f32, join: StrokeJoin, miter_limit: f32) {
+        if !delta.is_finite() || delta.abs() < 1e-5 {
+            return;
+        }
+        if self.canvas.vedit.is_some() {
+            crate::canvas::vector::exit(self);
+        }
+        let tops = self.top_selection();
+        if tops.iter().any(|i| linked(self, *i)) {
+            self.show_toast("Detach the instance or component before offsetting", true);
+            return;
+        }
+        let mut tx = Tx::new();
+        let mut made = vec![];
+        for id in tops {
+            let Some(n) = self.doc.get(id).cloned() else { continue };
+            let Some(paths) = node_paths(&self.doc, &n) else { continue };
+            let offset = offset_paths(&paths, delta, join, miter_limit);
+            if offset.is_empty() {
+                continue;
+            }
+            let Some(parent) = n.parent else { continue };
+            let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { continue };
+            let vid = self.doc.alloc_id();
+            let mut node = vector_node(vid, &offset, &n);
+            node.name = n.name.clone();
+            node.component = ComponentLink::default();
+            if tx.cmd(&mut self.doc, Command::Insert { parent, index: index + 1, nodes: vec![node] }).is_err() {
+                continue;
+            }
+            let _ = tx.cmd(&mut self.doc, Command::Remove { id });
+            made.push(vid);
+        }
+        if made.is_empty() {
+            self.show_toast("Select a shape to offset", false);
+            tx.cancel(&mut self.doc);
+            return;
+        }
+        self.run_tx(tx);
+        self.selection = made;
+    }
+
     /// Reduces the nodes of every selected vector within a small tolerance.
     pub fn simplify_selection(&mut self) {
         if self.canvas.vedit.is_some() {
@@ -207,5 +257,46 @@ impl App {
         }
         self.run_tx(tx);
         self.selection = vec![g];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_render::vectorops::paths_area;
+
+    #[test]
+    fn offset_path_selection_expands_and_shrinks_square_with_undo() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let rect_id = doc.alloc_id();
+        let mut rect = Node::rectangle(rect_id, Rect::new(20.0, 30.0, 100.0, 100.0));
+        rect.name = "Square".into();
+        doc.insert(page, rect).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![rect_id];
+
+        app.offset_path_selection(10.0);
+        assert_eq!(app.selection.len(), 1);
+        let expanded_id = app.selection[0];
+        let expanded = app.doc.get(expanded_id).unwrap();
+        assert!((expanded.size.x - 120.0).abs() <= 0.5);
+        assert!((expanded.size.y - 120.0).abs() <= 0.5);
+        let expanded_paths = node_paths(&app.doc, expanded).unwrap();
+        let expected_round = 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0);
+        assert!((paths_area(&expanded_paths, 0.02) - expected_round).abs() <= 2.0);
+
+        // Undo restores the 100x100 rectangle, then -10 shrinks it to 80x80
+        app.undo();
+        app.selection = vec![rect_id];
+        app.offset_path_selection(-10.0);
+        let shrunk_id = app.selection[0];
+        let shrunk = app.doc.get(shrunk_id).unwrap();
+        assert!((shrunk.size.x - 80.0).abs() <= 0.5);
+        assert!((shrunk.size.y - 80.0).abs() <= 0.5);
+        let shrunk_paths = node_paths(&app.doc, shrunk).unwrap();
+        assert!((paths_area(&shrunk_paths, 0.02) - 6400.0).abs() <= 1.5);
     }
 }

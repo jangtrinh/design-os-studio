@@ -86,6 +86,8 @@ pub enum Action {
     Flatten,
     /// Ctrl+Alt+O: turn the stroke into filled geometry.
     OutlineStroke,
+    /// Offset the selected shape's paths outward or inward.
+    OffsetPath,
     /// Wrap the selection in a boolean group.
     Boolean(designos_doc::BooleanOp),
     /// Enter vertex editing of the selected shape.
@@ -202,6 +204,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         }
         Action::Flatten => app.flatten_selection(),
         Action::OutlineStroke => app.outline_stroke_selection(),
+        Action::OffsetPath => app.offset_path_selection(10.0),
         Action::Boolean(op) => app.boolean_selection(op),
         Action::EditVertices => {
             if let Some(id) = app.selection.first().copied().filter(|_| app.selection.len() == 1) {
@@ -463,6 +466,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
     let has_vec = app.selection.iter().any(|id| crate::canvas::vector::is_vector(app, *id));
     let vector = vec![
         leaf("Outline stroke", "Ctrl+Alt+O", Action::OutlineStroke).off(!has_sel),
+        leaf("Offset path", "", Action::OffsetPath).off(!has_sel),
         leaf("Flatten", "Ctrl+E", Action::Flatten).off(!has_sel).sep(),
         submenu(
             "Boolean groups",

@@ -277,3 +277,28 @@ fn circles_arrange_into_a_lens_and_two_crescents_and_fit_back_to_curves() {
     assert!(anchors <= 10, "{anchors} segments for a lens");
     close(area(&paths), lens.area, lens.area * 0.01);
 }
+
+#[test]
+fn offset_path_expands_100px_square_and_shrinks_on_negative_offset() {
+    let sq = [rect(0.0, 0.0, 100.0, 100.0)];
+
+    // AC 1: +10 on a 100 px square gives about 120^2 minus the corners
+    let plus_round = offset_path(&sq, 10.0);
+    let expected_round = 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0);
+    close(area(&plus_round), expected_round, 2.0);
+
+    let plus_bevel = offset_paths(&sq, 10.0, StrokeJoin::Bevel, 4.0);
+    let expected_bevel = 120.0 * 120.0 - 4.0 * 50.0;
+    close(area(&plus_bevel), expected_bevel, 1.5);
+
+    let plus_miter = offset_paths(&sq, 10.0, StrokeJoin::Miter, 4.0);
+    close(area(&plus_miter), 120.0 * 120.0, 1.5);
+
+    // AC 2: A negative offset shrinks the shape
+    let minus_10 = offset_path(&sq, -10.0);
+    close(area(&minus_10), 80.0 * 80.0, 1.5);
+
+    // Negative offset exceeding half the side length collapses the shape cleanly
+    let collapsed = offset_path(&sq, -60.0);
+    assert!(collapsed.is_empty());
+}
