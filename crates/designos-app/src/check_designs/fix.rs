@@ -8,13 +8,16 @@ use crate::edit::Tx;
 use crate::layout;
 use designos_doc::{set_bound_property, set_text_fills_everywhere, Command, NodeId, NodeKind, PaintKind, Vec2};
 
-/// Order fixes run in within "Fix all": structure first, then recolouring, then re-linking, so a
-/// re-link whose precondition the recolouring broke is skipped instead of undoing it.
+/// Order fixes run in within "Fix all": recolouring first, then links to variables and styles, and
+/// the swap of a detached frame for an instance last. The swap only proceeds while the frame still
+/// equals its main component, so any fix made to the frame or to a layer inside it first makes the
+/// swap refuse, instead of the swap deleting the layer a fix was just applied to (or a later fix
+/// finding it gone). A bind that a recolour made stale is likewise refused rather than undoing it.
 fn priority(fix: &Fix) -> u8 {
     match fix {
-        Fix::Reconnect { .. } => 0,
-        Fix::SetTextColor { .. } => 1,
-        Fix::BindVariable { .. } | Fix::ApplyStyle { .. } => 2,
+        Fix::SetTextColor { .. } => 0,
+        Fix::BindVariable { .. } | Fix::ApplyStyle { .. } => 1,
+        Fix::Reconnect { .. } => 2,
     }
 }
 
