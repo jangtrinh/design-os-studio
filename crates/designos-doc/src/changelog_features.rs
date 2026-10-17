@@ -1141,7 +1141,7 @@ impl PrototypeRuntime {
             return Rect::new(0.0, 0.0, container.size.x, container.size.y);
         }
         let mut u = union_rects(&rects);
-        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let [_, pad_right, pad_bottom, _] = al.padding;
             u.w += pad_right;
             u.h += pad_bottom;

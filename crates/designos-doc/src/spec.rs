@@ -364,7 +364,7 @@ impl Document {
         }
         let root_id = self.build_spec_node(parent, spec)?;
         // Run Auto-Layout 5.0 reflow from parent (if parent has auto-layout) or root_id
-        let relayout_root = if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout).is_some() { parent } else { root_id };
+        let relayout_root = if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
         self.relayout_subtree(relayout_root);
         Ok(root_id)
     }
@@ -426,7 +426,7 @@ impl Document {
         // LayoutSpec on frame (applied BEFORE width/height sizing so al.direction is final)
         if let Some(ls) = &spec.layout {
             if let Some(f) = node.kind.frame_props_mut() {
-                let mut al = f.auto_layout.unwrap_or_default();
+                let mut al = f.auto_layout.take().unwrap_or_default();
                 if !ls.direction.is_empty() {
                     al.direction = parse_direction(&ls.direction);
                 }
@@ -641,7 +641,7 @@ impl Document {
             ),
             _ => (None, None, None, None),
         };
-        let layout = n.kind.frame_props().and_then(|f| f.auto_layout).map(|al| LayoutSpec {
+        let layout = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| LayoutSpec {
             direction: match al.direction {
                 LayoutDirection::Horizontal => "row".into(),
                 LayoutDirection::Vertical => "column".into(),

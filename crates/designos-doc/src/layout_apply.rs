@@ -14,7 +14,7 @@ impl Document {
             self.relayout_subtree(*c);
         }
         let Some(root_node) = self.get(root) else { return };
-        let Some(al) = root_node.kind.frame_props().and_then(|f| f.auto_layout) else {
+        let Some(al) = root_node.kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
             return;
         };
         let frame = root_node.size;

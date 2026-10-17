@@ -1600,8 +1600,8 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()
@@ -2276,8 +2276,8 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()
