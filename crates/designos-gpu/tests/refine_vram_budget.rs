@@ -258,6 +258,194 @@ fn four_hundred_thousand_tiny_effect_nodes_stay_under_the_program_ceiling() {
     assert_eq!(sframe.programs.len(), 19);
 }
 
+/// Children of the effect groups below: more than the program ceiling.
+const GROUP_CHILDREN: usize = 5_000;
+
+/// A group carrying `effect` over `count` 2x2 layer-blurred rectangles. A group
+/// has no shape of its own, so its shadows, blurs, glass and grain draw the
+/// children into silhouette programs.
+fn effect_group_page(count: usize, effect: Effect) -> (Document, NodeId) {
+    let mut doc = Document::new("effect group");
+    let page = doc.add_page("Page");
+    let mut group = Node::new(doc.alloc_id(), NodeKind::Group);
+    group.size = Vec2::new(960.0, count.div_ceil(640) as f32 * 1.5 + 2.0);
+    group.effects = vec![effect];
+    let group = doc.insert(page, group).unwrap();
+    for i in 0..count {
+        let x = ((i % 640) as f32) * 1.5;
+        let y = ((i / 640) as f32) * 1.5;
+        let mut n = Node::rectangle(doc.alloc_id(), Rect::new(x, y, 2.0, 2.0));
+        n.fills = vec![Paint::solid(Color::rgb(0x33, 0x66, 0xCC))];
+        n.effects = vec![Effect::LayerBlur { radius: 1.0, visible: true }];
+        doc.insert(group, n).unwrap();
+    }
+    (doc, page)
+}
+
+fn drop_shadow(show_behind: bool) -> Effect {
+    Effect::DropShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(4.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind }
+}
+
+fn inner_shadow() -> Effect {
+    Effect::InnerShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(0.0, 2.0), radius: 6.0, spread: 0.0, visible: true }
+}
+
+/// Every group effect that draws the group's children into a silhouette program.
+fn silhouette_effects() -> Vec<(&'static str, Effect)> {
+    vec![
+        ("drop shadow with the shape hidden behind it", drop_shadow(false)),
+        ("drop shadow shown behind", drop_shadow(true)),
+        ("inner shadow", inner_shadow()),
+        ("background blur", Effect::BackgroundBlur { radius: 6.0, visible: true }),
+        (
+            "glass",
+            Effect::Glass(GlassEffect { light_angle: 45.0, light_intensity: 0.7, refraction: 0.5, depth: 10.0, dispersion: 0.3, frost: 4.0, visible: true }),
+        ),
+        (
+            "noise",
+            Effect::Noise(NoiseEffect { mode: NoiseMode::Multi, size: 1.0, density: 0.5, opacity: 0.5, blend: BlendMode::Normal, seed: 7, visible: true }),
+        ),
+    ]
+}
+
+fn refine_compiler() -> SceneCompiler {
+    let mut c = interactive_compiler();
+    c.opts.uncap_programs = true;
+    c
+}
+
+#[test]
+fn effect_silhouette_subtrees_stay_under_the_program_ceiling() {
+    let mut violations = Vec::new();
+    for (name, effect) in silhouette_effects() {
+        let (doc, page) = effect_group_page(GROUP_CHILDREN, effect);
+
+        // without a ceiling the silhouette walks open one layer per child and more
+        let mut open = refine_compiler();
+        open.opts.refine_max_programs = usize::MAX;
+        open.opts.refine_vram_budget_bytes = u64::MAX;
+        let unbounded = compile(&mut open, &doc, page).programs.len();
+        assert!(unbounded > DEFAULT_REFINE_MAX_PROGRAMS, "{name}: the page must need more than the ceiling, opened {unbounded}");
+
+        let mut c = refine_compiler();
+        let frame = compile(&mut c, &doc, page);
+        if frame.programs.len() != DEFAULT_REFINE_MAX_PROGRAMS {
+            violations.push(format!(
+                "{name}: {GROUP_CHILDREN} blurred children opened {} programs, the refine must use up exactly the ceiling of {DEFAULT_REFINE_MAX_PROGRAMS}",
+                frame.programs.len()
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
+fn effect_silhouette_subtrees_stay_within_the_vram_budget() {
+    let mut violations = Vec::new();
+    for (name, effect) in [("drop shadow", drop_shadow(false)), ("inner shadow", inner_shadow())] {
+        let (doc, page) = effect_group_page(GROUP_CHILDREN, effect);
+        for offscreen_budget in [8 * MIB, 12 * MIB, 16 * MIB, 24 * MIB] {
+            let budget = ROOT_BYTES_1000 + offscreen_budget;
+            let mut c = refine_compiler();
+            c.opts.refine_vram_budget_bytes = budget;
+            let frame = compile(&mut c, &doc, page);
+            let bytes = recount(&frame);
+            assert_eq!(c.last_vram_bytes, bytes, "{name}, budget {budget}: running total must equal the recount");
+            if bytes > budget {
+                violations.push(format!("{name}, budget {budget}: frame holds {bytes} bytes in {} programs", frame.programs.len()));
+            }
+            assert!(frame.programs.len() > 3, "{name}, budget {budget}: the effect and its children must still draw, {} programs", frame.programs.len());
+        }
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+}
+
+#[test]
+fn capped_and_headless_group_compiles_ignore_the_refine_limits() {
+    for (name, effect) in silhouette_effects() {
+        let (doc, page) = effect_group_page(600, effect);
+        let stats = |c: &mut SceneCompiler| {
+            let f = compile(c, &doc, page);
+            let s = f.stats();
+            (f.programs.len(), s.draws, s.composites, s.backdrops, s.triangles)
+        };
+        let mut capped = interactive_compiler();
+        let today = stats(&mut capped);
+        let mut tight = interactive_compiler();
+        tight.opts.refine_vram_budget_bytes = 1;
+        tight.opts.refine_max_programs = 2;
+        assert_eq!(stats(&mut tight), today, "{name}: refine limits must not change a capped frame");
+
+        let mut headless = SceneCompiler::new();
+        let unlimited = stats(&mut headless);
+        let mut limited = SceneCompiler::new();
+        limited.opts.uncap_programs = true;
+        limited.opts.refine_vram_budget_bytes = 1;
+        limited.opts.refine_max_programs = 2;
+        assert_eq!(stats(&mut limited), unlimited, "{name}: refine limits must not change a headless frame");
+        assert!(unlimited.0 > 600, "{name}: headless frame opens a program per blurred child, got {}", unlimited.0);
+    }
+}
+
+/// `[blur, mask, blur, blur, blur]` and, inside a frame, the same again, so a
+/// mask program is opened after the layer that holds the masked siblings and
+/// again one level down.
+fn masked_page() -> (Document, NodeId) {
+    let mut doc = Document::new("masked");
+    let page = doc.add_page("Page");
+    let blurred = |doc: &mut Document, parent: NodeId, x: f32, y: f32| {
+        let mut n = Node::rectangle(doc.alloc_id(), Rect::new(x, y, 60.0, 60.0));
+        n.effects = vec![Effect::LayerBlur { radius: 4.0, visible: true }];
+        doc.insert(parent, n).unwrap();
+    };
+    let mask = |doc: &mut Document, parent: NodeId, w: f32, h: f32| {
+        let mut m = Node::rectangle(doc.alloc_id(), Rect::new(0.0, 0.0, w, h));
+        m.is_mask = true;
+        doc.insert(parent, m).unwrap();
+    };
+    blurred(&mut doc, page, 10.0, 10.0);
+    mask(&mut doc, page, 900.0, 420.0);
+    for x in [100.0, 200.0, 300.0] {
+        blurred(&mut doc, page, x, 100.0);
+    }
+    let frame_id = doc.alloc_id();
+    let frame = doc.insert(page, Node::frame(frame_id, Rect::new(500.0, 0.0, 400.0, 400.0))).unwrap();
+    blurred(&mut doc, frame, 10.0, 10.0);
+    mask(&mut doc, frame, 300.0, 300.0);
+    for x in [100.0, 150.0, 200.0] {
+        blurred(&mut doc, frame, x, 100.0);
+    }
+    (doc, page)
+}
+
+#[test]
+fn mask_programs_are_counted_before_the_masked_siblings_are_drawn() {
+    let (doc, page) = masked_page();
+    let mut open = refine_compiler();
+    let full = compile(&mut open, &doc, page).programs.len();
+    assert!(full >= 12, "the page needs layers, mask layers and mask programs, got {full}");
+    for max in 1..=full + 1 {
+        let mut c = refine_compiler();
+        c.opts.refine_max_programs = max;
+        let frame = compile(&mut c, &doc, page);
+        assert!(frame.programs.len() <= max, "refine_max_programs {max}: opened {} programs", frame.programs.len());
+    }
+}
+
+#[test]
+fn mask_programs_are_budgeted_before_the_masked_siblings_are_drawn() {
+    let (doc, page) = masked_page();
+    for step in 0..=60u64 {
+        let budget = ROOT_BYTES_1000 + step * 400_000;
+        let mut c = refine_compiler();
+        c.opts.refine_vram_budget_bytes = budget;
+        let frame = compile(&mut c, &doc, page);
+        let bytes = recount(&frame);
+        assert!(bytes <= budget, "budget {budget}: frame holds {bytes} bytes in {} programs", frame.programs.len());
+        assert_eq!(c.last_vram_bytes, bytes, "budget {budget}: running total must equal the recount");
+    }
+}
+
 #[test]
 fn pools_trim_unused_targets_after_refine_and_zoom_sequence() {
     let Some(mut g) = common::gpu() else { return };
@@ -293,52 +481,78 @@ fn pools_trim_unused_targets_after_refine_and_zoom_sequence() {
         after_zoom_pool_bytes, single_frame_pool_bytes,
         "pool residency after zoom sequence ({after_zoom_pool_bytes} B) must return to one frame's working set ({single_frame_pool_bytes} B)"
     );
+}
 
-    // Real-world benchmark measurement on the 112,474-node (`723,136` Kiwi records) VSF - PCP fixture when present on disk
-    let fig_path = std::path::Path::new("/Users/jangtrinh/Downloads/VSF - PCP.fig");
-    if fig_path.exists() {
-        let bytes = std::fs::read(fig_path).expect("read VSF - PCP.fig");
-        let doc_fig = designos_fig::import_fig(&bytes).expect("import VSF - PCP.fig");
-        let largest_page = doc_fig.pages.iter().copied().max_by_key(|&p| doc_fig.page_node_count(p)).unwrap();
-        let mut idx = designos_render::SceneIndex::new();
-        idx.ensure(&doc_fig, largest_page, 1);
-        let mut bb = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        if let Some(p) = doc_fig.get(largest_page) {
-            for &cid in &p.children {
-                if let Some(b) = idx.bounds_of(cid) {
-                    bb.0 = bb.0.min(b.0);
-                    bb.1 = bb.1.min(b.1);
-                    bb.2 = bb.2.max(b.2);
-                    bb.3 = bb.3.max(b.3);
-                }
+/// Name of the environment variable that points the real-document check at a
+/// `.fig` file; without it the check is skipped.
+const FIXTURE_ENV: &str = "DESIGNOS_REFINE_FIXTURE_FIG";
+
+#[test]
+fn pools_trim_on_a_real_document_when_a_fixture_is_given() {
+    let Some(fig_path) = std::env::var_os(FIXTURE_ENV).map(std::path::PathBuf::from) else {
+        eprintln!("skipped: set {FIXTURE_ENV} to a .fig file to measure the refine on a real document");
+        return;
+    };
+    let bytes = match std::fs::read(&fig_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("skipped: cannot read {}: {e}", fig_path.display());
+            return;
+        }
+    };
+    let doc_fig = match designos_fig::import_fig(&bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("skipped: cannot import {}: {e}", fig_path.display());
+            return;
+        }
+    };
+    let Some(mut g) = common::gpu() else { return };
+    let Some(mut fresh_gpu) = common::gpu() else { return };
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    let size = (1440, 900);
+    let Some(largest_page) = doc_fig.pages.iter().copied().max_by_key(|&p| doc_fig.page_node_count(p)) else {
+        eprintln!("skipped: {} has no pages", fig_path.display());
+        return;
+    };
+    let mut idx = designos_render::SceneIndex::new();
+    idx.ensure(&doc_fig, largest_page, 1);
+    let mut bb = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    if let Some(p) = doc_fig.get(largest_page) {
+        for &cid in &p.children {
+            if let Some(b) = idx.bounds_of(cid) {
+                bb.0 = bb.0.min(b.0);
+                bb.1 = bb.1.min(b.1);
+                bb.2 = bb.2.max(b.2);
+                bb.3 = bb.3.max(b.3);
             }
         }
-        let center = Vec2::new(bb.0 + (bb.2 - bb.0) * 0.35, bb.1 + (bb.3 - bb.1) * 0.35);
-        let mut max_progs = 0usize;
-        for z in [0.05f32, 0.25, 0.5, 1.0, 1.9, 4.0] {
-            let vp = Viewport { offset: center, zoom: z, dpr: 2.0 };
-            g.compiler.opts.uncap_programs = false;
-            let capped = g.compiler.compile(&doc_fig, largest_page, 1, &vp, size);
-            let _ = g.renderer.render_submitted(&capped);
-            g.compiler.opts.uncap_programs = true;
-            let refined = g.compiler.compile(&doc_fig, largest_page, 1, &vp, size);
-            max_progs = max_progs.max(refined.programs.len());
-            let _ = g.renderer.render_submitted(&refined);
-        }
-        let final_fig_pool = g.renderer.stats.pool_bytes;
-        let mut fresh_gpu = common::gpu().unwrap();
-        fresh_gpu.compiler.geom.budget = Some(Duration::from_millis(8));
-        fresh_gpu.compiler.opts.uncap_programs = true;
-        let vp4 = Viewport { offset: center, zoom: 4.0, dpr: 2.0 };
-        let f4 = fresh_gpu.compiler.compile(&doc_fig, largest_page, 1, &vp4, size);
-        let _ = fresh_gpu.renderer.render_submitted(&f4);
-        let single_fig_pool = fresh_gpu.renderer.stats.pool_bytes;
-        eprintln!(
-            "VSF - PCP.fig (112,474 nodes / 723,136 Kiwi records): max refine programs = {max_progs} (ceiling = {DEFAULT_REFINE_MAX_PROGRAMS}), pool after zoom sweep = {:.2} MiB vs single frame = {:.2} MiB",
-            final_fig_pool as f64 / MIB as f64,
-            single_fig_pool as f64 / MIB as f64
-        );
-        assert!(max_progs <= DEFAULT_REFINE_MAX_PROGRAMS);
-        assert_eq!(final_fig_pool, single_fig_pool);
     }
+    let center = Vec2::new(bb.0 + (bb.2 - bb.0) * 0.35, bb.1 + (bb.3 - bb.1) * 0.35);
+    let mut max_progs = 0usize;
+    for z in [0.05f32, 0.25, 0.5, 1.0, 1.9, 4.0] {
+        let vp = Viewport { offset: center, zoom: z, dpr: 2.0 };
+        g.compiler.opts.uncap_programs = false;
+        let capped = g.compiler.compile(&doc_fig, largest_page, 1, &vp, size);
+        let _ = g.renderer.render_submitted(&capped);
+        g.compiler.opts.uncap_programs = true;
+        let refined = g.compiler.compile(&doc_fig, largest_page, 1, &vp, size);
+        max_progs = max_progs.max(refined.programs.len());
+        let _ = g.renderer.render_submitted(&refined);
+    }
+    let final_fig_pool = g.renderer.stats.pool_bytes;
+    fresh_gpu.compiler.geom.budget = Some(Duration::from_millis(8));
+    fresh_gpu.compiler.opts.uncap_programs = true;
+    let vp4 = Viewport { offset: center, zoom: 4.0, dpr: 2.0 };
+    let f4 = fresh_gpu.compiler.compile(&doc_fig, largest_page, 1, &vp4, size);
+    let _ = fresh_gpu.renderer.render_submitted(&f4);
+    let single_fig_pool = fresh_gpu.renderer.stats.pool_bytes;
+    eprintln!(
+        "{}: max refine programs = {max_progs} (ceiling = {DEFAULT_REFINE_MAX_PROGRAMS}), pool after zoom sweep = {:.2} MiB vs single frame = {:.2} MiB",
+        fig_path.display(),
+        final_fig_pool as f64 / MIB as f64,
+        single_fig_pool as f64 / MIB as f64
+    );
+    assert!(max_progs <= DEFAULT_REFINE_MAX_PROGRAMS);
+    assert_eq!(final_fig_pool, single_fig_pool);
 }

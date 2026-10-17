@@ -131,6 +131,7 @@ impl SceneCompiler {
         let out_size = size;
         let size = (size.0 * ss, size.1 * ss);
         let root_rect = IRect::new(0, 0, size.0 as i32, size.1 as i32);
+        let live = !single && self.geom.budget.is_some();
         let mut cx = Ctx {
             doc,
             geom: &mut self.geom,
@@ -147,8 +148,10 @@ impl SceneCompiler {
             clip_ids: HashMap::new(),
             unit,
             cull: !single,
+            live,
             ss,
             vram: root_bytes(out_size, size, ss),
+            reserved: (0, 0),
         };
         let node = doc.get(root_node).map(|n| resolve_node(doc, n));
         let bg = match node.as_deref().map(|n| &n.kind) {
@@ -353,10 +356,17 @@ struct Ctx<'a> {
     unit: Arc<Mesh>,
     /// Index-based culling is valid (not while drawing offset silhouettes).
     cull: bool,
+    /// A frame-budgeted (interactive) compile of a whole page. Unlike `cull`
+    /// this stays set while a silhouette draws its children, so the resource
+    /// limits of the idle refine keep binding there.
+    live: bool,
     /// Supersampling factor of the target.
     ss: u32,
     /// Accounted GPU bytes of the offscreen targets opened so far.
     vram: u64,
+    /// Programs and bytes that effects being drawn have been promised but not
+    /// opened yet (see `reserving`); the refine limits count them as used.
+    reserved: (usize, u64),
 }
 
 impl Ctx<'_> {
@@ -497,19 +507,28 @@ impl Ctx<'_> {
 
     // ----- tree -------------------------------------------------------------
 
+    /// Interactive approximations (greeking, sub-pixel culling, effect skips)
+    /// apply to index-culled drawing only: a silhouette draws its children at
+    /// full detail. Resource limits do not follow this switch (see `refining`).
     fn interactive(&self) -> bool {
         self.cull && self.geom.budget.is_some()
     }
 
+    /// The idle refine compile: interactive mode with its program cap lifted
+    /// (`CompileOptions::uncap_programs`). Its limits hold for the whole page,
+    /// also inside silhouette subtrees where `interactive()` is off.
+    fn refining(&self) -> bool {
+        self.live && self.opts.uncap_programs
+    }
+
     /// Whether interactive mode forbids opening more offscreen programs once
-    /// `limit` exist (lifted to `CompileOptions::refine_max_programs` when
-    /// `CompileOptions::uncap_programs` is set).
+    /// `limit` exist (replaced by `CompileOptions::refine_max_programs`,
+    /// counting reserved programs, when `CompileOptions::uncap_programs` is set).
     fn prog_cap_hit(&self, limit: usize) -> bool {
-        if !self.interactive() {
-            return false;
+        if self.refining() {
+            return self.progs.len().saturating_add(self.reserved.0) >= self.opts.refine_max_programs;
         }
-        let cap = if self.opts.uncap_programs { self.opts.refine_max_programs } else { limit };
-        self.progs.len() >= cap
+        self.interactive() && self.progs.len() >= limit
     }
 
     /// Whether the idle refine compile must not open `progs` more offscreen
@@ -518,9 +537,22 @@ impl Ctx<'_> {
     /// interactive compile is bound; callers degrade exactly like the
     /// `prog_cap_hit` fallback of the same site.
     fn over_budget(&self, progs: usize, bytes: u64) -> bool {
-        self.interactive()
-            && self.opts.uncap_programs
-            && (self.progs.len().saturating_add(progs) > self.opts.refine_max_programs || self.vram.saturating_add(bytes) > self.opts.refine_vram_budget_bytes)
+        self.refining()
+            && (self.progs.len().saturating_add(self.reserved.0).saturating_add(progs) > self.opts.refine_max_programs
+                || self.vram.saturating_add(self.reserved.1).saturating_add(bytes) > self.opts.refine_vram_budget_bytes)
+    }
+
+    /// Runs `f` with `progs` programs and `bytes` bytes held back for targets
+    /// that the caller opens only after `f` returns. An effect checks the cost
+    /// of all its targets once, but draws children (which open targets of their
+    /// own) between opening them; without the hold those children could use up
+    /// what the effect was already promised.
+    fn reserving<R>(&mut self, progs: usize, bytes: u64, f: impl FnOnce(&mut Self) -> R) -> R {
+        let held = self.reserved;
+        self.reserved = (held.0.saturating_add(progs), held.1.saturating_add(bytes));
+        let r = f(self);
+        self.reserved = held;
+        r
     }
 
     fn zoom_lod(&self) -> bool {
@@ -583,10 +615,12 @@ impl Ctx<'_> {
             return;
         }
         let needs_back = rest.iter().any(|c| doc.get(*c).is_some_and(|c| self.has_bg_blur(c)));
+        let mask_cost = self.program_cost(rect);
         let layer = self.new_prog(rect);
         self.progs[layer as usize].needs_backdrop = needs_back;
         let lclip = self.narrow_clip(clip, rect);
-        self.with_prog(layer, |c| c.draw_children(rest, parent_ts, lclip));
+        // the mask program below is opened after the siblings: keep its slot
+        self.reserving(1, mask_cost, |c| c.with_prog(layer, |c| c.draw_children(rest, parent_ts, lclip)));
         let mut mask_node = mask.clone();
         mask_node.blend = d::BlendMode::Normal;
         mask_node.effects.clear();
@@ -771,7 +805,8 @@ impl Ctx<'_> {
             if self.over_budget(usize::from(clip_rect.is_some()), displace_bytes(rect) + clip_rect.map_or(0, |r| self.program_cost(r))) {
                 continue;
             }
-            let clip_to = clip_rect.map(|r| self.sil_program(n, &g, ts, r, 0.0, 0.0, 0.0, true));
+            // the displacement targets are accounted only once the post is pushed
+            let clip_to = clip_rect.map(|r| self.reserving(0, displace_bytes(rect), |c| c.sil_program(n, &g, ts, r, 0.0, 0.0, 0.0, true)));
             let cell = (t.size.max(0.1) * scale / self.ss as f32).max(1.0);
             let c = self.cur();
             self.push_post(c, Post::Displace { amp, cell, seed: t.seed, grid: self.grid, clip_to, ss: self.ss });
@@ -1195,11 +1230,14 @@ impl Ctx<'_> {
             return;
         }
         let silhouettes = if show_behind { 1 } else { 2 };
+        let cost = self.program_cost(rect);
         let blur_cost = if sigma > 0.05 { self.blur_cost(rect) } else { 0 };
-        if self.over_budget(silhouettes as usize, silhouettes * self.program_cost(rect) + blur_cost) {
+        if self.over_budget(silhouettes as usize, silhouettes * cost + blur_cost) {
             return;
         }
-        let s = self.sil_program(n, g, ts, rect, ox, oy, spread, false);
+        // while the first silhouette draws its children, the blur and the
+        // second silhouette are still to come
+        let s = self.reserving(silhouettes as usize - 1, (silhouettes - 1) * cost + blur_cost, |c| c.sil_program(n, g, ts, rect, ox, oy, spread, false));
         if sigma > 0.05 {
             self.push_post(s, Post::Blur { sigma, clamp: false });
         }
@@ -1232,11 +1270,13 @@ impl Ctx<'_> {
         if rect.is_empty() {
             return;
         }
+        let cost = self.program_cost(rect);
         let blur_cost = if sigma > 0.05 { self.blur_cost(rect) } else { 0 };
-        if self.over_budget(3, 3 * self.program_cost(rect) + blur_cost) {
+        if self.over_budget(3, 3 * cost + blur_cost) {
             return;
         }
-        let hole = self.sil_program(n, g, ts, rect, ox, oy, -spread, false);
+        // the grain layer, its blur and the shape silhouette follow the hole
+        let hole = self.reserving(2, 2 * cost + blur_cost, |c| c.sil_program(n, g, ts, rect, ox, oy, -spread, false));
         let p = self.new_prog(rect);
         let inner = self.full_clip(rect);
         self.with_prog(p, |c| {
@@ -1268,10 +1308,11 @@ impl Ctx<'_> {
         }
         let pad = (3.0 * sigma).ceil() as i32 + 1;
         let padr = region.grow(pad).intersect(self.root_rect);
-        if self.over_budget(1, self.program_cost(region) + backdrop_bytes(false, padr)) {
+        let backdrop = backdrop_bytes(false, padr);
+        if self.over_budget(1, self.program_cost(region) + backdrop) {
             return;
         }
-        let mask = self.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, true);
+        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, region, 0.0, 0.0, 0.0, true));
         self.push_backdrop(BackdropOp { kind: BackdropKind::Blur { sigma }, region, pad: padr, mask, clip, grid: self.grid });
     }
 
@@ -1286,10 +1327,11 @@ impl Ctx<'_> {
         let sigma_m = (depth / 3.0).max(0.6);
         let pad = (3.0 * sigma_f.max(sigma_m)).ceil() as i32 + (depth * 1.5).ceil() as i32 + 2;
         let padr = region.grow(pad).intersect(self.root_rect);
-        if self.over_budget(1, self.program_cost(padr) + backdrop_bytes(true, padr)) {
+        let backdrop = backdrop_bytes(true, padr);
+        if self.over_budget(1, self.program_cost(padr) + backdrop) {
             return;
         }
-        let mask = self.sil_program(n, g, ts, padr, 0.0, 0.0, 0.0, true);
+        let mask = self.reserving(0, backdrop, |c| c.sil_program(n, g, ts, padr, 0.0, 0.0, 0.0, true));
         let ang = e.light_angle.to_radians();
         let params = GlassParams {
             light: [ang.cos(), ang.sin()],
