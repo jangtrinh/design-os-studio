@@ -41,6 +41,13 @@ impl App {
     /// Re-audits when the document or the scope changed since the cached report. While the user is
     /// mid-gesture (`interacting`) an existing report is kept, so a drag does not audit every frame.
     pub fn refresh_check_designs(&mut self, interacting: bool) {
+        // A page scope whose page was deleted would list nothing for ever; follow the page on screen.
+        if matches!(self.check_designs.scope, Some(Scope::Page(p)) if self.doc.get(p).is_none()) {
+            let name = self.doc.get(self.page).map(|p| p.name.clone()).unwrap_or_default();
+            self.check_designs.scope = Some(Scope::Page(self.page));
+            self.check_designs.scope_label = format!("Page: {name}");
+            self.check_designs.invalidate();
+        }
         let Some(scope) = self.check_designs.scope.clone() else { return };
         let key = (self.canvas.tiles.rev(), scope);
         if self.check_designs.audited.as_ref() == Some(&key) || (interacting && self.check_designs.audited.is_some()) {

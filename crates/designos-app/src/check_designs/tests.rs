@@ -26,9 +26,15 @@ fn fx() -> Fx {
 }
 
 impl Fx {
+    /// How many layers `parent` already holds. Frames and texts are laid out side by side and one
+    /// under the other, because a layer that overlaps an earlier sibling is not contrast-checked.
+    fn slot(&self, parent: NodeId) -> f32 {
+        self.doc.get(parent).map_or(0, |p| p.children.len()) as f32
+    }
+
     fn frame(&mut self, parent: NodeId, name: &str, fill: Option<Color>) -> NodeId {
         let id = self.doc.alloc_id();
-        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 200.0, 120.0));
+        let mut n = Node::frame(id, Rect::new(300.0 * self.slot(parent), 0.0, 200.0, 120.0));
         n.name = name.into();
         n.fills = fill.map(Paint::solid).into_iter().collect();
         self.doc.insert(parent, n).unwrap()
@@ -45,7 +51,7 @@ impl Fx {
     fn text(&mut self, parent: NodeId, content: &str, size: f32, weight: u16, color: Color) -> NodeId {
         let id = self.doc.alloc_id();
         let style = TextStyle { font_size: size, font_weight: weight, fills: vec![Paint::solid(color)], ..TextStyle::default() };
-        let mut n = Node::text(id, Rect::new(8.0, 8.0, 100.0, 20.0), content, style);
+        let mut n = Node::text(id, Rect::new(8.0, 8.0 + 24.0 * self.slot(parent), 100.0, 20.0), content, style);
         n.name = content.into();
         self.doc.insert(parent, n).unwrap()
     }
@@ -362,12 +368,37 @@ fn component(f: &mut Fx, source_id: &str) -> NodeId {
     f.doc.insert(f.page, n).unwrap()
 }
 
+/// A detached copy of `comp` on the page: the same tree with its component bookkeeping replaced by
+/// the `detachedSymbolId` provenance a `.fig` import leaves, named `name`, at (40, 60).
+fn detached_copy(f: &mut Fx, comp: NodeId, name: &str, symbol: &str) -> NodeId {
+    fn copy(f: &mut Fx, src: NodeId, parent: NodeId) -> NodeId {
+        let mut n = f.doc.get(src).unwrap().clone();
+        let kids = std::mem::take(&mut n.children);
+        n.id = f.doc.alloc_id();
+        n.source_id = None;
+        if let NodeKind::Component(p) = n.kind.clone() {
+            n.kind = NodeKind::Frame(p);
+        }
+        let id = f.doc.insert(parent, n).unwrap();
+        for k in kids {
+            copy(f, k, id);
+        }
+        id
+    }
+    let id = copy(f, comp, f.page);
+    let n = f.doc.get_mut(id).unwrap();
+    n.name = name.into();
+    n.transform.tx = 40.0;
+    n.transform.ty = 60.0;
+    n.component.detached_symbol_id = Some(symbol.into());
+    id
+}
+
 #[test]
 fn a_frame_detached_from_a_component_in_the_file_offers_to_reconnect() {
     let mut f = fx();
     let comp = component(&mut f, "12:34");
-    let frame = f.frame(f.page, "Save", Some(Color::WHITE));
-    f.doc.get_mut(frame).unwrap().component.detached_symbol_id = Some("guid:12:34".into());
+    let frame = detached_copy(&mut f, comp, "Save", "guid:12:34");
     let found = only(&f.report(), Rule::DetachedInstance);
     assert_eq!(found.node, frame);
     assert_eq!(found.message, "Detached from component \"Button\"");
@@ -501,10 +532,7 @@ fn reconnecting_swaps_the_frame_for_an_instance_in_place_and_undoes_in_one_step(
     let mut f = fx();
     let comp = component(&mut f, "12:34");
     let before_sibling = f.frame(f.page, "Before", None);
-    let frame = f.frame(f.page, "Save", Some(Color::WHITE));
-    f.doc.get_mut(frame).unwrap().transform.tx = 40.0;
-    f.doc.get_mut(frame).unwrap().transform.ty = 60.0;
-    f.doc.get_mut(frame).unwrap().component.detached_symbol_id = Some("guid:12:34".into());
+    let frame = detached_copy(&mut f, comp, "Save", "guid:12:34");
     let after_sibling = f.frame(f.page, "After", None);
     let mut app = f.app();
     let page = app.page;
@@ -518,6 +546,7 @@ fn reconnecting_swaps_the_frame_for_an_instance_in_place_and_undoes_in_one_step(
     let inst = app.doc.get(kids[pos]).unwrap();
     assert!(matches!(inst.kind, NodeKind::Instance { component, .. } if component == Some(comp)));
     assert_eq!((inst.transform.tx, inst.transform.ty), (40.0, 60.0));
+    assert_eq!(inst.name, "Save", "the layer keeps its own name");
     assert!(audit(&app.doc, &Scope::Page(page)).findings.is_empty());
     app.undo();
     assert_eq!(app.doc.get(page).unwrap().children, order_before);
@@ -560,3 +589,5 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert!(!app.hist.can_undo());
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
+
+mod safety;

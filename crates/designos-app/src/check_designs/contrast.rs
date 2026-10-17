@@ -1,11 +1,15 @@
 //! Contrast rule: WCAG 2.x AA for text against the backdrop its ancestors paint.
 //!
 //! Limits, all of which skip the layer instead of guessing: the text must have one visible solid
-//! colour (no gradient, image, or per-run colours) and every ancestor fill must be solid with
-//! normal blending. Sibling layers behind the text are not considered, only ancestors.
+//! colour (no gradient, image, or per-run colours), every ancestor fill must be solid with normal
+//! blending, and no visible layer painted before the text (a sibling of the text or of one of its
+//! ancestors) may overlap it, because what that layer paints behind the text is not modelled.
+//!
+//! Ancestors are composited the way the renderer does: a frame with opacity below 1 and children
+//! is one isolated group, so its opacity scales everything inside it, the text included.
 
 use super::{Finding, Fix, Rule};
-use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind};
+use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, Vec2};
 
 fn linear(v: f32) -> f64 {
     let v = f64::from(v.clamp(0.0, 1.0));
@@ -36,39 +40,114 @@ pub fn required_ratio(font_size: f32, weight: u16) -> f64 {
     }
 }
 
-/// `fg` at `alpha` over the opaque `bg`.
-fn over(fg: Color, alpha: f32, bg: Color) -> Color {
-    let a = alpha.clamp(0.0, 1.0);
-    Color { r: fg.r * a + bg.r * (1.0 - a), g: fg.g * a + bg.g * (1.0 - a), b: fg.b * a + bg.b * (1.0 - a), a: 1.0 }
+/// One ancestor: what it paints itself (solid fills, bottom to top, as colour and alpha) and the
+/// opacity its whole subtree is composited with.
+struct Layer {
+    fills: Vec<(Color, f32)>,
+    opacity: f32,
 }
 
-/// What the ancestors of `id` paint behind it, from the page colour up. `None` when any visible
-/// ancestor fill is not a plain solid, because the backdrop is then unknown.
-fn backdrop(doc: &Document, id: NodeId) -> Option<Color> {
-    let mut chain = Vec::new();
+/// The ancestors of a text layer, innermost first, over the page colour.
+struct Backdrop {
+    layers: Vec<Layer>,
+    page: Color,
+}
+
+/// Premultiplied RGBA.
+#[derive(Clone, Copy)]
+struct Px {
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+}
+
+impl Px {
+    const CLEAR: Px = Px { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+
+    fn of(c: Color, alpha: f32) -> Px {
+        let a = alpha.clamp(0.0, 1.0);
+        Px { r: c.r * a, g: c.g * a, b: c.b * a, a }
+    }
+
+    /// `self` painted over `below`.
+    fn over(self, below: Px) -> Px {
+        let k = 1.0 - self.a;
+        Px { r: self.r + below.r * k, g: self.g + below.g * k, b: self.b + below.b * k, a: self.a + below.a * k }
+    }
+
+    fn scaled(self, k: f32) -> Px {
+        Px { r: self.r * k, g: self.g * k, b: self.b * k, a: self.a * k }
+    }
+}
+
+impl Backdrop {
+    /// The colour on screen where `text` (colour and alpha) is drawn over the innermost ancestor, or
+    /// the plain backdrop for `None`.
+    fn pixel(&self, text: Option<(Color, f32)>) -> Color {
+        let mut acc = text.map_or(Px::CLEAR, |(c, a)| Px::of(c, a));
+        for layer in &self.layers {
+            let own = layer.fills.iter().fold(Px::CLEAR, |below, (c, a)| Px::of(*c, *a).over(below));
+            acc = acc.over(own).scaled(layer.opacity.clamp(0.0, 1.0));
+        }
+        let shown = acc.over(Px::of(self.page, 1.0));
+        Color { r: shown.r, g: shown.g, b: shown.b, a: 1.0 }
+    }
+}
+
+/// What the ancestors of `id` paint behind it. `None` when any visible ancestor fill is not a plain
+/// solid, because the backdrop is then unknown.
+fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
+    let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE };
     let mut cur = doc.get(id)?.parent;
     while let Some(p) = cur {
-        chain.push(p);
-        cur = doc.get(p)?.parent;
-    }
-    let mut bg = Color::WHITE;
-    for p in chain.into_iter().rev() {
         let n = resolved_node(doc, p)?;
+        cur = doc.get(p)?.parent;
         if let NodeKind::Page { background } = &n.kind {
-            bg = Color { a: 1.0, ..*background };
+            out.page = Color { a: 1.0, ..*background };
             continue;
         }
         if !n.visible {
             continue;
         }
+        let mut fills = Vec::new();
         for paint in n.fills.iter().filter(|p| p.visible) {
             match &paint.kind {
-                PaintKind::Solid(c) if paint.blend == BlendMode::Normal => bg = over(*c, c.a * paint.opacity * n.opacity, bg),
+                PaintKind::Solid(c) if paint.blend == BlendMode::Normal => fills.push((*c, c.a * paint.opacity)),
                 _ => return None,
             }
         }
+        out.layers.push(Layer { fills, opacity: n.opacity });
     }
-    Some(bg)
+    Some(out)
+}
+
+/// The layer's bounds in page space (the box of its transformed corners).
+fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
+    let size = doc.get(id)?.size;
+    let t = doc.world_transform(id);
+    let corners = [Vec2::new(0.0, 0.0), Vec2::new(size.x, 0.0), Vec2::new(0.0, size.y), Vec2::new(size.x, size.y)].map(|c| t.apply(c));
+    let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
+    let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
+}
+
+/// Whether a visible layer painted before `id` (an earlier sibling of it or of any ancestor) covers
+/// part of it. Such a layer is behind the text and the ancestor chain does not describe it.
+fn has_layer_behind(doc: &Document, id: NodeId) -> bool {
+    let Some(text_box) = page_box(doc, id) else { return true };
+    let mut cur = id;
+    while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
+        let Some(p) = doc.get(parent) else { return true };
+        for sibling in p.children.iter().take_while(|s| **s != cur) {
+            let Some(s) = doc.get(*sibling) else { continue };
+            if s.visible && s.opacity > 0.0 && page_box(doc, *sibling).is_some_and(|b| b.intersects(&text_box)) {
+                return true;
+            }
+        }
+        cur = parent;
+    }
+    false
 }
 
 /// The text's single visible solid paint: its index and colour. `None` for anything mixed.
@@ -89,10 +168,20 @@ fn text_paint(n: &Node) -> Option<(usize, Color)> {
 struct Failure {
     paint: usize,
     color: Color,
+    /// The text's own alpha: colour alpha x paint opacity x layer opacity.
     alpha: f32,
+    backdrop: Backdrop,
+    /// The plain backdrop colour on screen.
     bg: Color,
     ratio: f64,
     required: f64,
+}
+
+impl Failure {
+    /// The contrast the text would have if it were painted in `color`.
+    fn ratio_with(&self, color: Color) -> f64 {
+        contrast_ratio(self.backdrop.pixel(Some((color, self.alpha))), self.bg)
+    }
 }
 
 fn failure(doc: &Document, id: NodeId) -> Option<Failure> {
@@ -102,11 +191,13 @@ fn failure(doc: &Document, id: NodeId) -> Option<Failure> {
         return None;
     }
     let (paint, color) = text_paint(&n)?;
-    let bg = backdrop(doc, id)?;
+    let backdrop = backdrop(doc, id)?;
     let alpha = color.a * t.style.fills[paint].opacity * n.opacity;
-    let ratio = contrast_ratio(over(color, alpha, bg), bg);
+    let bg = backdrop.pixel(None);
+    let ratio = contrast_ratio(backdrop.pixel(Some((color, alpha))), bg);
     let required = required_ratio(t.style.font_size, t.style.font_weight);
-    (ratio < required).then_some(Failure { paint, color, alpha, bg, ratio, required })
+    // The layer-behind scan only runs for text that already fails, so passing text stays cheap.
+    (ratio < required && !has_layer_behind(doc, id)).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
 }
 
 /// The mildest recolouring toward black or white that reaches `required`, quantised to 8 bits.
@@ -119,7 +210,7 @@ fn suggest(f: &Failure) -> Option<Color> {
             let t = f32::from(step) / 255.0;
             let mix = |a: f32, b: f32| a + (b - a) * t;
             let c = Color { a: f.color.a, ..Color::rgb(q(mix(f.color.r, target.r)), q(mix(f.color.g, target.g)), q(mix(f.color.b, target.b))) };
-            (contrast_ratio(over(c, f.alpha, f.bg), f.bg) >= f.required).then_some(c)
+            (f.ratio_with(c) >= f.required).then_some(c)
         })
     })
 }
@@ -164,7 +255,7 @@ pub(super) fn check(doc: &Document, n: &Node, out: &mut Vec<Finding>) {
             (None, String::new())
         }
         (None, Some(color)) => {
-            let new_ratio = contrast_ratio(over(color, f.alpha, f.bg), f.bg);
+            let new_ratio = f.ratio_with(color);
             (Some(Fix::SetTextColor { color }), format!("Change text to #{} ({:.2}:1)", color.to_hex(), floor2(new_ratio)))
         }
         (None, None) => (None, String::new()),

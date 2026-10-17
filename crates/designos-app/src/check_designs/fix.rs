@@ -6,7 +6,7 @@ use super::{contrast, detached, hardcoded, Finding, Fix};
 use crate::app::App;
 use crate::edit::Tx;
 use crate::layout;
-use designos_doc::{set_bound_property, Command, NodeId, NodeKind, PaintKind, Vec2};
+use designos_doc::{set_bound_property, set_text_fills_everywhere, Command, NodeId, NodeKind, PaintKind, Vec2};
 
 /// Order fixes run in within "Fix all": structure first, then recolouring, then re-linking, so a
 /// re-link whose precondition the recolouring broke is skipped instead of undoing it.
@@ -67,40 +67,39 @@ impl App {
                 self.apply_style_in(tx, &[id], style);
                 true
             }
-            Fix::SetTextColor { .. } => {
-                let Some((paint, color)) = contrast::fresh_fix(&self.doc, id) else { return false };
+            Fix::SetTextColor { color } => {
+                // The stored colour is what the user was shown; apply it only while the audit would
+                // still suggest exactly that for this layer.
+                let Some((paint, fresh)) = contrast::fresh_fix(&self.doc, id).filter(|(_, fresh)| fresh == color) else { return false };
                 let Some(n) = tx.ed.node(&mut self.doc, id) else { return false };
                 let NodeKind::Text(t) = &mut n.kind else { return false };
-                match t.style.fills.get_mut(paint) {
-                    Some(p) => p.kind = PaintKind::Solid(color),
-                    None => return false,
-                }
-                true
+                set_text_fills_everywhere(t, paint, PaintKind::Solid(fresh))
             }
             Fix::Reconnect { component } => self.reconnect_detached(tx, id, *component),
         }
     }
 
     /// Replaces the detached frame `id` with an instance of `component` in the same slot, keeping
-    /// its transform, constraints and auto-layout child settings.
+    /// its name, size, transform, constraints and auto-layout child settings. Refuses unless the
+    /// frame still equals the component apart from name and placement, so no edit is lost.
     fn reconnect_detached(&mut self, tx: &mut Tx, id: NodeId, component: NodeId) -> bool {
         let Some(old) = self.doc.get(id).cloned() else { return false };
-        let still_detached = detached::symbol_of(&old).and_then(|s| detached::resolve(&self.doc, s)) == Some(component);
-        let Some(parent) = old.parent.filter(|_| still_detached) else { return false };
+        let still_detached = detached::symbol_of(&old).is_some_and(|s| detached::is_main_component(&self.doc, s, component));
+        let Some(parent) = old.parent.filter(|_| still_detached && detached::matches_component(&self.doc, id, component)) else { return false };
         let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { return false };
         let cmd = designos_doc::create_instance(&mut self.doc, component, parent, Vec2::new(old.transform.tx, old.transform.ty));
         let Command::Insert { mut nodes, .. } = cmd else { return false };
         let Some(root) = nodes.first_mut() else { return false };
+        root.name = old.name.clone();
+        root.size = old.size;
         root.transform = old.transform;
         root.constraints = old.constraints;
         root.layout_child = old.layout_child;
         let new_id = root.id;
-        let steps = [Command::Insert { parent, index, nodes }, Command::Remove { id }];
-        for step in steps {
-            if let Err(e) = tx.cmd(&mut self.doc, step) {
-                self.show_toast(format!("Edit failed: {e}"), true);
-                return false;
-            }
+        // Both steps or neither: a half-applied swap would leave a duplicate in a "Fix all".
+        if let Err(e) = tx.cmds_all_or_none(&mut self.doc, vec![Command::Insert { parent, index, nodes }, Command::Remove { id }]) {
+            self.show_toast(format!("Edit failed: {e}"), true);
+            return false;
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, new_id);
         true

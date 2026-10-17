@@ -12,20 +12,30 @@ fn report(s: &Sim) -> Report {
     audit(&s.app().doc, &Scope::Page(s.app().page))
 }
 
+/// Whether the panel drew a rect under `name` this frame.
+fn has_rect(s: &Sim, name: &str) -> bool {
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some()
+}
+
 #[test]
-fn the_panel_lists_every_finding_grouped_with_a_fix_button_each() {
+fn the_panel_lists_every_finding_grouped_with_a_fix_button_on_each_fixable_row() {
     let s = sim();
     let r = report(&s);
-    assert_eq!(r.findings.len(), 7, "{:#?}", r.findings);
+    assert_eq!(r.findings.len(), 8, "{:#?}", r.findings);
     assert!(s.app().check_designs.open);
     assert_eq!(s.app().check_designs.report, r, "the panel shows the audit of the page");
     let panel = s.rect_of("check-designs-panel");
     for (i, f) in s.app().check_designs.report.findings.iter().enumerate() {
         let row = s.rect_of(&format!("check-designs-row-{i}"));
         assert!(panel.contains_rect(row), "row {i} ({}) sits inside the panel", f.node_name);
+        if f.fix.is_none() {
+            assert!(!has_rect(&s, &format!("check-designs-fix-{i}")), "row {i} ({}) has no safe fix, so it has no Fix button", f.node_name);
+            continue;
+        }
         let fix = s.rect_of(&format!("check-designs-fix-{i}"));
         assert!(fix.width() >= 24.0 && fix.height() >= 24.0, "Fix button {i} meets the 24px floor");
     }
+    assert_eq!(r.findings.iter().filter(|f| f.fix.is_none()).count(), 1, "the resized detached frame is the one row without a fix");
     let fix_all = s.rect_of("check-designs-fix-all");
     assert!(fix_all.width() >= 24.0 && fix_all.height() >= 24.0);
 }
@@ -37,29 +47,31 @@ fn one_fix_click_fixes_one_finding_and_undoes_in_one_step() {
     let before = s.app().doc.get(first.node).cloned();
     let fix = s.rect_of("check-designs-fix-0");
     s.click(fix.center());
-    assert_eq!(report(&s).findings.len(), 6);
+    assert_eq!(report(&s).findings.len(), 7);
     assert!(report(&s).findings.iter().all(|f| f != &first), "the fixed finding is gone");
     assert_ne!(s.app().doc.get(first.node).cloned(), before);
     s.frame(vec![]);
-    assert_eq!(s.app().check_designs.report.findings.len(), 6, "the panel refreshed itself");
+    assert_eq!(s.app().check_designs.report.findings.len(), 7, "the panel refreshed itself");
     s.cmd_key(Key::Z);
-    assert_eq!(report(&s).findings.len(), 7);
+    assert_eq!(report(&s).findings.len(), 8);
     assert_eq!(s.app().doc.get(first.node).cloned(), before);
     assert!(!s.app().hist.can_undo(), "exactly one undo step");
 }
 
 #[test]
-fn fix_all_clears_the_list_in_one_undo_step() {
+fn fix_all_fixes_every_safe_finding_in_one_undo_step_and_leaves_the_rest() {
     let mut s = sim();
     let nodes: Vec<NodeId> = s.app().doc.nodes.keys().copied().collect();
     let before: Vec<_> = nodes.iter().map(|id| s.app().doc.get(*id).cloned()).collect();
     let fix_all = s.rect_of("check-designs-fix-all");
     s.click(fix_all.center());
-    assert!(report(&s).findings.is_empty(), "{:#?}", report(&s).findings);
+    let left: Vec<_> = report(&s).findings.iter().map(|f| f.node_name.clone()).collect();
+    assert_eq!(left, ["Cancel"], "only the finding with no safe fix is left");
     s.frame(vec![]);
-    assert!(s.app().check_designs.report.findings.is_empty());
+    assert_eq!(s.app().check_designs.report.findings.len(), 1);
+    assert!(s.app().check_designs.report.fixable().is_empty());
     s.cmd_key(Key::Z);
-    assert_eq!(report(&s).findings.len(), 7);
+    assert_eq!(report(&s).findings.len(), 8);
     let after: Vec<_> = nodes.iter().map(|id| s.app().doc.get(*id).cloned()).collect();
     assert_eq!(after, before, "one undo restores every layer");
     assert!(!s.app().hist.can_undo());
@@ -73,7 +85,7 @@ fn clicking_a_row_selects_its_layer_without_changing_the_list() {
     s.click(Pos2::new(row.left() + 40.0, row.top() + 12.0));
     assert_eq!(s.app().selection, vec![target]);
     s.frame(vec![]);
-    assert_eq!(s.app().check_designs.report.findings.len(), 7, "the scope was fixed when the panel opened");
+    assert_eq!(s.app().check_designs.report.findings.len(), 8, "the scope was fixed when the panel opened");
 }
 
 #[test]

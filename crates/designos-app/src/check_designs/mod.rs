@@ -4,7 +4,8 @@
 //! - **Hard-coded values**: a fill, stroke, text style or effect list holds a raw value that equals an
 //!   existing variable or shared style but is not linked to it. The suggested fix links it.
 //! - **Contrast**: text fails WCAG 2.x AA against the backdrop its ancestors paint.
-//! - **Detached instances**: a frame that was detached from a main component present in this file.
+//! - **Detached instances**: a frame that was detached from a main component present in this file;
+//!   the reconnect fix is offered only while the frame still equals the component.
 //!
 //! The audit is a pure function of the [`Document`]. Fixes run through [`crate::edit::Tx`], so each
 //! fix (and "Fix all") is exactly one undo step. Layers inside an instance mirror their main
@@ -58,7 +59,7 @@ pub enum Fix {
     ApplyStyle { style: String },
     /// Replace the text colour with `color` (alpha is kept).
     SetTextColor { color: Color },
-    /// Replace the detached frame with an instance of `component`.
+    /// Replace the detached frame with an instance of `component`, keeping its name and size.
     Reconnect { component: NodeId },
 }
 
@@ -114,6 +115,7 @@ pub fn audit(doc: &Document, scope: &Scope) -> Report {
         Scope::Layers(ids) => ids.clone(),
     };
     let index = hardcoded::Index::new(doc);
+    let components = detached::Components::new(doc);
     let mut report = Report::default();
     let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
     while let Some(id) = stack.pop() {
@@ -128,7 +130,7 @@ pub fn audit(doc: &Document, scope: &Scope) -> Report {
         report.scanned += 1;
         hardcoded::check(doc, &index, n, &mut report.findings);
         contrast::check(doc, n, &mut report.findings);
-        detached::check(doc, n, &mut report.findings);
+        detached::check(doc, &components, n, &mut report.findings);
         stack.extend(n.children.iter().rev().copied());
     }
     report

@@ -1,6 +1,7 @@
 //! Screenshot fixture for `--fixture check-designs`: a small design system (one colour variable,
 //! three shared styles, one main component) and three frames that drift from it, one per Check
-//! designs rule family. The audit and the fixes run on this document exactly as on a user file.
+//! designs rule family, plus one finding that has no safe fix. The audit and the fixes run on this
+//! document exactly as on a user file.
 
 use designos_doc::{
     Color, Document, Effect, FrameProps, Node, NodeKind, Paint, Rect, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind,
@@ -81,7 +82,7 @@ pub fn document() -> Document {
     button.fills = vec![Paint::solid(PRIMARY)];
     button.corner_radii = [8.0; 4];
     add(&mut d, card, button);
-    // Contrast: grey caption on the white card area (3.4:1) and a dark footer with dim text.
+    // Contrast: grey caption on the light card area (3.14:1) and a dark footer with dim text (1.88:1).
     add(
         &mut d,
         card,
@@ -112,6 +113,13 @@ pub fn document() -> Document {
     save.corner_radii = [8.0; 4];
     save.component.detached_symbol_id = Some("guid:12:34".into());
     add(&mut d, page, save);
+    // Detached and then resized: an instance would lose the new size, so it is reported with no fix.
+    let mut cancel = Node::frame(designos_doc::NodeId(0), Rect::new(480.0, 248.0, 208.0, 48.0));
+    cancel.name = "Cancel".into();
+    cancel.fills = vec![Paint::solid(Color::rgb(0x27, 0x27, 0x2A))];
+    cancel.corner_radii = [8.0; 4];
+    cancel.component.detached_symbol_id = Some("guid:12:34".into());
+    add(&mut d, page, cancel);
     d
 }
 
@@ -127,7 +135,10 @@ mod tests {
         for rule in Rule::ALL {
             assert!(report.of(rule).next().is_some(), "{rule:?} has no finding in the fixture: {:#?}", report.findings);
         }
-        assert!(report.findings.iter().all(|f| f.fix.is_some()), "every fixture finding is fixable");
-        assert_eq!(report.findings.len(), 7, "{:#?}", report.findings);
+        let unfixable: Vec<_> = report.findings.iter().filter(|f| f.fix.is_none()).map(|f| f.node_name.as_str()).collect();
+        assert_eq!(unfixable, ["Cancel"], "only the edited detached frame has no fix");
+        assert_eq!(report.findings.len(), 8, "{:#?}", report.findings);
+        let note = report.findings.iter().find(|f| f.node_name == "Billing note").expect("the grey caption is flagged");
+        assert_eq!(note.message, "Contrast 3.14:1 is below 4.5:1 (WCAG AA)", "the ratio quoted in the fixture comment");
     }
 }

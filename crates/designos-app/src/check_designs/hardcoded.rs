@@ -15,43 +15,79 @@ use std::collections::HashMap;
 /// Alpha tolerance when comparing colours: half an 8-bit step.
 const ALPHA_EPS: f32 = 0.002;
 
+/// A colour variable and whether it resolves to one and the same colour in every mode.
+struct Entry<'a> {
+    var: &'a Variable,
+    constant: bool,
+}
+
+/// What [`Index::find`] concluded for one paint.
+pub(super) enum Match<'a> {
+    None,
+    /// Exactly one variable is the right one.
+    One(&'a Variable),
+    /// Several variables fit equally well, so none may be picked for the user.
+    Ambiguous(Vec<&'a Variable>),
+}
+
 /// Colour variables by the 8-bit RGB value they resolve to in any mode of their collection.
 pub(super) struct Index<'a> {
-    by_rgb: HashMap<u32, Vec<&'a Variable>>,
+    by_rgb: HashMap<u32, Vec<Entry<'a>>>,
 }
 
 impl<'a> Index<'a> {
     pub(super) fn new(doc: &'a Document) -> Self {
         let store = VariableStore::from_doc(doc);
-        let mut by_rgb: HashMap<u32, Vec<&Variable>> = HashMap::new();
+        let mut by_rgb: HashMap<u32, Vec<Entry>> = HashMap::new();
         for v in doc.variables.values().filter(|v| v.kind == VariableKind::Color) {
             let Some(coll) = doc.variable_collections.get(&v.collection) else { continue };
+            let values: Vec<Option<Color>> = coll
+                .modes
+                .iter()
+                .map(|mode| match store.resolve(&v.id, &mode.id) {
+                    Some(VariableValue::Color(c)) => Some(c),
+                    _ => None,
+                })
+                .collect();
+            let constant = !values.is_empty() && values.iter().all(|c| matches!((c, &values[0]), (Some(a), Some(b)) if same_colour(a, b)));
             let mut seen = Vec::new();
-            for mode in &coll.modes {
-                if let Some(VariableValue::Color(c)) = store.resolve(&v.id, &mode.id) {
-                    let key = rgb_key(&c);
-                    if !seen.contains(&key) {
-                        seen.push(key);
-                        by_rgb.entry(key).or_default().push(v);
-                    }
+            for c in values.iter().flatten() {
+                let key = rgb_key(c);
+                if !seen.contains(&key) {
+                    seen.push(key);
+                    by_rgb.entry(key).or_default().push(Entry { var: v, constant });
                 }
             }
         }
         for list in by_rgb.values_mut() {
-            list.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
+            list.sort_by(|a, b| (&a.var.name, &a.var.id).cmp(&(&b.var.name, &b.var.id)));
         }
         Index { by_rgb }
     }
 
-    /// First variable (by name) that holds `c` at `node` for property `key`.
-    fn find(&self, doc: &Document, node: &Node, key: &str, c: &Color) -> Option<&'a Variable> {
-        self.by_rgb.get(&rgb_key(c))?.iter().copied().find(|v| variable_holds(doc, node, key, v, c))
+    /// The variable that holds `c` at `node` for property `key`. A variable with the same value in
+    /// every mode is preferred over one that only matches in the mode in effect here, since the
+    /// latter would change colour when the mode switches. Several equally good ones are ambiguous.
+    fn find(&self, doc: &Document, node: &Node, key: &str, c: &Color) -> Match<'a> {
+        let Some(list) = self.by_rgb.get(&rgb_key(c)) else { return Match::None };
+        let holding: Vec<&Entry> = list.iter().filter(|e| variable_holds(doc, node, key, e.var, c)).collect();
+        let steady: Vec<&Entry> = holding.iter().copied().filter(|e| e.constant).collect();
+        let pool = if steady.is_empty() { holding } else { steady };
+        match pool.as_slice() {
+            [] => Match::None,
+            [only] => Match::One(only.var),
+            many => Match::Ambiguous(many.iter().map(|e| e.var).collect()),
+        }
     }
 }
 
+/// Same colour to the 8-bit step, and the same alpha within [`ALPHA_EPS`].
+fn same_colour(a: &Color, b: &Color) -> bool {
+    rgb_key(a) == rgb_key(b) && (a.a - b.a).abs() <= ALPHA_EPS
+}
+
 fn variable_holds(doc: &Document, node: &Node, key: &str, v: &Variable, c: &Color) -> bool {
-    scope_allows(&v.scopes, key, &node.kind)
-        && matches!(doc.resolve_variable(node.id, &v.id), Some(VariableValue::Color(vc)) if rgb_key(&vc) == rgb_key(c) && (vc.a - c.a).abs() <= ALPHA_EPS)
+    scope_allows(&v.scopes, key, &node.kind) && matches!(doc.resolve_variable(node.id, &v.id), Some(VariableValue::Color(vc)) if same_colour(&vc, c))
 }
 
 /// The paint list a slot reads from.
@@ -103,6 +139,20 @@ fn finding(n: &Node, message: String, fix: Fix, fix_label: String) -> Finding {
     Finding { node: n.id, node_name: n.name.clone(), rule: Rule::HardCodedValue, message, fix: Some(fix), fix_label }
 }
 
+/// A finding that is reported but cannot be fixed without a choice only the user can make.
+fn report_only(n: &Node, message: String) -> Finding {
+    Finding { node: n.id, node_name: n.name.clone(), rule: Rule::HardCodedValue, message, fix: None, fix_label: String::new() }
+}
+
+/// `"A", "B"` for up to three variable names, then an ellipsis.
+fn name_list(vars: &[&Variable]) -> String {
+    let mut names: Vec<String> = vars.iter().take(3).map(|v| format!("\"{}\"", v.name)).collect();
+    if vars.len() > 3 {
+        names.push("…".to_string());
+    }
+    names.join(", ")
+}
+
 pub(super) fn check(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>) {
     if matches!(n.kind, NodeKind::Unknown { .. }) {
         return;
@@ -127,10 +177,18 @@ fn paints_rule(doc: &Document, index: &Index, n: &Node, slot: Slot, out: &mut Ve
         if !p.visible || n.variables.bindings.contains_key(&key) {
             continue;
         }
-        if let Some(v) = index.find(doc, n, &key, c) {
-            matched_variable = true;
-            let message = format!("{} #{} matches variable \"{}\"", slot.label(), c.to_hex(), v.name);
-            out.push(finding(n, message, Fix::BindVariable { key, variable: v.id.clone() }, format!("Bind to variable {}", v.name)));
+        match index.find(doc, n, &key, c) {
+            Match::None => {}
+            Match::One(v) => {
+                matched_variable = true;
+                let message = format!("{} #{} matches variable \"{}\"", slot.label(), c.to_hex(), v.name);
+                out.push(finding(n, message, Fix::BindVariable { key, variable: v.id.clone() }, format!("Bind to variable {}", v.name)));
+            }
+            Match::Ambiguous(vars) => {
+                matched_variable = true;
+                let message = format!("{} #{} matches {} variables: {}", slot.label(), c.to_hex(), vars.len(), name_list(&vars));
+                out.push(report_only(n, message));
+            }
         }
     }
     // A style replaces the whole list, so it is only suggested when no paint of the layer is bound.
