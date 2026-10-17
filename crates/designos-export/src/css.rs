@@ -1,6 +1,6 @@
 //! Figma Dev Mode style CSS for a node.
 
-use crate::codegen::{content_sized_axes, grid_hug_axes, sizes, Parent, GRID_HUG_MIN_COLUMN_PX};
+use crate::codegen::{web_sizes, Dim, Parent};
 use crate::svg::blend_css;
 use crate::util::{css_color, num, num2};
 use designos_doc::*;
@@ -40,17 +40,14 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         }
     }
     let grid_parent = parent_al.is_some_and(|a| a.direction == LayoutDirection::Grid);
-    let row_parent = parent_al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
-    let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
-    let text_auto_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
-    let text_auto_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
+    // Width and height follow the node's sizing: Fixed prints pixels, Fill is left to the parent, Hug
+    // (self-sizing text, a flex frame hugging its children) is left to the content. A grid frame is
+    // never Hug here: it prints the size the solver gave it.
+    let sz = web_sizes(n, Parent { al: parent_al, root: false });
+    let row_parent = sz.row_parent;
     let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill);
     let fill_h = in_flow && (n.layout_child.vertical == Sizing::Fill);
     let grows = in_flow && n.layout_child.grow > 0.0;
-    let sz = sizes(n, Parent { al: parent_al, root: false });
-    let (grid_hug_w, grid_hug_h) = grid_hug_axes(n, &sz);
-    let (content_w, content_h) = content_sized_axes(n, &sz);
     let mut flex_done = false;
     let mut stretch = false;
     if in_flow && grid_parent {
@@ -60,10 +57,11 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         if n.layout_child.row_span > 1 {
             push("grid-row", format!("span {}", n.layout_child.row_span));
         }
-        if content_w {
+        // An item sized by its own content keeps that size instead of stretching across its cell.
+        if sz.w == Dim::Hug {
             push("justify-self", "start".into());
         }
-        if content_h {
+        if sz.h == Dim::Hug {
             push("align-self", "start".into());
         }
     } else {
@@ -81,17 +79,13 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             }
         }
     }
-    let width_skipped = fill_w || (grows && !grid_parent && row_parent) || hug_w || text_auto_w;
-    let height_skipped = fill_h || (grows && !grid_parent && !row_parent) || hug_h || text_auto_h;
+    let width_skipped = !matches!(sz.w, Dim::Fixed(_));
+    let height_skipped = !matches!(sz.h, Dim::Fixed(_));
     if !width_skipped {
         push("width", format!("{}px", num(n.size.x)));
-    } else if grid_hug_w {
-        push("width", "max-content".into());
     }
     if !height_skipped || matches!(n.kind, NodeKind::Line) {
         push("height", format!("{}px", num(if matches!(n.kind, NodeKind::Line) { 0.0 } else { n.size.y })));
-    } else if grid_hug_h {
-        push("height", "max-content".into());
     }
     if stretch {
         push("align-self", "stretch".into());
@@ -108,14 +102,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         }
         if al.direction == LayoutDirection::Grid {
             let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1);
-            if grid_hug_w {
-                push("grid-template-columns", format!("repeat({cols}, minmax({}px, max-content))", num(GRID_HUG_MIN_COLUMN_PX)));
-            } else {
-                push("grid-template-columns", format!("repeat({cols}, minmax(0, 1fr))"));
-            }
+            push("grid-template-columns", format!("repeat({cols}, minmax(0, 1fr))"));
             if al.grid_rows > 0 {
-                let row = if grid_hug_h { "auto" } else { "minmax(0, 1fr)" };
-                push("grid-template-rows", format!("repeat({}, {row})", al.grid_rows));
+                push("grid-template-rows", format!("repeat({}, minmax(0, 1fr))", al.grid_rows));
             }
             let col = al.item_spacing;
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -727,13 +716,11 @@ mod tests {
         });
 
         let grid_css = css_for(&d, grid_id);
-        assert!(
-            grid_css.contains("width: max-content;") && !grid_css.contains("width: 200px;"),
-            "a grid hugging its width must size to its content: {grid_css}"
-        );
+        assert!(grid_css.contains("width: 200px;"), "a hugging grid exports the size it holds, its tracks are fractions of it: {grid_css}");
         assert!(grid_css.contains("height: 300px;"), "grid with fixed height must emit height: {grid_css}");
+        assert!(grid_css.contains("grid-template-columns: repeat(3, minmax(0, 1fr));"), "{grid_css}");
         let tw = crate::tailwind_for(&d, grid_id);
-        assert!(tw.contains("h-[300px]") && tw.contains("w-max") && !tw.contains("w-[200px]"), "codegen sizes must treat grid primary as width: {tw}");
+        assert!(tw.contains("h-[300px]") && tw.contains("w-[200px]") && !tw.contains("w-max"), "codegen sizes must treat grid primary as width: {tw}");
 
         let children = &d.get(grid_id).unwrap().children;
         let fixed_css = css_for(&d, children[0]);
@@ -751,37 +738,74 @@ mod tests {
         );
     }
 
+    /// The grid's exported width and height must be the frame the solver computed, and its tracks
+    /// stay fractions of that size.
+    fn solved_grid_css(d: &Document, grid: NodeId, cols: u32, rows: u32) -> String {
+        let size = d.get(grid).unwrap().size;
+        let css = css_for(d, grid);
+        assert!(css.contains(&format!("width: {}px;", num(size.x))), "the exported width must be the solver's {}: {css}", size.x);
+        assert!(css.contains(&format!("height: {}px;", num(size.y))), "the exported height must be the solver's {}: {css}", size.y);
+        assert!(css.contains(&format!("grid-template-columns: repeat({cols}, minmax(0, 1fr));")), "{css}");
+        if rows > 0 {
+            assert!(css.contains(&format!("grid-template-rows: repeat({rows}, minmax(0, 1fr));")), "{css}");
+        }
+        assert!(
+            !css.contains("max-content") && !css.contains("minmax(40px") && !css.contains(", auto)"),
+            "tracks must not be re-derived by the CSS track algorithm: {css}"
+        );
+        css
+    }
+
     #[test]
-    fn hugging_grid_width_stays_definite_for_a_small_child() {
+    fn hugging_grid_exports_the_solved_width_for_a_small_child() {
         use crate::codegen::fixture;
         let al = AutoLayout { grid_columns: 3, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..Default::default() };
         let (mut d, grid) = fixture::grid_frame(al, Vec2::new(1000.0, 100.0));
         fixture::add_rect(&mut d, grid, Vec2::new(10.0, 10.0));
         d.relayout_subtree(grid);
-        assert_eq!(d.get(grid).unwrap().size.x, 120.0, "the solver sizes three default columns at their 40px minimum");
-        let css = css_for(&d, grid);
-        assert!(css.contains("width: max-content;"), "a hugging grid must not fall back to width: auto, which fills its container: {css}");
-        assert!(css.contains("grid-template-columns: repeat(3, minmax(40px, max-content));"), "{css}");
-        assert!(!css.contains("1fr"), "fractional tracks would split the container, not the hugged width: {css}");
-        assert!(css.contains("height: 100px;"), "{css}");
+        assert_eq!(d.get(grid).unwrap().size, Vec2::new(120.0, 100.0), "the solver sizes three default columns at their 40px minimum");
+        solved_grid_css(&d, grid, 3, 0);
     }
 
     #[test]
-    fn hugging_grid_columns_follow_their_widest_child() {
+    fn hugging_grid_exports_the_solved_width_when_the_widest_child_fills() {
         use crate::codegen::fixture;
-        let al = AutoLayout { grid_columns: 3, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
-        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(500.0, 500.0));
-        let kids: Vec<NodeId> = [100.0, 10.0, 60.0].iter().map(|w| fixture::add_rect(&mut d, grid, Vec2::new(*w, 10.0))).collect();
+        let al = AutoLayout { grid_columns: 1, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(500.0, 100.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 20.0));
+        d.get_mut(rect).unwrap().layout_child.horizontal = Sizing::Fill;
         d.relayout_subtree(grid);
-        let xs: Vec<f32> = kids.iter().map(|k| d.get(*k).unwrap().transform.tx).collect();
-        assert_eq!((d.get(grid).unwrap().size, xs), (Vec2::new(200.0, 10.0), vec![0.0, 100.0, 140.0]), "unequal columns: 100, 40 and 60");
-        let css = css_for(&d, grid);
-        assert!(css.contains("width: max-content;") && css.contains("height: max-content;"), "{css}");
-        assert!(css.contains("grid-template-columns: repeat(3, minmax(40px, max-content));"), "{css}");
+        assert_eq!(d.get(grid).unwrap().size.x, 100.0, "a Fill child still counts at its own size when the column is sized");
+        solved_grid_css(&d, grid, 1, 0);
     }
 
     #[test]
-    fn hugging_grid_rows_follow_their_content() {
+    fn hugging_grid_exports_the_solved_width_when_a_child_spans_columns() {
+        use crate::codegen::fixture;
+        let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(500.0, 100.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(200.0, 20.0));
+        d.get_mut(rect).unwrap().layout_child.col_span = 2;
+        d.relayout_subtree(grid);
+        assert_eq!(d.get(grid).unwrap().size.x, 80.0, "a spanning child does not widen the hugging columns");
+        solved_grid_css(&d, grid, 2, 0);
+    }
+
+    #[test]
+    fn hugging_grid_exports_the_solved_width_with_a_fixed_track() {
+        use crate::codegen::fixture;
+        let mut al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Fixed, ..Default::default() };
+        al.grid_col_tracks[0] = GridTrack::Fixed(200.0);
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(500.0, 100.0));
+        fixture::add_rect(&mut d, grid, Vec2::new(10.0, 10.0));
+        fixture::add_rect(&mut d, grid, Vec2::new(60.0, 10.0));
+        d.relayout_subtree(grid);
+        assert_eq!(d.get(grid).unwrap().size.x, 260.0, "a fixed 200px column plus a 60px hugging one");
+        solved_grid_css(&d, grid, 2, 0);
+    }
+
+    #[test]
+    fn hugging_grid_exports_the_solved_height_with_template_rows() {
         use crate::codegen::fixture;
         let al = AutoLayout { grid_columns: 2, grid_rows: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Hug, ..Default::default() };
         let (mut d, grid) = fixture::grid_frame(al, Vec2::new(300.0, 500.0));
@@ -790,10 +814,21 @@ mod tests {
         }
         d.relayout_subtree(grid);
         assert_eq!(d.get(grid).unwrap().size, Vec2::new(300.0, 70.0), "rows take their tallest child");
-        let css = css_for(&d, grid);
-        assert!(css.contains("height: max-content;"), "{css}");
-        assert!(css.contains("grid-template-rows: repeat(2, auto);"), "equal fr rows would stretch every row to the tallest: {css}");
-        assert!(css.contains("width: 300px;") && css.contains("grid-template-columns: repeat(2, minmax(0, 1fr));"), "a fixed axis keeps fr tracks: {css}");
+        solved_grid_css(&d, grid, 2, 2);
+    }
+
+    #[test]
+    fn grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height() {
+        use crate::codegen::fixture;
+        let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(rect).unwrap().layout_child.grow = 1.0;
+        d.relayout_subtree(grid);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(200.0, 40.0), "the solver stretches a grow item across its column and leaves its height");
+        let css = css_for(&d, rect);
+        assert!(!css.contains("width:"), "the grid stretches the item across its cell: {css}");
+        assert!(css.contains("height: 40px;"), "{css}");
     }
 
     #[test]
