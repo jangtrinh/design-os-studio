@@ -114,8 +114,15 @@ pub fn replay_live_patch(
 
 fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
-        LiveOp::Insert { parent, at, nodes } => {
-            let parent = state.target(doc, *parent);
+        LiveOp::Insert { parent: agent_parent, at, nodes } => {
+            let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
+            if redirected {
+                report.skipped.push(format!(
+                    "insert into layer {} refused: layer {} was reshaped by the shape builder while this edit waited",
+                    agent_parent.0, agent_parent.0
+                ));
+                return None;
+            }
             resolve_insert(doc, parent, at, nodes, state, report)
         }
         LiveOp::Update { id: agent_id, set, unset } => {
@@ -159,8 +166,22 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             }
             Some(Command::Update { node: Box::new(merged) })
         }
-        LiveOp::Reparent { id, parent, at } => {
-            let (id, parent) = (state.target(doc, *id), state.target(doc, *parent));
+        LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
+            let (id, id_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
+            let (parent, parent_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
+            if id_redirected {
+                report
+                    .skipped
+                    .push(format!("reparent of layer {} refused: layer {} was reshaped by the shape builder while this edit waited", agent_id.0, agent_id.0));
+                return None;
+            }
+            if parent_redirected {
+                report.skipped.push(format!(
+                    "reparent into layer {} refused: layer {} was reshaped by the shape builder while this edit waited",
+                    agent_parent.0, agent_parent.0
+                ));
+                return None;
+            }
             let at = remap_hint(at, state);
             let (Some(node), Some(p)) = (doc.get(id), doc.get(parent)) else {
                 report.skipped.push(format!("move of node {} into missing parent {}", id.0, parent.0));
