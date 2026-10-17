@@ -400,6 +400,26 @@ pub(crate) fn quote(s: &str) -> String {
     o
 }
 
+/// A Swift string literal. Escapes the backslash, `"`, newline, carriage return, tab and every other control
+/// character (as `\u{..}`), so a layer name or font family can never end the literal early. Unlike
+/// [`quote`] it leaves `$` alone, which Swift does not treat as special.
+pub(crate) fn swift_quote(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if c.is_control() => o.push_str(&format!("\\u{{{:x}}}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
 /// Visible effects of a given sort.
 pub(crate) fn drop_shadows(n: &Node) -> Vec<(&Color, &Vec2, f32, f32)> {
     n.effects

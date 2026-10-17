@@ -154,7 +154,7 @@ fn frame_args(w: Dim, h: Dim, align: Option<&str>, n: &Node, doc: &Document) -> 
     Some(format!(".frame({})", a.join(", ")))
 }
 
-fn weight_name(w: u16) -> &'static str {
+pub(crate) fn weight_name(w: u16) -> &'static str {
     match w {
         0..=149 => ".ultraLight",
         150..=249 => ".thin",

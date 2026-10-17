@@ -4,12 +4,14 @@
 //!   growing the image to include shadows, blur and outside strokes like Figma.
 //! * [`export_svg`] writes real vector SVG (see [`SvgOptions`]).
 //! * [`css_for`] prints Dev Mode style CSS for a layer; [`tailwind_for`], [`swiftui_for`],
-//!   [`compose_for`] and [`react_for`] generate code for the other Dev Mode languages.
+//!   [`uikit_for`], [`compose_for`], [`android_xml_for`] and [`react_for`] generate code for the
+//!   other Dev Mode languages (Figma's native set is CSS, SwiftUI, UIKit, Compose and Android XML).
 //!
 //! [`export_pdf`] exports ordered frames (deck slides or selected design frames) as
 //! losslessly compressed raster PDF pages, one page per frame. Pages preserve frame
 //! dimensions and artwork; text is not selectable.
 
+mod android_xml;
 mod bounds;
 mod codegen;
 mod compose;
@@ -22,8 +24,10 @@ mod svg;
 mod swiftui;
 mod tailwind;
 mod text;
+mod uikit;
 mod util;
 
+pub use android_xml::android_xml_for;
 pub use bounds::render_bounds;
 pub use codegen::css_var_display as css_variable_reference;
 pub use codegen::{is_vector_asset, vector_assets};
@@ -36,6 +40,7 @@ pub use svg::{export_svg, SvgOptions};
 pub use swiftui::swiftui_for;
 pub use tailwind::tailwind_for;
 pub use text::register_font;
+pub use uikit::uikit_for;
 pub use util::css_color;
 
 /// Output file format of an export setting.
