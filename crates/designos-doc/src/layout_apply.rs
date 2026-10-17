@@ -145,6 +145,7 @@ mod tests {
                 default_mode: "compact".into(),
                 variables: vec!["var-root-w".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         doc.variables.insert(
