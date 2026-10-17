@@ -152,7 +152,7 @@ impl App {
         // A numeric scrub still open would swallow the edit (it only records node changes).
         self.scrub_end();
         let op = update_style(&self.doc, key, style);
-        let linked: Vec<NodeId> = self.doc.nodes.values().filter(|n| n.style_refs.values().any(|k| k == key)).map(|n| n.id).collect();
+        let linked = linked_style_nodes(&self.doc, key);
         self.run_style_op_then(op, |app, tx| {
             for id in linked {
                 // A layer inside an instance mirrors its main: the main is re-fitted here and the
@@ -539,5 +539,30 @@ mod tests {
         let (mut empty, _f, r, _t) = app();
         assert!(empty.create_style_from(r, StyleProperty::Effect).is_none());
         assert!(empty.toast.is_some(), "the refusal is shown");
+    }
+
+    #[test]
+    fn editing_a_style_does_not_refit_library_nodes_skipped_by_doc_update_style() {
+        let (mut ed, _f, _r, t) = app();
+        ed.doc.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
+        ed.apply_style(&[t], "Body");
+
+        // Place a text node on the hidden library page with an un-fitted box size (500x200) and a style_ref to "Body".
+        let lp = ed.doc.add_page("__library__");
+        ed.doc.pages.retain(|&p| p != lp);
+        ed.doc.library_page = Some(lp);
+        let lib_tid = ed.doc.alloc_id();
+        let mut lib_text = Node::text(lib_tid, Rect::new(0.0, 0.0, 500.0, 200.0), "Library copy", TextStyle { font_size: 12.0, ..Default::default() });
+        lib_text.style_refs.insert("text".into(), "Body".into());
+        let lib_t = ed.doc.insert(lp, lib_text).unwrap();
+        assert!(is_library_node(&ed.doc, lib_t));
+
+        assert!(ed.update_style_values("Body", Style::Text(TextStyle { font_size: 40.0, ..Default::default() })));
+
+        // The local text node was updated and re-fitted, while the library node was untouched by both doc and app.
+        assert!(matches!(&ed.doc.get(t).unwrap().kind, NodeKind::Text(tp) if tp.style.font_size == 40.0));
+        let lib_after = ed.doc.get(lib_t).unwrap();
+        assert!(matches!(&lib_after.kind, NodeKind::Text(tp) if tp.style.font_size == 12.0), "doc-side update_style skips library nodes");
+        assert_eq!(lib_after.size, Vec2::new(500.0, 200.0), "app-side update_style_values must also skip library nodes instead of re-fitting them");
     }
 }
