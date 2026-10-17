@@ -224,7 +224,7 @@ AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent
 
 The Studio targets the small, tactile interactions Figma users expect on the canvas. The table groups the project's own reference list (`#1..#100`) and describes scope. Not every item has an automated test: `launch_e2e_proves_100_figma_micro_interactions_end_to_end` drives eight of them (`#15`, `#16`, `#18`, `#32`, `#77`, `#78`, `#81`, `#82`).
 
-| Category | IDs | Micro-interactions in `designos-app` & `designos-doc` |
+| Category | IDs | Reference list (scope) |
 | :--- | :--- | :--- |
 | **A. Inspector Numeric Scrubbing, Math & Mixed Values** | `#1..#9` | Label drag-scrub (`1px` / `⇧ 10px` / `⌥ 0.1px`), `↑`/`↓` step keys, inline math (`+ - * /`), `%` relative parent sizing, `auto`/`hug`/`fill` keywords, `Mixed` multi-select override, `10` or `10,20,10,20` padding shorthand, Aspect Ratio Lock (`W/H`), `0..9` / `00` quick opacity |
 | **B. Auto-Layout 5.0, Edge Sizing, CSS Grid & Smart Selection** | `#10..#21` | Edge double-click `Fixed <-> Hug`, `⌥`+double-click `Fill`, on-canvas pink gap drag, inline gap click-to-type, pink padding handles (`⌥` opposite / `⇧⌥` all 4), 9-dot alignment matrix (`Space-Between` on `W`/`X`), drag reorder, `Space` ignore Auto-Layout, 2D CSS Grid track pills (`1fr`/`px`/`Hug`) & span handles, Smart Selection pink swap rings & `Tidy up` |
