@@ -671,6 +671,22 @@ impl Default for GridTrack {
     }
 }
 
+/// Implicit auto-track mode or track sizing for overflow grid rows (`gridAutoTracks`, tag=555).
+///
+/// Real `.fig` v106 files encode `NodeChange.gridAutoTracks` as `GridAutoTracks ENUM { NONE = 0, ROWS = 1 }`,
+/// while CSS/REST grid specs may also specify an explicit auto-row track size (e.g. `"64px"`, `"auto"`, `"1fr"`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum GridAutoTracks {
+    #[default]
+    None,
+    Rows,
+    Track(GridTrack),
+}
+
+fn is_default_grid_auto_tracks(t: &GridAutoTracks) -> bool {
+    *t == GridAutoTracks::None
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LayoutAlign {
     #[default]
@@ -735,6 +751,8 @@ pub struct AutoLayout {
     pub grid_col_tracks: [GridTrack; 8],
     #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
     pub grid_row_tracks: [GridTrack; 8],
+    #[serde(default, skip_serializing_if = "is_default_grid_auto_tracks")]
+    pub grid_auto_tracks: GridAutoTracks,
 }
 
 impl AutoLayout {
