@@ -437,22 +437,20 @@ pub fn list(root: &Path) -> Result<Vec<InstalledPlugin>, String> {
         }
         let bytes = read_bundle_file(&entry.path(), "installed.json")?;
         let mut plugin: InstalledPlugin = serde_json::from_slice(&bytes).map_err(|e| format!("Invalid installed plugin metadata: {e}"))?;
+        // installed.json is unverified, URL text included: it never decides how a bundle is read and
+        // its capability fields are never shown. Only a manifest that validates on disk sets them.
         plugin.runtime_supported = false;
+        plugin.permissions = Vec::new();
+        plugin.network = Vec::new();
         if entry.path() == bundle_directory(root, &plugin.id, &plugin.version) {
-            if plugin.source_kind() == PluginSourceKind::LocalManifest {
-                // An imported Figma bundle has no native manifest and no runner yet, so it is never
-                // runnable. installed.json is unverified: capability fields are rebuilt only from the
-                // validated Figma manifest.
-                plugin.permissions = Vec::new();
-                plugin.network = Vec::new();
-                if let Ok(Some(figma)) = load_figma_manifest(root, &plugin) {
-                    plugin.name = figma.name.clone();
-                    plugin.main = figma.main.clone();
-                    plugin.panel = figma.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string);
-                    plugin.network = figma.declared_network();
-                }
-            } else if let Ok(bundle) = load_bundle(root, &plugin) {
+            if let Ok(bundle) = load_bundle(root, &plugin) {
                 plugin = bundle.plugin;
+            } else if let Ok(Some(figma)) = load_figma_manifest(root, &plugin) {
+                // An imported Figma bundle has no native manifest and no runner yet, so it is never runnable.
+                plugin.name = figma.name.clone();
+                plugin.main = figma.main.clone();
+                plugin.panel = figma.ui.as_ref().and_then(FigmaUi::primary_panel).map(str::to_string);
+                plugin.network = figma.declared_network();
             }
         }
         installed.push(plugin);
@@ -885,20 +883,90 @@ mod tests {
     }
 
     #[test]
-    fn tampered_source_url_cannot_make_a_native_bundle_claim_permissions_through_the_local_branch() {
+    fn valid_native_bundle_is_never_reclassified_by_url_text_in_installed_metadata() {
         let root = root();
         let plugin = install_v2(&root);
         let directory = bundle_directory(&root, &plugin.id, &plugin.version);
         let mut fake = plugin.clone();
-        fake.manifest_url = "file:///anywhere/manifest.json".into();
+        fake.source_url = "file:///tmp/elsewhere".into();
+        fake.manifest_url = "file:///tmp/elsewhere/manifest.json".into();
+        fake.name = "Imposter".into();
+        fake.main = "undeclared.js".into();
         fake.permissions = vec!["arbitrary".into()];
         fake.network = vec!["https://other.example".into()];
         fs::write(directory.join("installed.json"), serde_json::to_vec(&fake).unwrap()).unwrap();
+        // A planted Figma manifest with a matching identity must not replace the validated native record.
+        let mut planted = figma_manifest_value();
+        planted["id"] = serde_json::json!(plugin.id);
+        planted["api"] = serde_json::json!(plugin.version);
+        planted["networkAccess"] = serde_json::json!({"allowedDomains": ["https://planted.example"]});
+        fs::write(directory.join("figma-manifest.json"), serde_json::to_vec(&planted).unwrap()).unwrap();
+
+        assert!(load_bundle(&root, &plugin).is_ok());
         let actual = list(&root).unwrap().remove(0);
-        assert!(!actual.runtime_supported);
-        assert!(actual.permissions.is_empty(), "{:?}", actual.permissions);
-        assert!(actual.network.is_empty(), "{:?}", actual.network);
+        assert_eq!(actual.name, plugin.name);
+        assert_eq!(actual.main, plugin.main);
+        assert_eq!(actual.permissions, plugin.permissions);
+        assert_eq!(actual.network, plugin.network);
+        assert!(actual.runtime_supported);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unverified_installed_metadata_never_advertises_capabilities() {
+        for tamper_url in [false, true] {
+            let root = root();
+            let plugin = install_v2(&root);
+            let directory = bundle_directory(&root, &plugin.id, &plugin.version);
+            fs::remove_file(directory.join("style.css")).unwrap();
+            assert!(load_bundle(&root, &plugin).is_err());
+            let mut fake = plugin.clone();
+            fake.permissions = vec!["arbitrary".into()];
+            fake.network = vec!["https://other.example".into()];
+            if tamper_url {
+                fake.source_url = "file:///tmp/elsewhere".into();
+                fake.manifest_url = "file:///tmp/elsewhere/manifest.json".into();
+            }
+            fs::write(directory.join("installed.json"), serde_json::to_vec(&fake).unwrap()).unwrap();
+            let actual = list(&root).unwrap().remove(0);
+            assert!(!actual.runtime_supported, "tamper_url={tamper_url}");
+            assert!(actual.permissions.is_empty(), "tamper_url={tamper_url}: {:?}", actual.permissions);
+            assert!(actual.network.is_empty(), "tamper_url={tamper_url}: {:?}", actual.network);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn figma_editor_type_accepts_one_string_or_a_list_and_rejects_the_rest_with_a_next_step() {
+        let single = br#"{"name":"Contrast","id":"contrast","api":"1.0.0","main":"code.js","editorType":"figma"}"#;
+        assert_eq!(parse_figma_manifest(single).unwrap().editor_type, ["figma"]);
+        let root = root();
+        let repo = root.join("single-editor-type");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(repo.join("code.js"), b"figma.closePlugin();").unwrap();
+        fs::write(repo.join("manifest.json"), single).unwrap();
+        assert_eq!(import_figma_manifest(&root, &repo).unwrap().id, "contrast");
+        fs::remove_dir_all(root).unwrap();
+
+        let with = |value: serde_json::Value| {
+            let mut manifest = figma_manifest_value();
+            manifest["editorType"] = value;
+            parse_figma_manifest(&serde_json::to_vec(&manifest).unwrap())
+        };
+        assert_eq!(with(serde_json::json!(["figma", "figjam"])).unwrap().editor_type, ["figma", "figjam"]);
+        for bad in [
+            serde_json::json!(""),
+            serde_json::json!([]),
+            serde_json::json!([""]),
+            serde_json::json!(5),
+            serde_json::json!([1]),
+            serde_json::json!(null),
+            serde_json::json!("unknown_editor"),
+            serde_json::json!(["figma", "figma"]),
+        ] {
+            let err = with(bad.clone()).expect_err(&format!("{bad} must be rejected"));
+            assert!(err.contains("editorType") && err.contains("Use "), "{bad}: {err}");
+        }
     }
 
     #[test]
@@ -1411,6 +1479,28 @@ fn validate_domain_list(field_name: &str, list: &[String], allow_empty: bool) ->
     Ok(())
 }
 
+/// Figma accepts one editor type or a list of them; both normalise to a list.
+fn parse_editor_types(value: &serde_json::Value) -> Result<Vec<String>, String> {
+    const HELP: &str = "Use \"figma\", \"figjam\", \"dev\", \"slides\" or \"buzz\", or a non-empty list of them.";
+    let names: Vec<&serde_json::Value> = match value {
+        serde_json::Value::Array(items) => items.iter().collect(),
+        single => vec![single],
+    };
+    if names.is_empty() {
+        return Err(format!("Invalid plugin manifest field 'editorType': it lists no editor type. {HELP}"));
+    }
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::with_capacity(names.len());
+    for item in names {
+        let s = item.as_str().ok_or_else(|| format!("Invalid plugin manifest field 'editorType': every editor type must be a string. {HELP}"))?;
+        if !ALLOWED_EDITOR_TYPES.contains(&s) || !seen.insert(s) {
+            return Err(format!("Invalid plugin manifest field 'editorType': unsupported or duplicate editor type '{s}'. {HELP}"));
+        }
+        out.push(s.to_string());
+    }
+    Ok(out)
+}
+
 pub fn parse_figma_manifest(bytes: &[u8]) -> Result<FigmaManifest, String> {
     let root_val: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| format!("Invalid plugin manifest JSON: {e}"))?;
     let obj = root_val.as_object().ok_or_else(|| "Invalid plugin manifest: root value must be a JSON object.".to_string())?;
@@ -1492,22 +1582,7 @@ pub fn parse_figma_manifest(bytes: &[u8]) -> Result<FigmaManifest, String> {
     };
 
     let editor_type = match obj.get("editorType") {
-        Some(v) => {
-            let arr = v.as_array().ok_or_else(|| "Invalid plugin manifest field 'editorType': must be a non-empty array of strings.".to_string())?;
-            if arr.is_empty() {
-                return Err("Invalid plugin manifest field 'editorType': must list at least one editor type.".into());
-            }
-            let mut seen = BTreeSet::new();
-            let mut out = Vec::with_capacity(arr.len());
-            for item in arr {
-                let s = item.as_str().ok_or_else(|| "Invalid plugin manifest field 'editorType': entries must be strings.".to_string())?;
-                if !ALLOWED_EDITOR_TYPES.contains(&s) || !seen.insert(s) {
-                    return Err(format!("Invalid plugin manifest field 'editorType': unsupported or duplicate editor type '{s}'."));
-                }
-                out.push(s.to_string());
-            }
-            out
-        }
+        Some(v) => parse_editor_types(v)?,
         None => vec!["figma".to_string()],
     };
 
