@@ -1,7 +1,7 @@
 //! Opening and saving documents.
 
 use designos_doc::{Document, Vec2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -13,12 +13,39 @@ fn repaired_originals() -> &'static Mutex<HashMap<PathBuf, Vec<u8>>> {
     ORIGINALS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn non_finite_notified() -> &'static Mutex<HashSet<PathBuf>> {
+    static NOTIFIED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    NOTIFIED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
 fn repair_key(path: &Path) -> PathBuf {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
     }
     std::fs::canonicalize(&p).unwrap_or(p)
+}
+
+/// Formats the user-facing notice when `count` non-finite (`NaN`, `Infinity`, or `null`) numbers
+/// were replaced by their neutral value (`0` or `1`).
+pub fn non_finite_notice(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("1 number in this file was not valid and was replaced by 0 or 1".to_string()),
+        n => Some(format!("{n} numbers in this file were not valid and were replaced by 0 or 1")),
+    }
+}
+
+/// Returns [`non_finite_notice`] at most once per file and per run.
+pub fn non_finite_notice_once(path: &Path, count: usize) -> Option<String> {
+    let notice = non_finite_notice(count)?;
+    let key = repair_key(path);
+    if let Ok(mut set) = non_finite_notified().lock() {
+        if !set.insert(key) {
+            return None;
+        }
+    }
+    Some(notice)
 }
 
 fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Document, Option<String>)> {
@@ -30,7 +57,7 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
         doc.renumber_ids_for_headroom();
     }
     let key = repair_key(path);
-    let warning = match report.structural_summary() {
+    let structural_warning = match report.structural_summary() {
         Some(what) => {
             if let Ok(mut map) = repaired_originals().lock() {
                 map.insert(key, text.as_bytes().to_vec());
@@ -44,6 +71,13 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
             }
             None
         }
+    };
+    let nf_notice = non_finite_notice_once(path, report.non_finite_numbers);
+    let warning = match (structural_warning, nf_notice) {
+        (Some(s), Some(n)) => Some(format!("{s}; {n}")),
+        (Some(s), None) => Some(s),
+        (None, Some(n)) => Some(n),
+        (None, None) => None,
     };
     Ok((doc, warning))
 }
@@ -92,7 +126,17 @@ fn load_path_importing_pen_with(
         "json" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
             match designos_fig::import_rest_json(&text) {
-                Ok(d) => d,
+                Ok(mut d) => {
+                    if let Ok((clean, replaced)) = d.to_json_counted() {
+                        if replaced > 0 {
+                            if let Ok(reloaded) = Document::from_json(&clean) {
+                                d = reloaded;
+                            }
+                            warning = non_finite_notice_once(path, replaced);
+                        }
+                    }
+                    d
+                }
                 Err(fig_err) => match import_pen(&text) {
                     Ok((d, w)) => {
                         warning = w;
@@ -207,6 +251,15 @@ pub fn pick_save(default_name: &str) -> Option<PathBuf> {
 
 pub fn pick_export(default_name: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name(format!("{default_name}.png")).save_file()
+}
+
+/// Like [`save_path`], also returning the once-per-file notice when non-finite numbers were replaced.
+pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let replaced = if ext.eq_ignore_ascii_case("fig") || ext.eq_ignore_ascii_case("pen") { 0 } else { doc.to_json_counted().map(|(_, n)| n).unwrap_or(0) };
+    let p = save_path(doc, path)?;
+    let notice = non_finite_notice_once(&p, replaced);
+    Ok((p, notice))
 }
 
 #[cfg(test)]
@@ -467,5 +520,95 @@ mod tests {
         assert!(!bak.exists(), "clean file must not write a .bak file on save");
 
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save() {
+        let mut poisoned = Document::new("Poisoned");
+        let page = poisoned.add_page("Page 1");
+        let id = poisoned.alloc_id();
+        poisoned.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        {
+            let n = poisoned.get_mut(id).unwrap();
+            n.size.x = f32::NAN;
+            n.opacity = f32::NAN;
+            n.transform.tx = f32::INFINITY;
+        }
+
+        // 1. Open: a legacy file containing 3 `null` numbers shows the notice on first open, and not on second open.
+        let legacy_json = serde_json::to_string(&poisoned).unwrap();
+        let open_file = tmp("legacy_null_numbers.designos");
+        std::fs::write(&open_file, &legacy_json).unwrap();
+
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(open_file.clone());
+        let toast1 = app.toast.as_ref().expect("first open must show a toast");
+        assert!(toast1.error, "non-finite replacement toast should use warning styling");
+        assert!(toast1.text.contains("3 numbers in this file were not valid and were replaced by 0 or 1"), "unexpected open toast: {}", toast1.text);
+        assert!(!backup_path(&open_file).exists(), "non-finite numbers alone must not trigger a .bak backup");
+
+        // Second open of the same file in the same run must not repeat the notice.
+        app.open_path(open_file.clone());
+        let toast2 = app.toast.as_ref().expect("second open must still show opened toast");
+        assert!(!toast2.error, "second open of the same file must not repeat warning: {}", toast2.text);
+        assert_eq!(toast2.text, "Opened Poisoned");
+        std::fs::remove_file(&open_file).ok();
+
+        // 2. Import into library & library open/save:
+        let lib_dir = tmp("non_finite_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        let overflow_rest = r#"{
+          "name": "Overflow", "version": "1", "schemaVersion": 0,
+          "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+            {"id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+              {"id": "1:1", "name": "Huge", "type": "RECTANGLE", "size": {"x": 1e39, "y": 20},
+               "relativeTransform": [[1, 0, -1e39], [0, 1, 4]], "strokeWeight": 1e39, "cornerRadius": 1e39}]}]}
+        }"#;
+        let import_src = tmp("overflow_import.json");
+        std::fs::write(&import_src, overflow_rest).unwrap();
+
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&import_src), &proj.id, None), 1);
+        let import_toast = app.toast.as_ref().expect("import must show a toast");
+        assert!(import_toast.error, "import with replaced numbers must surface warning styling");
+        assert!(
+            import_toast.text.contains("numbers in this file were not valid and were replaced by 0 or 1"),
+            "unexpected import toast: {}",
+            import_toast.text
+        );
+
+        // Importing the same source file again in the same run does not repeat the notice for that source path.
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&import_src), &proj.id, None), 1);
+        let import_toast2 = app.toast.as_ref().expect("second import must show a toast");
+        assert!(!import_toast2.error, "second import of same file in same run must not repeat warning: {}", import_toast2.text);
+        std::fs::remove_file(&import_src).ok();
+
+        // 3. Save: saving a library file (or external path) that acquired a NaN in memory warns once per file.
+        let clean_entry = lib.create_file(&proj.id, None, "Editable", &Document::new("Editable")).unwrap();
+        app.open_library_file(&clean_entry.id);
+        let page = app.page;
+        let rid = app.doc.alloc_id();
+        app.doc.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+
+        app.toast = None;
+        app.save_library_file_with_toast();
+        let save_toast = app.toast.as_ref().expect("save must show a toast");
+        assert!(save_toast.error, "save that replaced a NaN must warn");
+        assert!(save_toast.text.contains("1 number in this file was not valid and was replaced by 0 or 1"), "unexpected save toast: {}", save_toast.text);
+
+        // Saving the same file a second time in the same run (even with another NaN) must not repeat the notice.
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+        app.toast = None;
+        app.save_library_file_with_toast();
+        let save_toast2 = app.toast.as_ref().expect("second save must show a toast");
+        assert!(!save_toast2.error, "second save of the same file must not repeat the notice: {}", save_toast2.text);
+
+        let _ = std::fs::remove_dir_all(&lib_dir);
     }
 }
