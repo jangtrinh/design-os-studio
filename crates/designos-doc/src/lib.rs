@@ -28,6 +28,7 @@ mod geom;
 mod history;
 mod library;
 mod library_ops;
+pub mod live_patch;
 mod load_repair;
 #[cfg(test)]
 mod load_repair_tests;

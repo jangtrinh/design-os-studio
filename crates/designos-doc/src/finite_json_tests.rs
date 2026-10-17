@@ -279,3 +279,87 @@ fn only_a_null_number_error_triggers_the_second_parse() {
     assert!(Document::from_json_with_report(&value.to_string()).is_err());
     assert_eq!(lenient_parses(), before);
 }
+
+#[test]
+fn null_number_detection_does_not_rely_on_error_message_text() {
+    use crate::finite_json::{from_str_repairing, lenient_parses_on_this_thread as lenient_parses};
+    use serde::de::{Deserializer, Visitor};
+    use std::fmt;
+
+    #[derive(Debug, PartialEq)]
+    struct RewordedFloat32(f32);
+
+    impl<'de> Deserialize<'de> for RewordedFloat32 {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct V;
+            impl Visitor<'_> for V {
+                type Value = RewordedFloat32;
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("a 32-bit floating-point number")
+                }
+                fn visit_f32<E: serde::de::Error>(self, v: f32) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat32(v))
+                }
+                fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat32(v as f32))
+                }
+                fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat32(v as f32))
+                }
+                fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat32(v as f32))
+                }
+            }
+            deserializer.deserialize_f32(V)
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RewordedFloat64(f64);
+
+    impl<'de> Deserialize<'de> for RewordedFloat64 {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct V;
+            impl Visitor<'_> for V {
+                type Value = RewordedFloat64;
+                fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    f.write_str("a 64-bit floating-point number")
+                }
+                fn visit_f32<E: serde::de::Error>(self, v: f32) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat64(f64::from(v)))
+                }
+                fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat64(v))
+                }
+                fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat64(v as f64))
+                }
+                fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                    Ok(RewordedFloat64(v as f64))
+                }
+            }
+            deserializer.deserialize_f64(V)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Deserialize)]
+    struct RewordedRecord {
+        opacity: RewordedFloat32,
+        width: RewordedFloat64,
+    }
+
+    // Even when the error text does not end with "expected f32" / "expected f64", a null in an
+    // f32/f64 slot is classified structurally and repaired on the lenient second pass.
+    let before = lenient_parses();
+    let (rec, replaced) = from_str_repairing::<RewordedRecord>(r#"{"opacity":null,"width":null}"#).unwrap();
+    assert_eq!((rec, replaced), (RewordedRecord { opacity: RewordedFloat32(1.0), width: RewordedFloat64(0.0) }, 2));
+    assert_eq!(lenient_parses() - before, 1);
+
+    // A non-null wrong type (including the string "null") in the same float slot still fails on the
+    // strict pass without starting a second parse.
+    for bad in [r#"{"opacity":"null","width":1.0}"#, r#"{"opacity":"text","width":1.0}"#, r#"{"opacity":true,"width":1.0}"#] {
+        let before = lenient_parses();
+        assert!(from_str_repairing::<RewordedRecord>(bad).is_err(), "{bad}");
+        assert_eq!(lenient_parses(), before, "{bad}: non-null wrong type in float slot must not trigger lenient parse");
+    }
+}
