@@ -505,34 +505,53 @@ fn intersect(mask: &mut sk::Mask, other: &sk::Mask) {
     }
 }
 
-fn eval_function(f: &Val, t: f32) -> [f32; 3] {
-    let d = f.dict();
-    let kind = d["FunctionType"].num() as u32;
-    match kind {
-        2 => {
-            let c0 = d.get("C0").map(Val::nums).unwrap_or_else(|| vec![0.0]);
-            let c1 = d.get("C1").map(Val::nums).unwrap_or_else(|| vec![1.0]);
-            let n = d.get("N").map(Val::num).unwrap_or(1.0);
-            let k = t.clamp(0.0, 1.0).powf(n);
-            let mut out = [0.0; 3];
-            for (i, o) in out.iter_mut().enumerate() {
-                *o = c0[i] + k * (c1[i] - c0[i]);
+/// A PDF function (type 2 exponential interpolation or type 3 stitching), parsed once.
+enum Function {
+    Exponential { c0: Vec<f32>, c1: Vec<f32>, n: f32 },
+    Stitching { domain: [f32; 2], bounds: Vec<f32>, encode: Vec<f32>, funcs: Vec<Function> },
+}
+
+impl Function {
+    fn parse(f: &Val) -> Self {
+        let d = f.dict();
+        match d["FunctionType"].num() as u32 {
+            2 => Function::Exponential {
+                c0: d.get("C0").map(Val::nums).unwrap_or_else(|| vec![0.0]),
+                c1: d.get("C1").map(Val::nums).unwrap_or_else(|| vec![1.0]),
+                n: d.get("N").map(Val::num).unwrap_or(1.0),
+            },
+            3 => {
+                let domain = d["Domain"].nums();
+                Function::Stitching {
+                    domain: [domain[0], domain[1]],
+                    bounds: d["Bounds"].nums(),
+                    encode: d["Encode"].nums(),
+                    funcs: d["Functions"].arr().iter().map(Function::parse).collect(),
+                }
             }
-            out
+            other => panic!("unsupported function type {other}"),
         }
-        3 => {
-            let domain = d["Domain"].nums();
-            let bounds = d["Bounds"].nums();
-            let encode = d["Encode"].nums();
-            let funcs = d["Functions"].arr();
-            let t = t.clamp(domain[0], domain[1]);
-            let k = bounds.iter().take_while(|b| t >= **b).count();
-            let lo = if k == 0 { domain[0] } else { bounds[k - 1] };
-            let hi = if k == bounds.len() { domain[1] } else { bounds[k] };
-            let x = if hi > lo { encode[2 * k] + (t - lo) / (hi - lo) * (encode[2 * k + 1] - encode[2 * k]) } else { encode[2 * k] };
-            eval_function(&funcs[k], x)
+    }
+
+    fn eval(&self, t: f32) -> [f32; 3] {
+        match self {
+            Function::Exponential { c0, c1, n } => {
+                let k = t.clamp(0.0, 1.0).powf(*n);
+                let mut out = [0.0; 3];
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = c0[i] + k * (c1[i] - c0[i]);
+                }
+                out
+            }
+            Function::Stitching { domain, bounds, encode, funcs } => {
+                let t = t.clamp(domain[0], domain[1]);
+                let k = bounds.iter().take_while(|b| t >= **b).count();
+                let lo = if k == 0 { domain[0] } else { bounds[k - 1] };
+                let hi = if k == bounds.len() { domain[1] } else { bounds[k] };
+                let x = if hi > lo { encode[2 * k] + (t - lo) / (hi - lo) * (encode[2 * k + 1] - encode[2 * k]) } else { encode[2 * k] };
+                funcs[k].eval(x)
+            }
         }
-        other => panic!("unsupported function type {other}"),
     }
 }
 
@@ -608,12 +627,15 @@ impl Painter<'_> {
         let kind = d["ShadingType"].num() as u32;
         let coords = d["Coords"].nums();
         let extend: Vec<bool> = d.get("Extend").map(|e| e.arr().iter().map(|v| *v == Val::Bool(true)).collect()).unwrap_or_else(|| vec![false, false]);
-        let func = self.pdf.deref(&d["Function"]);
+        let func = Function::parse(&self.pdf.deref(&d["Function"]));
         let inv = self.st.ctm.invert().expect("invertible CTM at sh");
         let (w, h) = (self.pm.width(), self.pm.height());
         let mut layer = sk::Pixmap::new(w, h).unwrap();
         for y in 0..h {
             for x in 0..w {
+                if self.st.clip.as_ref().is_some_and(|m| m.data()[(y * w + x) as usize] == 0) {
+                    continue;
+                }
                 let (dx, dy) = (x as f32 + 0.5, y as f32 + 0.5);
                 let (ux, uy) = (inv.sx * dx + inv.kx * dy + inv.tx, inv.ky * dx + inv.sy * dy + inv.ty);
                 let t = match kind {
@@ -633,7 +655,7 @@ impl Painter<'_> {
                 if (t < 0.0 && !extend[0]) || (t > 1.0 && !extend[1]) {
                     continue;
                 }
-                let c = eval_function(&func, t.clamp(0.0, 1.0));
+                let c = func.eval(t.clamp(0.0, 1.0));
                 let px = [c[0], c[1], c[2]].map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
                 let i = ((y * w + x) * 4) as usize;
                 layer.data_mut()[i..i + 4].copy_from_slice(&[px[0], px[1], px[2], 255]);

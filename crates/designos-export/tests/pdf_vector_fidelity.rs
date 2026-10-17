@@ -7,7 +7,7 @@ mod pdf_probe;
 
 use designos_doc::*;
 use designos_export::export_pdf;
-use pdf_probe::{page_pixels, PageKind, Pdf, Pixels};
+use pdf_probe::{page_pixels, PageKind, Pdf, Pixels, Val};
 
 const SCALE: f32 = 2.0;
 
@@ -19,8 +19,20 @@ struct Compared {
     bytes: Vec<u8>,
 }
 
+/// Set `DESIGNOS_PDF_DUMP_DIR` to keep the PDF each test exports, named after the test, for opening in a viewer.
+fn keep_for_inspection(bytes: &[u8]) {
+    keep_named(&std::thread::current().name().unwrap_or("export").replace("::", "-"), bytes);
+}
+
+fn keep_named(name: &str, bytes: &[u8]) {
+    if let Ok(dir) = std::env::var("DESIGNOS_PDF_DUMP_DIR") {
+        std::fs::write(std::path::Path::new(&dir).join(format!("{name}.pdf")), bytes).expect("dump directory is writable");
+    }
+}
+
 fn export(doc: &Document, frame: NodeId) -> Compared {
     let bytes = export_pdf(doc, &[frame]).expect("the frame exports");
+    keep_for_inspection(&bytes);
     let (kind, page) = page_pixels(&bytes, 0, SCALE);
     let pm = designos_render::render_node(doc, frame, SCALE).expect("the frame renders");
     let canvas = Pixels::from_pixmap_over_white(&pm, pm.width() as f32 / SCALE, pm.height() as f32 / SCALE);
@@ -43,6 +55,18 @@ impl Compared {
     fn assert_canvas_shows(&self, label: &str, p: (f32, f32), want: [u8; 3], tolerance: u8) {
         let got = self.canvas.at(p.0, p.1);
         assert!(spread(want, got) <= tolerance, "{label}: expected the canvas to draw {want:?} at {p:?}, found {got:?}");
+    }
+
+    /// The page is a flattened image and its content stream names `reason`.
+    fn assert_flattened_because(&self, reason: &str) {
+        assert_eq!(self.kind, PageKind::Raster, "the page is flattened");
+        let pdf = Pdf::parse(&self.bytes);
+        let content = String::from_utf8(pdf.pages()[0].content.clone()).unwrap();
+        assert!(
+            content.starts_with(&format!("% flattened to an image: {reason}\n")),
+            "the page says why it is flattened, got:\n{}",
+            content.lines().next().unwrap_or("")
+        );
     }
 
     fn assert_whole_page_agrees(&self, label: &str, w: f32, h: f32) {
@@ -234,6 +258,7 @@ fn image_filled_shape_appears_on_the_page() {
     let out = export(&doc, frame);
     out.assert_canvas_shows("photo", (100.0, 50.0), [0, 200, 0], 3);
     out.assert_agree_at("photo", &[(100.0, 50.0), (30.0, 20.0), (170.0, 80.0), (5.0, 5.0)], 4);
+    out.assert_flattened_because("an image paint");
 }
 
 #[test]
@@ -266,6 +291,7 @@ fn drop_shadow_appears_on_the_page() {
     let below = out.canvas.at(100.0, 106.0);
     assert!(below[0] < 160, "the canvas draws the shadow under the card, found {below:?}");
     out.assert_agree_at("drop shadow", &[(100.0, 106.0), (100.0, 70.0), (20.0, 20.0)], 4);
+    out.assert_flattened_because("a visible effect");
 }
 
 #[test]
@@ -303,6 +329,7 @@ fn gradient_fading_to_transparent_matches_the_canvas() {
     let tail = out.canvas.at(190.0, 20.0);
     assert!(tail[1] > 200, "the canvas fades out to the white page, found {tail:?}");
     out.assert_agree_at("alpha ramp", &[(10.0, 20.0), (60.0, 20.0), (100.0, 20.0), (190.0, 20.0)], 4);
+    out.assert_flattened_because("a gradient whose stops differ in opacity");
 }
 
 #[test]
@@ -527,6 +554,7 @@ fn non_latin_text_is_extractable_as_written() {
     let (mut doc, _page, frame) = frame_doc(400.0, 100.0);
     text_node(&mut doc, frame, Rect::new(10.0, 10.0, 380.0, 40.0), "Tiếng Việt €100 – “ok”", 24.0);
     let bytes = export_pdf(&doc, &[frame]).unwrap();
+    keep_for_inspection(&bytes);
     let text = page_text(&bytes);
     assert!(text.contains("Tiếng Việt €100 – “ok”"), "the selectable text is what the layer says, found {text:?}");
     assert!(!text.contains('?') && !text.contains('\u{FFFD}'), "no placeholder characters, found {text:?}");
@@ -561,6 +589,7 @@ fn outlined_text_matches_the_canvas() {
     n.stroke.weight = 4.0;
     let out = export(&doc, frame);
     out.assert_whole_page_agrees("stroked text", 200.0, 120.0);
+    out.assert_flattened_because("an outlined text node");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -578,6 +607,7 @@ fn translucent_mask_fades_the_content_it_masks() {
     let out = export(&doc, frame);
     out.assert_canvas_shows("half transparent mask", (70.0, 50.0), [255, 128, 128], 4);
     out.assert_agree_at("alpha mask", &[(70.0, 50.0), (170.0, 50.0), (10.0, 5.0)], 4);
+    out.assert_flattened_because("a mask that is not one opaque shape");
 }
 
 #[test]
@@ -630,6 +660,7 @@ fn group_opacity_flattens_before_fading() {
     let out = export(&doc, frame);
     out.assert_canvas_shows("overlap fades like the rest", (100.0, 50.0), [128, 128, 128], 3);
     out.assert_agree_at("group opacity", &[(50.0, 50.0), (100.0, 50.0), (150.0, 50.0)], 3);
+    out.assert_flattened_because("a faded group");
 }
 
 #[test]
@@ -642,6 +673,7 @@ fn blend_modes_match_the_canvas() {
     let overlap = out.canvas.at(100.0, 50.0);
     assert!(overlap[1] < 100, "multiply darkens the overlap, found {overlap:?}");
     out.assert_agree_at("node blend", &[(100.0, 50.0), (150.0, 70.0), (40.0, 40.0)], 3);
+    out.assert_flattened_because("a layer blend mode");
 }
 
 #[test]
@@ -654,6 +686,7 @@ fn paint_blend_modes_match_the_canvas() {
     let overlap = out.canvas.at(100.0, 50.0);
     assert!(overlap[1] < 100, "multiply darkens the overlap, found {overlap:?}");
     out.assert_agree_at("paint blend", &[(100.0, 50.0), (150.0, 70.0)], 3);
+    out.assert_flattened_because("a paint blend mode");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -669,6 +702,35 @@ fn raster_fallback_page_keeps_selectable_text() {
     assert_eq!(out.kind, PageKind::Raster, "an image fill is flattened into the page");
     out.assert_agree_at("photo page", &[(70.0, 60.0), (200.0, 100.0)], 4);
     assert!(page_text(&out.bytes).contains("Caption beside the photo"), "the flattened page still carries its text");
+}
+
+#[test]
+fn flattened_and_vector_pages_share_one_unicode_font_and_a_valid_object_table() {
+    let (mut doc, page, first) = frame_doc(200.0, 100.0);
+    doc.images.insert("photo".into(), photo_png([0, 200, 0]));
+    rect(&mut doc, first, Rect::new(10.0, 10.0, 60.0, 60.0), image_paint("photo"));
+    text_node(&mut doc, first, Rect::new(80.0, 20.0, 110.0, 30.0), "Việt", 20.0);
+    let mut frames = vec![first];
+    for (i, caption) in ["Nam Việt", "plain"].into_iter().enumerate() {
+        let id = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(id, Rect::new(300.0 * (i + 1) as f32, 0.0, 200.0, 100.0))).unwrap();
+        text_node(&mut doc, frame, Rect::new(10.0, 20.0, 180.0, 30.0), caption, 20.0);
+        frames.push(frame);
+    }
+    let bytes = export_pdf(&doc, &frames).unwrap();
+    keep_for_inspection(&bytes);
+    let pdf = Pdf::parse(&bytes);
+    let pages = pdf.pages();
+    assert_eq!(pages.len(), 3);
+    let texts: Vec<String> = pages.iter().map(|p| pdf.text_runs(p).concat()).collect();
+    assert_eq!(texts, ["Việt", "Nam Việt", "plain"]);
+    assert!(pdf.page_image(&pages[0]).is_some() && pdf.page_image(&pages[1]).is_none(), "only the photo page is flattened");
+    let unicode_font = |i: usize| match pdf.deref(&pages[i].resources["Font"]) {
+        Val::Dict(fonts) => fonts.get("F2").cloned(),
+        other => panic!("fonts are a dictionary, got {other:?}"),
+    };
+    assert!(unicode_font(0).is_some() && unicode_font(0) == unicode_font(1), "both pages that need it point at the same font object");
+    assert!(unicode_font(2).is_none(), "a page of plain Latin text does not reference the Unicode font");
 }
 
 #[test]
@@ -712,4 +774,236 @@ fn rounded_root_frame_without_clipping_shows_children_in_its_corners() {
     let out = export(&doc, frame);
     out.assert_canvas_shows("child in the corner", (3.0, 3.0), [200, 30, 30], 3);
     out.assert_agree_at("page corner", &[(3.0, 3.0), (3.0, 117.0), (80.0, 60.0)], 3);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Randomised frames: whatever mix of features a frame uses, the page matches the canvas
+
+/// Small deterministic generator. A `dense` generator also draws what the vector writer cannot express
+/// (effects, images, blend modes, faded groups, ...), so those frames exercise the flattened path.
+struct Rng {
+    state: u64,
+    dense: bool,
+}
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        self.state
+    }
+    fn unit(&mut self) -> f32 {
+        (self.next() >> 40) as f32 / (1u64 << 24) as f32
+    }
+    fn range(&mut self, lo: f32, hi: f32) -> f32 {
+        lo + (hi - lo) * self.unit()
+    }
+    fn chance(&mut self, p: f32) -> bool {
+        self.unit() < p
+    }
+    /// A feature that only dense frames use.
+    fn hazard(&mut self, p: f32) -> bool {
+        self.chance(p) && self.dense
+    }
+    fn index(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+fn random_color(rng: &mut Rng, alpha: f32) -> Color {
+    Color { r: rng.unit(), g: rng.unit(), b: rng.unit(), a: alpha }
+}
+
+fn random_handles(rng: &mut Rng) -> [Vec2; 3] {
+    [
+        Vec2::new(rng.range(0.0, 0.4), rng.range(0.0, 0.4)),
+        Vec2::new(rng.range(0.6, 1.0), rng.range(0.0, 0.5)),
+        Vec2::new(rng.range(0.0, 0.5), rng.range(0.6, 1.0)),
+    ]
+}
+
+fn random_stops(rng: &mut Rng) -> Vec<GradientStop> {
+    let count = 2 + rng.index(3);
+    let uniform_alpha = rng.range(0.4, 1.0);
+    let mixed_alpha = rng.hazard(0.2);
+    let mut stops: Vec<GradientStop> = (0..count)
+        .map(|_| {
+            let alpha = if mixed_alpha { rng.unit() } else { uniform_alpha };
+            GradientStop { pos: rng.range(0.0, 1.0), color: random_color(rng, alpha) }
+        })
+        .collect();
+    if rng.chance(0.5) {
+        stops[0].pos = 0.0;
+        stops[count - 1].pos = 1.0;
+    }
+    stops
+}
+
+fn random_paint(rng: &mut Rng) -> Paint {
+    let roll = if rng.dense { rng.index(100) } else { rng.index(87) };
+    let kind = match roll {
+        0..=54 => {
+            let alpha = if rng.chance(0.7) { 1.0 } else { rng.range(0.3, 0.9) };
+            PaintKind::Solid(random_color(rng, alpha))
+        }
+        55..=74 => linear(random_stops(rng), random_handles(rng)),
+        75..=86 => radial(random_stops(rng), random_handles(rng)),
+        87..=91 => angular(random_stops(rng), random_handles(rng)),
+        92..=95 => diamond(random_stops(rng), random_handles(rng)),
+        _ => PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fill },
+    };
+    let opacity = if rng.chance(0.85) { 1.0 } else { rng.range(0.4, 0.9) };
+    let blend = if rng.hazard(0.04) { BlendMode::Multiply } else { BlendMode::Normal };
+    Paint { kind, opacity, visible: true, blend }
+}
+
+fn random_stroke(rng: &mut Rng, rect_like: bool) -> Stroke {
+    let align = [StrokeAlign::Inside, StrokeAlign::Center, StrokeAlign::Outside][rng.index(3)];
+    let paint_count = if rng.dense { 1 + rng.index(2) } else { 1 };
+    let mut stroke = Stroke {
+        paints: (0..paint_count).map(|_| random_paint(rng)).collect(),
+        weight: rng.range(1.0, 8.0),
+        align,
+        cap: [StrokeCap::None, StrokeCap::Round, StrokeCap::Square][rng.index(3)],
+        join: [StrokeJoin::Miter, StrokeJoin::Round, StrokeJoin::Bevel][rng.index(3)],
+        miter_limit: rng.range(1.0, 8.0),
+        ..Default::default()
+    };
+    if rng.chance(0.25) {
+        stroke.dashes = vec![rng.range(2.0, 10.0), rng.range(2.0, 8.0)];
+    }
+    if rect_like && rng.chance(0.2) {
+        stroke.side_weights = Some([rng.range(0.0, 6.0), rng.range(0.0, 6.0), rng.range(0.0, 6.0), rng.range(0.0, 6.0)]);
+    }
+    stroke
+}
+
+fn random_node(doc: &mut Document, parent: NodeId, rng: &mut Rng, depth: u32) {
+    let id = doc.alloc_id();
+    let r = Rect::new(rng.range(0.0, 150.0), rng.range(0.0, 90.0), rng.range(20.0, 90.0), rng.range(16.0, 70.0));
+    let mut node = match rng.index(100) {
+        0..=34 => {
+            let mut n = Node::rectangle(id, r);
+            n.corner_radii = [if rng.chance(0.5) { rng.range(0.0, 20.0) } else { 0.0 }; 4];
+            n.corner_smoothing = if rng.chance(0.2) { rng.unit() } else { 0.0 };
+            n
+        }
+        35..=49 => Node::ellipse(id, r),
+        50..=54 => Node::new(id, NodeKind::Polygon { count: 3 + rng.index(4) as u32 }),
+        55..=59 => Node::new(id, NodeKind::Star { count: 4 + rng.index(4) as u32, inner_ratio: rng.range(0.3, 0.7) }),
+        60..=64 => Node::new(id, NodeKind::Line),
+        65..=74 => {
+            let path = Path {
+                cmds: vec![
+                    PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+                    PathCmd::LineTo(Vec2::new(r.w, r.h * 0.3)),
+                    PathCmd::LineTo(Vec2::new(r.w * 0.4, r.h)),
+                    PathCmd::Close,
+                ],
+                fill_rule: if rng.chance(0.5) { FillRule::NonZero } else { FillRule::EvenOdd },
+            };
+            Node::new(id, NodeKind::Vector { paths: vec![path], network: None })
+        }
+        75..=84 => {
+            let style = TextStyle { font_size: rng.range(10.0, 28.0), ..Default::default() };
+            Node::text(id, r, "Quick brown fox", style)
+        }
+        85..=92 => {
+            let kind = if rng.chance(0.5) { NodeKind::Group } else { NodeKind::Frame(FrameProps { clips_content: rng.chance(0.6), ..Default::default() }) };
+            let mut n = Node::new(id, kind);
+            n.corner_radii = [rng.range(0.0, 16.0); 4];
+            n
+        }
+        _ => Node::new(id, NodeKind::BooleanOp([BooleanOp::Union, BooleanOp::Subtract, BooleanOp::Intersect, BooleanOp::Exclude][rng.index(4)])),
+    };
+    let is_text = matches!(node.kind, NodeKind::Text(_));
+    let is_line = matches!(node.kind, NodeKind::Line);
+    let container = matches!(node.kind, NodeKind::Group | NodeKind::Frame(_) | NodeKind::BooleanOp(_));
+    if !is_text {
+        node.size = Vec2::new(r.w, if is_line { 0.0 } else { r.h });
+        node.transform = Affine::translate(r.x, r.y);
+        node.fills = (0..rng.index(3)).map(|_| random_paint(rng)).collect();
+    }
+    if (rng.chance(0.4) && (!is_text || rng.dense)) || is_line {
+        node.stroke = random_stroke(rng, matches!(node.kind, NodeKind::Rectangle | NodeKind::Frame(_)));
+    }
+    // a faded node with several parts is flattened, so vector-only frames fade single-paint leaves only
+    let single_paint = !container && node.fills.len() + node.stroke.paints.len() <= 1;
+    if rng.chance(0.2) && (rng.dense || single_paint) {
+        node.opacity = rng.range(0.3, 0.9);
+    }
+    if rng.hazard(0.04) {
+        node.blend = BlendMode::Multiply;
+    }
+    if rng.hazard(0.1) {
+        node.effects.push(Effect::DropShadow {
+            color: random_color(rng, 0.5),
+            offset: Vec2::new(2.0, 4.0),
+            radius: 4.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        });
+    }
+    if rng.chance(0.2) && !is_text {
+        node.transform = node.transform * Affine::rotate(rng.range(-0.5, 0.5));
+    }
+    let opaque_shape = node.opacity >= 1.0 && node.fills.iter().all(|p| p.opacity >= 1.0 && matches!(&p.kind, PaintKind::Solid(c) if c.a >= 1.0));
+    node.is_mask = !container && !is_text && rng.chance(0.06) && (rng.dense || opaque_shape);
+    let id = doc.insert(parent, node).unwrap();
+    if container && depth < 2 {
+        for _ in 0..1 + rng.index(3) {
+            random_node(doc, id, rng, depth + 1);
+        }
+    }
+}
+
+/// Exports `frames` random frames and returns how many were written as vector pages. Panics listing every
+/// frame whose page differs from the canvas.
+fn random_frames_agree(dense: bool, frames: u64) -> u64 {
+    let mut vector_pages = 0;
+    let mut failures = Vec::new();
+    for seed in 1..=frames {
+        let mut rng = Rng { state: seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1, dense };
+        let (mut doc, _page, frame) = frame_doc(240.0, 160.0);
+        doc.images.insert("photo".into(), photo_png([30, 160, 90]));
+        for _ in 0..3 + rng.index(5) {
+            random_node(&mut doc, frame, &mut rng, 0);
+        }
+        let out = export(&doc, frame);
+        if let Ok(dir) = std::env::var("DESIGNOS_PDF_DUMP_DIR") {
+            // every frame next to the canvas picture of it, to compare a real viewer's rendering with
+            let name = format!("random-{}-{seed}", if dense { "dense" } else { "plain" });
+            keep_named(&name, &out.bytes);
+            let canvas = designos_render::render_node(&doc, frame, SCALE).unwrap();
+            std::fs::write(std::path::Path::new(&dir).join(format!("{name}.canvas.png")), canvas.encode_png().unwrap()).unwrap();
+        }
+        let (bad, total) = differing_pixels(&out.canvas, &out.page, 240.0, 160.0, 12);
+        if out.kind == PageKind::Vector {
+            vector_pages += 1;
+        }
+        if bad * 200 > total {
+            failures.push(format!("seed {seed}: {bad}/{total} sampled pixels differ on the {:?} page", out.kind));
+            if let Ok(dir) = std::env::var("DESIGNOS_PDF_DUMP_DIR") {
+                std::fs::write(std::path::Path::new(&dir).join(format!("random-{}-seed-{seed}.pdf", if dense { "dense" } else { "plain" })), &out.bytes)
+                    .unwrap();
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} of {frames} random frames differ from the canvas:\n{}", failures.len(), failures.join("\n"));
+    vector_pages
+}
+
+#[test]
+fn randomised_frames_of_supported_features_are_vector_and_match_the_canvas() {
+    const FRAMES: u64 = 150;
+    let vector_pages = random_frames_agree(false, FRAMES);
+    assert_eq!(vector_pages, FRAMES, "frames that use only supported features are all written as vector content");
+}
+
+#[test]
+fn randomised_frames_with_unsupported_features_still_match_the_canvas() {
+    let vector_pages = random_frames_agree(true, 150);
+    assert!(vector_pages >= 5, "some dense frames are still vector ({vector_pages} of 150)");
 }
