@@ -581,3 +581,144 @@ fn committing_a_variable_edit_leaves_library_collections_untouched() {
     assert!(!s.shell.app.commit_store(only_library, &[], &[]));
     assert!(s.app().doc.variable_collections.contains_key(&lib));
 }
+
+// ------------------------------------------------------------------ library collections: selection, import, group menu
+
+/// Puts `name` into `store` under exactly `id`; `library` marks it as a subscribed copy. Figma ids
+/// are not zero padded, so `VariableCollectionId:1:10` sorts before `VariableCollectionId:1:2`.
+fn insert_collection(store: &mut designos_doc::VariableStore, id: &str, name: &str, library: Option<&str>) {
+    let tmp = store.add_collection(name);
+    let mut c = store.collections.remove(&tmp).expect("collection just added");
+    c.id = id.into();
+    c.source_library_key = library.map(String::from);
+    store.collections.insert(id.into(), c);
+}
+
+/// A store with a library collection whose id sorts first and a local one that sorts second.
+fn library_sorting_before_local() -> (designos_doc::VariableStore, String, String) {
+    let (lib, local) = ("VariableCollectionId:1:10".to_string(), "VariableCollectionId:1:2".to_string());
+    assert!(lib < local, "as strings the library id comes first");
+    let mut store = designos_doc::VariableStore::default();
+    insert_collection(&mut store, &lib, "Shared", Some("lk-shared"));
+    insert_collection(&mut store, &local, "Mine", None);
+    (store, lib, local)
+}
+
+#[test]
+fn opening_the_view_selects_a_collection_the_file_owns_whatever_the_id_order() {
+    let mut app = crate::app::App::new(designos_doc::Document::new("d"));
+    let (store, _, local) = library_sorting_before_local();
+    assert!(app.commit_store(store, &[], &[]));
+    app.vars.collection = None;
+    app.open_variables();
+    assert_eq!(app.vars.collection.as_deref(), Some(local.as_str()), "first open");
+    app.close_variables();
+    app.vars.collection = Some("VariableCollectionId:gone".into());
+    app.open_variables();
+    assert_eq!(app.vars.collection.as_deref(), Some(local.as_str()), "after the open collection disappeared");
+}
+
+#[test]
+fn importing_into_an_empty_selection_selects_a_collection_the_file_owns() {
+    let (store, _, local) = library_sorting_before_local();
+    let mut source = designos_doc::Document::new("source");
+    let _ = store.command().apply(&mut source);
+    let json = designos_fig::export_variables_json(&source).to_string();
+    let mut app = crate::app::App::new(designos_doc::Document::new("d"));
+    assert!(app.vars.collection.is_none());
+    app.import_variables_text(&json).unwrap();
+    assert_eq!(app.vars.collection.as_deref(), Some(local.as_str()));
+}
+
+#[test]
+fn deleting_a_collection_selects_one_the_file_owns_not_a_library_one() {
+    let mut s = Sim::new();
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    insert_collection(&mut store, "VariableCollectionId:1:10", "Shared", Some("lk-shared"));
+    assert!(s.shell.app.commit_store(store, &[], &[]));
+    let (theme, ..) = theme_ids(s.app());
+    s.shell.app.vars.collection = Some(theme.clone());
+    open_view(&mut s, true);
+    let row = s.rect_of("vars-coll:Theme");
+    s.right_click(row.center());
+    // Rename, Duplicate, Delete
+    for _ in 0..3 {
+        s.key(Key::ArrowDown);
+    }
+    s.key(Key::Enter);
+    s.frame(vec![]);
+    assert!(!s.app().doc.variable_collections.contains_key(&theme), "the collection was deleted");
+    let selected = s.app().vars.collection.clone().expect("a collection stays selected");
+    assert!(!s.app().doc.variable_collections[&selected].is_library(), "{selected} is a library collection although the file owns others");
+}
+
+#[test]
+fn right_clicking_a_group_of_a_library_collection_opens_no_menu() {
+    let mut s = Sim::new();
+    let (lib, ..) = add_library_collection(&mut s);
+    s.shell.app.vars.collection = Some(lib);
+    open_view(&mut s, true);
+    s.right_click(s.rect_of("vars-group:Brand").center());
+    assert!(s.app().vars.menu.is_none(), "a library group cannot be renamed");
+    // a group of a collection the file owns still has its menu
+    let (theme, ..) = theme_ids(s.app());
+    s.shell.app.vars.collection = Some(theme);
+    s.frame(vec![]);
+    s.right_click(s.rect_of("vars-group:Text").center());
+    assert!(matches!(s.app().vars.menu.as_ref().map(|m| &m.kind), Some(crate::variables::VarMenuKind::Folder(..))));
+}
+
+#[test]
+fn importing_variables_leaves_library_collections_alone_and_does_not_count_them() {
+    let mut s = Sim::new();
+    let (lib, lib_var, mode) = add_library_collection(&mut s);
+    let local_var = var(s.app(), "Radius/Card").id.clone();
+    let local_mode = s.app().doc.variable_collections[&s.app().doc.variables[&local_var].collection].default_mode.clone();
+    // the payload carries every existing id with new values, the library ones marked as library
+    let mut incoming = designos_doc::VariableStore::from_doc(&s.app().doc);
+    incoming.variables.get_mut(&lib_var).unwrap().values.insert(mode.clone(), VariableValue::Color(designos_doc::Color::WHITE));
+    incoming.variables.get_mut(&local_var).unwrap().values.insert(local_mode.clone(), VariableValue::Number(99.0));
+    let mut payload = designos_doc::Document::new("payload");
+    let _ = incoming.command().apply(&mut payload);
+    let json = designos_fig::export_variables_json(&payload).to_string();
+    let total = payload.variables.len();
+    let local_before = s.app().doc.variables[&local_var].values[&local_mode].clone();
+
+    let done = s.shell.app.import_variables_text(&json).unwrap();
+    assert_eq!(s.app().doc.variables[&local_var].values[&local_mode], VariableValue::Number(99.0), "a local variable takes the import");
+    assert_eq!(
+        s.app().doc.variables[&lib_var].values[&mode],
+        VariableValue::Color(designos_doc::Color::rgb(0x0C, 0x8C, 0xE9)),
+        "a library variable keeps its value"
+    );
+    assert!(s.app().doc.variable_collections[&lib].is_library());
+    assert_eq!((done.imported, done.skipped_library), (total - 1, 1), "the library variable is reported as skipped, not imported");
+    assert_eq!(done.message(), format!("Imported {} variables; 1 in library collections were skipped", total - 1));
+
+    // importing the same file again changes nothing and says so
+    let again = s.shell.app.import_variables_text(&json).unwrap();
+    assert_eq!((again.imported, again.skipped_library), (total - 1, 1));
+    s.shell.app.undo();
+    assert_eq!(s.app().doc.variables[&local_var].values[&local_mode], local_before, "one undo reverts the import: the repeat made no step of its own");
+}
+
+#[test]
+fn importing_variables_without_library_collections_reports_no_skips() {
+    let mut s = Sim::new();
+    let json = designos_fig::export_variables_json(&s.app().doc).to_string();
+    let total = s.app().doc.variables.len();
+    let done = s.shell.app.import_variables_text(&json).unwrap();
+    assert_eq!((done.imported, done.skipped_library), (total, 0));
+    assert_eq!(done.message(), format!("Imported {total} variables"));
+}
+
+#[test]
+fn a_library_collection_new_to_the_file_is_imported_and_stays_read_only() {
+    let (store, lib, _) = library_sorting_before_local();
+    let mut source = designos_doc::Document::new("source");
+    let _ = store.command().apply(&mut source);
+    let json = designos_fig::export_variables_json(&source).to_string();
+    let mut app = crate::app::App::new(designos_doc::Document::new("d"));
+    app.import_variables_text(&json).unwrap();
+    assert!(app.doc.variable_collections[&lib].is_library(), "a subscribed collection arrives marked as library");
+}

@@ -4,8 +4,9 @@
 use crate::icons::{self, Icon};
 use crate::theme;
 use crate::widgets;
-use designos_doc::VariableStore;
+use designos_doc::{Variable, VariableCollection, VariableStore};
 use egui::{Align2, Pos2, Rect, Ui};
+use std::collections::BTreeMap;
 
 /// Hover text and hint for anything that would edit a library collection.
 pub const LIBRARY_TIP: &str = "Edit in the library file";
@@ -23,8 +24,46 @@ pub fn split_collections(view: &VariableStore) -> (Vec<String>, Vec<String>) {
 
 /// The collection the view opens on: the first one the file owns, else the first library one.
 pub fn first_collection(view: &VariableStore) -> Option<String> {
-    let (own, lib) = split_collections(view);
-    own.into_iter().chain(lib).next()
+    first_collection_of(&view.collections)
+}
+
+/// [`first_collection`] for a bare collection map, e.g. the document's own. Map order is string
+/// order, so it is not the order in which Figma created the collections: `…:1:10` precedes `…:1:2`.
+pub fn first_collection_of(collections: &BTreeMap<String, VariableCollection>) -> Option<String> {
+    collections.iter().find(|(_, c)| !c.is_library()).or_else(|| collections.iter().next()).map(|(id, _)| id.clone())
+}
+
+/// What an import of variables did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VariablesImport {
+    /// Variables of the payload that were merged into the file.
+    pub imported: usize,
+    /// Variables of the payload left out because they belong to a library collection the file
+    /// already has: such a collection is edited in its library file, so an import cannot change it.
+    pub skipped_library: usize,
+}
+
+impl VariablesImport {
+    /// The toast text.
+    pub fn message(&self) -> String {
+        match self.skipped_library {
+            0 => format!("Imported {} variables", self.imported),
+            n => format!("Imported {} variables; {n} in library collections were skipped", self.imported),
+        }
+    }
+}
+
+/// Drops from an incoming payload everything that would land in a library collection `store`
+/// already has, and returns how many variables that was.
+pub fn drop_existing_library(
+    store: &VariableStore,
+    collections: &mut BTreeMap<String, VariableCollection>,
+    variables: &mut BTreeMap<String, Variable>,
+) -> usize {
+    collections.retain(|id, _| !store.is_library_collection(id));
+    let before = variables.len();
+    variables.retain(|id, v| !store.is_library_collection(&v.collection) && !store.is_library_variable(id));
+    before - variables.len()
 }
 
 /// The sidebar heading row.
@@ -54,7 +93,7 @@ pub fn paint_read_only_note(ui: &Ui, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::VariableCollection;
+    use designos_doc::VariableKind;
 
     fn coll(id: &str, lib: Option<&str>) -> VariableCollection {
         VariableCollection {
@@ -79,5 +118,28 @@ mod tests {
         v.collections.retain(|_, c| c.is_library());
         assert_eq!(first_collection(&v).as_deref(), Some("a"));
         assert_eq!(first_collection(&VariableStore::default()), None);
+    }
+
+    #[test]
+    fn an_incoming_payload_loses_whatever_would_land_in_an_existing_library_collection() {
+        let mut store = VariableStore::default();
+        let lib = store.add_collection("Shared");
+        let own = store.add_collection("Mine");
+        let lib_var = store.add_variable(&lib, "Brand/Sea", VariableKind::Color).unwrap();
+        let own_var = store.add_variable(&own, "Gap", VariableKind::Number).unwrap();
+        store.collections.get_mut(&lib).unwrap().source_library_key = Some("lk".into());
+
+        let (mut collections, mut variables) = (store.collections.clone(), store.variables.clone());
+        // a variable the payload files under the library collection, and one that claims a library
+        // variable's id from inside a collection the file owns
+        let mut stray = store.variables[&own_var].clone();
+        stray.id = "VariableID:stray".into();
+        stray.collection = lib.clone();
+        variables.insert(stray.id.clone(), stray);
+        variables.get_mut(&lib_var).unwrap().collection = own.clone();
+
+        assert_eq!(drop_existing_library(&store, &mut collections, &mut variables), 2);
+        assert_eq!(collections.keys().collect::<Vec<_>>(), [&own]);
+        assert_eq!(variables.keys().collect::<Vec<_>>(), [&own_var]);
     }
 }

@@ -153,7 +153,7 @@ impl App {
         self.vars.open = true;
         let known = self.vars.collection.as_ref().is_some_and(|c| self.doc.variable_collections.contains_key(c));
         if !known {
-            self.vars.collection = self.doc.variable_collections.keys().next().cloned();
+            self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
         }
         self.ui.menu = None;
     }
@@ -330,24 +330,26 @@ impl App {
         });
     }
 
-    /// Merges a `variables/local` JSON payload into the document (one undo step).
-    /// Returns how many variables the payload held.
-    pub fn import_variables_text(&mut self, text: &str) -> Result<usize, String> {
+    /// Merges a `variables/local` JSON payload into the document (one undo step). Variables of a
+    /// library collection the file already has are left out and counted as skipped: that collection
+    /// is edited in its library file.
+    pub fn import_variables_text(&mut self, text: &str) -> Result<library::VariablesImport, String> {
         let mut tmp = Document::new("import");
-        let n = designos_fig::import_variables_json(&mut tmp, text).map_err(|e| e.to_string())?;
+        let total = designos_fig::import_variables_json(&mut tmp, text).map_err(|e| e.to_string())?;
         let mut store = VariableStore::from_doc(&self.doc);
+        let skipped = library::drop_existing_library(&store, &mut tmp.variable_collections, &mut tmp.variables);
         store.collections.extend(tmp.variable_collections);
         store.variables.extend(tmp.variables);
         self.commit_store(store, &[], &[]);
         if self.vars.collection.is_none() {
-            self.vars.collection = self.doc.variable_collections.keys().next().cloned();
+            self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
         }
-        Ok(n)
+        Ok(library::VariablesImport { imported: total - skipped, skipped_library: skipped })
     }
 
     pub fn import_variables_file(&mut self, path: &Path) {
         match std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|t| self.import_variables_text(&t)) {
-            Ok(n) => self.show_toast(format!("Imported {n} variables"), false),
+            Ok(done) => self.show_toast(done.message(), false),
             Err(e) => self.show_toast(format!("Cannot import variables: {e}"), true),
         }
     }
@@ -615,7 +617,7 @@ mod tests {
         assert!(!is_variables_payload("{\"document\": {}}"));
         assert!(!is_variables_payload("nope"));
         let mut other = App::new(Document::new("o"));
-        assert_eq!(other.import_variables_text(&json).unwrap(), before);
+        assert_eq!(other.import_variables_text(&json).unwrap(), library::VariablesImport { imported: before, skipped_library: 0 });
         assert_eq!(other.doc.variables, app.doc.variables);
         other.undo();
         assert!(other.doc.variables.is_empty());

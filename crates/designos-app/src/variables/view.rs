@@ -614,7 +614,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                     app.vars.scroll = 0.0;
                 }
             }
-            if resp.secondary_clicked() && path.is_some() {
+            if resp.secondary_clicked() && path.is_some() && !coll.is_library() {
                 let pos = ui.input(|i| i.pointer.interact_pos()).unwrap_or(row.left_bottom());
                 app.vars.menu = Some(VarMenu { kind: VarMenuKind::Folder(cid.clone(), key.clone()), pos, anchor: Rect::from_min_size(pos, Vec2::ZERO) });
             }
@@ -1531,7 +1531,7 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                     let gone = fr.work.delete_collection(id);
                     fr.removed_vars.extend(gone);
                     fr.removed_colls.push(id.clone());
-                    app.vars.collection = fr.work.collections.keys().find(|k| *k != id).cloned();
+                    app.vars.collection = library::first_collection(&fr.work);
                     app.vars.group = None;
                 }
                 (VarMenuKind::Folder(c, f), _) => {
