@@ -759,3 +759,227 @@ fn moving_a_free_connector_carries_its_loose_ends() {
     s.cmd_key(Key::Z);
     assert_eq!(connector_route(&s.app().doc, c).unwrap().end(), r0.end());
 }
+
+#[test]
+fn facilitator_timer_runs_while_canvas_is_in_use() {
+    let mut s = board_sim();
+    assert!(!s.app().board.timer.running);
+    assert_eq!(s.app().board.timer.format_mm_ss(), "05:00");
+
+    // Open the facilitator timer HUD and start the timer
+    let toggle = s.rect_of("board-timer-toggle");
+    s.click(toggle.center());
+    assert!(s.app().board.timer.open);
+
+    let start_btn = s.rect_of("board-timer-start-pause");
+    s.click(start_btn.center());
+    assert!(s.app().board.timer.running);
+    let rem_after_start = s.app().board.timer.remaining_secs;
+
+    // Use the canvas while the timer is running: place a sticky note and type into it
+    s.key(Key::S);
+    s.click(s.screen(320.0, 320.0));
+    s.type_text("Brainstorm item");
+    s.key(Key::Escape);
+    assert_eq!(stickies(&s).len(), 1);
+
+    // The timer continued ticking down while the canvas was actively used
+    assert!(s.app().board.timer.running);
+    assert!(
+        s.app().board.timer.remaining_secs < rem_after_start - 0.1,
+        "expected timer to advance while canvas in use: before={rem_after_start}, after={}",
+        s.app().board.timer.remaining_secs
+    );
+
+    // Add 1 minute (+60s) and verify remaining time increases while still running
+    let rem_before_add = s.app().board.timer.remaining_secs;
+    let add_min = s.rect_of("board-timer-add-min");
+    s.click(add_min.center());
+    assert!(s.app().board.timer.remaining_secs > rem_before_add + 50.0);
+
+    // Reset stops the timer and restores the configured duration
+    let reset_btn = s.rect_of("board-timer-reset");
+    s.click(reset_btn.center());
+    assert!(!s.app().board.timer.running);
+    assert_eq!(s.app().board.timer.remaining_secs, s.app().board.timer.duration_secs);
+}
+
+/// Spacing steps of the 4 px grid used for padding and gaps.
+const GRID_STEPS: [f32; 9] = [4.0, 8.0, 12.0, 16.0, 24.0, 28.0, 32.0, 40.0, 48.0];
+
+#[test]
+fn facilitator_timer_chrome_sits_on_the_four_pixel_grid() {
+    let mut s = board_sim();
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    assert!(s.app().board.timer.open);
+    let bar = crate::board::toolbar::toolbar_rect(s.ctx.content_rect());
+    let hud = s.rect_of("board-timer-hud");
+    let start = s.rect_of("board-timer-start-pause");
+    let add = s.rect_of("board-timer-add-min");
+    let reset = s.rect_of("board-timer-reset");
+
+    let spacing = [
+        ("toolbar to timer pill", pill.left() - bar.right()),
+        ("timer pill to HUD", pill.top() - hud.bottom()),
+        ("HUD left padding", start.left() - hud.left()),
+        ("HUD top padding", start.top() - hud.top()),
+        ("HUD bottom padding", hud.bottom() - start.bottom()),
+        ("HUD right padding", hud.right() - reset.right()),
+        ("gap between Start and +1 min", add.left() - start.right()),
+        ("gap between +1 min and Reset", reset.left() - add.right()),
+    ];
+    let off_grid: Vec<String> =
+        spacing.iter().filter(|(_, v)| !GRID_STEPS.iter().any(|g| (g - v).abs() < 0.01)).map(|(what, v)| format!("{what} is {v} px")).collect();
+    assert!(off_grid.is_empty(), "off the 4 px grid {GRID_STEPS:?}: {off_grid:?}");
+
+    for (what, r) in [("timer pill", pill), ("Start", start), ("+1 min", add), ("Reset", reset)] {
+        assert!(r.width() >= 24.0 && r.height() >= 24.0, "{what} pointer target {}x{} is below 24 px", r.width(), r.height());
+    }
+    assert!((pill.height() - bar.height()).abs() < 0.01 && (pill.top() - bar.top()).abs() < 0.01, "pill follows the toolbar row");
+}
+
+#[test]
+fn facilitator_timer_hud_stays_usable_over_a_selection_bar_pinned_to_the_bottom() {
+    let mut s = board_sim();
+    let canvas = s.app().canvas_rect;
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    assert!(s.app().board.timer.open);
+    // a shape as tall as the canvas leaves no room above or below it, so the contextual bar is
+    // pinned just over the toolbar row; centre it on the timer HUD
+    let origin = s.screen(0.0, 0.0);
+    let zoom = s.screen(1.0, 0.0).x - origin.x;
+    let (cx, half_w) = (pill.right() - 112.0, 60.0);
+    let page = |sx: f32, sy: f32| ((sx - origin.x) / zoom, (sy - origin.y) / zoom);
+    let (x0, y0) = page(cx - half_w, canvas.top() + 16.0);
+    let (x1, y1) = page(cx + half_w, canvas.bottom() - 16.0);
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::shape_with_text(id, DRect::new(x0, y0, x1 - x0, y1 - y0), ShapeKind::RoundedRect, "box");
+    n.name = "tall".into();
+    let page_id = s.app().page;
+    s.shell.app.doc.insert(page_id, n).unwrap();
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.click(Pos2::new(cx, canvas.top() + 200.0));
+    let selected = s.app().selection.clone();
+    assert_eq!(selected, vec![id], "the tall shape is selected");
+    let bar = s.rect_of("board-bar");
+    let start = s.rect_of("board-timer-start-pause");
+    assert!(bar.contains_rect(start), "premise: the pinned contextual bar {bar:?} covers the HUD button {start:?}");
+
+    // the HUD is drawn and hit above the bar's layer
+    let under_bar = s.ctx.layer_id_at(Pos2::new(bar.left() + 10.0, bar.center().y)).expect("the bar's own layer");
+    let at_start = s.ctx.layer_id_at(start.center()).expect("the HUD layer");
+    assert!(at_start.order > under_bar.order, "HUD layer {at_start:?} must sit above the bar's layer {under_bar:?}");
+
+    let doc_before = s.app().doc.to_json().unwrap();
+    s.click(start.center());
+    assert!(s.app().board.timer.running, "Start under the contextual bar must still reach the timer");
+    assert_eq!(s.app().selection, selected, "the click did not touch the selection");
+    assert_eq!(s.app().doc.to_json().unwrap(), doc_before, "the click did not reach the bar's swatches");
+}
+
+#[test]
+fn tool_popovers_stay_above_the_timer_hud() {
+    let mut s = board_sim();
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    let hud = s.rect_of("board-timer-hud");
+    let chevron = s.rect_of("board-chevron-Stamp");
+    s.click(chevron.center());
+    assert!(s.app().board.tool_menu.is_some(), "the stamp popover is open");
+    let kind = designos_doc::STAMP_KINDS[0];
+    let cell = s.rect_of(&format!("board-stamp-{kind}"));
+    assert!(hud.intersects(cell), "premise: the HUD {hud:?} sits where the stamp cell {cell:?} is");
+
+    s.click(cell.center());
+    assert_eq!(s.app().tool, Tool::Stamp, "the click reached the popover cell under the HUD");
+    assert!(s.app().board.tool_menu.is_none());
+}
+
+/// How many repaints the board toolbar asked for in an idle frame (the context reports the causes
+/// of the previous pass, so a second frame is run before reading them).
+fn toolbar_repaint_requests(s: &mut Sim) -> usize {
+    s.frame(vec![]);
+    s.frame(vec![]);
+    s.ctx.repaint_causes().iter().filter(|c| c.file.replace('\\', "/").ends_with("board/toolbar.rs")).count()
+}
+
+#[test]
+fn facilitator_timer_keeps_requesting_frames_after_start_and_stops_when_paused() {
+    let mut s = board_sim();
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    s.mv(s.screen(900.0, 400.0));
+    assert_eq!(toolbar_repaint_requests(&mut s), 0, "an idle timer at 05:00 asks for no frames");
+
+    // press and release on Start with no frame pumped afterwards, like a user who then holds still
+    let start = s.rect_of("board-timer-start-pause");
+    s.mv(start.center());
+    s.button(true);
+    s.button(false);
+    assert!(s.app().board.timer.running);
+    assert!(s.ctx.has_requested_repaint(), "the frame that handled the Start click schedules the next frame");
+    let before = s.app().board.timer.remaining_secs;
+    for i in 0..12 {
+        assert!(toolbar_repaint_requests(&mut s) > 0, "idle frame {i} after Start asked for no further frame, so the label would freeze");
+    }
+    assert!(s.app().board.timer.remaining_secs < before - 1.0, "the label advances with no input at all");
+
+    s.click(start.center());
+    assert!(!s.app().board.timer.running);
+    s.mv(s.screen(900.0, 400.0));
+    assert_eq!(toolbar_repaint_requests(&mut s), 0, "a paused timer asks for no frames");
+}
+
+#[test]
+fn facilitator_timer_stops_asking_for_frames_at_zero() {
+    let mut s = board_sim();
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    s.shell.app.board.timer.remaining_secs = 0.2;
+    let start = s.rect_of("board-timer-start-pause");
+    s.mv(start.center());
+    s.button(true);
+    s.button(false);
+    assert!(s.app().board.timer.running);
+    for _ in 0..8 {
+        s.frame(vec![]);
+    }
+    assert!(!s.app().board.timer.running);
+    assert_eq!(s.app().board.timer.format_mm_ss(), "00:00");
+    s.mv(s.screen(900.0, 400.0));
+    assert_eq!(toolbar_repaint_requests(&mut s), 0, "a finished timer asks for no frames");
+}
+
+#[test]
+fn plus_one_minute_extends_the_countdown_but_reset_returns_to_the_preset() {
+    let mut s = board_sim();
+    let pill = s.rect_of("board-timer-toggle");
+    s.click(pill.center());
+    let add = s.rect_of("board-timer-add-min");
+    s.click(add.center());
+    assert_eq!(s.app().board.timer.format_mm_ss(), "06:00");
+    let reset = s.rect_of("board-timer-reset");
+    s.click(reset.center());
+    assert_eq!(s.app().board.timer.format_mm_ss(), "05:00", "Reset restores the preset, not the extended run");
+}
+
+#[test]
+fn facilitator_timer_label_uses_tabular_digits() {
+    fn walk(shape: &egui::Shape, out: &mut Vec<egui::FontFamily>) {
+        match shape {
+            egui::Shape::Text(t) if t.galley.job.text == "05:00" => {
+                out.extend(t.galley.job.sections.iter().map(|sec| sec.format.font_id.family.clone()));
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+            _ => {}
+        }
+    }
+    let s = board_sim();
+    let mut families = Vec::new();
+    s.shapes.iter().for_each(|c| walk(&c.shape, &mut families));
+    assert!(!families.is_empty(), "the 05:00 label is painted");
+    assert!(families.iter().all(|f| *f == egui::FontFamily::Monospace), "digits must not jitter each second: {families:?}");
+}

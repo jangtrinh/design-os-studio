@@ -193,11 +193,52 @@ pub fn ensure_page(doc: &mut Document) {
     }
 }
 
-/// Path of the `<file>.bak` backup written before saving a document that was repaired on load.
+/// Path of the `<file>.bak` (or `<file>.bak.1`, `<file>.bak.2`, … when `<file>.bak` already exists)
+/// backup written before saving a document that was repaired on load.
 pub fn backup_path(path: &Path) -> PathBuf {
-    let mut os = path.as_os_str().to_os_string();
-    os.push(".bak");
-    PathBuf::from(os)
+    let mut base = path.as_os_str().to_os_string();
+    base.push(".bak");
+    let first = PathBuf::from(&base);
+    if first.symlink_metadata().is_err() {
+        return first;
+    }
+    for n in 1u64.. {
+        let mut numbered = base.clone();
+        numbered.push(format!(".{n}"));
+        let candidate = PathBuf::from(numbered);
+        if candidate.symlink_metadata().is_err() {
+            return candidate;
+        }
+    }
+    unreachable!("u64 backup index exhausted")
+}
+
+/// If `path` was structurally repaired when loaded, writes its pre-repair bytes to `<path>.bak`.
+pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let key = repair_key(&p);
+    let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
+    if let Some(original_bytes) = &pending_backup {
+        let bak = backup_path(&p);
+        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Drops the pending pre-repair backup bytes for `path` after a save has succeeded.
+pub fn clear_pending_repair_backup(path: &Path) {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let key = repair_key(&p);
+    if let Ok(mut map) = repaired_originals().lock() {
+        map.remove(&key);
+    }
 }
 
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
@@ -214,17 +255,10 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
         doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?.into_bytes()
     };
 
-    let key = repair_key(&p);
-    let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
-    if let Some(original_bytes) = &pending_backup {
-        let bak = backup_path(&p);
-        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
-    }
+    let wrote_backup = write_pending_repair_backup(&p)?;
     designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
-    if pending_backup.is_some() {
-        if let Ok(mut map) = repaired_originals().lock() {
-            map.remove(&key);
-        }
+    if wrote_backup {
+        clear_pending_repair_backup(&p);
     }
     Ok(p)
 }
@@ -610,5 +644,38 @@ mod tests {
         assert!(!save_toast2.error, "second save of the same file must not repeat the notice: {}", save_toast2.text);
 
         let _ = std::fs::remove_dir_all(&lib_dir);
+    }
+
+    #[test]
+    fn saving_repaired_document_never_overwrites_existing_bak_files() {
+        let mut d = Document::new("Damaged");
+        let page = d.add_page("P");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        d.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(999));
+
+        let p = tmp("damaged_existing_bak.designos");
+        let bak0 = PathBuf::from(format!("{}.bak", p.display()));
+        let bak1 = PathBuf::from(format!("{}.bak.1", p.display()));
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(&bak0).ok();
+        std::fs::remove_file(&bak1).ok();
+
+        let pre_existing_bak = b"earlier-user-backup-bytes";
+        std::fs::write(&bak0, pre_existing_bak).unwrap();
+        let damaged_bytes = d.to_json().unwrap().into_bytes();
+        std::fs::write(&p, &damaged_bytes).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        let warning = warning.expect("malformed native open must return a repair warning");
+        assert!(warning.contains("damaged_existing_bak.designos.bak.1"), "warning must name the numbered backup slot when .bak already exists: {warning}");
+
+        save_path(&doc, &p).unwrap();
+        assert_eq!(std::fs::read(&bak0).unwrap(), pre_existing_bak, "existing .bak must never be overwritten");
+        assert_eq!(std::fs::read(&bak1).unwrap(), damaged_bytes, "new backup must be written to .bak.1");
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(&bak0).ok();
+        std::fs::remove_file(&bak1).ok();
     }
 }

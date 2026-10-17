@@ -86,6 +86,8 @@ pub enum Action {
     Flatten,
     /// Ctrl+Alt+O: turn the stroke into filled geometry.
     OutlineStroke,
+    /// Offset the selected shape's paths outward or inward.
+    OffsetPath,
     /// Wrap the selection in a boolean group.
     Boolean(designos_doc::BooleanOp),
     /// Enter vertex editing of the selected shape.
@@ -202,6 +204,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         }
         Action::Flatten => app.flatten_selection(),
         Action::OutlineStroke => app.outline_stroke_selection(),
+        Action::OffsetPath => app.offset_path_selection(10.0),
         Action::Boolean(op) => app.boolean_selection(op),
         Action::EditVertices => {
             if let Some(id) = app.selection.first().copied().filter(|_| app.selection.len() == 1) {
@@ -461,8 +464,10 @@ fn main_nodes(app: &App) -> Vec<Node> {
     )];
     let editing = app.canvas.vedit.is_some();
     let has_vec = app.selection.iter().any(|id| crate::canvas::vector::is_vector(app, *id));
+    let has_offsettable = app.selection.iter().any(|id| crate::vecops::is_offsettable(app, *id));
     let vector = vec![
         leaf("Outline stroke", "Ctrl+Alt+O", Action::OutlineStroke).off(!has_sel),
+        leaf("Offset path", "", Action::OffsetPath).off(!has_offsettable),
         leaf("Flatten", "Ctrl+E", Action::Flatten).off(!has_sel).sep(),
         submenu(
             "Boolean groups",
@@ -1035,5 +1040,28 @@ mod tests {
             assert!(!labels.contains(&fake), "{fake} has no backing feature and must not be listed");
         }
         assert!(labels.contains(&"Zoom to fit") && labels.contains(&"Rulers"));
+    }
+
+    #[test]
+    fn offset_path_is_enabled_for_plain_shapes_only() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        let (frame, shape, inner) = (doc.alloc_id(), doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, DocNode::frame(frame, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        doc.insert(frame, DocNode::rectangle(inner, Rect::new(10.0, 10.0, 50.0, 50.0))).unwrap();
+        doc.insert(page, DocNode::rectangle(shape, Rect::new(300.0, 0.0, 100.0, 100.0))).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+        let offset_disabled = |app: &App| commands(app).iter().find(|c| c.label == "Offset path").map(|c| c.disabled);
+
+        app.selection = vec![];
+        assert_eq!(offset_disabled(&app), Some(true), "nothing selected");
+        app.selection = vec![frame];
+        assert_eq!(offset_disabled(&app), Some(true), "a frame would be replaced together with its layers");
+        app.selection = vec![shape];
+        assert_eq!(offset_disabled(&app), Some(false), "a rectangle can be offset");
+        app.selection = vec![frame, shape];
+        assert_eq!(offset_disabled(&app), Some(false), "one offsettable shape in the selection is enough");
     }
 }

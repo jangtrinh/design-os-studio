@@ -58,6 +58,18 @@ impl Axes {
     }
 }
 
+/// The axes of an auto-layout frame that [`compute`] sizes from its content, as `(width, height)`.
+/// A wrapping flow frame keeps its primary axis: the content is cut into lines to fit it.
+pub fn hugged_axes(al: &AutoLayout) -> (bool, bool) {
+    let primary = al.primary_sizing == Sizing::Hug;
+    let counter = al.counter_sizing == Sizing::Hug;
+    match al.direction {
+        LayoutDirection::Horizontal => (primary && !al.wrap, counter),
+        LayoutDirection::Vertical => (counter, primary && !al.wrap),
+        LayoutDirection::Grid => (primary, counter),
+    }
+}
+
 /// Solves an auto-layout frame. `frame` is the current frame size (used for fixed axes) and `own`
 /// the frame's own min/max: they clamp the frame before any child is aligned, so a hugging frame
 /// raised by its minimum centers its children in the raised box. Padding order is top, right,
@@ -71,8 +83,8 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     let (pm_start, pm_end, pc_start, pc_end) = if ax.horiz { (pl, pr, pt, pb) } else { (pt, pb, pl, pr) };
     let pm = pm_start + pm_end;
     let pc = pc_start + pc_end;
-    let hug_main = al.primary_sizing == Sizing::Hug && !al.wrap;
-    let hug_cross = al.counter_sizing == Sizing::Hug;
+    let (hug_width, hug_height) = hugged_axes(al);
+    let (hug_main, hug_cross) = if ax.horiz { (hug_width, hug_height) } else { (hug_height, hug_width) };
     // a Fixed axis takes the clamped size; a hugging axis is clamped again once its content is known
     let mut frame_main = ax.clamp_main(&own, ax.main(frame));
     let mut frame_cross = ax.clamp_cross(&own, ax.cross(frame));

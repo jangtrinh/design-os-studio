@@ -945,6 +945,7 @@ mod dev;
 mod effect_grid_styles;
 mod figma_paste;
 mod find;
+mod gpu_screenshot_wait;
 mod history;
 mod home;
 mod live_agent_edits;
