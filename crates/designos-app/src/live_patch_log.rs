@@ -98,6 +98,11 @@ impl LivePatchLog {
             // A recreated or truncated log: everything in it is new.
             self.offset = 0;
             self.skipping = false;
+            self.pending.clear();
+            self.pending_doc = None;
+            self.dropped_old_epoch = 0;
+            self.discarding = false;
+            self.load_failed = false;
         }
         self.identity = Some(id);
         if rewritten || self.head.len() < HEAD_BYTES {
@@ -151,8 +156,11 @@ impl LivePatchLog {
         for line in lines {
             match line {
                 LiveLogLine::Patch(_) if self.discarding => {
-                    self.dropped_old_epoch += 1;
-                    dropped_while_stuck += 1;
+                    if self.load_failed {
+                        dropped_while_stuck += 1;
+                    } else {
+                        self.dropped_old_epoch += 1;
+                    }
                 }
                 LiveLogLine::Patch(patch) => self.pending.push(patch),
                 LiveLogLine::DocEpoch(epoch) => {
@@ -176,7 +184,7 @@ impl LivePatchLog {
                 }
             }
         }
-        if self.load_failed && dropped_while_stuck > 0 {
+        if dropped_while_stuck > 0 {
             errors.push(format!("{dropped_while_stuck} agent edit(s) were not applied: Studio could not load the document the agent opened"));
         }
         errors
@@ -357,5 +365,34 @@ mod tests {
         assert!(errors[0].contains("Cannot read the document"), "{}", errors[0]);
         assert!(errors[1].contains("1 agent edit(s) were not applied"), "{}", errors[1]);
         assert!(log.pending.is_empty() && log.pending_doc.is_none());
+
+        let mut next = Document::new("Recovered");
+        next.add_page("Page");
+        let (mark2, bytes2) = switch_line(&next, 2);
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes2).unwrap();
+        append(&path, &(mark2 + &line(2)));
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.dropped_old_epoch, 0, "edits already reported during load failure must not be counted again");
+    }
+
+    #[test]
+    fn a_rewritten_log_resets_dropped_edit_count_when_replayed_from_zero() {
+        let path = temp_log("rewrite-dropped-count");
+        let mut log = LivePatchLog::bind(path.clone());
+        let mut doc = Document::new("Switched");
+        doc.add_page("Page");
+        let (mark, bytes) = switch_line(&doc, 1);
+        std::fs::write(path.with_file_name("doc-sync.designos"), bytes).unwrap();
+        append(&path, &(line(1) + &line(2) + &mark));
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.dropped_old_epoch, 2);
+
+        // Truncate/rewrite the log in place and replay from 0 with 1 edit before the switch.
+        std::fs::write(&path, line(10) + &mark).unwrap();
+        let (lines, _) = log.poll();
+        assert!(log.ingest(lines).is_empty());
+        assert_eq!(log.dropped_old_epoch, 1, "rewritten log must reset prior dropped_old_epoch count");
     }
 }
