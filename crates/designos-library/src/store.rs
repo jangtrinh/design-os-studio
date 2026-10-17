@@ -200,11 +200,40 @@ fn sync_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn load_non_finite_map() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, usize>> {
+    static MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, usize>>> = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn record_load_non_finite(path: &Path, count: usize) {
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(mut map) = load_non_finite_map().lock() {
+        if count > 0 {
+            map.insert(key, count);
+        } else {
+            map.remove(&key);
+        }
+    }
+}
+
+/// Returns and clears the count of non-finite (`null`) numbers replaced on the most recent
+/// [`Library::load_file`] for `path`.
+pub fn take_load_non_finite(path: &Path) -> usize {
+    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    load_non_finite_map().lock().ok().and_then(|mut map| map.remove(&key)).unwrap_or(0)
+}
+
 /// Loads a document from any importable file: `.designos` / `.json` (native or
 /// Figma REST), `.fig` or `.svg`.
 pub fn load_external(path: &Path) -> Result<Document> {
+    load_external_counted(path).map(|(doc, _)| doc)
+}
+
+/// Like [`load_external`], also returning how many `null` numbers were replaced on read.
+pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let invalid = |m: String| LibraryError::Invalid(m);
+    let mut replaced_on_read = 0;
     let mut doc = match ext.as_str() {
         "fig" => designos_fig::import_fig(&std::fs::read(path)?).map_err(|e| invalid(format!("Cannot import .fig: {e}")))?,
         "svg" => {
@@ -219,10 +248,25 @@ pub fn load_external(path: &Path) -> Result<Document> {
             let text = std::fs::read_to_string(path)?;
             match designos_fig::import_rest_json(&text) {
                 Ok(d) => d,
-                Err(fig) => Document::from_json(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?,
+                Err(fig) => {
+                    let (d, report) =
+                        Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
+                    if !report.is_clean() {
+                        eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+                    }
+                    replaced_on_read = report.non_finite_numbers;
+                    d
+                }
             }
         }
-        _ => Document::from_json(&std::fs::read_to_string(path)?).map_err(|e| invalid(format!("Invalid designos file: {e}")))?,
+        _ => {
+            let (d, report) = Document::from_json_with_report(&std::fs::read_to_string(path)?).map_err(|e| invalid(format!("Invalid designos file: {e}")))?;
+            if !report.is_clean() {
+                eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+            }
+            replaced_on_read = report.non_finite_numbers;
+            d
+        }
     };
     if doc.name.is_empty() {
         doc.name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled").to_string();
@@ -231,7 +275,7 @@ pub fn load_external(path: &Path) -> Result<Document> {
     if doc.pages.is_empty() {
         doc.add_page("Page 1");
     }
-    Ok(doc)
+    Ok((doc, replaced_on_read))
 }
 
 fn clean_name(name: &str, what: &str) -> Result<String> {
@@ -426,7 +470,7 @@ impl Library {
 
     /// [`Self::create_file`], also returning how many non-finite numbers (NaN, infinity) were
     /// written as their neutral value, so the stored file always opens.
-    fn create_file_counted(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<(FileEntry, usize)> {
+    pub fn create_file_counted(&self, project: &str, folder: Option<&str>, name: &str, doc: &Document) -> Result<(FileEntry, usize)> {
         let _guard = write_lock();
         let name = clean_name(name, "file")?;
         let mut m = self.load_manifest(project)?;
@@ -500,8 +544,14 @@ impl Library {
 
     pub fn load_file(&self, id: &str) -> Result<Document> {
         let (m, _) = self.find_file(id)?;
-        let text = std::fs::read_to_string(self.file_path(&m.project.id, id))?;
-        Ok(Document::from_json(&text)?)
+        let path = self.file_path(&m.project.id, id);
+        let text = std::fs::read_to_string(&path)?;
+        let (doc, report) = Document::from_json_with_report(&text)?;
+        if !report.is_clean() {
+            eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+        }
+        record_load_non_finite(&path, report.non_finite_numbers);
+        Ok(doc)
     }
 
     fn update_file(&self, id: &str, f: impl FnOnce(&mut FileEntry)) -> Result<()> {
@@ -620,18 +670,25 @@ impl Library {
     /// Same as [`Self::import_file`], also returning the parsed [`Document`] so callers
     /// (such as background thumbnail rendering) do not re-read and re-parse the saved file.
     pub fn import_file_with_doc(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document)> {
-        let doc = load_external(path)?;
+        self.import_file_with_doc_counted(path, project, folder).map(|(e, d, _)| (e, d))
+    }
+
+    /// Like [`Self::import_file_with_doc`], also returning how many non-finite numbers were
+    /// replaced by their neutral value on read or write.
+    pub fn import_file_with_doc_counted(&self, path: &Path, project: &str, folder: Option<&str>) -> Result<(FileEntry, Document, usize)> {
+        let (doc, replaced_on_read) = load_external_counted(path)?;
         let stem = path.file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty());
         let name = if !doc.name.is_empty() { doc.name.clone() } else { stem.unwrap_or("Imported").to_string() };
-        let (entry, replaced) = self.create_file_counted(project, folder, &name, &doc)?;
-        if replaced == 0 {
-            return Ok((entry, doc));
+        let (entry, replaced_on_write) = self.create_file_counted(project, folder, &name, &doc)?;
+        let total_replaced = replaced_on_read + replaced_on_write;
+        if replaced_on_write == 0 {
+            return Ok((entry, doc, total_replaced));
         }
         // The import produced NaN or infinity and the stored file holds neutral values instead.
         // Return what is stored, so the editor and the file agree from the first open.
-        eprintln!("designos-library: imported \"{name}\" with {replaced} non-finite numbers replaced by their neutral value");
+        eprintln!("designos-library: imported \"{name}\" with {replaced_on_write} non-finite numbers replaced by their neutral value");
         let stored = self.load_file(&entry.id)?;
-        Ok((entry, stored))
+        Ok((entry, stored, total_replaced))
     }
 
     // ------------------------------------------------------------ recents / search

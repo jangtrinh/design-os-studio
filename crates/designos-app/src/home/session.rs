@@ -403,6 +403,12 @@ impl App {
         let _ = lib.mark_opened(id);
         self.home = None;
         self.ui.menu = None;
+        if let Some(path) = self.watched_disk_path() {
+            let nf = designos_library::take_load_non_finite(&path);
+            if let Some(w) = crate::io::non_finite_notice_once(&path, nf) {
+                self.show_toast(crate::io::opened_toast_text(&entry.name, Some(&w)), true);
+            }
+        }
         if needs_thumb && self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, entry.id, self.export_doc().into_owned());
         }
@@ -495,10 +501,16 @@ impl App {
 
     /// Ctrl+S on a library file.
     pub fn save_library_file_with_toast(&mut self) {
+        let replaced = self.doc.to_json_counted().map(|(_, n)| n).unwrap_or(0);
+        let disk_path = self.watched_disk_path();
         match self.save_library_file() {
             Ok(()) => {
                 let project = self.lib_file.as_ref().map(|f| f.project.clone()).unwrap_or_default();
-                self.show_toast(format!("Saved to {project}"), false);
+                let notice = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
+                match notice {
+                    Some(w) => self.show_toast(format!("Saved to {project} ({w})"), true),
+                    None => self.show_toast(format!("Saved to {project}"), false),
+                }
             }
             Err(e) => self.show_toast(e, true),
         }
@@ -593,8 +605,15 @@ impl App {
         } else if self.autosave.confirmed && self.now - t >= AUTOSAVE_IDLE {
             self.autosave.changed_at = None;
             if doc_hash(&self.doc) != self.autosave.saved_hash {
+                let replaced = self.doc.to_json_counted().map(|(_, n)| n).unwrap_or(0);
+                let disk_path = self.watched_disk_path();
                 match self.save_library_file() {
-                    Ok(()) => self.autosave.saves += 1,
+                    Ok(()) => {
+                        self.autosave.saves += 1;
+                        if let Some(w) = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced)) {
+                            self.show_toast(w, true);
+                        }
+                    }
                     Err(e) => self.show_toast(e, true),
                 }
             }
@@ -627,17 +646,22 @@ impl App {
         let Some(lib) = self.lib.clone() else { return };
         let mut doc = self.doc.clone();
         doc.name = name.trim().to_string();
-        match lib.create_file(project, folder, name, &doc) {
-            Ok(e) => {
+        match lib.create_file_counted(project, folder, name, &doc) {
+            Ok((e, replaced)) => {
                 self.doc.name = e.name.clone();
                 let project_name = lib.project(project).map(|p| p.name).unwrap_or_default();
                 self.lib_file = Some(LibFile { id: e.id.clone(), project_id: project.to_string(), project: project_name.clone(), name: e.name });
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
-                self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+                let disk_path = self.watched_disk_path();
+                self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
                 self.file_path = None;
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
-                self.show_toast(format!("Saved to {project_name}"), false);
+                let notice = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
+                match notice {
+                    Some(w) => self.show_toast(format!("Saved to {project_name} ({w})"), true),
+                    None => self.show_toast(format!("Saved to {project_name}"), false),
+                }
             }
             Err(e) => self.show_toast(format!("Cannot save to the library: {e}"), true),
         }
@@ -648,19 +672,27 @@ impl App {
         let Some(lib) = self.lib.clone() else { return 0 };
         let mut ok = 0;
         let mut last_err = None;
+        let mut notices: Vec<String> = Vec::new();
         for p in paths {
-            match lib.import_file_with_doc(p, project, folder) {
-                Ok((e, doc)) => {
+            match lib.import_file_with_doc_counted(p, project, folder) {
+                Ok((e, doc, replaced)) => {
                     ok += 1;
+                    let disk_path = lib.path("projects").join(project).join("files").join(format!("{}.designos", e.id));
+                    let _ = crate::io::non_finite_notice_once(&disk_path, replaced);
+                    if let Some(w) = crate::io::non_finite_notice_once(p, replaced) {
+                        notices.push(w);
+                    }
                     thumb::refresh_in_background(lib.clone(), e.id, doc);
                 }
                 Err(e) => last_err = Some(format!("{}: {e}", p.file_name().and_then(|n| n.to_str()).unwrap_or("file"))),
             }
         }
+        let notice_suffix = notices.first().map(|w| format!(" ({w})")).unwrap_or_default();
+        let has_notice = !notices.is_empty();
         match (ok, last_err) {
             (0, Some(e)) => self.show_toast(format!("Import failed. {e}"), true),
-            (n, Some(e)) => self.show_toast(format!("Imported {n}, but {e}"), true),
-            (n, None) if n > 0 => self.show_toast(format!("Imported {n} file{}", if n == 1 { "" } else { "s" }), false),
+            (n, Some(e)) => self.show_toast(format!("Imported {n}, but {e}{notice_suffix}"), true),
+            (n, None) if n > 0 => self.show_toast(format!("Imported {n} file{}{notice_suffix}", if n == 1 { "" } else { "s" }), has_notice),
             _ => {}
         }
         if let Some(h) = self.home.as_mut() {
