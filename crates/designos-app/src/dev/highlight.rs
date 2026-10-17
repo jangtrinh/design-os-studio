@@ -47,7 +47,10 @@ pub fn color(t: Tok) -> Color32 {
 fn keywords(lang: Language) -> &'static [&'static str] {
     match lang {
         Language::Css | Language::Tailwind => &["true", "false"],
-        Language::SwiftUi => &["let", "var", "func", "struct", "some", "return", "if", "else", "true", "false", "nil", "import", "self", "in"],
+        Language::SwiftUi | Language::UiKit => {
+            &["let", "var", "func", "struct", "some", "return", "if", "else", "true", "false", "nil", "import", "self", "in"]
+        }
+        Language::AndroidXml => &["true", "false"],
         Language::Compose => &["val", "var", "fun", "return", "if", "else", "true", "false", "null", "import", "class", "object"],
         Language::React => &["export", "function", "return", "const", "true", "false", "null", "import"],
     }
@@ -63,6 +66,10 @@ pub fn highlight(lang: Language, code: &str) -> Vec<Vec<Span>> {
 }
 
 fn line(lang: Language, src: &str) -> Vec<Span> {
+    // XML comments (file headers, notes) are always one line in the generated layouts
+    if lang == Language::AndroidXml && src.trim_start().starts_with("<!--") {
+        return vec![span(Tok::Comment, src)];
+    }
     let chars: Vec<char> = src.chars().collect();
     let mut out: Vec<Span> = Vec::new();
     let mut i = 0;

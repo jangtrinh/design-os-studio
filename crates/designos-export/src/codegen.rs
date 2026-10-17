@@ -201,6 +201,12 @@ fn css_var_with_fallback(doc: &Document, n: &Node, v: &Variable, fmt: Fallback) 
     }
 }
 
+/// What a bound variable prints as in `platform`'s code: its code syntax for that platform verbatim
+/// when set, else the generator's own token reference (`fallback`).
+pub(crate) fn token_text(v: &Variable, platform: CodeSyntaxPlatform, fallback: impl FnOnce() -> String) -> String {
+    v.code_syntax_for(platform).map(str::to_string).unwrap_or_else(fallback)
+}
+
 /// camelCase token name, dropping a leading `color` segment (`Color/Brand/Primary` -> `brandPrimary`).
 pub(crate) fn token_camel(v: &Variable, drop_color: bool) -> String {
     let mut s = segments(v);

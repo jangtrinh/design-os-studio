@@ -50,7 +50,7 @@ pub struct Options {
     pub find: Option<String>,
     /// Replacement text for `--find`; also shows the replace row.
     pub replace_with: Option<String>,
-    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `compose` or `react`.
+    /// Open Dev mode with this code language: `css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml` or `react`.
     pub dev: Option<String>,
     /// With `--dev`: mark the selected layer Ready for dev and give it a demo annotation and link.
     pub dev_demo: bool,
@@ -230,9 +230,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--find" => o.find = Some(it.next().ok_or("--find needs the text to search for")?),
             "--replace-with" => o.replace_with = Some(it.next().ok_or("--replace-with needs the replacement text")?),
             "--dev" => {
-                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, compose or react")?;
-                if !matches!(l.as_str(), "css" | "tailwind" | "swiftui" | "compose" | "react") {
-                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, compose or react)"));
+                let l = it.next().ok_or("--dev needs css, tailwind, swiftui, uikit, compose, android-xml or react")?;
+                if !matches!(l.as_str(), "css" | "tailwind" | "swiftui" | "uikit" | "compose" | "android-xml" | "react") {
+                    return Err(format!("unknown language '{l}' (expected css, tailwind, swiftui, uikit, compose, android-xml or react)"));
                 }
                 o.dev = Some(l);
             }
@@ -267,7 +267,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
   --gpu      draw the canvas on the GPU; --screenshot uses the CPU renderer unless this is given
   --library  use DIR as the projects library instead of the default location
-  --dev      open Dev mode with a code language (css|tailwind|swiftui|compose|react); --dev-demo marks the selection Ready for dev with an annotation
+  --dev      open Dev mode with a code language (css|tailwind|swiftui|uikit|compose|android-xml|react); --dev-demo marks the selection Ready for dev with an annotation
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig  headless Agent CLI inspection and mutation";

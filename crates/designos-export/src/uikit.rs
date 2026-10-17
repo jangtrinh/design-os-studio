@@ -42,7 +42,7 @@ fn ui_color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> Str
     let a = (c.a * opacity).clamp(0.0, 1.0);
     let alpha = |base: String| if a < 0.999 { format!("{base}.withAlphaComponent({})", num((a * 100.0).round() / 100.0)) } else { base };
     if let Some(v) = bound(doc, n, key) {
-        return alpha(format!("(UIColor(named: {}) ?? UIColor.clear)", swift_quote(&token_camel(v, true))));
+        return alpha(token_text(v, CodeSyntaxPlatform::Ios, || format!("(UIColor(named: {}) ?? UIColor.clear)", swift_quote(&token_camel(v, true)))));
     }
     let base = if c.r == 1.0 && c.g == 1.0 && c.b == 1.0 {
         "UIColor.white".to_string()
@@ -57,7 +57,7 @@ fn ui_color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> Str
 
 fn dimension(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => format!("Tokens.{}", token_camel(var, false)),
+        Some(var) => token_text(var, CodeSyntaxPlatform::Ios, || format!("Tokens.{}", token_camel(var, false))),
         None => num(v),
     }
 }
@@ -317,7 +317,10 @@ impl Cx<'_> {
             self.line(format!("{v}.layer.shadowRadius = {}", num(radius / 2.0)));
         }
         match bound(doc, n, "opacity") {
-            Some(var) => self.line(format!("{v}.alpha = Tokens.{} / 100", token_camel(var, false))),
+            Some(var) => {
+                let token = token_text(var, CodeSyntaxPlatform::Ios, || format!("Tokens.{}", token_camel(var, false)));
+                self.line(format!("{v}.alpha = {token} / 100"));
+            }
             None if n.opacity < 0.999 => self.line(format!("{v}.alpha = {}", num((n.opacity * 100.0).round() / 100.0))),
             None => {}
         }

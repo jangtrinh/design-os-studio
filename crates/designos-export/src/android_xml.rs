@@ -71,21 +71,21 @@ fn token(v: &Variable) -> String {
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
     match bound(doc, n, key) {
-        Some(v) => format!("@color/{}", token(v)),
+        Some(v) => token_text(v, CodeSyntaxPlatform::Android, || format!("@color/{}", token(v))),
         None => argb(c, opacity),
     }
 }
 
 fn dp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => format!("@dimen/{}", token(var)),
+        Some(var) => token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var))),
         None => format!("{}dp", num(v)),
     }
 }
 
 fn sp(doc: &Document, n: &Node, key: &str, v: f32) -> String {
     match bound(doc, n, key) {
-        Some(var) => format!("@dimen/{}", token(var)),
+        Some(var) => token_text(var, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(var))),
         None => format!("{}sp", num(v)),
     }
 }
@@ -168,7 +168,7 @@ impl Cx<'_> {
             attr(attrs, "elevation", format!("{}dp", num(radius / 2.0)));
         }
         match bound(doc, n, "opacity") {
-            Some(v) => attr(attrs, "alpha", format!("@dimen/{}", token(v))),
+            Some(v) => attr(attrs, "alpha", token_text(v, CodeSyntaxPlatform::Android, || format!("@dimen/{}", token(v)))),
             None if n.opacity < 0.999 => attr(attrs, "alpha", num((n.opacity * 100.0).round() / 100.0)),
             None => {}
         }
