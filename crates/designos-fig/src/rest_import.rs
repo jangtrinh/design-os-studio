@@ -1534,7 +1534,10 @@ impl<'a> Ctx<'a> {
                         .split(',')
                         .filter_map(|part| {
                             let part = part.trim();
-                            self.ids.get(part).copied().or_else(|| part.parse::<u64>().ok().map(NodeId))
+                            if part.parse::<u64>().is_ok() {
+                                return None;
+                            }
+                            self.ids.get(part).copied()
                         })
                         .collect()
                 };

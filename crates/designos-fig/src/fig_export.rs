@@ -1023,11 +1023,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     msg(vec![("guidValue", guid(tg.0, tg.1))])
                 }
                 PropValue::Slot(ids) => {
-                    let s = ids
-                        .iter()
-                        .map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1)).unwrap_or_else(|| i.0.to_string()))
-                        .collect::<Vec<_>>()
-                        .join(",");
+                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
                     msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
                 }
             };
