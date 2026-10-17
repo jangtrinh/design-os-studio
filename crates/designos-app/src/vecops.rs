@@ -36,11 +36,27 @@ fn has_geometry(app: &App, id: NodeId) -> bool {
     app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Text(_) | NodeKind::Page { .. } | NodeKind::Unknown { .. }))
 }
 
-/// Whether Offset path may replace `id`: a basic shape or vector with no layers inside. Frames,
-/// sections, groups, boolean groups, text and board items are not, because the vector that
-/// replaces a node has neither its children nor its kind-specific data.
+/// Whether Offset path may change `id`: a basic shape or vector with no layers inside. Frames,
+/// sections, groups, boolean groups, text and board items are not, because a node that becomes a
+/// vector has neither its children nor its kind-specific data any more.
 pub fn is_offsettable(app: &App, id: NodeId) -> bool {
     crate::canvas::vector::is_vector(app, id) && app.doc.get(id).is_some_and(|n| n.children.is_empty())
+}
+
+/// Stretches the geometry of vector `id` to its box when a layout pass gave the box another size
+/// (a fixed minimum or maximum, or a fill slot), so the drawn shape never spills out of its box.
+fn fit_geometry_to_box(doc: &mut Document, ed: &mut crate::edit::Edit, id: NodeId) {
+    let Some(node) = doc.get(id) else { return };
+    let NodeKind::Vector { network: Some(net), .. } = &node.kind else { return };
+    let bb = net.bounds();
+    let have = v2(bb.w.max(1.0), bb.h.max(1.0));
+    if (node.size.x - have.x).abs() < 1e-3 && (node.size.y - have.y).abs() < 1e-3 {
+        return;
+    }
+    let fitted = net.transformed(&Affine::scale(node.size.x / have.x, node.size.y / have.y));
+    if let Some(node) = ed.node(doc, id) {
+        node.kind = NodeKind::Vector { paths: fitted.to_paths(), network: Some(fitted) };
+    }
 }
 
 fn linked(app: &App, id: NodeId) -> bool {
@@ -158,9 +174,11 @@ impl App {
     /// Offsets the closed contours of each selected shape outward (`delta > 0.0`) or inward
     /// (`delta < 0.0`) with an explicit join and miter limit as a single Undo step.
     ///
-    /// Only plain shapes are replaced (see [`is_offsettable`]): a layer that holds other layers
-    /// or carries board data is left alone, since the replacement vector would drop them. Open
-    /// sub-paths are kept as they were, and the layout around a grown or shrunk shape is
+    /// Only plain shapes are offset (see [`is_offsettable`]): a layer that holds other layers or
+    /// carries board data is left alone, since turning it into a vector would drop them. Each
+    /// offset layer keeps its id and every property but its geometry, so masks, prototype links
+    /// and instances keep pointing at it. Open sub-paths are kept as they were, a shape that an
+    /// inset would remove is left unchanged, and the layout around a grown or shrunk shape is
     /// re-solved in the same step.
     pub fn offset_path_selection_with(&mut self, delta: f32, join: StrokeJoin, miter_limit: f32) {
         if !delta.is_finite() || delta.abs() < 1e-5 {
@@ -176,7 +194,7 @@ impl App {
         }
         let mut tx = Tx::new();
         let mut made = vec![];
-        let (mut skipped_layers, mut open_only, mut open_kept) = (false, false, false);
+        let (mut skipped_layers, mut open_only, mut open_kept, mut collapsed) = (false, false, false, false);
         for id in tops {
             if !is_offsettable(self, id) {
                 skipped_layers = true;
@@ -192,26 +210,32 @@ impl App {
             }
             let offset = offset_paths(&paths, delta, join, miter_limit);
             if offset.is_empty() {
+                collapsed = true;
                 continue;
             }
-            let Some(parent) = n.parent else { continue };
-            let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { continue };
-            let vid = self.doc.alloc_id();
-            let mut node = vector_node(vid, &offset, &n);
-            node.name = n.name.clone();
-            node.component = ComponentLink::default();
-            if tx.cmd(&mut self.doc, Command::Insert { parent, index: index + 1, nodes: vec![node] }).is_err() {
-                continue;
-            }
-            let _ = tx.cmd(&mut self.doc, Command::Remove { id });
-            // the new box has another size: siblings in an auto-layout row and fitted groups follow
-            crate::layout::relayout_around(&mut self.doc, &mut tx.ed, vid);
+            // the layer stays the same node (same id, name, mask, prototype links, component link,
+            // blend, ...) and only its geometry changes
+            let mut net = VectorNetwork::from_paths(&offset);
+            let bb = net.bounds();
+            net.translate(v2(-bb.x, -bb.y));
+            let Some(node) = tx.ed.node(&mut self.doc, id) else { continue };
+            node.kind = NodeKind::Vector { paths: net.to_paths(), network: Some(net) };
+            node.transform = n.transform * Affine::translate(bb.x, bb.y);
+            node.size = v2(bb.w.max(1.0), bb.h.max(1.0));
+            node.fill_geometry = None;
+            node.stroke_geometry = None;
+            node.corner_radii = [0.0; 4];
+            node.corner_smoothing = 0.0;
+            // the box has another size: siblings in an auto-layout row and fitted groups follow
+            crate::layout::relayout_around(&mut self.doc, &mut tx.ed, id);
+            fit_geometry_to_box(&mut self.doc, &mut tx.ed, id);
             open_kept |= open > 0;
-            made.push(vid);
+            made.push(id);
         }
         let notes: Vec<&str> = [
             (skipped_layers, "Skipped frames, groups, text and board items: only plain shapes can be offset"),
             (open_only || open_kept, "Open paths cannot be offset and were left as they were"),
+            (collapsed, "The offset collapsed the shape, so it was left as it was"),
         ]
         .into_iter()
         .filter_map(|(on, text)| on.then_some(text))
@@ -341,8 +365,13 @@ mod tests {
         app
     }
 
-    /// Offsets `target` (holding a rectangle `kid` when `with_kid`) and asserts nothing changed.
     fn assert_offset_refused(make: impl FnOnce(NodeId) -> Node, with_kid: bool) {
+        offset_and_assert_untouched(make, with_kid, 10.0);
+    }
+
+    /// Offsets `target` (holding a rectangle `kid` when `with_kid`) by `delta` and asserts nothing
+    /// changed. Returns the text of the toast the user is shown.
+    fn offset_and_assert_untouched(make: impl FnOnce(NodeId) -> Node, with_kid: bool, delta: f32) -> String {
         let mut doc = Document::new("Test");
         let page = doc.add_page("Page 1");
         let target = doc.alloc_id();
@@ -355,13 +384,13 @@ mod tests {
         let mut app = app_on_new_page(doc, page);
         app.selection = vec![target];
 
-        app.offset_path_selection(10.0);
+        app.offset_path_selection(delta);
 
         let after: Vec<Option<Node>> = [page, target, kid].iter().map(|i| app.doc.get(*i).cloned()).collect();
         assert!(after == before, "nothing in the document may change: the page now lists {:?}", app.doc.get(page).map(|p| p.children.clone()));
         assert_eq!(app.hist.undo_depth(), 0, "a refused offset is not an undo step");
         assert_eq!(app.selection, vec![target]);
-        assert!(app.toast.is_some(), "the user is told why nothing happened");
+        app.toast.as_ref().expect("the user is told why nothing happened").text.clone()
     }
 
     #[test]
@@ -414,10 +443,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn offset_path_inset_keeps_the_open_tail_of_a_vector() {
-        let mut doc = Document::new("Test");
-        let page = doc.add_page("Page 1");
+    /// A vector made of a 100 x 100 filled square and an open 100 px segment 200 px to its right.
+    fn square_with_open_tail(id: NodeId) -> Node {
         let region = Path {
             cmds: vec![
                 PathCmd::MoveTo(v2(0.0, 0.0)),
@@ -430,8 +457,16 @@ mod tests {
         };
         let tail = Path { cmds: vec![PathCmd::MoveTo(v2(200.0, 0.0)), PathCmd::LineTo(v2(300.0, 0.0))], fill_rule: FillRule::NonZero };
         let template = Node::rectangle(NodeId(0), Rect::new(0.0, 0.0, 300.0, 100.0));
+        vector_node(id, &[region, tail], &template)
+    }
+
+    #[test]
+    fn offset_path_inset_keeps_the_open_tail_of_a_vector() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
         let vid = doc.alloc_id();
-        doc.insert(page, vector_node(vid, &[region, tail], &template)).unwrap();
+        doc.insert(page, square_with_open_tail(vid)).unwrap();
+        let before = doc.get(vid).cloned();
         let mut app = app_on_new_page(doc, page);
         app.selection = vec![vid];
 
@@ -458,7 +493,107 @@ mod tests {
         assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("Open paths")), "the user is told the open part was left as it was");
         assert_eq!(app.hist.undo_depth(), 1);
         app.undo();
-        assert!(app.doc.get(vid).is_some(), "one undo brings the original vector back");
+        assert!(app.doc.get(vid).cloned() == before, "one undo brings the original vector back");
+    }
+
+    #[test]
+    fn offset_path_that_collapses_the_shape_leaves_the_node_as_it_was() {
+        let rectangle = |id| Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        let alone = offset_and_assert_untouched(rectangle, false, -60.0);
+        assert!(alone.contains("collapsed"), "{alone}");
+        // the open segment must not stand in for the shape that vanished
+        let with_tail = offset_and_assert_untouched(square_with_open_tail, false, -60.0);
+        assert!(with_tail.contains("collapsed"), "{with_tail}");
+    }
+
+    #[test]
+    fn offset_path_keeps_the_node_and_everything_but_its_geometry() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (rid, other) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, Node::frame(other, Rect::new(300.0, 0.0, 200.0, 200.0))).unwrap();
+        let mut rect = Node::rectangle(rid, Rect::new(20.0, 30.0, 100.0, 100.0));
+        rect.name = "Mask".into();
+        rect.is_mask = true;
+        rect.locked = true;
+        rect.visible = false;
+        rect.opacity = 0.5;
+        rect.corner_radii = [8.0; 4];
+        rect.hyperlink = Some("https://example.com".into());
+        rect.plugin_data.insert("plugin:key".into(), "value".into());
+        rect.style_refs.insert("fill".into(), "S:1".into());
+        rect.export_settings.push(ExportPreset { format: ExportFileFormat::Svg, constraint: ExportConstraint::Width(512.0), suffix: "@512".into() });
+        rect.prototype.reactions.push(Reaction {
+            trigger: Trigger::OnClick,
+            actions: vec![designos_doc::Action::Navigate { dest: other, preserve_scroll: false }],
+            transition: None,
+        });
+        doc.insert(page, rect).unwrap();
+        let before = doc.get(rid).cloned().unwrap();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![rid];
+
+        app.offset_path_selection(10.0);
+
+        assert_eq!(app.selection, vec![rid], "the layer keeps its id, so references to it stay valid");
+        let after = app.doc.get(rid).expect("the layer is still there").clone();
+        assert!(matches!(after.kind, NodeKind::Vector { .. }));
+        assert!((after.size.x - 120.0).abs() <= 0.5, "{:?}", after.size);
+        let mut expected = before.clone();
+        expected.kind = after.kind.clone();
+        expected.transform = after.transform;
+        expected.size = after.size;
+        expected.corner_radii = [0.0; 4];
+        assert!(after == expected, "only kind, transform, size and the baked corner radii may differ:\n{after:?}\nvs\n{expected:?}");
+        assert!(after.is_mask && after.locked && !after.visible && after.blend == before.blend);
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.undo();
+        assert!(app.doc.get(rid).cloned() == Some(before), "one undo restores the rectangle exactly");
+    }
+
+    #[test]
+    fn offset_path_in_a_main_component_keeps_instances_linked_to_the_same_layer() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (fid, rid) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        doc.insert(fid, Node::rectangle(rid, Rect::new(20.0, 20.0, 100.0, 100.0))).unwrap();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![fid];
+        app.create_component();
+        let comp = app.selection[0];
+        app.insert_instance(comp, v2(600.0, 100.0)).expect("an instance");
+        let mirror = |app: &App| app.doc.nodes.values().find(|n| n.component.source == Some(rid)).cloned();
+        assert!(mirror(&app).is_some_and(|n| matches!(n.kind, NodeKind::Rectangle)), "the instance mirrors the rectangle");
+
+        app.selection = vec![rid];
+        app.offset_path_selection(10.0);
+
+        assert!(matches!(app.doc.get(rid).map(|n| &n.kind), Some(NodeKind::Vector { .. })), "the main component keeps the layer");
+        let mirrored = mirror(&app).expect("the instance still points at the layer by its id");
+        assert!(matches!(mirrored.kind, NodeKind::Vector { .. }), "and follows the offset");
+    }
+
+    #[test]
+    fn offset_path_fits_the_shape_to_a_layout_slot_that_clamps_its_size() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, a, _) = auto_layout_row(&mut doc, page, Sizing::Fixed);
+        doc.get_mut(a).unwrap().layout_child.max_w = Some(100.0);
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![a];
+
+        app.offset_path_selection(10.0);
+
+        let node = app.doc.get(app.selection[0]).unwrap();
+        assert!((node.size.x - 100.0).abs() < 1e-3, "the slot is clamped to 100: {:?}", node.size);
+        let ink = designos_doc::vector::paths_bounds(&node_paths(&app.doc, node).unwrap());
+        assert!(
+            ink.x.abs() < 0.5 && ink.y.abs() < 0.5 && (ink.w - node.size.x).abs() < 0.5 && (ink.h - node.size.y).abs() < 0.5,
+            "the drawn shape must fill the layer box and not spill into its sibling: ink {ink:?} in box {:?}",
+            node.size
+        );
     }
 
     fn auto_layout_row(doc: &mut Document, page: NodeId, sizing: Sizing) -> (NodeId, NodeId, NodeId) {
@@ -493,7 +628,7 @@ mod tests {
 
         app.undo();
         assert!((app.doc.get(b).unwrap().transform.tx - 110.0).abs() < 1e-3, "one undo restores the sibling");
-        assert!(app.doc.get(a).is_some(), "and the original shape");
+        assert!(app.doc.get(a).is_some_and(|n| matches!(n.kind, NodeKind::Rectangle) && n.size == v2(100.0, 100.0)), "and the original rectangle");
     }
 
     #[test]
