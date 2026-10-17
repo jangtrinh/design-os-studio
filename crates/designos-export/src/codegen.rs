@@ -336,12 +336,33 @@ pub(crate) struct Sizes {
     pub row_parent: bool,
 }
 
+pub(crate) fn grid_track_token(t: GridTrack) -> String {
+    match t {
+        GridTrack::Flex(f) => format!("{}fr", num(if f.is_finite() && f > 0.0 { f } else { 1.0 })),
+        GridTrack::Fixed(px) => format!("{}px", num(if px.is_finite() && px >= 0.0 { px } else { 0.0 })),
+        GridTrack::Hug => "auto".into(),
+    }
+}
+
+pub(crate) fn grid_tracks_css(tracks: &[GridTrack], count: usize) -> String {
+    (0..count).map(|i| grid_track_token(tracks.get(i).copied().unwrap_or_default())).collect::<Vec<_>>().join(" ")
+}
+
+pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {
+    let span = span.max(1);
+    match anchor {
+        Some(idx) => Some(format!("{} / span {span}", u32::from(idx) + 1)),
+        None if span > 1 => Some(format!("span {span}")),
+        None => None,
+    }
+}
+
 pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
     let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
-    let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
+    let row_parent = parent.al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
+    let hug_w = own_al.map(|a| a.sizing_along(true) == Sizing::Hug).unwrap_or(false);
+    let hug_h = own_al.map(|a| a.sizing_along(false) == Sizing::Hug).unwrap_or(false);
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;
@@ -508,9 +529,24 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     if let Some(v) = b("opacity", Fallback::Raw) {
         set_decl(lines, "opacity", format!("calc({} / 100)", v.trim()));
     }
-    if let Some(v) = b("itemSpacing", Fallback::Px) {
-        if has_decl(lines, "gap") {
-            set_decl(lines, "gap", v);
+    if has_decl(lines, "gap") {
+        let item_v = b("itemSpacing", Fallback::Px);
+        let counter_v = b("counterAxisSpacing", Fallback::Px);
+        if item_v.is_some() || counter_v.is_some() {
+            if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+                if al.direction == LayoutDirection::Grid {
+                    let col_fb = format!("{}px", num(al.item_spacing));
+                    let row_px = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+                    let row_fb = format!("{}px", num(row_px));
+                    let col_s = item_v.clone().unwrap_or(col_fb);
+                    let row_s = counter_v.or(item_v).unwrap_or(row_fb);
+                    set_decl(lines, "gap", if row_s == col_s { row_s } else { format!("{row_s} {col_s}") });
+                } else if let Some(v) = item_v {
+                    set_decl(lines, "gap", v);
+                }
+            } else if let Some(v) = item_v {
+                set_decl(lines, "gap", v);
+            }
         }
     }
     // padding: expand to a 4-value shorthand when any side is bound
@@ -523,7 +559,12 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             // keep declaration order: padding follows the size declarations
             let at = lines
                 .iter()
-                .position(|l| l.starts_with("flex-direction: ") || l.starts_with("justify-content: ") || l.starts_with("align-items: "))
+                .position(|l| {
+                    l.starts_with("flex-direction: ")
+                        || l.starts_with("justify-content: ")
+                        || l.starts_with("align-items: ")
+                        || l.starts_with("grid-template-columns: ")
+                })
                 .unwrap_or(lines.len());
             lines.insert(at, format!("padding: {value};"));
         }

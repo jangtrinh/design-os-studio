@@ -309,14 +309,42 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1);
+            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1) as usize;
             c.push("grid".into());
-            c.push(format!("grid-cols-{cols}"));
-            if al.grid_rows > 0 {
-                c.push(format!("grid-rows-{}", al.grid_rows));
+            if (0..cols).all(|i| al.grid_col_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
+                c.push(format!("grid-cols-{cols}"));
+            } else {
+                let spec =
+                    (0..cols).map(|i| crate::codegen::grid_track_token(al.grid_col_tracks.get(i).copied().unwrap_or_default())).collect::<Vec<_>>().join("_");
+                c.push(format!("grid-cols-[{spec}]"));
             }
-            if al.item_spacing > 0.0 {
-                c.push(spaced("gap", al.item_spacing, bound(doc, n, "itemSpacing")));
+            if al.grid_rows > 0 {
+                let rows = al.grid_rows as usize;
+                if (0..rows).all(|i| al.grid_row_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
+                    c.push(format!("grid-rows-{rows}"));
+                } else {
+                    let spec = (0..rows)
+                        .map(|i| crate::codegen::grid_track_token(al.grid_row_tracks.get(i).copied().unwrap_or_default()))
+                        .collect::<Vec<_>>()
+                        .join("_");
+                    c.push(format!("grid-rows-[{spec}]"));
+                }
+            }
+            let col_gap = al.item_spacing;
+            let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+            let col_var = bound(doc, n, "itemSpacing");
+            let row_var = bound(doc, n, "counterAxisSpacing");
+            if (row_gap - col_gap).abs() < 1e-4 && row_var.is_none() {
+                if col_gap > 0.0 || col_var.is_some() {
+                    c.push(spaced("gap", col_gap, col_var));
+                }
+            } else {
+                if col_gap > 0.0 || col_var.is_some() {
+                    c.push(spaced("gap-x", col_gap, col_var));
+                }
+                if row_gap > 0.0 || row_var.is_some() {
+                    c.push(spaced("gap-y", row_gap, row_var));
+                }
             }
             c.extend(pad_classes(doc, n, &al));
         } else {
@@ -346,8 +374,14 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
         }
     }
     if sz.in_flow && parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid) {
+        if let Some(col) = n.layout_child.grid_column {
+            c.push(format!("col-start-{}", u32::from(col) + 1));
+        }
         if n.layout_child.col_span > 1 {
             c.push(format!("col-span-{}", n.layout_child.col_span));
+        }
+        if let Some(row) = n.layout_child.grid_row {
+            c.push(format!("row-start-{}", u32::from(row) + 1));
         }
         if n.layout_child.row_span > 1 {
             c.push(format!("row-span-{}", n.layout_child.row_span));
@@ -545,5 +579,45 @@ mod tests {
         assert!(out.contains("w-[313px]"), "{out}");
         assert!(out.contains("rounded-tl-[10px] rounded-tr-[10px]"), "{out}");
         assert!(out.contains("opacity-[0.37]"), "{out}");
+    }
+
+    #[test]
+    fn golden_grid_tracks_placement_and_gaps() {
+        let mut d = Document::new("grid");
+        let page = d.add_page("p");
+        let gid = d.alloc_id();
+        let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 480.0, 200.0));
+        g.name = "DashboardGrid".into();
+        g.fills = vec![];
+        let mut al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            item_spacing: 16.0,
+            counter_spacing: 24.0,
+            padding: [12.0, 16.0, 12.0, 16.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Fixed,
+            grid_columns: 3,
+            grid_rows: 2,
+            ..Default::default()
+        };
+        al.grid_col_tracks[0] = GridTrack::Flex(1.0);
+        al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+        al.grid_col_tracks[2] = GridTrack::Hug;
+        al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+        al.grid_row_tracks[1] = GridTrack::Hug;
+        g.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), ..Default::default() });
+        let g = d.insert(page, g).unwrap();
+
+        let c1 = d.alloc_id();
+        let mut n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 200.0, 80.0));
+        n1.fills = vec![];
+        n1.layout_child.grid_column = Some(1);
+        n1.layout_child.grid_row = Some(0);
+        n1.layout_child.col_span = 2;
+        n1.layout_child.row_span = 1;
+        d.insert(g, n1).unwrap();
+
+        let expected = "<div class=\"grid grid-cols-[1fr_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 h-20\"></div>\n</div>";
+        assert_eq!(tailwind_for(&d, g), expected);
     }
 }
