@@ -1007,7 +1007,7 @@ fn subtree_ids(d: &Document, root: NodeId) -> Vec<NodeId> {
     v
 }
 
-/// Renames a property definition everywhere it is referenced.
+/// Renames a property definition everywhere it is referenced: bindings, instance values and slot settings.
 pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> Command {
     if old == new || new.is_empty() {
         return nothing();
@@ -1021,6 +1021,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
         if p.name == old {
             p.name = new.to_string();
         }
+    }
+    if let Some(cfg) = o.component.slot_configs.remove(old) {
+        o.component.slot_configs.insert(new.to_string(), cfg);
     }
     c.update(o);
     for id in subtree_ids(c.s, owner) {
@@ -1043,11 +1046,12 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
     c.finish()
 }
 
-/// Deletes a property definition, its bindings and instance values.
+/// Deletes a property definition, its bindings, instance values and slot settings.
 pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     let mut c = Ctx::new(doc);
     let Some(mut o) = c.s.get(owner).cloned() else { return nothing() };
     o.component.props.retain(|p| p.name != name);
+    o.component.slot_configs.remove(name);
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };

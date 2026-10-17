@@ -1,8 +1,8 @@
 //! Slot data on [`ComponentLink`]: compact serialization, instance copies and garbage collection.
 
 use crate::{
-    create_component, create_instance, instances_of, sync_instances, ComponentPropDef, Document, Node, NodeId, NodeKind, PropKind, PropValue, Rect,
-    SlotPropConfig, Vec2,
+    create_component, create_instance, delete_prop, instances_of, rename_prop, sync_instances, ComponentPropDef, Document, Node, NodeId, NodeKind, PropKind,
+    PropValue, Rect, SlotPropConfig, Vec2,
 };
 
 /// A component frame holding a slot frame, with a slot property, its settings and a preferred component.
@@ -76,4 +76,74 @@ fn garbage_collection_keeps_a_component_that_only_a_slot_prefers() {
     d.prune_unreachable();
     assert!(d.get(icon).is_some(), "preferred slot component is reachable through the slot settings");
     assert!(d.get(comp).is_some());
+}
+
+fn body_config() -> SlotPropConfig {
+    SlotPropConfig { max_children: Some(2), ..Default::default() }
+}
+
+#[test]
+fn renaming_a_slot_property_carries_its_settings_along() {
+    let (mut d, comp, _, icon) = component_with_slot();
+    rename_prop(&mut d, comp, "Body", "Content").apply(&mut d).unwrap();
+    let n = d.get(comp).unwrap();
+    assert!(n.component.props.iter().any(|p| p.name == "Content" && p.kind == PropKind::Slot));
+    assert_eq!(n.component.slot_configs.get("Content"), Some(&SlotPropConfig { preferred: vec![icon], ..body_config() }));
+    assert!(!n.component.slot_configs.contains_key("Body"), "no settings are left under the old name");
+}
+
+#[test]
+fn renaming_a_slot_property_can_be_undone() {
+    let (mut d, comp, _, _) = component_with_slot();
+    let before = d.get(comp).unwrap().component.slot_configs.clone();
+    let inverse = rename_prop(&mut d, comp, "Body", "Content").apply(&mut d).unwrap();
+    assert_eq!(d.get(comp).unwrap().component.slot_configs.keys().collect::<Vec<_>>(), ["Content"]);
+    inverse.apply(&mut d).unwrap();
+    assert_eq!(d.get(comp).unwrap().component.slot_configs, before);
+}
+
+#[test]
+fn deleting_a_slot_property_drops_its_settings() {
+    let (mut d, comp, _, _) = component_with_slot();
+    delete_prop(&mut d, comp, "Body").apply(&mut d).unwrap();
+    assert!(d.get(comp).unwrap().component.props.is_empty());
+    assert!(d.get(comp).unwrap().component.slot_configs.is_empty(), "settings of a deleted property are gone");
+}
+
+#[test]
+fn a_deleted_slot_property_no_longer_keeps_its_preferred_component_alive() {
+    let (mut d, comp, _, icon) = component_with_slot();
+    delete_prop(&mut d, comp, "Body").apply(&mut d).unwrap();
+    // Detach the icon from the page: the slot settings were the only thing still naming it.
+    let page = d.pages[0];
+    d.get_mut(page).unwrap().children.retain(|c| *c != icon);
+    d.get_mut(icon).unwrap().parent = None;
+    d.library_page = None;
+    d.prune_unreachable();
+    assert!(d.get(icon).is_none());
+    assert!(d.get(comp).is_some());
+}
+
+#[test]
+fn deleting_a_slot_property_can_be_undone() {
+    let (mut d, comp, _, _) = component_with_slot();
+    let before = d.get(comp).unwrap().component.slot_configs.clone();
+    let inverse = delete_prop(&mut d, comp, "Body").apply(&mut d).unwrap();
+    assert!(d.get(comp).unwrap().component.slot_configs.is_empty());
+    inverse.apply(&mut d).unwrap();
+    assert_eq!(d.get(comp).unwrap().component.slot_configs, before);
+}
+
+#[test]
+fn settings_of_the_other_slot_properties_are_not_touched() {
+    let (mut d, comp, _, icon) = component_with_slot();
+    let node = d.get_mut(comp).unwrap();
+    node.component.props.push(ComponentPropDef { name: "Footer".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) });
+    node.component.slot_configs.insert("Footer".into(), SlotPropConfig { min_children: Some(1), ..Default::default() });
+    rename_prop(&mut d, comp, "Body", "Content").apply(&mut d).unwrap();
+    delete_prop(&mut d, comp, "Content").apply(&mut d).unwrap();
+    let n = d.get(comp).unwrap();
+    assert_eq!(n.component.slot_configs.len(), 1);
+    assert_eq!(n.component.slot_configs.get("Footer"), Some(&SlotPropConfig { min_children: Some(1), ..Default::default() }));
+    assert!(n.component.slot_configs.values().all(|c| !c.preferred.contains(&icon)));
 }
