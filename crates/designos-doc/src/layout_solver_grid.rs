@@ -9,6 +9,44 @@ fn widest_in_column(kids: &[ChildIn], placements: &[Placed], c: usize) -> f32 {
     placements.iter().zip(kids).filter(|(p, _)| p.col == c && p.col_span == 1).map(|(_, k)| k.limits.clamp_w(k.size.x)).fold(0.0, f32::max)
 }
 
+/// A child that spans several rows: the rows it covers, its first column and its clamped height.
+struct RowSpan {
+    start: usize,
+    end: usize,
+    col: usize,
+    need: f32,
+}
+
+/// Raises the rows a span covers until they hold `rem` (its height without the row gaps). Rows
+/// flagged in `frozen` (Fixed tracks) and rows already at least an even share keep their height; the
+/// remaining rows are leveled up to one common height. A row is never lowered.
+fn level_span_rows(heights: &mut [f32], mut frozen: Vec<bool>, mut rem: f32) {
+    rem -= heights.iter().zip(&frozen).filter(|(_, &f)| f).map(|(h, _)| h).sum::<f32>();
+    loop {
+        let unfrozen = frozen.iter().filter(|&&f| !f).count();
+        if unfrozen == 0 || rem <= 0.0 {
+            return;
+        }
+        let share = rem / (unfrozen as f32);
+        let mut newly_frozen = false;
+        for (h, f) in heights.iter().zip(frozen.iter_mut()) {
+            if !*f && *h >= share {
+                *f = true;
+                rem -= *h;
+                newly_frozen = true;
+            }
+        }
+        if !newly_frozen {
+            for (h, &f) in heights.iter_mut().zip(&frozen) {
+                if !f {
+                    *h = share;
+                }
+            }
+            return;
+        }
+    }
+}
+
 /// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
 /// (the width, as in Figma), rows the counter axis (the height). A child keeps its own size unless
 /// it is Fill: a main Fill stretches across its cell's width, a cross Fill across the cell's height.
@@ -97,47 +135,21 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
             row_heights[p.row] = row_heights[p.row].max(h);
         }
     }
-    for (p, k) in placements.iter().zip(kids) {
-        if p.row_span <= 1 {
-            continue;
-        }
-        let end_row = (p.row + p.row_span).min(rows);
-        let span_len = end_row.saturating_sub(p.row);
-        if span_len == 0 {
-            continue;
-        }
-        let need = k.limits.clamp_h(k.size.y);
-        let mut rem = (need - row_gap * (span_len.saturating_sub(1) as f32)).max(0.0);
-        let mut frozen = vec![false; span_len];
-        for (i, r) in (p.row..end_row).enumerate() {
-            if fixed_row(r).is_some() {
-                frozen[i] = true;
-                rem -= row_heights[r];
-            }
-        }
-        loop {
-            let unfrozen = frozen.iter().filter(|&&f| !f).count();
-            if unfrozen == 0 || rem <= 0.0 {
-                break;
-            }
-            let share = rem / (unfrozen as f32);
-            let mut newly_frozen = false;
-            for (i, r) in (p.row..end_row).enumerate() {
-                if !frozen[i] && row_heights[r] >= share {
-                    frozen[i] = true;
-                    rem -= row_heights[r];
-                    newly_frozen = true;
-                }
-            }
-            if !newly_frozen {
-                for (i, r) in (p.row..end_row).enumerate() {
-                    if !frozen[i] {
-                        row_heights[r] = share;
-                    }
-                }
-                break;
-            }
-        }
+    // Spans are settled in an order that depends on the spans alone, never on child order (layer order
+    // is only z-order): fewer rows first, then the tallest first so the rows it raises already hold the
+    // shorter spans that overlap it, then by position. Spans that tie on all four settle identically.
+    let mut spans: Vec<RowSpan> = placements
+        .iter()
+        .zip(kids)
+        .filter(|(p, _)| p.row_span > 1)
+        .map(|(p, k)| RowSpan { start: p.row, end: (p.row + p.row_span).min(rows), col: p.col, need: k.limits.clamp_h(k.size.y) })
+        .filter(|s| s.end > s.start)
+        .collect();
+    spans.sort_by(|a, b| (a.end - a.start).cmp(&(b.end - b.start)).then(b.need.total_cmp(&a.need)).then(a.start.cmp(&b.start)).then(a.col.cmp(&b.col)));
+    for s in &spans {
+        let gaps = row_gap * ((s.end - s.start - 1) as f32);
+        let frozen = (s.start..s.end).map(|r| fixed_row(r).is_some()).collect();
+        level_span_rows(&mut row_heights[s.start..s.end], frozen, (s.need - gaps).max(0.0));
     }
 
     let mut col_x = vec![0.0f32; cols];
