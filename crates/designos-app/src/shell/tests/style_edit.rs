@@ -265,6 +265,7 @@ fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
     for (prop, _) in props {
         let row = style_picker::rename_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
+        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the Rename style row names where to edit");
     }
     // Double-clicking the linked row does not open the inline rename field for a library style.
     let linked = s.rect_of("effect-style-row");
