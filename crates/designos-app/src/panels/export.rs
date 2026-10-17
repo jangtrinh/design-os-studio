@@ -442,7 +442,8 @@ pub fn run_export(app: &mut App, ids: &[NodeId]) {
     let mut written = Vec::new();
     let mut failed: Vec<String> = Vec::new();
     if let [job] = jobs.as_slice() {
-        let Some(path) = rfd::FileDialog::new().add_filter(job.setting.format.label(), &[job.setting.format.extension()]).set_file_name(&job.file).save_file() else {
+        let Some(path) = rfd::FileDialog::new().add_filter(job.setting.format.label(), &[job.setting.format.extension()]).set_file_name(&job.file).save_file()
+        else {
             return;
         };
         let bytes = match job.setting.render_many(&doc, &job.nodes) {
