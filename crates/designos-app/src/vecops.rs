@@ -228,9 +228,12 @@ impl App {
             node.corner_smoothing = 0.0;
             // the box has another size: siblings in an auto-layout row and fitted groups follow
             crate::layout::relayout_around(&mut self.doc, &mut tx.ed, id);
-            fit_geometry_to_box(&mut self.doc, &mut tx.ed, id);
             open_kept |= open > 0;
             made.push(id);
+        }
+        // only now: a later layer's reflow can still change an earlier one's slot
+        for id in &made {
+            fit_geometry_to_box(&mut self.doc, &mut tx.ed, *id);
         }
         let notes: Vec<&str> = [
             (skipped_layers, "Skipped frames, groups, text and board items: only plain shapes can be offset"),
@@ -573,6 +576,30 @@ mod tests {
         assert!(matches!(app.doc.get(rid).map(|n| &n.kind), Some(NodeKind::Vector { .. })), "the main component keeps the layer");
         let mirrored = mirror(&app).expect("the instance still points at the layer by its id");
         assert!(matches!(mirrored.kind, NodeKind::Vector { .. }), "and follows the offset");
+    }
+
+    #[test]
+    fn offset_path_fits_every_shape_to_its_final_slot_when_siblings_reflow_each_other() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, a, b) = auto_layout_row(&mut doc, page, Sizing::Fixed);
+        // `a` fills what `b` leaves free, so growing `b` after `a` changes `a`'s slot again
+        doc.get_mut(a).unwrap().layout_child.horizontal = Sizing::Fill;
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![a, b];
+
+        app.offset_path_selection(10.0);
+
+        for id in &app.selection {
+            let node = app.doc.get(*id).unwrap();
+            let ink = designos_doc::vector::paths_bounds(&node_paths(&app.doc, node).unwrap());
+            assert!(
+                (ink.w - node.size.x).abs() < 0.5 && (ink.h - node.size.y).abs() < 0.5,
+                "the drawn shape must fill its layer box: ink {ink:?} in box {:?}",
+                node.size
+            );
+        }
+        assert!((app.doc.get(a).unwrap().size.x - 270.0).abs() < 1e-3, "400 - 10 gap - 120 for the grown sibling");
     }
 
     #[test]
