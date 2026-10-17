@@ -31,17 +31,159 @@ pub struct ProtoState {
     pub present: Option<crate::present::PresentState>,
 }
 
+/// Category in Figma's Frame / Device preset catalogue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresetCategory {
+    Phone,
+    Tablet,
+    Desktop,
+    Presentation,
+    Watch,
+    Paper,
+    SocialMedia,
+}
+
+/// A named frame or device preset with Figma's dimensions and corner radius.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FramePreset {
+    pub category: PresetCategory,
+    pub name: &'static str,
+    pub width: f32,
+    pub height: f32,
+    pub corner_radius: f32,
+}
+
+/// Complete Figma frame and device preset catalogue across all categories.
+pub const FRAME_PRESETS: &[FramePreset] = &[
+    // Phone — iPhone 17 family
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 17", width: 402.0, height: 874.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 17 Air", width: 420.0, height: 912.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 17 Pro", width: 402.0, height: 874.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 17 Pro Max", width: 440.0, height: 956.0, corner_radius: 55.0 },
+    // Phone — iPhone 16 family
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 16", width: 393.0, height: 852.0, corner_radius: 48.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 16 Plus", width: 430.0, height: 932.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 16 Pro", width: 402.0, height: 874.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 16 Pro Max", width: 440.0, height: 956.0, corner_radius: 55.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 16e", width: 390.0, height: 844.0, corner_radius: 47.0 },
+    // Phone — iPhone 15 / 14 / 13 / SE
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 15", width: 393.0, height: 852.0, corner_radius: 48.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 15 Plus", width: 430.0, height: 932.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 15 Pro", width: 393.0, height: 852.0, corner_radius: 48.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 15 Pro Max", width: 430.0, height: 932.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 14 & 15 Pro", width: 393.0, height: 852.0, corner_radius: 48.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 14 & 15 Pro Max", width: 430.0, height: 932.0, corner_radius: 52.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 14", width: 390.0, height: 844.0, corner_radius: 47.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 14 Plus", width: 428.0, height: 926.0, corner_radius: 50.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 13 & 14", width: 390.0, height: 844.0, corner_radius: 47.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone 13 mini", width: 375.0, height: 812.0, corner_radius: 44.0 },
+    FramePreset { category: PresetCategory::Phone, name: "iPhone SE", width: 320.0, height: 568.0, corner_radius: 0.0 },
+    // Phone — Android
+    FramePreset { category: PresetCategory::Phone, name: "Android Compact", width: 412.0, height: 917.0, corner_radius: 36.0 },
+    FramePreset { category: PresetCategory::Phone, name: "Android Medium", width: 700.0, height: 840.0, corner_radius: 28.0 },
+    FramePreset { category: PresetCategory::Phone, name: "Android Large", width: 360.0, height: 800.0, corner_radius: 32.0 },
+    FramePreset { category: PresetCategory::Phone, name: "Android Small", width: 360.0, height: 640.0, corner_radius: 24.0 },
+    // Tablet
+    FramePreset { category: PresetCategory::Tablet, name: "iPad mini 8.3", width: 744.0, height: 1133.0, corner_radius: 28.0 },
+    FramePreset { category: PresetCategory::Tablet, name: "iPad mini", width: 744.0, height: 1133.0, corner_radius: 28.0 },
+    FramePreset { category: PresetCategory::Tablet, name: "iPad Pro 11\"", width: 834.0, height: 1194.0, corner_radius: 28.0 },
+    FramePreset { category: PresetCategory::Tablet, name: "iPad Pro 12.9\"", width: 1024.0, height: 1366.0, corner_radius: 28.0 },
+    FramePreset { category: PresetCategory::Tablet, name: "Surface Pro 8", width: 1440.0, height: 960.0, corner_radius: 16.0 },
+    FramePreset { category: PresetCategory::Tablet, name: "Android Expanded", width: 1280.0, height: 800.0, corner_radius: 24.0 },
+    // Desktop
+    FramePreset { category: PresetCategory::Desktop, name: "MacBook Air", width: 1280.0, height: 832.0, corner_radius: 12.0 },
+    FramePreset { category: PresetCategory::Desktop, name: "MacBook Pro 14\"", width: 1512.0, height: 982.0, corner_radius: 12.0 },
+    FramePreset { category: PresetCategory::Desktop, name: "MacBook Pro 16\"", width: 1728.0, height: 1117.0, corner_radius: 12.0 },
+    FramePreset { category: PresetCategory::Desktop, name: "Desktop", width: 1440.0, height: 1024.0, corner_radius: 8.0 },
+    FramePreset { category: PresetCategory::Desktop, name: "Wireframes", width: 1440.0, height: 1024.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Desktop, name: "TV", width: 1280.0, height: 720.0, corner_radius: 0.0 },
+    // Presentation
+    FramePreset { category: PresetCategory::Presentation, name: "Slide 16:9", width: 1920.0, height: 1080.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Presentation, name: "Slide 4:3", width: 1024.0, height: 768.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Presentation, name: "Presentation", width: 1920.0, height: 1080.0, corner_radius: 0.0 },
+    // Watch
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch Series 10 42mm", width: 187.0, height: 223.0, corner_radius: 44.0 },
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch Series 10 46mm", width: 208.0, height: 248.0, corner_radius: 48.0 },
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch 41mm", width: 176.0, height: 215.0, corner_radius: 40.0 },
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch 45mm", width: 198.0, height: 242.0, corner_radius: 44.0 },
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch 42mm", width: 156.0, height: 195.0, corner_radius: 36.0 },
+    FramePreset { category: PresetCategory::Watch, name: "Apple Watch 38mm", width: 136.0, height: 170.0, corner_radius: 32.0 },
+    // Paper
+    FramePreset { category: PresetCategory::Paper, name: "A4", width: 595.0, height: 842.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Paper, name: "A5", width: 420.0, height: 595.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Paper, name: "A6", width: 297.0, height: 420.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Paper, name: "Letter", width: 612.0, height: 792.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::Paper, name: "Tabloid", width: 792.0, height: 1224.0, corner_radius: 0.0 },
+    // Social Media
+    FramePreset { category: PresetCategory::SocialMedia, name: "Twitter post", width: 1200.0, height: 675.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Twitter header", width: 1500.0, height: 500.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Facebook post", width: 1200.0, height: 630.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Facebook cover", width: 820.0, height: 312.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Instagram post", width: 1080.0, height: 1080.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Instagram story", width: 1080.0, height: 1920.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Dribbble shot", width: 400.0, height: 300.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "Dribbble shot HD", width: 800.0, height: 600.0, corner_radius: 0.0 },
+    FramePreset { category: PresetCategory::SocialMedia, name: "LinkedIn cover", width: 1584.0, height: 396.0, corner_radius: 0.0 },
+];
+
+/// Looks up a [`FramePreset`] by exact name.
+pub fn find_frame_preset(name: &str) -> Option<&'static FramePreset> {
+    FRAME_PRESETS.iter().find(|p| p.name == name)
+}
+
+/// Returns all [`FramePreset`] entries in `category`, in catalogue order.
+pub fn frame_presets_in_category(category: PresetCategory) -> Vec<&'static FramePreset> {
+    FRAME_PRESETS.iter().filter(|p| p.category == category).collect()
+}
+
 /// Device presets: name, width, height, corner radius. The chosen preset is stored in
 /// `Document::prototype_device`; Present letterboxes the start frame into its size.
 pub const DEVICES: &[(&str, f32, f32, f32)] = &[
     ("None", 0.0, 0.0, 0.0),
     ("iPhone 15", 393.0, 852.0, 48.0),
     ("iPhone 15 Pro Max", 430.0, 932.0, 52.0),
+    ("iPhone 17", 402.0, 874.0, 52.0),
+    ("iPhone 17 Air", 420.0, 912.0, 52.0),
+    ("iPhone 17 Pro", 402.0, 874.0, 52.0),
+    ("iPhone 17 Pro Max", 440.0, 956.0, 55.0),
+    ("iPhone 16", 393.0, 852.0, 48.0),
+    ("iPhone 16 Plus", 430.0, 932.0, 52.0),
+    ("iPhone 16 Pro", 402.0, 874.0, 52.0),
+    ("iPhone 16 Pro Max", 440.0, 956.0, 55.0),
+    ("iPhone 16e", 390.0, 844.0, 47.0),
+    ("iPhone 15 Plus", 430.0, 932.0, 52.0),
+    ("iPhone 15 Pro", 393.0, 852.0, 48.0),
+    ("iPhone 14 & 15 Pro", 393.0, 852.0, 48.0),
+    ("iPhone 14 & 15 Pro Max", 430.0, 932.0, 52.0),
+    ("iPhone 14", 390.0, 844.0, 47.0),
+    ("iPhone 14 Plus", 428.0, 926.0, 50.0),
+    ("iPhone 13 & 14", 390.0, 844.0, 47.0),
+    ("iPhone 13 mini", 375.0, 812.0, 44.0),
+    ("iPhone SE", 320.0, 568.0, 0.0),
+    ("Android Compact", 412.0, 917.0, 36.0),
+    ("Android Medium", 700.0, 840.0, 28.0),
     ("Android Large", 360.0, 800.0, 32.0),
+    ("Android Small", 360.0, 640.0, 24.0),
+    ("Android Expanded", 1280.0, 800.0, 24.0),
+    ("iPad mini 8.3", 744.0, 1133.0, 28.0),
     ("iPad mini", 744.0, 1133.0, 28.0),
+    ("iPad Pro 11\"", 834.0, 1194.0, 28.0),
+    ("iPad Pro 12.9\"", 1024.0, 1366.0, 28.0),
+    ("Surface Pro 8", 1440.0, 960.0, 16.0),
     ("MacBook Air", 1280.0, 832.0, 12.0),
+    ("MacBook Pro 14\"", 1512.0, 982.0, 12.0),
+    ("MacBook Pro 16\"", 1728.0, 1117.0, 12.0),
     ("Desktop", 1440.0, 1024.0, 8.0),
+    ("TV", 1280.0, 720.0, 0.0),
     ("Presentation", 1920.0, 1080.0, 0.0),
+    ("Slide 16:9", 1920.0, 1080.0, 0.0),
+    ("Slide 4:3", 1024.0, 768.0, 0.0),
+    ("Apple Watch Series 10 42mm", 187.0, 223.0, 44.0),
+    ("Apple Watch Series 10 46mm", 208.0, 248.0, 48.0),
+    ("Apple Watch 41mm", 176.0, 215.0, 40.0),
+    ("Apple Watch 45mm", 198.0, 242.0, 44.0),
+    ("Apple Watch 42mm", 156.0, 195.0, 36.0),
+    ("Apple Watch 38mm", 136.0, 170.0, 32.0),
 ];
 
 /// Corner radius used for a stored device whose name is not a known preset.
@@ -66,9 +208,11 @@ pub fn device_for(i: usize, keep: &PrototypeDevice) -> PrototypeDevice {
 /// Viewport size and corner radius to present in; `None` = no device frame.
 pub fn device_viewport(d: &PrototypeDevice) -> Option<(Vec2, f32)> {
     d.preset.as_ref()?;
-    let known = d.preset.as_ref().and_then(|n| DEVICES.iter().find(|p| p.0 == n && p.1 > 0.0));
-    let size = d.size.or_else(|| known.map(|p| Vec2::new(p.1, p.2)))?;
-    (size.x > 0.0 && size.y > 0.0).then(|| (size, known.map(|p| p.3).unwrap_or(CUSTOM_DEVICE_RADIUS)))
+    let known = d.preset.as_ref().and_then(|n| {
+        DEVICES.iter().find(|p| p.0 == n && p.1 > 0.0).map(|p| (p.1, p.2, p.3)).or_else(|| find_frame_preset(n).map(|p| (p.width, p.height, p.corner_radius)))
+    });
+    let size = d.size.or_else(|| known.map(|p| Vec2::new(p.0, p.1)))?;
+    (size.x > 0.0 && size.y > 0.0).then(|| (size, known.map(|p| p.2).unwrap_or(CUSTOM_DEVICE_RADIUS)))
 }
 
 impl App {
@@ -81,6 +225,19 @@ impl App {
             self.show_toast(format!("Edit failed: {e}"), true);
         }
         self.changed();
+    }
+
+    /// Creates a new top-level frame on the active page sized and named from a [`FramePreset`].
+    pub fn create_preset_frame(&mut self, preset_name: &str) -> Option<NodeId> {
+        let preset = find_frame_preset(preset_name)?;
+        let id = self.doc.alloc_id();
+        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, preset.width, preset.height));
+        frame.name = preset.name.to_string();
+        let index = self.doc.get(self.page).map(|p| p.children.len()).unwrap_or(0);
+        self.hist.exec(&mut self.doc, Command::Insert { parent: self.page, index, nodes: vec![frame] }).ok()?;
+        self.selection = vec![id];
+        self.changed();
+        Some(id)
     }
 }
 
@@ -866,5 +1023,78 @@ mod tests {
         assert!(app.doc.flows.is_empty());
         app.redo();
         assert_eq!(app.doc.flows[0].start, a);
+    }
+
+    #[test]
+    fn frame_and_device_presets_include_iphone_17_and_figma_catalogue() {
+        let expected_iphone_17 =
+            [("iPhone 17", 402.0, 874.0), ("iPhone 17 Air", 420.0, 912.0), ("iPhone 17 Pro", 402.0, 874.0), ("iPhone 17 Pro Max", 440.0, 956.0)];
+        for (name, w, h) in expected_iphone_17 {
+            let preset = find_frame_preset(name).unwrap_or_else(|| panic!("missing frame preset {name}"));
+            assert_eq!((preset.width, preset.height), (w, h), "size mismatch for {name}");
+            assert_eq!(preset.category, PresetCategory::Phone);
+            let dev_idx = device_index(&PrototypeDevice { preset: Some(name.into()), size: None, background: Some(Color::BLACK) })
+                .unwrap_or_else(|| panic!("missing device preset {name}"));
+            let dev = device_for(dev_idx, &PrototypeDevice::default());
+            assert_eq!(dev.size, Some(Vec2::new(w, h)));
+        }
+
+        let catalogue_samples = [
+            ("iPhone 16", 393.0, 852.0, PresetCategory::Phone),
+            ("iPhone 16 Plus", 430.0, 932.0, PresetCategory::Phone),
+            ("iPhone 16 Pro", 402.0, 874.0, PresetCategory::Phone),
+            ("iPhone 16 Pro Max", 440.0, 956.0, PresetCategory::Phone),
+            ("iPhone 16e", 390.0, 844.0, PresetCategory::Phone),
+            ("iPhone 14 & 15 Pro Max", 430.0, 932.0, PresetCategory::Phone),
+            ("iPhone 14 & 15 Pro", 393.0, 852.0, PresetCategory::Phone),
+            ("iPhone 13 & 14", 390.0, 844.0, PresetCategory::Phone),
+            ("iPhone SE", 320.0, 568.0, PresetCategory::Phone),
+            ("Android Compact", 412.0, 917.0, PresetCategory::Phone),
+            ("Android Medium", 700.0, 840.0, PresetCategory::Phone),
+            ("Android Large", 360.0, 800.0, PresetCategory::Phone),
+            ("iPad mini 8.3", 744.0, 1133.0, PresetCategory::Tablet),
+            ("iPad Pro 11\"", 834.0, 1194.0, PresetCategory::Tablet),
+            ("iPad Pro 12.9\"", 1024.0, 1366.0, PresetCategory::Tablet),
+            ("Surface Pro 8", 1440.0, 960.0, PresetCategory::Tablet),
+            ("MacBook Air", 1280.0, 832.0, PresetCategory::Desktop),
+            ("MacBook Pro 14\"", 1512.0, 982.0, PresetCategory::Desktop),
+            ("MacBook Pro 16\"", 1728.0, 1117.0, PresetCategory::Desktop),
+            ("Desktop", 1440.0, 1024.0, PresetCategory::Desktop),
+            ("Wireframes", 1440.0, 1024.0, PresetCategory::Desktop),
+            ("TV", 1280.0, 720.0, PresetCategory::Desktop),
+            ("Slide 16:9", 1920.0, 1080.0, PresetCategory::Presentation),
+            ("Slide 4:3", 1024.0, 768.0, PresetCategory::Presentation),
+            ("Apple Watch Series 10 42mm", 187.0, 223.0, PresetCategory::Watch),
+            ("Apple Watch Series 10 46mm", 208.0, 248.0, PresetCategory::Watch),
+            ("Apple Watch 41mm", 176.0, 215.0, PresetCategory::Watch),
+            ("Apple Watch 45mm", 198.0, 242.0, PresetCategory::Watch),
+            ("A4", 595.0, 842.0, PresetCategory::Paper),
+            ("A5", 420.0, 595.0, PresetCategory::Paper),
+            ("A6", 297.0, 420.0, PresetCategory::Paper),
+            ("Letter", 612.0, 792.0, PresetCategory::Paper),
+            ("Tabloid", 792.0, 1224.0, PresetCategory::Paper),
+            ("Twitter post", 1200.0, 675.0, PresetCategory::SocialMedia),
+            ("Twitter header", 1500.0, 500.0, PresetCategory::SocialMedia),
+            ("Facebook post", 1200.0, 630.0, PresetCategory::SocialMedia),
+            ("Facebook cover", 820.0, 312.0, PresetCategory::SocialMedia),
+            ("Instagram post", 1080.0, 1080.0, PresetCategory::SocialMedia),
+            ("Instagram story", 1080.0, 1920.0, PresetCategory::SocialMedia),
+            ("Dribbble shot", 400.0, 300.0, PresetCategory::SocialMedia),
+            ("Dribbble shot HD", 800.0, 600.0, PresetCategory::SocialMedia),
+            ("LinkedIn cover", 1584.0, 396.0, PresetCategory::SocialMedia),
+        ];
+        for (name, w, h, cat) in catalogue_samples {
+            let p = find_frame_preset(name).unwrap_or_else(|| panic!("missing preset {name}"));
+            assert_eq!((p.width, p.height, p.category), (w, h, cat), "mismatch for {name}");
+            assert!(frame_presets_in_category(cat).iter().any(|x| x.name == name));
+        }
+
+        let mut d = Document::new("t");
+        d.add_page("p");
+        let mut app = App::new(d);
+        let fid = app.create_preset_frame("iPhone 17 Pro Max").expect("created frame");
+        let node = app.doc.get(fid).unwrap();
+        assert_eq!(node.name, "iPhone 17 Pro Max");
+        assert_eq!((node.size.x, node.size.y), (440.0, 956.0));
     }
 }

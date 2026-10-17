@@ -151,6 +151,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     } else if app.ui.dev_mode {
         super::inspect::show(app, ui, region);
+    } else if app.tool == crate::canvas::tools::Tool::Frame && app.selection.is_empty() {
+        show_frame_presets_inspector(app, ui, region);
     } else {
         properties::show(app, ui, region);
     }
@@ -285,6 +287,60 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
         let mcp_json = "{\n  \"mcpServers\": {\n    \"designos-mcp\": {\n      \"command\": \"designos-mcp\",\n      \"args\": [\"--stdio\"]\n    }\n  }\n}";
         ui.ctx().copy_text(mcp_json.to_string());
         app.show_toast("Copied MCP server config JSON to clipboard", false);
+    }
+}
+
+fn show_frame_presets_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
+    use crate::proto::{frame_presets_in_category, PresetCategory};
+
+    let p = ui.painter().clone();
+    let pad = 16.0;
+    let mut y = region.top() + 12.0;
+    let w = (region.width() - pad * 2.0).max(80.0);
+
+    p.text(Pos2::new(region.left() + pad, y), Align2::LEFT_CENTER, "Frame", theme::font_body_strong(), theme::TEXT);
+    y += 20.0;
+
+    let categories = [
+        (PresetCategory::Phone, "Phone"),
+        (PresetCategory::Tablet, "Tablet"),
+        (PresetCategory::Desktop, "Desktop"),
+        (PresetCategory::Presentation, "Presentation"),
+        (PresetCategory::Watch, "Watch"),
+        (PresetCategory::Paper, "Paper"),
+        (PresetCategory::SocialMedia, "Social Media"),
+    ];
+
+    for (cat, label) in categories {
+        if y > region.bottom() - 24.0 {
+            break;
+        }
+        p.text(Pos2::new(region.left() + pad, y), Align2::LEFT_CENTER, label, theme::font_small_strong(), theme::TEXT_SECONDARY);
+        y += 18.0;
+        for preset in frame_presets_in_category(cat) {
+            if y > region.bottom() - 24.0 {
+                break;
+            }
+            let row_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 24.0));
+            widgets::record(ui, &format!("frame-preset-{}", preset.name), row_r);
+            let resp = ui.interact(row_r, ui.id().with(("frame-preset", preset.name)), Sense::click());
+            if resp.hovered() {
+                p.rect_filled(row_r, theme::cr(4), theme::BG_SECONDARY);
+            }
+            p.text(Pos2::new(row_r.left() + 6.0, row_r.center().y), Align2::LEFT_CENTER, preset.name, theme::font_body(), theme::TEXT);
+            p.text(
+                Pos2::new(row_r.right() - 6.0, row_r.center().y),
+                Align2::RIGHT_CENTER,
+                format!("{}×{}", preset.width as i32, preset.height as i32),
+                theme::font_small(),
+                theme::TEXT_SECONDARY,
+            );
+            if resp.clicked() {
+                let _ = app.create_preset_frame(preset.name);
+            }
+            y += 24.0;
+        }
+        y += 6.0;
     }
 }
 
