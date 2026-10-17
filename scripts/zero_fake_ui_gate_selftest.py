@@ -168,6 +168,36 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "pub mod toolbar;",
         'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove\\tbackground";',
     ),
+    (
+        "22. updater modal guard reads a different UPDATER_UI_ENABLED (mod allow, = true)",
+        "Z14",
+        "updater.rs",
+        MODAL_GUARD,
+        "mod allow {\n    pub const UPDATER_UI_ENABLED: bool = true;\n}\n\n"
+        "pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {\n"
+        "    if !allow::UPDATER_UI_ENABLED {\n        return;\n    }\n",
+    ),
+    (
+        "23. tabs.rs button guard names a path other than crate::home::updater",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "if crate::elsewhere::UPDATER_UI_ENABLED {",
+    ),
+    (
+        "24. updater modal guard shadowed by a local const UPDATER_UI_ENABLED = true",
+        "Z14",
+        "updater.rs",
+        MODAL_GUARD,
+        MODAL_GUARD + "    const UPDATER_UI_ENABLED: bool = true;\n",
+    ),
+    (
+        "25. tabs.rs button guard reads a local `let UPDATER_UI_ENABLED = true` instead of the real constant",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "#[allow(non_snake_case)]\n    let UPDATER_UI_ENABLED = true;\n    if UPDATER_UI_ENABLED {",
+    ),
 ]
 
 

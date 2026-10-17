@@ -787,8 +787,15 @@ def check_z13(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
-UPDATER_GUARD_FIRST_STATEMENT = re.compile(r"^\{\s*if\s+!\s*(?:\w+::)*UPDATER_UI_ENABLED\s*\{\s*return\s*;")
-UPDATER_GUARD_BLOCK = re.compile(r"\bif\s+(?:\w+::)*UPDATER_UI_ENABLED\s*\{")
+# A guard may name the flag only by the full crate path, or bare inside updater.rs where the constant is defined
+# (a local `let` there is a compile error because the name resolves to the constant). Any other spelling
+# (`allow::UPDATER_UI_ENABLED`, or a bare name in tabs.rs that a local `let` can supply) could be an unrelated `true`.
+UPDATER_FLAG_CRATE_PATH = r"crate\s*::\s*home\s*::\s*updater\s*::\s*UPDATER_UI_ENABLED"
+UPDATER_FLAG_IN_UPDATER_RS = rf"(?:crate\s*::\s*home\s*::\s*updater\s*::\s*)?UPDATER_UI_ENABLED"
+UPDATER_GUARD_FIRST_STATEMENT = re.compile(rf"^\{{\s*if\s+!\s*{UPDATER_FLAG_IN_UPDATER_RS}\s*\{{\s*return\s*;")
+UPDATER_GUARD_BLOCK = re.compile(rf"\bif\s+{UPDATER_FLAG_CRATE_PATH}\s*\{{")
+# Anything that binds the name `UPDATER_UI_ENABLED`: a const / static, or `use ... as UPDATER_UI_ENABLED`.
+UPDATER_FLAG_BINDING = re.compile(r"\b(?:const|static)\s+UPDATER_UI_ENABLED\b|\bas\s+UPDATER_UI_ENABLED\b")
 
 
 def matching_brace_end(src: str, open_idx: int) -> int:
@@ -809,10 +816,18 @@ def matching_brace_end(src: str, open_idx: int) -> int:
     return n
 
 
-def check_z14(updater_rs: str, tabs_rs: str) -> Tuple[bool, str]:
-    # Both arguments are shipped code: comments and #[cfg(test)] items are already stripped.
+def check_z14(sources: "SourceSet") -> Tuple[bool, str]:
+    # Shipped code only: comments and #[cfg(test)] items are already stripped.
+    updater_rs = sources.code("updater.rs")
+    tabs_rs = sources.code("tabs.rs")
     uses_sample = "sample_for_channel" in updater_rs
     hidden = bool(re.search(r"pub const UPDATER_UI_ENABLED:\s*bool\s*=\s*false\s*;", updater_rs))
+    # A guard is only as good as the binding its name resolves to: exactly one, the `false` constant in updater.rs.
+    flag_bindings = {
+        rel: len(UPDATER_FLAG_BINDING.findall(sources.code(rel))) for rel in sorted(sources.files)
+    }
+    flag_bindings = {rel: count for rel, count in flag_bindings.items() if count}
+    single_flag_binding = flag_bindings == {"updater.rs": 1}
 
     # Tab-bar entry: every updater symbol / alias / button use must sit inside `if ...UPDATER_UI_ENABLED { ... }` CODE.
     guarded_spans = [(m.start(), matching_brace_end(tabs_rs, m.end() - 1)) for m in UPDATER_GUARD_BLOCK.finditer(tabs_rs)]
@@ -830,11 +845,12 @@ def check_z14(updater_rs: str, tabs_rs: str) -> Tuple[bool, str]:
     card_guarded = bool(UPDATER_GUARD_FIRST_STATEMENT.match(extract_fn_body(updater_rs, "show_sidebar_card_in_rect")))
     modal_guarded = bool(UPDATER_GUARD_FIRST_STATEMENT.match(extract_fn_body(updater_rs, "show_update_modal")))
 
-    ok = (not uses_sample or hidden) and tab_entry_gated and card_guarded and modal_guarded
+    ok = (not uses_sample or hidden) and single_flag_binding and tab_entry_gated and card_guarded and modal_guarded
     if ok:
         return True, f"updater UI hidden={hidden}, sample manifest used={uses_sample}; guard is code in tabs.rs button, sidebar card and update modal"
     return False, (
         f"updater builds a sample manifest but its UI is reachable: hidden={hidden}, uses_sample={uses_sample}, "
+        f"UPDATER_UI_ENABLED bindings (want only updater.rs once)={flag_bindings}, "
         f"tabs.rs unguarded updater uses at offsets {unguarded_tab_uses}, sidebar card guard first={card_guarded}, modal guard first={modal_guarded}"
     )
 
@@ -852,8 +868,6 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
     picker_rs = read_src("widgets/picker.rs")
     panels_mod_rs = read_src("panels/mod.rs")
     vars_view_rs = read_src("variables/view.rs")
-    updater_code = sources.code("updater.rs")
-    tabs_code = sources.code("tabs.rs")
 
     specs = [
         ("Z01", "terminal.rs", "Real CLI binary detection & invocation in submit_chat_prompt", lambda: check_z01(terminal_rs)),
@@ -869,7 +883,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z11", "panels/inspect.rs + properties.rs", "Dev Mode Code Connect/MCP/Redlines/Keyframes & Copy to Slides mutate state/clipboard", lambda: check_z11(inspect_rs, properties_rs, dev_sections_rs)),
         ("Z12", "widgets/picker.rs + panels/mod.rs + variables/view.rs", "Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag()", lambda: check_z12(picker_rs, panels_mod_rs, vars_view_rs, properties_rs)),
         ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
-        ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(updater_code, tabs_code)),
+        ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(sources)),
     ]
 
     results: List[Dict[str, Any]] = []
