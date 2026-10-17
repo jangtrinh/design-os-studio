@@ -302,3 +302,46 @@ fn offset_path_expands_100px_square_and_shrinks_on_negative_offset() {
     let collapsed = offset_path(&sq, -60.0);
     assert!(collapsed.is_empty());
 }
+
+/// The sub-paths of `paths` that are not closed, each as its command list.
+fn open_subpaths(paths: &[Path]) -> Vec<Vec<PathCmd>> {
+    let mut open = Vec::new();
+    for p in paths {
+        let mut cur: Vec<PathCmd> = Vec::new();
+        for c in &p.cmds {
+            if matches!(c, PathCmd::MoveTo(_)) {
+                if cur.len() > 1 && !matches!(cur.last(), Some(PathCmd::Close)) {
+                    open.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+            }
+            cur.push(*c);
+        }
+        if cur.len() > 1 && !matches!(cur.last(), Some(PathCmd::Close)) {
+            open.push(cur);
+        }
+    }
+    open
+}
+
+#[test]
+fn offset_passes_an_open_segment_through_next_to_a_closed_square() {
+    let seg = line(v(200.0, 0.0), v(300.0, 0.0));
+    let input = [rect(0.0, 0.0, 100.0, 100.0), seg.clone()];
+
+    let inset = offset_path(&input, -10.0);
+    assert_eq!(open_subpaths(&inset), vec![seg.cmds.clone()], "an inset must keep the open segment as it was");
+    close(area(&inset), 80.0 * 80.0, 1.5);
+
+    let outset = offset_path(&input, 10.0);
+    assert_eq!(open_subpaths(&outset), vec![seg.cmds.clone()], "an outset must keep the open segment as it was, not turn it into a ribbon");
+    close(area(&outset), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0), 2.0);
+}
+
+#[test]
+fn offset_of_an_open_path_alone_returns_it_unchanged() {
+    let l = [line(v(0.0, 0.0), v(100.0, 0.0))];
+    for delta in [10.0, -10.0] {
+        assert_eq!(offset_path(&l, delta), l.to_vec(), "delta {delta}");
+    }
+}

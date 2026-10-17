@@ -6,7 +6,7 @@ use crate::edit::Tx;
 use crate::util::*;
 use designos_doc::VectorNetwork;
 use designos_doc::*;
-use designos_render::vectorops::{flatten_nodes, node_paths, offset_paths, outline_stroke};
+use designos_render::vectorops::{count_subpaths, flatten_nodes, node_paths, offset_paths, outline_stroke};
 
 /// A new Vector node holding `paths` (in the coordinates of the parent it will live in) with the
 /// appearance of `template`. The node box is fitted to the geometry.
@@ -34,6 +34,13 @@ pub const SIMPLIFY_TOLERANCE: f32 = 1.0;
 /// Whether a node can be merged or outlined: it has geometry of its own.
 fn has_geometry(app: &App, id: NodeId) -> bool {
     app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Text(_) | NodeKind::Page { .. } | NodeKind::Unknown { .. }))
+}
+
+/// Whether Offset path may replace `id`: a basic shape or vector with no layers inside. Frames,
+/// sections, groups, boolean groups, text and board items are not, because the vector that
+/// replaces a node has neither its children nor its kind-specific data.
+pub fn is_offsettable(app: &App, id: NodeId) -> bool {
+    crate::canvas::vector::is_vector(app, id) && app.doc.get(id).is_some_and(|n| n.children.is_empty())
 }
 
 fn linked(app: &App, id: NodeId) -> bool {
@@ -142,14 +149,19 @@ impl App {
         self.selection = made;
     }
 
-    /// Offsets each selected shape's paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
-    /// using Figma's default round join semantics.
+    /// Offsets the closed contours of each selected shape outward (`delta > 0.0`) or inward
+    /// (`delta < 0.0`) using Figma's default round join semantics.
     pub fn offset_path_selection(&mut self, delta: f32) {
         self.offset_path_selection_with(delta, StrokeJoin::Round, 4.0);
     }
 
-    /// Offsets each selected shape's paths outward (`delta > 0.0`) or inward (`delta < 0.0`)
-    /// with an explicit join and miter limit as a single Undo step.
+    /// Offsets the closed contours of each selected shape outward (`delta > 0.0`) or inward
+    /// (`delta < 0.0`) with an explicit join and miter limit as a single Undo step.
+    ///
+    /// Only plain shapes are replaced (see [`is_offsettable`]): a layer that holds other layers
+    /// or carries board data is left alone, since the replacement vector would drop them. Open
+    /// sub-paths are kept as they were, and the layout around a grown or shrunk shape is
+    /// re-solved in the same step.
     pub fn offset_path_selection_with(&mut self, delta: f32, join: StrokeJoin, miter_limit: f32) {
         if !delta.is_finite() || delta.abs() < 1e-5 {
             return;
@@ -164,9 +176,20 @@ impl App {
         }
         let mut tx = Tx::new();
         let mut made = vec![];
+        let (mut skipped_layers, mut open_only, mut open_kept) = (false, false, false);
         for id in tops {
+            if !is_offsettable(self, id) {
+                skipped_layers = true;
+                continue;
+            }
             let Some(n) = self.doc.get(id).cloned() else { continue };
             let Some(paths) = node_paths(&self.doc, &n) else { continue };
+            let (closed, open) = count_subpaths(&paths);
+            if closed == 0 {
+                // nothing with an inside to grow or shrink
+                open_only |= open > 0;
+                continue;
+            }
             let offset = offset_paths(&paths, delta, join, miter_limit);
             if offset.is_empty() {
                 continue;
@@ -181,14 +204,26 @@ impl App {
                 continue;
             }
             let _ = tx.cmd(&mut self.doc, Command::Remove { id });
+            // the new box has another size: siblings in an auto-layout row and fitted groups follow
+            crate::layout::relayout_around(&mut self.doc, &mut tx.ed, vid);
+            open_kept |= open > 0;
             made.push(vid);
         }
+        let notes: Vec<&str> = [
+            (skipped_layers, "Skipped frames, groups, text and board items: only plain shapes can be offset"),
+            (open_only || open_kept, "Open paths cannot be offset and were left as they were"),
+        ]
+        .into_iter()
+        .filter_map(|(on, text)| on.then_some(text))
+        .collect();
         if made.is_empty() {
-            self.show_toast("Select a shape to offset", false);
+            self.show_toast(if notes.is_empty() { "Select a shape to offset".to_string() } else { notes.join(". ") }, false);
             tx.cancel(&mut self.doc);
             return;
         }
-        self.run_tx(tx);
+        if self.run_tx(tx) && !notes.is_empty() {
+            self.show_toast(notes.join(". "), false);
+        }
         self.selection = made;
     }
 
@@ -298,5 +333,201 @@ mod tests {
         assert!((shrunk.size.y - 80.0).abs() <= 0.5);
         let shrunk_paths = node_paths(&app.doc, shrunk).unwrap();
         assert!((paths_area(&shrunk_paths, 0.02) - 6400.0).abs() <= 1.5);
+    }
+
+    fn app_on_new_page(doc: Document, page: NodeId) -> App {
+        let mut app = App::new(doc);
+        app.page = page;
+        app
+    }
+
+    /// Offsets `target` (holding a rectangle `kid` when `with_kid`) and asserts nothing changed.
+    fn assert_offset_refused(make: impl FnOnce(NodeId) -> Node, with_kid: bool) {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let target = doc.alloc_id();
+        doc.insert(page, make(target)).unwrap();
+        let kid = doc.alloc_id();
+        if with_kid {
+            doc.insert(target, Node::rectangle(kid, Rect::new(10.0, 10.0, 50.0, 50.0))).unwrap();
+        }
+        let before: Vec<Option<Node>> = [page, target, kid].iter().map(|i| doc.get(*i).cloned()).collect();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![target];
+
+        app.offset_path_selection(10.0);
+
+        let after: Vec<Option<Node>> = [page, target, kid].iter().map(|i| app.doc.get(*i).cloned()).collect();
+        assert!(after == before, "nothing in the document may change: the page now lists {:?}", app.doc.get(page).map(|p| p.children.clone()));
+        assert_eq!(app.hist.undo_depth(), 0, "a refused offset is not an undo step");
+        assert_eq!(app.selection, vec![target]);
+        assert!(app.toast.is_some(), "the user is told why nothing happened");
+    }
+
+    #[test]
+    fn offset_path_never_replaces_a_frame_that_holds_layers() {
+        assert_offset_refused(|id| Node::frame(id, Rect::new(0.0, 0.0, 200.0, 200.0)), true);
+    }
+
+    #[test]
+    fn offset_path_never_replaces_a_section_that_holds_layers() {
+        assert_offset_refused(
+            |id| {
+                let mut n = Node::new(id, NodeKind::Section);
+                n.size = v2(200.0, 200.0);
+                n
+            },
+            true,
+        );
+    }
+
+    #[test]
+    fn offset_path_keeps_a_sticky_note_and_its_text() {
+        assert_offset_refused(
+            |id| {
+                let mut props = StickyProps::default();
+                props.text.content = "Remember the milk".into();
+                let mut n = Node::new(id, NodeKind::Sticky(props));
+                n.size = v2(100.0, 100.0);
+                n
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn offset_path_keeps_a_group_and_its_layers() {
+        assert_offset_refused(|id| Node::new(id, NodeKind::Group), true);
+    }
+
+    #[test]
+    fn offset_path_leaves_an_open_line_as_it_was() {
+        assert_offset_refused(
+            |id| {
+                let mut n = Node::new(id, NodeKind::Line);
+                n.size = v2(100.0, 0.0);
+                n.stroke.paints = vec![Paint::solid(Color::rgb(0, 0, 0))];
+                n.stroke.weight = 2.0;
+                n
+            },
+            false,
+        );
+    }
+
+    #[test]
+    fn offset_path_inset_keeps_the_open_tail_of_a_vector() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let region = Path {
+            cmds: vec![
+                PathCmd::MoveTo(v2(0.0, 0.0)),
+                PathCmd::LineTo(v2(100.0, 0.0)),
+                PathCmd::LineTo(v2(100.0, 100.0)),
+                PathCmd::LineTo(v2(0.0, 100.0)),
+                PathCmd::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+        };
+        let tail = Path { cmds: vec![PathCmd::MoveTo(v2(200.0, 0.0)), PathCmd::LineTo(v2(300.0, 0.0))], fill_rule: FillRule::NonZero };
+        let template = Node::rectangle(NodeId(0), Rect::new(0.0, 0.0, 300.0, 100.0));
+        let vid = doc.alloc_id();
+        doc.insert(page, vector_node(vid, &[region, tail], &template)).unwrap();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![vid];
+
+        app.offset_path_selection(-10.0);
+
+        assert_eq!(app.selection.len(), 1);
+        let made = app.doc.get(app.selection[0]).unwrap();
+        let paths = node_paths(&app.doc, made).unwrap();
+        let mut open = vec![];
+        for p in &paths {
+            let mut starts = p.cmds.iter().enumerate().filter(|(_, c)| matches!(c, PathCmd::MoveTo(_))).map(|(i, _)| i).collect::<Vec<_>>();
+            starts.push(p.cmds.len());
+            for w in starts.windows(2) {
+                let sub = &p.cmds[w[0]..w[1]];
+                if sub.len() > 1 && !matches!(sub.last(), Some(PathCmd::Close)) {
+                    open.push(sub.to_vec());
+                }
+            }
+        }
+        assert_eq!(open.len(), 1, "the open tail must survive the inset: {paths:?}");
+        let (PathCmd::MoveTo(a), Some(PathCmd::LineTo(b))) = (open[0][0], open[0].last().copied()) else { panic!("{:?}", open[0]) };
+        assert!((b.x - a.x - 100.0).abs() < 1e-3 && (b.y - a.y).abs() < 1e-3, "the tail keeps its length: {:?}", open[0]);
+        assert!((paths_area(&paths, 0.02) - 6400.0).abs() <= 1.5, "the region shrank to 80x80");
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("Open paths")), "the user is told the open part was left as it was");
+        assert_eq!(app.hist.undo_depth(), 1);
+        app.undo();
+        assert!(app.doc.get(vid).is_some(), "one undo brings the original vector back");
+    }
+
+    fn auto_layout_row(doc: &mut Document, page: NodeId, sizing: Sizing) -> (NodeId, NodeId, NodeId) {
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 200.0));
+        if let Some(fp) = frame.kind.frame_props_mut() {
+            fp.auto_layout = Some(AutoLayout { item_spacing: 10.0, padding: [0.0; 4], primary_sizing: sizing, counter_sizing: sizing, ..Default::default() });
+        }
+        doc.insert(page, frame).unwrap();
+        let (a, b) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(fid, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        doc.insert(fid, Node::rectangle(b, Rect::new(110.0, 0.0, 100.0, 100.0))).unwrap();
+        (fid, a, b)
+    }
+
+    #[test]
+    fn offset_path_reflows_the_auto_layout_siblings_in_the_same_undo_step() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (_, a, b) = auto_layout_row(&mut doc, page, Sizing::Fixed);
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![a];
+
+        app.offset_path_selection(10.0);
+
+        let grown = app.doc.get(app.selection[0]).unwrap();
+        assert!((grown.size.x - 120.0).abs() <= 0.5, "{:?}", grown.size);
+        assert!(grown.transform.tx.abs() < 1e-3, "the grown shape sits at the padding edge: {:?}", grown.transform);
+        let next = app.doc.get(b).unwrap();
+        assert!((next.transform.tx - 130.0).abs() < 1e-3, "120 wide + 10 gap pushes the next layer to 130, got {}", next.transform.tx);
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.undo();
+        assert!((app.doc.get(b).unwrap().transform.tx - 110.0).abs() < 1e-3, "one undo restores the sibling");
+        assert!(app.doc.get(a).is_some(), "and the original shape");
+    }
+
+    #[test]
+    fn offset_path_refits_a_hugging_auto_layout_parent() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (fid, a, _) = auto_layout_row(&mut doc, page, Sizing::Hug);
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![a];
+
+        app.offset_path_selection(10.0);
+
+        let frame = app.doc.get(fid).unwrap();
+        assert!((frame.size.x - 230.0).abs() < 1e-3 && (frame.size.y - 120.0).abs() < 1e-3, "120 + 10 + 100 by 120, got {:?}", frame.size);
+    }
+
+    #[test]
+    fn offset_path_refits_the_group_that_holds_the_shape() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let gid = doc.alloc_id();
+        let mut group = Node::new(gid, NodeKind::Group);
+        group.transform = Affine::translate(50.0, 50.0);
+        group.size = v2(250.0, 100.0);
+        doc.insert(page, group).unwrap();
+        let (a, b) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(gid, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        doc.insert(gid, Node::rectangle(b, Rect::new(150.0, 0.0, 100.0, 100.0))).unwrap();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![a];
+
+        app.offset_path_selection(10.0);
+
+        let group = app.doc.get(gid).unwrap();
+        assert!((group.size.x - 260.0).abs() < 1e-3 && (group.size.y - 120.0).abs() < 1e-3, "the group follows the grown child, got {:?}", group.size);
     }
 }
