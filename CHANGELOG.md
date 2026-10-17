@@ -30,6 +30,9 @@ Pack **Paste & Styles** ([milestone v0.3](https://github.com/jangtrinh/design-os
 - **Agent edits keep the open document intact (#28).**
   - `designos_apply_spec` and other edits made through the bundled `designos-mcp` server no longer replace the open document. On large files, the other frames used to become empty boxes and the Text styles list emptied.
   - Edits are replayed as node operations: one undo step per batch, the new layer is selected, and the view stays where it was.
+  - Agent edits wait while you drag or edit text, then land, and they survive switching documents.
+  - Undo through the MCP server is refused once the canvas has reloaded, so it can never remove your own layers. Undo in Studio works as before.
+  - Update `designos-mcp` and Studio together; the bundled server matches the app.
 - **Files with broken numbers open again (#42, #6).**
   - A value that was not a number (NaN or infinity) used to be saved as `null`. The file then refused to open with `invalid type: null, expected f32`.
   - Such values are now never written. Files that already contain them open, with each one replaced by a neutral value.
