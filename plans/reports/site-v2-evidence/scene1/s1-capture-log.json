@@ -1,0 +1,79 @@
+{
+ "viewport": "1440x900",
+ "clock": "playwright fake clock, rAF advanced 16 ms steps",
+ "frames": [
+  {
+   "clock_ms": 0,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t0000ms.png",
+   "pill": "",
+   "d": "M0 0",
+   "on": false
+  },
+  {
+   "clock_ms": 500,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t0500ms.png",
+   "pill": "0 \u00d7 0",
+   "d": "M120.5 57.5H1233.5V192.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 1000,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t1000ms.png",
+   "pill": "0 \u00d7 0",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 1500,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t1500ms.png",
+   "pill": "734 \u00d7 90",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 2600,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t2600ms.png",
+   "pill": "1114 \u00d7 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "clock_ms": 4000,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-load-t4000ms.png",
+   "pill": "1114 \u00d7 136",
+   "d": "M120.5 48.5H1233.5V183.5H120.5Z",
+   "on": true
+  },
+  {
+   "scrollY": 0,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-scroll-y0000.png",
+   "pill": "1114 \u00d7 136",
+   "on": true
+  },
+  {
+   "scrollY": 150,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-scroll-y0150.png",
+   "pill": "1114 \u00d7 136",
+   "on": true
+  },
+  {
+   "scrollY": 420,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-scroll-y0420.png",
+   "pill": "1212 \u00d7 687",
+   "on": true
+  },
+  {
+   "scrollY": 700,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-scroll-y0700.png",
+   "pill": "1212 \u00d7 687",
+   "on": true
+  },
+  {
+   "scrollY": 1000,
+   "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene1/s1-scroll-y1000.png",
+   "pill": "1212 \u00d7 687",
+   "on": true
+  }
+ ],
+ "console": []
+}

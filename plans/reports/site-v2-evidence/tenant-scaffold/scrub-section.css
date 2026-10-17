@@ -1,0 +1,212 @@
+/* ============================================================================
+   scrub-section.css — the Tenant-compliant layout contract for an embeddable
+   scroll-scrub section. Namespaced entirely under `.scrub` / `--scrub-*`.
+
+   HARD RULE: no `position: fixed` anywhere in this file, no `:root` writes.
+   The pin is the browser's own `position: sticky` — the section never fights
+   the host page for the viewport. See plans/specs/embeddable-scrub-section/.
+   ========================================================================== */
+
+.scrub {
+  position: relative;
+  isolation: isolate;
+  --scrub-progress: 0;
+  --scrub-accent: #8a7bb5;
+  --scrub-bg: #0b0b10;
+  --scrub-ink: #f5f3ef;
+  --scrub-ink-soft: rgba(245, 243, 239, 0.72);
+  color: var(--scrub-ink);
+  background: var(--scrub-bg);
+}
+
+/* the pinned media stage — sticky, never fixed. 100dvh so iOS URL-bar
+   collapse/expand never re-triggers layout (see engine's ignore-height-only). */
+.scrub__stage {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.scrub__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.scrub__poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+.scrub.is-painted .scrub__poster { opacity: 0; }
+
+/* story = the copy chapters, pulled up over the stage with a negative margin so
+   each chapter pins in turn above the still-sticky media. pointer-events:none on
+   the layer so it never blocks the media; individual copy cards re-enable it. */
+.scrub__story {
+  position: relative;
+  z-index: 3;
+  margin-top: -100dvh;
+  pointer-events: none;
+}
+
+.scrub__chapter {
+  position: relative;
+  min-height: 100dvh;
+}
+
+.scrub__chapter-pin {
+  position: sticky;
+  top: 0;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  padding: clamp(24px, 5vw, 64px);
+}
+
+.scrub__copy {
+  pointer-events: auto;
+  width: min(40rem, 44vw);
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  background: linear-gradient(180deg, rgba(11, 11, 16, 0.0) 0%, rgba(11, 11, 16, 0.55) 28%, rgba(11, 11, 16, 0.75) 100%);
+  border-radius: 18px;
+  padding: clamp(18px, 2.4vw, 30px);
+}
+.scrub__chapter.is-active .scrub__copy {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.scrub__eyebrow {
+  display: block;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--scrub-accent);
+  margin: 0 0 10px;
+}
+.scrub__title {
+  font-weight: 700;
+  font-size: clamp(1.7rem, 3.4vw, 2.6rem);
+  line-height: 1.08;
+  margin: 0 0 12px;
+}
+.scrub__body {
+  font-size: clamp(0.95rem, 1.1vw, 1.05rem);
+  line-height: 1.55;
+  color: var(--scrub-ink-soft);
+  margin: 0;
+  max-width: 42ch;
+}
+.scrub__tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.scrub__tags li {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: var(--scrub-accent);
+  border: 1px solid color-mix(in srgb, var(--scrub-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--scrub-accent) 14%, transparent);
+}
+
+/* progress + route rail — INSIDE the section, absolute (never fixed), scoped z-index */
+.scrub__progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  z-index: 4;
+  background: color-mix(in srgb, var(--scrub-accent) 16%, transparent);
+  pointer-events: none;
+}
+.scrub__progress i {
+  display: block;
+  height: 100%;
+  width: calc(var(--scrub-progress) * 100%);
+  background: var(--scrub-accent);
+  transform-origin: 0 50%;
+}
+
+.scrub__route {
+  position: absolute;
+  right: clamp(14px, 2.4vw, 30px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none;
+}
+.scrub__route i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--scrub-accent) 40%, transparent);
+  transition: background 0.25s, transform 0.25s;
+}
+.scrub__route i.is-active {
+  background: var(--scrub-accent);
+  transform: scale(1.4);
+}
+
+/* mobile — non-pinned variant (pin fights touch momentum, see UC-04) */
+@media (max-width: 860px) {
+  .scrub__stage {
+    position: relative;
+    height: auto;
+    aspect-ratio: 4 / 5;
+  }
+  .scrub__poster,
+  .scrub__canvas {
+    object-position: center 46%;
+  }
+  .scrub__story {
+    margin-top: 0;
+  }
+  .scrub__chapter-pin {
+    position: relative;
+    min-height: auto;
+    padding: 20px clamp(18px, 5vw, 32px);
+  }
+  .scrub__copy {
+    width: 100%;
+    opacity: 1;
+    transform: none;
+    background: none;
+    padding: 0;
+  }
+  .scrub__route { display: none; }
+}
+
+/* reduced motion — posters only, chapters keep their min-height so copy reads
+   in full, media never fetches/decodes (enforced in JS, not just here). */
+@media (prefers-reduced-motion: reduce) {
+  .scrub__copy {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+  .scrub__canvas { display: none; }
+}

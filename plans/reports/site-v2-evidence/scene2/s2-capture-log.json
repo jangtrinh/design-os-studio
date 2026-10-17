@@ -1,0 +1,94 @@
+[
+ {
+  "geo": {
+   "top": 1326.296875,
+   "height": 2070,
+   "vh": 900,
+   "cls": "proof scrub",
+   "pinned": true
+  }
+ },
+ {
+  "p": -0.3,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p-030.png",
+  "pill": "1212 \u00d7 687",
+  "on": true,
+  "y": 975,
+  "docH": 7922
+ },
+ {
+  "p": 0.0,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+000.png",
+  "pill": "1212 \u00d7 687",
+  "on": false,
+  "y": 1326,
+  "docH": 7922
+ },
+ {
+  "p": 0.12,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+012.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 1467,
+  "docH": 7922
+ },
+ {
+  "p": 0.25,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+025.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 1619,
+  "docH": 7922
+ },
+ {
+  "p": 0.4,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+040.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 1794,
+  "docH": 7922
+ },
+ {
+  "p": 0.55,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+055.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 1970,
+  "docH": 7922
+ },
+ {
+  "p": 0.7,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+070.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 2145,
+  "docH": 7922
+ },
+ {
+  "p": 0.85,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+085.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 2321,
+  "docH": 7922
+ },
+ {
+  "p": 1.0,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+100.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 2496,
+  "docH": 7922
+ },
+ {
+  "p": 1.2,
+  "file": "/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a0cd90219441f3062/plans/reports/site-v2-evidence/scene2/s2-p+120.png",
+  "pill": "380 \u00d7 472",
+  "on": true,
+  "y": 2730,
+  "docH": 7922
+ },
+ {
+  "console": []
+ }
+]
