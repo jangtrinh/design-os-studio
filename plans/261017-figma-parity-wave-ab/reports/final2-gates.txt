@@ -1,0 +1,9 @@
+== figma-parity-wave-ab @ 3cef187 (after verifier fix round) — 2026-10-17 10:16 ==
+fmt       exit=0
+clippy    exit=0
+test      exit=0
+          binaries=84 passed=2628 failed=0 ignored=15
+app parallel reruns failures=0/3
+fakeui    exit=0
+selftest  exit=0  SELF-TEST PASS: 10/10 regressions caught, 2/2 controls clean
+allow+    0 new #[allow] in code

@@ -29,3 +29,4 @@
 - 09:47 S5 merged clean. All 5 slices + clipboard fix on figma-parity-wave-ab. Running final gates.
 - 09:55 final gates d4f2eca: fmt/clippy 0, test 2587/0, app parallel 0/3 crash, fakeui 14/14, selftest 10/10, 0 new allow in code. Verifier running.
 - 09:58 Verifier: FIX-FIRST (H1 opacity compounding, H2 Cmd+V dead branch, H3 legacy SPACE_EVENLY=between [decided A9 from FIELDS.md], M1 orphans, M2 docs [done], M3 spec solver, L1-L5). Fix agents F1 (doc/fig/export) + F2 (clipboard/shell) dispatched.
+- 10:15 F1 merged. Owner rulings recorded (A5 Figma, A6 replace, PDF vector follow-up, PR into review-fixes-261016). Waiting F2.
