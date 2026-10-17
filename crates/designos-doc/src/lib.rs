@@ -26,8 +26,14 @@ pub mod finite_json;
 mod finite_json_tests;
 mod geom;
 mod history;
+mod layout_apply;
+pub mod layout_solver;
+mod layout_solver_grid;
+mod layout_solver_grid_placement;
+mod layout_solver_types;
 mod library;
 mod library_ops;
+pub mod live_patch;
 mod load_repair;
 #[cfg(test)]
 mod load_repair_tests;

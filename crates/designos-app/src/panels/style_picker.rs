@@ -67,11 +67,11 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
         last.separator_after = true;
     }
     let linked = current.is_some();
-    items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
-    items.push(MenuItem::new("Rename style").disabled(!linked));
-    items.push(MenuItem::new("Detach style").disabled(!linked));
-    // A library style is edited in its library file.
+    // A library style is edited and renamed in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
+    items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
+    items.push(MenuItem::new("Rename style").disabled(!linked || read_only));
+    items.push(MenuItem::new("Detach style").disabled(!linked));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
     picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
     (items, picks)
@@ -81,6 +81,12 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
 #[cfg(test)]
 pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
     menu_model(app, sel, prop).0.pop().expect("the menu always ends with the Edit style row")
+}
+
+/// The "Rename style" row of the menu, so tests can read its state.
+#[cfg(test)]
+pub(crate) fn rename_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
+    menu_model(app, sel, prop).0.into_iter().find(|item| item.label == "Rename style").expect("the menu always has a Rename style row")
 }
 
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and
@@ -108,7 +114,11 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
                         app.create_style_from(*id, prop);
                     }
                 }
-                Some(Pick::Rename) => app.props.style_rename = Some(prop),
+                Some(Pick::Rename) => {
+                    if linked_style(app, sel, prop).is_some_and(|k| !style_edit::is_read_only(app, &k)) {
+                        app.props.style_rename = Some(prop);
+                    }
+                }
                 Some(Pick::Detach) => {
                     app.detach_style_of(sel, prop);
                 }
@@ -133,7 +143,8 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
     widgets::record(ui, &format!("{tag}-row"), row);
     let name = app.doc.style_name(key).to_string();
     let id = Id::new((tag, "name"));
-    if app.props.style_rename == Some(prop) {
+    let read_only = style_edit::is_read_only(app, key);
+    if app.props.style_rename == Some(prop) && !read_only {
         let started = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
         field::field_bg(ui, row, id);
         let committed = field::edit_text(ui, row, id, &name, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X);
@@ -158,7 +169,7 @@ pub(super) fn linked_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         icons::paint(ui.painter(), Icon::Styles, Pos2::new(row.left() + 14.0, row.center().y), 16.0, theme::ICON_SECONDARY);
         let shown = widgets::elide(ui.painter(), &name, &theme::font_body(), row.width() - 36.0);
         ui.painter().text(Pos2::new(row.left() + 28.0, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT);
-        if resp.double_clicked() {
+        if resp.double_clicked() && !read_only {
             app.props.style_rename = Some(prop);
         }
         resp.on_hover_text(name);

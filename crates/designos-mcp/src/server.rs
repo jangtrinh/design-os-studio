@@ -1,5 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::Engine;
+use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -21,20 +22,28 @@ pub struct LiveSessionBridge {
     pub live_doc_sync_path: Option<PathBuf>,
     pub live_spec_path: Option<PathBuf>,
     pub context_json_path: Option<PathBuf>,
+    /// Append-only log of [`LivePatch`] lines the editor replays (`doc-patch.jsonl`).
+    pub live_doc_patch_path: Option<PathBuf>,
     pub last_canvas_mtime: Option<std::time::SystemTime>,
+    /// Document switches announced in the log so far.
+    doc_epoch: u64,
+    /// The editor was not told about the current document: edits must not reach its log until it is.
+    doc_unannounced: bool,
 }
 
 impl LiveSessionBridge {
     /// Resolves live session bridge paths from `DESIGNOS_SESSION_DIR`, `DESIGNOS_LIVE_CANVAS`,
-    /// `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_SPEC`, and `DESIGNOS_CONTEXT_JSON` environment variables.
+    /// `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_DOC_PATCH`, `DESIGNOS_LIVE_SPEC`, and
+    /// `DESIGNOS_CONTEXT_JSON` environment variables.
     pub fn from_env() -> Self {
         let session_dir = std::env::var_os("DESIGNOS_SESSION_DIR").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_canvas = std::env::var_os("DESIGNOS_LIVE_CANVAS").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_doc_sync = std::env::var_os("DESIGNOS_LIVE_DOC_SYNC").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_spec = std::env::var_os("DESIGNOS_LIVE_SPEC").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_ctx = std::env::var_os("DESIGNOS_CONTEXT_JSON").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
+        let env_patch = std::env::var_os("DESIGNOS_LIVE_DOC_PATCH").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
 
-        let any_env = session_dir.is_some() || env_canvas.is_some() || env_doc_sync.is_some() || env_spec.is_some() || env_ctx.is_some();
+        let any_env = session_dir.is_some() || env_canvas.is_some() || env_doc_sync.is_some() || env_spec.is_some() || env_ctx.is_some() || env_patch.is_some();
         if !any_env {
             return Self::default();
         }
@@ -50,8 +59,21 @@ impl LiveSessionBridge {
             .or_else(|| Some(PathBuf::from("/tmp/designos-live-agent-out.spec.json")));
         let context_json_path =
             env_ctx.or_else(|| session_dir.as_ref().map(|d| d.join("context.json"))).or_else(|| Some(PathBuf::from("/tmp/designos-live-context.json")));
+        let live_doc_patch_path = env_patch
+            .or_else(|| session_dir.as_ref().map(|d| d.join("doc-patch.jsonl")))
+            .or_else(|| live_doc_sync_path.as_ref().map(|p| p.with_file_name("doc-patch.jsonl")));
 
-        Self { session_dir, live_canvas_path, live_doc_sync_path, live_spec_path, context_json_path, last_canvas_mtime: None }
+        Self {
+            session_dir,
+            live_canvas_path,
+            live_doc_sync_path,
+            live_spec_path,
+            context_json_path,
+            live_doc_patch_path,
+            last_canvas_mtime: None,
+            doc_epoch: 0,
+            doc_unannounced: false,
+        }
     }
 
     /// Creates a `LiveSessionBridge` bound to a specific per-file `session_dir` (`/tmp/designos-sessions/<session_id>`).
@@ -62,8 +84,11 @@ impl LiveSessionBridge {
             live_doc_sync_path: Some(dir.join("doc-sync.designos")),
             live_spec_path: Some(dir.join("live-spec.json")),
             context_json_path: Some(dir.join("context.json")),
+            live_doc_patch_path: Some(dir.join("doc-patch.jsonl")),
             session_dir: Some(dir),
             last_canvas_mtime: None,
+            doc_epoch: 0,
+            doc_unannounced: false,
         }
     }
 }
@@ -77,11 +102,23 @@ fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::rename(&tmp_path, path).map_err(|e| format!("rename {} -> {}: {e}", tmp_path.display(), path.display()))
 }
 
+/// Appends one line to the edit log in a single write, so the editor never reads a line that
+/// mixes two entries.
+fn append_log_line(path: &Path, line: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
+    file.write_all(line.as_bytes()).and_then(|_| file.flush()).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
 pub struct Session {
     pub engine: Engine,
     root: PathBuf,
     dirty: bool,
     pub bridge: LiveSessionBridge,
+    /// Undo history was dropped because the editor's canvas replaced the document.
+    history_dropped: bool,
 }
 
 #[derive(Deserialize)]
@@ -121,13 +158,21 @@ fn parse<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {e}"))
 }
 
+/// What a failed write to the editor rolls an edit back to.
+struct EditSnapshot {
+    doc: designos_doc::Document,
+    undo_depth: usize,
+    redo_steps: Vec<designos_doc::Command>,
+}
+
 impl Session {
     pub fn new(root: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
         if !root.is_dir() {
             return Err("Workspace must be a directory".into());
         }
-        let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::from_env() };
+        let mut s = Self { engine: Engine::default(), root, dirty: false, history_dropped: false, bridge: LiveSessionBridge::from_env() };
+        s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
     }
@@ -138,7 +183,8 @@ impl Session {
         if !root.is_dir() {
             return Err("Workspace must be a directory".into());
         }
-        let mut s = Self { engine: Engine::default(), root, dirty: false, bridge: LiveSessionBridge::for_session_dir(session_dir) };
+        let mut s = Self { engine: Engine::default(), root, dirty: false, history_dropped: false, bridge: LiveSessionBridge::for_session_dir(session_dir) };
+        s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
         Ok(s)
     }
@@ -157,6 +203,14 @@ impl Session {
                         if let Ok(raw) = fs::read_to_string(&canvas_path) {
                             if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
                                 self.engine.doc = doc;
+                                // Ops recorded against the replaced copy no longer apply, and neither
+                                // does its undo history: it names the agent's old ids, which the
+                                // editor may have given to the user's layers.
+                                self.engine.take_live_ops();
+                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
+                                    self.engine.history = designos_doc::History::default();
+                                    self.history_dropped = true;
+                                }
                                 self.bridge.last_canvas_mtime = Some(mtime);
                             }
                         }
@@ -185,27 +239,78 @@ impl Session {
         }
     }
 
-    /// Atomically publishes the updated `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
-    /// and `live_canvas_path` (`canvas.designos`) so `design:os studio` hot-syncs within `<50ms`.
-    pub fn publish_live_doc_sync(&mut self) {
-        if self.bridge.live_doc_sync_path.is_none() && self.bridge.live_canvas_path.is_none() {
-            return;
+    /// Records the edits of every tool call while an open editor mirrors this session.
+    fn record_live_ops(&mut self) {
+        if self.bridge.live_doc_patch_path.is_some() {
+            self.engine.live_ops = Some(Vec::new());
         }
-        let Ok(json_str) = self.engine.doc.to_json() else {
-            return;
+    }
+
+    /// Appends the edits recorded since the last call as one [`LivePatch`] line to
+    /// `doc-patch.jsonl`, which the editor replays on its full document. The editor's canvas may be
+    /// a scoped copy (large files), so the whole `self.engine.doc` must never be sent for an edit.
+    pub fn publish_live_patch(&mut self) -> Result<(), String> {
+        let ops = self.engine.take_live_ops();
+        let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
+            return Ok(());
         };
+        let base = self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64);
+        let line = live_patch_line(&LivePatch::new(ops).with_base(base), MAX_LIVE_PATCH_LINE_BYTES)?;
+        let path = path.clone();
+        // An edit logged behind a switch the editor never heard of would land on the wrong document.
+        if self.bridge.doc_unannounced {
+            self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"))?;
+        }
+        append_log_line(&path, &line)
+    }
+
+    /// Reverts the tool call `name` whose edit could not be sent to the editor, without recording
+    /// it: undo and redo revert each other, and any other edit restores `snapshot`.
+    fn roll_back(&mut self, name: &str, snapshot: Option<EditSnapshot>) {
+        let history = &mut self.engine.history;
+        let _ = match name {
+            "designos_undo" => history.redo(&mut self.engine.doc),
+            "designos_redo" => history.undo(&mut self.engine.doc),
+            _ => Ok(snapshot.is_some_and(|s| {
+                self.engine.doc = s.doc;
+                history.drop_undo_steps_after(s.undo_depth);
+                // The edit cleared the redo steps; the agent can still redo what it undid.
+                history.restore_redo(s.redo_steps);
+                true
+            })),
+        };
+        self.engine.take_live_ops();
+    }
+
+    /// Atomically publishes the whole `self.engine.doc` to `live_doc_sync_path` (`doc-sync.designos`)
+    /// and `live_canvas_path` (`canvas.designos`) after the session switched to a different document
+    /// (`designos_open_file`, `designos_new_document`), then marks the switch in the edit log.
+    /// The editor reads that one log in order: edits above the mark were made on the previous
+    /// document and are dropped, edits below it belong to this one. Edits go through
+    /// [`Self::publish_live_patch`].
+    pub fn publish_live_doc_sync(&mut self) -> Result<(), String> {
+        if self.bridge.live_doc_sync_path.is_none() && self.bridge.live_canvas_path.is_none() {
+            return Ok(());
+        }
+        // Until the mark is in the log the editor does not know about this document.
+        self.bridge.doc_unannounced = true;
+        let json_str = self.engine.doc.to_json().map_err(|e| format!("serialize the document: {e}"))?;
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
-            let _ = atomic_write_file(canvas_path, bytes);
+            atomic_write_file(canvas_path, bytes)?;
             self.bridge.last_canvas_mtime = fs::metadata(canvas_path).and_then(|m| m.modified()).ok();
         }
         if let Some(sync_path) = &self.bridge.live_doc_sync_path {
-            let _ = atomic_write_file(sync_path, bytes);
+            atomic_write_file(sync_path, bytes)?;
         }
-        if !cfg!(test) {
-            let _ = atomic_write_file(Path::new("/tmp/designos-live-doc-sync.designos"), bytes);
-            let _ = atomic_write_file(Path::new("/tmp/designos-live-canvas.designos"), bytes);
+        if let Some(log) = self.bridge.live_doc_patch_path.clone() {
+            let mark = DocEpoch::of(self.bridge.doc_epoch + 1, bytes);
+            let line = serde_json::to_string(&mark).map_err(|e| format!("serialize document switch: {e}"))? + "\n";
+            append_log_line(&log, &line)?;
+            self.bridge.doc_epoch += 1;
         }
+        self.bridge.doc_unannounced = false;
+        Ok(())
     }
 
     fn input_path(&self, path: &str) -> Result<PathBuf, String> {
@@ -304,8 +409,10 @@ impl Session {
                 self.engine = Engine::default();
                 self.engine.active_page_id = doc.pages.first().copied();
                 self.engine.doc = doc;
+                self.record_live_ops();
                 self.dirty = false;
-                self.publish_live_doc_sync();
+                self.publish_live_doc_sync()
+                    .map_err(|e| format!("Opened the design, but the editor was not told, so it still shows the previous document: {e}"))?;
                 let mut summary = self.engine.call("designos_get_document", json!({}))?;
                 // Numbers saved as `null` were read as their neutral value. They carry no data to lose, so
                 // the file opens, but the caller is told.
@@ -326,8 +433,10 @@ impl Session {
                 }
                 self.engine = Engine::default();
                 self.engine.doc.name = a.name;
+                self.record_live_ops();
                 self.dirty = true;
-                self.publish_live_doc_sync();
+                self.publish_live_doc_sync()
+                    .map_err(|e| format!("Created the document, but the editor was not told, so it still shows the previous document: {e}"))?;
                 self.engine.call("designos_get_document", json!({}))
             }
             "designos_save_file" => {
@@ -390,8 +499,7 @@ impl Session {
                 Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true}))
             }
             _ => {
-                let result = self.engine.call(name, args)?;
-                if matches!(
+                let mutating = matches!(
                     name,
                     "designos_create_node"
                         | "designos_update_node"
@@ -403,10 +511,30 @@ impl Session {
                         | "designos_set_dev_status"
                         | "designos_undo"
                         | "designos_redo"
-                ) && result.get("changed").and_then(Value::as_bool) != Some(false)
-                {
+                );
+                let live = mutating && self.bridge.live_doc_patch_path.is_some();
+                // What a failed write to the editor rolls back to. Undo and redo revert each other.
+                let snapshot = (live && !matches!(name, "designos_undo" | "designos_redo")).then(|| EditSnapshot {
+                    doc: self.engine.doc.clone(),
+                    undo_depth: self.engine.history.undo_depth(),
+                    redo_steps: self.engine.history.redo_steps(),
+                });
+                let mut result = self.engine.call(name, args)?;
+                let changed = result.get("changed").and_then(Value::as_bool) != Some(false);
+                if mutating && changed {
+                    if let Err(e) = self.publish_live_patch() {
+                        self.roll_back(name, snapshot);
+                        return Err(format!("The open editor could not receive this edit, so it was undone: {e}"));
+                    }
                     self.dirty = true;
-                    self.publish_live_doc_sync();
+                    self.history_dropped = false;
+                } else if matches!(name, "designos_undo" | "designos_redo") && self.history_dropped {
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert(
+                            "reason".into(),
+                            json!("Studio republished the canvas after your earlier edits, so they can no longer be undone or redone from this session. Ask the user to undo them in Studio."),
+                        );
+                    }
                 }
                 Ok(result)
             }
@@ -525,9 +653,25 @@ impl ServerHandler for DesignOSServer {
     }
 }
 
+/// One `doc-patch.jsonl` line, refused when it is over the size the editor reads.
+fn live_patch_line(patch: &LivePatch, max_bytes: usize) -> Result<String, String> {
+    let mut line = serde_json::to_string(patch).map_err(|e| format!("serialize live patch: {e}"))?;
+    if line.len() > max_bytes {
+        let mib = |b: usize| b as f64 / (1 << 20) as f64;
+        return Err(format!(
+            "this edit is {:.1} MiB, over the {:.0} MiB the editor accepts, so Studio was not updated; split it into smaller calls",
+            mib(line.len()),
+            mib(max_bytes)
+        ));
+    }
+    line.push('\n');
+    Ok(line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::live_patch::LiveOp;
     use designos_doc::Document;
 
     #[test]
@@ -548,7 +692,7 @@ mod tests {
     }
 
     #[test]
-    fn scoped_session_syncs_current_page_and_writes_doc_sync() {
+    fn scoped_session_syncs_current_page_and_writes_doc_patch() {
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-{}-{nonce}", std::process::id()));
         let sess_dir = std::env::temp_dir().join(format!("designos-mcp-sess-{}-{nonce}", std::process::id()));
@@ -611,14 +755,84 @@ mod tests {
             .unwrap();
         assert_eq!(created["parent_id"], p2.0);
 
-        // Verify doc-sync.designos was atomically written and contains both nodes under Page 2
-        let sync_path = sess_dir.join("doc-sync.designos");
-        assert!(sync_path.exists(), "doc-sync.designos must be written after mutating tool calls");
-        let synced_doc = Document::from_json(&fs::read_to_string(&sync_path).unwrap()).unwrap();
-        let p2_children = &synced_doc.get(p2).unwrap().children;
+        // Edits reach the editor as replayable ops, never as a whole (possibly scoped) document.
+        assert!(!sess_dir.join("doc-sync.designos").exists(), "edits must not publish a whole document");
+        let log = fs::read_to_string(sess_dir.join("doc-patch.jsonl")).expect("doc-patch.jsonl must be written after mutating tool calls");
+        let patches: Vec<LivePatch> = log.lines().map(|l| serde_json::from_str(l).expect("patch line")).collect();
+        assert_eq!(patches.len(), 2, "one patch line per mutating tool call");
+        let mut editor = doc.clone();
+        let mut state = designos_doc::live_patch::LivePatchState::default();
+        for patch in &patches {
+            let report = designos_doc::live_patch::replay_live_patch(&mut editor, patch, &mut state, &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+            assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        }
+        let p2_children = &editor.get(p2).unwrap().children;
         assert!(p2_children.contains(&designos_doc::NodeId(card_id)));
         assert_eq!(p2_children.len(), 2);
-        assert!(synced_doc.get(p1).unwrap().children.is_empty(), "Page 1 must remain untouched");
+        assert!(editor.get(p1).unwrap().children.is_empty(), "Page 1 must remain untouched");
+
+        let _ = fs::remove_dir_all(&ws_dir);
+        let _ = fs::remove_dir_all(&sess_dir);
+    }
+
+    #[test]
+    fn an_oversized_patch_line_is_refused() {
+        let patch = LivePatch::new(vec![LiveOp::Remove { id: designos_doc::NodeId(7) }]);
+        let line = live_patch_line(&patch, 1 << 20).unwrap();
+        assert!(line.ends_with('\n') && line.len() < 100);
+        let err = live_patch_line(&patch, 10).unwrap_err();
+        assert!(err.contains("over the"), "{err}");
+    }
+
+    #[test]
+    fn a_failed_patch_write_undoes_the_edit_and_reports_it() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-rollback-{}-{nonce}", std::process::id()));
+        let sess_dir = std::env::temp_dir().join(format!("designos-mcp-sess-rollback-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        fs::create_dir_all(&sess_dir).unwrap();
+        let mut doc = Document::new("Rollback");
+        doc.add_page("Page");
+        fs::write(sess_dir.join("canvas.designos"), doc.to_json().unwrap()).unwrap();
+        let mut session = Session::with_session_dir(&ws_dir, &sess_dir).unwrap();
+
+        // A Hug auto-layout stack reaches the editor normally.
+        let stack = session
+            .call(
+                "designos_apply_spec",
+                json!({ "spec": { "name": "Stack", "width_sizing": "hug", "height_sizing": "hug",
+                    "layout": { "direction": "column", "gap": 8.0 },
+                    "children": [{ "kind": "rectangle", "name": "A", "width": 40.0, "height": 20.0 }] } }),
+            )
+            .unwrap();
+        let stack_id = stack["root_node_id"].as_u64().unwrap();
+        let log = session.bridge.live_doc_patch_path.clone().unwrap();
+        let lines = || fs::read_to_string(&log).map(|s| s.lines().count()).unwrap_or(0);
+        let (before, can_undo, written) = (session.engine.doc.to_json().unwrap(), session.engine.history.can_undo(), lines());
+
+        // The log now sits under a regular file, so the next write fails.
+        let blocker = sess_dir.join("blocker");
+        fs::write(&blocker, "not a directory").unwrap();
+        session.bridge.live_doc_patch_path = Some(blocker.join("doc-patch.jsonl"));
+        let err = session
+            .call("designos_apply_spec", json!({ "parent_id": stack_id, "spec": { "kind": "rectangle", "name": "B", "width": 40.0, "height": 30.0 } }))
+            .expect_err("a write failure must fail the tool call");
+        assert!(err.contains("undone"), "{err}");
+        assert_eq!(session.engine.doc.to_json().unwrap(), before, "the agent's document must match the editor's again");
+        assert_eq!(session.engine.history.can_undo(), can_undo);
+        assert!(!session.engine.history.can_redo(), "the reverted edit must not be redoable");
+
+        // Undo and redo are reverted the same way.
+        session.call("designos_undo", json!({})).expect_err("undo whose write fails");
+        assert_eq!(session.engine.doc.to_json().unwrap(), before);
+        assert!(session.engine.history.can_undo());
+        session.bridge.live_doc_patch_path = Some(log.clone());
+        session.call("designos_undo", json!({})).unwrap();
+        session.bridge.live_doc_patch_path = Some(blocker.join("doc-patch.jsonl"));
+        session.call("designos_redo", json!({})).expect_err("redo whose write fails");
+        assert!(session.engine.doc.get(designos_doc::NodeId(stack_id)).is_none(), "the failed redo was reverted");
+        assert!(session.engine.history.can_redo());
+        assert_eq!(lines(), written + 1, "only the successful undo reached the editor");
 
         let _ = fs::remove_dir_all(&ws_dir);
         let _ = fs::remove_dir_all(&sess_dir);

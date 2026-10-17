@@ -140,6 +140,16 @@ fn ref_keys(style: &Style) -> &'static [&'static str] {
     }
 }
 
+/// Nodes of this document (excluding copies on the hidden library page) that are linked to style
+/// `key` through a `style_refs` slot matching the style's kind.
+pub fn linked_style_nodes(doc: &Document, key: &str) -> Vec<NodeId> {
+    let Some(stored) = doc.styles.get(key) else {
+        return Vec::new();
+    };
+    let refs = ref_keys(stored);
+    doc.nodes.values().filter(|n| refs.iter().any(|r| n.style_refs.get(*r).is_some_and(|k| k == key)) && !is_library_node(doc, n.id)).map(|n| n.id).collect()
+}
+
 /// Replaces the values of style `key` and pushes them to every linked node, as one command (one
 /// undo step). Works for fill, stroke, text, effect and grid styles; `style` must be the same
 /// kind as the stored one. A style published by a library is refused: it is edited in its library
@@ -152,15 +162,15 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     if std::mem::discriminant(stored) != std::mem::discriminant(&style) {
         return Err(StyleOpError::KindMismatch(key.into()));
     }
-    let refs = ref_keys(stored);
     let mut styles = doc.styles.clone();
     styles.insert(key.to_string(), style.clone());
     let mut cmds = vec![Command::SetStyles { styles, style_meta: doc.style_meta.clone() }];
-    let linked = |n: &&Node| refs.iter().any(|r| n.style_refs.get(*r).is_some_and(|k| k == key)) && !is_library_node(doc, n.id);
-    for n in doc.nodes.values().filter(linked) {
-        let mut copy = n.clone();
-        if apply_style_values(&mut copy, &style, key) {
-            cmds.push(Command::Update { node: Box::new(copy) });
+    for id in linked_style_nodes(doc, key) {
+        if let Some(n) = doc.get(id) {
+            let mut copy = n.clone();
+            if apply_style_values(&mut copy, &style, key) {
+                cmds.push(Command::Update { node: Box::new(copy) });
+            }
         }
     }
     Ok(Command::Batch(cmds))
@@ -186,6 +196,9 @@ pub fn detach_style(doc: &Document, nodes: &[NodeId], prop: StyleProperty) -> Re
 pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, StyleOpError> {
     if !doc.styles.contains_key(key) {
         return Err(StyleOpError::UnknownStyle(key.into()));
+    }
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
     }
     let property = style_property(doc, key);
     let name = name.trim();
@@ -488,6 +501,22 @@ mod tests {
         assert_ne!(d.get(fill_node).unwrap().fills, vec![blue.clone()]);
         // A file's own styles stay editable.
         assert!(update_style(&d, "Line", Style::Fill(vec![blue])).is_ok());
+    }
+
+    #[test]
+    fn a_style_that_belongs_to_a_library_cannot_be_renamed_in_the_consumer_file() {
+        let (mut d, _) = paint_and_text_fixture();
+        d.library.external.insert(
+            "L1/Brand".into(),
+            ExternalAsset { library_id: "L1".into(), version: 1, kind: LibraryAssetKind::Style, node: None, local_key: Some("Brand".into()) },
+        );
+        assert!(matches!(rename_style(&d, "Brand", "Brand/Renamed").unwrap_err(), StyleOpError::LibraryStyle(k) if k == "Brand"));
+        assert_eq!(d.style_name("Brand"), "Brand");
+        // A local style can still be renamed.
+        let mut h = History::default();
+        let c = rename_style(&d, "Line", "Line/Thin");
+        run(&mut d, &mut h, c);
+        assert_eq!(d.style_name("Line"), "Line/Thin");
     }
 
     #[test]
