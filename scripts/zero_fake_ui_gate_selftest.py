@@ -198,6 +198,48 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "if crate::home::updater::UPDATER_UI_ENABLED {",
         "#[allow(non_snake_case)]\n    let UPDATER_UI_ENABLED = true;\n    if UPDATER_UI_ENABLED {",
     ),
+    (
+        '26. concat!["Remove ", "background"] with square brackets in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = concat!["Remove ", "background"];',
+    ),
+    (
+        '27. concat!{"ctx-", "crop"} with braces as a new toolbar entry',
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),\n        (Icon::Rectangle, concat!{"ctx-", "crop"}, "Crop"),',
+    ),
+    (
+        "28. bracketed concat! with a piece that cannot be folded in cmdk.rs",
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat!["Boost ", stringify!(resolution)],',
+    ),
+    (
+        "29. braced concat! with a piece that cannot be folded in panels/toolbar.rs",
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),\n        (Icon::Rectangle, concat!{"x-", stringify!(y)}, "Extra"),',
+    ),
+    (
+        "30. zoom row label written as concat!{...} of allow-listed text",
+        "Z13",
+        "panels/menus.rs",
+        ZOOM_IN_ROW,
+        ZOOM_IN_ROW.replace('label: "Zoom in"', 'label: concat!{"Zoom ", "in"}'),
+    ),
+    (
+        "31. concat !(...) with whitespace before the bang in cmdk.rs",
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat !("Boost ", stringify!(resolution)),',
+    ),
 ]
 
 

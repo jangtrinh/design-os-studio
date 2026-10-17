@@ -287,16 +287,21 @@ def _is_punct(tokens: List[RustToken], i: int, ch: str) -> bool:
     return i < len(tokens) and tokens[i][0] == "p" and tokens[i][1] == ch
 
 
+_MACRO_CLOSERS = {"(": ")", "[": "]", "{": "}"}
+
+
 def _parse_concat_macro(tokens: List[RustToken], i: int) -> Optional[Tuple[str, int]]:
-    """`concat!(...)` starting at `tokens[i]` whose pieces are all literals the compiler can join (string, raw
-    string, char, number, bool, nested `concat!`): returns (joined text, index after the closing paren)."""
+    """`concat!(...)`, `concat![...]` or `concat!{...}` starting at `tokens[i]` whose pieces are all literals the
+    compiler can join (string, raw string, char, number, bool, nested `concat!`): returns (joined text, index
+    after the closing delimiter). The closing delimiter must be the one that matches the opening one."""
     if tokens[i][0] != "id" or tokens[i][1] != "concat":
         return None
     j = _skip_whitespace(tokens, i + 1)
     if not _is_punct(tokens, j, "!"):
         return None
     j = _skip_whitespace(tokens, j + 1)
-    if not _is_punct(tokens, j, "("):
+    closer = _MACRO_CLOSERS.get(tokens[j][1]) if j < len(tokens) and tokens[j][0] == "p" else None
+    if closer is None:
         return None
     j += 1
     parts: List[str] = []
@@ -323,12 +328,12 @@ def _parse_concat_macro(tokens: List[RustToken], i: int) -> Optional[Tuple[str, 
         else:
             return None
         j = _skip_whitespace(tokens, j)
-        if _is_punct(tokens, j, ")"):
+        if _is_punct(tokens, j, closer):
             return "".join(parts), j + 1
         if not _is_punct(tokens, j, ","):
             return None
         j = _skip_whitespace(tokens, j + 1)
-        if _is_punct(tokens, j, ")"):
+        if _is_punct(tokens, j, closer):
             return "".join(parts), j + 1
 
 
@@ -600,7 +605,12 @@ def check_z07(specs_rs: str) -> Tuple[bool, str]:
 RETIRED_ACTION_PATTERN = r"ctx-crop|ctx-remove-bg"
 RETIRED_CMDK_PATTERN = r"(?i)remove[\s_-]*background"
 RETIRED_MULTIPLAYER_PATTERN = r"(?i)multiplayer\s+cursors"
-UI_LABEL_OBFUSCATION_PATTERN = re.compile(r"\bconcat!\s*\(|\\u\{0*[0-7]?[0-9a-fA-F]\}|\\x[0-9a-fA-F]{2}")
+# A `concat!` invocation in any of its spellings: `(...)`, `[...]` or `{...}`, with optional space around the bang.
+CONCAT_MACRO_CALL = r"\bconcat\s*!\s*[(\[{]"
+# Labels where any `\u{` / `\xHH` escape is banned (cmdk titles, zoom rows) ...
+UI_LABEL_ANY_ESCAPE_PATTERN = re.compile(CONCAT_MACRO_CALL + r"|\\u\{|\\x[0-9a-fA-F]{2}")
+# ... and the toolbar, which legitimately spells arrow glyphs as long `\u{21A9}` escapes: only short ASCII-range ones are banned.
+UI_LABEL_OBFUSCATION_PATTERN = re.compile(CONCAT_MACRO_CALL + r"|\\u\{0*[0-7]?[0-9a-fA-F]\}|\\x[0-9a-fA-F]{2}")
 
 
 def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
@@ -615,7 +625,7 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     cmdk_unnorm = sources.unnormalized_code("cmdk.rs")
     toolbar_unnorm = sources.unnormalized_code("panels/toolbar.rs")
     obfuscated_ui_labels = []
-    if re.search(r"\bconcat!\s*\(|\\u\{|\\x[0-9a-fA-F]{2}", cmdk_unnorm):
+    if UI_LABEL_ANY_ESCAPE_PATTERN.search(cmdk_unnorm):
         obfuscated_ui_labels.append("cmdk.rs")
     if UI_LABEL_OBFUSCATION_PATTERN.search(toolbar_unnorm):
         obfuscated_ui_labels.append("panels/toolbar.rs")
@@ -753,7 +763,7 @@ def check_z13(sources: "SourceSet") -> Tuple[bool, str]:
     dead_rows = len(re.findall(r"action:\s*None", zoom_src))
     fake_check = bool(sources.code_hits(RETIRED_MULTIPLAYER_PATTERN))
     optional_action = bool(re.search(r"action:\s*Option<", zoom_src))
-    obfuscated_zoom_labels = bool(re.search(r"\bconcat!\s*\(|\\u\{|\\x[0-9a-fA-F]{2}", raw_rows_body))
+    obfuscated_zoom_labels = bool(UI_LABEL_ANY_ESCAPE_PATTERN.search(raw_rows_body))
 
     rows = [m.groupdict() for m in ZOOM_ROW_PATTERN.finditer(rows_body)]
     constructed = len(re.findall(r"ZoomRowSpec\s*\{", rows_body))
