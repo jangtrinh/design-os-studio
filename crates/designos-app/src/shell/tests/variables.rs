@@ -771,3 +771,60 @@ fn an_imported_variable_reusing_a_library_variable_id_neither_replaces_it_nor_st
     assert_eq!(app.doc.variables[&accent].values[&mode], VariableValue::Alias(clash.into()));
     assert_eq!((app.doc.variable_collections[lib].clone(), app.doc.variables[clash].clone()), library_before);
 }
+
+/// A `variables/local` payload with one library collection `coll` holding one colour variable `var`.
+fn library_payload(coll: &str, var: &str) -> String {
+    let mut store = designos_doc::VariableStore::default();
+    insert_collection(&mut store, coll, "Theirs", None);
+    let made = store.add_variable(coll, "Theirs/Color", VariableKind::Color).unwrap();
+    rekey_variable(&mut store, &made, var);
+    store.collections.get_mut(coll).unwrap().source_library_key = Some("lk-shared".into());
+    let mut payload = designos_doc::Document::new("payload");
+    let _ = store.command().apply(&mut payload);
+    designos_fig::export_variables_json(&payload).to_string()
+}
+
+/// An app whose only collection `coll` is the file's own, holding one colour variable `var` named "Accent".
+fn app_owning(coll: &str, var: &str) -> crate::app::App {
+    let mut store = designos_doc::VariableStore::default();
+    insert_collection(&mut store, coll, "Mine", None);
+    let made = store.add_variable(coll, "Accent", VariableKind::Color).unwrap();
+    rekey_variable(&mut store, &made, var);
+    let mut app = crate::app::App::new(designos_doc::Document::new("d"));
+    assert!(app.commit_store(store, &[], &[]));
+    app
+}
+
+#[test]
+fn an_imported_library_variable_reusing_a_local_variable_id_does_not_replace_it() {
+    let (mine, theirs, clash) = ("VariableCollectionId:1:6", "VariableCollectionId:2:3", "VariableID:1:8");
+    let mut app = app_owning(mine, clash);
+    let (variable_before, list_before) = (app.doc.variables[clash].clone(), app.doc.variable_collections[mine].variables.clone());
+
+    let done = app.import_variables_text(&library_payload(theirs, clash)).unwrap();
+    assert_eq!((done.imported, done.skipped_library), (0, 1), "the clashing library variable is skipped");
+    assert_eq!(app.doc.variables[clash], variable_before, "the file's own variable is untouched");
+    assert_eq!(app.doc.variable_collections[mine].variables, list_before);
+    assert!(app.doc.variable_collections[theirs].is_library(), "the library collection itself still comes in");
+    assert!(app.doc.variable_collections[theirs].variables.is_empty(), "without the variable it could not bring");
+    assert!(app.edit_variables(|s| {
+        s.rename_variable(clash, "Renamed");
+        (vec![], vec![])
+    }));
+    assert_eq!(app.doc.variables[clash].name, "Renamed", "it is still editable");
+}
+
+#[test]
+fn an_imported_library_collection_reusing_a_local_collection_id_does_not_replace_it() {
+    let (mine, clash) = ("VariableCollectionId:1:6", "VariableID:1:8");
+    let mut app = app_owning(mine, clash);
+    let before = app.doc.variable_collections[mine].clone();
+
+    let done = app.import_variables_text(&library_payload(mine, "VariableID:2:9")).unwrap();
+    assert_eq!((done.imported, done.skipped_library), (0, 1), "the variable of the clashing library collection is skipped");
+    assert_eq!(app.doc.variable_collections[mine], before, "the file's own collection is untouched");
+    assert!(!app.doc.variable_collections[mine].is_library());
+    assert!(!app.doc.variables.contains_key("VariableID:2:9"));
+    assert!(app.edit_variables(|s| (s.delete_collection(mine), vec![mine.to_string()])), "it still deletes");
+    assert!(!app.doc.variable_collections.contains_key(mine));
+}

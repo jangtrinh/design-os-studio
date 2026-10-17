@@ -330,14 +330,14 @@ impl App {
         });
     }
 
-    /// Merges a `variables/local` JSON payload into the document (one undo step). Variables of a
-    /// library collection the file already has are left out and counted as skipped: that collection
-    /// is edited in its library file.
+    /// Merges a `variables/local` JSON payload into the document (one undo step). Records that
+    /// would change a library collection, or that would take the id of a library one, are left out
+    /// and counted as skipped (see [`library::drop_refused_records`]).
     pub fn import_variables_text(&mut self, text: &str) -> Result<library::VariablesImport, String> {
         let mut tmp = Document::new("import");
         let total = designos_fig::import_variables_json(&mut tmp, text).map_err(|e| e.to_string())?;
         let mut store = VariableStore::from_doc(&self.doc);
-        let skipped = library::drop_existing_library(&store, &mut tmp.variable_collections, &mut tmp.variables);
+        let skipped = library::drop_refused_records(&store, &mut tmp.variable_collections, &mut tmp.variables);
         store.collections.extend(tmp.variable_collections);
         store.variables.extend(tmp.variables);
         self.commit_store(store, &[], &[]);

@@ -6,7 +6,7 @@ use crate::theme;
 use crate::widgets;
 use designos_doc::{Variable, VariableCollection, VariableStore};
 use egui::{Align2, Pos2, Rect, Ui};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Hover text and hint for anything that would edit a library collection.
 pub const LIBRARY_TIP: &str = "Edit in the library file";
@@ -38,8 +38,9 @@ pub fn first_collection_of(collections: &BTreeMap<String, VariableCollection>) -
 pub struct VariablesImport {
     /// Variables of the payload that were merged into the file.
     pub imported: usize,
-    /// Variables of the payload left out because they belong to a library collection the file
-    /// already has: such a collection is edited in its library file, so an import cannot change it.
+    /// Variables of the payload left out because a library record is involved: they belong to a
+    /// library collection the file already has, which is edited in its library file, or they are
+    /// library variables that would take the id of one of the file's own.
     pub skipped_library: usize,
 }
 
@@ -53,16 +54,27 @@ impl VariablesImport {
     }
 }
 
-/// Drops from an incoming payload everything that would land in a library collection `store`
-/// already has, and returns how many variables that was.
-pub fn drop_existing_library(
+/// Drops from an incoming payload every record the import must not apply to `store`, and returns
+/// how many variables that was. A library record and a record of the file never replace each other:
+/// nothing lands in a library collection the file already has, and a library collection or variable
+/// is not imported under the id of one the file owns. Figma ids repeat across files, so both happen.
+pub fn drop_refused_records(
     store: &VariableStore,
     collections: &mut BTreeMap<String, VariableCollection>,
     variables: &mut BTreeMap<String, Variable>,
 ) -> usize {
-    collections.retain(|id, _| !store.is_library_collection(id));
+    let refused: BTreeSet<String> = collections
+        .iter()
+        .filter(|(id, c)| store.collections.get(*id).is_some_and(|known| known.is_library() || c.is_library()))
+        .map(|(id, _)| id.clone())
+        .collect();
+    collections.retain(|id, _| !refused.contains(id));
     let before = variables.len();
-    variables.retain(|id, v| !store.is_library_collection(&v.collection) && !store.is_library_variable(id));
+    variables.retain(|id, v| {
+        let incoming_library = collections.get(&v.collection).is_some_and(VariableCollection::is_library);
+        let clash = store.variables.contains_key(id) && (incoming_library || store.is_library_variable(id));
+        !clash && !refused.contains(&v.collection) && !store.is_library_collection(&v.collection)
+    });
     // the collections that stay must not keep listing what was dropped
     for c in collections.values_mut() {
         c.variables.retain(|id| variables.contains_key(id));
@@ -143,9 +155,46 @@ mod tests {
         variables.get_mut(&lib_var).unwrap().collection = own.clone();
         collections.get_mut(&own).unwrap().variables.push(lib_var);
 
-        assert_eq!(drop_existing_library(&store, &mut collections, &mut variables), 2);
+        assert_eq!(drop_refused_records(&store, &mut collections, &mut variables), 2);
         assert_eq!(collections.keys().collect::<Vec<_>>(), [&own]);
         assert_eq!(variables.keys().collect::<Vec<_>>(), [&own_var]);
         assert_eq!(collections[&own].variables, vec![own_var.clone()], "the surviving collection lists only what survived");
+    }
+
+    #[test]
+    fn a_library_record_never_takes_the_id_of_one_the_file_owns() {
+        let mut store = VariableStore::default();
+        let own = store.add_collection("Mine");
+        let own_var = store.add_variable(&own, "Gap", VariableKind::Number).unwrap();
+        let var_in = |id: &str, collection: &str| Variable { id: id.into(), collection: collection.into(), ..store.variables[&own_var].clone() };
+
+        // a library collection under the id of the file's own collection, with a variable of its own;
+        // and a new library collection whose variables are one that reuses the file's variable id and one that is new
+        let mut same_id = coll(&own, Some("lk"));
+        same_id.variables = vec!["inside".into()];
+        let mut new_lib = coll("new", Some("lk"));
+        new_lib.variables = vec![own_var.clone(), "fresh".into()];
+        let mut collections = BTreeMap::from([(own.clone(), same_id), ("new".to_string(), new_lib)]);
+        let mut variables = BTreeMap::from([
+            ("inside".to_string(), var_in("inside", &own)),
+            (own_var.clone(), var_in(&own_var, "new")),
+            ("fresh".to_string(), var_in("fresh", "new")),
+        ]);
+
+        assert_eq!(drop_refused_records(&store, &mut collections, &mut variables), 2);
+        assert_eq!(collections.keys().collect::<Vec<_>>(), ["new"], "the new library collection still comes in");
+        assert_eq!(variables.keys().collect::<Vec<_>>(), ["fresh"]);
+        assert_eq!(collections["new"].variables, vec!["fresh".to_string()]);
+    }
+
+    #[test]
+    fn a_local_record_still_replaces_a_local_record_of_the_same_id() {
+        let mut store = VariableStore::default();
+        let own = store.add_collection("Mine");
+        let own_var = store.add_variable(&own, "Gap", VariableKind::Number).unwrap();
+        let (mut collections, mut variables) = (store.collections.clone(), store.variables.clone());
+        variables.get_mut(&own_var).unwrap().name = "Spacing".into();
+        assert_eq!(drop_refused_records(&store, &mut collections, &mut variables), 0);
+        assert_eq!((collections.len(), variables[&own_var].name.as_str()), (1, "Spacing"));
     }
 }
