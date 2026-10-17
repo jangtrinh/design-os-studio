@@ -37,25 +37,38 @@ impl From<InflateError> for FigError {
     }
 }
 
-/// True once `inflated` output is more than [`MAX_INFLATE_RATIO`] times the whole `compressed` input.
+/// The most output that `compressed` input may produce before it counts as a bomb: anything up to
+/// [`RATIO_GRACE_BYTES`], otherwise just under [`MAX_INFLATE_RATIO`] + 1 times the input. With no input to compare
+/// with (`compressed == 0`) there is no ratio to judge.
 ///
 /// A decoder emits output in order, so a stream can start far denser than it is overall; judging the output so
 /// far against the input read so far would reject such a stream whose whole ratio is fine. Judging it against
 /// the whole input is safe to do early, because the unread rest of the stream can only add output and never
 /// bring the ratio back down.
+fn ratio_allowance(compressed: u64) -> u64 {
+    if compressed == 0 {
+        return u64::MAX;
+    }
+    RATIO_GRACE_BYTES.max(compressed.saturating_mul(MAX_INFLATE_RATIO + 1) - 1)
+}
+
+/// True once `inflated` output is more than [`MAX_INFLATE_RATIO`] times the whole `compressed` input.
 fn ratio_exceeded(inflated: u64, compressed: u64) -> bool {
-    compressed > 0 && inflated > RATIO_GRACE_BYTES && inflated / compressed > MAX_INFLATE_RATIO
+    inflated > ratio_allowance(compressed)
 }
 
 /// Inflate allowance shared by every read of one archive or container.
 struct Budget {
     per_read: u64,
     left: u64,
+    /// Output the whole file may still produce before it counts as a bomb (see [`ratio_allowance`]); entries that
+    /// each pass the ratio check on their own draw on it together. `u64::MAX` when no file length is known.
+    ratio_room: u64,
 }
 
 impl Budget {
     fn new(per_read: u64, total: u64) -> Self {
-        Self { per_read, left: total }
+        Self { per_read, left: total, ratio_room: u64::MAX }
     }
 }
 
@@ -104,9 +117,9 @@ pub fn open_with_budget(bytes: &[u8], per_read: u64, total: u64) -> Result<Archi
     Ok(archive)
 }
 
-/// Inflates `r` into memory in [`STREAM_CHUNK_BYTES`] steps and stops as soon as the size cap or the ratio limit
+/// Inflates `r` into memory in [`STREAM_CHUNK_BYTES`] steps and stops as soon as the size cap or a ratio limit
 /// is crossed, so a bomb is never buffered up to the cap. `compressed_len` is the length of the whole compressed
-/// input behind `r` (see [`ratio_exceeded`]).
+/// input behind `r` (see [`ratio_allowance`]); the budget carries the same limit for the file as a whole.
 fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_len: u64) -> Result<Vec<u8>, InflateError> {
     let cap = budget.per_read.min(budget.left);
     let mut out = Vec::new();
@@ -120,12 +133,13 @@ fn read_limited(mut r: impl Read, budget: &mut Budget, compressed_len: u64) -> R
         if next_len > cap {
             return Err(InflateError::Limit(TOO_LARGE));
         }
-        if ratio_exceeded(next_len, compressed_len) {
+        if ratio_exceeded(next_len, compressed_len) || next_len > budget.ratio_room {
             return Err(InflateError::Limit(RATIO_EXCEEDED));
         }
         out.extend_from_slice(&chunk[..n]);
     }
     budget.left -= out.len() as u64;
+    budget.ratio_room = budget.ratio_room.saturating_sub(out.len() as u64);
     Ok(out)
 }
 
@@ -141,6 +155,9 @@ fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Resul
     if zip.len() > max_entries {
         return Err(FigError::Format(format!("zip has too many entries ({})", zip.len())));
     }
+    // Every entry is judged against its own compressed size, and all of them together against the size of the file:
+    // many entries that each stay under the grace window must not add up to a bomb.
+    budget.ratio_room = budget.ratio_room.min(ratio_allowance(bytes.len() as u64));
     let mut arch = Archive::default();
     let mut have_canvas = false;
     for i in 0..zip.len() {
@@ -157,8 +174,11 @@ fn open_zip_with(bytes: &[u8], budget: &mut Budget, max_entries: usize) -> Resul
         // The header's compressed size is attacker-controlled; the entry cannot hold more than what follows its data offset.
         let in_archive = file.data_start().map_or(bytes.len() as u64, |start| (bytes.len() as u64).saturating_sub(start));
         let compressed_len = file.compressed_size().min(in_archive);
-        if file.size() > budget.per_read.min(budget.left) || ratio_exceeded(file.size(), compressed_len) {
+        if file.size() > budget.per_read.min(budget.left) {
             return Err(FigError::Format(TOO_LARGE.into()));
+        }
+        if file.size() > budget.ratio_room || ratio_exceeded(file.size(), compressed_len) {
+            return Err(FigError::Format(RATIO_EXCEEDED.into()));
         }
         let data = match read_limited(file, budget, compressed_len) {
             Ok(data) => data,
@@ -631,6 +651,38 @@ mod tests {
             let err = decompress(&compressed).expect_err("a chunk past the ratio limit overall must be rejected");
             assert!(err.to_string().contains("compression ratio exceeded"), "{how:?}: unexpected error: {err}");
         }
+    }
+
+    #[test]
+    fn entries_each_under_the_grace_cannot_add_up_to_a_bomb() {
+        // Every entry is below RATIO_GRACE_BYTES, so none is judged alone, yet together they inflate to
+        // hundreds of times the size of the file.
+        let canvas = write_container(b"s", b"m", Compression::Deflate, 1);
+        let entry_len = (RATIO_GRACE_BYTES / 2) as usize;
+        let images: BTreeMap<String, Vec<u8>> = (0..4).map(|i| (format!("{i}"), vec![0u8; entry_len])).collect();
+        let z = write_zip(&canvas, &images, None);
+        let inflated = (entry_len * images.len()) as u64;
+        assert!(entry_len as u64 <= RATIO_GRACE_BYTES && inflated > RATIO_GRACE_BYTES, "each entry under the grace, their sum over it");
+        assert!(inflated / z.len() as u64 > MAX_INFLATE_RATIO, "the whole archive must be past the ratio limit ({} -> {})", z.len(), inflated);
+        let err = match open(&z) {
+            Ok(archive) => panic!("entries that together exceed the ratio limit must fail the open, but {} images were kept", archive.images.len()),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("compression ratio exceeded"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn dense_entries_listed_before_an_incompressible_one_still_open() {
+        // The ratio is judged against the whole file, so a dense entry that comes first is not rejected for
+        // the incompressible ones that follow it.
+        let canvas = write_container(b"s", b"m", Compression::Deflate, 1);
+        let mut images: BTreeMap<String, Vec<u8>> = (0..3).map(|i| (format!("a{i}"), vec![0u8; (RATIO_GRACE_BYTES / 2) as usize])).collect();
+        images.insert("z".to_string(), pseudo_random_bytes(1 << 20, 11));
+        let z = write_zip(&canvas, &images, None);
+        let inflated: u64 = images.values().map(|v| v.len() as u64).sum();
+        assert!(inflated > RATIO_GRACE_BYTES && inflated / (z.len() as u64) <= MAX_INFLATE_RATIO, "whole archive under the limit");
+        let archive = open(&z).expect("an archive whose whole ratio is under the limit opens");
+        assert!(archive.images == images);
     }
 
     #[test]
