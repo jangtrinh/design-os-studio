@@ -530,7 +530,8 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     }
     let corners = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
     if corners.iter().any(|k| bound(doc, n, k).is_some()) {
-        let vals: Vec<String> = corners.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
+        let vals: Vec<String> =
+            corners.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(n.corner_radii[i])))).collect();
         set_decl(lines, "border-radius", css_box(&vals));
     }
 }

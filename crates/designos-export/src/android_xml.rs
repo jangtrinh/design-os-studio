@@ -207,7 +207,9 @@ impl Cx<'_> {
                 _ => "#FF808080".to_string(),
             };
             let dash = n.stroke.dashes.iter().copied().find(|d| *d > 0.0);
-            let dashes = dash.map(|d| format!(" android:dashWidth=\"{}dp\" android:dashGap=\"{}dp\"", num(d), num(n.stroke.dashes.get(1).copied().unwrap_or(d)))).unwrap_or_default();
+            let dashes = dash
+                .map(|d| format!(" android:dashWidth=\"{}dp\" android:dashGap=\"{}dp\"", num(d), num(n.stroke.dashes.get(1).copied().unwrap_or(d))))
+                .unwrap_or_default();
             l.push(format!("    <stroke android:width=\"{}\" android:color=\"{c}\"{dashes} />", dp(doc, n, "strokeWeight", n.stroke.weight)));
         }
         let keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
@@ -464,7 +466,13 @@ mod tests {
         let card_id = d.insert(page, card).unwrap();
 
         let title_id = d.alloc_id();
-        let style = TextStyle { font_family: "Inter".into(), font_size: 20.0, font_weight: 600, fills: vec![Paint::solid(Color::rgb(0x11, 0x11, 0x11))], ..Default::default() };
+        let style = TextStyle {
+            font_family: "Inter".into(),
+            font_size: 20.0,
+            font_weight: 600,
+            fills: vec![Paint::solid(Color::rgb(0x11, 0x11, 0x11))],
+            ..Default::default()
+        };
         let mut title = Node::text(title_id, Rect::new(0.0, 0.0, 120.0, 24.0), "Hello world", style);
         title.name = "Title".into();
         d.insert(card_id, title).unwrap();

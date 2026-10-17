@@ -33,9 +33,53 @@ struct Cx<'a> {
 }
 
 const SWIFT_KEYWORDS: &[&str] = &[
-    "class", "struct", "enum", "func", "let", "var", "if", "else", "for", "while", "switch", "case", "default", "return", "import", "in", "is", "as", "self",
-    "super", "init", "nil", "true", "false", "extension", "protocol", "static", "subscript", "where", "do", "try", "throw", "repeat", "break", "continue",
-    "guard", "defer", "operator", "private", "public", "internal", "open", "typealias", "associatedtype", "inout", "some", "any",
+    "class",
+    "struct",
+    "enum",
+    "func",
+    "let",
+    "var",
+    "if",
+    "else",
+    "for",
+    "while",
+    "switch",
+    "case",
+    "default",
+    "return",
+    "import",
+    "in",
+    "is",
+    "as",
+    "self",
+    "super",
+    "init",
+    "nil",
+    "true",
+    "false",
+    "extension",
+    "protocol",
+    "static",
+    "subscript",
+    "where",
+    "do",
+    "try",
+    "throw",
+    "repeat",
+    "break",
+    "continue",
+    "guard",
+    "defer",
+    "operator",
+    "private",
+    "public",
+    "internal",
+    "open",
+    "typealias",
+    "associatedtype",
+    "inout",
+    "some",
+    "any",
 ];
 
 fn ui_color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
@@ -433,7 +477,13 @@ mod tests {
         let card_id = d.insert(page, card).unwrap();
 
         let title_id = d.alloc_id();
-        let style = TextStyle { font_family: "Inter".into(), font_size: 20.0, font_weight: 600, fills: vec![Paint::solid(Color::rgb(0x11, 0x11, 0x11))], ..Default::default() };
+        let style = TextStyle {
+            font_family: "Inter".into(),
+            font_size: 20.0,
+            font_weight: 600,
+            fills: vec![Paint::solid(Color::rgb(0x11, 0x11, 0x11))],
+            ..Default::default()
+        };
         let mut title = Node::text(title_id, Rect::new(0.0, 0.0, 120.0, 24.0), "Hello world", style);
         title.name = "Title".into();
         d.insert(card_id, title).unwrap();
