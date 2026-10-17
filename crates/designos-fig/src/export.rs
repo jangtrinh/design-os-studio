@@ -499,6 +499,17 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             if lc.row_span > 1 {
                 m.insert("gridRowSpan".into(), lc.row_span.into());
             }
+            for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
+                let s = match a {
+                    GridChildAlign::Start => None,
+                    GridChildAlign::Center => Some("CENTER"),
+                    GridChildAlign::End => Some("MAX"),
+                    GridChildAlign::Auto => Some("AUTO"),
+                };
+                if let Some(s) = s {
+                    m.insert(k.into(), s.into());
+                }
+            }
             for (k, v) in [("minWidth", lc.min_w), ("maxWidth", lc.max_w), ("minHeight", lc.min_h), ("maxHeight", lc.max_h)] {
                 if let Some(v) = v {
                     m.insert(k.into(), n(v));

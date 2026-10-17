@@ -1515,3 +1515,111 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     assert_eq!(rt_inst_child.component.override_level, Some(1));
     assert_eq!(rt_inst_child.component.detached_symbol_id.as_deref(), Some("guid:1:20"));
 }
+
+#[test]
+fn grid_child_horizontal_and_vertical_align_roundtrip() {
+    use designos_doc::GridChildAlign;
+
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 40.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "GridChildAlignDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        nc(
+            (1, 10),
+            (0, 1),
+            "a",
+            "FRAME",
+            "GridParent",
+            json!({
+                "size": {"x": 200.0, "y": 200.0},
+                "stackMode": "GRID",
+                "gridColumns": 2,
+                "gridRows": 2,
+                "gridColumnsSizing": "100px 100px",
+                "gridRowsSizing": "100px 100px"
+            })
+        ),
+        nc((1, 11), (1, 10), "a", "RECTANGLE", "LegacyDefaultChild", json!({})),
+        nc(
+            (1, 12),
+            (1, 10),
+            "b",
+            "RECTANGLE",
+            "CenteredEndChild",
+            json!({
+                "gridChildHorizontalAlign": "CENTER",
+                "gridChildVerticalAlign": "MAX"
+            })
+        ),
+        nc(
+            (1, 13),
+            (1, 10),
+            "c",
+            "RECTANGLE",
+            "EndCenterChild",
+            json!({
+                "gridChildHorizontalAlign": "MAX",
+                "gridChildVerticalAlign": "CENTER"
+            })
+        ),
+        nc(
+            (1, 14),
+            (1, 10),
+            "d",
+            "RECTANGLE",
+            "AutoMinChild",
+            json!({
+                "gridChildHorizontalAlign": "AUTO",
+                "gridChildVerticalAlign": "MIN"
+            })
+        )
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "GridChildAlignDoc").expect("import GridChildAlignDoc");
+
+    let legacy = find(&doc, "LegacyDefaultChild");
+    assert_eq!((legacy.layout_child.grid_align_h, legacy.layout_child.grid_align_v), (GridChildAlign::Start, GridChildAlign::Start));
+
+    let c1 = find(&doc, "CenteredEndChild");
+    assert!(!c1.fig_metadata.contains_key("gridChildVerticalAlign"), "gridChildVerticalAlign must map to LayoutChild, not fig_metadata");
+    assert!(!c1.fig_metadata.contains_key("gridChildHorizontalAlign"));
+    assert_eq!((c1.layout_child.grid_align_h, c1.layout_child.grid_align_v), (GridChildAlign::Center, GridChildAlign::End));
+
+    let c2 = find(&doc, "EndCenterChild");
+    assert_eq!((c2.layout_child.grid_align_h, c2.layout_child.grid_align_v), (GridChildAlign::End, GridChildAlign::Center));
+
+    let c3 = find(&doc, "AutoMinChild");
+    assert_eq!((c3.layout_child.grid_align_h, c3.layout_child.grid_align_v), (GridChildAlign::Auto, GridChildAlign::Start));
+
+    let bytes = export_fig(&doc).expect("export_fig GridChildAlignDoc");
+    let rt = import_fig(&bytes).expect("re-import GridChildAlignDoc");
+
+    let rt_legacy = find(&rt, "LegacyDefaultChild");
+    assert_eq!((rt_legacy.layout_child.grid_align_h, rt_legacy.layout_child.grid_align_v), (GridChildAlign::Start, GridChildAlign::Start));
+
+    let rt_c1 = find(&rt, "CenteredEndChild");
+    assert_eq!((rt_c1.layout_child.grid_align_h, rt_c1.layout_child.grid_align_v), (GridChildAlign::Center, GridChildAlign::End));
+
+    let rt_c2 = find(&rt, "EndCenterChild");
+    assert_eq!((rt_c2.layout_child.grid_align_h, rt_c2.layout_child.grid_align_v), (GridChildAlign::End, GridChildAlign::Center));
+
+    let rt_c3 = find(&rt, "AutoMinChild");
+    assert_eq!((rt_c3.layout_child.grid_align_h, rt_c3.layout_child.grid_align_v), (GridChildAlign::Auto, GridChildAlign::Start));
+}

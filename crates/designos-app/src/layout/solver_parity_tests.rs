@@ -502,3 +502,46 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
 }
+
+#[test]
+fn grid_child_aligns_horizontally_and_vertically_within_its_cell() {
+    use designos_doc::GridChildAlign;
+
+    // 1. A centred 40x20 child sits centred at (30, 40) inside a 100x100 cell.
+    let mut al_single = grid(1);
+    al_single.grid_rows = 1;
+    al_single.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al_single.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    let centered = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let solved_single = solve_everywhere(al_single, v2(100.0, 100.0), &[centered]);
+    assert_eq!(solved_single.kids[0], [30.0, 40.0, 40.0, 20.0]);
+
+    // 2. 2x2 grid of 100x100 cells with 10px gap: Start/Start, Center/Center, End/End, and Fill+Center.
+    let mut al = two_fixed_columns();
+    al.grid_rows = 2;
+    al.counter_spacing = 10.0;
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[1] = GridTrack::Fixed(100.0);
+    let k_start = kid(40.0, 20.0);
+    let k_center = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let k_end = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::End;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let k_fill_h_end_v = kid_with(40.0, 20.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let solved = solve_everywhere(al, v2(210.0, 210.0), &[k_start, k_center, k_end, k_fill_h_end_v]);
+    assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[1], [140.0, 40.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[2], [60.0, 190.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[3], [110.0, 190.0, 100.0, 20.0]);
+}
