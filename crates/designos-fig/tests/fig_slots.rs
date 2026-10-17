@@ -140,6 +140,19 @@ fn a_second_round_trip_changes_nothing() {
     }
 }
 
+#[test]
+fn a_renamed_slot_property_keeps_its_settings_in_the_exported_file() {
+    let mut doc = slot_document();
+    let panel_id = find(&doc, "Panel").id;
+    rename_prop(&mut doc, panel_id, "Body#1:1", "Content#1:1").apply(&mut doc).unwrap();
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    let icon = find(&rt, "Icon").id;
+    let panel = find(&rt, "Panel");
+    assert_eq!(panel.component.slot_configs.get("Content"), Some(&full_config(vec![icon])));
+    assert!(!panel.component.slot_configs.contains_key("Body"));
+    assert_eq!(find(&rt, "BodySlot").component.bindings.get(&OverrideField::SlotContent).map(String::as_str), Some("Content"));
+}
+
 fn g(s: u64, l: u64) -> Value {
     json!({"sessionID": s, "localID": l})
 }
@@ -221,4 +234,38 @@ fn imports_slot_fields_from_a_kiwi_shaped_fixture() {
     assert!(find(&doc, "Card").component.is_slot_content);
     assert_eq!(find(&doc, "Panel copy").component.slot_content_id.as_deref(), Some("9:9"));
     assert!(find(&doc, "Page").component.slot_content_id.is_none());
+}
+
+/// A slot whose file lists preferred components but never wrote a `slotPropConfig`.
+fn preferred_without_config_fixture() -> Value {
+    json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc((6, 1), (0, 1), "a", "SYMBOL", "Icon", json!({})),
+        nc(
+            (5, 1),
+            (0, 1),
+            "b",
+            "SYMBOL",
+            "Panel",
+            json!({
+            "componentPropDefs": [{"id": g(7, 1), "name": "Body", "type": "SLOT", "preferredValues": [g(6, 1)]}]})
+        )
+    ])
+}
+
+#[test]
+fn preferred_components_are_kept_when_the_file_wrote_no_slot_config() {
+    let doc = import_fig_node_changes(&preferred_without_config_fixture(), "t").unwrap();
+    let icon = find(&doc, "Icon").id;
+    let cfg = find(&doc, "Panel").component.slot_configs.get("Body").cloned().expect("preferred values are kept");
+    assert_eq!(cfg, SlotPropConfig { preferred: vec![icon], ..Default::default() });
+}
+
+#[test]
+fn preferred_components_without_a_slot_config_survive_a_fig_round_trip() {
+    let doc = import_fig_node_changes(&preferred_without_config_fixture(), "t").unwrap();
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    let icon = find(&rt, "Icon").id;
+    assert_eq!(find(&rt, "Panel").component.slot_configs.get("Body"), Some(&SlotPropConfig { preferred: vec![icon], ..Default::default() }));
 }

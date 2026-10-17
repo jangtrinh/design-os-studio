@@ -1519,10 +1519,10 @@ impl<'a> Ctx<'a> {
             if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
                 let Some(&target) = self.ids.get(pref_key) else { continue };
                 let Some(n) = self.doc.get_mut(node) else { continue };
-                if let Some(cfg) = n.component.slot_configs.get_mut(&name) {
-                    if !cfg.preferred.contains(&target) {
-                        cfg.preferred.push(target);
-                    }
+                // A slot may list preferred components without ever writing a `slotPropConfig`.
+                let cfg = n.component.slot_configs.entry(name).or_default();
+                if !cfg.preferred.contains(&target) {
+                    cfg.preferred.push(target);
                 }
                 continue;
             }
