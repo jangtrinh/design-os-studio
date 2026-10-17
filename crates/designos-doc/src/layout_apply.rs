@@ -39,7 +39,7 @@ impl Document {
 
     fn solve_auto_layout_node(&mut self, root: NodeId, depth: usize, budget: &mut usize) {
         let Some(root_node) = self.get(root) else { return };
-        let Some(al) = root_node.kind.frame_props().and_then(|f| f.auto_layout) else {
+        let Some(al) = crate::resolve_node(self, root_node).kind.frame_props().and_then(|f| f.auto_layout) else {
             return;
         };
         let children = root_node.children.clone();
@@ -49,8 +49,9 @@ impl Document {
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children
             .iter()
             .filter_map(|cid| {
-                let k = self.get(*cid)?;
-                (k.visible && !k.layout_child.absolute).then(|| (*cid, ChildIn::from_layout_child(k.size, &k.layout_child, horiz)))
+                let raw = self.get(*cid)?;
+                let k = crate::resolve_node(self, raw);
+                (k.visible && !raw.layout_child.absolute).then(|| (*cid, ChildIn::from_layout_child(k.size, &k.layout_child, horiz)))
             })
             .unzip();
 

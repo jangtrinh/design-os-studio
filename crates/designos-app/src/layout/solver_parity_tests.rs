@@ -653,3 +653,148 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
 }
+
+#[test]
+fn nested_container_resized_by_parent_fill_resolves_its_own_children() {
+    // Parent Fixed 300x100 (padding 10, gap 20) holds a Fixed 40x30 child and a nested auto-layout
+    // child frame with horizontal Fill + vertical Hug. The nested frame hugs (98, 32) on the bottom-up
+    // pass, then the parent stretches it to width 220, so the nested frame must re-solve its own
+    // children inside 220 (stretching its Fill grandchild to 220 - 16 - 50 - 12 = 142).
+    let run = |entry: Entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut parent = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 100.0));
+        let mut parent_al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        parent_al.padding = [10.0, 10.0, 10.0, 10.0];
+        parent_al.item_spacing = 20.0;
+        parent.kind = NodeKind::Frame(FrameProps { auto_layout: Some(parent_al), ..Default::default() });
+        let parent = d.insert(page, parent).unwrap();
+
+        let lead_id = d.alloc_id();
+        let lead = d.insert(parent, Node::rectangle(lead_id, Rect::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+
+        let nested_id = d.alloc_id();
+        let mut nested = Node::frame(nested_id, Rect::new(0.0, 0.0, 80.0, 40.0));
+        let mut nested_al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        nested_al.primary_sizing = Sizing::Fixed;
+        nested_al.counter_sizing = Sizing::Hug;
+        nested_al.padding = [4.0, 8.0, 4.0, 8.0];
+        nested_al.item_spacing = 12.0;
+        nested.kind = NodeKind::Frame(FrameProps { auto_layout: Some(nested_al), ..Default::default() });
+        nested.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Hug, ..Default::default() };
+        let nested = d.insert(parent, nested).unwrap();
+
+        let gc_fixed_id = d.alloc_id();
+        let gc_fixed = d.insert(nested, Node::rectangle(gc_fixed_id, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+
+        let gc_fill_id = d.alloc_id();
+        let mut gc_fill_node = Node::rectangle(gc_fill_id, Rect::new(0.0, 0.0, 20.0, 24.0));
+        gc_fill_node.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fixed, ..Default::default() };
+        let gc_fill = d.insert(nested, gc_fill_node).unwrap();
+
+        match entry {
+            Entry::Editor => layout_node(&mut d, &mut Edit::new(), parent),
+            Entry::Spec => d.relayout_subtree(parent),
+            Entry::Changelog => designos_doc::relayout_subtree(&mut d, parent),
+        }
+        let rect_of = |id: NodeId| {
+            let n = d.get(id).unwrap();
+            [n.transform.tx, n.transform.ty, n.size.x, n.size.y]
+        };
+        (rect_of(parent), rect_of(lead), rect_of(nested), rect_of(gc_fixed), rect_of(gc_fill))
+    };
+
+    let editor = run(Entry::Editor);
+    for entry in [Entry::Spec, Entry::Changelog] {
+        assert_eq!(run(entry), editor, "{entry:?} disagrees with Editor");
+    }
+    assert_eq!(editor.0, [0.0, 0.0, 300.0, 100.0]);
+    assert_eq!(editor.1, [10.0, 10.0, 40.0, 30.0]);
+    assert_eq!(editor.2, [70.0, 10.0, 220.0, 32.0]);
+    assert_eq!(editor.3, [8.0, 4.0, 50.0, 24.0]);
+    assert_eq!(editor.4, [70.0, 4.0, 142.0, 24.0]);
+}
+
+#[test]
+fn variable_bound_width_gap_and_padding_under_non_default_mode() {
+    use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let run = |entry: Entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "col-space".into(),
+            VariableCollection {
+                id: "col-space".into(),
+                name: "Space".into(),
+                modes: vec![VariableMode { id: "compact".into(), name: "Compact".into() }, VariableMode { id: "spacious".into(), name: "Spacious".into() }],
+                default_mode: "compact".into(),
+                variables: vec!["var-w".into(), "var-gap".into(), "var-px".into(), "var-py".into()],
+                key: None,
+            },
+        );
+        for (id, compact, spacious) in [("var-w", 40.0, 90.0), ("var-gap", 4.0, 16.0), ("var-px", 6.0, 20.0), ("var-py", 4.0, 12.0)] {
+            d.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: id.into(),
+                    collection: "col-space".into(),
+                    kind: VariableKind::Number,
+                    values: [("compact".to_string(), VariableValue::Number(compact)), ("spacious".to_string(), VariableValue::Number(spacious))]
+                        .into_iter()
+                        .collect(),
+                    description: String::new(),
+                    scopes: Vec::new(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                },
+            );
+        }
+
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        al.primary_sizing = Sizing::Hug;
+        al.counter_sizing = Sizing::Hug;
+        al.item_spacing = 4.0;
+        al.padding = [4.0, 6.0, 4.0, 6.0];
+        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        f.variables.modes.insert("col-space".into(), "spacious".into());
+        for (k, v) in [("itemSpacing", "var-gap"), ("paddingLeft", "var-px"), ("paddingRight", "var-px"), ("paddingTop", "var-py"), ("paddingBottom", "var-py")]
+        {
+            f.variables.bindings.insert(k.into(), v.into());
+        }
+        let f = d.insert(page, f).unwrap();
+
+        let c0_id = d.alloc_id();
+        let mut c0 = Node::rectangle(c0_id, Rect::new(0.0, 0.0, 40.0, 24.0));
+        c0.variables.bindings.insert("width".into(), "var-w".into());
+        let c0 = d.insert(f, c0).unwrap();
+
+        let c1_id = d.alloc_id();
+        let c1 = d.insert(f, Node::rectangle(c1_id, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+
+        match entry {
+            Entry::Editor => layout_node(&mut d, &mut Edit::new(), f),
+            Entry::Spec => d.relayout_subtree(f),
+            Entry::Changelog => designos_doc::relayout_subtree(&mut d, f),
+        }
+        let fs = d.get(f).unwrap().size;
+        let rect_of = |id: NodeId| {
+            let n = d.get(id).unwrap();
+            [n.transform.tx, n.transform.ty, n.size.x, n.size.y]
+        };
+        Solved { frame: (fs.x, fs.y), kids: vec![rect_of(c0), rect_of(c1)] }
+    };
+
+    let editor = run(Entry::Editor);
+    for entry in [Entry::Spec, Entry::Changelog] {
+        assert_eq!(run(entry), editor, "{entry:?} disagrees with Editor");
+    }
+    assert_eq!(editor.frame, (196.0, 48.0));
+    assert_eq!(editor.kids[0], [20.0, 12.0, 90.0, 24.0]);
+    assert_eq!(editor.kids[1], [126.0, 12.0, 50.0, 24.0]);
+}
