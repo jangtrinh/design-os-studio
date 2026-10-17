@@ -575,9 +575,10 @@ pub fn count_subpaths(paths: &[d::Path]) -> (usize, usize) {
 /// what a centred stroke gives (that is a ribbon around it), so open sub-paths are carried
 /// into the result exactly as they were. [`count_subpaths`] tells a caller whether there are any.
 ///
-/// The closed contours are taken as they paint: overlapping ones merge into one silhouette and
-/// only its outer boundary and its holes move. When an inset removes all of the closed part the
-/// result is empty, open sub-paths included, so a caller can leave the original as it was.
+/// Each path is its own region and is taken as it paints: the closed contours inside one path
+/// merge into one silhouette and only its outer boundary and its holes move, while separate paths
+/// stay separate regions. When an inset removes all of the closed part the result is empty, open
+/// sub-paths included, so a caller can leave the original as it was.
 pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_limit: f32) -> Vec<d::Path> {
     if paths.is_empty() || !delta.is_finite() {
         return Vec::new();
@@ -614,18 +615,25 @@ pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_li
         return open;
     }
 
-    // the filled region as it paints (overlaps merged, holes kept), moved by a band along its
-    // boundary only: an edge inside the fill must not be carved out of it
-    let fill = paths_to_shapes(&closed_paths, 0.02);
-    let band = boundary_band(&fill, &st);
-    let moved = match (delta > 0.0, band.is_empty()) {
-        (true, true) => fill,
-        (true, false) => fill.overlay(&band, OverlayRule::Union, FillRule::NonZero),
-        (false, true) => Vec::new(),
-        (false, false) => fill.overlay(&band, OverlayRule::Difference, FillRule::NonZero),
-    };
-    if moved.is_empty() || shapes_area(&moved) <= 1e-3 {
-        // the closed part is gone: the caller keeps the original, with its open sub-paths
+    // each path is a region of its own: its fill as it paints (overlaps inside the path merged,
+    // holes kept), moved by a band along its boundary only, so an edge inside the fill is never
+    // carved out of it
+    let mut moved: Shapes = Vec::new();
+    for path in &closed_paths {
+        let fill = paths_to_shapes(std::slice::from_ref(path), 0.02);
+        let band = boundary_band(&fill, &st);
+        let region = match (delta > 0.0, band.is_empty()) {
+            (true, true) => fill,
+            (true, false) => fill.overlay(&band, OverlayRule::Union, FillRule::NonZero),
+            (false, true) => Vec::new(),
+            (false, false) => fill.overlay(&band, OverlayRule::Difference, FillRule::NonZero),
+        };
+        if !region.is_empty() && shapes_area(&region) > 1e-3 {
+            moved = if moved.is_empty() { region } else { moved.overlay(&region, OverlayRule::Union, FillRule::NonZero) };
+        }
+    }
+    if moved.is_empty() {
+        // every closed part is gone: the caller keeps the original, with its open sub-paths
         return Vec::new();
     }
     open.extend(shapes_to_paths(&moved, 0.05));

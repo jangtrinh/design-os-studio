@@ -367,6 +367,19 @@ fn inset_erodes_the_outline_of_overlapping_squares_not_their_inner_edges() {
 }
 
 #[test]
+fn separate_paths_stay_separate_regions() {
+    // two 100 x 100 squares in two paths, 10 px overlapping: each shrinks on its own
+    let out = offset_path(&[rect(0.0, 0.0, 100.0, 100.0), rect(90.0, 0.0, 100.0, 100.0)], -10.0);
+    assert_eq!(count_subpaths(&out), (2, 0), "two islands, not one merged silhouette");
+    close(area(&out), 2.0 * 80.0 * 80.0, 2.0);
+    // one path holding both subpaths is one filled region and shrinks as a whole
+    let both = Path { cmds: rect(0.0, 0.0, 100.0, 100.0).cmds.into_iter().chain(rect(90.0, 0.0, 100.0, 100.0).cmds).collect(), fill_rule: FillRule::NonZero };
+    let out = offset_path(&[both], -10.0);
+    assert_eq!(count_subpaths(&out), (1, 0));
+    close(area(&out), 170.0 * 80.0, 2.0);
+}
+
+#[test]
 fn inset_ignores_a_path_that_lies_inside_another() {
     let nested = [rect(0.0, 0.0, 100.0, 100.0), rect(40.0, 40.0, 20.0, 20.0)];
     close(area(&offset_path(&nested, -10.0)), 80.0 * 80.0, 1.5);
