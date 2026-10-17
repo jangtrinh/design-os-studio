@@ -63,6 +63,10 @@ pub fn drop_existing_library(
     collections.retain(|id, _| !store.is_library_collection(id));
     let before = variables.len();
     variables.retain(|id, v| !store.is_library_collection(&v.collection) && !store.is_library_variable(id));
+    // the collections that stay must not keep listing what was dropped
+    for c in collections.values_mut() {
+        c.variables.retain(|id| variables.contains_key(id));
+    }
     before - variables.len()
 }
 
@@ -137,9 +141,11 @@ mod tests {
         stray.collection = lib.clone();
         variables.insert(stray.id.clone(), stray);
         variables.get_mut(&lib_var).unwrap().collection = own.clone();
+        collections.get_mut(&own).unwrap().variables.push(lib_var);
 
         assert_eq!(drop_existing_library(&store, &mut collections, &mut variables), 2);
         assert_eq!(collections.keys().collect::<Vec<_>>(), [&own]);
         assert_eq!(variables.keys().collect::<Vec<_>>(), [&own_var]);
+        assert_eq!(collections[&own].variables, vec![own_var.clone()], "the surviving collection lists only what survived");
     }
 }

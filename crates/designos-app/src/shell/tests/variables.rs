@@ -722,3 +722,52 @@ fn a_library_collection_new_to_the_file_is_imported_and_stays_read_only() {
     app.import_variables_text(&json).unwrap();
     assert!(app.doc.variable_collections[&lib].is_library(), "a subscribed collection arrives marked as library");
 }
+
+/// Gives the variable `old` the id `new`, in the store's map, its own record and its collection's list.
+fn rekey_variable(store: &mut designos_doc::VariableStore, old: &str, new: &str) {
+    let mut v = store.variables.remove(old).expect("variable exists");
+    v.id = new.into();
+    for id in store.collections.get_mut(&v.collection).expect("its collection").variables.iter_mut().filter(|id| *id == old) {
+        *id = new.into();
+    }
+    store.variables.insert(new.into(), v);
+}
+
+#[test]
+fn an_imported_variable_reusing_a_library_variable_id_neither_replaces_it_nor_stays_listed() {
+    // Figma ids are `VariableID:{session}:{local}`, so two files can both have a `VariableID:1:8`
+    let (lib, mine, theirs) = ("VariableCollectionId:1:5", "VariableCollectionId:1:6", "VariableCollectionId:2:3");
+    let clash = "VariableID:1:8";
+    let mut store = designos_doc::VariableStore::default();
+    insert_collection(&mut store, lib, "Shared", None);
+    insert_collection(&mut store, mine, "Mine", None);
+    let shared = store.add_variable(lib, "Brand/Sea", VariableKind::Color).unwrap();
+    rekey_variable(&mut store, &shared, clash);
+    store.collections.get_mut(lib).unwrap().source_library_key = Some("lk-shared".into());
+    let accent = store.add_variable(mine, "Accent", VariableKind::Color).unwrap();
+    let mode = store.collections[mine].default_mode.clone();
+    assert!(store.set_alias(&accent, &mode, clash), "a local variable may alias a library variable");
+    let mut app = crate::app::App::new(designos_doc::Document::new("d"));
+    assert!(app.commit_store(store, &[], &[]));
+    let library_before = (app.doc.variable_collections[lib].clone(), app.doc.variables[clash].clone());
+
+    // a payload whose local collection holds a variable with that same id
+    let mut incoming = designos_doc::VariableStore::default();
+    insert_collection(&mut incoming, theirs, "Theirs", None);
+    let other = incoming.add_variable(theirs, "Unrelated", VariableKind::Color).unwrap();
+    rekey_variable(&mut incoming, &other, clash);
+    let mut payload = designos_doc::Document::new("payload");
+    let _ = incoming.command().apply(&mut payload);
+    let json = designos_fig::export_variables_json(&payload).to_string();
+
+    let done = app.import_variables_text(&json).unwrap();
+    assert_eq!((done.imported, done.skipped_library), (0, 1));
+    assert!(!app.doc.variable_collections[theirs].variables.iter().any(|v| v == clash), "the library variable is not listed in a collection of the file's own");
+    assert_eq!((app.doc.variable_collections[lib].clone(), app.doc.variables[clash].clone()), library_before);
+
+    // deleting that collection leaves the alias to the library variable alone
+    assert!(app.edit_variables(|s| (s.delete_collection(theirs), vec![theirs.to_string()])));
+    assert!(!app.doc.variable_collections.contains_key(theirs));
+    assert_eq!(app.doc.variables[&accent].values[&mode], VariableValue::Alias(clash.into()));
+    assert_eq!((app.doc.variable_collections[lib].clone(), app.doc.variables[clash].clone()), library_before);
+}
