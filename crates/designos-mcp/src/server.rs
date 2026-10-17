@@ -132,6 +132,13 @@ fn parse<T: serde::de::DeserializeOwned>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("Invalid arguments: {e}"))
 }
 
+/// What a failed write to the editor rolls an edit back to.
+struct EditSnapshot {
+    doc: designos_doc::Document,
+    undo_depth: usize,
+    redo_steps: Vec<designos_doc::Command>,
+}
+
 impl Session {
     pub fn new(root: &Path) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|e| format!("Cannot open workspace: {e}"))?;
@@ -233,14 +240,16 @@ impl Session {
 
     /// Reverts the tool call `name` whose edit could not be sent to the editor, without recording
     /// it: undo and redo revert each other, and any other edit restores `snapshot`.
-    fn roll_back(&mut self, name: &str, snapshot: Option<(designos_doc::Document, usize)>) {
+    fn roll_back(&mut self, name: &str, snapshot: Option<EditSnapshot>) {
         let history = &mut self.engine.history;
         let _ = match name {
             "designos_undo" => history.redo(&mut self.engine.doc),
             "designos_redo" => history.undo(&mut self.engine.doc),
-            _ => Ok(snapshot.is_some_and(|(doc, depth)| {
-                self.engine.doc = doc;
-                history.drop_undo_steps_after(depth);
+            _ => Ok(snapshot.is_some_and(|s| {
+                self.engine.doc = s.doc;
+                history.drop_undo_steps_after(s.undo_depth);
+                // The edit cleared the redo steps; the agent can still redo what it undid.
+                history.restore_redo(s.redo_steps);
                 true
             })),
         };
@@ -466,8 +475,11 @@ impl Session {
                 );
                 let live = mutating && self.bridge.live_doc_patch_path.is_some();
                 // What a failed write to the editor rolls back to. Undo and redo revert each other.
-                let snapshot =
-                    (live && !matches!(name, "designos_undo" | "designos_redo")).then(|| (self.engine.doc.clone(), self.engine.history.undo_depth()));
+                let snapshot = (live && !matches!(name, "designos_undo" | "designos_redo")).then(|| EditSnapshot {
+                    doc: self.engine.doc.clone(),
+                    undo_depth: self.engine.history.undo_depth(),
+                    redo_steps: self.engine.history.redo_steps(),
+                });
                 let mut result = self.engine.call(name, args)?;
                 let changed = result.get("changed").and_then(Value::as_bool) != Some(false);
                 if mutating && changed {

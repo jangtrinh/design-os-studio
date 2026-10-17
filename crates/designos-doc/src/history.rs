@@ -242,6 +242,14 @@ impl History {
     pub fn drop_undo_steps_after(&mut self, depth: usize) {
         self.undo.truncate(depth);
     }
+    /// The steps [`Self::redo`] can take, oldest first, for [`Self::restore_redo`].
+    pub fn redo_steps(&self) -> Vec<Command> {
+        self.redo.clone()
+    }
+    /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
+    pub fn restore_redo(&mut self, steps: Vec<Command>) {
+        self.redo = steps;
+    }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
