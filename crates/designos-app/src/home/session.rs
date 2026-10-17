@@ -22,6 +22,25 @@ pub struct LibFile {
     pub name: String,
 }
 
+struct DiskWatcherInner {
+    state: std::sync::Mutex<(Option<PathBuf>, Option<std::time::SystemTime>, bool)>,
+    cvar: std::sync::Condvar,
+    dirty: std::sync::atomic::AtomicBool,
+}
+
+pub struct DiskWatcher {
+    inner: std::sync::Arc<DiskWatcherInner>,
+}
+
+impl Drop for DiskWatcher {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.inner.state.lock() {
+            guard.2 = true;
+            self.inner.cvar.notify_all();
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Autosave {
     /// Last canvas revision seen (a change bumps it).
@@ -39,12 +58,80 @@ pub struct Autosave {
     pub disk_mtime: Option<std::time::SystemTime>,
     /// Last `self.now` timestamp when the disk mtime was polled.
     pub last_mtime_poll: f64,
+    /// Background thread watching `watched_disk_path()` off the UI thread.
+    watcher: Option<DiskWatcher>,
 }
 
 impl Autosave {
     /// An edit is waiting for the idle delay before it is saved.
     pub fn pending(&self) -> bool {
         self.changed_at.is_some() && self.confirmed
+    }
+
+    fn note_known_mtime(&self, mtime: Option<std::time::SystemTime>) {
+        if let Some(w) = &self.watcher {
+            if let Ok(mut guard) = w.inner.state.lock() {
+                guard.1 = mtime;
+            }
+        }
+    }
+
+    fn take_watcher_dirty(&self) -> bool {
+        self.watcher.as_ref().is_some_and(|w| w.inner.dirty.swap(false, std::sync::atomic::Ordering::AcqRel))
+    }
+
+    fn sync_watcher(&mut self, ctx: &egui::Context, path: Option<PathBuf>, mtime: Option<std::time::SystemTime>) {
+        if path.is_none() {
+            if let Some(w) = &self.watcher {
+                if let Ok(mut guard) = w.inner.state.lock() {
+                    guard.0 = None;
+                    guard.1 = None;
+                }
+            }
+            return;
+        }
+        if let Some(w) = &self.watcher {
+            if let Ok(mut guard) = w.inner.state.lock() {
+                if guard.0 != path || (mtime.is_some() && guard.1.is_none()) {
+                    guard.0 = path;
+                    if mtime.is_some() {
+                        guard.1 = mtime;
+                    }
+                }
+            }
+            return;
+        }
+        let inner = std::sync::Arc::new(DiskWatcherInner {
+            state: std::sync::Mutex::new((path, mtime, false)),
+            cvar: std::sync::Condvar::new(),
+            dirty: std::sync::atomic::AtomicBool::new(false),
+        });
+        let inner_bg = inner.clone();
+        let ctx_bg = ctx.clone();
+        let _ = std::thread::Builder::new().name("designos-disk-watch".into()).spawn(move || loop {
+            let (watched_path, known_mtime) = {
+                let Ok(guard) = inner_bg.state.lock() else { break };
+                let Ok((guard, _)) = inner_bg.cvar.wait_timeout(guard, std::time::Duration::from_millis(500)) else { break };
+                if guard.2 {
+                    break;
+                }
+                (guard.0.clone(), guard.1)
+            };
+            let Some(p) = watched_path else { continue };
+            let current_mtime = std::fs::metadata(&p).ok().and_then(|m| m.modified().ok());
+            if current_mtime.is_some() && current_mtime != known_mtime {
+                if let Ok(mut guard) = inner_bg.state.lock() {
+                    if guard.0.as_ref() == Some(&p) && guard.1 == known_mtime {
+                        guard.1 = current_mtime;
+                        if known_mtime.is_some() {
+                            inner_bg.dirty.store(true, std::sync::atomic::Ordering::Release);
+                            ctx_bg.request_repaint();
+                        }
+                    }
+                }
+            }
+        });
+        self.watcher = Some(DiskWatcher { inner });
     }
 }
 
@@ -487,6 +574,7 @@ impl App {
         self.autosave.saved_hash = doc_hash(&self.doc);
         self.autosave.changed_at = None;
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+        self.autosave.note_known_mtime(self.autosave.disk_mtime);
         if self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
@@ -521,6 +609,7 @@ impl App {
     pub fn autosave_tick(&mut self, ctx: &egui::Context) {
         if self.home.is_some() || self.history.viewing.is_some() {
             self.autosave.changed_at = None;
+            self.autosave.sync_watcher(ctx, None, None);
             return;
         }
         if self.lib_file.is_some() {
@@ -533,17 +622,24 @@ impl App {
         } else {
             self.autosave.changed_at = None;
         }
-        if !self.autosave.pending() && self.now - self.autosave.last_mtime_poll >= 0.5 {
+        let watched_path = self.watched_disk_path();
+        if self.autosave.disk_mtime.is_none() {
+            if let Some(ref p) = watched_path {
+                self.autosave.disk_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
+                if self.autosave.saved_hash == 0 {
+                    self.autosave.saved_hash = doc_hash(&self.doc);
+                }
+            }
+        }
+        self.autosave.sync_watcher(ctx, watched_path.clone(), self.autosave.disk_mtime);
+        let watcher_woke = self.autosave.take_watcher_dirty();
+        if !self.autosave.pending() && (watcher_woke || self.now - self.autosave.last_mtime_poll >= 0.5) {
             self.autosave.last_mtime_poll = self.now;
-            if let Some(path) = self.watched_disk_path() {
+            if let Some(path) = watched_path {
                 let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
-                if self.autosave.disk_mtime.is_none() {
+                if mtime.is_some() && mtime != self.autosave.disk_mtime {
                     self.autosave.disk_mtime = mtime;
-                    if self.autosave.saved_hash == 0 {
-                        self.autosave.saved_hash = doc_hash(&self.doc);
-                    }
-                } else if mtime.is_some() && mtime != self.autosave.disk_mtime {
-                    self.autosave.disk_mtime = mtime;
+                    self.autosave.note_known_mtime(mtime);
                     let loaded_doc = if self.lib_file.is_some() {
                         self.lib.as_ref().zip(self.lib_file.as_ref()).and_then(|(l, lf)| l.load_file(&lf.id).ok())
                     } else {
@@ -574,9 +670,6 @@ impl App {
                     }
                 }
             }
-        }
-        if self.watched_disk_path().is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
         let Some(t) = self.autosave.changed_at else { return };
         let busy = ctx.input(|i| i.pointer.any_down()) || self.canvas.text.is_some();
@@ -675,5 +768,98 @@ impl App {
             Section::Project(p, f) => Some((p.clone(), f.clone())),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_editor_with_open_file_requests_no_periodic_repaint() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_idle_repaint_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut doc = Document::new("Test");
+        doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.attach_library(dir.clone());
+        app.new_file_here();
+        app.toast = None;
+        app.now = 10.0;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        let repaint_delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(repaint_delay, std::time::Duration::MAX, "idle editor with an unchanged open library file must not schedule a 500ms wakeup timer");
+    }
+
+    #[test]
+    fn external_disk_write_wakes_idle_editor_and_hot_reloads_document() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_idle_hot_reload_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut doc = Document::new("Test");
+        doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.attach_library(dir.clone());
+        app.new_file_here();
+        app.toast = None;
+        app.now = 10.0;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        assert_eq!(out.viewport_output[&egui::ViewportId::ROOT].repaint_delay, Duration::MAX);
+
+        let wakeups = Arc::new(AtomicUsize::new(0));
+        let wakeups_cb = wakeups.clone();
+        ctx.set_request_repaint_callback(move |info| {
+            if info.delay == Duration::ZERO {
+                wakeups_cb.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        // Wait 650ms with no disk write: must produce 0 wakeups.
+        std::thread::sleep(Duration::from_millis(650));
+        assert_eq!(wakeups.load(Ordering::SeqCst), 0, "untouched file must not wake the UI thread");
+
+        // Now simulate an external MCP/CLI write to the watched file on disk.
+        let path = app.watched_disk_path().expect("watched disk path");
+        let mut ext_doc = app.doc.clone();
+        let page = ext_doc.pages[0];
+        let nid = ext_doc.alloc_id();
+        ext_doc.insert(page, designos_doc::Node::frame(nid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        // Ensure mtime advances even on coarse-grained filesystems.
+        std::thread::sleep(Duration::from_millis(20));
+        designos_library::write_atomic(&path, ext_doc.to_json().unwrap().as_bytes()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while wakeups.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(wakeups.load(Ordering::SeqCst) > 0, "external disk write must wake the idle editor via request_repaint");
+
+        // Run one frame on wakeup: the editor hot-reloads the external document even if <0.5s of app.now elapsed.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(app.doc.get(nid).is_some(), "woken editor must hot-reload the external node");
+        assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some("Synced external agent changes"));
     }
 }

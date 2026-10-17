@@ -131,6 +131,10 @@ fn is_chrome_node(doc: &Document, n: &Node, id: NodeId) -> bool {
     (has_own || has_src) && designos_doc::is_slot_container(doc, id)
 }
 
+fn is_grid_node(n: &Node) -> bool {
+    n.kind.frame_props().is_some_and(|fp| !fp.grids.is_empty())
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
     /// Page-space bounds of the node and everything it draws (empty if hidden).
@@ -141,6 +145,7 @@ pub(crate) struct Entry {
     pub mask: bool,
     pub boolean: bool,
     pub chrome: bool,
+    pub has_grids: bool,
     pub children_len: u32,
     pub top_order: u32,
     pub world_ts: [f32; 6],
@@ -166,6 +171,7 @@ pub struct SceneIndex {
     pub(crate) top_grid: HashMap<(i32, i32), Vec<NodeId>, BuildHasherDefault<IdHasher>>,
     pub(crate) top_large: Vec<NodeId>,
     pub(crate) chrome_nodes: Vec<NodeId>,
+    pub(crate) grid_nodes: Vec<NodeId>,
     top_has_mask: bool,
 }
 
@@ -187,6 +193,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -258,6 +265,9 @@ impl SceneIndex {
                             if old_e.chrome {
                                 self.chrome_nodes.retain(|&x| x != rid);
                             }
+                            if old_e.has_grids {
+                                self.grid_nodes.retain(|&x| x != rid);
+                            }
                             if old_e.parent == Some(page) {
                                 top_dirty = true;
                             }
@@ -298,6 +308,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -321,6 +332,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
         self.top_has_mask = false;
     }
 
@@ -352,6 +364,12 @@ impl SceneIndex {
     #[inline]
     pub fn chrome_nodes(&self) -> &[NodeId] {
         &self.chrome_nodes
+    }
+
+    /// Visible nodes on the active page that have non-empty `FrameProps::grids`.
+    #[inline]
+    pub fn grid_nodes(&self) -> &[NodeId] {
+        &self.grid_nodes
     }
 
     /// Cached page-space affine matrix `[sx, ky, kx, sy, tx, ty]` (`a, b, c, d, tx, ty`) for `id`.
@@ -561,6 +579,14 @@ impl SceneIndex {
                                 } else if old_e.chrome {
                                     self.chrome_nodes.retain(|&x| x != dirty_id);
                                 }
+                                let has_grids = is_grid_node(n);
+                                if has_grids {
+                                    if !self.grid_nodes.contains(&dirty_id) {
+                                        self.grid_nodes.push(dirty_id);
+                                    }
+                                } else if old_e.has_grids {
+                                    self.grid_nodes.retain(|&x| x != dirty_id);
+                                }
                                 self.entries.insert(
                                     dirty_id,
                                     Entry {
@@ -570,6 +596,7 @@ impl SceneIndex {
                                         mask: n.is_mask,
                                         boolean: false,
                                         chrome,
+                                        has_grids,
                                         children_len: n.children.len() as u32,
                                         top_order: old_e.top_order,
                                         world_ts: new_wts,
@@ -666,6 +693,14 @@ impl SceneIndex {
         } else if !self.chrome_nodes.is_empty() && self.entries.get(&id).is_some_and(|e| e.chrome) {
             self.chrome_nodes.retain(|&x| x != id);
         }
+        let has_grids = n.visible && is_grid_node(n);
+        if has_grids {
+            if !self.grid_nodes.contains(&id) {
+                self.grid_nodes.push(id);
+            }
+        } else if !self.grid_nodes.is_empty() && self.entries.get(&id).is_some_and(|e| e.has_grids) {
+            self.grid_nodes.retain(|&x| x != id);
+        }
         let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
         let children_len = n.children.len() as u32;
         let ts = parent_ts.pre_concat(to_sk_transform(&n.transform));
@@ -681,6 +716,7 @@ impl SceneIndex {
                     mask: n.is_mask,
                     boolean,
                     chrome,
+                    has_grids,
                     children_len,
                     top_order: 0,
                     world_ts,
@@ -734,6 +770,7 @@ impl SceneIndex {
                 mask: n.is_mask,
                 boolean,
                 chrome,
+                has_grids,
                 children_len,
                 top_order: 0,
                 world_ts,
@@ -1075,5 +1112,40 @@ mod tests {
         inc.query_top_level((-1000.0, -1000.0, 5000.0, 5000.0), &mut inc_top);
         full.query_top_level((-1000.0, -1000.0, 5000.0, 5000.0), &mut full_top);
         assert_eq!(inc_top, full_top);
+    }
+
+    #[test]
+    fn grid_nodes_tracks_only_visible_frames_with_layout_grids() {
+        let mut doc = Document::new("grid-index-test");
+        let page = doc.add_page("page-1");
+
+        let sample_grid = designos_doc::LayoutGrid::Grid { size: 8.0, color: designos_doc::Color::rgba(255, 0, 0, 26) };
+
+        let plain_id = doc.alloc_id();
+        doc.insert(page, Node::frame(plain_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+
+        let gridded_id = doc.alloc_id();
+        let mut gridded = Node::frame(gridded_id, Rect::new(300.0, 0.0, 200.0, 200.0));
+        if let NodeKind::Frame(fp) = &mut gridded.kind {
+            fp.grids.push(sample_grid.clone());
+        }
+        doc.insert(page, gridded).unwrap();
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[gridded_id]);
+
+        if let Some(NodeKind::Frame(fp)) = doc.get_mut(plain_id).map(|n| &mut n.kind) {
+            fp.grids.push(sample_grid);
+        }
+        assert!(idx.update_subtree(&doc, plain_id, 2));
+        assert!(idx.grid_nodes().contains(&gridded_id));
+        assert!(idx.grid_nodes().contains(&plain_id));
+
+        if let Some(NodeKind::Frame(fp)) = doc.get_mut(gridded_id).map(|n| &mut n.kind) {
+            fp.grids.clear();
+        }
+        assert!(idx.update_subtree(&doc, gridded_id, 3));
+        assert_eq!(idx.grid_nodes(), &[plain_id]);
     }
 }

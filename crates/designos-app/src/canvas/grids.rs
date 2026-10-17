@@ -317,17 +317,9 @@ fn layout_grids(app: &App, p: &Painter, rect: ERect) {
 
     let mut stack: Vec<(NodeId, Affine)> = Vec::new();
     if let Some(index) = idx {
-        if page.children.len() > 32 {
-            let mut roots = Vec::new();
-            index.query_top_level(win, &mut roots);
-            for cid in roots {
-                stack.push((cid, Affine::IDENTITY));
-            }
-        } else {
-            for &cid in &page.children {
-                if index.bounds_of(cid).is_none_or(overlaps_win) {
-                    stack.push((cid, Affine::IDENTITY));
-                }
+        for &id in index.grid_nodes() {
+            if index.bounds_of(id).is_none_or(overlaps_win) {
+                stack.push((id, super::fast_world_transform(&app.doc, id)));
             }
         }
     } else {
@@ -346,15 +338,13 @@ fn layout_grids(app: &App, p: &Painter, rect: ERect) {
                 continue;
             }
         }
-        let w = parent_world * n.transform;
+        let w = if idx.is_some() { parent_world } else { parent_world * n.transform };
         let own_bb = super::affine_rect_aabb(&w, n.size);
-        if !n.children.is_empty() {
-            let descend = if idx.is_none() && n.kind.frame_props().is_some_and(|f| f.clips_content) { own_bb.intersects(&view) } else { true };
+        if idx.is_none() && !n.children.is_empty() {
+            let descend = if n.kind.frame_props().is_some_and(|f| f.clips_content) { own_bb.intersects(&view) } else { true };
             if descend {
                 for &cid in &n.children {
-                    if idx.and_then(|i| i.bounds_of(cid)).is_none_or(overlaps_win) {
-                        stack.push((cid, w));
-                    }
+                    stack.push((cid, w));
                 }
             }
         }
