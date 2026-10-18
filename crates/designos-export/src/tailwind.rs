@@ -289,6 +289,41 @@ fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
     }
 }
 
+// Largest value each stock grid utility ships with (Tailwind's default theme).
+const STOCK_GRID_COLS: usize = 12;
+const STOCK_GRID_ROWS: usize = 6;
+const STOCK_COL_START: u32 = 13;
+const STOCK_ROW_START: u32 = 7;
+const STOCK_COL_SPAN: u16 = 12;
+const STOCK_ROW_SPAN: u16 = 6;
+
+/// `grid-cols-3` for `n` equal tracks while the stock class exists, else the arbitrary value it stands for.
+fn uniform_tracks_class(prefix: &str, n: usize, stock_max: usize) -> String {
+    if n <= stock_max {
+        format!("{prefix}-{n}")
+    } else {
+        format!("{prefix}-[repeat({n},minmax(0,1fr))]")
+    }
+}
+
+/// `col-start-3` for grid line `line` while the stock class exists, else `col-start-[14]`.
+fn line_class(prefix: &str, line: u32, stock_max: u32) -> String {
+    if line <= stock_max {
+        format!("{prefix}-{line}")
+    } else {
+        format!("{prefix}-[{line}]")
+    }
+}
+
+/// `col-span-2` for a span while the stock class exists, else `col-[span_14_/_span_14]`.
+fn span_class(prefix: &str, span: u16, stock_max: u16) -> String {
+    if span <= stock_max {
+        format!("{prefix}-span-{span}")
+    } else {
+        format!("{prefix}-[span_{span}_/_span_{span}]")
+    }
+}
+
 fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     let mut c: Vec<String> = Vec::new();
     let sz = web_sizes(n, parent);
@@ -312,7 +347,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
             let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1) as usize;
             c.push("grid".into());
             if (0..cols).all(|i| al.grid_col_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
-                c.push(format!("grid-cols-{cols}"));
+                c.push(uniform_tracks_class("grid-cols", cols, STOCK_GRID_COLS));
             } else {
                 let spec =
                     (0..cols).map(|i| crate::codegen::grid_track_token(al.grid_col_tracks.get(i).copied().unwrap_or_default())).collect::<Vec<_>>().join("_");
@@ -321,7 +356,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
             if al.grid_rows > 0 {
                 let rows = al.grid_rows as usize;
                 if (0..rows).all(|i| al.grid_row_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
-                    c.push(format!("grid-rows-{rows}"));
+                    c.push(uniform_tracks_class("grid-rows", rows, STOCK_GRID_ROWS));
                 } else {
                     let spec = (0..rows)
                         .map(|i| crate::codegen::grid_track_token(al.grid_row_tracks.get(i).copied().unwrap_or_default()))
@@ -375,16 +410,16 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     }
     if sz.in_flow && parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid) {
         if let Some(col) = n.layout_child.grid_column {
-            c.push(format!("col-start-{}", u32::from(col) + 1));
+            c.push(line_class("col-start", u32::from(col) + 1, STOCK_COL_START));
         }
         if n.layout_child.col_span > 1 {
-            c.push(format!("col-span-{}", n.layout_child.col_span));
+            c.push(span_class("col", n.layout_child.col_span, STOCK_COL_SPAN));
         }
         if let Some(row) = n.layout_child.grid_row {
-            c.push(format!("row-start-{}", u32::from(row) + 1));
+            c.push(line_class("row-start", u32::from(row) + 1, STOCK_ROW_START));
         }
         if n.layout_child.row_span > 1 {
-            c.push(format!("row-span-{}", n.layout_child.row_span));
+            c.push(span_class("row", n.layout_child.row_span, STOCK_ROW_SPAN));
         }
         // An item sized by its own content keeps that size instead of stretching across its cell.
         if sz.w == Dim::Hug {
