@@ -35,7 +35,7 @@ As a designer importing a kit, a component instance I resized in Figma must lay 
 3. **Rotated children.** Apply the rule to the child's centre and size in the parent's axes:
    - Position: the centre `c = transform · (w/2, h/2)` moves by the horizontal and vertical rules applied to the centre. Min is unchanged; Max `+dw`; Center `+dw/2`; Stretch `+dw/2`; Scale `c.x *= rx`. The same applies vertically.
    - Size, uniform case (`rx == ry` within 1e-4) with both axes Stretch or both Scale: the child's local size scales by `rx`.
-   - Size, otherwise: the local size is unchanged. UNRESOLVED (Q522-1): how Figma resizes a rotated child under non-uniform Stretch.
+   - Size, otherwise: the local size is unchanged. UNRESOLVED (Q522-1): how Figma resizes a rotated child under non-uniform Stretch. Searched on 2026-10-18 with no answer; see §6 Facts.
    - The editor keeps skipping rotated children (`layout.rs:179`) until Q522-1 is answered. Changing editor behaviour is out of scope.
 4. **Recursion.** When a child's size changed and it is a non-auto-layout container, recurse with `(old_child, new_child)`, as the editor does.
 5. **Stale geometry.** When a child's size changes, drop its pre-baked `fill_geometry` and `stroke_geometry`, the imported Figma paths. They were baked for the old size; the renderer then rebuilds from the shape. Arc data (`arcData`, ellipse start and end angles) is size-relative and is kept.
@@ -55,6 +55,25 @@ None.
 - `NodeChange.derivedSymbolData = 125`, `overrideKey = 213`.
 - Constraints: `horizontalConstraint` and `verticalConstraint` (the existing mapping in `fig.rs`; MIN, MAX, CENTER, STRETCH, SCALE).
 - Size and transform as imported.
+- Kiwi ids confirmed against Figma's cached fullscreen wasm schema (REA 2026-10-18):
+  - `NodeChange.derivedSymbolData = 125`, `guidPath = 111`, `size = 11`, `transform = 12`, `horizontalConstraint = 28`, `verticalConstraint = 37`;
+  - `SymbolData { symbolID = 1; symbolOverrides = 2; uniformScaleFactor = 3 }`.
+
+### Facts (REA 2026-10-18): Q522-1 still UNRESOLVED
+
+What was searched (all read-only):
+1. Public docs.
+   - Figma Help "Apply constraints to define how layers resize" and the Plugin API `Constraints` page define behaviour for unrotated layers only. Neither mentions rotation.
+   - `@figma/plugin-typings` 1.142.0: `resize()` says it "applies those constraints during resizing", and `rotation` is about the top-left corner. Neither says how a rotated child is resized.
+   - `figma/rest-api-spec` 0.45.0: no rotation and constraints rule.
+2. Community. A forum thread ("warping on rotated group of shapes when resizing frame") reports that a rotated group warps when its frame is resized, and the unrotated group does not. No Figma staff explanation was given. INFERENCE (weak): Figma may apply the parent-axis scale to a rotated child's matrix (skew) rather than resize it in its local axes. Not verified.
+3. Code. The constraint solver is in the C++ fullscreen wasm (`compiled_wasm.wasm.br`, 52 MB) and is not readable without a disassembler. `rea` 6.7.0's wasm and native lanes were unavailable on this machine: WABT, Ghidra and Hopper are not installed, and no Java runtime is present. The JS bundle has no constraint math.
+4. Measurement. Figma's own `derivedSymbolData` (computed size and transform per instance child) was scanned in two Figma-saved files on this machine: a 56,625-node community kit and the 153,220-node benchmark file. Target: rotated descendants (`|m01| > 1e-4`) with Stretch or Scale constraints inside non-uniformly resized, non-auto-layout instances. Result: 0 cases in both files. The kit has 17,097 instances (6,069 non-uniformly resized) but only 136 rotated nodes, none in such a component. The Untitled UI kit (issue's pie chart `1084:114`) is not on this machine.
+
+Next step to close it (owner-manual, flagged):
+- In Figma, place a 100×40 rectangle rotated 30° with Stretch/Stretch constraints in a 200×200 component, then resize an instance to 300×200.
+- Save the file and read the child's `derivedSymbolData` `size` and `transform`. The script method from step 4 reads it directly; such a file gives the answer in one run.
+- Until then, rule 3 keeps the local size unchanged in the non-uniform case.
 
 ## 7. UI
 

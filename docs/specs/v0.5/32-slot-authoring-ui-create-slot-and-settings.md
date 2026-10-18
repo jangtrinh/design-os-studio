@@ -39,15 +39,15 @@ As a design-system author, I select a frame inside a main component and choose *
 
    | Label | Field | Control |
    |---|---|---|
-   | `Min children` | `min_children` | numeric field |
-   | `Max children` | `max_children` | numeric field |
-   | `Preferred instances only` | `allow_preferred_values_only` | checkbox |
+   | `Minimum layers` | `min_children` | numeric field |
+   | `Maximum layers` | `max_children` | numeric field |
+   | `Only allow preferred instances` | `allow_preferred_values_only` | checkbox |
    | `Preferred instances` | `preferred` | multi-select of components |
-   | `Stretch child on insert` | `stretch_child_on_insert` | checkbox |
-   | `Show empty by default` | `display_by_default` | checkbox |
+   | `By default, fill items on slot's counter axis` | `stretch_child_on_insert` | checkbox |
+   | `By default, display empty slot` | `display_by_default` | checkbox |
 
-   - For the numeric fields, an empty value means `None`. Values are clamped to `0..=999`. If min > max, the edited field wins and the other is set equal.
-   - The labels follow Figma UI3 wording for SlotSettings; see §6.
+   - For the numeric fields, an empty value means `None` (Figma's placeholder text). Values are clamped to `0..=999`. If min > max, the edited field wins and the other is set equal.
+   - The labels are Figma UI3's exact English strings (RESOLVED, §6 Q32-1).
 4. **Toggle identity.** Every control's egui id and recorded name include the slot property name (`slot-preferred-only:<name>` and so on). Two slot props never share a widget state (round 1 MAJOR 1).
 5. **Preferred instances multi-select** (round 2 MAJOR):
    - each row's check mark is `preferred.contains(&component_id)`, keyed by `NodeId`, never by label;
@@ -81,7 +81,50 @@ None. Every field exists. Doc comment fix: `SlotPropConfig.display_by_default` (
   - `allowPreferredValuesOnly`: "restrict the slot to its `preferredValues` list".
 - Editor command ids from the Figma 126.9.13 bundle: `CONVERT_TO_SLOT`, `GROUP_SELECTION_INTO_SLOT`, `RESET_SLOT_ASSIGNMENT`; predicates `canConvertSelectedNodesToSlot`, `canGroupSelectedNodesIntoSlot`, `canConvertSelectedSlotsToFrame`.
 
-UNRESOLVED, Q32-1: the exact Figma UI3 English labels for the settings. The label strings are in an i18n bundle that is not in the local code cache. The labels above follow the issue text.
+RESOLVED, Q32-1 (REA 2026-10-18). The exact Figma UI3 English labels are in the Facts section below. The table in rule 3 uses them.
+
+### Facts (REA 2026-10-18)
+
+Method. Read-only. The English string bundle is in the Figma desktop HTTP cache, `~/Library/Application Support/Figma/DesktopProfile/v43/Cache/Cache_Data`, as `webpack-artifacts/assets/figma_app-<hash>.min.en.json.br` (brotli). The earlier search had looked at the V8 Code Cache, not the HTTP cache. Six cached builds were checked (`f480317378e0928d`, `2418ff423c6da2e0`, `f723190d9cd1a994`, `a8572f133f7bf411`, `cdc5177f8cc111b9`, `d868b4732e38dc67`), and all carry the same strings. `rea` 6.7.0 (`npx -y rea-agents analyze-javascript-application`, evidence `ev_2624766…`) indexed the settings chunk `9905-03972f70349cc010.min.js.br`. Field wiring was read from that chunk.
+
+| Figma key (prefix `design_systems.component_properties.`) | English string | Bound to |
+|---|---|---|
+| `slot_restrictions.popover_title` | `Slot limits` | popover title |
+| `slot_restrictions.content_section` | `Settings` | section heading |
+| `slot_restrictions.min_layers` | `Minimum layers` | `minChildren` |
+| `slot_restrictions.max_layers` | `Maximum layers` | `maxChildren` |
+| `slot_restrictions.no_limit` | `None` | empty numeric field |
+| `slot_restrictions.min_exceeds_max_error` | `Minimum can’t exceed maximum.` | error tooltip |
+| `slot_restrictions.preferred_only` | `Only allow preferred instances` | `allowPreferredValuesOnly` (recording key `preferredOnly`) |
+| `slot_restrictions.display_by_default` | `By default, display empty slot` | `displayByDefault` |
+| `slot_fill_config.counter_axis_label` | `By default, fill items on slot's counter axis` | `stretchChildOnInsert` |
+| `slot_fill_config.disabled_tooltip` | `Slot must have auto layout` | fill checkbox disabled |
+| `slot_fill_config.info_tooltip` | `If a slot follows a horizontal flow (x-axis), items will stretch along its height (y-axis).` | info icon |
+| `preferred_instances` | `Preferred instances` | preferred list |
+| `select_preferred_values` | `Select preferred values` | picker |
+| `slot_restrictions.pill_label` | `{count} limit(s)` (ICU plural) | summary pill |
+| `slot_restrictions.row_min` / `row_max` / `row_preferred_only` | `{n} layer minimum` / `{n} layer maximum` / `Preferred instances only` | summary rows |
+
+Instance banners: `This slot has a {minChildren}-layer minimum.`, `This slot has a {maxChildren}-layer maximum.`, and `Only preferred instances can be added. Click the slot to view options.`
+
+Action labels (`fullscreen_actions.*`):
+- `convert-to-slot` → `Convert to slot`
+- `group-selection-into-slot` → `Wrap in new slot`
+- `convert-slot-to-frame` → `Convert slot to frame`
+- `reset-slot-assignment` → `Reset slot`
+
+Panel labels:
+- `fullscreen.properties_panel.section_slot.edit_slot_property` → `Edit slot property`
+- `fullscreen.properties_panel.section_slot.disabled_convert_to_slot` → `Slot cannot be applied to frame with grid layout`
+
+Evidence snippet (settings chunk, restated): the `slot_restrictions.display_by_default` checkbox is rendered by a component whose prop is `displayByDefault`. The `slot_fill_config.counter_axis_label` checkbox is disabled when the slot has no auto layout.
+
+Kiwi cross-check: the cached fullscreen wasm schema (`c36343e1…`) has `SlotPropConfig { stretchChildOnInsert = 1; displayByDefault = 2; minChildren = 3; maxChildren = 4; allowPreferredValuesOnly = 5; }`, identical to the mapping above.
+
+Parity notes for the spec owner (rules unchanged here):
+- Figma shows `Minimum can’t exceed maximum.` as an error instead of auto-equalising the other field (rule 3).
+- Figma's fill checkbox is disabled when the slot has no auto layout.
+- The `Wrap in new slot` command exists and is out of this task's scope.
 
 ## 7. UI
 

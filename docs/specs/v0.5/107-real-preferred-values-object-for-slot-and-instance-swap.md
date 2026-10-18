@@ -105,7 +105,22 @@ Today real files give empty lists, because Figma stores the list as an object of
 
 Source: embedded kiwi schema in the Figma 126.9.13 editor bundle, and the issue #160 schema report. REST: `componentPropertyDefinitions[*].preferredValues = [{ "type": "COMPONENT" | "COMPONENT_SET", "key": "<key>" }]`. That is REST's public shape; our importer already accepts the `{key}` form at `rest_import.rs:1191`.
 
-UNRESOLVED: whether REST writes `"COMPONENT_SET"` or `"STATE_GROUP"` for set entries. Accept both on import. Our REST export does not write component properties, so the choice only affects import.
+RESOLVED, Q107-1 (REA 2026-10-18). REST writes `"COMPONENT_SET"`, both as the node `type` of a component set and as `preferredValues[*].type` for set entries. `STATE_GROUP` is a `.fig` (kiwi) name only. The importer maps REST `COMPONENT_SET` → `PreferredKeyKind::StateGroup`. Still accepting `"STATE_GROUP"` on REST import is harmless (tolerant input), but no Figma REST payload produces it. Our REST export does not write component properties, so this only affects import.
+
+### Facts (REA 2026-10-18)
+
+1. FACT. In `figma/rest-api-spec` `openapi/openapi.yaml` (version 0.45.0, fetched 2026-10-18):
+   - `InstanceSwapPreferredValue.type` has `enum: [COMPONENT, COMPONENT_SET]`, described as "Type of node for this preferred value", with `key` being the "Key of this component or component set".
+   - `ComponentSetNode.type` has `enum: [COMPONENT_SET]`.
+   - The node discriminator maps `COMPONENT_SET: "#/components/schemas/ComponentSetNode"`.
+2. FACT. `STATE_GROUP` occurs 0 times in that openapi.yaml, and 0 times in `@figma/plugin-typings` 1.142.0 `plugin-api.d.ts`. The Plugin API uses `'COMPONENT' | 'COMPONENT_SET'` too.
+3. FACT. Kiwi side, from the schema compiled into Figma's cached fullscreen wasm (`static.figma.com/fullscreen/c36343e1…/fullscreen-wasm/compiled_wasm.wasm.br` in `~/Library/Application Support/Figma/DesktopProfile/v43/Cache/Cache_Data`; three other cached builds are identical):
+   ```
+   message InstanceSwapPreferredValue { InstanceSwapPreferredValueType type = 1; string key = 2; }
+   enum InstanceSwapPreferredValueType { COMPONENT = 0; STATE_GROUP = 1; }
+   ```
+   This matches §6. `NodeChange.isStateGroup = 225` and `ComponentPropDef.preferredValues = 8` are unchanged.
+4. Method. `rea` 6.7.0 (`npx -y rea-agents`) was used for the JS chunks. Its wasm lane was unavailable (WABT not installed), so the binary schema was decoded directly from the wasm data section at the `MessageType` definition.
 
 ## 7. UI
 
