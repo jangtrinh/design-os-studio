@@ -167,3 +167,6 @@ Before E15-14.
   off or report-only.
 - R2.7: ambiguous token matches are reported without a fix.
 - Parallel agents hard-locked to frames (RD-3): fixes never touch another agent's frames.
+
+## Owner ruling (2026-10-18): tier change
+"Missing text fill" and "absolute child inside auto layout" are moved from the automatic tier to the **suggest tier**. They appear in the issues block and the panel with a Fix action, and they are never applied automatically. The automatic tier is limited to fixes that leave the rendered result unchanged. The tests must assert that these two findings arrive as suggestions with no document change.
