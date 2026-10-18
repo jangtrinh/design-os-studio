@@ -697,6 +697,20 @@ fn has_bound_text_number(n: &Node) -> bool {
     n.variables.bindings.keys().any(|k| matches!(k.as_str(), "fontSize" | "lineHeight" | "fontWeight" | "letterSpacing"))
 }
 
+/// A text number is bound and the layer's stored text style already holds what the binding resolves
+/// to, so binding it was the deliberate fix and a text style is not offered on top of it. When the
+/// binding resolves to something else in the layer's mode (`n` is the resolved view), the layer is
+/// painted as the resolved values and a style that equals them is still a valid suggestion.
+fn text_number_bound_in_place(doc: &Document, n: &Node) -> bool {
+    if !has_bound_text_number(n) {
+        return false;
+    }
+    match (doc.get(n.id).map(|raw| &raw.kind), &n.kind) {
+        (Some(NodeKind::Text(stored)), NodeKind::Text(resolved)) => stored.style == resolved.style,
+        _ => true,
+    }
+}
+
 fn text_rule(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, out: &mut Vec<Finding>) {
     let NodeKind::Text(t) = &n.kind else { return };
     if n.style_refs.contains_key("text") {
@@ -715,7 +729,7 @@ fn text_rule(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, out: &
         matched_variable |= check_single_number(doc, index, n, src, "fontSize", "Font size", out);
         matched_variable |= check_single_number(doc, index, n, src, "lineHeight", "Line height", out);
     }
-    if matched_variable || has_bound_text_number(n) {
+    if matched_variable || text_number_bound_in_place(doc, n) {
         return;
     }
     let style = index
@@ -829,7 +843,7 @@ pub(super) fn library_bind_is_current(doc: &Document, snap: &LibrarySnapshot, id
         && matches!(resolved, Some(VariableValue::Number(vx)) if same_number(vx, val))
 }
 
-fn style_matches_node(n: &Node, s: &Style, property: StyleProperty) -> bool {
+fn style_matches_node(doc: &Document, n: &Node, s: &Style, property: StyleProperty) -> bool {
     match s {
         Style::Fill(ps) => {
             let slot = if property == StyleProperty::Stroke { Slot::Stroke } else { Slot::Fill };
@@ -839,7 +853,7 @@ fn style_matches_node(n: &Node, s: &Style, property: StyleProperty) -> bool {
         Style::Text(ts) => match &n.kind {
             NodeKind::Text(t) => {
                 !n.style_refs.contains_key("text")
-                    && !has_bound_text_number(n)
+                    && !text_number_bound_in_place(doc, n)
                     && same_text_style(&t.style, ts)
                     && t.runs.iter().all(|r| same_text_style(&r.style, ts))
             }
@@ -860,7 +874,7 @@ pub(super) fn style_is_current(doc: &Document, id: NodeId, style: &str) -> bool 
     if style_library_id(doc, style).is_some_and(|lib_id| enabled_library_name(doc, lib_id).is_none()) {
         return false;
     }
-    style_matches_node(n, s, style_property(doc, style))
+    style_matches_node(doc, n, s, style_property(doc, style))
 }
 
 /// Whether applying an unimported library style `raw_style` in `snap` to `id` is current.
@@ -871,5 +885,5 @@ pub(super) fn library_style_is_current(doc: &Document, snap: &LibrarySnapshot, i
     let (Some(resolved), Some(s)) = (designos_doc::resolved_node(doc, id), snap.styles.get(raw_style)) else { return false };
     let n: &Node = &resolved;
     let property = snap.style_meta.get(raw_style).map(|m| m.property).unwrap_or_else(|| default_style_property(s));
-    style_matches_node(n, s, property)
+    style_matches_node(doc, n, s, property)
 }
