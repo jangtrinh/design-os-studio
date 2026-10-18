@@ -467,6 +467,11 @@ impl App {
         self.ui.ctx_menu = None;
     }
 
+    /// Disk path of a library file; also the key of its cached pre-repair bytes.
+    pub(crate) fn lib_file_disk_path(&self, lf: &LibFile) -> Option<PathBuf> {
+        self.lib.as_ref().map(|lib| lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+    }
+
     /// Disk path of the currently open document (library file or external path) for live hot-reload polling.
     fn watched_disk_path(&self) -> Option<PathBuf> {
         if let (Some(lib), Some(lf)) = (&self.lib, &self.lib_file) {
@@ -796,7 +801,9 @@ impl App {
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
                 self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
-                self.file_path = None;
+                if let Some(old) = self.file_path.take() {
+                    self.release_repaired_original(&old, None);
+                }
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
                 self.show_toast(format!("Saved to {project_name}"), false);
             }
