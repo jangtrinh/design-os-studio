@@ -56,7 +56,7 @@ pub fn container_at(doc: &Document, page: NodeId, p: Vec2, exclude: &[NodeId]) -
 pub fn container_at_with_index(doc: &Document, index: Option<&designos_render::SceneIndex>, page: NodeId, p: Vec2, exclude: &[NodeId]) -> NodeId {
     fn rec(doc: &Document, index: Option<&designos_render::SceneIndex>, parent: NodeId, parent_world: Affine, p: Vec2, exclude: &[NodeId]) -> Option<NodeId> {
         let pn = doc.get(parent)?;
-        for &c in pn.children.iter().rev() {
+        for &c in pn.children_front_to_back() {
             if exclude.contains(&c) {
                 continue;
             }
@@ -381,6 +381,26 @@ mod tests {
         assert_eq!(container_at(&d, page, v2(10.0, 10.0), &[]), outer);
         assert_eq!(container_at(&d, page, v2(500.0, 10.0), &[]), page);
         assert_eq!(container_at(&d, page, v2(60.0, 60.0), &[inner]), outer);
+    }
+
+    #[test]
+    fn container_lookup_follows_paint_order_in_reverse_z_frames() {
+        use designos_doc::AutoLayout;
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let a = d.alloc_id();
+        let outer = d.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let first_id = d.alloc_id();
+        let first = d.insert(outer, Node::frame(first_id, Rect::new(10.0, 10.0, 100.0, 100.0))).unwrap();
+        let second_id = d.alloc_id();
+        let second = d.insert(outer, Node::frame(second_id, Rect::new(50.0, 50.0, 100.0, 100.0))).unwrap();
+        let overlap = v2(60.0, 60.0);
+        assert_eq!(container_at(&d, page, overlap, &[]), second, "last child paints on top by default");
+        if let NodeKind::Frame(fp) = &mut d.get_mut(outer).unwrap().kind {
+            fp.auto_layout = Some(AutoLayout { reverse_z: true, ..Default::default() });
+        }
+        assert_eq!(container_at(&d, page, overlap, &[]), first, "first child paints on top with reverse_z");
+        assert_eq!(container_at(&d, page, overlap, &[first]), second);
     }
 
     #[test]

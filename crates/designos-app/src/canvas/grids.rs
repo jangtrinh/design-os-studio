@@ -574,7 +574,7 @@ fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_re
         if idx.is_none() && !n.children.is_empty() {
             let descend = if n.kind.frame_props().is_some_and(|f| f.clips_content) { own_bb.intersects(&view) } else { true };
             if descend {
-                for &cid in n.children.iter().rev() {
+                for &cid in n.children_front_to_back() {
                     stack.push((cid, w));
                 }
             }

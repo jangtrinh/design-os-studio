@@ -428,3 +428,82 @@ fn soft_line_break_u2028_matches_cpu() {
     let has_ink_line2 = (10..150).any(|x| (34..58).any(|y| c.gpu.pixel(x, y).unwrap().red() < 200));
     assert!(has_ink_line2, "expected ink on second line after U+2028 without paragraph spacing");
 }
+
+#[test]
+fn reverse_z_auto_layout_draws_masked_pattern_behind_heading_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let hero = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    t.rect(Some(hero), Rect::new(20.0, 20.0, 40.0, 40.0), Color::rgb(0, 0, 255));
+    let pat = t.add(Some(hero), |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.layout_child.absolute = true;
+        n
+    });
+    let mask = t.add(Some(pat), |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.is_mask = true;
+        n
+    });
+    t.rect(Some(mask), Rect::new(0.0, 0.0, 80.0, 80.0), Color::rgba(0, 0, 255, 128));
+    t.rect(Some(pat), Rect::new(0.0, 0.0, 80.0, 80.0), Color::rgb(255, 0, 0));
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "reverse_z_mask", &t.doc, t.page, vp, (80, 80), 4);
+    assert!(c.report.ratio < 0.01, "mismatch {:.3}%", c.report.ratio * 100.0);
+    let heading_px = c.gpu.pixel(30, 30).unwrap();
+    assert_eq!([heading_px.red(), heading_px.green(), heading_px.blue(), heading_px.alpha()], [0, 0, 255, 255]);
+    let bg_px = c.gpu.pixel(10, 10).unwrap();
+    assert!(bg_px.red() == 255 && (bg_px.green() as i32 - 128).abs() <= 2 && (bg_px.blue() as i32 - 128).abs() <= 2, "{bg_px:?}");
+}
+
+#[test]
+fn auto_layout_reverse_z_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    let blue = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };
+    let row = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        n.fills.clear();
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.clips_content = false;
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: -12.0, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), red);
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), blue);
+    t.doc.relayout_subtree(row);
+
+    // Also test a clipped reverse_z frame (exercises the clipped unit-quad fast path on GPU).
+    let clipped_swatch = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 30.0, 40.0, 40.0));
+        n.fills = vec![Paint::solid(Color::WHITE)];
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.clips_content = true;
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: -12.0, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    let swatch = t.rect(Some(clipped_swatch), Rect::new(0.0, 0.0, 40.0, 20.0), red);
+    t.node(swatch).layout_child.absolute = true;
+    t.rect(Some(clipped_swatch), Rect::new(0.0, 0.0, 40.0, 40.0), blue);
+    t.doc.relayout_subtree(clipped_swatch);
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "auto_layout_reverse_z", &t.doc, t.page, vp, (60, 80), 2);
+    assert_eq!(c.report.mismatched, 0);
+    let p_overlap = c.gpu.pixel(14, 10).unwrap();
+    assert_eq!([p_overlap.red(), p_overlap.green(), p_overlap.blue(), p_overlap.alpha()], [255, 0, 0, 255]);
+    let p_swatch = c.gpu.pixel(20, 40).unwrap();
+    assert_eq!([p_swatch.red(), p_swatch.green(), p_swatch.blue(), p_swatch.alpha()], [255, 0, 0, 255]);
+}

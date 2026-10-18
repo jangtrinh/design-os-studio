@@ -1290,7 +1290,7 @@ pub fn hit_layer(doc: &Document, frame: NodeId, p: Vec2, scroll: Vec2) -> Option
     if !Rect::new(0.0, 0.0, f.size.x, f.size.y).contains(p) {
         return None;
     }
-    for c in f.children.iter().rev() {
+    for c in f.children_front_to_back() {
         let fixed = f.prototype.fixed_children.contains(c);
         let q = if fixed { p } else { Vec2::new(p.x + scroll.x, p.y + scroll.y) };
         if let Some(h) = hit_in(doc, *c, q) {
@@ -1309,7 +1309,7 @@ fn hit_in(doc: &Document, id: NodeId, p: Vec2) -> Option<NodeId> {
     let inside = Rect::new(0.0, 0.0, n.size.x, n.size.y).contains(local);
     let clips = n.kind.frame_props().is_some_and(|f| f.clips_content);
     if n.kind.is_container() && (inside || !clips) {
-        for c in n.children.iter().rev() {
+        for c in n.children_front_to_back() {
             if let Some(h) = hit_in(doc, *c, local) {
                 return Some(h);
             }
@@ -1858,6 +1858,19 @@ mod tests {
         assert_eq!(hit_layer(&f.doc, f.b, Vec2::new(20.0, 120.0), Vec2::new(0.0, 800.0)), Some(item));
         assert_eq!(hit_layer(&f.doc, f.b, Vec2::new(20.0, 30.0), Vec2::new(0.0, 800.0)), Some(header));
         assert_eq!(hit_layer(&f.doc, f.b, Vec2::new(-5.0, 30.0), Vec2::ZERO), None, "outside the frame");
+    }
+
+    #[test]
+    fn hit_layer_follows_paint_order_in_reverse_z_frames() {
+        let mut f = fixture();
+        let id = f.doc.alloc_id();
+        let later = f.doc.insert(f.a, Node::rectangle(id, Rect::new(20.0, 700.0, 360.0, 48.0))).unwrap();
+        let p = Vec2::new(30.0, 710.0);
+        assert_eq!(hit_layer(&f.doc, f.a, p, Vec2::ZERO), Some(later), "last child paints on top by default");
+        if let NodeKind::Frame(fp) = &mut f.doc.get_mut(f.a).unwrap().kind {
+            fp.auto_layout = Some(AutoLayout { reverse_z: true, ..Default::default() });
+        }
+        assert_eq!(hit_layer(&f.doc, f.a, p, Vec2::ZERO), Some(f.btn), "first child paints on top with reverse_z");
     }
 
     #[test]

@@ -402,6 +402,36 @@ impl Node {
     pub fn local_bounds(&self) -> Rect {
         Rect::new(0.0, 0.0, self.size.x, self.size.y)
     }
+
+    /// Children in bottom-to-top paint order: reversed when an auto-layout
+    /// frame sets `reverse_z` ("First on top"), otherwise `self.children`.
+    pub fn paint_children(&self) -> std::borrow::Cow<'_, [NodeId]> {
+        if self.paints_children_reversed() && self.children.len() > 1 {
+            std::borrow::Cow::Owned(self.children.iter().copied().rev().collect())
+        } else {
+            std::borrow::Cow::Borrowed(&self.children)
+        }
+    }
+
+    /// True when `children` is stored top-to-bottom instead of bottom-to-top:
+    /// an auto-layout frame with `reverse_z` ("First on top").
+    pub fn paints_children_reversed(&self) -> bool {
+        self.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|al| al.reverse_z)
+    }
+
+    /// Children in top-most-first order (the reverse of [`Node::paint_children`]),
+    /// for picking. Allocation-free.
+    pub fn children_front_to_back(&self) -> impl Iterator<Item = &NodeId> + '_ {
+        front_to_back(&self.children, self.paints_children_reversed())
+    }
+}
+
+/// Iterates `ids` (a child list stored in document order) from the top-most
+/// paint position down. `reversed` is [`Node::paints_children_reversed`]; pass
+/// `false` for a candidate list that is already in document order.
+pub fn front_to_back(ids: &[NodeId], reversed: bool) -> impl Iterator<Item = &NodeId> + '_ {
+    let (stored, flipped): (&[NodeId], &[NodeId]) = if reversed { (ids, &[]) } else { (&[], ids) };
+    stored.iter().chain(flipped.iter().rev())
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -331,7 +331,7 @@ impl Svg<'_> {
             self.depth += 1;
         }
         let region = render_bounds(doc, n.id);
-        let kids = n.children.clone();
+        let kids = n.paint_children().into_owned();
         self.children(&kids, region);
         if group_filter.is_some() {
             self.depth -= 1;

@@ -1,6 +1,6 @@
 //! Canvas hit testing and marquee selection.
 
-use designos_doc::{Affine, Document, NodeId, NodeKind, Rect, Vec2};
+use designos_doc::{front_to_back, Affine, Document, NodeId, NodeKind, Rect, Vec2};
 
 fn local_hit(kind: &NodeKind, size: Vec2, local: Vec2, tol: f32) -> bool {
     match kind {
@@ -107,7 +107,7 @@ fn hit_in(
     } else {
         &pn.children
     };
-    for &cid in iter_slice.iter().rev() {
+    for &cid in front_to_back(iter_slice, pn.paints_children_reversed()) {
         let Some(n) = doc.get(cid) else { continue };
         if !n.visible || n.locked || exclude.contains(&cid) {
             continue;
@@ -164,7 +164,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
         return;
     }
     let Some(pn) = doc.get(parent) else { return };
-    for &cid in pn.children.iter().rev() {
+    for &cid in pn.children_front_to_back() {
         if out.len() >= 32 {
             return;
         }
@@ -392,5 +392,62 @@ mod tests {
         assert_eq!(hits, vec![top_rect, rect, frame]);
         let group_hits = hit_all_under(&d, page, v2(120.0, 120.0), None);
         assert_eq!(group_hits, vec![rg, group, frame]);
+    }
+
+    /// Horizontal auto-layout row with two overlapping squares (x 0..20 and 8..28).
+    fn overlapping_row(reverse_z: bool) -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        use designos_doc::{AutoLayout, LayoutDirection};
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let rid = d.alloc_id();
+        let mut row = Node::frame(rid, Rect::new(0.0, 0.0, 40.0, 20.0));
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: -12.0, reverse_z, ..Default::default() });
+        }
+        let row = d.insert(page, row).unwrap();
+        let rid = d.alloc_id();
+        let red = d.insert(row, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        let bid = d.alloc_id();
+        let blue = d.insert(row, Node::rectangle(bid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        d.relayout_subtree(row);
+        (d, page, row, red, blue)
+    }
+
+    #[test]
+    fn reverse_z_click_on_overlap_selects_first_child() {
+        let (d, page, _row, red, blue) = overlapping_row(true);
+        assert_eq!(d.get(blue).unwrap().transform.apply(v2(0.0, 0.0)).x, 8.0, "children must overlap at x 8..20");
+        let overlap = v2(14.0, 10.0);
+        assert_eq!(hit_test(&d, page, overlap, 0.0, false, &[]), Some(red));
+        assert_eq!(hit_test(&d, page, overlap, 0.0, true, &[]), Some(red));
+        // outside the overlap each child is still reachable
+        assert_eq!(hit_test(&d, page, v2(4.0, 10.0), 0.0, false, &[]), Some(red));
+        assert_eq!(hit_test(&d, page, v2(24.0, 10.0), 0.0, false, &[]), Some(blue));
+        // excluding the front-most child falls through to the one painted underneath
+        assert_eq!(hit_test_excluding(&d, page, overlap, 0.0, false, &[], &[red]), Some(blue));
+    }
+
+    #[test]
+    fn reverse_z_under_cursor_stack_lists_first_child_first() {
+        let (d, page, row, red, blue) = overlapping_row(true);
+        assert_eq!(hit_all_under(&d, page, v2(14.0, 10.0), None), vec![red, blue, row]);
+    }
+
+    #[test]
+    fn reverse_z_hit_matches_scene_index_path() {
+        let (d, page, _row, red, blue) = overlapping_row(true);
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        assert_eq!(hit_test_with_index(&d, page, v2(14.0, 10.0), 0.0, false, &[], Some(&idx)), Some(red));
+        assert_eq!(hit_test_with_index(&d, page, v2(24.0, 10.0), 0.0, false, &[], Some(&idx)), Some(blue));
+        assert_eq!(hit_all_under(&d, page, v2(14.0, 10.0), Some(&idx))[..2], [red, blue]);
+    }
+
+    #[test]
+    fn non_reverse_z_overlap_selects_last_child() {
+        let (d, page, row, red, blue) = overlapping_row(false);
+        let overlap = v2(14.0, 10.0);
+        assert_eq!(hit_test(&d, page, overlap, 0.0, false, &[]), Some(blue));
+        assert_eq!(hit_all_under(&d, page, overlap, None), vec![blue, red, row]);
     }
 }

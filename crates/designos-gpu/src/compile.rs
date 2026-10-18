@@ -942,10 +942,10 @@ impl Ctx<'_> {
                         let r = IRect::new(x0.round() as i32, y0.round() as i32, x1.round() as i32, y1.round() as i32);
                         let cc = self.narrow_clip(clip, r);
                         if !self.visible(cc).is_empty() {
-                            self.draw_children(&n.children, ts, cc);
+                            self.draw_children(&n.paint_children(), ts, cc);
                         }
                     } else {
-                        self.draw_children(&n.children, ts, clip);
+                        self.draw_children(&n.paint_children(), ts, clip);
                     }
                 }
                 return;
@@ -1039,9 +1039,9 @@ impl Ctx<'_> {
                 if self.visible(cc).is_empty() {
                     return;
                 }
-                self.draw_children(&n.children, ts, cc);
+                self.draw_children(&n.paint_children(), ts, cc);
             } else {
-                self.draw_children(&n.children, ts, clip);
+                self.draw_children(&n.paint_children(), ts, clip);
             }
         }
     }
@@ -1183,7 +1183,7 @@ impl Ctx<'_> {
         if draws_children(n) {
             // silhouettes are drawn offset from the page grid: no index culling
             let was = std::mem::replace(&mut self.cull, false);
-            self.draw_children(&n.children, ts2, clip);
+            self.draw_children(&n.paint_children(), ts2, clip);
             self.cull = was;
         }
     }

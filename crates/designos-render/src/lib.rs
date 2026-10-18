@@ -493,6 +493,7 @@ impl Renderer<'_> {
 
         // 5. children
         if Self::draws_children(n) {
+            let kids = n.paint_children();
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             if clips {
                 let (w, h) = (target.width(), target.height());
@@ -501,9 +502,9 @@ impl Renderer<'_> {
                 if let Some(c) = clip {
                     mask_mul(&mut m, c);
                 }
-                self.draw_children(&n.children, ts, target, Some(&m), back);
+                self.draw_children(&kids, ts, target, Some(&m), back);
             } else {
-                self.draw_children(&n.children, ts, target, clip, back);
+                self.draw_children(&kids, ts, target, clip, back);
             }
         }
     }
@@ -583,8 +584,9 @@ impl Renderer<'_> {
             }
         }
         if Self::draws_children(n) {
+            let kids = n.paint_children();
             // silhouettes are drawn offset from the page grid, so no culling
-            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None }.draw_children(&n.children, ts2, pm, None, None);
+            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None }.draw_children(&kids, ts2, pm, None, None);
         }
     }
 

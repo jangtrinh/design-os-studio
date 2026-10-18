@@ -633,3 +633,31 @@ fn unknown_table_and_cell_paint_and_index_children() {
         assert_eq!(idx.bounds_of(id), full.bounds_of(id));
     }
 }
+
+#[test]
+fn auto_layout_reverse_z_paints_first_child_on_top() {
+    let mut t = T::new();
+    let row = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 20.0));
+        n.fills.clear();
+        if let NodeKind::Frame(fp) = &mut n.kind {
+            fp.clips_content = false;
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: -12.0, reverse_z: true, ..Default::default() });
+        }
+        n
+    });
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), RED);
+    t.rect(Some(row), Rect::new(0.0, 0.0, 20.0, 20.0), BLUE);
+    t.doc.relayout_subtree(row);
+
+    let pm = t.render(40, 20);
+    // Child 0 sits at x=0..20 (RED), child 1 sits at x=8..28 (BLUE). With reverse_z, child 0 paints on top in x=8..20.
+    assert_eq!(px(&pm, 4, 10), [255, 0, 0, 255], "left of overlap is child 0 (red)");
+    assert_eq!(px(&pm, 14, 10), [255, 0, 0, 255], "overlap with reverse_z paints child 0 (red) on top");
+    assert_eq!(px(&pm, 24, 10), [0, 0, 255, 255], "right of overlap is child 1 (blue)");
+
+    // Turning reverse_z off paints child 1 (blue) on top in the overlap.
+    t.node(row).kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().reverse_z = false;
+    let pm_normal = t.render(40, 20);
+    assert_eq!(px(&pm_normal, 14, 10), [0, 0, 255, 255], "overlap without reverse_z paints child 1 (blue) on top");
+}

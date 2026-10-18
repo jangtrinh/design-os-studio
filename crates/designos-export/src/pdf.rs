@@ -929,7 +929,7 @@ mod vector_page {
             }
             let doc = self.doc;
             let mut open_masks = 0;
-            for cid in &n.children {
+            for cid in n.paint_children().iter() {
                 let Some(raw) = doc.get(*cid) else { continue };
                 let child = resolve_node(doc, raw);
                 if child.is_mask {

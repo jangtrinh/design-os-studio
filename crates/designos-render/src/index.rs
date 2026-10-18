@@ -8,7 +8,7 @@
 
 use crate::geom::{to_sk_transform, transformed_bounds};
 use designos_doc::{Document, Effect, Node, NodeId, NodeKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use tiny_skia as sk;
 
@@ -141,7 +141,7 @@ fn paint_path(doc: &Document, id: NodeId) -> Vec<usize> {
     let mut path = Vec::new();
     let mut cur = id;
     while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
-        path.push(doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == cur)).unwrap_or(usize::MAX));
+        path.push(doc.get(parent).and_then(|p| p.paint_children().iter().position(|&c| c == cur)).unwrap_or(usize::MAX));
         cur = parent;
     }
     path.reverse();
@@ -188,6 +188,9 @@ pub struct SceneIndex {
     pub(crate) grid_nodes: Vec<NodeId>,
     /// An edit of a built index may have broken the paint order of `grid_nodes`.
     grid_order_stale: bool,
+    /// Frames that paint their children in reverse document order (`reverse_z`), as of the last
+    /// build or edit. Their `grid_nodes` are not in document order, and toggling the flag moves them.
+    reverse_z_frames: HashSet<NodeId>,
     /// Child ids of the page as of the last build; the page has no `Entry` to remember them in.
     page_children: Box<[NodeId]>,
     top_has_mask: bool,
@@ -212,6 +215,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -225,8 +229,10 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
-        // A front-to-back build lists the grid nodes in paint order.
-        self.grid_order_stale = false;
+        // The build lists the grid nodes in document order, which is paint order unless a
+        // `reverse_z` frame reverses its children.
+        self.grid_order_stale = !self.reverse_z_frames.is_empty();
+        self.restore_grid_order(doc);
         self.rebuild_top_grid(doc, page);
         Some(prev)
     }
@@ -339,6 +345,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -352,7 +359,8 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
-        self.grid_order_stale = false;
+        self.grid_order_stale = !self.reverse_z_frames.is_empty();
+        self.restore_grid_order(doc);
         self.rebuild_top_grid(doc, page);
     }
 
@@ -365,6 +373,7 @@ impl SceneIndex {
         self.chrome_nodes.clear();
         self.grid_nodes.clear();
         self.grid_order_stale = false;
+        self.reverse_z_frames.clear();
         self.top_has_mask = false;
     }
 
@@ -423,16 +432,24 @@ impl SceneIndex {
     /// than the build saw: every grid node beneath it then paints at a different position.
     /// Must run before the dirty nodes are re-indexed, which overwrite the remembered child lists.
     fn note_child_order_changes(&mut self, doc: &Document, page: NodeId, dirty: &[NodeId]) {
+        // Flipping `reverse_z` on a frame reverses the paint order of everything beneath it.
+        // Track the flag first: it must stay current even when no re-sort is needed yet.
+        let mut flipped = false;
+        for &id in dirty {
+            let now = doc.get(id).is_some_and(|n| n.paints_children_reversed());
+            flipped |= if now { self.reverse_z_frames.insert(id) } else { self.reverse_z_frames.remove(&id) };
+        }
         if self.grid_order_stale || self.grid_nodes.len() < 2 {
             return;
         }
-        self.grid_order_stale = dirty.iter().any(|&id| {
-            let Some(n) = doc.get(id) else { return false };
-            if id == page {
-                return *self.page_children != *n.children;
-            }
-            n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
-        });
+        self.grid_order_stale = flipped
+            || dirty.iter().any(|&id| {
+                let Some(n) = doc.get(id) else { return false };
+                if id == page {
+                    return *self.page_children != *n.children;
+                }
+                n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
+            });
     }
 
     /// Re-sorts `grid_nodes` into paint order after an edit listed nodes out of order.
@@ -798,6 +815,9 @@ impl SceneIndex {
         }
         let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
         let children_len = n.children.len() as u32;
+        if drawn && n.paints_children_reversed() {
+            self.reverse_z_frames.insert(id);
+        }
         let ts = parent_ts.pre_concat(to_sk_transform(&n.transform));
         let world_ts = [ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty];
         let size = (n.size.x, n.size.y);
@@ -995,7 +1015,8 @@ impl Differ {
                 let Some(e) = new.entries.get(&id).or_else(|| old.get(&id)) else { continue };
                 if e.mask {
                     // a mask clips every sibling that follows it
-                    if let Some(sibs) = e.parent.and_then(|p| doc.get(p)).map(|p| &p.children) {
+                    if let Some(pnode) = e.parent.and_then(|p| doc.get(p)) {
+                        let sibs = pnode.paint_children();
                         if let Some(pos) = sibs.iter().position(|c| *c == id) {
                             for c in &sibs[pos + 1..] {
                                 extra.push(obounds(c));
@@ -1473,6 +1494,40 @@ mod tests {
         doc.reparent(a, group, 0).unwrap();
         idx.ensure(&doc, page, 3);
         assert_eq!(idx.grid_nodes(), &[a, b]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
+    }
+
+    fn set_reverse_z(doc: &mut Document, frame: NodeId, on: bool) {
+        if let NodeKind::Frame(fp) = &mut doc.get_mut(frame).unwrap().kind {
+            fp.auto_layout = on.then(|| designos_doc::AutoLayout { reverse_z: true, ..Default::default() });
+        }
+    }
+
+    #[test]
+    fn grid_nodes_follow_paint_order_in_reverse_z_frames_on_open_and_after_a_toggle() {
+        let mut doc = Document::new("grid-reverse-z");
+        let page = doc.add_page("page-1");
+        let host = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 400.0, 400.0), false);
+        let first = insert_frame(&mut doc, host, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+        let second = insert_frame(&mut doc, host, Rect::new(100.0, 10.0, 200.0, 200.0), true);
+        set_reverse_z(&mut doc, host, true);
+
+        // Opened with first-on-top: the first child paints last, so it is listed last.
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[second, first]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 1));
+
+        // Toggling reverse_z off on an open index restores document order.
+        set_reverse_z(&mut doc, host, false);
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[first, second]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+
+        // And toggling it on again re-sorts.
+        set_reverse_z(&mut doc, host, true);
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.grid_nodes(), &[second, first]);
         assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
     }
 }
