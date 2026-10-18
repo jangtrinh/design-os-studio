@@ -725,3 +725,64 @@ fn empty_slot_placeholder_preferred_picker_and_stretch_on_insert_ui() {
     assert_eq!(inserted.size.x, 96.0);
     assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, inst_slot).is_none());
 }
+
+#[test]
+fn migrate_to_slot_in_inspector_and_app_preserves_instance_content_and_undoes_in_one_step() {
+    let mut s = Sim::new();
+    let main = s.by_name("Primary button");
+    let bg = child_of(&s.app().doc, main, "Bg");
+
+    // Unsupported leaf shape is a no-op with an honest message and toast.
+    s.shell.app.selection = vec![bg];
+    let before_nodes = s.app().doc.nodes.clone();
+    let err = s.shell.app.migrate_selection_to_slot().expect_err("rectangle leaf should be rejected");
+    assert!(!err.is_empty());
+    assert_eq!(s.app().doc.nodes, before_nodes);
+    assert!(s.app().toast.as_ref().is_some_and(|t| t.error && t.text == err));
+
+    // Create a Card component on the Welcome page with a nested instance of Primary button bound to an InstanceSwap prop.
+    let page = s.app().page;
+    let cid = s.shell.app.doc.alloc_id();
+    let mut card = designos_doc::Node::frame(cid, designos_doc::Rect::new(40.0, 600.0, 240.0, 80.0));
+    card.name = "Slot Card".into();
+    let card = s.shell.app.doc.insert(page, card).unwrap();
+    designos_doc::create_component(&mut s.shell.app.doc, card).apply(&mut s.shell.app.doc).unwrap();
+    designos_doc::create_instance(&mut s.shell.app.doc, main, card, DV::new(16.0, 16.0)).apply(&mut s.shell.app.doc).unwrap();
+    let region = *s.app().doc.get(card).unwrap().children.last().unwrap();
+    designos_doc::add_prop(
+        &mut s.shell.app.doc,
+        card,
+        designos_doc::ComponentPropDef {
+            name: "Action".into(),
+            kind: designos_doc::PropKind::InstanceSwap { preferred: vec![main] },
+            default: PropValue::Instance(main),
+        },
+    )
+    .apply(&mut s.shell.app.doc)
+    .unwrap();
+    designos_doc::bind_prop(&mut s.shell.app.doc, region, OverrideField::MainComponent, Some("Action")).apply(&mut s.shell.app.doc).unwrap();
+
+    // Create an instance of Slot Card on the page.
+    designos_doc::create_instance(&mut s.shell.app.doc, card, page, DV::new(340.0, 600.0)).apply(&mut s.shell.app.doc).unwrap();
+    let card_inst = *s.app().doc.get(page).unwrap().children.last().unwrap();
+
+    // Select `region` inside `Slot Card` and click the inspector's "Migrate to slot" button.
+    s.shell.app.selection = vec![region];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let pre_migrate_nodes = s.app().doc.nodes.clone();
+    let btn = s.rect_of("migrate-to-slot");
+    s.click(btn.center());
+
+    assert!(s.app().doc.get(region).unwrap().component.is_slot);
+    assert_eq!(s.app().doc.get(card).unwrap().component.props[0].kind, designos_doc::PropKind::Slot);
+    let inst_slot = s.app().doc.get(card_inst).unwrap().children[0];
+    assert!(s.app().doc.get(inst_slot).unwrap().component.is_slot);
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children.len(), 1);
+    let slot_child = s.app().doc.get(inst_slot).unwrap().children[0];
+    assert!(s.app().doc.get(slot_child).unwrap().component.is_slot_content);
+
+    // One Cmd+Z undoes the entire migration across the component and its instance.
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.nodes, pre_migrate_nodes);
+}

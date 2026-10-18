@@ -566,6 +566,40 @@ impl App {
         self.comp_edit(|d| set_slot_config(d, owner, &prop_name, config));
     }
 
+    /// Migrates `node` (an instance-swap or boolean container region inside a main component)
+    /// to a component slot in one undo step, or shows an honest toast and returns `Err` on unsupported shapes.
+    pub fn migrate_node_to_slot(&mut self, node: NodeId) -> Result<(), &'static str> {
+        let cmd = match migrate_region_to_slot(&mut self.doc, node) {
+            Ok(cmd) => cmd,
+            Err(msg) => {
+                self.show_toast(msg, true);
+                return Err(msg);
+            }
+        };
+        let mut tx = Tx::new();
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+            self.show_toast("Migrated to slot", false);
+        }
+        Ok(())
+    }
+
+    /// Migrates the currently selected layer to a component slot in one undo step.
+    #[cfg(test)]
+    pub fn migrate_selection_to_slot(&mut self) -> Result<(), &'static str> {
+        let Some(&node) = self.selection.first() else {
+            let msg = "Select a layer inside a main component to migrate to a slot";
+            self.show_toast(msg, true);
+            return Err(msg);
+        };
+        if self.selection.len() > 1 {
+            let msg = "Select a single instance-swap or boolean region to migrate to a slot";
+            self.show_toast(msg, true);
+            return Err(msg);
+        }
+        self.migrate_node_to_slot(node)
+    }
+
     /// Components for the Assets panel, in page order.
     pub fn local_components(&self) -> Vec<AssetEntry> {
         let mut out = Vec::new();
