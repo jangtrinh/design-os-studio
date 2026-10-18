@@ -266,10 +266,10 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
     let bar = place(canvas, sel_screen, width);
 
     let p = ui.painter().clone();
-    widgets::shadow(&p, bar, theme::RADIUS_LARGE, EV::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
-    widgets::shadow(&p, bar, theme::RADIUS_LARGE, EV::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
-    p.rect_filled(bar, theme::cr(theme::RADIUS_LARGE), theme::BG_TOOLBAR);
-    p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
+    widgets::shadow(&p, bar, theme::RADIUS_FRAME, EV::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
+    widgets::shadow(&p, bar, theme::RADIUS_FRAME, EV::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
+    p.rect_filled(bar, theme::cr(theme::RADIUS_FRAME), theme::BG_TOOLBAR);
+    p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
     ui.interact(bar, ui.id().with("board-bar-block"), Sense::click_and_drag());
     widgets::record(ui, "board-bar", bar);
 
@@ -313,7 +313,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
         let r = ERect::from_min_size(Pos2::new(x, cy - BTN / 2.0), EV::new(BTN + 12.0, BTN));
         let open = matches!(app.board.bar_menu, Some((BarMenu::Shape, _)));
         let resp = ui.interact(r, ui.id().with("board-shape-btn"), Sense::click());
-        widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_CONTROL));
         if let Some(t) = cur_shape.and_then(|k| app.board.previews.shape(ui.ctx(), k, color_of(0xE6E6E6), 16.0, 12.0)) {
             p.image(
                 t,
@@ -341,7 +341,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
             let r = ERect::from_min_size(Pos2::new(x, cy - BTN / 2.0), EV::splat(BTN));
             let resp = ui.interact(r, ui.id().with(("board-line", tip)), Sense::click());
             let sel = cur_line == Some(line);
-            widgets::button_bg(&p, r, &resp, sel, theme::cr(theme::RADIUS_MEDIUM));
+            widgets::button_bg(&p, r, &resp, sel, theme::cr(theme::RADIUS_CONTROL));
             widgets::paint_icon_in(&p, r, icon, 16.0, if sel { theme::ICON_SELECTED } else { theme::ICON });
             widgets::record(ui, &format!("board-line-{line:?}"), r);
             if resp.on_hover_text(tip).clicked() {
@@ -358,7 +358,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
             let r = ERect::from_min_size(Pos2::new(x, cy - BTN / 2.0), EV::splat(BTN));
             let resp = ui.interact(r, ui.id().with(("board-cap-btn", tip)), Sense::click());
             let open = app.board.bar_menu.map(|m| m.0) == Some(menu);
-            widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_MEDIUM));
+            widgets::button_bg(&p, r, &resp, open, theme::cr(theme::RADIUS_CONTROL));
             let cap = cur_caps.map(|c| if flip { c.0 } else { c.1 }).unwrap_or_default();
             cap_glyph(&p, r.shrink(2.0), cap, flip, theme::ICON);
             widgets::record(ui, &format!("board-cap-{}", if flip { "start" } else { "end" }), r);
@@ -377,7 +377,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
         let plus = ERect::from_min_size(Pos2::new(x + BTN + 30.0, cy - BTN / 2.0), EV::splat(BTN));
         for (r, icon, up, key) in [(minus, Icon::Minus, false, "board-size-minus"), (plus, Icon::Plus, true, "board-size-plus")] {
             let resp = ui.interact(r, ui.id().with(key), Sense::click());
-            widgets::button_bg(&p, r, &resp, false, theme::cr(theme::RADIUS_MEDIUM));
+            widgets::button_bg(&p, r, &resp, false, theme::cr(theme::RADIUS_CONTROL));
             widgets::paint_icon_in(&p, r, icon, 14.0, theme::ICON);
             widgets::record(ui, key, r);
             if resp.on_hover_text(if up { "Larger text" } else { "Smaller text" }).clicked() {
@@ -396,7 +396,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
             let r = ERect::from_min_size(Pos2::new(x, cy - BTN / 2.0), EV::splat(BTN));
             let resp = ui.interact(r, ui.id().with(key), Sense::click());
             let sel = cur == a;
-            widgets::button_bg(&p, r, &resp, sel, theme::cr(theme::RADIUS_MEDIUM));
+            widgets::button_bg(&p, r, &resp, sel, theme::cr(theme::RADIUS_CONTROL));
             widgets::paint_icon_in(&p, r, icon, 16.0, if sel { theme::ICON_SELECTED } else { theme::ICON });
             widgets::record(ui, key, r);
             if resp.clicked() {
@@ -412,7 +412,7 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
         let shown = matches!(first.as_ref().map(|n| &n.kind), Some(NodeKind::Sticky(s)) if s.show_author);
         let r = ERect::from_min_size(Pos2::new(x, cy - BTN / 2.0), EV::splat(BTN));
         let resp = ui.interact(r, ui.id().with("board-author"), Sense::click());
-        widgets::button_bg(&p, r, &resp, shown, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, r, &resp, shown, theme::cr(theme::RADIUS_CONTROL));
         widgets::paint_icon_in(&p, r, if shown { Icon::Eye } else { Icon::EyeOff }, 16.0, if shown { theme::ICON_SELECTED } else { theme::ICON });
         widgets::record(ui, "board-author", r);
         if resp.on_hover_text("Show author").clicked() {
@@ -448,7 +448,7 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
     let area = egui::Area::new(egui::Id::new("board-bar-menu")).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
         ui.allocate_rect(rect, Sense::hover());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, rect, theme::RADIUS_LARGE);
+        widgets::menu_panel(&p, rect, theme::RADIUS_FRAME);
         let inner = rect.shrink(pad);
         match menu {
             BarMenu::Shape => {
@@ -458,9 +458,9 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
                     let resp = ui.interact(cell, ui.id().with(("board-bar-shape", i)), Sense::click());
                     let r = cell.shrink(2.0);
                     if cur == Some(*k) {
-                        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
                     } else if resp.hovered() {
-                        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     if let Some(t) = app.board.previews.shape(ui.ctx(), *k, color_of(0xE6E6E6), 24.0, 18.0) {
                         p.image(
@@ -490,9 +490,9 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
                     let resp = ui.interact(cell, ui.id().with(("board-bar-cap", i)), Sense::click());
                     let r = cell.shrink(2.0);
                     if cur == Some(*cap) {
-                        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
                     } else if resp.hovered() {
-                        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     cap_glyph(&p, r, *cap, start, theme::ICON);
                     widgets::record(ui, &format!("board-bar-cap-{cap:?}"), cell);

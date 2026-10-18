@@ -160,11 +160,20 @@
       "kind": "register",
       "note": "Panel/RightInspector",
       "ts": "2026-10-16T02:05:22.327Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "JetBrains Mono, SFMono-Regular, Menlo, monospace",
+      "kind": "change-token",
+      "path": "typography.font-family-mono",
+      "reason": "the UI monospace role is the bundled Roboto Mono (principles P5)",
+      "to": "Roboto Mono, SFMono-Regular, Menlo, monospace",
+      "ts": "2026-10-18T15:30:17.533Z"
     }
   ],
-  "compiledHash": "sha256-buB80oyG9-54ddEPH347TuclhAfh3Zf8o-rguV2vrtQ",
+  "compiledHash": "sha256-ky5IppkONogAl8n8C5QYPMSU_-pdWOlAAGSZUH30Oe8",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 27,
+  "generation": 28,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {

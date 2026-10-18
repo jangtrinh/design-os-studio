@@ -89,6 +89,7 @@ printf 'APPL????' > "$app/Contents/PkgInfo"
 # Keep embedded asset notices inside the app, including when installed from the DMG.
 mkdir -p "$res_dir/licenses"
 cp "$root/crates/designos-fonts/assets/inter/OFL.txt" "$res_dir/licenses/Inter-OFL.txt"
+cp "$root/crates/designos-fonts/assets/roboto-mono/OFL.txt" "$res_dir/licenses/RobotoMono-OFL.txt"
 cp "$root/crates/designos-app/assets/icons/phosphor/LICENSE" "$res_dir/licenses/Phosphor-LICENSE.txt"
 cp "$root/crates/designos-app/assets/icons/lucide/LICENSE" "$res_dir/licenses/Lucide-LICENSE.txt"
 

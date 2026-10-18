@@ -298,7 +298,7 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
 
     // Preview.
     let prev = at(theme::SECTION_CONTENT_X, y, theme::SECTION_CONTENT_W, PREVIEW_H);
-    ui.painter().rect_filled(prev, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    ui.painter().rect_filled(prev, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     if let Some(t) = thumbnail(app, ui, first) {
         // The texture holds up to 2x the logical size; never show it larger than that.
         let sz = t.tex.size_vec2();
@@ -312,7 +312,7 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
     // Export button.
     let btn = at(theme::SECTION_CONTENT_X, y, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
     let resp = ui.interact(btn, ui.id().with("export-btn"), Sense::click());
-    ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     icons::paint(ui.painter(), Icon::Export, Pos2::new(btn.left() + 16.0, btn.center().y), 14.0, theme::ICON_SECONDARY);
     let label = if sel.len() > 1 { format!("Export {} layers", sel.len()) } else { format!("Export {name}") };
     let label = elide(ui.painter(), &label, &theme::font_body(), btn.width() - 44.0);

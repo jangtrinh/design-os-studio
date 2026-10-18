@@ -26,15 +26,19 @@ pub const BG_TERTIARY: Color32 = rgb(0x27272A);
 pub const BG_HOVER: Color32 = rgb(0x232329);
 pub const BG_PRESSED: Color32 = rgb(0x2E2E36);
 pub const BG_MENU: Color32 = rgb(0x18181B);
-pub const BG_SELECTED: Color32 = rgb(0x2B1D16);
-pub const BG_SELECTED_HOVER: Color32 = rgb(0x38251C);
-pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x211814);
+// Selection is a neutral fill (P2): the selected tool, tab and row. Accent colour is for the
+// one primary action and for live state; canvas selection stays blue.
+pub const BG_SELECTED: Color32 = BG_PRESSED;
+pub const BG_SELECTED_HOVER: Color32 = rgb(0x383840);
+pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x24242A);
+/// Highlight of selected text inside a text field (egui `selection.bg_fill`).
+pub const BG_TEXT_SELECTION: Color32 = rgb(0x2B1D16);
 pub const BG_BRAND: Color32 = rgb(0xE36323);
 pub const BG_BRAND_HOVER: Color32 = rgb(0xF06D2B);
 pub const BG_BRAND_PRESSED: Color32 = rgb(0xC85217);
 pub const BG_TOOLBAR: Color32 = rgb(0x18181B);
 pub const BG_TOOLBAR_HOVER: Color32 = rgb(0x27272A);
-pub const BG_TOOLBAR_SELECTED: Color32 = rgb(0xE36323);
+pub const BG_TOOLBAR_SELECTED: Color32 = BG_SELECTED;
 pub const BG_TOOLBAR_MODE_SWITCHER: Color32 = rgb(0x27272A);
 pub const BG_SELECTED_AREA: Color32 = rgba(0x3582FF, 0x33);
 pub const BORDER: Color32 = rgb(0x27272A);
@@ -52,7 +56,7 @@ pub const TEXT_COMPONENT: Color32 = rgb(0x22D3EE);
 pub const ICON: Color32 = rgb(0xF4F4F5);
 pub const ICON_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
 pub const ICON_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
-pub const ICON_SELECTED: Color32 = rgb(0xFF9E66);
+pub const ICON_SELECTED: Color32 = ICON;
 pub const DANGER: Color32 = rgb(0xFE5938);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const BG_ELEVATED: Color32 = rgb(0x18181B);
@@ -99,10 +103,16 @@ pub const DROP_INDICATOR: Color32 = rgb(0xE36323);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts
-pub const FONT_SIZE_SMALL: f32 = 9.0;
+/// Chrome captions: sublabels, rail labels, counts, chips (P5).
+pub const FONT_SIZE_CAPTION: f32 = 10.0;
+/// Canvas overlays only (rulers, canvas pills, annotation marks): the declared exception to the chrome floor.
+pub const FONT_SIZE_CANVAS: f32 = 9.0;
 pub const FONT_SIZE_BODY: f32 = 11.0;
 pub const FONT_SIZE_LARGE: f32 = 13.0;
 pub const FONT_SIZE_TITLE: f32 = 20.0;
+/// Line heights: body text 16px, captions 14px (P5). A label box is one caption line.
+pub const LINE_BODY: f32 = 16.0;
+pub const LINE_CAPTION: f32 = 14.0;
 pub const CHEVRON_SMALL: f32 = 10.0;
 pub const FONT_SIZE_LABEL_CANVAS: f32 = 11.0;
 pub const FAMILY_STRONG: &str = "designos-strong";
@@ -112,20 +122,29 @@ pub const UI_FONT_WEIGHT: f32 = 450.0;
 pub const UI_FONT_WEIGHT_STRONG: f32 = 550.0;
 pub const UI_FONT_WEIGHT_MEDIUM: f32 = 500.0;
 pub const FAMILY_MEDIUM: &str = "designos-medium";
-/// Table headers and sidebar rows of the variables view (ui-spec: weight 600).
-pub const UI_FONT_WEIGHT_SEMIBOLD: f32 = 600.0;
-pub const FAMILY_SEMIBOLD: &str = "designos-semibold";
+/// The UI monospace role (numbers, hex codes, token paths): bundled Roboto Mono at its regular instance.
+pub const UI_MONO_FAMILY: &str = "Roboto Mono";
+pub const UI_MONO_WEIGHT: f32 = 400.0;
 /// Inter's optical-size axis at text sizes.
 pub const UI_FONT_OPSZ: f32 = 14.0;
 
-pub fn font_small() -> FontId {
-    FontId::new(FONT_SIZE_SMALL, FontFamily::Proportional)
+pub fn font_caption() -> FontId {
+    FontId::new(FONT_SIZE_CAPTION, FontFamily::Proportional)
 }
-pub fn font_small_medium() -> FontId {
-    FontId::new(FONT_SIZE_SMALL, FontFamily::Name(FAMILY_MEDIUM.into()))
+pub fn font_caption_medium() -> FontId {
+    FontId::new(FONT_SIZE_CAPTION, FontFamily::Name(FAMILY_MEDIUM.into()))
 }
-pub fn font_small_strong() -> FontId {
-    FontId::new(FONT_SIZE_SMALL, FontFamily::Name(FAMILY_STRONG.into()))
+pub fn font_caption_strong() -> FontId {
+    FontId::new(FONT_SIZE_CAPTION, FontFamily::Name(FAMILY_STRONG.into()))
+}
+pub fn font_canvas() -> FontId {
+    FontId::new(FONT_SIZE_CANVAS, FontFamily::Proportional)
+}
+pub fn font_canvas_medium() -> FontId {
+    FontId::new(FONT_SIZE_CANVAS, FontFamily::Name(FAMILY_MEDIUM.into()))
+}
+pub fn font_canvas_strong() -> FontId {
+    FontId::new(FONT_SIZE_CANVAS, FontFamily::Name(FAMILY_STRONG.into()))
 }
 pub fn font_body() -> FontId {
     FontId::new(FONT_SIZE_BODY, FontFamily::Proportional)
@@ -136,9 +155,6 @@ pub fn font_body_medium() -> FontId {
 /// Menu rows: Inter at the medium instance.
 pub fn font_menu() -> FontId {
     FontId::new(FONT_SIZE_BODY, FontFamily::Name(FAMILY_MEDIUM.into()))
-}
-pub fn font_body_semibold() -> FontId {
-    FontId::new(FONT_SIZE_BODY, FontFamily::Name(FAMILY_SEMIBOLD.into()))
 }
 pub fn font_body_strong() -> FontId {
     FontId::new(FONT_SIZE_BODY, FontFamily::Name(FAMILY_STRONG.into()))
@@ -158,9 +174,16 @@ pub fn font_mono() -> FontId {
 }
 
 // ---------------------------------------------------------------- radii
-pub const RADIUS_SMALL: u8 = 2;
-pub const RADIUS_MEDIUM: u8 = 5;
-pub const RADIUS_LARGE: u8 = 13;
+// Four radius roles (design/principles.md P4). A shape inset `x` px inside a frame takes
+// `concentric(outer, x)`; a pill takes `radius_full(height)`.
+/// Tiny marks: swatches, canvas badges.
+pub const RADIUS_MARK: u8 = 2;
+/// The tile inside a segmented control: `RADIUS_CONTROL - INSET_SEGMENT`.
+pub const RADIUS_SEGMENT: u8 = 4;
+/// Controls, fields, tool buttons, rows and the hover pills of a frame: `RADIUS_FRAME - INSET_FRAME`.
+pub const RADIUS_CONTROL: u8 = 6;
+/// Floating chrome: menus, palettes, popovers, modals, toasts, toolbars.
+pub const RADIUS_FRAME: u8 = 14;
 
 pub fn cr(r: u8) -> CornerRadius {
     CornerRadius::same(r)
@@ -169,7 +192,62 @@ pub fn cr_each(nw: u8, ne: u8, se: u8, sw: u8) -> CornerRadius {
     CornerRadius { nw, ne, se, sw }
 }
 
+/// Radius of a shape inset `inset` px inside a frame of radius `outer_radius`, so both
+/// corner arcs share one centre (concentric). Clamped at 0 when the inset swallows the arc.
+/// Pass the stroke width in `inset` when the frame strokes `StrokeKind::Inside`.
+#[allow(dead_code)] // no call site yet: later changes derive nested radii through it
+pub fn concentric(outer_radius: f32, inset: f32) -> f32 {
+    (outer_radius - inset).max(0.0)
+}
+
+/// Pill-shaped corners for a chip, badge, status mark or button of the given height (P4).
+pub fn cr_pill(height: f32) -> CornerRadius {
+    cr(radius_full(height).round() as u8)
+}
+
+/// Radius that rounds both ends of a control of the given height into a half circle.
+#[allow(dead_code)] // no call site yet: pills are adopted per surface in later changes
+pub fn radius_full(height: f32) -> f32 {
+    (height * 0.5).max(0.0)
+}
+
 // ---------------------------------------------------------------- spacing
+// Every gap names the relationship it separates and takes that rung (design/principles.md P3).
+// Rungs may share a value but never swap order. All values sit on the 4px grid.
+/// Parts of one fact: icon and label, a label and the field it names.
+pub const SPACE_FACT: f32 = 4.0;
+/// Stacked rows in one group.
+pub const SPACE_ROW: f32 = 4.0;
+/// Peers side by side: field columns, buttons in a bar, chips, tabs.
+pub const SPACE_INLINE: f32 = 8.0;
+/// Group to group inside a section.
+pub const SPACE_GROUP: f32 = 12.0;
+/// Block to block in one region: cards in a grid.
+#[allow(dead_code)] // rung of the ladder; first adopted when the Home rhythm literals retire
+pub const SPACE_BLOCK: f32 = 16.0;
+/// Section to section in a panel.
+#[allow(dead_code)] // rung of the ladder; first adopted when the Home rhythm literals retire
+pub const SPACE_SECTION: f32 = 24.0;
+/// Region to region: Home header to grid, Home section to section.
+#[allow(dead_code)] // rung of the ladder; first adopted when the Home rhythm literals retire
+pub const SPACE_REGION: f32 = 48.0;
+
+// Insets: padding inside an element's own frame (P3, P10). A child's inset never exceeds its parent's.
+pub const INSET_SEGMENT: f32 = 2.0;
+pub const INSET_CONTROL: f32 = 8.0;
+pub const INSET_FRAME: f32 = 8.0;
+pub const INSET_BUTTON: f32 = 12.0;
+pub const INSET_PANEL: f32 = 16.0;
+pub const INSET_POPOVER: f32 = 16.0;
+pub const INSET_MODAL: f32 = 24.0;
+
+// Control heights: a separate family the ladder never re-values (P3).
+pub const CONTROL_DENSE: f32 = 24.0;
+pub const CONTROL_STANDARD: f32 = 28.0;
+pub const CONTROL_TOOL: f32 = 32.0;
+pub const CONTROL_ROW: f32 = 40.0;
+/// Smallest pointer target (WCAG 2.5.8 AA).
+pub const TARGET_MIN: f32 = 24.0;
 
 // ---------------------------------------------------------------- shell layout
 pub const RAIL_WIDTH: f32 = 56.0;
@@ -195,17 +273,17 @@ pub const LEFT_SUBLABEL_Y: f32 = 40.0;
 pub const LEFT_ACTION_Y: f32 = 12.0;
 pub const LEFT_SIDEBAR_BTN_RIGHT_PAD: f32 = 12.0;
 pub const PAGES_SEARCH_DX: f32 = 28.0;
-pub const PANEL_TITLE_ROW_HEIGHT: f32 = 40.0;
-pub const PANEL_ACTION_BUTTON: f32 = 24.0;
+pub const PANEL_TITLE_ROW_HEIGHT: f32 = CONTROL_ROW;
+pub const PANEL_ACTION_BUTTON: f32 = TARGET_MIN;
 pub const PANEL_ACTION_RIGHT_PAD: f32 = 8.0;
-pub const PANEL_PADDING_X: f32 = 16.0;
-pub const PAGE_ROW_HEIGHT: f32 = 24.0;
-pub const PAGE_ROW_INSET: f32 = 8.0;
+pub const PANEL_PADDING_X: f32 = INSET_PANEL;
+pub const PAGE_ROW_HEIGHT: f32 = CONTROL_DENSE;
+pub const PAGE_ROW_INSET: f32 = INSET_FRAME;
 pub const PAGE_ROW_TEXT_PAD: f32 = 8.0;
 pub const PAGES_MAX_VISIBLE_ROWS: usize = 5;
 pub const PAGE_MENU_WIDTH: f32 = 160.0;
-pub const LAYER_HEADER_HEIGHT: f32 = 40.0;
-pub const LAYER_ROW_HEIGHT: f32 = 32.0;
+pub const LAYER_HEADER_HEIGHT: f32 = CONTROL_ROW;
+pub const LAYER_ROW_HEIGHT: f32 = CONTROL_TOOL;
 pub const LAYER_INDENT: f32 = 16.0;
 pub const LAYER_CHEVRON_BOX: f32 = 24.0;
 pub const LAYER_CHEVRON_PAD: f32 = 8.0;
@@ -215,7 +293,7 @@ pub const LAYER_TOGGLE_SIZE: f32 = 24.0;
 pub const LAYER_DROP_THICKNESS: f32 = 2.0;
 
 // Find and replace panel and the layers name filter (left sidebar).
-pub const FIND_FIELD_H: f32 = 28.0;
+pub const FIND_FIELD_H: f32 = CONTROL_STANDARD;
 pub const FIND_ROW_GAP: f32 = 8.0;
 pub const FIND_TOGGLE_SIZE: f32 = 22.0;
 pub const FIND_BUTTON_H: f32 = 24.0;
@@ -238,10 +316,10 @@ pub const PRESENT_ICON_H: f32 = 16.0;
 #[allow(dead_code)]
 pub const PRESENT_ICON_STROKE: f32 = 1.2;
 pub const RIGHT_BTN_Y: f32 = 8.0;
-pub const RIGHT_BTN_SIZE: f32 = 32.0;
+pub const RIGHT_BTN_SIZE: f32 = CONTROL_TOOL;
 pub const RIGHT_PRESENT_CHEVRON_W: f32 = 16.0;
 pub const RIGHT_TABS_Y: f32 = 48.0;
-pub const RIGHT_TABS_H: f32 = 24.0;
+pub const RIGHT_TABS_H: f32 = CONTROL_DENSE;
 pub const RIGHT_TABS_X: f32 = 9.0;
 pub const RIGHT_TAB_PAD_X: f32 = 8.0;
 pub const RIGHT_ZOOM_FROM_RIGHT: f32 = 63.0;
@@ -251,11 +329,11 @@ pub const RIGHT_SELECTION_HEADER_Y: f32 = 93.0;
 pub const RIGHT_NAME_FIELD_X: f32 = 9.0;
 pub const RIGHT_NAME_FIELD_W: f32 = 136.0;
 pub const RIGHT_NAME_ACTION_X: [f32; 3] = [153.0, 181.0, 209.0];
-pub const SECTION_TITLE_HEIGHT: f32 = 40.0;
+pub const SECTION_TITLE_HEIGHT: f32 = CONTROL_ROW;
 pub const SECTION_CONTENT_X: f32 = 17.0;
 pub const SECTION_CONTENT_W: f32 = 184.0;
 pub const SECTION_TRAILING_X: f32 = 209.0;
-pub const FIELD_HEIGHT: f32 = 24.0;
+pub const FIELD_HEIGHT: f32 = CONTROL_DENSE;
 pub const FIELD_WIDTH_HALF: f32 = 88.0;
 pub const FIELD_COL_X: [f32; 2] = [17.0, 113.0];
 pub const FIELD_PREFIX_W: f32 = 24.0;
@@ -272,10 +350,13 @@ pub const FIELD_PLAIN_X: f32 = 8.0;
 pub const FIELD_SUFFIX_GAP: f32 = 4.0;
 pub const DISTRIBUTE_BTN_X: f32 = 209.0;
 pub const SUBLABEL_HEIGHT: f32 = 16.0;
+/// The label box of a labelled field group: one caption line, `SPACE_GROUP` below the field above and
+/// `SPACE_FACT` above the field it names, so the label reads as part of the field it names (P9).
+pub const LABEL_BOX_H: f32 = LINE_CAPTION;
 pub const SEGMENT_W: f32 = 29.0;
 pub const SEGMENT_GROUP_GAP: f32 = 8.0;
 pub const SWATCH_SIZE: f32 = 16.0;
-pub const SWATCH_RADIUS: u8 = 2;
+pub const SWATCH_RADIUS: u8 = RADIUS_MARK;
 pub const SWATCH_ROW_X: f32 = 17.0;
 pub const STYLE_ROW_H: f32 = 32.0;
 /// Colour-style rows: circle swatch centre (from the row's left) and label x.
@@ -307,7 +388,7 @@ pub const OPACITY_FIELD_W: f32 = 48.0;
 pub const TOOLBELT_HEIGHT: f32 = 48.0;
 pub const TOOLBELT_BOTTOM_MARGIN: f32 = 12.0;
 pub const TOOLBELT_PADDING: f32 = 8.0;
-pub const TOOL_BUTTON: f32 = 32.0;
+pub const TOOL_BUTTON: f32 = CONTROL_TOOL;
 pub const TOOL_CHEVRON_W: f32 = 16.0;
 pub const TOOL_CHEVRON_GAP: f32 = 0.0;
 /// Glyph size of the dropdown chevrons (the 16px box holds a ~6px wide arrow).
@@ -318,22 +399,19 @@ pub const TOOL_GROUP_GAP: f32 = 8.0;
 pub const TOOL_ICON_SIZE: f32 = 20.0;
 /// Mode switcher: 4 segments (draw, design, prototype, dev) in a padded rounded group.
 pub const MODE_SEGMENTS: usize = 4;
-pub const MODE_SWITCH_PAD: f32 = 2.0;
+pub const MODE_SWITCH_PAD: f32 = INSET_SEGMENT;
 pub const MODE_SWITCH_W: f32 = 29.5;
-pub const MODE_TILE_RADIUS: u8 = 3;
 /// 1px divider before the switcher: distance after the last tool, and before the switcher.
 pub const TOOLBAR_DIVIDER_GAP_BEFORE: f32 = 13.0;
 pub const TOOLBAR_DIVIDER_GAP_AFTER: f32 = 8.0;
 
 pub const MENU_WIDTH: f32 = 200.0;
-pub const MENU_ITEM_HEIGHT: f32 = 24.0;
+pub const MENU_ITEM_HEIGHT: f32 = CONTROL_DENSE;
 /// Vertical padding above the first and below the last row.
-pub const MENU_PADDING: f32 = 8.0;
-pub const MENU_RADIUS: u8 = 13;
+pub const MENU_PADDING: f32 = INSET_FRAME;
 /// Highlight pill: inset from the panel edges, corner radius.
-pub const MENU_PILL_INSET: f32 = 8.0;
-pub const MENU_PILL_RADIUS: u8 = 5;
-pub const BG_MENU_SELECTED: Color32 = BG_BRAND;
+pub const MENU_PILL_INSET: f32 = INSET_FRAME;
+pub const BG_MENU_SELECTED: Color32 = BG_SELECTED;
 /// Columns (x from the panel's left edge): check, icon box, label.
 pub const MENU_CHECK_X: f32 = 12.0;
 pub const MENU_CHECK_BOX: f32 = 16.0;
@@ -369,7 +447,6 @@ pub const MAIN_MENU_WIDTH: f32 = 210.0;
 pub const PALETTE_WIDTH: f32 = 320.0;
 #[allow(dead_code)]
 pub const PALETTE_TOP: f32 = 64.0;
-pub const TOAST_RADIUS: u8 = 13;
 pub const TOAST_HEIGHT: f32 = 40.0;
 pub const TOAST_BOTTOM: f32 = 72.0;
 pub const TOAST_SECONDS: f64 = 4.0;
@@ -411,7 +488,7 @@ pub const CANVAS_HANDLE_HIT: f32 = 6.0;
 pub const CANVAS_BADGE_OFFSET: f32 = 4.0;
 pub const CANVAS_BADGE_PAD_X: f32 = 4.0;
 pub const CANVAS_BADGE_HEIGHT: f32 = 16.0;
-pub const CANVAS_BADGE_RADIUS: u8 = 2;
+pub const CANVAS_BADGE_RADIUS: u8 = RADIUS_MARK;
 pub const CANVAS_LABEL_GAP: f32 = 4.0;
 pub const CANVAS_LABEL_MAX_ZOOM_HIDE: f32 = 0.05;
 pub const SNAP_THRESHOLD_PX: f32 = 5.0;
@@ -435,7 +512,7 @@ pub const FIT_PADDING: f32 = 64.0;
 pub const TEXT_CARET_WIDTH: f32 = 1.0;
 /// Rulers (Shift+R): 20px strips on the top and left of the canvas.
 pub const RULER_SIZE: f32 = 20.0;
-pub const RULER_FONT_SIZE: f32 = 9.0;
+pub const RULER_FONT_SIZE: f32 = FONT_SIZE_CANVAS;
 /// Tick labels: white at 70% (#ffffffb2).
 pub const RULER_TEXT: Color32 = rgba(0xFFFFFF, 0xB2);
 pub const RULER_TICK: Color32 = rgba(0xFFFFFF, 0x66);
@@ -488,7 +565,7 @@ pub const ANNOTATION_TEXT: Color32 = rgb(0x1E1E1E);
 pub const ANNOTATION_LINE: Color32 = rgb(0xFFB800);
 /// Measurement overlay red (distances between layers).
 pub const MEASURE: Color32 = rgb(0xF24822);
-pub const CODE_LINE_HEIGHT: f32 = 16.0;
+pub const CODE_LINE_HEIGHT: f32 = LINE_BODY;
 
 // ---------------------------------------------------------------- prototype
 /// Noodles, hotspots and flow flags use the brand blue.
@@ -534,16 +611,16 @@ pub fn apply(ctx: &egui::Context) {
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
     v.window_stroke = egui::Stroke::new(1.0, BORDER_MENU);
-    v.window_corner_radius = cr(RADIUS_MEDIUM);
-    v.menu_corner_radius = cr(RADIUS_MEDIUM);
-    v.selection.bg_fill = BG_SELECTED;
+    v.window_corner_radius = cr(RADIUS_CONTROL);
+    v.menu_corner_radius = cr(RADIUS_CONTROL);
+    v.selection.bg_fill = BG_TEXT_SELECTION;
     v.selection.stroke = egui::Stroke::new(1.0, BORDER_SELECTED);
     v.text_cursor.stroke = egui::Stroke::new(1.0, TEXT);
     v.widgets.noninteractive.bg_fill = BG;
     v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, TEXT);
     v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, BORDER);
     for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
-        w.corner_radius = cr(RADIUS_MEDIUM);
+        w.corner_radius = cr(RADIUS_CONTROL);
         w.fg_stroke = egui::Stroke::new(1.0, TEXT);
     }
     v.widgets.inactive.bg_fill = BG_SECONDARY;
@@ -559,12 +636,12 @@ pub fn apply(ctx: &egui::Context) {
     style.spacing.scroll.floating = true;
     style.text_styles.insert(egui::TextStyle::Body, font_body());
     style.text_styles.insert(egui::TextStyle::Button, font_body());
-    style.text_styles.insert(egui::TextStyle::Small, font_small());
+    style.text_styles.insert(egui::TextStyle::Small, font_caption());
     style.text_styles.insert(egui::TextStyle::Monospace, font_mono());
     ctx.set_global_style(style);
 }
 
-/// Installs the bundled Inter variable font as two instances: regular and strong.
+/// Installs the bundled Inter variable font (regular, medium, strong instances) and Roboto Mono.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let inter = designos_fonts::bundled().iter().find(|a| a.family == UI_FONT_FAMILY && !a.italic).expect("bundled Inter");
@@ -575,7 +652,6 @@ pub fn install_fonts(ctx: &egui::Context) {
     fonts.font_data.insert("ui-regular".into(), instance(UI_FONT_WEIGHT));
     fonts.font_data.insert("ui-strong".into(), instance(UI_FONT_WEIGHT_STRONG));
     fonts.font_data.insert("ui-medium".into(), instance(UI_FONT_WEIGHT_MEDIUM));
-    fonts.font_data.insert("ui-semibold".into(), instance(UI_FONT_WEIGHT_SEMIBOLD));
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "ui-regular".into());
     let mut strong_family = vec!["ui-strong".to_string()];
     strong_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
@@ -583,9 +659,11 @@ pub fn install_fonts(ctx: &egui::Context) {
     let mut medium_family = vec!["ui-medium".to_string()];
     medium_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
     fonts.families.insert(FontFamily::Name(FAMILY_MEDIUM.into()), medium_family);
-    let mut semibold_family = vec!["ui-semibold".to_string()];
-    semibold_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
-    fonts.families.insert(FontFamily::Name(FAMILY_SEMIBOLD.into()), semibold_family);
+    // Monospace role: bundled Roboto Mono first, egui's default mono face as the glyph fallback.
+    let mono = designos_fonts::bundled().iter().find(|a| a.family == UI_MONO_FAMILY && !a.italic).expect("bundled Roboto Mono");
+    let mono_tweak = egui::FontTweak { coords: egui::epaint::text::VariationCoords::new([("wght", UI_MONO_WEIGHT)]), ..Default::default() };
+    fonts.font_data.insert("ui-mono".into(), std::sync::Arc::new(egui::FontData::from_static(mono.data).tweak(mono_tweak)));
+    fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "ui-mono".into());
     ctx.set_fonts(fonts);
 }
 
@@ -618,8 +696,8 @@ pub const VAR_FLOAT_W: f32 = 642.0;
 pub const VAR_FLOAT_H: f32 = 380.0;
 pub const VAR_FLOAT_Y: f32 = 8.0;
 pub const VAR_FLOAT_BAR_H: f32 = 40.0;
-pub const VAR_HEAD_H: f32 = 40.0;
-pub const VAR_ROW_H: f32 = 40.0;
+pub const VAR_HEAD_H: f32 = CONTROL_ROW;
+pub const VAR_ROW_H: f32 = CONTROL_ROW;
 pub const VAR_ROW_PITCH: f32 = 41.0;
 /// Name column width (the 1px grid line follows it).
 pub const VAR_NAME_COL: f32 = 200.0;
@@ -631,8 +709,8 @@ pub const VAR_SCROLL_H: f32 = 11.0;
 pub const VAR_SCROLL_THUMB: Color32 = rgb(0x707070);
 pub const VAR_SEARCH_W: f32 = 174.0;
 pub const VAR_FILTER_W: f32 = 25.0;
-pub const VAR_SIDE_ROW: f32 = 32.0;
-pub const VAR_PILL_H: f32 = 24.0;
+pub const VAR_SIDE_ROW: f32 = CONTROL_TOOL;
+pub const VAR_PILL_H: f32 = CONTROL_DENSE;
 pub const VAR_ICON_X: f32 = 16.0;
 pub const VAR_NAME_X: f32 = 44.0;
 pub const VAR_SWATCH: f32 = 16.0;
@@ -673,3 +751,148 @@ pub const BOARD_BAR_GAP: f32 = 12.0;
 pub const BOARD_BAR_BTN: f32 = 28.0;
 pub const BOARD_SWATCH: f32 = 18.0;
 pub const BOARD_BAR_SEP: f32 = 8.0;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concentric_subtracts_the_inset() {
+        assert_eq!(concentric(14.0, 8.0), 6.0);
+        assert_eq!(concentric(6.0, 2.0), 4.0);
+        assert_eq!(concentric(5.0, 0.0), 5.0);
+    }
+
+    #[test]
+    fn concentric_clamps_at_zero_when_the_inset_reaches_the_arc() {
+        assert_eq!(concentric(6.0, 6.0), 0.0);
+        assert_eq!(concentric(6.0, 16.0), 0.0);
+    }
+
+    #[test]
+    fn concentric_grows_for_a_negative_inset() {
+        assert_eq!(concentric(6.0, -2.0), 8.0);
+    }
+
+    #[test]
+    fn concentric_never_returns_nan() {
+        assert_eq!(concentric(f32::NAN, 4.0), 0.0);
+    }
+
+    #[test]
+    fn radius_full_is_half_the_height() {
+        assert_eq!(radius_full(24.0), 12.0);
+        assert_eq!(radius_full(28.0), 14.0);
+        assert_eq!(radius_full(0.0), 0.0);
+    }
+
+    #[test]
+    fn radius_full_clamps_a_negative_height() {
+        assert_eq!(radius_full(-8.0), 0.0);
+    }
+
+    const LADDER: [f32; 7] = [SPACE_FACT, SPACE_ROW, SPACE_INLINE, SPACE_GROUP, SPACE_BLOCK, SPACE_SECTION, SPACE_REGION];
+    const INSETS: [f32; 7] = [INSET_SEGMENT, INSET_CONTROL, INSET_FRAME, INSET_BUTTON, INSET_PANEL, INSET_POPOVER, INSET_MODAL];
+    const CONTROLS: [f32; 5] = [CONTROL_DENSE, CONTROL_STANDARD, CONTROL_TOOL, CONTROL_ROW, TARGET_MIN];
+
+    #[test]
+    fn ladder_insets_and_controls_sit_on_the_4px_grid() {
+        // The segment inset (2px) is the one declared half-step inside a control.
+        for v in LADDER.into_iter().chain(INSETS.into_iter().filter(|v| *v != INSET_SEGMENT)).chain(CONTROLS) {
+            assert_eq!(v % 4.0, 0.0, "{v} is off the 4px grid");
+        }
+    }
+
+    #[test]
+    fn the_ladder_never_inverts() {
+        for pair in LADDER.windows(2) {
+            assert!(pair[0] <= pair[1], "{} is followed by the smaller {}", pair[0], pair[1]);
+        }
+    }
+
+    #[test]
+    fn a_group_sits_at_least_twice_its_inner_gap_from_its_neighbours() {
+        // (outer gap, the inner gap it must clear twice over)
+        for (outer, inner) in [(SPACE_GROUP, SPACE_FACT), (SPACE_BLOCK, SPACE_INLINE), (SPACE_REGION, SPACE_BLOCK)] {
+            assert!(outer >= 2.0 * inner, "{outer} is not twice {inner}");
+        }
+    }
+
+    #[test]
+    fn a_child_inset_never_exceeds_its_parent_inset() {
+        let chain = [INSET_MODAL, INSET_POPOVER, INSET_PANEL, INSET_BUTTON, INSET_FRAME, INSET_CONTROL, INSET_SEGMENT];
+        assert!(chain.windows(2).all(|w| w[0] >= w[1]), "{chain:?} is not non-increasing");
+    }
+
+    #[test]
+    fn control_heights_are_the_ratified_family() {
+        assert_eq!([CONTROL_DENSE, CONTROL_STANDARD, CONTROL_TOOL, CONTROL_ROW], [24.0, 28.0, 32.0, 40.0]);
+        assert_eq!(TARGET_MIN, 24.0);
+        assert_eq!(CONTROL_DENSE, TARGET_MIN, "the densest control sits exactly on the pointer floor");
+        assert_eq!(RIGHT_TABS_H, CONTROL_DENSE, "inspector tab strips are 24px, not 28px");
+    }
+
+    #[test]
+    fn nested_radii_are_concentric() {
+        assert_eq!(RADIUS_FRAME as f32 - INSET_FRAME, RADIUS_CONTROL as f32);
+        assert_eq!(RADIUS_CONTROL as f32 - INSET_SEGMENT, RADIUS_SEGMENT as f32);
+        assert_eq!(concentric(RADIUS_FRAME as f32, INSET_FRAME), RADIUS_CONTROL as f32);
+        assert_eq!(concentric(RADIUS_CONTROL as f32, INSET_SEGMENT), RADIUS_SEGMENT as f32);
+        // The chain from a frame down to a segment tile never grows.
+        let chain = [RADIUS_FRAME, RADIUS_CONTROL, RADIUS_SEGMENT, RADIUS_MARK];
+        assert!(chain.windows(2).all(|w| w[0] > w[1]), "{chain:?} is not strictly decreasing");
+    }
+
+    #[test]
+    fn menu_pills_inset_by_the_frame_inset() {
+        assert_eq!(MENU_PILL_INSET, INSET_FRAME);
+        assert_eq!(concentric(RADIUS_FRAME as f32, MENU_PILL_INSET), RADIUS_CONTROL as f32);
+    }
+
+    #[test]
+    fn pill_radius_is_half_the_height() {
+        assert_eq!(cr_pill(20.0), cr(10));
+        assert_eq!(cr_pill(26.0), cr(13));
+        assert_eq!(cr_pill(28.0), cr(14));
+    }
+
+    #[test]
+    fn type_roles_keep_their_order_and_the_canvas_size_is_the_only_one_below_the_chrome_floor() {
+        let chain = [FONT_SIZE_CANVAS, FONT_SIZE_CAPTION, FONT_SIZE_BODY, FONT_SIZE_LARGE, FONT_SIZE_TITLE];
+        assert!(chain.windows(2).all(|w| w[0] < w[1]), "{chain:?} is not strictly increasing");
+        assert_eq!([FONT_SIZE_CAPTION, FONT_SIZE_BODY, FONT_SIZE_LARGE, FONT_SIZE_TITLE], [10.0, 11.0, 13.0, 20.0]);
+        assert_eq!(FONT_SIZE_CANVAS, 9.0);
+        assert_eq!(RULER_FONT_SIZE, FONT_SIZE_CANVAS);
+    }
+
+    #[test]
+    fn line_heights_fit_their_roles() {
+        for (line, size, ratio) in [(LINE_CAPTION, FONT_SIZE_CAPTION, 1.3), (LINE_BODY, FONT_SIZE_BODY, 1.4)] {
+            assert!(line >= size * ratio, "line {line} is too tight for {size}px text");
+        }
+        assert_eq!(LABEL_BOX_H, LINE_CAPTION);
+        // A label box plus the gap below it stays inside the 24px field slot it introduces.
+        let slot = std::hint::black_box(CONTROL_DENSE);
+        assert!(LABEL_BOX_H + SPACE_FACT <= slot);
+    }
+
+    #[test]
+    fn only_three_ui_weights_exist() {
+        assert_eq!([UI_FONT_WEIGHT, UI_FONT_WEIGHT_MEDIUM, UI_FONT_WEIGHT_STRONG], [450.0, 500.0, 550.0]);
+    }
+
+    #[test]
+    fn selection_fills_are_neutral() {
+        for c in [BG_SELECTED, BG_SELECTED_HOVER, BG_SELECTED_SECONDARY, BG_MENU_SELECTED, BG_TOOLBAR_SELECTED] {
+            let [r, g, b, _] = c.to_array();
+            assert!(r.abs_diff(b) <= 12 && g.abs_diff(b) <= 12, "selection fill {c:?} carries an accent hue");
+        }
+        assert_ne!(BG_SELECTED, BG_BRAND);
+    }
+
+    #[test]
+    fn the_monospace_role_is_the_bundled_roboto_mono() {
+        assert_eq!(UI_MONO_FAMILY, "Roboto Mono");
+        assert!(designos_fonts::bundled().iter().any(|a| a.family == UI_MONO_FAMILY && !a.italic));
+    }
+}

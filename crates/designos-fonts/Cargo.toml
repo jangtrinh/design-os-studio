@@ -1,6 +1,6 @@
 [package]
 name = "designos-fonts"
-description = "Bundled and on-demand open-source fonts for designos (Inter bundled, Fontsource fetch + disk cache)"
+description = "Bundled and on-demand open-source fonts for designos (Inter and Roboto Mono bundled, Fontsource fetch + disk cache)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

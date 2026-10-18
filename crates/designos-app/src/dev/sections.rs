@@ -23,11 +23,11 @@ pub fn status_color(s: DevStatus) -> Color32 {
 
 /// A rounded status pill with a dot; returns its width.
 pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
-    let font = theme::font_small_medium();
+    let font = theme::font_caption_medium();
     let label = s.label();
     let w = text_width(p, label, &font) + 26.0;
     let r = Rect::from_min_size(at, Vec2::new(w, 20.0));
-    p.rect_filled(r, theme::cr(10), status_color(s).gamma_multiply(0.22));
+    p.rect_filled(r, theme::cr_pill(r.height()), status_color(s).gamma_multiply(0.22));
     p.circle_filled(Pos2::new(r.left() + 10.0, r.center().y), 3.5, status_color(s));
     p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, label, font, theme::TEXT);
     w
@@ -36,7 +36,7 @@ pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
 fn primary_button(ui: &mut Ui, rect: Rect, key: &str, label: &str) -> bool {
     widgets::record(ui, &format!("dev-{key}"), rect);
     let r = ui.interact(rect, ui.id().with(("dev-primary", key)), Sense::click());
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
+    ui.painter().rect_filled(rect, theme::cr_pill(rect.height()), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body_strong(), theme::TEXT);
     r.clicked()
 }
@@ -55,7 +55,7 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         let pw = status_pill(ui.painter(), r.min, s);
         if let Some(u) = updated {
             let date = u.split('T').next().unwrap_or(&u).to_string();
-            ui.painter().text(Pos2::new(r.left() + pw + 8.0, r.center().y), Align2::LEFT_CENTER, date, theme::font_small(), theme::TEXT_TERTIARY);
+            ui.painter().text(Pos2::new(r.left() + pw + 8.0, r.center().y), Align2::LEFT_CENTER, date, theme::font_caption(), theme::TEXT_TERTIARY);
         }
         c.y += 28.0;
     }
@@ -111,7 +111,7 @@ pub fn component_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 
 /// Wrapped chips toggling the pinned properties.
 fn chips(ui: &mut Ui, c: &mut Cur, labels: &[&str], on: &mut Vec<String>) {
-    let font = theme::font_small();
+    let font = theme::font_caption();
     let max_x = c.w - 2.0 * PAD;
     let (mut x, mut y) = (0.0f32, 0.0f32);
     for (i, l) in labels.iter().enumerate() {
@@ -131,9 +131,9 @@ fn chips(ui: &mut Ui, c: &mut Cur, labels: &[&str], on: &mut Vec<String>) {
         } else {
             theme::BG_SECONDARY
         };
-        ui.painter().rect_filled(r, theme::cr(11), bg);
+        ui.painter().rect_filled(r, theme::cr_pill(r.height()), bg);
         if active {
-            ui.painter().rect_stroke(r, theme::cr(11), Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
+            ui.painter().rect_stroke(r, theme::cr_pill(r.height()), Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
         }
         ui.painter().text(r.center(), Align2::CENTER_CENTER, l, font.clone(), theme::TEXT);
         if resp.clicked() {
@@ -157,7 +157,7 @@ fn annotation_editor(app: &mut App, ui: &mut Ui, c: &mut Cur, mut edit: AnnotEdi
         edit.text = t;
     }
     c.y += 36.0;
-    ui.painter().text(Pos2::new(c.x0 + PAD, c.oy + c.y + 8.0), Align2::LEFT_CENTER, "Pin properties", theme::font_small(), theme::TEXT_SECONDARY);
+    ui.painter().text(Pos2::new(c.x0 + PAD, c.oy + c.y + 8.0), Align2::LEFT_CENTER, "Pin properties", theme::font_caption(), theme::TEXT_SECONDARY);
     c.y += 20.0;
     chips(ui, c, &labels, &mut edit.props);
     let row = c.rect(PAD, 0.0, w, 28.0);
@@ -223,7 +223,7 @@ pub fn annotations_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) 
         let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, ROW_H);
         let resp = ui.interact(r, ui.id().with(("annot-row", i)), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         }
         ui.painter().circle_filled(Pos2::new(r.left() + 4.0, r.center().y), 3.5, theme::ANNOTATION_LINE);
         let text = elide(ui.painter(), if a.text.is_empty() { "(no text)" } else { &a.text }, &theme::font_body(), r.width() - 20.0);
@@ -235,9 +235,9 @@ pub fn annotations_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) 
         for label in &a.properties {
             let v = app.doc.get(id).and_then(|n| data::property_value(&app.doc, n, label)).unwrap_or_else(|| "-".into());
             let r = c.rect(PAD + 14.0, 0.0, c.w - 2.0 * PAD - 14.0, 20.0);
-            ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, label, theme::font_small(), theme::TEXT_SECONDARY);
-            let v = elide(ui.painter(), &v, &theme::font_small(), r.width() - 100.0);
-            ui.painter().text(Pos2::new(r.left() + 100.0, r.center().y), Align2::LEFT_CENTER, v, theme::font_small(), theme::TEXT);
+            ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, label, theme::font_caption(), theme::TEXT_SECONDARY);
+            let v = elide(ui.painter(), &v, &theme::font_caption(), r.width() - 100.0);
+            ui.painter().text(Pos2::new(r.left() + 100.0, r.center().y), Align2::LEFT_CENTER, v, theme::font_caption(), theme::TEXT);
             c.y += 20.0;
         }
     }
@@ -304,12 +304,12 @@ pub fn links_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         widgets::record(ui, &format!("dev-link-{i}"), open);
         let resp = ui.interact(open, ui.id().with(("dev-link", i)), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         }
         let name = elide(ui.painter(), if l.label.is_empty() { &l.url } else { &l.label }, &theme::font_body(), open.width());
         ui.painter().text(Pos2::new(r.left(), r.top() + 11.0), Align2::LEFT_CENTER, name, theme::font_body(), theme::TEXT_BRAND);
-        let url = elide(ui.painter(), &l.url, &theme::font_small(), open.width());
-        ui.painter().text(Pos2::new(r.left(), r.top() + 26.0), Align2::LEFT_CENTER, url, theme::font_small(), theme::TEXT_TERTIARY);
+        let url = elide(ui.painter(), &l.url, &theme::font_caption(), open.width());
+        ui.painter().text(Pos2::new(r.left(), r.top() + 26.0), Align2::LEFT_CENTER, url, theme::font_caption(), theme::TEXT_TERTIARY);
         let x = Rect::from_min_size(Pos2::new(r.right() - 24.0, r.center().y - 12.0), Vec2::splat(24.0));
         if widgets::icon_button(ui, x, ("link-del", i), crate::icons::Icon::Close, false, "Remove link").clicked() {
             app.dev_edit(id, |d| {
@@ -331,22 +331,22 @@ pub fn links_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 
 fn band_label(p: &egui::Painter, at: Pos2, v: f32) {
     if v > 0.0 {
-        p.text(at, Align2::CENTER_CENTER, fmt_num((v * 10.0).round() / 10.0), theme::font_small_medium(), theme::BOX_TEXT);
+        p.text(at, Align2::CENTER_CENTER, fmt_num((v * 10.0).round() / 10.0), theme::font_caption_medium(), theme::BOX_TEXT);
     } else {
-        p.text(at, Align2::CENTER_CENTER, "-", theme::font_small(), theme::BOX_TEXT.gamma_multiply(0.5));
+        p.text(at, Align2::CENTER_CENTER, "-", theme::font_caption(), theme::BOX_TEXT.gamma_multiply(0.5));
     }
 }
 
 /// Paints the box model diagram (margin -> padding -> content) into `r`.
 pub fn paint_box_model(p: &egui::Painter, r: Rect, m: &BoxModel) {
     let band = 26.0;
-    let rr = theme::cr(theme::RADIUS_MEDIUM);
+    let rr = theme::cr(theme::RADIUS_CONTROL);
     p.rect_filled(r, rr, theme::BOX_MARGIN);
     let pad = r.shrink(band);
     p.rect_filled(pad, theme::cr(3), theme::BOX_PADDING);
     let content = pad.shrink(band);
     p.rect_filled(content, theme::cr(2), theme::BOX_CONTENT);
-    let cap = theme::font_small();
+    let cap = theme::font_caption();
     p.text(Pos2::new(r.left() + 6.0, r.top() + 2.0), Align2::LEFT_TOP, "margin", cap.clone(), theme::BOX_TEXT.gamma_multiply(0.7));
     p.text(Pos2::new(pad.left() + 6.0, pad.top() + 2.0), Align2::LEFT_TOP, "padding", cap, theme::BOX_TEXT.gamma_multiply(0.7));
     // top, right, bottom, left
@@ -364,7 +364,7 @@ pub fn paint_box_model(p: &egui::Painter, r: Rect, m: &BoxModel) {
         content.center(),
         Align2::CENTER_CENTER,
         format!("{} \u{00D7} {}", fmt_num(m.size.0), fmt_num(m.size.1)),
-        theme::font_small_medium(),
+        theme::font_caption_medium(),
         theme::BOX_TEXT,
     );
 }
@@ -395,7 +395,7 @@ pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
     }
     let h = rows.len() as f32 * line_h + 16.0;
     let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, h);
-    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let clip = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
     let mut y = r.top() + 8.0;
     for row in rows {
@@ -492,7 +492,7 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 24.0);
         let resp = ui.interact(r, ui.id().with(("var-use", i)), Sense::click());
         if resp.hovered() {
-            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(r.expand2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         }
         let name = elide(ui.painter(), &u.name, &theme::font_body_strong(), r.width() - 60.0);
         ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, name, theme::font_body_strong(), theme::TEXT);
@@ -500,7 +500,7 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             Pos2::new(r.right(), r.center().y),
             Align2::RIGHT_CENTER,
             u.kind.map(kind_name).unwrap_or("Missing"),
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
         );
         if resp.clicked() {
@@ -565,8 +565,8 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
                 ui.painter().text(
                     Pos2::new(r.left() + 8.0, r.center().y),
                     Align2::LEFT_CENTER,
-                    elide(ui.painter(), mode, &theme::font_small(), 72.0),
-                    theme::font_small(),
+                    elide(ui.painter(), mode, &theme::font_caption(), 72.0),
+                    theme::font_caption(),
                     theme::TEXT_SECONDARY,
                 );
                 let mut x = r.left() + 88.0;
@@ -578,8 +578,8 @@ pub fn variables_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
                 ui.painter().text(
                     Pos2::new(x, r.center().y),
                     Align2::LEFT_CENTER,
-                    elide(ui.painter(), &text, &theme::font_small(), r.right() - x),
-                    theme::font_small(),
+                    elide(ui.painter(), &text, &theme::font_caption(), r.right() - x),
+                    theme::font_caption(),
                     theme::TEXT,
                 );
                 c.y += 22.0;
@@ -595,8 +595,8 @@ fn token_note(ui: &mut Ui, c: &mut Cur, text: &str) {
     ui.painter().text(
         r.left_center(),
         Align2::LEFT_CENTER,
-        elide(ui.painter(), text, &theme::font_small(), r.width()),
-        theme::font_small(),
+        elide(ui.painter(), text, &theme::font_caption(), r.width()),
+        theme::font_caption(),
         theme::TEXT_SECONDARY,
     );
     ui.interact(r, ui.id().with(("token-note", c.y.to_bits(), text)), Sense::hover()).on_hover_text(text);
@@ -608,12 +608,12 @@ fn token_copy_row(app: &mut App, ui: &mut Ui, c: &mut Cur, key: &str, label: &st
     let r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 42.0);
     widgets::record(ui, key, r);
     let resp = ui.interact(r, ui.id().with(key), Sense::click()).on_hover_text(format!("Copy {label}: {value}"));
-    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     ui.painter().text(
         Pos2::new(r.left() + 8.0, r.top() + 10.0),
         Align2::LEFT_CENTER,
-        elide(ui.painter(), label, &theme::font_small(), r.width() - 16.0),
-        theme::font_small(),
+        elide(ui.painter(), label, &theme::font_caption(), r.width() - 16.0),
+        theme::font_caption(),
         theme::TEXT_SECONDARY,
     );
     let mut x = r.left() + 8.0;

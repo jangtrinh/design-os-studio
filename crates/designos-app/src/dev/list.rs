@@ -52,9 +52,9 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
         let resp = ui.interact(r, ui.id().with(("dev-left-tab", i)), Sense::click());
         let active = app.dev.left_tab == tab;
         if active {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         ui.painter().text(
             Pos2::new(r.left() + 7.0, r.center().y),
@@ -93,7 +93,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             Pos2::new(region.center().x, region.top() + 70.0),
             Align2::CENTER_CENTER,
             "Select a frame or section and mark it Ready for dev",
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
         );
         return;
@@ -123,7 +123,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                         Pos2::new(row.right() - theme::PANEL_PADDING_X, row.center().y),
                         Align2::RIGHT_CENTER,
                         count.to_string(),
-                        theme::font_small(),
+                        theme::font_caption(),
                         theme::TEXT_TERTIARY,
                     );
                 }
@@ -134,11 +134,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     let inner = row.shrink2(Vec2::new(8.0, 1.0));
                     let p = ui.painter();
                     if selected {
-                        p.rect_filled(inner, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                        p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
                     } else if resp.hovered() {
-                        p.rect_filled(inner, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
-                    let pill_w = widgets::text_width(p, status.label(), &theme::font_small_medium()) + 26.0;
+                    let pill_w = widgets::text_width(p, status.label(), &theme::font_caption_medium()) + 26.0;
                     let pill_at = Pos2::new(inner.right() - pill_w - 6.0, row.center().y - 10.0);
                     p.text(
                         Pos2::new(inner.left() + 16.0, row.center().y),

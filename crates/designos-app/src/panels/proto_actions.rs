@@ -107,7 +107,7 @@ fn add_row(ui: &mut Ui, pane: &mut Pane, rec: &str, label: &str, indent_icon: f3
 }
 
 fn sub_pane(pane: &Pane) -> Pane {
-    Pane { x0: pane.x0 + INDENT, oy: pane.oy, y: pane.y }
+    Pane { x0: pane.x0 + INDENT, oy: pane.oy, y: pane.y, title_end: pane.title_end }
 }
 
 fn conditional_params(
@@ -296,7 +296,7 @@ fn media_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, k: &str, dest: &mut
     let videos = proto::video_layers(&app.doc);
     if videos.is_empty() {
         let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 28.0);
-        ui.painter().text(Pos2::new(r.left(), r.top() + 6.0), Align2::LEFT_CENTER, "No video layers in this file", theme::font_small(), theme::TEXT_TERTIARY);
+        ui.painter().text(Pos2::new(r.left(), r.top() + 6.0), Align2::LEFT_CENTER, "No video layers in this file", theme::font_caption(), theme::TEXT_TERTIARY);
         pane.y += 24.0;
     } else if let Some(d) = dest_dropdown(ui, pane, &app.doc, &format!("media-{k}"), "Video", *dest, &videos) {
         *dest = d;
@@ -386,7 +386,7 @@ pub(super) fn expression_field(app: &mut App, ui: &mut Ui, pane: &mut Pane, key:
     let invalid = verdict.is_err();
     let committed = field::text_input_ph(ui, rect, ("pop-expr", key), &shown, "e.g. $count + 1");
     if invalid {
-        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::DANGER), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::DANGER), StrokeKind::Inside);
     }
     pane.y += theme::FIELD_HEIGHT + 2.0;
     // message line
@@ -395,7 +395,7 @@ pub(super) fn expression_field(app: &mut App, ui: &mut Ui, pane: &mut Pane, key:
         Err(e) => (e.clone(), theme::DANGER),
     };
     let w = theme::SECTION_CONTENT_W;
-    let galley = ui.painter().layout(msg, theme::font_small(), col, w);
+    let galley = ui.painter().layout(msg, theme::font_caption(), col, w);
     let h = galley.size().y.max(14.0);
     let mr = pane.rect(theme::SECTION_CONTENT_X, 0.0, w, h);
     record(ui, &format!("proto-pop-expr-msg-{key}"), mr);

@@ -105,7 +105,7 @@ fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -
     let r = ui.interact(rect, ui.id().with(("find-btn", key)), if enabled { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     let fill = if enabled && r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY };
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), fill);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), fill);
     p.text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), if enabled { theme::TEXT } else { theme::TEXT_DISABLED });
     widgets::record(ui, &format!("find:{key}"), rect);
     enabled && r.clicked()
@@ -115,9 +115,9 @@ fn toggle(ui: &mut Ui, rect: Rect, key: &str, label: &str, tip: &str, on: bool) 
     let r = ui.interact(rect, ui.id().with(("find-toggle", key)), Sense::click());
     let p = ui.painter();
     if on {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_SMALL), theme::BG_SELECTED);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_MARK), theme::BG_SELECTED);
     } else if r.hovered() {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_SMALL), theme::BG_TRANSPARENT_HOVER);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_MARK), theme::BG_TRANSPARENT_HOVER);
     }
     let col = if on {
         theme::ICON_SELECTED
@@ -135,7 +135,7 @@ fn chevron(ui: &mut Ui, rect: Rect, key: &str, up: bool, enabled: bool, tip: &st
     let r = ui.interact(rect, ui.id().with(("find-step", key)), if enabled { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     if enabled && r.hovered() {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TRANSPARENT_HOVER);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TRANSPARENT_HOVER);
     }
     let col = if !enabled {
         theme::ICON_TERTIARY
@@ -194,10 +194,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     y += theme::LAYER_HEADER_HEIGHT;
 
     // ---- search row: replace toggle, field, option toggles
-    let field_x = x0 + 34.0;
-    let row = Rect::from_min_size(Pos2::new(x0 + 8.0, y), Vec2::new(region.width() - 16.0, theme::FIND_FIELD_H));
-    let fr = Rect::from_min_max(Pos2::new(field_x, y), Pos2::new(x1 - 8.0, y + theme::FIND_FIELD_H));
-    let tg = Rect::from_min_size(Pos2::new(row.left() - 2.0, y + (theme::FIND_FIELD_H - 24.0) / 2.0), Vec2::splat(24.0));
+    // Every field starts on the panel inset; the replace toggle sits beside the close button.
+    let field_x = x0 + theme::INSET_PANEL;
+    let fr = Rect::from_min_max(Pos2::new(field_x, y), Pos2::new(x1 - theme::INSET_PANEL, y + theme::FIND_FIELD_H));
+    let tg =
+        Rect::from_min_size(Pos2::new(close.left() - theme::SPACE_FACT - theme::PANEL_ACTION_BUTTON, close.top()), Vec2::splat(theme::PANEL_ACTION_BUTTON));
     let chev = if app.find.show_replace { Icon::ChevronDown } else { Icon::ChevronRight };
     if widgets::icon_button(ui, tg, "find-replace-toggle", chev, false, "Toggle replace").clicked() {
         app.find.show_replace = !app.find.show_replace;
@@ -236,7 +237,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let mut replace_one = false;
     let mut replace_all = false;
     if app.find.show_replace {
-        let rr = Rect::from_min_max(Pos2::new(field_x, y), Pos2::new(x1 - 8.0, y + theme::FIND_FIELD_H));
+        let rr = Rect::from_min_max(Pos2::new(field_x, y), Pos2::new(x1 - theme::INSET_PANEL, y + theme::FIND_FIELD_H));
         let rid = ui.id().with("find-replace");
         let rfocused = ui.memory(|m| m.has_focus(rid));
         let (mut resc, mut renter) = (false, false);
@@ -272,7 +273,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     };
     let nx = Rect::from_min_size(Pos2::new(x1 - 8.0 - 24.0, status.center().y - 12.0), Vec2::splat(24.0));
     let pv = nx.translate(Vec2::new(-24.0, 0.0));
-    let font = theme::font_small();
+    let font = theme::font_caption();
     let scope_label = app.find.search_in.label();
     let sw = widgets::text_width(&p, scope_label, &font) + 12.0;
     let chip = Rect::from_min_size(Pos2::new(pv.left() - 4.0 - sw, status.center().y - 11.0), Vec2::new(sw, 22.0));
@@ -282,7 +283,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     });
     let cr = ui.interact(chip, ui.id().with("find-scope"), Sense::click());
     if cr.hovered() {
-        p.rect_filled(chip, theme::cr(theme::RADIUS_SMALL), theme::BG_TRANSPARENT_HOVER);
+        p.rect_filled(chip, theme::cr(theme::RADIUS_MARK), theme::BG_TRANSPARENT_HOVER);
     }
     p.text(chip.center(), Align2::CENTER_CENTER, scope_label, font, if cr.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
     widgets::record(ui, "find:scope", chip);
@@ -344,28 +345,53 @@ fn results(app: &mut App, ui: &mut Ui, list: Rect) {
             match row.kind {
                 RowKind::Page(id) => {
                     let name = app.doc.get(id).map(|n| n.name.clone()).unwrap_or_default();
-                    icons::paint(&p, Icon::Page, Pos2::new(rr.left() + 8.0 + 12.0, rr.center().y), theme::LAYER_ICON_SIZE, theme::ICON_SECONDARY);
-                    p.text(Pos2::new(rr.left() + 40.0, rr.center().y), Align2::LEFT_CENTER, name, theme::font_body_strong(), theme::TEXT);
+                    icons::paint(
+                        &p,
+                        Icon::Page,
+                        Pos2::new(rr.left() + theme::INSET_PANEL + theme::LAYER_ICON_SIZE / 2.0, rr.center().y),
+                        theme::LAYER_ICON_SIZE,
+                        theme::ICON_SECONDARY,
+                    );
+                    p.text(
+                        Pos2::new(rr.left() + theme::INSET_PANEL + theme::LAYER_ICON_SIZE + theme::SPACE_INLINE, rr.center().y),
+                        Align2::LEFT_CENTER,
+                        name,
+                        theme::font_body_strong(),
+                        theme::TEXT,
+                    );
                 }
                 RowKind::Group(id) => {
                     let Some(n) = app.doc.get(id) else { continue };
                     let indent = if app.find.search_in == crate::find::SearchIn::AllPages { 16.0 } else { 0.0 };
-                    icons::paint(&p, kind_icon(&n.kind), Pos2::new(rr.left() + 20.0 + indent, rr.center().y), theme::LAYER_ICON_SIZE, theme::ICON_TERTIARY);
-                    let name = widgets::elide(&p, &n.name, &theme::font_body(), rr.width() - 56.0 - indent);
-                    p.text(Pos2::new(rr.left() + 36.0 + indent, rr.center().y), Align2::LEFT_CENTER, name, theme::font_body(), theme::TEXT_SECONDARY);
+                    icons::paint(
+                        &p,
+                        kind_icon(&n.kind),
+                        Pos2::new(rr.left() + theme::INSET_PANEL + theme::LAYER_ICON_SIZE / 2.0 + indent, rr.center().y),
+                        theme::LAYER_ICON_SIZE,
+                        theme::ICON_TERTIARY,
+                    );
+                    let name = widgets::elide(&p, &n.name, &theme::font_body(), rr.width() - 60.0 - indent);
+                    p.text(
+                        Pos2::new(rr.left() + theme::INSET_PANEL + theme::LAYER_ICON_SIZE + theme::SPACE_INLINE + indent, rr.center().y),
+                        Align2::LEFT_CENTER,
+                        name,
+                        theme::font_body(),
+                        theme::TEXT_SECONDARY,
+                    );
                 }
                 RowKind::Hit(i, in_group) => {
                     let m = &app.find.results[i];
                     let Some(n) = app.doc.get(m.node) else { continue };
                     let resp = ui.interact(rr, ui.id().with(("find-hit", i)), Sense::click());
                     let is_cur = app.find.current == Some(i);
+                    let pill = rr.shrink2(Vec2::new(theme::INSET_FRAME, 0.0));
                     if is_cur {
-                        p.rect_filled(rr, 0.0, if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED });
+                        p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED });
                     } else if resp.hovered() {
-                        p.rect_filled(rr, 0.0, theme::BG_TRANSPARENT_HOVER);
+                        p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_TRANSPARENT_HOVER);
                     }
                     let indent = (if app.find.search_in == crate::find::SearchIn::AllPages { 16.0 } else { 0.0 }) + if in_group { 16.0 } else { 0.0 };
-                    let icon_c = Pos2::new(rr.left() + 20.0 + indent, rr.center().y);
+                    let icon_c = Pos2::new(rr.left() + theme::INSET_PANEL + theme::LAYER_ICON_SIZE / 2.0 + indent, rr.center().y);
                     let comp = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }) || n.component.source.is_some();
                     let icon_col = if comp {
                         theme::TEXT_COMPONENT
@@ -387,7 +413,7 @@ fn results(app: &mut App, ui: &mut Ui, list: Rect) {
                     let a = tx + widgets::text_width(&pp, &ex.text[..ex.hl.start], &font);
                     let b = tx + widgets::text_width(&pp, &ex.text[..ex.hl.end], &font);
                     let hl = Rect::from_min_max(Pos2::new(a, rr.center().y - 9.0), Pos2::new(b, rr.center().y + 9.0));
-                    pp.rect_filled(hl, theme::cr(theme::RADIUS_SMALL), if is_cur { theme::FIND_HIGHLIGHT_SELECTED } else { theme::FIND_HIGHLIGHT });
+                    pp.rect_filled(hl, theme::cr(theme::RADIUS_MARK), if is_cur { theme::FIND_HIGHLIGHT_SELECTED } else { theme::FIND_HIGHLIGHT });
                     pp.text(Pos2::new(tx, rr.center().y), Align2::LEFT_CENTER, &ex.text, font, if n.visible { theme::TEXT } else { theme::TEXT_TERTIARY });
                     widgets::record(ui, &format!("find:hit{i}"), rr);
                     if resp.clicked() {

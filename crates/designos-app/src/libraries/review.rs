@@ -29,9 +29,9 @@ pub fn show_banner(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("library-updates-banner")).order(Order::Tooltip).fixed_pos(r.min).constrain(false).show(ctx, |ui| {
         ui.allocate_rect(Rect::from_min_size(r.min, size), Sense::hover());
         let p = ui.painter().clone();
-        widgets::elevation_400(&p, r, theme::MENU_RADIUS);
-        p.rect_filled(r, theme::cr(theme::MENU_RADIUS), theme::BG_MENU);
-        p.rect_stroke(r, theme::cr(theme::MENU_RADIUS), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+        widgets::elevation_400(&p, r, theme::RADIUS_FRAME);
+        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+        p.rect_stroke(r, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
         widgets::record(ui, "library-updates-banner", r);
         icons::paint(&p, Icon::Book, Pos2::new(r.left() + 22.0, r.center().y), 16.0, theme::ICON_SELECTED);
         p.text(Pos2::new(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, "Library updates available", theme::font_body(), Color32::WHITE);
@@ -39,7 +39,7 @@ pub fn show_banner(app: &mut App, ctx: &Context) {
         review = button(ui, rb, "library-updates-review", "Review", true, true);
         let xb = Rect::from_center_size(Pos2::new(r.right() - 22.0, r.center().y), Vec2::splat(24.0));
         let xr = ui.interact(xb, Id::new("library-updates-dismiss"), Sense::click());
-        widgets::button_bg(&p, xb, &xr, false, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, xb, &xr, false, theme::cr(theme::RADIUS_CONTROL));
         widgets::record(ui, "library-updates-dismiss", xb);
         let c = xb.center();
         let st = Stroke::new(1.2, theme::ICON_SECONDARY);
@@ -110,7 +110,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                     Pos2::new(hr.right() - PAD - 28.0, hr.center().y),
                     Align2::RIGHT_CENTER,
                     format!("v{}", g.version),
-                    theme::font_small(),
+                    theme::font_caption(),
                     theme::TEXT_TERTIARY,
                 );
                 if !applicable.is_empty() && hr.bottom() > list.top() && hr.top() < list.bottom() {
@@ -136,7 +136,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                     let rr = ui.interact(row, Id::new(("lib-upd-row", &g.library_id, &u.key)), Sense::click());
                     widgets::record(ui, &format!("lib-upd:{}", u.name), row);
                     if rr.hovered() && !removed {
-                        p.rect_filled(row.shrink2(Vec2::new(8.0, 1.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        p.rect_filled(row.shrink2(Vec2::new(8.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     if !removed {
                         let cr = Rect::from_center_size(Pos2::new(row.left() + PAD + 8.0, row.center().y), Vec2::splat(24.0));
@@ -160,13 +160,13 @@ pub fn show(app: &mut App, ctx: &Context) {
                         UpdateKind::Added => ("New", theme::TEXT_BRAND),
                         UpdateKind::Removed => ("Missing from library", theme::DANGER),
                     };
-                    p.text(Pos2::new(row.right() - PAD, row.center().y), Align2::RIGHT_CENTER, tag, theme::font_small(), tcol);
+                    p.text(Pos2::new(row.right() - PAD, row.center().y), Align2::RIGHT_CENTER, tag, theme::font_caption(), tcol);
                     if !removed {
                         p.text(
                             Pos2::new(row.right() - PAD - 70.0, row.center().y),
                             Align2::RIGHT_CENTER,
                             kind_label(u.kind),
-                            theme::font_small(),
+                            theme::font_caption(),
                             theme::TEXT_TERTIARY,
                         );
                     }

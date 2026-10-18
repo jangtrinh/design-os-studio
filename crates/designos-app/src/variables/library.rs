@@ -85,7 +85,7 @@ pub fn drop_refused_records(
 /// The sidebar heading row.
 pub fn paint_heading(ui: &Ui, row: Rect) {
     let p = ui.painter();
-    p.text(Pos2::new(row.left() + 7.0, row.center().y), Align2::LEFT_CENTER, HEADING, theme::font_small_medium(), theme::TEXT_TERTIARY);
+    p.text(Pos2::new(row.left() + 7.0, row.center().y), Align2::LEFT_CENTER, HEADING, theme::font_caption_medium(), theme::TEXT_TERTIARY);
     widgets::record(ui, &format!("vars-heading:{HEADING}"), row);
 }
 

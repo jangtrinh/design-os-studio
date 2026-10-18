@@ -193,7 +193,7 @@ fn outline(app: &App, p: &Painter, rect: ERect, id: NodeId, col: Color32, width:
 }
 
 fn badge(p: &Painter, center_top: Pos2, text: &str, col: Color32) {
-    let font = theme::font_small_strong();
+    let font = theme::font_canvas_strong();
     let w = crate::widgets::text_width(p, text, &font) + theme::CANVAS_BADGE_PAD_X * 2.0;
     let r = ERect::from_min_size(Pos2::new(center_top.x - w / 2.0, center_top.y), EV::new(w, theme::CANVAS_BADGE_HEIGHT));
     p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), col);
@@ -356,7 +356,7 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
                 dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.0, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.75)));
             }
             if app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {
-                let font = theme::font_small_strong();
+                let font = theme::font_canvas_strong();
                 let w = crate::widgets::text_width(p, "Slot", &font) + 8.0;
                 let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 17.0), EV::new(w, 15.0));
                 p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
@@ -366,7 +366,7 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
         if is_slice {
             let col = if app.is_selected(id) || app.hover == Some(id) { Color32::from_rgb(0xF5, 0x9E, 0x0B) } else { FIGMA_SLICE_GREEN };
             dashed_quad(p, &corners, 5.0, 3.0, Stroke::new(1.0, col));
-            let font = theme::font_small_strong();
+            let font = theme::font_canvas_strong();
             let w = crate::widgets::text_width(p, "Slice", &font) + 8.0;
             let pill = ERect::from_min_size(Pos2::new(corners[0].x, corners[0].y - 16.0), EV::new(w, 14.0));
             p.rect_filled(pill, theme::cr(2), col);
@@ -430,7 +430,7 @@ pub fn empty_slot_picker_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
 pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<(ERect, designos_doc::DevStatus)> {
     let status = n.dev.status?;
     let _ = id;
-    let text_w = status.label().chars().count() as f32 * theme::FONT_SIZE_SMALL * 0.62 + 12.0;
+    let text_w = status.label().chars().count() as f32 * theme::FONT_SIZE_CANVAS * 0.62 + 12.0;
     let h = 16.0;
     let r = ERect::from_min_size(Pos2::new(label_rect.right() + 6.0, label_rect.center().y - h * 0.5), EV::new(text_w, h));
     Some((r, status))
@@ -511,7 +511,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         // 3. Compact Column & Row Track Header Pills outside top/left edges when zoom >= 0.4.
         // Only the grids a click can reach get pills and `+` buttons, so a drawn control always works.
         if app.view.zoom >= 0.4 && reachable.contains(&grid_id) {
-            let font = theme::font_small_strong();
+            let font = theme::font_canvas_strong();
             for (is_col, idx, _hit, pill) in grid_pill_rects_of(&ov, to_s) {
                 let label = super::grids::format_grid_track(if is_col { ov.col_tracks[idx] } else { ov.row_tracks[idx] });
                 p.rect_filled(pill, theme::cr(3), pill_bg);
@@ -545,7 +545,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         if cs > 1 || rs > 1 {
             let corners = super::fast_world_corners(&app.doc, id).map(|c| app.view.to_screen(rect.min, c));
             let text = format!("{cs}×{rs}");
-            let font = theme::font_small_strong();
+            let font = theme::font_canvas_strong();
             let tw = crate::widgets::text_width(p, &text, &font) + 8.0;
             let pill = ERect::from_min_size(Pos2::new(corners[1].x - tw - 4.0, corners[1].y + 4.0), EV::new(tw, 15.0));
             p.rect_filled(pill, theme::cr(3), FIGMA_COMPONENT_PURPLE);
@@ -806,7 +806,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                 designos_doc::DevStatus::Changed => theme::DEV_CHANGED,
             };
             p.rect_filled(badge_r, theme::cr(3), badge_col);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_small_strong(), Color32::WHITE);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_canvas_strong(), Color32::WHITE);
         }
     }
 
@@ -976,7 +976,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             }
             if let Some(tidy_r) = tidy_up_pill_rect(app, rect) {
                 p.rect_filled(tidy_r, theme::cr(3), FIGMA_PINK);
-                p.text(tidy_r.center(), Align2::CENTER_CENTER, "Tidy up", theme::font_small_strong(), Color32::WHITE);
+                p.text(tidy_r.center(), Align2::CENTER_CENTER, "Tidy up", theme::font_canvas_strong(), Color32::WHITE);
             }
         }
     }
@@ -1009,7 +1009,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         }
         let mid = Pos2::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
         let text = format!("{}", m.value.round() as i64);
-        let font = theme::font_small_strong();
+        let font = theme::font_canvas_strong();
         let w = crate::widgets::text_width(&p, &text, &font) + theme::GUIDE_TEXT_PAD * 2.0;
         let r = ERect::from_center_size(mid + EV::new(0.0, if horiz { -10.0 } else { 0.0 }), EV::new(w, theme::GUIDE_TEXT_HEIGHT));
         p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), gcol);

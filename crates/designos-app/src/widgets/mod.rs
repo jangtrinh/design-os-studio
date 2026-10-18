@@ -158,7 +158,7 @@ pub fn field_text(p: &Painter, rect: Rect, dx: f32, pad_r: f32, s: &str, font: F
 pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: Icon, selected: bool, tip: &str) -> Response {
     let r = ui.interact(rect, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    button_bg(p, rect, &r, selected, theme::cr(theme::RADIUS_MEDIUM));
+    button_bg(p, rect, &r, selected, theme::cr(theme::RADIUS_CONTROL));
     let col = if selected {
         theme::ICON_SELECTED
     } else if r.hovered() {

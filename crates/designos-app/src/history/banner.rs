@@ -27,14 +27,14 @@ pub fn show(app: &mut App, ui: &mut Ui, canvas: Rect) {
     let label = widgets::elide(&p, &format!("Viewing {title}"), &font, (restore.left() - 16.0 - bar.left() - pad).max(40.0));
     p.text(Pos2::new(bar.left() + pad, bar.center().y), Align2::LEFT_CENTER, label, font, theme::TEXT);
     // white-on-blue buttons: the restore button is solid, the other an outline
-    p.rect_filled(restore, theme::cr(theme::RADIUS_MEDIUM), theme::TEXT);
+    p.rect_filled(restore, theme::cr(theme::RADIUS_CONTROL), theme::TEXT);
     let r = ui.interact(restore, ui.id().with("banner-restore"), Sense::click());
     let rcol = if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND };
     p.text(restore.center(), Align2::CENTER_CENTER, "Restore this version", theme::font_body_strong(), rcol);
     widgets::record(ui, "history-restore", restore);
     let b = ui.interact(back, ui.id().with("banner-back"), Sense::click());
     if b.hovered() {
-        p.rect_filled(back, theme::cr(theme::RADIUS_MEDIUM), theme::BG_BRAND_HOVER);
+        p.rect_filled(back, theme::cr(theme::RADIUS_CONTROL), theme::BG_BRAND_HOVER);
     }
     p.text(back.center(), Align2::CENTER_CENTER, "Back to current", theme::font_body_strong(), theme::TEXT);
     widgets::record(ui, "history-back", back);

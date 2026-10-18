@@ -25,7 +25,7 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
 
     // ---- search
     let sr = Rect::from_min_size(Pos2::new(x0 + 12.0, y), Vec2::new(w - 24.0, 32.0));
-    p.rect_filled(sr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 16.0, sr.center().y), 16.0, theme::ICON_SECONDARY);
     let tr = Rect::from_min_max(Pos2::new(sr.left() + 32.0, sr.top()), sr.max - Vec2::new(8.0, 0.0));
     let tid = Id::new("home-search");
@@ -198,11 +198,11 @@ fn row(ui: &mut Ui, r: Rect, id: Id, icon: Icon, label: &str, indent: f32, selec
     let resp = ui.interact(r, id, Sense::click());
     let p = ui.painter();
     if drop_hover {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED_HOVER);
     } else if selected {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if resp.hovered() {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     let ix = r.left() + 12.0 + indent;
     icons::paint(p, icon, Pos2::new(ix + 14.0, r.center().y), 16.0, if selected { theme::ICON } else { theme::ICON_SECONDARY });

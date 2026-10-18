@@ -101,9 +101,9 @@ fn seg_text(ui: &mut Ui, pane: &Pane, x: f32, key: &str, labels: &[&str], select
     for (i, label) in labels.iter().enumerate() {
         let r = pane.rect(x + i as f32 * w, 0.0, w, theme::FIELD_HEIGHT);
         let radius = match (i == 0, i + 1 == n) {
-            (true, true) => theme::cr(theme::RADIUS_MEDIUM),
-            (true, false) => theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM),
-            (false, true) => theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+            (true, true) => theme::cr(theme::RADIUS_CONTROL),
+            (true, false) => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+            (false, true) => theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
             _ => theme::cr(0),
         };
         let resp = ui.interact(r, ui.id().with(("segt", key, i)), Sense::click());
@@ -161,7 +161,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let mb = pane.rect(theme::SECTION_TRAILING_X, -theme::SECTION_TITLE_HEIGHT + 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     let mr = ui.interact(mb, ui.id().with("typo-more-btn"), Sense::click());
     if mr.hovered() || more {
-        ui.painter().rect_filled(mb, theme::cr(theme::RADIUS_MEDIUM), if more { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().rect_filled(mb, theme::cr(theme::RADIUS_CONTROL), if more { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     }
     ui.painter().text(mb.center(), Align2::CENTER_CENTER, "\u{2026}", theme::font_body_strong(), if more { theme::ICON } else { theme::ICON_SECONDARY });
     mr.clone().on_hover_text("More type settings");
@@ -349,9 +349,9 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
     let open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
     let r = ui.interact(rect, id, Sense::click());
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
     }
     let font = theme::font_body();
     let shown = widgets::elide(p, label, &font, rect.width() - 28.0);
@@ -374,7 +374,7 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
     let area = egui::Area::new(id.with("popup")).order(egui::Order::Foreground).fixed_pos(pos).show(&ctx, |ui| {
         let panel = Rect::from_min_size(pos, Vec2::new(w, 296.0));
         ui.allocate_exact_size(panel.size(), Sense::hover());
-        widgets::menu_panel(ui.painter(), panel, theme::MENU_RADIUS);
+        widgets::menu_panel(ui.painter(), panel, theme::RADIUS_FRAME);
         let search = Rect::from_min_size(panel.min + Vec2::new(8.0, 8.0), Vec2::new(w - 16.0, theme::FIELD_HEIGHT));
         let mut q = ui.data(|d| d.get_temp::<String>(id.with("q"))).unwrap_or_default();
         let qid = id.with("q-edit");
@@ -411,7 +411,7 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
                 let (row, rr) = ui.allocate_exact_size(Vec2::new(body.width(), row_h), Sense::click());
                 let cur = list[i].eq_ignore_ascii_case(label);
                 if rr.hovered() {
-                    ui.painter().rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::MENU_PILL_RADIUS), theme::BG_MENU_SELECTED);
+                    ui.painter().rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
                 }
                 if cur {
                     crate::icons::paint(
@@ -477,9 +477,9 @@ fn seg_rect(ui: &mut Ui, rect: Rect, key: &str, labels: &[&str], selected: Optio
     for (i, label) in labels.iter().enumerate() {
         let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * w, rect.top()), Vec2::new(w, rect.height()));
         let radius = match (i == 0, i + 1 == n) {
-            (true, true) => theme::cr(theme::RADIUS_MEDIUM),
-            (true, false) => theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM),
-            (false, true) => theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+            (true, true) => theme::cr(theme::RADIUS_CONTROL),
+            (true, false) => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+            (false, true) => theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
             _ => theme::cr(0),
         };
         let resp = ui.interact(r, ui.id().with(("segr", key, i)), Sense::click());
@@ -613,8 +613,8 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
         let ag_top_offset = y.get();
         y.set(ag_top_offset + 76.0);
         let ag_rect = Rect::from_min_size(Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + ag_top_offset), Vec2::new(68.0, 68.0));
-        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_MEDIUM), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-        ui.painter().rect_stroke(ag_rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+        ui.painter().rect_stroke(ag_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
         // Blue typographic cap-height & baseline metric guides (`#0D99FF`)
         let guide_col = Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 110);
         widgets::hline(ui.painter(), ag_rect.left() + 6.0, ag_rect.right() - 6.0, ag_rect.top() + 21.0, guide_col);
@@ -746,13 +746,13 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                         widgets::record(ui, &format!("det-ss-{set}"), r);
                         let resp = ui.interact(r, ui.id().with(("det-ss", row, i)), Sense::click());
                         let bg = if on {
-                            theme::BG_BRAND
+                            theme::BG_SELECTED
                         } else if resp.hovered() {
                             theme::BG_TERTIARY
                         } else {
                             theme::BG_SECONDARY
                         };
-                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), bg);
+                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), bg);
                         ui.painter().text(
                             r.center(),
                             Align2::CENTER_CENTER,

@@ -461,7 +461,7 @@ design-os-studio/
 │   ├── designos-gpu/               # wgpu GPU compiler (SceneCompiler, GeomCache, WGSL shaders)
 │   ├── designos-app/               # UI3 desktop studio, micro-interactions, PTY Chat, Variables & Dev Mode
 │   ├── designos-library/           # Local library, 8 KB fast header probe, zero-alloc autosave
-│   ├── designos-fonts/             # Bundled Inter variable font & async Fontsource cache
+│   ├── designos-fonts/             # Bundled Inter and Roboto Mono variable fonts & async Fontsource cache
 │   ├── designos-export/            # PNG/JPG/PDF/SVG exporters & 5-target Dev Mode codegen
 │   ├── designos-svg/               # SVG parser & scene-graph importer
 │   ├── designos-diff/              # Perceptual SSIM & structural diff CLI (designos-diff)
@@ -582,7 +582,7 @@ Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Appl
 - **Security & Privacy**: Zero telemetry — see [`SECURITY.md`](SECURITY.md) and [`PRIVACY.md`](PRIVACY.md).
 - **Changelog & LLM Index**: Track releases in [`CHANGELOG.md`](CHANGELOG.md) and machine-readable index in [`llms.txt`](llms.txt).
 - **License**: Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) ([`LICENSE`](LICENSE)) © [Jang Trinh](https://github.com/jangtrinh).
-  - **Bundled Fonts**: Inter is © The Inter Project Authors under the SIL Open Font License 1.1 (`crates/designos-fonts/assets/inter/OFL.txt`).
+  - **Bundled Fonts**: Inter is © The Inter Project Authors under the SIL Open Font License 1.1 (`crates/designos-fonts/assets/inter/OFL.txt`). Roboto Mono is © The Roboto Mono Project Authors under the SIL Open Font License 1.1 (`crates/designos-fonts/assets/roboto-mono/OFL.txt`).
   - **Icons**: Studio UI3 chrome and canvas tool icons use official Phosphor Icons under the MIT License (`crates/designos-app/assets/icons/phosphor/`) alongside Lucide under the ISC License (`crates/designos-app/assets/icons/lucide/LICENSE`).
   - **Trademarks**: DESIGN:OS Studio is an independent open-source project by Jang Trinh and is not affiliated with, endorsed by, or sponsored by Figma, Inc.
 

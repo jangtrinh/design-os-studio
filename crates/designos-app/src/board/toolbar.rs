@@ -78,10 +78,10 @@ fn shown_tool(app: &App, s: &Slot) -> Tool {
 pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
     let bar = toolbar_rect(screen);
     let p = ui.painter().clone();
-    widgets::shadow(&p, bar, theme::RADIUS_LARGE, Vec2::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
-    widgets::shadow(&p, bar, theme::RADIUS_LARGE, Vec2::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
-    p.rect_filled(bar, theme::cr(theme::RADIUS_LARGE), theme::BG_TOOLBAR);
-    p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
+    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
+    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
+    p.rect_filled(bar, theme::cr(theme::RADIUS_FRAME), theme::BG_TOOLBAR);
+    p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
     ui.interact(bar, ui.id().with("board-toolbar-block"), Sense::click_and_drag());
 
     let y = bar.top() + (bar.height() - theme::TOOL_BUTTON) / 2.0;
@@ -107,7 +107,7 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             Color32::TRANSPARENT
         };
         if fill != Color32::TRANSPARENT {
-            p.rect_filled(br, theme::cr(theme::RADIUS_MEDIUM), fill);
+            p.rect_filled(br, theme::cr(theme::RADIUS_CONTROL), fill);
         }
         icons::paint(&p, tool_icon(tool), br.center(), theme::TOOL_ICON_SIZE, if selected { Color32::WHITE } else { theme::ICON });
         if resp.clicked() {
@@ -123,7 +123,7 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             let cresp = ui.interact(cr, ui.id().with(("board-chev", i)), Sense::click());
             let open = app.board.tool_menu.map(|m| m.0) == Some(menu);
             if open || cresp.hovered() {
-                p.rect_filled(cr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TOOLBAR_HOVER);
+                p.rect_filled(cr, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR_HOVER);
             }
             icons::paint(
                 &p,
@@ -164,7 +164,7 @@ fn show_timer(app: &mut App, ui: &mut Ui, bar: Rect) {
     widgets::record(ui, "board-timer-toggle", toggle_r);
     let resp = ui.interact(toggle_r, ui.id().with("board-timer-toggle"), Sense::click());
     let p = ui.painter().clone();
-    widgets::shadow(&p, toggle_r, theme::RADIUS_LARGE, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
+    widgets::shadow(&p, toggle_r, theme::RADIUS_FRAME, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
     let bg = if app.board.timer.running {
         theme::BG_TOOLBAR_SELECTED
     } else if app.board.timer.open || resp.hovered() {
@@ -172,8 +172,8 @@ fn show_timer(app: &mut App, ui: &mut Ui, bar: Rect) {
     } else {
         theme::BG_TOOLBAR
     };
-    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_LARGE), bg);
-    p.rect_stroke(toggle_r.shrink(0.5), theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
+    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_FRAME), bg);
+    p.rect_stroke(toggle_r.shrink(0.5), theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
     icons::paint(
         &p,
         Icon::Clock,
@@ -211,7 +211,7 @@ fn timer_hud(app: &mut App, ui: &mut Ui, pill: Rect, now: f64) {
         ui.allocate_rect(hud_r, Sense::click_and_drag());
         widgets::record(ui, "board-timer-hud", hud_r);
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, hud_r, theme::RADIUS_LARGE);
+        widgets::menu_panel(&p, hud_r, theme::RADIUS_FRAME);
         let button = |col: f32| {
             Rect::from_min_size(Pos2::new(hud_r.left() + TIMER_HUD_PAD + col * (TIMER_BTN.x + TIMER_HUD_GAP), hud_r.top() + TIMER_HUD_PAD), TIMER_BTN)
         };
@@ -220,7 +220,7 @@ fn timer_hud(app: &mut App, ui: &mut Ui, pill: Rect, now: f64) {
         widgets::record(ui, "board-timer-start-pause", start_r);
         let sresp = ui.interact(start_r, ui.id().with("board-timer-start-pause"), Sense::click());
         let running = app.board.timer.running;
-        p.rect_filled(start_r, theme::cr(theme::RADIUS_MEDIUM), if running { theme::BG_HOVER } else { theme::BG_BRAND });
+        p.rect_filled(start_r, theme::cr(theme::RADIUS_CONTROL), if running { theme::BG_HOVER } else { theme::BG_BRAND });
         p.text(start_r.center(), Align2::CENTER_CENTER, if running { "Pause" } else { "Start" }, theme::font_body_strong(), Color32::WHITE);
         if sresp.clicked() {
             app.board.timer.toggle(now);
@@ -229,7 +229,7 @@ fn timer_hud(app: &mut App, ui: &mut Ui, pill: Rect, now: f64) {
         let add_r = button(1.0);
         widgets::record(ui, "board-timer-add-min", add_r);
         let aresp = ui.interact(add_r, ui.id().with("board-timer-add-min"), Sense::click());
-        p.rect_filled(add_r, theme::cr(theme::RADIUS_MEDIUM), if aresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+        p.rect_filled(add_r, theme::cr(theme::RADIUS_CONTROL), if aresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
         p.text(add_r.center(), Align2::CENTER_CENTER, "+1 min", theme::font_body(), theme::TEXT);
         if aresp.clicked() {
             app.board.timer.add_minute();
@@ -238,7 +238,7 @@ fn timer_hud(app: &mut App, ui: &mut Ui, pill: Rect, now: f64) {
         let reset_r = button(2.0);
         widgets::record(ui, "board-timer-reset", reset_r);
         let rresp = ui.interact(reset_r, ui.id().with("board-timer-reset"), Sense::click());
-        p.rect_filled(reset_r, theme::cr(theme::RADIUS_MEDIUM), if rresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+        p.rect_filled(reset_r, theme::cr(theme::RADIUS_CONTROL), if rresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
         p.text(reset_r.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT_SECONDARY);
         if rresp.clicked() {
             app.board.timer.reset();
@@ -270,7 +270,7 @@ fn popup(app: &mut App, ui: &mut Ui) {
     let area = egui::Area::new(egui::Id::new("board-tool-menu")).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
         ui.allocate_rect(rect, Sense::hover());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, rect, theme::RADIUS_LARGE);
+        widgets::menu_panel(&p, rect, theme::RADIUS_FRAME);
         let inner = rect.shrink(pad);
         match menu {
             ToolMenu::Brush => brush_menu(app, ui, inner, &mut picked),
@@ -354,9 +354,9 @@ enum Pick {
 fn cell_bg(p: &egui::Painter, cell: Rect, selected: bool, hover: bool) {
     let r = cell.shrink(2.0);
     if selected {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if hover {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
 }
 
@@ -368,9 +368,9 @@ fn brush_menu(app: &App, ui: &mut Ui, inner: Rect, picked: &mut Option<Pick>) {
         let sel = app.board.brush == t;
         let resp = ui.interact(row, ui.id().with(("board-brush", i)), Sense::click());
         if sel {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         icons::paint(&p, tool_icon(t), Pos2::new(row.left() + 18.0, row.center().y), 16.0, theme::ICON);
         p.text(Pos2::new(row.left() + 36.0, row.center().y), Align2::LEFT_CENTER, t.label(), theme::font_body(), theme::TEXT);

@@ -169,6 +169,8 @@ pub(super) struct Pane {
     pub(super) x0: f32,
     pub(super) oy: f32,
     pub(super) y: f32,
+    /// `y` right after the latest section title: a label there follows a heading, not a field.
+    pub(super) title_end: f32,
 }
 
 impl Pane {
@@ -217,6 +219,7 @@ pub(super) fn title(ui: &mut Ui, pane: &mut Pane, text: &str, action: Option<Ico
         clicked = widgets::icon_button(ui, b, ("title-action", text), ic, false, "").clicked();
     }
     pane.y += theme::SECTION_TITLE_HEIGHT;
+    pane.title_end = pane.y;
     clicked
 }
 
@@ -277,10 +280,15 @@ pub(super) fn paint_title(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[No
     clicked
 }
 
+/// Label of a field group: `SPACE_GROUP` below the field above, `SPACE_FACT` above the field it names.
+/// A row already ends with `SPACE_ROW`, so only the difference is added; right after a title nothing is.
 pub(super) fn sublabel(ui: &Ui, pane: &mut Pane, text: &str) {
-    let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::SUBLABEL_HEIGHT);
-    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_small_medium(), theme::TEXT_SECONDARY);
-    pane.y += theme::SUBLABEL_HEIGHT + 4.0;
+    if pane.y > pane.title_end {
+        pane.y += theme::SPACE_GROUP - theme::SPACE_ROW;
+    }
+    let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::LABEL_BOX_H);
+    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_caption_medium(), theme::TEXT_SECONDARY);
+    pane.y += theme::LABEL_BOX_H + theme::SPACE_FACT;
 }
 
 /// Row advance after a 24px field row.
@@ -300,9 +308,9 @@ fn segmented_marks(ui: &mut Ui, pane: &Pane, x: f32, key: &str, items: &[Icon], 
     for (i, icon) in items.iter().enumerate() {
         let r = pane.rect(x + i as f32 * seg_w, 0.0, seg_w, theme::FIELD_HEIGHT);
         let radius = match (i == 0, i + 1 == n) {
-            (true, true) => theme::cr(theme::RADIUS_MEDIUM),
-            (true, false) => theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM),
-            (false, true) => theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+            (true, true) => theme::cr(theme::RADIUS_CONTROL),
+            (true, false) => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+            (false, true) => theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
             _ => theme::cr(0),
         };
         let resp = ui.interact(r, ui.id().with(("seg", key, i)), Sense::click());
@@ -333,10 +341,10 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
     let b = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 7.0), Vec2::splat(14.0));
     let p = ui.painter();
     if value {
-        p.rect_filled(b, theme::cr(theme::RADIUS_SMALL), theme::BG_BRAND);
+        p.rect_filled(b, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
         icons::paint(p, Icon::Check, b.center(), 12.0, theme::TEXT);
     } else {
-        p.rect_stroke(b, theme::cr(theme::RADIUS_SMALL), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
+        p.rect_stroke(b, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
     }
     p.text(Pos2::new(b.right() + 8.0, r.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
     pane.y += theme::FIELD_HEIGHT + 4.0;
@@ -357,7 +365,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let sel = app.selection.clone();
     let end = clipped(ui, region, |ui| {
         // Spec x values are relative to the panel's outer left edge (border at x=0).
-        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0 };
+        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0, title_end: 0.0 };
         if sel.is_empty() {
             page_section(app, ui, &mut pane);
             styles_section(app, ui, &mut pane);
@@ -390,11 +398,11 @@ fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let focused = ui.memory(|m| m.has_focus(hex_id) || m.has_focus(op_id));
     {
         let p = ui.painter();
-        p.rect_filled(g, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         if focused {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
         } else if ui.rect_contains_pointer(g) {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
         }
     }
     let sw = Rect::from_center_size(Pos2::new(g.left() + theme::PAGE_SWATCH_CX, g.center().y), Vec2::splat(theme::PAGE_SWATCH));
@@ -493,7 +501,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 widgets::record(ui, &format!("folder:{folder_key}"), r);
                 let resp = ui.interact(r, ui.id().with(("sfolder", &folder_key)), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 let open = !app.props.folded.contains(&folder_key);
                 icons::paint(
@@ -523,9 +531,9 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             let resp = ui.interact(r, ui.id().with((kind.ref_key(), &e.key)), Sense::click());
             let is_current = current.as_deref() == Some(e.key.as_str());
             if is_current {
-                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             if matches!(kind, StyleKind::Effect | StyleKind::Grid) {
                 let icon = match app.doc.styles.get(&e.key) {
@@ -577,7 +585,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
                 widgets::record(ui, &format!("style-edit:{}", e.key), edit_r);
                 ui.painter().rect_filled(
                     edit_r.expand2(Vec2::new(4.0, 0.0)),
-                    theme::cr(theme::RADIUS_MEDIUM),
+                    theme::cr(theme::RADIUS_CONTROL),
                     if is_current { theme::BG_SELECTED } else { theme::BG_HOVER },
                 );
                 edit_clicked = super::style_edit::edit_button(app, ui, edit_r, ("style-edit", &e.key), &e.key);
@@ -617,7 +625,7 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                 widgets::record(ui, &format!("libstyle:{}", s.name), r);
                 let resp = ui.interact(r, ui.id().with(("libstyle", &s.library_id, &s.key)), Sense::click());
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 let (_, leaf) = crate::styles::split_name(&s.name);
                 match &s.style {
@@ -690,10 +698,10 @@ fn selection_colors_section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[
                 app.props.sel_colors_cache = None;
             }
         }
-        ui.painter().rect_filled(op_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        ui.painter().rect_filled(op_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         let cnt = counts.get(i).copied().unwrap_or(1).max(1);
         let badge_txt = if cnt > 1 { format!("100% · {cnt}") } else { "100 %".to_string() };
-        ui.painter().text(op_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_small(), theme::TEXT_SECONDARY);
+        ui.painter().text(op_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_caption(), theme::TEXT_SECONDARY);
         pane.y += theme::FIELD_HEIGHT + 8.0;
     }
     pane.y += 4.0;
@@ -724,7 +732,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let id = ui.id().with("sel-name");
         if ui.rect_contains_pointer(name_r) || ui.memory(|m| m.has_focus(id)) {
             let col = if ui.memory(|m| m.has_focus(id)) { theme::BORDER_SELECTED } else { theme::BORDER };
-            ui.painter().rect_stroke(name_r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, col), StrokeKind::Inside);
+            ui.painter().rect_stroke(name_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, col), StrokeKind::Inside);
         }
         let comp = matches!(n0.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }) || n0.component.source.is_some();
         if let Some(s) = field::edit_text(ui, name_r, id, &n0.name, theme::font_large(), if comp { theme::TEXT_COMPONENT } else { theme::TEXT }, 8.0) {
@@ -755,7 +763,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let slides_bg = if slides_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
         ui.painter().rect_filled(slides_r, theme::cr(6), slides_bg);
         ui.painter().rect_stroke(slides_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(slides_r.center(), Align2::CENTER_CENTER, "Copy to Slide Deck", theme::font_small(), theme::TEXT);
+        ui.painter().text(slides_r.center(), Align2::CENTER_CENTER, "Copy to Slide Deck", theme::font_caption(), theme::TEXT);
         if slides_resp.on_hover_text("Copy selected frame to Slide Deck").clicked() {
             if let Some(s) = app.copy_selection() {
                 ui.ctx().copy_text(s);
@@ -1220,9 +1228,9 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         widgets::record(ui, "al-upgrade-v1", up_r);
         let resp = ui.interact(up_r, ui.id().with("al-upgrade-v1"), Sense::click());
         let bg = if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
-        ui.painter().rect_filled(up_r, theme::cr(5), bg);
-        ui.painter().rect_stroke(up_r, theme::cr(5), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_small(), theme::TEXT);
+        ui.painter().rect_filled(up_r, theme::cr(theme::RADIUS_CONTROL), bg);
+        ui.painter().rect_stroke(up_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_caption(), theme::TEXT);
         if resp.on_hover_text("Upgrade to Auto layout v1 (borders inside the box)").clicked() {
             app.upgrade_auto_layout_version();
         }
@@ -1322,7 +1330,13 @@ fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) 
     let options = ["Flex", "Fixed", "Hug"].map(String::from);
     for (is_col, heading, tag, tracks) in [(true, "Columns", "col", &ov.col_tracks), (false, "Rows", "row", &ov.row_tracks)] {
         let head = grid_track_row(pane);
-        ui.painter().text(Pos2::new(head.label.left(), head.label.center().y), Align2::LEFT_CENTER, heading, theme::font_small_medium(), theme::TEXT_SECONDARY);
+        ui.painter().text(
+            Pos2::new(head.label.left(), head.label.center().y),
+            Align2::LEFT_CENTER,
+            heading,
+            theme::font_caption_medium(),
+            theme::TEXT_SECONDARY,
+        );
         if tracks.len() < MAX_GRID_TRACKS
             && widgets::icon_button(ui, head.add, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked()
         {
@@ -1495,11 +1509,11 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             if app.props.selected_property == Some(prop) {
                 pt.rect_stroke(row_r, theme::cr(4), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             }
-            pt.rect_filled(g, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            pt.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             if focused {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             } else if ui.rect_contains_pointer(g) {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
             }
         }
         if let Some(drag_prop) = app.props.drag_property {
@@ -2469,8 +2483,8 @@ mod tests {
 
     #[test]
     fn grid_track_rows_fit_the_section_without_overlap_at_the_pointer_floor() {
-        let heading = Pane { x0: 0.0, oy: 0.0, y: 0.0 };
-        let mut below = Pane { x0: 0.0, oy: 0.0, y: 0.0 };
+        let heading = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: 0.0 };
+        let mut below = Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: 0.0 };
         row_end(&mut below);
         let (head, row) = (grid_track_row(&heading), grid_track_row(&below));
         let named =

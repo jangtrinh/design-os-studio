@@ -397,22 +397,20 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             if resp.hovered() {
                 app.hover_layer = Some(row.id);
             }
+            // One shape for every row state: a pill at the frame inset (selection, hover and the tint of
+            // a selected layer's children all share it).
+            let pill = rr.shrink2(Vec2::new(theme::INSET_FRAME, 0.0));
             if is_sel {
-                p.rect_filled(rr, 0.0, if resp.hovered() || canvas_hov { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED });
+                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() || canvas_hov { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED });
             } else if under_sel {
-                p.rect_filled(rr, 0.0, theme::BG_SELECTED_SECONDARY);
+                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED_SECONDARY);
                 if canvas_hov {
-                    p.rect_stroke(
-                        rr.shrink2(Vec2::new(8.0, 0.0)),
-                        theme::cr(theme::RADIUS_MEDIUM),
-                        Stroke::new(1.0, theme::BORDER_SELECTED),
-                        StrokeKind::Inside,
-                    );
+                    p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
                 }
             } else if canvas_hov {
-                p.rect_stroke(rr.shrink2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             } else if resp.hovered() && app.layers.drag.is_none() {
-                p.rect_stroke(rr.shrink2(Vec2::new(8.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+                p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
             }
 
             let indent = row.depth as f32 * theme::LAYER_INDENT;
@@ -486,8 +484,8 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             if app.layers.renaming == Some(row.id) {
                 let id = ui.id().with(("layer-rename", row.id.0));
                 let tr = Rect::from_min_max(Pos2::new(text_left - 4.0, rr.top() + 4.0), Pos2::new(rr.right() - 8.0, rr.bottom() - 4.0));
-                p.rect_filled(tr, theme::cr(theme::RADIUS_SMALL), theme::BG);
-                p.rect_stroke(tr, theme::cr(theme::RADIUS_SMALL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                p.rect_filled(tr, theme::cr(theme::RADIUS_MARK), theme::BG);
+                p.rect_stroke(tr, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
                 if !app.layers.rename_started {
                     ui.memory_mut(|m| m.request_focus(id));
                     app.layers.rename_started = true;
@@ -534,7 +532,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     }
                 }
             } else {
-                let label_w = widgets::text_width(&p, type_label, &theme::font_small()) + TYPE_LABEL_PAD;
+                let label_w = widgets::text_width(&p, type_label, &theme::font_caption()) + TYPE_LABEL_PAD;
                 let split = split_row_text(text_left, text_right, label_w);
                 let shown = widgets::elide(&p, &node_name, &theme::font_body(), (split.name_right - text_left).max(10.0));
                 if let Some(m) = &filter {
@@ -548,7 +546,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                         Pos2::new(text_right - 2.0, rr.center().y),
                         Align2::RIGHT_CENTER,
                         type_label,
-                        theme::font_small(),
+                        theme::font_caption(),
                         type_label_color(node_visible, comp),
                     );
                 }
@@ -638,7 +636,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                 match d.kind {
                     DropKind::Inside => {
                         let r = Rect::from_min_size(Pos2::new(region.left() + 4.0, top), Vec2::new(region.width() - 8.0, theme::LAYER_ROW_HEIGHT));
-                        p.rect_stroke(r, theme::cr(theme::RADIUS_SMALL), Stroke::new(theme::LAYER_DROP_THICKNESS, theme::DROP_INDICATOR), StrokeKind::Inside);
+                        p.rect_stroke(r, theme::cr(theme::RADIUS_MARK), Stroke::new(theme::LAYER_DROP_THICKNESS, theme::DROP_INDICATOR), StrokeKind::Inside);
                     }
                     k => {
                         let y = if k == DropKind::Before { top } else { top + theme::LAYER_ROW_HEIGHT };
@@ -822,7 +820,7 @@ mod tests {
         let painted = paint_panel(&mut app, region);
         let painted_rows = (region.height() / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1;
         let names = painted.iter().filter(|t| t.size == theme::FONT_SIZE_BODY).count();
-        let labels: Vec<&Painted> = painted.iter().filter(|t| t.size == theme::FONT_SIZE_SMALL).collect();
+        let labels: Vec<&Painted> = painted.iter().filter(|t| t.size == theme::FONT_SIZE_CAPTION).collect();
         assert_eq!(names, painted_rows, "names are painted for the viewport rows only, not all 2,000");
         assert_eq!(labels.len(), painted_rows, "type labels are painted for the viewport rows only, not all 2,000");
         assert!(labels.iter().all(|t| t.text == "Rect"), "every painted label names its node type");
@@ -922,7 +920,7 @@ mod tests {
                 let row = row_texts(&painted, region, depth);
                 let at = format!("{direction:?} frame at depth {depth}");
                 let name = row.iter().find(|t| t.size == theme::FONT_SIZE_BODY).unwrap_or_else(|| panic!("{at}: the name is not painted"));
-                check(&at, name, row.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).copied(), text_right);
+                check(&at, name, row.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).copied(), text_right);
             }
         }
     }
@@ -974,7 +972,7 @@ mod tests {
             let painted = paint_panel(&mut app, region);
             let texts = row_texts(&painted, region, depth);
             let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).map(|t| t.rect).expect("name painted");
-            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).map(|t| t.text.clone());
+            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).map(|t| t.text.clone());
             (name, label)
         };
         assert_eq!(row_at(0, Horizontal).1.as_deref(), Some("Auto layout"), "a top-level row shows its type");
@@ -1022,7 +1020,7 @@ mod tests {
         let colors = |row: usize| {
             let texts = row_texts(&painted, region, row);
             let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).expect("name painted").color;
-            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).expect("type label painted").color;
+            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).expect("type label painted").color;
             (name, label)
         };
         assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");

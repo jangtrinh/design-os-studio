@@ -903,10 +903,15 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         }
 
         if is_active {
-            p.rect_filled(tab_rect, theme::cr_each(6, 6, 4, 4), TAB_ACTIVE_BG);
-            p.rect_stroke(tab_rect, theme::cr_each(6, 6, 4, 4), Stroke::new(1.0, TAB_ACTIVE_BORDER), StrokeKind::Inside);
+            p.rect_filled(tab_rect, theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT), TAB_ACTIVE_BG);
+            p.rect_stroke(
+                tab_rect,
+                theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT),
+                Stroke::new(1.0, TAB_ACTIVE_BORDER),
+                StrokeKind::Inside,
+            );
         } else if hovered {
-            p.rect_filled(tab_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(tab_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         } else {
             // Subtle right separator between inactive tabs
             p.vline(tab_rect.right() + 1.0, (tab_rect.top() + 5.0)..=(tab_rect.bottom() - 5.0), Stroke::new(1.0, TAB_BAR_BORDER));
@@ -981,7 +986,7 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let plus_resp = ui.interact(plus_rect, ui.id().with("tab-bar-new"), Sense::click());
         if plus_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(plus_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(plus_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
         icons::paint(&p, Icon::Plus, plus_rect.center(), 13.0, if plus_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
         if plus_resp.clicked() {
@@ -1000,14 +1005,14 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let upd_resp = ui.interact(upd_rect, ui.id().with("top-tab-update-btn"), Sense::click());
         if upd_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(upd_rect, theme::cr(5), TAB_HOVER_BG);
+            p.rect_filled(upd_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
         p.circle_filled(Pos2::new(upd_rect.left() + 8.0, upd_rect.center().y), 2.5, Color32::from_rgb(0x1B, 0xC4, 0x7D));
         p.text(
             Pos2::new(upd_rect.left() + 14.0, upd_rect.center().y),
             Align2::LEFT_CENTER,
             "Update",
-            theme::font_small(),
+            theme::font_caption(),
             if upd_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
         if upd_resp.on_hover_text("Check for updates & verify binary SHA-256").clicked() {

@@ -1,6 +1,6 @@
 //! Open-source font support for designos.
 //!
-//! * [`bundled`] returns fonts embedded in the binary (Inter), always available offline.
+//! * [`bundled`] returns fonts embedded in the binary (Inter and Roboto Mono), always available offline.
 //! * [`requests_for`] lists every family/weight/italic a document uses.
 //! * [`substitute`] maps well-known proprietary families to open look-alikes.
 //! * [`FontCache`] resolves a [`FontRequest`] from the on-disk cache, fetching

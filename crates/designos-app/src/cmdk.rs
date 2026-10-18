@@ -340,9 +340,9 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
         let p = ui.painter().clone();
 
         // Outer modal: 12px radius + 1px `#383838` border + deep elevation shadow
-        widgets::elevation_400(&p, rect, 12);
-        p.rect_filled(rect, CornerRadius::same(12), CMDK_BG_SURFACE);
-        p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0, CMDK_BORDER), StrokeKind::Inside);
+        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), CMDK_BG_SURFACE);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, CMDK_BORDER), StrokeKind::Inside);
 
         // 1. Top Search Row (40px) — 1:1 `figma_ui3_actions_cmdk.png`:
         // Left search icon, clean borderless input (`Search`), right `Icon::Image` visual-search button.
@@ -393,7 +393,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             "Design Gate: live VSF / EaseUI audit & 1-click auto-fix",
         ];
         for (t_idx, t_label) in ["All", "Assets", "Plugins & widgets", "Design Gate"].iter().enumerate() {
-            let tw = widgets::text_width(&p, t_label, &theme::font_body_semibold());
+            let tw = widgets::text_width(&p, t_label, &theme::font_body_strong());
             let tr = Rect::from_min_size(Pos2::new(tx, tab_row.top()), Vec2::new(tw + 8.0, tab_row.height()));
             let tresp = ui.interact(tr, Id::new(("cmdk-tab", t_idx)), Sense::click()).on_hover_text(tab_tips[t_idx]);
             let is_active = state.active_tab == t_idx;
@@ -401,7 +401,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                 tr.center(),
                 Align2::CENTER_CENTER,
                 *t_label,
-                if is_active { theme::font_body_semibold() } else { theme::font_body() },
+                if is_active { theme::font_body_strong() } else { theme::font_body() },
                 if is_active {
                     Color32::WHITE
                 } else if tresp.hovered() {
@@ -431,7 +431,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
             if sec != current_sec {
                 current_sec = sec;
-                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_small(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_SECONDARY);
                 row_y += 28.0;
             }
 
@@ -455,10 +455,10 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             );
 
             // Right-aligned rounded badge (`Development` or `AI` in `#383838` pill with `#B3B3B3` text)
-            let badge_w = widgets::text_width(&p, item.badge, &theme::font_small()) + 12.0;
+            let badge_w = widgets::text_width(&p, item.badge, &theme::font_caption()) + 12.0;
             let badge_r = Rect::from_min_size(Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - 9.0), Vec2::new(badge_w, 18.0));
             p.rect_filled(badge_r, CornerRadius::same(4), CMDK_BADGE_BG);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, item.badge, theme::font_small(), CMDK_BADGE_TEXT);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, item.badge, theme::font_caption(), CMDK_BADGE_TEXT);
 
             let title_str = widgets::elide(&p, item.title, &theme::font_body(), (badge_r.left() - row_rect.left() - 40.0).max(60.0));
             p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), Color32::WHITE);
@@ -582,11 +582,11 @@ fn render_audit_section(
     let score_badge = Rect::from_min_size(Pos2::new(sec_rect.left() + 12.0, sec_rect.top() + 8.0), Vec2::new(86.0, 22.0));
     p.rect_filled(score_badge, CornerRadius::same(6), score_bg);
     p.rect_stroke(score_badge, CornerRadius::same(6), Stroke::new(1.0, score_border), StrokeKind::Inside);
-    p.text(score_badge.center(), Align2::CENTER_CENTER, format!("SCORE {}/100", audit.score), theme::font_small_strong(), score_fg);
+    p.text(score_badge.center(), Align2::CENTER_CENTER, format!("SCORE {}/100", audit.score), theme::font_caption_strong(), score_fg);
 
     let summary_txt = format!("{} passed • {} warnings ({} nodes audited)", audit.passed, audit.warnings.len(), audit.node_count);
-    let elided_sum = widgets::elide(p, &summary_txt, &theme::font_small_medium(), (sec_rect.width() - 320.0).max(60.0));
-    p.text(Pos2::new(score_badge.right() + 10.0, score_badge.center().y), Align2::LEFT_CENTER, elided_sum, theme::font_small_medium(), theme::TEXT_SECONDARY);
+    let elided_sum = widgets::elide(p, &summary_txt, &theme::font_caption_medium(), (sec_rect.width() - 320.0).max(60.0));
+    p.text(Pos2::new(score_badge.right() + 10.0, score_badge.center().y), Align2::LEFT_CENTER, elided_sum, theme::font_caption_medium(), theme::TEXT_SECONDARY);
 
     // 1-Click "Auto-Fix Spacing & Tap Targets" button with Sparkle vector icon
     let fix_w = 198.0;
@@ -599,7 +599,7 @@ fn render_audit_section(
         Pos2::new(fix_rect.left() + 20.0, fix_rect.center().y),
         Align2::LEFT_CENTER,
         "Auto-Fix Spacing & Tap Targets",
-        theme::font_small_strong(),
+        theme::font_caption_strong(),
         STATUS_WARN_TEXT,
     );
     if fix_resp.clicked() {
@@ -613,15 +613,15 @@ fn render_audit_section(
         let focus_resp = ui.interact(focus_r, Id::new(("cmdk-issue-focus", idx, issue.node_id.0)), Sense::click());
         p.rect_filled(focus_r, CornerRadius::same(4), if focus_resp.hovered() { TERM_BG_HOVER } else { STATUS_INFO_BG });
         p.rect_stroke(focus_r, CornerRadius::same(4), Stroke::new(1.0, STATUS_INFO_BORDER), StrokeKind::Inside);
-        p.text(focus_r.center(), Align2::CENTER_CENTER, "Focus", theme::font_small_medium(), STATUS_INFO_TEXT);
+        p.text(focus_r.center(), Align2::CENTER_CENTER, "Focus", theme::font_caption_medium(), STATUS_INFO_TEXT);
         if focus_resp.clicked() {
             state.open = false;
             *out_action = Some(CmdKAction::SelectNode(issue.node_id));
         }
 
         let line = format!("[{}] {}: {}", issue.rule, issue.node_name, issue.detail);
-        let elided_line = widgets::elide(p, &line, &theme::font_small(), (sec_rect.width() - 80.0).max(60.0));
-        p.text(Pos2::new(sec_rect.left() + 12.0, iy + 10.0), Align2::LEFT_CENTER, elided_line, theme::font_small(), theme::TEXT);
+        let elided_line = widgets::elide(p, &line, &theme::font_caption(), (sec_rect.width() - 80.0).max(60.0));
+        p.text(Pos2::new(sec_rect.left() + 12.0, iy + 10.0), Align2::LEFT_CENTER, elided_line, theme::font_caption(), theme::TEXT);
         iy += 26.0;
     }
 

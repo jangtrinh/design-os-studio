@@ -401,7 +401,7 @@
   "typography": {
     "font-family-mono": {
       "$type": "fontFamily",
-      "$value": "JetBrains Mono, SFMono-Regular, Menlo, monospace"
+      "$value": "Roboto Mono, SFMono-Regular, Menlo, monospace"
     },
     "font-family-sans": {
       "$type": "fontFamily",

@@ -170,14 +170,14 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("layer-picker-menu")).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
         let (_, _) = ui.allocate_exact_size(r.size(), egui::Sense::hover());
         let p = ui.painter();
-        crate::widgets::elevation_shadow(p, r, crate::theme::MENU_RADIUS);
-        p.rect_filled(r, crate::theme::cr(crate::theme::MENU_RADIUS), crate::theme::BG_MENU);
-        p.rect_stroke(r, crate::theme::cr(crate::theme::MENU_RADIUS), egui::Stroke::new(1.0, crate::theme::BORDER_MENU), egui::StrokeKind::Inside);
+        crate::widgets::elevation_shadow(p, r, crate::theme::RADIUS_FRAME);
+        p.rect_filled(r, crate::theme::cr(crate::theme::RADIUS_FRAME), crate::theme::BG_MENU);
+        p.rect_stroke(r, crate::theme::cr(crate::theme::RADIUS_FRAME), egui::Stroke::new(1.0, crate::theme::BORDER_MENU), egui::StrokeKind::Inside);
         p.text(
             egui::Pos2::new(r.left() + 12.0, r.top() + header_h * 0.5),
             egui::Align2::LEFT_CENTER,
             "Select layer",
-            crate::theme::font_small(),
+            crate::theme::font_caption(),
             crate::theme::TEXT_SECONDARY,
         );
         p.hline(r.left() + 1.0..=r.right() - 1.0, r.top() + header_h, egui::Stroke::new(1.0, crate::theme::BORDER_MENU));
@@ -193,7 +193,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
             let sel = app.is_selected(id);
             if hov {
                 hovered_any = Some(id);
-                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_BRAND);
+                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_MENU_SELECTED);
             } else if sel {
                 p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_SELECTED);
             }

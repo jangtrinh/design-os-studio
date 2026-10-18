@@ -17,6 +17,9 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
        - When `--record-gaps` is enabled, automatically records any detected drift via
          `ui memory record gap`.
 
+     The same gate also compares the non-colour tokens (radius, spacing, size) with their
+     `theme.rs` constants through `scripts/non_colour_token_parity.py`.
+
   2. G02 · `zero_fake_ui_gate`:
      Executes `python3 scripts/zero_fake_ui_gate.py --json` and verifies every invariant passes (`passed == total`).
 
@@ -63,6 +66,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from non_colour_token_parity import check_non_colour_parity
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 THEME_RS = REPO_ROOT / "crates" / "designos-app" / "src" / "theme.rs"
@@ -247,8 +252,15 @@ def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[
         if ds_hex in BANNED_PURPLES:
             purple_violations.append(f"colors.{ds_key}={ds_hex}")
 
+    non_colour = check_non_colour_parity(theme_src, tokens_data)
+    non_colour_issues = (
+        non_colour["drifts"] + non_colour["stale_exemptions"] + non_colour["problems"]
+    )
+    token_drifts.extend(non_colour_issues)
+
     ok = (not missing_consts) and (not purple_violations) and (not token_drifts)
     details = {
+        "non_colour": non_colour,
         "checked_constants": len(CORE_RUST_CONSTANTS),
         "verified_pairs": verified_pairs,
         "missing_constants": missing_consts,
@@ -258,8 +270,13 @@ def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[
     if ok:
         summary = (
             f"{len(CORE_RUST_CONSTANTS)}/{len(CORE_RUST_CONSTANTS)} Rust theme.rs constants match "
-            f"design.tokens.json; 0 Purple Ban violations"
+            f"design.tokens.json; 0 Purple Ban violations; "
+            f"{len(non_colour['verified'])} non-colour constants match"
         )
+        if non_colour["known_drift"]:
+            summary += f"; KNOWN DRIFT x{len(non_colour['known_drift'])}: " + " | ".join(
+                non_colour["known_drift"]
+            )
         return True, summary, details
 
     issues: List[str] = []

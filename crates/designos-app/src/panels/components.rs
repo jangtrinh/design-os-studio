@@ -106,7 +106,7 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     }
     ui.painter().rect_stroke(
         dd,
-        theme::cr(theme::RADIUS_MEDIUM),
+        theme::cr(theme::RADIUS_CONTROL),
         egui::Stroke::new(1.0, theme::CANVAS_COMPONENT.gamma_multiply(0.55)),
         egui::StrokeKind::Inside,
     );
@@ -333,7 +333,7 @@ fn overrides_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
     let btn = pane.rect(theme::FIELD_COL_X[1] + 24.0, 0.0, 64.0, theme::FIELD_HEIGHT);
     widgets::record(ui, "reset-overrides", btn);
     let resp = ui.interact(btn, ui.id().with("reset-overrides"), Sense::click());
-    ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT);
     if resp.clicked() {
         app.reset_node_overrides(id, &fields);

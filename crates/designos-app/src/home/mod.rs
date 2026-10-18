@@ -547,7 +547,7 @@ fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
     let font = theme::font_body();
     let w = crate::widgets::text_width(&p, &name, &font).min(220.0) + 24.0;
     let r = Rect::from_min_size(ptr + Vec2::new(12.0, 8.0), Vec2::new(w, 28.0));
-    p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_BRAND);
+    p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_BRAND);
     let shown = crate::widgets::elide(&p, &name, &font, 200.0);
     p.text(r.left_center() + Vec2::new(12.0, 0.0), egui::Align2::LEFT_CENTER, shown, font, egui::Color32::WHITE);
     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -916,7 +916,7 @@ mod sidebar {
         ver_font.size = 10.0;
         let ver_w = widgets::text_width(&p, &ver, &ver_font) + 10.0;
         let ver_r = Rect::from_center_size(Pos2::new(ws_rect.right() - ver_w * 0.5 - 4.0, ws_rect.center().y), Vec2::new(ver_w, 16.0));
-        p.rect_filled(ver_r, CornerRadius::same(4), UI3_PILL_ACTIVE);
+        p.rect_filled(ver_r, theme::cr_pill(ver_r.height()), UI3_PILL_ACTIVE);
         p.text(ver_r.center(), Align2::CENTER_CENTER, ver, ver_font, UI3_TEXT_SEC);
         if ws_resp.clicked() {
             acts.push(Act::Go(Section::Recents));
@@ -930,8 +930,8 @@ mod sidebar {
 
         // 2. Search Bar (`height: 32px`, `#2C2C2C` fill, `6px` radius)
         let sr = Rect::from_min_size(Pos2::new(x0 + 12.0, y), Vec2::new(w - 24.0, 32.0));
-        p.rect_filled(sr, CornerRadius::same(6), UI3_SEARCH_BG);
-        p.rect_stroke(sr, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+        p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), UI3_SEARCH_BG);
+        p.rect_stroke(sr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
         icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 14.0, theme::ICON_SECONDARY);
         let tr = Rect::from_min_max(Pos2::new(sr.left() + 28.0, sr.top()), sr.max - Vec2::new(8.0, 0.0));
         let tid = Id::new("home-search");
@@ -973,8 +973,8 @@ mod sidebar {
         // 4. Workspace Section Header (`FILES & PROJECTS`) + `+` New Project button
         let ws_badge_c = Pos2::new(x0 + 20.0, y + 12.0);
         p.circle_filled(ws_badge_c, 7.0, UI3_BLUE.gamma_multiply(0.25));
-        p.text(ws_badge_c, Align2::CENTER_CENTER, "P", theme::font_small_strong(), UI3_BLUE);
-        p.text(Pos2::new(x0 + 32.0, y + 12.0), Align2::LEFT_CENTER, "FILES & PROJECTS", theme::font_small_strong(), theme::TEXT_SECONDARY);
+        p.text(ws_badge_c, Align2::CENTER_CENTER, "P", theme::font_caption_strong(), UI3_BLUE);
+        p.text(Pos2::new(x0 + 32.0, y + 12.0), Align2::LEFT_CENTER, "FILES & PROJECTS", theme::font_caption_strong(), theme::TEXT_SECONDARY);
         let plus = Rect::from_min_size(Pos2::new(x0 + w - 12.0 - 24.0, y), Vec2::splat(24.0));
         if widgets::icon_button(ui, plus, "home-new-project", Icon::Plus, false, "New project").clicked() {
             acts.push(Act::NewProject);
@@ -1106,8 +1106,8 @@ mod sidebar {
                     p.rect_filled(sr_row, CornerRadius::same(5), UI3_PILL_HOVER);
                 }
                 icons::paint(&p, Icon::File, Pos2::new(sr_row.left() + 12.0, sr_row.center().y), 13.0, UI3_BLUE);
-                let stxt = widgets::elide(&p, &sf.name, &theme::font_small(), sr_row.width() - 28.0);
-                p.text(Pos2::new(sr_row.left() + 24.0, sr_row.center().y), Align2::LEFT_CENTER, stxt, theme::font_small(), theme::TEXT_SECONDARY);
+                let stxt = widgets::elide(&p, &sf.name, &theme::font_caption(), sr_row.width() - 28.0);
+                p.text(Pos2::new(sr_row.left() + 24.0, sr_row.center().y), Align2::LEFT_CENTER, stxt, theme::font_caption(), theme::TEXT_SECONDARY);
                 if sresp.clicked() {
                     acts.push(Act::Open(sf.id.clone()));
                 }
@@ -1295,8 +1295,8 @@ mod main_view {
             let fw = widgets::text_width(&p, &filter_lbl, &theme::font_body()) + 36.0;
             let fr = Rect::from_min_size(Pos2::new(rect.left() + pad, y), Vec2::new(fw, 28.0));
             let fresp = ui.interact(fr, Id::new("home-filter"), Sense::click());
-            p.rect_filled(fr, CornerRadius::same(6), if h.filter_menu.is_some() || fresp.hovered() { UI3_BORDER } else { UI3_SURFACE });
-            p.rect_stroke(fr, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+            p.rect_filled(fr, theme::cr_pill(fr.height()), if h.filter_menu.is_some() || fresp.hovered() { UI3_BORDER } else { UI3_SURFACE });
+            p.rect_stroke(fr, theme::cr_pill(fr.height()), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
             p.text(Pos2::new(fr.left() + 10.0, fr.center().y), Align2::LEFT_CENTER, &filter_lbl, theme::font_body(), theme::TEXT);
             icons::paint(&p, Icon::ChevronDown, Pos2::new(fr.right() - 12.0, fr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
             widgets::record(ui, "home-filter", fr);
@@ -1309,8 +1309,8 @@ mod main_view {
             let sw = widgets::text_width(&p, &sort_lbl, &theme::font_body()) + 36.0;
             let sr = Rect::from_min_size(Pos2::new(fr.right() + 8.0, y), Vec2::new(sw, 28.0));
             let sresp = ui.interact(sr, Id::new("home-sort"), Sense::click());
-            p.rect_filled(sr, CornerRadius::same(6), if h.sort_menu.is_some() || sresp.hovered() { UI3_BORDER } else { UI3_SURFACE });
-            p.rect_stroke(sr, CornerRadius::same(6), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+            p.rect_filled(sr, theme::cr_pill(sr.height()), if h.sort_menu.is_some() || sresp.hovered() { UI3_BORDER } else { UI3_SURFACE });
+            p.rect_stroke(sr, theme::cr_pill(sr.height()), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
             p.text(Pos2::new(sr.left() + 10.0, sr.center().y), Align2::LEFT_CENTER, &sort_lbl, theme::font_body(), theme::TEXT);
             icons::paint(&p, Icon::ChevronDown, Pos2::new(sr.right() - 12.0, sr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
             widgets::record(ui, "home-sort", sr);
@@ -1379,7 +1379,7 @@ mod main_view {
             if i < last {
                 let resp = ui.interact(r, Id::new(("home-crumb", i)), Sense::click());
                 if resp.hovered() {
-                    p.rect_filled(r.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    p.rect_filled(r.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 if resp.clicked() {
                     acts.push(Act::Go(section));
@@ -1401,7 +1401,7 @@ mod main_view {
         let r = Rect::from_min_size(Pos2::new(*right - w, cy - 16.0), Vec2::new(w, 32.0));
         *right = r.left();
         let resp = ui.interact(r, Id::new(("home-button", record)), Sense::click());
-        let radius = CornerRadius::same(6);
+        let radius = theme::cr_pill(r.height());
         let down = resp.is_pointer_button_down_on();
         match kind {
             Kind::PrimaryBlue => {
@@ -1430,7 +1430,7 @@ mod main_view {
         p.text(Pos2::new(x, y + 10.0), Align2::LEFT_CENTER, title, theme::font_body_strong(), theme::TEXT);
         if let Some(sub) = subtitle {
             let tw = widgets::text_width(p, title, &theme::font_body_strong());
-            p.text(Pos2::new(x + tw + 10.0, y + 10.0), Align2::LEFT_CENTER, sub, theme::font_small(), theme::TEXT_SECONDARY);
+            p.text(Pos2::new(x + tw + 10.0, y + 10.0), Align2::LEFT_CENTER, sub, theme::font_caption(), theme::TEXT_SECONDARY);
         }
         28.0
     }
@@ -1558,10 +1558,10 @@ mod main_view {
                 icons::paint(&p, *icon, icon_box.center(), 15.0, Color32::WHITE);
 
                 // Category pill on top-right of banner
-                let bw = widgets::text_width(&p, badge, &theme::font_small_strong()) + 14.0;
+                let bw = widgets::text_width(&p, badge, &theme::font_caption_strong()) + 14.0;
                 let pill_r = Rect::from_min_size(Pos2::new(r.right() - bw - 12.0, r.top() + 16.0), Vec2::new(bw, 20.0));
-                p.rect_filled(pill_r, CornerRadius::same(10), accent.gamma_multiply(0.24));
-                p.text(pill_r.center(), Align2::CENTER_CENTER, *badge, theme::font_small_strong(), *accent);
+                p.rect_filled(pill_r, theme::cr_pill(pill_r.height()), accent.gamma_multiply(0.24));
+                p.text(pill_r.center(), Align2::CENTER_CENTER, *badge, theme::font_caption_strong(), *accent);
 
                 // Subtle decorative wireframe bars inside banner
                 let bar_y = banner.bottom() - 14.0;
@@ -1576,15 +1576,15 @@ mod main_view {
                     theme::font_body_strong(),
                     theme::TEXT,
                 );
-                let galley = p.layout((*desc).to_string(), theme::font_small(), theme::TEXT_SECONDARY, r.width() - 24.0);
+                let galley = p.layout((*desc).to_string(), theme::font_caption(), theme::TEXT_SECONDARY, r.width() - 24.0);
                 p.galley(Pos2::new(r.left() + 12.0, banner.bottom() + 28.0), galley, theme::TEXT_SECONDARY);
 
                 // Bottom CTA button
                 let btn_r = Rect::from_min_size(Pos2::new(r.left() + 12.0, r.bottom() - 36.0), Vec2::new(r.width() - 24.0, 26.0));
                 let btn_bg = if hot { *accent } else { UI3_MAIN_BG };
-                p.rect_filled(btn_r, CornerRadius::same(5), btn_bg);
-                p.rect_stroke(btn_r, CornerRadius::same(5), Stroke::new(1.0, if hot { *accent } else { UI3_BORDER }), StrokeKind::Inside);
-                p.text(btn_r.center(), Align2::CENTER_CENTER, *btn_lbl, theme::font_small_strong(), if hot { Color32::WHITE } else { theme::TEXT });
+                p.rect_filled(btn_r, theme::cr_pill(btn_r.height()), btn_bg);
+                p.rect_stroke(btn_r, theme::cr_pill(btn_r.height()), Stroke::new(1.0, if hot { *accent } else { UI3_BORDER }), StrokeKind::Inside);
+                p.text(btn_r.center(), Align2::CENTER_CENTER, *btn_lbl, theme::font_caption_strong(), if hot { Color32::WHITE } else { theme::TEXT });
 
                 widgets::record(ui, record, r);
                 if resp.clicked() {
@@ -1720,7 +1720,7 @@ mod main_view {
 
                 // Top-right `+ Folder` mini button
                 p.rect_filled(plus_r, CornerRadius::same(5), if plus_resp.hovered() { UI3_BLUE } else { Color32::from_black_alpha(170) });
-                p.text(plus_r.center(), Align2::CENTER_CENTER, "+ Folder", theme::font_small_strong(), Color32::WHITE);
+                p.text(plus_r.center(), Align2::CENTER_CENTER, "+ Folder", theme::font_caption_strong(), Color32::WHITE);
                 widgets::record(ui, &format!("home-project-new-folder-{}", pr.name), plus_r);
 
                 // Bottom metadata
@@ -1742,7 +1742,7 @@ mod main_view {
                     pr.folders.len(),
                     if pr.folders.len() == 1 { "" } else { "s" },
                 );
-                p.text(Pos2::new(r.left() + 36.0, preview.bottom() + 33.0), Align2::LEFT_CENTER, sub, theme::font_small(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(r.left() + 36.0, preview.bottom() + 33.0), Align2::LEFT_CENTER, sub, theme::font_caption(), theme::TEXT_SECONDARY);
 
                 widgets::record(ui, &format!("home-project-card-{}", pr.name), r);
                 if plus_resp.clicked() {
@@ -1771,7 +1771,7 @@ mod main_view {
                 p.circle_filled(Pos2::new(c.x, c.y - 14.0), 18.0, UI3_BLUE.gamma_multiply(0.18));
                 icons::paint(&p, Icon::Plus, Pos2::new(c.x, c.y - 14.0), 16.0, UI3_BLUE);
                 p.text(Pos2::new(c.x, c.y + 14.0), Align2::CENTER_CENTER, "+ New project", theme::font_body_strong(), theme::TEXT);
-                p.text(Pos2::new(c.x, c.y + 31.0), Align2::CENTER_CENTER, "Organize files and nested folders", theme::font_small(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(c.x, c.y + 31.0), Align2::CENTER_CENTER, "Organize files and nested folders", theme::font_caption(), theme::TEXT_SECONDARY);
                 widgets::record(ui, "home-card-new-project", np_r);
                 if np_resp.clicked() {
                     acts.push(Act::NewProject);
@@ -1990,7 +1990,7 @@ mod main_view {
                     theme::font_body_strong(),
                     theme::TEXT,
                 );
-                let galley = p.layout((*desc).to_string(), theme::font_small(), theme::TEXT_SECONDARY, r.width() - 28.0);
+                let galley = p.layout((*desc).to_string(), theme::font_caption(), theme::TEXT_SECONDARY, r.width() - 28.0);
                 p.galley(Pos2::new(r.left() + 14.0, r.top() + 76.0), galley, theme::TEXT_SECONDARY);
 
                 if let Some((btn2_lbl, btn2_act, btn2_key)) = btn2_opt {
@@ -1999,17 +1999,17 @@ mod main_view {
                     let b2 = Rect::from_min_size(Pos2::new(b1.right() + 6.0, r.bottom() - 38.0), Vec2::new(bw, 26.0));
                     let r1 = ui.interact(b1, Id::new(("home-res-b1", *btn1_key)), Sense::click());
                     let r2 = ui.interact(b2, Id::new(("home-res-b2", *btn2_key)), Sense::click());
-                    p.rect_filled(b1, CornerRadius::same(5), if r1.hovered() { *accent } else { UI3_MAIN_BG });
-                    p.rect_stroke(b1, CornerRadius::same(5), Stroke::new(1.0, *accent), StrokeKind::Inside);
-                    p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_small_strong(), Color32::WHITE);
+                    p.rect_filled(b1, theme::cr_pill(b1.height()), if r1.hovered() { *accent } else { UI3_MAIN_BG });
+                    p.rect_stroke(b1, theme::cr_pill(b1.height()), Stroke::new(1.0, *accent), StrokeKind::Inside);
+                    p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_caption_strong(), Color32::WHITE);
                     widgets::record(ui, btn1_key, b1);
                     if r1.clicked() {
                         acts.push(btn1_act.clone());
                     }
 
-                    p.rect_filled(b2, CornerRadius::same(5), if r2.hovered() { UI3_BORDER } else { UI3_MAIN_BG });
-                    p.rect_stroke(b2, CornerRadius::same(5), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
-                    p.text(b2.center(), Align2::CENTER_CENTER, *btn2_lbl, theme::font_small_strong(), theme::TEXT);
+                    p.rect_filled(b2, theme::cr_pill(b2.height()), if r2.hovered() { UI3_BORDER } else { UI3_MAIN_BG });
+                    p.rect_stroke(b2, theme::cr_pill(b2.height()), Stroke::new(1.0, UI3_BORDER), StrokeKind::Inside);
+                    p.text(b2.center(), Align2::CENTER_CENTER, *btn2_lbl, theme::font_caption_strong(), theme::TEXT);
                     widgets::record(ui, btn2_key, b2);
                     if r2.clicked() {
                         acts.push(btn2_act.clone());
@@ -2017,9 +2017,9 @@ mod main_view {
                 } else {
                     let b1 = Rect::from_min_size(Pos2::new(r.left() + 14.0, r.bottom() - 38.0), Vec2::new(r.width() - 28.0, 26.0));
                     let r1 = ui.interact(b1, Id::new(("home-res-b1", *btn1_key)), Sense::click());
-                    p.rect_filled(b1, CornerRadius::same(5), if r1.hovered() { *accent } else { UI3_MAIN_BG });
-                    p.rect_stroke(b1, CornerRadius::same(5), Stroke::new(1.0, *accent), StrokeKind::Inside);
-                    p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_small_strong(), Color32::WHITE);
+                    p.rect_filled(b1, theme::cr_pill(b1.height()), if r1.hovered() { *accent } else { UI3_MAIN_BG });
+                    p.rect_stroke(b1, theme::cr_pill(b1.height()), Stroke::new(1.0, *accent), StrokeKind::Inside);
+                    p.text(b1.center(), Align2::CENTER_CENTER, *btn1_lbl, theme::font_caption_strong(), Color32::WHITE);
                     widgets::record(ui, btn1_key, b1);
                     if r1.clicked() {
                         acts.push(btn1_act.clone());
@@ -2047,7 +2047,7 @@ mod main_view {
                         lib_idx.styles,
                         lib_idx.variables,
                     );
-                    p.text(Pos2::new(row_r.left() + 44.0, row_r.center().y + 9.0), Align2::LEFT_CENTER, meta, theme::font_small(), theme::TEXT_SECONDARY);
+                    p.text(Pos2::new(row_r.left() + 44.0, row_r.center().y + 9.0), Align2::LEFT_CENTER, meta, theme::font_caption(), theme::TEXT_SECONDARY);
                     widgets::record(ui, &format!("home-published-library-{}", lib_idx.name), row_r);
                     if resp.clicked() {
                         if let Some(fid) = &lib_idx.source_file {
@@ -2126,7 +2126,7 @@ mod main_view {
             let hr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner_w, 28.0));
             let cols_x = list_columns(hr.right());
             for (x, label) in [(hr.left() + 60.0, "Name"), (cols_x.0, "Location"), (cols_x.1, "Last modified"), (cols_x.2, "Last viewed")] {
-                p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_small_medium(), theme::TEXT_TERTIARY);
+                p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_caption_medium(), theme::TEXT_TERTIARY);
             }
             y += 28.0;
         }
@@ -2179,7 +2179,7 @@ mod main_view {
             }
             widgets::record(ui, &format!("home-card-{}", f.name), r);
             if dragging && selected.as_deref() == Some(f.id.as_str()) {
-                p.rect_filled(r, theme::cr(theme::RADIUS_LARGE), Color32::from_black_alpha(90));
+                p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), Color32::from_black_alpha(90));
             }
         }
     }
@@ -2279,8 +2279,8 @@ mod main_view {
                     p.text(
                         Pos2::new(ib.right() + 10.0, qr.center().y + 8.0),
                         Align2::LEFT_CENTER,
-                        widgets::elide(&p, qsub, &theme::font_small(), qr.width() - 52.0),
-                        theme::font_small(),
+                        widgets::elide(&p, qsub, &theme::font_caption(), qr.width() - 52.0),
+                        theme::font_caption(),
                         theme::TEXT_SECONDARY,
                     );
                     widgets::record(ui, qkey, qr);
@@ -2364,12 +2364,12 @@ mod main_view {
                     if let Some(target_sort) = sort_opt {
                         let resp = ui.interact(col_r, Id::new(("home-list-col", label)), Sense::click());
                         let col = if active || resp.hovered() { theme::TEXT } else { theme::TEXT_TERTIARY };
-                        p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_small_medium(), col);
+                        p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_caption_medium(), col);
                         if resp.clicked() {
                             new_sort = Some(target_sort);
                         }
                     } else {
-                        p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_small_medium(), theme::TEXT_TERTIARY);
+                        p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_caption_medium(), theme::TEXT_TERTIARY);
                     }
                 }
                 y += 28.0;
@@ -2423,7 +2423,7 @@ mod main_view {
                 }
                 widgets::record(ui, &format!("home-card-{}", f.name), r);
                 if dragging && selected.as_deref() == Some(f.id.as_str()) {
-                    p.rect_filled(r, theme::cr(theme::RADIUS_LARGE), Color32::from_black_alpha(90));
+                    p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), Color32::from_black_alpha(90));
                 }
             }
             if !files.is_empty() {
@@ -2466,8 +2466,8 @@ mod main_view {
                     p.text(
                         Pos2::new(sr.left() + 12.0, sr.top() + 68.0),
                         Align2::LEFT_CENTER,
-                        widgets::elide(&p, ssub, &theme::font_small(), sr.width() - 24.0),
-                        theme::font_small(),
+                        widgets::elide(&p, ssub, &theme::font_caption(), sr.width() - 24.0),
+                        theme::font_caption(),
                         theme::TEXT_SECONDARY,
                     );
                     widgets::record(ui, skey, sr);
@@ -2556,7 +2556,7 @@ mod main_view {
     }
 
     fn board_badge(p: &egui::Painter, area: Rect) {
-        let font = theme::font_small_strong();
+        let font = theme::font_caption_strong();
         let w = widgets::text_width(p, "Board", &font) + 28.0;
         let r = Rect::from_min_size(Pos2::new(area.left() + 8.0, area.bottom() - 8.0 - 20.0), Vec2::new(w, 20.0));
         p.rect_filled(r, theme::cr(10), theme::BG_MENU);
@@ -2615,8 +2615,8 @@ mod main_view {
         p.text(
             Pos2::new(tx, y_title + 16.0),
             Align2::LEFT_CENTER,
-            widgets::elide(p, &subtitle, &theme::font_small(), w),
-            theme::font_small(),
+            widgets::elide(p, &subtitle, &theme::font_caption(), w),
+            theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
     }
@@ -2634,7 +2634,7 @@ mod main_view {
             p.rect_filled(r, CornerRadius::same(6), theme::BG_HOVER);
         }
         let th = Rect::from_min_size(Pos2::new(r.left() + 8.0, r.top() + 5.0), Vec2::new(48.0, r.height() - 10.0));
-        thumb_area(p, th, tex, board, theme::RADIUS_SMALL);
+        thumb_area(p, th, tex, board, theme::RADIUS_MARK);
         draw_file_type_badge(p, Pos2::new(r.left() + 70.0, r.center().y), &f.name, board);
         let cols = list_columns(r.right());
         let font = theme::font_body();
@@ -2686,7 +2686,7 @@ mod main_view {
                 }
                 let resp = ui.interact(r, Id::new(("home-trash-row", &it.id)), Sense::click());
                 if resp.hovered() {
-                    p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                    p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                 }
                 if resp.secondary_clicked() {
                     menu = ui.input(|i| i.pointer.interact_pos()).map(|at| (Target::TrashItem(it.id.clone()), at));

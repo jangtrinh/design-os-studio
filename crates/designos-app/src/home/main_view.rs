@@ -57,7 +57,7 @@ pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec
         let w = widgets::text_width(&p, label, &theme::font_body()) + 40.0;
         let sr = Rect::from_min_size(Pos2::new(rect.left() + pad - 8.0, y), Vec2::new(w, 28.0));
         let resp = ui.interact(sr, Id::new("home-sort"), Sense::click());
-        widgets::button_bg(&p, sr, &resp, h.sort_menu.is_some(), theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, sr, &resp, h.sort_menu.is_some(), theme::cr(theme::RADIUS_CONTROL));
         p.text(Pos2::new(sr.left() + 8.0, sr.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
         icons::paint(&p, Icon::ChevronDown, Pos2::new(sr.right() - 14.0, sr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
         widgets::record(ui, "home-sort", sr);
@@ -118,7 +118,7 @@ fn breadcrumb(h: &Home, ui: &mut Ui, p: &egui::Painter, at: Pos2, acts: &mut Vec
         if i < last {
             let resp = ui.interact(r, Id::new(("home-crumb", i)), Sense::click());
             if resp.hovered() {
-                p.rect_filled(r.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(r.expand2(Vec2::new(4.0, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             if resp.clicked() {
                 acts.push(Act::Go(section));
@@ -140,7 +140,7 @@ fn button(ui: &mut Ui, p: &egui::Painter, right: &mut f32, cy: f32, label: &str,
     let r = Rect::from_min_size(Pos2::new(*right - w, cy - 16.0), Vec2::new(w, 32.0));
     *right = r.left();
     let resp = ui.interact(r, Id::new(("home-button", record)), Sense::click());
-    let radius = theme::cr(theme::RADIUS_MEDIUM);
+    let radius = theme::cr(theme::RADIUS_CONTROL);
     let down = resp.is_pointer_button_down_on();
     match kind {
         Kind::Primary => {
@@ -251,7 +251,7 @@ fn files_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mu
             };
             p.rect_filled(
                 r,
-                theme::cr(theme::RADIUS_MEDIUM),
+                theme::cr(theme::RADIUS_CONTROL),
                 if list {
                     if over || resp.hovered() {
                         fill
@@ -286,7 +286,7 @@ fn files_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mu
             let hr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner_w, 28.0));
             let cols_x = list_columns(hr.right());
             for (x, label) in [(hr.left() + 60.0, "Name"), (cols_x.0, "Project"), (cols_x.1, "Edited"), (cols_x.2, "Opened")] {
-                p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_small_medium(), theme::TEXT_TERTIARY);
+                p.text(Pos2::new(x, hr.center().y), Align2::LEFT_CENTER, label, theme::font_caption_medium(), theme::TEXT_TERTIARY);
             }
             y += 28.0;
         }
@@ -339,7 +339,7 @@ fn files_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mu
             }
             widgets::record(ui, &format!("home-card-{}", f.name), r);
             if dragging && selected.as_deref() == Some(f.id.as_str()) {
-                p.rect_filled(r, theme::cr(theme::RADIUS_LARGE), Color32::from_black_alpha(90));
+                p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), Color32::from_black_alpha(90));
             }
         }
     });
@@ -419,7 +419,7 @@ fn thumb_area(p: &egui::Painter, area: Rect, tex: Tex, board: bool, radius: u8) 
 
 /// The "Board" badge on a board's card: a sticky note icon and the word, bottom left of the picture.
 fn board_badge(p: &egui::Painter, area: Rect) {
-    let font = theme::font_small_strong();
+    let font = theme::font_caption_strong();
     let w = widgets::text_width(p, "Board", &font) + 28.0;
     let r = Rect::from_min_size(Pos2::new(area.left() + 8.0, area.bottom() - 8.0 - 20.0), Vec2::new(w, 20.0));
     p.rect_filled(r, theme::cr(10), theme::BG_MENU);
@@ -431,7 +431,7 @@ fn board_badge(p: &egui::Painter, area: Rect) {
 #[allow(clippy::too_many_arguments)]
 fn card(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, hover: bool, selected: bool, now: u64) {
     let thumb = Rect::from_min_size(r.min, Vec2::new(r.width(), theme::HOME_THUMB_H));
-    thumb_area(p, thumb, tex, board, theme::RADIUS_LARGE);
+    thumb_area(p, thumb, tex, board, theme::RADIUS_FRAME);
     if board {
         board_badge(p, thumb);
     }
@@ -442,7 +442,7 @@ fn card(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, boar
     } else {
         Stroke::new(1.0, theme::BORDER)
     };
-    p.rect_stroke(thumb, theme::cr(theme::RADIUS_LARGE), stroke, StrokeKind::Inside);
+    p.rect_stroke(thumb, theme::cr(theme::RADIUS_FRAME), stroke, StrokeKind::Inside);
     let tx = r.left() + 4.0;
     let w = r.width() - 8.0;
     let mut y = thumb.bottom() + 12.0;
@@ -461,12 +461,12 @@ fn list_columns(right: f32) -> (f32, f32, f32) {
 #[allow(clippy::too_many_arguments)]
 fn list_row(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, hover: bool, selected: bool, now: u64) {
     if selected {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if hover {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     let th = Rect::from_min_size(Pos2::new(r.left() + 8.0, r.top() + 5.0), Vec2::new(48.0, r.height() - 10.0));
-    thumb_area(p, th, tex, board, theme::RADIUS_SMALL);
+    thumb_area(p, th, tex, board, theme::RADIUS_MARK);
     let cols = list_columns(r.right());
     let font = theme::font_body();
     p.text(
@@ -522,7 +522,7 @@ fn trash_view(h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
             }
             let resp = ui.interact(r, Id::new(("home-trash-row", &it.id)), Sense::hover());
             if resp.hovered() {
-                p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             let is_file = it.kind == designos_library::TrashKind::File;
             icons::paint(&p, if is_file { Icon::File } else { Icon::Frame }, Pos2::new(r.left() + 24.0, r.center().y), 20.0, theme::ICON_SECONDARY);

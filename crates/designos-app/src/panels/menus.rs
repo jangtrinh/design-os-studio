@@ -655,12 +655,12 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
-        menu_panel(&p, rect, theme::MENU_RADIUS);
+        menu_panel(&p, rect, theme::RADIUS_FRAME);
 
         // Top editable Zoom percentage input box (`#0D99FF` active border ring)
         let input_box = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 8.0), Vec2::new(w - 16.0, 26.0));
-        p.rect_filled(input_box, egui::CornerRadius::same(5), theme::BG_SECONDARY);
-        p.rect_stroke(input_box, egui::CornerRadius::same(5), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
+        p.rect_filled(input_box, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(input_box, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
 
         let buf_id = id.with("zoom-input-buf");
         let default_pct = format!("{}%", (app.view.zoom * 100.0).round() as i32);
@@ -691,7 +691,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             let r_rect = Rect::from_min_size(Pos2::new(rect.left(), ry), Vec2::new(w, row_h));
             let row_resp = ui.interact(r_rect, id.with(("zrow", idx)), Sense::click());
             if row_resp.hovered() {
-                p.rect_filled(r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::MENU_PILL_RADIUS), theme::BG_MENU_SELECTED);
+                p.rect_filled(r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
             }
             if r.checked {
                 icons::paint(&p, Icon::Check, Pos2::new(r_rect.left() + 18.0, r_rect.center().y), 12.0, theme::TEXT);
@@ -903,9 +903,9 @@ fn palette(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("palette")).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
-        widgets::elevation_400(&p, rect, 12);
-        p.rect_filled(rect, egui::CornerRadius::same(12), bg_surface);
-        p.rect_stroke(rect, egui::CornerRadius::same(12), egui::Stroke::new(1.0, border_col), egui::StrokeKind::Inside);
+        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), bg_surface);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, border_col), egui::StrokeKind::Inside);
 
         // 1. Top Search Row
         let srow = Rect::from_min_size(rect.min, Vec2::new(rect.width(), PALETTE_SEARCH_H));
@@ -957,7 +957,7 @@ fn palette(app: &mut App, ctx: &Context) {
         // 3. Section Header ("Recents" when query is empty)
         let sec_top = tab_row.bottom() + 1.0;
         let sec_label = if q.is_empty() { "Recents" } else { "Matching actions" };
-        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_small(), theme::TEXT_SECONDARY);
+        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_caption(), theme::TEXT_SECONDARY);
 
         let top = sec_top + PALETTE_SEC_H;
         if n == 0 {
@@ -982,7 +982,7 @@ fn palette(app: &mut App, ctx: &Context) {
                 pick = Some(list[li]);
             }
             if lit {
-                p.rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::MENU_PILL_RADIUS), tab_active_bg);
+                p.rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), tab_active_bg);
             }
             let col = if c.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
             p.text(Pos2::new(row.left() + 16.0, row.center().y), Align2::LEFT_CENTER, &c.label, font.clone(), col);

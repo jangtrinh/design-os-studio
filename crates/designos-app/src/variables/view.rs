@@ -274,9 +274,9 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
         let (_, _) = ui.allocate_exact_size(g.panel.size(), Sense::hover());
         let p = ui.painter().clone();
         if g.floating {
-            widgets::elevation_400(&p, g.panel, theme::MENU_RADIUS);
+            widgets::elevation_400(&p, g.panel, theme::RADIUS_FRAME);
         }
-        let radius = if g.floating { theme::cr_each(0, theme::MENU_RADIUS, theme::MENU_RADIUS, 0) } else { theme::cr(0) };
+        let radius = if g.floating { theme::cr_each(0, theme::RADIUS_FRAME, theme::RADIUS_FRAME, 0) } else { theme::cr(0) };
         p.rect_filled(g.panel, radius, theme::BG);
         if g.floating {
             p.rect_stroke(g.panel, radius, Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
@@ -377,7 +377,7 @@ fn swatch(p: &egui::Painter, rect: Rect, color: Color32) {
 fn text_button(ui: &mut Ui, rect: Rect, id: Id, hovered_bg: bool) -> egui::Response {
     let r = ui.interact(rect, id, Sense::click());
     if hovered_bg && (r.hovered() || r.is_pointer_button_down_on()) {
-        ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() { theme::BG_PRESSED } else { theme::BG_HOVER });
+        ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), if r.is_pointer_button_down_on() { theme::BG_PRESSED } else { theme::BG_HOVER });
     }
     r
 }
@@ -400,8 +400,8 @@ fn rename_field(app: &mut App, ui: &mut Ui, rect: Rect, eid: Id, cur: &str, font
         ui.ctx().memory_mut(|m| m.request_focus(eid));
     }
     app.vars.rename_frames += 1;
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
-    ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+    ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     let r = field::edit_text(ui, rect, eid, cur, font, theme::TEXT, pad);
     if r.is_some() || (app.vars.rename_frames > 2 && !ui.memory(|m| m.has_focus(eid))) {
         app.vars.renaming = None;
@@ -425,10 +425,10 @@ fn cell_chrome(ui: &Ui, rect: Rect, id: Id) {
     let hovered = ui.rect_contains_pointer(rect);
     let p = ui.painter();
     if focused {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     } else if hovered {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     }
 }
 
@@ -447,11 +447,11 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     // ---- header: file name (full view) or "Variables" (floating panel), sidebar toggle
     let cy = g.bar_cy();
     if g.floating {
-        p.text(Pos2::new(left + 14.0, cy), Align2::LEFT_CENTER, "Variables", theme::font_body_strong(), theme::TEXT);
+        p.text(Pos2::new(left + theme::INSET_PANEL, cy), Align2::LEFT_CENTER, "Variables", theme::font_body_strong(), theme::TEXT);
     } else {
         let name = if app.doc.name.is_empty() { "Untitled".to_string() } else { app.doc.name.clone() };
         let shown = widgets::elide(&p, &name, &theme::font_large_strong(), inner_w - 16.0 - 49.0);
-        p.text(Pos2::new(left + 16.0, cy), Align2::LEFT_CENTER, shown, theme::font_large_strong(), theme::TEXT);
+        p.text(Pos2::new(left + theme::INSET_PANEL, cy), Align2::LEFT_CENTER, shown, theme::font_large_strong(), theme::TEXT);
     }
     let tg = Pos2::new(left + inner_w - if g.floating { 20.0 } else { 24.0 }, cy);
     let r = glyph_button(ui, tg, "vars-sidebar-toggle", |p, c, col| icons::paint(p, Icon::Sidebar, c, 16.0, col), "Hide sidebar");
@@ -461,7 +461,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
 
     // ---- collections
     let ty = base + 20.0;
-    p.text(Pos2::new(left + 15.0, ty), Align2::LEFT_CENTER, "Collections", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(left + theme::INSET_PANEL, ty), Align2::LEFT_CENTER, "Collections", theme::font_body_strong(), theme::TEXT);
     let plus = Pos2::new(left + inner_w - 20.0, ty);
     let slid = Pos2::new(left + inner_w - 47.0, ty);
     let r = glyph_button(ui, slid, "vars-settings", sliders_glyph, "Collection settings");
@@ -485,14 +485,13 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     let heading_rows = usize::from(!from_library.is_empty());
     for (n, id) in ids.iter().enumerate() {
         if n == own.len() && !from_library.is_empty() {
-            let row = Rect::from_min_size(Pos2::new(left + if g.floating { 8.0 } else { 10.0 }, y), Vec2::new(224.0, theme::VAR_PILL_H));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             library::paint_heading(ui, row);
         }
         let c = &fr.view.collections[id];
         let read_only = c.is_library();
-        let inset = if g.floating { 8.0 } else { 10.0 };
-        let row = Rect::from_min_size(Pos2::new(left + inset, y), Vec2::new(224.0, theme::VAR_PILL_H));
+        let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
         y += theme::VAR_SIDE_ROW;
         widgets::record(ui, &format!("vars-coll:{}", c.name), row);
         let mut resp = ui.interact(row, Id::new(("vars-coll", id)), Sense::click());
@@ -501,11 +500,11 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         }
         let selected = app.vars.collection.as_deref() == Some(id.as_str());
         if selected {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         } else if resp.hovered() {
-            p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        let name_rect = Rect::from_min_max(Pos2::new(left + 15.0, row.top()), Pos2::new(left + 190.0, row.bottom()));
+        let name_rect = Rect::from_min_max(Pos2::new(row.left() + theme::INSET_CONTROL, row.top()), Pos2::new(left + 190.0, row.bottom()));
         if app.vars.renaming == Some(('c', id.clone())) && !read_only {
             let eid = Id::new(("vars-coll-name", id));
             if let Some(s) = rename_field(app, ui, name_rect.expand2(Vec2::new(4.0, 0.0)), eid, &c.name, theme::font_body_strong(), 4.0) {
@@ -514,10 +513,15 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                 }
             }
         } else {
-            let nm = widgets::elide(&p, &c.name, &theme::font_body_semibold(), name_rect.width());
-            p.text(Pos2::new(name_rect.left(), row.center().y), Align2::LEFT_CENTER, nm, theme::font_body_semibold(), theme::TEXT);
-            let count =
-                p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, c.variables.len().to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            let nm = widgets::elide(&p, &c.name, &theme::font_body_strong(), name_rect.width());
+            p.text(Pos2::new(name_rect.left(), row.center().y), Align2::LEFT_CENTER, nm, theme::font_body_strong(), theme::TEXT);
+            let count = p.text(
+                Pos2::new(row.right() - theme::INSET_CONTROL, row.center().y),
+                Align2::RIGHT_CENTER,
+                c.variables.len().to_string(),
+                theme::font_body(),
+                theme::TEXT_SECONDARY,
+            );
             if read_only {
                 library::paint_lock(ui, Pos2::new(count.left() - 10.0, row.center().y), 12.0);
             }
@@ -539,7 +543,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         }
     }
     if ids.is_empty() {
-        p.text(Pos2::new(left + 15.0, y + 12.0), Align2::LEFT_CENTER, "No collections yet", theme::font_body(), theme::TEXT_TERTIARY);
+        p.text(Pos2::new(left + theme::INSET_PANEL, y + 12.0), Align2::LEFT_CENTER, "No collections yet", theme::font_body(), theme::TEXT_TERTIARY);
     }
 
     // ---- groups
@@ -547,7 +551,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     widgets::hline(&p, left, left + inner_w, sep_y, theme::BORDER);
     let Some(cid) = app.vars.collection.clone() else { return };
     let Some(coll) = fr.view.collections.get(&cid) else { return };
-    p.text(Pos2::new(left + 16.0, sep_y + 21.0), Align2::LEFT_CENTER, "Groups", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(left + theme::INSET_PANEL, sep_y + 21.0), Align2::LEFT_CENTER, "Groups", theme::font_body_strong(), theme::TEXT);
     let mut y = sep_y + 45.0;
     let mut entries: Vec<(Option<String>, usize, bool)> = vec![(None, 0, false)];
     let paths = group_paths(fr.view, coll);
@@ -566,7 +570,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                 }
                 hidden_below = None;
             }
-            let row = Rect::from_min_size(Pos2::new(left + 8.0, y), Vec2::new(224.0, theme::VAR_PILL_H));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             let key = path.clone().unwrap_or_default();
             let fkey = format!("sg\0{}", folded_key(&cid, &key));
@@ -584,22 +588,28 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
             let selected = app.vars.group == path;
             let drop_hot = app.vars.drag.is_some() && ui.rect_contains_pointer(row);
             if selected {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
             } else if resp.hovered() || drop_hot {
-                p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             if drop_hot {
-                p.rect_stroke(row, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                p.rect_stroke(row, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
             }
-            let tx = row.left() + 8.0 + depth as f32 * 16.0;
+            let tx = row.left() + theme::INSET_CONTROL + depth as f32 * 16.0;
             if has_kids {
                 icons::paint(&p, if folded { Icon::ChevronRight } else { Icon::ChevronDown }, Pos2::new(tx - 8.0, row.center().y), 12.0, theme::ICON_TERTIARY);
             }
             let w = (row.right() - 40.0 - tx).max(20.0);
-            let shown = widgets::elide(&p, &label, &theme::font_body_semibold(), w);
-            p.text(Pos2::new(tx, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body_semibold(), theme::TEXT);
+            let shown = widgets::elide(&p, &label, &theme::font_body_strong(), w);
+            p.text(Pos2::new(tx, row.center().y), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT);
             let n = count_in(fr.view, coll, path.as_deref());
-            p.text(Pos2::new(left + 225.0, row.center().y), Align2::RIGHT_CENTER, n.to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+            p.text(
+                Pos2::new(row.right() - theme::INSET_CONTROL, row.center().y),
+                Align2::RIGHT_CENTER,
+                n.to_string(),
+                theme::font_body(),
+                theme::TEXT_SECONDARY,
+            );
             if resp.clicked() {
                 let chev = Rect::from_center_size(Pos2::new(tx - 8.0, row.center().y), Vec2::splat(16.0));
                 let pos = ui.input(|i| i.pointer.interact_pos());
@@ -660,7 +670,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     }
     search_left = search_left.max(x0 + 100.0);
     let search = Rect::from_min_size(Pos2::new(search_left, cy - 12.0), Vec2::new(theme::VAR_SEARCH_W, 24.0));
-    let sr = theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM);
+    let sr = theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL);
     p.rect_filled(search, sr, theme::BG_SECONDARY);
     icons::paint(&p, Icon::Search, Pos2::new(search.left() + 11.0, cy), 16.0, theme::ICON_SECONDARY);
     let te = egui::TextEdit::singleline(&mut app.vars.search)
@@ -677,7 +687,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     let fr_resp = ui.interact(filt, Id::new("vars-filter"), Sense::click());
     p.rect_filled(
         filt,
-        theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0),
+        theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
         if fr_resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY },
     );
     let active = !app.vars.hidden_kinds.is_empty();
@@ -745,7 +755,7 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
         let open = app.vars.menu.as_ref().is_some_and(|m| m.kind == VarMenuKind::Create);
         let r = ui.interact(b, Id::new("vars-create"), Sense::click());
         if open || r.hovered() {
-            p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
+            p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.is_pointer_button_down_on() || open { theme::BG_PRESSED } else { theme::BG_HOVER });
         }
         icons::paint(&p, Icon::Plus, Pos2::new(b.left() + 14.0, b.center().y), 16.0, theme::ICON);
         p.text(Pos2::new(b.left() + 34.0, b.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
@@ -762,7 +772,7 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let mut sx = b.right() + 16.0;
     let cy = b.center().y;
     for (idx, (label, _)) in SCOPE_FILTERS.iter().enumerate() {
-        let cw = widgets::text_width(&p, label, &theme::font_small_medium()) + 16.0;
+        let cw = widgets::text_width(&p, label, &theme::font_caption_medium()) + 16.0;
         if sx + cw > g.panel.right() - 8.0 {
             break;
         }
@@ -771,11 +781,11 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
         let cresp = ui.interact(chip_r, Id::new(("vars-scope-chip", idx)), Sense::click());
         let is_act = active_scope == idx;
         if is_act {
-            p.rect_filled(chip_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TERTIARY);
+            p.rect_filled(chip_r, theme::cr_pill(chip_r.height()), theme::BG_TERTIARY);
         } else if cresp.hovered() {
-            p.rect_filled(chip_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(chip_r, theme::cr_pill(chip_r.height()), theme::BG_HOVER);
         }
-        p.text(chip_r.center(), Align2::CENTER_CENTER, *label, theme::font_small_medium(), if is_act { theme::TEXT } else { theme::TEXT_SECONDARY });
+        p.text(chip_r.center(), Align2::CENTER_CENTER, *label, theme::font_caption_medium(), if is_act { theme::TEXT } else { theme::TEXT_SECONDARY });
         if cresp.clicked() {
             ui.ctx().data_mut(|d| d.insert_temp(scope_id, idx));
             app.vars.scroll = 0.0;
@@ -872,7 +882,7 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
     widgets::hline(&p, x0, right, hy + theme::VAR_HEAD_H, theme::BORDER);
     widgets::vline(&p, x0 + theme::VAR_NAME_COL, hy, hy + theme::VAR_HEAD_H, theme::BORDER);
     let hcy = hy + theme::VAR_HEAD_H / 2.0;
-    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_semibold(), theme::TEXT);
+    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_strong(), theme::TEXT);
     clipped(ui, Rect::from_min_max(Pos2::new(modes_left, hy), Pos2::new(right, hy + theme::VAR_HEAD_H + 1.0)), |ui| {
         let p = ui.painter().clone();
         for (i, mode) in coll.modes.iter().enumerate() {
@@ -891,12 +901,12 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
                     }
                 }
             } else {
-                let shown = widgets::elide(&p, &label, &theme::font_body_semibold(), mw - 32.0);
-                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_semibold(), theme::TEXT);
+                let shown = widgets::elide(&p, &label, &theme::font_body_strong(), mw - 32.0);
+                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT);
                 if coll.default_mode == mode.id && coll.modes.len() > 1 {
                     let w = widgets::text_width(&p, &label, &theme::font_body_strong());
                     if w + 80.0 < mw {
-                        p.text(Pos2::new(cl + 16.0 + w + 6.0, hcy), Align2::LEFT_CENTER, "default", theme::font_small(), theme::TEXT_TERTIARY);
+                        p.text(Pos2::new(cl + 16.0 + w + 6.0, hcy), Align2::LEFT_CENTER, "default", theme::font_caption(), theme::TEXT_TERTIARY);
                     }
                 }
             }
@@ -1075,7 +1085,7 @@ fn variable_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &VariableCo
             let shown = widgets::elide(&p, &leaf, &theme::font_body(), (text_rect.width() - reserve_w).max(24.0));
             p.text(Pos2::new(name_cell.left() + theme::VAR_NAME_X, r.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT);
             if let Some(bt) = badge_txt {
-                p.text(Pos2::new(name_cell.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, bt, theme::font_small(), theme::TEXT_TERTIARY);
+                p.text(Pos2::new(name_cell.right() - 8.0, r.center().y), Align2::RIGHT_CENTER, bt, theme::font_caption(), theme::TEXT_TERTIARY);
             }
         }
         // selection
@@ -1327,9 +1337,9 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             }
             if op_shown {
                 let op_r = Rect::from_min_size(Pos2::new(field_right - theme::VAR_OPACITY_W, op_r.top()), op_r.size());
-                p.rect_filled(op_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                p.rect_filled(op_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
                 if ui.memory(|m| m.has_focus(oid)) {
-                    p.rect_stroke(op_r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                    p.rect_stroke(op_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
                 }
                 widgets::record(ui, &format!("vars-opacity:{}:{}", v.name, mode), op_r);
                 let shown = format!("{}%", fmt_num((c.a * 100.0).round()));
@@ -1383,7 +1393,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
     if hot && opacity && !ro {
         let br = ui.interact(bind_rect, id.with("bind"), Sense::click());
         if br.hovered() {
-            p.rect_filled(bind_rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_PRESSED);
+            p.rect_filled(bind_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRESSED);
         }
         hexagon(&p, bind_rect.center(), 5.0, theme::ICON_SECONDARY, false);
         widgets::record(ui, &format!("vars-bind:{}:{}", v.name, mode), bind_rect);
@@ -1623,7 +1633,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
     let mut changed = false;
     let area = egui::Area::new(Id::new("vars-color-picker")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-        widgets::menu_panel(ui.painter(), rect, theme::MENU_RADIUS);
+        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(8.0)), |ui| {
             ui.spacing_mut().slider_width = 180.0;
             changed = egui::color_picker::color_picker_color32(ui, &mut pk.color, egui::color_picker::Alpha::OnlyBlend);

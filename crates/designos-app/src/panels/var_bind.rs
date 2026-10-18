@@ -56,7 +56,7 @@ pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys
     let b = Rect::from_center_size(Pos2::new(rect.right() - 14.0, rect.center().y), Vec2::splat(20.0));
     let r = ui.interact(b, ui.id().with(("bind-btn", keys[0])), Sense::click());
     let p = ui.painter();
-    p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+    p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
     hexagon(p, b.center(), 5.0, if r.hovered() { theme::ICON } else { theme::ICON_SECONDARY }, false);
     widgets::record(ui, &format!("bind:{}", keys[0]), b);
     if r.clicked() {

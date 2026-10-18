@@ -11,7 +11,7 @@ use designos_doc::{Color, GradientStop, ImageScaleMode, Paint, PaintKind, Vec2 a
 use egui::{Mesh, Shape};
 
 pub const W: f32 = 240.0;
-const PAD: f32 = 16.0;
+const PAD: f32 = theme::INSET_POPOVER;
 const AREA: f32 = 208.0;
 const HEADER_H: f32 = 40.0;
 const PAINT_ROW_H: f32 = 40.0;
@@ -735,9 +735,9 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     super::record(ui, "picker", rect);
     {
         let p = ui.painter();
-        elevation_400(p, rect, theme::RADIUS_LARGE);
-        p.rect_filled(rect, theme::cr(theme::RADIUS_LARGE), theme::BG);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+        elevation_400(p, rect, theme::RADIUS_FRAME);
+        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
     }
     // ---- header: tabs, +, close
     let mut tab_x = rect.left() + 8.0;
@@ -759,9 +759,9 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             continue;
         }
         if active {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_TRANSPARENT_HOVER);
+            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_TRANSPARENT_HOVER);
         }
         text_on_baseline(
             ui.painter(),
@@ -801,9 +801,9 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             let r = Rect::from_min_size(Pos2::new(rect.left() + 8.0 + i as f32 * 28.0, y + 8.0), Vec2::splat(24.0));
             let resp = ui.interact(r, ui.id().with(("picker-mode", i)), Sense::click());
             let active = *m == mode;
-            button_bg(ui.painter(), r, &resp, active, theme::cr(theme::RADIUS_MEDIUM));
+            button_bg(ui.painter(), r, &resp, active, theme::cr(theme::RADIUS_CONTROL));
             if active {
-                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+                ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             }
             paint_icon_in(ui.painter(), r, m.icon(), 16.0, if active { theme::ICON } else { theme::ICON_SECONDARY });
             let resp = resp.on_hover_text(m.label());
@@ -858,8 +858,8 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         let scale_r = Rect::from_min_size(Pos2::new(hdr_r.right() - 84.0, hdr_r.top()), Vec2::new(84.0, 24.0));
         super::record(ui, "picker-image-scale", scale_r);
         let scale_resp = ui.interact(scale_r, ui.id().with("picker-image-scale"), Sense::click());
-        ui.painter().rect_filled(scale_r, theme::cr(theme::RADIUS_MEDIUM), if scale_resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-        ui.painter().text(scale_r.center(), Align2::CENTER_CENTER, scale_label, theme::font_small_medium(), theme::TEXT);
+        ui.painter().rect_filled(scale_r, theme::cr(theme::RADIUS_CONTROL), if scale_resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().text(scale_r.center(), Align2::CENTER_CENTER, scale_label, theme::font_caption_medium(), theme::TEXT);
         if scale_resp.on_hover_text("Cycle image scale mode (Fill / Fit / Crop / Tile)").clicked() {
             let next = match cur_scale {
                 ImageScaleMode::Fill => ImageScaleMode::Fit,
@@ -877,7 +877,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             let btn_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, iy), Vec2::new(AREA, 26.0));
             super::record(ui, &format!("picker-image-gen-{idx}"), btn_r);
             let bresp = ui.interact(btn_r, ui.id().with(("picker-image-gen", idx)), Sense::click());
-            ui.painter().rect_filled(btn_r, theme::cr(theme::RADIUS_MEDIUM), if bresp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+            ui.painter().rect_filled(btn_r, theme::cr(theme::RADIUS_CONTROL), if bresp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
             ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, label, theme::font_body(), theme::TEXT);
             if bresp.clicked() {
                 let (key, bytes) = synthesize_procedural_png(idx);
@@ -891,8 +891,8 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         let disk_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, iy), Vec2::new(AREA, 26.0));
         super::record(ui, "picker-image-disk", disk_r);
         let dresp = ui.interact(disk_r, ui.id().with("picker-image-disk"), Sense::click());
-        ui.painter().rect_filled(disk_r, theme::cr(theme::RADIUS_MEDIUM), if dresp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-        ui.painter().text(disk_r.center(), Align2::CENTER_CENTER, "Choose from disk\u{2026}", theme::font_small(), theme::TEXT_SECONDARY);
+        ui.painter().rect_filled(disk_r, theme::cr(theme::RADIUS_CONTROL), if dresp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().text(disk_r.center(), Align2::CENTER_CENTER, "Choose from disk\u{2026}", theme::font_caption(), theme::TEXT_SECONDARY);
         if dresp.clicked() {
             out.want_image = true;
         }
@@ -958,7 +958,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         };
         let badge_r = Rect::from_min_size(Pos2::new(bar_r.right() - badge_w, bar_r.top()), Vec2::new(badge_w, 20.0));
         p.rect_filled(badge_r, theme::cr(4), badge_bg);
-        p.text(badge_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_small_strong(), badge_fg);
+        p.text(badge_r.center(), Align2::CENTER_CENTER, badge_txt, theme::font_caption_strong(), badge_fg);
         y += CONTRAST_BAR_H;
         hline(ui.painter(), rect.left(), rect.right(), y - 1.0, theme::BORDER);
     }
@@ -976,7 +976,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     {
         let p = ui.painter();
         sv_area(p, area, st.hsv.h);
-        round_corners(p, area, theme::RADIUS_MEDIUM as f32, theme::BG);
+        round_corners(p, area, theme::RADIUS_CONTROL as f32, theme::BG);
         if mode == Mode::Solid {
             // Dotted 4.5:1 AA contrast threshold curve across 24 saturation steps
             let target_lum = if ref_lum > 0.5 { (ref_lum + 0.05) / 4.5 - 0.05 } else { 4.5 * (ref_lum + 0.05) - 0.05 };
@@ -1075,7 +1075,14 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         Fmt::Hex => {
             let hex_r = Rect::from_min_size(fields.min, Vec2::new(89.0, 24.0));
             let op_r = Rect::from_min_max(Pos2::new(hex_r.right() + 1.0, fields.top()), fields.right_bottom());
-            if let Some(s) = grouped_hex_text(ui, hex_r, "picker-hex", &Color::rgba(cur[0], cur[1], cur[2], 255).to_hex(), theme::cr_each(5, 0, 0, 5), 8.0) {
+            if let Some(s) = grouped_hex_text(
+                ui,
+                hex_r,
+                "picker-hex",
+                &Color::rgba(cur[0], cur[1], cur[2], 255).to_hex(),
+                theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+                8.0,
+            ) {
                 if let Some(c) = parse_css(&s, cur[3]) {
                     typed = Some(kind_rgba(c));
                 }
@@ -1086,7 +1093,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         }
         Fmt::Css => {
             let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
-            if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(5), 8.0) {
+            if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(theme::RADIUS_CONTROL), 8.0) {
                 typed = parse_css(&s, cur[3]);
             }
         }
@@ -1101,7 +1108,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             for (i, v) in vals.iter().enumerate() {
                 let r = Rect::from_min_size(Pos2::new(fields.left() + i as f32 * (w3 + 1.0), fields.top()), Vec2::new(w3, 24.0));
                 let radius = match i {
-                    0 => theme::cr_each(5, 0, 0, 5),
+                    0 => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
                     _ => theme::cr(0),
                 };
                 if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
@@ -1215,7 +1222,7 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
             match row {
                 StyleRow::Head(name) => {
                     let (r, _) = ui.allocate_exact_size(Vec2::new(body.width(), STYLE_HEAD), Sense::hover());
-                    let font = theme::font_small();
+                    let font = theme::font_caption();
                     let name = elide(ui.painter(), name, &font, r.width() - 24.0);
                     text_on_baseline(ui.painter(), r.left() + 16.0, centered_baseline(r, &font), &name, font, theme::TEXT_TERTIARY);
                 }
@@ -1224,7 +1231,7 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
                     let r = full.shrink2(Vec2::new(8.0, 0.0));
                     let resp = ui.interact(r, ui.id().with(("picker-style", i)), Sense::click());
                     if resp.hovered() {
-                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
                     }
                     let c = Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y);
                     swatch_circle(ui.painter(), c, theme::STYLE_SWATCH / 2.0, &[preview_color(&s.paint)]);
@@ -1250,11 +1257,11 @@ fn picker_dropdown(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, options:
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG);
     let border = if open { theme::BORDER_SELECTED } else { theme::BORDER };
     p.rect_stroke(
         rect,
-        theme::cr(theme::RADIUS_MEDIUM),
+        theme::cr(theme::RADIUS_CONTROL),
         Stroke::new(1.0, if r.hovered() && !open { theme::BORDER_STRONG.gamma_multiply(0.3) } else { border }),
         StrokeKind::Inside,
     );
@@ -1307,7 +1314,7 @@ fn blend_dropdown(ui: &mut Ui, rect: Rect, paint: &mut Paint, st: &mut State) ->
     let id = ui.id().with("picker-blend");
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
-    button_bg(ui.painter(), rect, &r, open, theme::cr(theme::RADIUS_MEDIUM));
+    button_bg(ui.painter(), rect, &r, open, theme::cr(theme::RADIUS_CONTROL));
     paint_icon_in(ui.painter(), rect, Icon::Blend, 16.0, if open || r.hovered() { theme::ICON } else { theme::ICON_SECONDARY });
     let r = r.on_hover_text("Blend mode");
     if r.clicked() {
@@ -1375,7 +1382,7 @@ fn grouped_num(ui: &mut Ui, r: Rect, key: impl Key, val: f32, radius: egui::Corn
 fn opacity_cell(ui: &mut Ui, r: Rect, alpha: u8) -> Option<u8> {
     let id = ui.id().with(("num", "picker-opacity"));
     let focused = ui.memory(|m| m.has_focus(id));
-    let radius = theme::cr_each(0, 5, 5, 0);
+    let radius = theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0);
     ui.painter().rect_filled(r, radius, theme::BG_SECONDARY);
     if focused {
         ui.painter().rect_stroke(r, radius, Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
@@ -1425,8 +1432,8 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
             m.add_triangle(a, a + 3, a + 1);
         }
         p.add(Shape::mesh(m));
-        round_corners(p, bar, theme::RADIUS_MEDIUM as f32, theme::BG);
-        p.rect_stroke(bar, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_TRANSLUCENT), StrokeKind::Inside);
+        round_corners(p, bar, theme::RADIUS_CONTROL as f32, theme::BG);
+        p.rect_stroke(bar, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_TRANSLUCENT), StrokeKind::Inside);
     }
     // Add a stop by clicking the bar (stops sit above it in the z-order).
     let bar_resp = ui.interact(bar, ui.id().with("grad-bar"), Sense::click());
@@ -1473,7 +1480,7 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
         let selected = st.sel == i;
         let p = ui.painter();
         let sq = Rect::from_center_size(c, Vec2::new(12.0, 16.0));
-        p.rect_stroke(sq.expand(1.0), theme::cr(5), Stroke::new(1.0, Color32::from_black_alpha(0x4D)), StrokeKind::Outside);
+        p.rect_stroke(sq.expand(1.0), theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_black_alpha(0x4D)), StrokeKind::Outside);
         p.rect_filled(sq, theme::cr(4), Color32::WHITE);
         let inner = sq.shrink(if selected { 3.0 } else { 2.5 });
         checker(&p.with_clip_rect(inner), inner, 3.0);

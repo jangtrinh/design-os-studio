@@ -929,8 +929,8 @@ impl Shell {
             Pos2::new(screen.center().x, screen.bottom() - theme::TOAST_BOTTOM - theme::TOAST_HEIGHT / 2.0),
             Vec2::new(w, theme::TOAST_HEIGHT),
         );
-        widgets::elevation_shadow(p, r, theme::TOAST_RADIUS);
-        p.rect_filled(r, theme::cr(theme::TOAST_RADIUS), theme::BG_MENU);
+        widgets::elevation_shadow(p, r, theme::RADIUS_FRAME);
+        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
         p.circle_filled(Pos2::new(r.left() + 16.0, r.center().y), 4.0, if t.error { theme::DANGER } else { theme::BG_BRAND });
         p.text(Pos2::new(r.left() + 28.0, r.center().y), Align2::LEFT_CENTER, &t.text, font, theme::TEXT);
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
@@ -1200,7 +1200,7 @@ impl Shell {
             rail::show(&mut self.app, ui, rail_rect);
             if self.app.ui.left_collapsed {
                 let b = Rect::from_min_size(Pos2::new(canvas_rect.left() + 8.0, canvas_rect.top() + 8.0), Vec2::splat(theme::PANEL_ACTION_BUTTON));
-                ui.painter().rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), theme::BG);
+                ui.painter().rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG);
                 if widgets::icon_button(ui, b, "show-sidebar", Icon::Sidebar, false, "Show sidebar").clicked() {
                     self.app.ui.left_collapsed = false;
                 }

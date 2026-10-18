@@ -28,7 +28,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         }
     }
     let end = clipped(ui, region, |ui| {
-        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0 };
+        let mut pane = Pane { x0: region.left() - theme::BORDER_WIDTH, oy: region.top() - scroll, y: 0.0, title_end: 0.0 };
         if sel.is_empty() {
             let _ = title(ui, &mut pane, "Interactions", Some(Icon::Plus), false);
             show_prototype_settings_btn(app, ui, &mut pane);
@@ -162,7 +162,7 @@ fn flows_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
         record(ui, &format!("proto-flow-start-{i}"), r);
         let start_resp = ui.interact(r, ui.id().with(("flow-start-jump", i)), Sense::click());
         let start_col = if start_resp.hovered() { theme::PROTO_BLUE } else { theme::TEXT_TERTIARY };
-        ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, format!("Starts at {start}"), theme::font_small(), start_col);
+        ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, format!("Starts at {start}"), theme::font_caption(), start_col);
         if start_resp.on_hover_text("Click to select & focus starting frame").clicked() {
             app.select_only(f.start);
             app.fit_selection();
@@ -388,7 +388,7 @@ fn video_section(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId, v: &Vi
     title(ui, pane, "Video", None, false);
     let status = video_status(app, ui, &v.source);
     let ok = !status.starts_with("Unsupported") && !status.contains("missing") && !status.starts_with("Not a");
-    let galley = ui.painter().layout(status, theme::font_small(), if ok { theme::TEXT_TERTIARY } else { theme::DANGER }, theme::SECTION_CONTENT_W);
+    let galley = ui.painter().layout(status, theme::font_caption(), if ok { theme::TEXT_TERTIARY } else { theme::DANGER }, theme::SECTION_CONTENT_W);
     let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, galley.size().y);
     record(ui, "proto-video-status", r);
     let h = galley.size().y;
@@ -419,9 +419,9 @@ fn reaction_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId, i: usiz
     let open = app.proto.editing == Some((id, i));
     let p = ui.painter();
     if open {
-        p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if resp.hovered() {
-        p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     icons::paint(p, Icon::Play, Pos2::new(row.left() + 16.0, row.center().y), 12.0, theme::PROTO_BLUE);
     let text_w = row.width() - 32.0 - 36.0;
@@ -464,7 +464,7 @@ pub(super) fn label_ctl(ui: &Ui, pane: &Pane, label: &str) -> Rect {
 /// A small tertiary note under a field.
 fn hint_line(ui: &Ui, pane: &mut Pane, text: &str) {
     let r = pane.rect(theme::SECTION_CONTENT_X, -4.0, theme::SECTION_CONTENT_W, 14.0);
-    let galley = ui.painter().layout(text.to_string(), theme::font_small(), theme::TEXT_TERTIARY, r.width());
+    let galley = ui.painter().layout(text.to_string(), theme::font_caption(), theme::TEXT_TERTIARY, r.width());
     let h = galley.size().y;
     ui.painter().galley(r.min, galley, theme::TEXT_TERTIARY);
     pane.y += h + 6.0;
@@ -534,11 +534,11 @@ fn popover(app: &mut App, ui: &mut Ui, region: Rect) {
     let mut measured = 0.0;
     let area = egui::Area::new(egui::Id::new("proto-popover")).order(egui::Order::Foreground).fixed_pos(pos).show(&ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(w, h), Sense::hover());
-        widgets::elevation_shadow(ui.painter(), rect, theme::MENU_RADIUS);
-        ui.painter().rect_filled(rect, theme::cr(theme::MENU_RADIUS), theme::BG_MENU);
-        ui.painter().rect_stroke(rect, theme::cr(theme::MENU_RADIUS), Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
+        widgets::elevation_shadow(ui.painter(), rect, theme::RADIUS_FRAME);
+        ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+        ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
         record(ui, "proto-popover", rect);
-        let mut pane = Pane { x0: rect.left() - 1.0, oy: rect.top(), y: 0.0 };
+        let mut pane = Pane { x0: rect.left() - 1.0, oy: rect.top(), y: 0.0, title_end: 0.0 };
         delete = title(ui, &mut pane, "Interaction details", Some(Icon::Minus), false);
 
         // Trigger.
@@ -687,9 +687,9 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                     let sel = *position == *pos;
                     ui.painter().rect_filled(
                         c,
-                        theme::cr(theme::RADIUS_SMALL),
+                        theme::cr(theme::RADIUS_MARK),
                         if sel {
-                            theme::BG_BRAND
+                            theme::BG_SELECTED
                         } else if resp.hovered() {
                             theme::BG_TERTIARY
                         } else {
@@ -712,16 +712,16 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             let msel = *position == OverlayPosition::Manual;
             ui.painter().rect_filled(
                 mb,
-                theme::cr(theme::RADIUS_SMALL),
+                theme::cr(theme::RADIUS_MARK),
                 if msel {
-                    theme::BG_BRAND
+                    theme::BG_SELECTED
                 } else if mr.hovered() {
                     theme::BG_TERTIARY
                 } else {
                     theme::BG_SECONDARY
                 },
             );
-            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_small(), if msel { Color32::WHITE } else { theme::TEXT_SECONDARY });
+            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_caption(), if msel { Color32::WHITE } else { theme::TEXT_SECONDARY });
             if mr.clicked() {
                 *position = OverlayPosition::Manual;
             }
@@ -833,9 +833,9 @@ fn transition_ui(ui: &mut Ui, pane: &mut Pane, tr: &mut Option<Transition>) {
             let sel = d == dir;
             ui.painter().rect_filled(
                 b,
-                theme::cr(theme::RADIUS_SMALL),
+                theme::cr(theme::RADIUS_MARK),
                 if sel {
-                    theme::BG_BRAND
+                    theme::BG_SELECTED
                 } else if resp.hovered() {
                     theme::BG_TERTIARY
                 } else {
@@ -855,7 +855,7 @@ fn transition_ui(ui: &mut Ui, pane: &mut Pane, tr: &mut Option<Transition>) {
             Pos2::new(r.left(), r.top() + 6.0),
             Align2::LEFT_CENTER,
             "Matches layers by name and position",
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
         );
         pane.y += 20.0;
@@ -926,7 +926,7 @@ fn transition_ui(ui: &mut Ui, pane: &mut Pane, tr: &mut Option<Transition>) {
 /// The easing curve drawn over a 1x1 plot (time right, progress up).
 pub fn curve_preview(ui: &Ui, rect: Rect, e: &Easing) {
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let inner = rect.shrink2(Vec2::new(12.0, 14.0));
     p.line_segment([inner.left_bottom(), inner.right_top()], Stroke::new(1.0, theme::BORDER));
     let pts = curve_points(e, inner, 48);

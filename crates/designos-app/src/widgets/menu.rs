@@ -371,7 +371,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
             #[cfg(test)]
             record(ui, &format!("menu-level-{k}"), rect);
             let p = ui.painter().clone();
-            menu_panel(&p, rect, theme::MENU_RADIUS);
+            menu_panel(&p, rect, theme::RADIUS_FRAME);
             let p = if capped { p.with_clip_rect(band) } else { p };
             for (i, it) in list.iter().enumerate() {
                 let top = rect.top() + lay.tops[i] - scroll;
@@ -400,7 +400,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                     clicked = Some((k, i));
                 }
                 if lit {
-                    p.rect_filled(pill, theme::cr(theme::MENU_PILL_RADIUS), theme::BG_MENU_SELECTED);
+                    p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
                 }
                 let col = if it.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
                 let cy = row.center().y;
@@ -516,9 +516,9 @@ pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, 
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
+        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
     }
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);

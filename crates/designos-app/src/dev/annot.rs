@@ -78,8 +78,8 @@ pub fn overlay(app: &mut App, ui: &Ui, rect: Rect) {
     let p = ui.painter().with_clip_rect(rect);
     let mut taken: Vec<Rect> = Vec::new();
     let mut select: Option<(NodeId, Option<usize>)> = None;
-    let small = theme::font_small();
-    let strong = theme::font_small_medium();
+    let small = theme::font_canvas();
+    let strong = theme::font_canvas_medium();
     for id in ids {
         let Some(b) = page_aabb(&app.doc, id) else { continue };
         let a = app.view.to_screen(rect.min, designos_doc::Vec2::new(b.left(), b.top()));
@@ -91,7 +91,7 @@ pub fn overlay(app: &mut App, ui: &Ui, rect: Rect) {
         let Some(n) = app.doc.get(id) else { continue };
         if let Some(s) = n.dev.status {
             let at = Pos2::new(sr.left(), sr.top() - 24.0);
-            let w = text_width(&p, s.label(), &theme::font_small_medium()) + 26.0;
+            let w = text_width(&p, s.label(), &theme::font_canvas_medium()) + 26.0;
             let pill = Rect::from_min_size(at, Vec2::new(w, 20.0));
             if rect.intersects(pill) {
                 p.rect_filled(pill, theme::cr(10), theme::BG);

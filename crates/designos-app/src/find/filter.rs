@@ -55,7 +55,7 @@ pub fn paint_highlights(p: &egui::Painter, name: &str, ranges: &[Range<usize>], 
             break;
         }
         let hl = Rect::from_min_max(Pos2::new(a, row.center().y - 9.0), Pos2::new(b.min(max_x), row.center().y + 9.0));
-        p.rect_filled(hl, theme::cr(theme::RADIUS_SMALL), theme::FIND_HIGHLIGHT);
+        p.rect_filled(hl, theme::cr(theme::RADIUS_MARK), theme::FIND_HIGHLIGHT);
     }
 }
 

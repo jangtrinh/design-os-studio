@@ -298,3 +298,5 @@
 {"v":1,"id":"e298","t":"2026-10-16T05:02:51.715Z","type":"lint_run","actor":"ui a11y-lint","data":{"check":"a11y-lint","file":"docs/index.html","errorCount":0,"warningCount":0,"checkIds":[]}}
 {"v":1,"id":"e299","t":"2026-10-16T05:02:51.778Z","type":"lint_run","actor":"ui content-lint","data":{"check":"content-lint","file":"docs/index.html","errorCount":0,"warningCount":0,"checkIds":[]}}
 {"v":1,"id":"e300","t":"2026-10-16T05:02:54.841Z","type":"lint_run","actor":"ui audit","data":{"check":"audit","file":"design/studio-ui-nodes.json","errorCount":0,"warningCount":0,"checkIds":[]}}
+{"v":1,"id":"e301","t":"2026-10-18T15:30:17.535Z","type":"token_change","actor":"ui ds change-token","data":{"path":"typography.font-family-mono","from":"JetBrains Mono, SFMono-Regular, Menlo, monospace","to":"Roboto Mono, SFMono-Regular, Menlo, monospace","reason":"the UI monospace role is the bundled Roboto Mono (principles P5)","generation":28}}
+{"v":1,"id":"e302","t":"2026-10-18T15:30:51.810Z","type":"lint_run","actor":"ui gate","data":{"check":"gate","file":"design/specimen.html","errorCount":0,"warningCount":0,"checkIds":["ai-color-palette","overused-font"]}}

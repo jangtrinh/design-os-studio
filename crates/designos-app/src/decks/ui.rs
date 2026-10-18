@@ -61,7 +61,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
                 let p = ui.painter();
                 p.rect_filled(
                     card,
-                    theme::cr(theme::RADIUS_MEDIUM),
+                    theme::cr(theme::RADIUS_CONTROL),
                     if selected {
                         theme::BG_SELECTED
                     } else if response.hovered() {
@@ -71,13 +71,13 @@ pub fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
                     },
                 );
                 let preview = Rect::from_min_max(card.min + Vec2::splat(4.0), Pos2::new(card.right() - 4.0, card.bottom() - 28.0));
-                p.rect_filled(preview, theme::cr(theme::RADIUS_SMALL), theme::BG_TERTIARY);
+                p.rect_filled(preview, theme::cr(theme::RADIUS_MARK), theme::BG_TERTIARY);
                 if let Some(texture) = thumbnail(app, ui, *id, preview.width()) {
                     p.image(texture.id(), preview, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), egui::Color32::WHITE);
                 }
                 p.rect_stroke(
                     card,
-                    theme::cr(theme::RADIUS_MEDIUM),
+                    theme::cr(theme::RADIUS_CONTROL),
                     Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { theme::BORDER_SELECTED } else { theme::BORDER }),
                     StrokeKind::Inside,
                 );

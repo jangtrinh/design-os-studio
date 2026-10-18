@@ -120,7 +120,7 @@ pub fn pill(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, name: &str, s
     let hovered = body.hovered();
     let p = ui.painter();
     let fill = if hovered { theme::BG_TERTIARY } else { theme::BG_SECONDARY };
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), fill);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), fill);
     let mut x = rect.left() + 12.0;
     hexagon(p, Pos2::new(x, rect.center().y), 5.0, theme::ICON_SECONDARY, false);
     x += 12.0;
@@ -138,7 +138,7 @@ pub fn pill(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, name: &str, s
         let r = ui.interact(b, id.with("x"), Sense::click());
         let p = ui.painter();
         if r.hovered() {
-            p.rect_filled(b, theme::cr(theme::RADIUS_MEDIUM), theme::BG_PRESSED);
+            p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRESSED);
         }
         let c = b.center();
         let st = Stroke::new(1.2, theme::ICON);
@@ -246,10 +246,10 @@ pub fn picker(
     egui::Area::new(id).order(Order::Foreground).fixed_pos(tl).constrain(false).show(ctx, |ui| {
         let (full, _) = ui.allocate_exact_size(size, Sense::hover());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, full, theme::MENU_RADIUS);
+        widgets::menu_panel(&p, full, theme::RADIUS_FRAME);
         let _ = title;
         let sr = Rect::from_min_size(Pos2::new(full.left() + 8.0, full.top() + 8.0), Vec2::new(full.width() - 16.0, 24.0));
-        p.rect_filled(sr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+        p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         crate::icons::paint(&p, crate::icons::Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 12.0, theme::ICON_TERTIARY);
         let sr = Rect::from_min_max(sr.min + Vec2::new(22.0, 0.0), sr.max);
         let te = egui::TextEdit::singleline(query)
@@ -282,7 +282,7 @@ pub fn picker(
                 let r = Rect::from_min_size(Pos2::new(list.left() + 8.0, y), Vec2::new(list.width() - 16.0, PICK_ROW));
                 let resp = ui.interact(r, id.with("detach"), Sense::click());
                 if resp.hovered() {
-                    p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_BRAND);
+                    p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
                 }
                 p.text(Pos2::new(r.left() + 8.0, r.center().y), Align2::LEFT_CENTER, "Detach variable", theme::font_menu(), theme::TEXT);
                 if resp.clicked() {
@@ -302,7 +302,7 @@ pub fn picker(
                             Pos2::new(list.left() + 14.0, y + PICK_GROUP / 2.0 + 2.0),
                             Align2::LEFT_CENTER,
                             g,
-                            theme::font_small_strong(),
+                            theme::font_caption_strong(),
                             theme::TEXT_TERTIARY,
                         );
                         y += PICK_GROUP;
@@ -317,9 +317,9 @@ pub fn picker(
                         let resp = ui.interact(r, id.with(("item", &it.id)), Sense::click());
                         let cur = current == Some(it.id.as_str());
                         if resp.hovered() {
-                            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_BRAND);
+                            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
                         } else if cur {
-                            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
                         }
                         let c = Pos2::new(r.left() + 16.0, r.center().y);
                         match it.preview {

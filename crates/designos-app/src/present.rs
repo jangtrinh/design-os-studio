@@ -390,7 +390,7 @@ fn move_slide(st: &mut PresentState, slides: &[NodeId], movement: SlideMove, now
 fn slide_button(ui: &mut Ui, rect: ERect, key: &'static str, label: &str, enabled: bool) -> bool {
     record(ui, key, rect);
     let response = ui.interact(rect, ui.id().with(key), if enabled { Sense::click() } else { Sense::hover() });
-    widgets::button_bg(ui.painter(), rect, &response, false, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(ui.painter(), rect, &response, false, theme::cr(theme::RADIUS_CONTROL));
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), if enabled { theme::TEXT } else { theme::TEXT_TERTIARY });
     enabled && response.clicked()
 }
@@ -446,7 +446,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let dd = ERect::from_min_size(Pos2::new(bar.left() + 16.0, bar.top() + 12.0), EV::new(200.0, 24.0));
         record(ui, "present-flow", dd);
         if names.is_empty() {
-            p.rect_filled(dd, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(dd, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             p.text(Pos2::new(dd.left() + 8.0, dd.center().y), Align2::LEFT_CENTER, &label, theme::font_body(), theme::TEXT);
         } else if let Some(i) = dropdown(ui, dd, "present-flow", &label, &names) {
             let start = flows[i].start;
@@ -455,7 +455,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let rb = ERect::from_min_size(Pos2::new(dd.right() + 8.0, dd.top()), EV::new(76.0, 24.0));
         record(ui, "present-restart", rb);
         let rr = ui.interact(rb, ui.id().with("present-restart"), Sense::click());
-        widgets::button_bg(&p, rb, &rr, false, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, rb, &rr, false, theme::cr(theme::RADIUS_CONTROL));
         p.text(rb.center(), Align2::CENTER_CENTER, "Restart", theme::font_body(), theme::TEXT);
         if rr.clicked() {
             let s = if is_deck { slides.first().copied().unwrap_or(st.start) } else { st.start };
@@ -466,7 +466,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             let vb = ERect::from_min_size(Pos2::new(rb.right() + 8.0, rb.top()), EV::new(76.0, 24.0));
             record(ui, "present-vars-toggle", vb);
             let vr = ui.interact(vb, ui.id().with("present-vars"), Sense::click());
-            widgets::button_bg(&p, vb, &vr, st.show_vars, theme::cr(theme::RADIUS_MEDIUM));
+            widgets::button_bg(&p, vb, &vr, st.show_vars, theme::cr(theme::RADIUS_CONTROL));
             p.text(vb.center(), Align2::CENTER_CENTER, "Variables", theme::font_body(), if st.show_vars { theme::TEXT } else { theme::TEXT_SECONDARY });
             if vr.on_hover_text("Show live variable values").clicked() {
                 st.show_vars = !st.show_vars;
@@ -476,14 +476,14 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let fb = ERect::from_min_size(Pos2::new(cb.left() - 104.0, bar.top() + 12.0), EV::new(96.0, 24.0));
         record(ui, "present-fullscreen", fb);
         let fr = ui.interact(fb, ui.id().with("present-fullscreen"), Sense::click());
-        widgets::button_bg(&p, fb, &fr, false, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, fb, &fr, false, theme::cr(theme::RADIUS_CONTROL));
         p.text(fb.center(), Align2::CENTER_CENTER, "Fullscreen", theme::font_body(), theme::TEXT);
         if fr.on_hover_text("Fullscreen (F11). Esc returns to preview.").clicked() {
             st.set_fullscreen(&ctx, true);
         }
         record(ui, "present-close", cb);
         let cr = ui.interact(cb, ui.id().with("present-close"), Sense::click());
-        widgets::button_bg(&p, cb, &cr, false, theme::cr(theme::RADIUS_MEDIUM));
+        widgets::button_bg(&p, cb, &cr, false, theme::cr(theme::RADIUS_CONTROL));
         icon_close(&p, cb.center(), theme::ICON);
         if cr.on_hover_text("Exit (Esc)").clicked() {
             st.close = true;
@@ -774,7 +774,7 @@ fn paint_video_badges(st: &PresentState, p: &egui::Painter) {
         let font = theme::font_body();
         let w = widgets::text_width(p, &reason, &font) + 24.0;
         let pill = ERect::from_center_size(rect.center(), EV::new(w.min(rect.width().max(40.0)), 26.0));
-        p.rect_filled(pill, theme::cr(13), Color32::from_black_alpha(190));
+        p.rect_filled(pill, theme::cr_pill(pill.height()), Color32::from_black_alpha(190));
         let shown = widgets::elide(p, &reason, &font, pill.width() - 16.0);
         p.text(pill.center(), Align2::CENTER_CENTER, shown, font, Color32::WHITE);
     }
@@ -808,12 +808,12 @@ fn paint_vars_panel(ui: &mut Ui, player: &Player, area: ERect) -> ERect {
     let rect = ERect::from_min_size(Pos2::new(area.right() - VARS_W - 12.0, area.top() + 8.0), EV::new(VARS_W, h));
     record(ui, "present-vars-panel", rect);
     let p = ui.painter().clone();
-    widgets::elevation_shadow(&p, rect, theme::MENU_RADIUS);
-    p.rect_filled(rect, theme::cr(theme::MENU_RADIUS), theme::BG_MENU);
-    p.rect_stroke(rect, theme::cr(theme::MENU_RADIUS), egui::Stroke::new(1.0, theme::BORDER_MENU), egui::StrokeKind::Inside);
+    widgets::elevation_shadow(&p, rect, theme::RADIUS_FRAME);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
+    p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, theme::BORDER_MENU), egui::StrokeKind::Inside);
     let pc = p.with_clip_rect(rect);
     pc.text(Pos2::new(rect.left() + 16.0, rect.top() + 22.0), Align2::LEFT_CENTER, "Variables", theme::font_body_strong(), theme::TEXT);
-    pc.text(Pos2::new(rect.right() - 16.0, rect.top() + 22.0), Align2::RIGHT_CENTER, "live, not saved", theme::font_small(), theme::TEXT_TERTIARY);
+    pc.text(Pos2::new(rect.right() - 16.0, rect.top() + 22.0), Align2::RIGHT_CENTER, "live, not saved", theme::font_caption(), theme::TEXT_TERTIARY);
     widgets::hline(&pc, rect.left(), rect.right(), rect.top() + 43.0, theme::BORDER_MENU);
     let mut y = rect.top() + 44.0 + 4.0;
     let mut last_coll: Option<&str> = None;
@@ -830,9 +830,9 @@ fn paint_vars_panel(ui: &mut Ui, player: &Player, area: ERect) -> ERect {
     for r in &rows {
         if last_coll != Some(r.collection.as_str()) {
             last_coll = Some(&r.collection);
-            let label = widgets::elide(&pc, &r.collection, &theme::font_small_medium(), VARS_W - 120.0);
-            pc.text(Pos2::new(rect.left() + 16.0, y + 15.0), Align2::LEFT_CENTER, label, theme::font_small_medium(), theme::TEXT_SECONDARY);
-            pc.text(Pos2::new(rect.right() - 16.0, y + 15.0), Align2::RIGHT_CENTER, &r.mode, theme::font_small(), theme::TEXT_TERTIARY);
+            let label = widgets::elide(&pc, &r.collection, &theme::font_caption_medium(), VARS_W - 120.0);
+            pc.text(Pos2::new(rect.left() + 16.0, y + 15.0), Align2::LEFT_CENTER, label, theme::font_caption_medium(), theme::TEXT_SECONDARY);
+            pc.text(Pos2::new(rect.right() - 16.0, y + 15.0), Align2::RIGHT_CENTER, &r.mode, theme::font_caption(), theme::TEXT_TERTIARY);
             y += 26.0;
         }
         let name = widgets::elide(&pc, &r.name, &theme::font_body(), VARS_W - 32.0 - 96.0);
@@ -848,8 +848,8 @@ fn paint_vars_panel(ui: &mut Ui, player: &Player, area: ERect) -> ERect {
         y += 6.0;
         let skip = player.errors.len().saturating_sub(4);
         for e in player.errors.iter().skip(skip) {
-            let t = widgets::elide(&pc, e, &theme::font_small(), VARS_W - 32.0);
-            pc.text(Pos2::new(rect.left() + 16.0, y + 8.0), Align2::LEFT_CENTER, t, theme::font_small(), theme::DANGER);
+            let t = widgets::elide(&pc, e, &theme::font_caption(), VARS_W - 32.0);
+            pc.text(Pos2::new(rect.left() + 16.0, y + 8.0), Align2::LEFT_CENTER, t, theme::font_caption(), theme::DANGER);
             y += 16.0;
         }
     }
@@ -890,8 +890,8 @@ fn confirm_bar(ui: &mut Ui, full: ERect, url: &str) -> (bool, bool) {
     let p = ui.painter().clone();
     let w = 520.0f32.min(full.width() - 32.0);
     let r = ERect::from_min_size(Pos2::new(full.center().x - w / 2.0, full.bottom() - 88.0), EV::new(w, 56.0));
-    widgets::elevation_shadow(&p, r, theme::MENU_RADIUS);
-    p.rect_filled(r, theme::cr(theme::MENU_RADIUS), theme::BG_MENU);
+    widgets::elevation_shadow(&p, r, theme::RADIUS_FRAME);
+    p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
     let shown = widgets::elide(&p, url, &theme::font_body(), w - 200.0);
     p.text(Pos2::new(r.left() + 16.0, r.top() + 18.0), Align2::LEFT_CENTER, "Open this link?", theme::font_body_strong(), theme::TEXT);
     p.text(Pos2::new(r.left() + 16.0, r.top() + 38.0), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT_SECONDARY);
@@ -900,10 +900,10 @@ fn confirm_bar(ui: &mut Ui, full: ERect, url: &str) -> (bool, bool) {
     record(ui, "present-url-open", ob);
     record(ui, "present-url-cancel", cb);
     let or = ui.interact(ob, ui.id().with("url-open"), Sense::click());
-    p.rect_filled(ob, theme::cr(theme::RADIUS_MEDIUM), if or.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
+    p.rect_filled(ob, theme::cr_pill(ob.height()), if or.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
     p.text(ob.center(), Align2::CENTER_CENTER, "Open", theme::font_body(), Color32::WHITE);
     let cr = ui.interact(cb, ui.id().with("url-cancel"), Sense::click());
-    widgets::button_bg(&p, cb, &cr, false, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, cb, &cr, false, theme::cr(theme::RADIUS_CONTROL));
     p.text(cb.center(), Align2::CENTER_CENTER, "Cancel", theme::font_body(), theme::TEXT);
     (or.clicked(), cr.clicked())
 }

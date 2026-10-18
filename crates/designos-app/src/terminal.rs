@@ -2354,9 +2354,9 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
             } else {
                 TERM_BG_BAR
             };
-            p.rect_filled(t_rect, CornerRadius::same(5), bg);
+            p.rect_filled(t_rect, theme::cr(theme::RADIUS_CONTROL), bg);
             if is_active {
-                p.rect_stroke(t_rect, CornerRadius::same(5), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
+                p.rect_stroke(t_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
                 p.rect_filled(
                     Rect::from_min_max(Pos2::new(t_rect.left() + 4.0, t_rect.bottom() - 2.0), Pos2::new(t_rect.right() - 4.0, t_rect.bottom())),
                     CornerRadius::same(1),
@@ -2365,12 +2365,12 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
             }
             paint_orca_tab_status_and_provider(ui, &p, tab, t_rect);
             let text_pad_r = if can_close { 34.0 } else { 23.0 };
-            let title_str = widgets::elide(&p, &tab.title, &theme::font_small_medium(), (tab_w - text_pad_r).max(16.0));
+            let title_str = widgets::elide(&p, &tab.title, &theme::font_caption_medium(), (tab_w - text_pad_r).max(16.0));
             p.text(
                 Pos2::new(t_rect.left() + 21.0, t_rect.center().y),
                 Align2::LEFT_CENTER,
                 title_str,
-                theme::font_small_medium(),
+                theme::font_caption_medium(),
                 if is_active { theme::TEXT } else { theme::TEXT_SECONDARY },
             );
             if let Some(cr) = &close_resp {
@@ -2408,8 +2408,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         };
         let add_border = if state.runtime_dropdown_open { STATUS_INFO_BORDER } else { TERM_BORDER };
         let add_fg = if state.runtime_dropdown_open { STATUS_INFO_TEXT } else { Color32::WHITE };
-        p.rect_filled(add_rect, CornerRadius::same(5), add_bg);
-        p.rect_stroke(add_rect, CornerRadius::same(5), Stroke::new(1.0, add_border), StrokeKind::Inside);
+        p.rect_filled(add_rect, theme::cr(theme::RADIUS_CONTROL), add_bg);
+        p.rect_stroke(add_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, add_border), StrokeKind::Inside);
         icons::paint(&p, Icon::Plus, Pos2::new(add_rect.left() + 10.0, add_rect.center().y), 11.0, add_fg);
         icons::paint(&p, Icon::ChevronDown, Pos2::new(add_rect.right() - 7.0, add_rect.center().y), 8.0, add_fg);
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
@@ -2423,9 +2423,9 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         p.rect_filled(ctx_r, 0.0, TERM_BG_ELEVATED);
         widgets::hline(&p, ctx_r.left(), ctx_r.right(), ctx_r.bottom() - 1.0, TERM_BORDER);
         let ctx_badge = format!("{} · {}", state.doc_name, state.current_page_name);
-        let ctx_elided = widgets::elide(&p, &ctx_badge, &theme::font_small(), (ctx_r.width() - 24.0).max(40.0));
+        let ctx_elided = widgets::elide(&p, &ctx_badge, &theme::font_caption(), (ctx_r.width() - 24.0).max(40.0));
         p.circle_filled(Pos2::new(ctx_r.left() + 10.0, ctx_r.center().y), 2.5, STATUS_INFO_TEXT);
-        p.text(Pos2::new(ctx_r.left() + 17.0, ctx_r.center().y), Align2::LEFT_CENTER, ctx_elided, theme::font_small(), STATUS_INFO_TEXT);
+        p.text(Pos2::new(ctx_r.left() + 17.0, ctx_r.center().y), Align2::LEFT_CENTER, ctx_elided, theme::font_caption(), STATUS_INFO_TEXT);
 
         // Live VT100 PTY Terminal Viewport (full height)
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), rect.max);
@@ -2469,12 +2469,12 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         state.chat_scroll = 0.0;
     }
 
-    p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_semibold(), Color32::WHITE);
+    p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_strong(), Color32::WHITE);
     p.text(
         Pos2::new(header_rect.left() + 34.0, header_rect.top() + 33.0),
         Align2::LEFT_CENTER,
         "Shared",
-        theme::font_small(),
+        theme::font_caption(),
         Color32::from_rgb(0x8C, 0x8C, 0x8C),
     );
 
@@ -2491,7 +2491,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     };
     p.rect_filled(ai_rect, CornerRadius::same(4), ai_bg);
     p.rect_stroke(ai_rect, CornerRadius::same(4), Stroke::new(1.0, Color32::from_rgb(0x4D, 0x4D, 0x4D)), StrokeKind::Inside);
-    p.text(ai_rect.center(), Align2::CENTER_CENTER, "AI", theme::font_small_strong(), Color32::from_rgb(0xD4, 0xD4, 0xD4));
+    p.text(ai_rect.center(), Align2::CENTER_CENTER, "AI", theme::font_caption_strong(), Color32::from_rgb(0xD4, 0xD4, 0xD4));
     widgets::record(ui, "agents-ai-badge", ai_rect);
     widgets::record(ui, "agents-header-ai", ai_rect);
     if ai_resp.clicked() {
@@ -2558,7 +2558,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         let fg = if is_sel { STATUS_INFO_TEXT } else { Color32::from_rgb(0xD4, 0xD4, 0xD4) };
         p.rect_filled(p_rect, CornerRadius::same(4), bg);
         p.rect_stroke(p_rect, CornerRadius::same(4), Stroke::new(1.0, border), StrokeKind::Inside);
-        p.text(p_rect.center(), Align2::CENTER_CENTER, pill_label, theme::font_small_strong(), fg);
+        p.text(p_rect.center(), Align2::CENTER_CENTER, pill_label, theme::font_caption_strong(), fg);
         widgets::record(ui, pill_id, p_rect);
         if p_resp.clicked() {
             state.set_active_runtime(preset, file_path);
@@ -2580,7 +2580,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     let pty_fg = if pty_sel { STATUS_OK_TEXT } else { Color32::from_rgb(0xB3, 0xB3, 0xB3) };
     p.rect_filled(pty_toggle_r, CornerRadius::same(4), pty_bg);
     p.rect_stroke(pty_toggle_r, CornerRadius::same(4), Stroke::new(1.0, pty_border), StrokeKind::Inside);
-    p.text(pty_toggle_r.center(), Align2::CENTER_CENTER, "Shell", theme::font_small_strong(), pty_fg);
+    p.text(pty_toggle_r.center(), Align2::CENTER_CENTER, "Shell", theme::font_caption_strong(), pty_fg);
     widgets::record(ui, "agents-runtime-pty-toggle", pty_toggle_r);
     if pty_toggle_resp.clicked() {
         state.side_panel_pty_open = !state.side_panel_pty_open;
@@ -2643,8 +2643,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                     _ => paint_toolbox_icon(&p, icon_pos, icon_col),
                 }
 
-                let label = widgets::elide(&p, cat_title, &theme::font_body_semibold(), (card_w - 58.0).max(32.0));
-                p.text(Pos2::new(card_r.left() + 34.0, card_r.center().y), Align2::LEFT_CENTER, label, theme::font_body_semibold(), Color32::WHITE);
+                let label = widgets::elide(&p, cat_title, &theme::font_body_strong(), (card_w - 58.0).max(32.0));
+                p.text(Pos2::new(card_r.left() + 34.0, card_r.center().y), Align2::LEFT_CENTER, label, theme::font_body_strong(), Color32::WHITE);
 
                 let ch_c = Pos2::new(card_r.right() - 16.0, card_r.center().y);
                 let ch_stroke = Stroke::new(1.4, icon_col);
@@ -2726,8 +2726,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                         let sub_resp = ui.interact(sub_r, Id::new(sub_id), Sense::click());
                         p.rect_filled(sub_r, CornerRadius::same(6), if sub_resp.hovered() { TERM_BG_HOVER } else { Color32::from_rgb(0x1E, 0x1E, 0x1E) });
                         p.rect_stroke(sub_r, CornerRadius::same(6), Stroke::new(1.0, Color32::from_rgb(0x33, 0x33, 0x33)), StrokeKind::Inside);
-                        let elided = widgets::elide(&p, sub_label, &theme::font_small_medium(), (sub_r.width() - 20.0).max(24.0));
-                        p.text(Pos2::new(sub_r.left() + 10.0, sub_r.center().y), Align2::LEFT_CENTER, elided, theme::font_small_medium(), theme::TEXT);
+                        let elided = widgets::elide(&p, sub_label, &theme::font_caption_medium(), (sub_r.width() - 20.0).max(24.0));
+                        p.text(Pos2::new(sub_r.left() + 10.0, sub_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), theme::TEXT);
                         widgets::record(ui, sub_id, sub_r);
                         if sub_resp.clicked() {
                             match sub_id {
@@ -2762,8 +2762,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     }
 
     // ---- Render Bottom `"Ask for changes"` Composer Box
-    p.rect_filled(composer_rect, CornerRadius::same(12), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    p.rect_stroke(composer_rect, CornerRadius::same(12), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
+    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_FRAME), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 
     let input_rect = Rect::from_min_max(
@@ -2834,14 +2834,20 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     } else {
         Color32::from_rgb(0x28, 0x28, 0x2C)
     };
-    p.rect_filled(prd_r, CornerRadius::same(5), prd_bg);
+    p.rect_filled(prd_r, theme::cr(theme::RADIUS_CONTROL), prd_bg);
     p.rect_stroke(
         prd_r,
-        CornerRadius::same(5),
+        theme::cr(theme::RADIUS_CONTROL),
         Stroke::new(1.0, if has_prd_tag { Color32::from_rgb(0x0D, 0x99, 0xFF) } else { Color32::from_rgb(0x3C, 0x3C, 0x42) }),
         StrokeKind::Inside,
     );
-    p.text(prd_r.center(), Align2::CENTER_CENTER, "PRD", theme::font_small_strong(), if has_prd_tag { Color32::from_rgb(0x6E, 0xA8, 0xFE) } else { icon_gray });
+    p.text(
+        prd_r.center(),
+        Align2::CENTER_CENTER,
+        "PRD",
+        theme::font_caption_strong(),
+        if has_prd_tag { Color32::from_rgb(0x6E, 0xA8, 0xFE) } else { icon_gray },
+    );
     widgets::record(ui, "agents-composer-prd", prd_r);
     widgets::record(ui, "agents-composer-context", prd_r);
     if prd_resp.clicked() {
@@ -2930,7 +2936,7 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
         Pos2::new(menu_r.left() + 10.0, menu_r.top() + 13.0),
         Align2::LEFT_CENTER,
         "LAUNCH CLI (SKIP PERMISSIONS)",
-        theme::font_small_strong(),
+        theme::font_caption_strong(),
         theme::TEXT_SECONDARY,
     );
     widgets::hline(&p, menu_r.left() + 6.0, menu_r.right() - 6.0, menu_r.top() + header_h, TERM_BORDER);
@@ -2949,12 +2955,12 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
         };
         let resp = ui.interact(row_r, Id::new(id_str), Sense::click());
         if resp.hovered() {
-            p.rect_filled(row_r, CornerRadius::same(5), TERM_BG_HOVER);
+            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
         }
         let (_widget_id, title, subtitle) = preset.dropdown_entry();
-        let title_str = widgets::elide(&p, title, &theme::font_small_medium(), (row_r.width() - 18.0).max(40.0));
+        let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
         let sub_str = widgets::elide(&p, subtitle, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_small_medium(), Color32::WHITE);
+        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), Color32::WHITE);
         p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), STATUS_INFO_TEXT);
         widgets::record(ui, id_str, row_r);
         if resp.clicked() {
@@ -3016,8 +3022,8 @@ fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect:
     let mut apply_turn_idx: Option<usize> = None;
     clipped(ui, center_rect, |ui| {
         let p = ui.painter().clone();
-        let font = theme::font_small();
-        let font_strong = theme::font_small_strong();
+        let font = theme::font_caption();
+        let font_strong = theme::font_caption_strong();
         let mut y = center_rect.top() + 8.0 - state.chat_scroll;
 
         for (idx, turn) in state.chat_turns.iter().enumerate() {
@@ -3324,12 +3330,12 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
         }
 
         paint_orca_tab_status_and_provider(ui, &p, tab, t_rect);
-        let title_str = widgets::elide(&p, &tab.title, &theme::font_small_medium(), (tab_w - 44.0).max(20.0));
+        let title_str = widgets::elide(&p, &tab.title, &theme::font_caption_medium(), (tab_w - 44.0).max(20.0));
         p.text(
             Pos2::new(t_rect.left() + 22.0, t_rect.center().y),
             Align2::LEFT_CENTER,
             title_str,
-            theme::font_small_medium(),
+            theme::font_caption_medium(),
             if is_active { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
         icons::paint(&p, Icon::Close, close_rect.center(), 10.0, if close_resp.hovered() { STATUS_BAD_TEXT } else { theme::ICON_TERTIARY });
@@ -3373,8 +3379,8 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
         p.rect_filled(b_rect, CornerRadius::same(6), bg);
         p.rect_stroke(b_rect, CornerRadius::same(6), Stroke::new(1.0, border), StrokeKind::Inside);
         icons::paint(&p, Icon::Plus, Pos2::new(b_rect.left() + 10.0, b_rect.center().y), 10.0, fg);
-        let elided = widgets::elide(&p, label, &theme::font_small_medium(), (btn_w - 22.0).max(16.0));
-        p.text(Pos2::new(b_rect.left() + 18.0, b_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_small_medium(), fg);
+        let elided = widgets::elide(&p, label, &theme::font_caption_medium(), (btn_w - 22.0).max(16.0));
+        p.text(Pos2::new(b_rect.left() + 18.0, b_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), fg);
         if b_resp.clicked() {
             let _ = state.spawn_tab(preset, file_path);
         }
@@ -3805,7 +3811,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 );
                 p.rect_filled(pill_r, CornerRadius::same(10), TERM_BG_ELEVATED);
                 p.rect_stroke(pill_r, CornerRadius::same(10), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
-                p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_small_medium(), STATUS_INFO_TEXT);
+                p.text(pill_r.center(), Align2::CENTER_CENTER, "↑ Scrollback", theme::font_caption_medium(), STATUS_INFO_TEXT);
             }
         });
     }
@@ -3858,7 +3864,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             case_r.center(),
             Align2::CENTER_CENTER,
             "Aa",
-            theme::font_small_strong(),
+            theme::font_caption_strong(),
             if state.search_case_sensitive { STATUS_INFO_TEXT } else { theme::TEXT_SECONDARY },
         );
         if case_resp.clicked() {
@@ -3866,7 +3872,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         }
 
         let count_str = format!("{search_matches}");
-        p.text(Pos2::new(case_r.left() - 6.0, search_rect.center().y), Align2::RIGHT_CENTER, count_str, theme::font_small(), theme::TEXT_SECONDARY);
+        p.text(Pos2::new(case_r.left() - 6.0, search_rect.center().y), Align2::RIGHT_CENTER, count_str, theme::font_caption(), theme::TEXT_SECONDARY);
 
         let input_r = Rect::from_min_max(
             Pos2::new(search_rect.left() + 8.0, search_rect.top() + 4.0),
@@ -3875,8 +3881,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(input_r));
         let _ = child_ui.add(
             TextEdit::singleline(&mut state.search_query)
-                .hint_text(RichText::new("Find...").color(theme::TEXT_TERTIARY).font(theme::font_small()))
-                .font(theme::font_small())
+                .hint_text(RichText::new("Find...").color(theme::TEXT_TERTIARY).font(theme::font_caption()))
+                .font(theme::font_caption())
                 .text_color(Color32::WHITE)
                 .frame(egui::Frame::NONE),
         );
@@ -3903,8 +3909,8 @@ fn draw_bar_icon_pill(
     p.rect_filled(rect, CornerRadius::same(6), fill);
     p.rect_stroke(rect, CornerRadius::same(6), Stroke::new(1.0, border), StrokeKind::Inside);
     icons::paint(p, icon, Pos2::new(rect.left() + 11.0, rect.center().y), 11.0, fg);
-    let elided = widgets::elide(p, label, &theme::font_small_medium(), (w - 24.0).max(20.0));
-    p.text(Pos2::new(rect.left() + 20.0, rect.center().y), Align2::LEFT_CENTER, elided, theme::font_small_medium(), fg);
+    let elided = widgets::elide(p, label, &theme::font_caption_medium(), (w - 24.0).max(20.0));
+    p.text(Pos2::new(rect.left() + 20.0, rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), fg);
     rect
 }
 

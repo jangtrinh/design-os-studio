@@ -56,7 +56,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if ui::button(ui, br, "history-save", "Save to version history\u{2026}", false, !viewing).clicked() {
         app.begin_save_version();
     }
-    p.rect_stroke(br, theme::cr(theme::RADIUS_MEDIUM), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    p.rect_stroke(br, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
     widgets::record(ui, "history-save-button", br);
     y += 28.0 + 8.0;
     hline(&p, rect.left() + 1.0, rect.right(), y, theme::BORDER);
@@ -99,7 +99,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             }
             match row {
                 Row::Day(label) => {
-                    p.text(Pos2::new(r.left() + 8.0, r.center().y + 2.0), Align2::LEFT_CENTER, label, theme::font_small_strong(), theme::TEXT_TERTIARY);
+                    p.text(Pos2::new(r.left() + 8.0, r.center().y + 2.0), Align2::LEFT_CENTER, label, theme::font_caption_strong(), theme::TEXT_TERTIARY);
                 }
                 Row::Current => {
                     let resp = ui.interact(r, ui.id().with("hist-current"), Sense::click());
@@ -129,9 +129,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                         }
                     };
                     let l1 = widgets::elide(&p, &l1, &theme::font_body_strong(), avail);
-                    let l2 = widgets::elide(&p, &l2.replace('\n', " "), &theme::font_small(), avail);
+                    let l2 = widgets::elide(&p, &l2.replace('\n', " "), &theme::font_caption(), avail);
                     p.text(Pos2::new(tx, r.top() + 14.0), Align2::LEFT_CENTER, l1, theme::font_body_strong(), theme::TEXT);
-                    p.text(Pos2::new(tx, r.top() + 30.0), Align2::LEFT_CENTER, l2, theme::font_small(), theme::TEXT_SECONDARY);
+                    p.text(Pos2::new(tx, r.top() + 30.0), Align2::LEFT_CENTER, l2, theme::font_caption(), theme::TEXT_SECONDARY);
                     widgets::record(ui, &format!("history-version-{}", v.n), r);
                     if resp.clicked() {
                         view = Some(v.n);
@@ -147,7 +147,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     if versions.is_empty() {
         let g = p.layout(
             "No saved versions yet. They are added while you edit, and when you save one yourself.".to_string(),
-            theme::font_small(),
+            theme::font_caption(),
             theme::TEXT_TERTIARY,
             w - 16.0,
         );
@@ -168,9 +168,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
 
 fn paint_row_bg(p: &egui::Painter, r: Rect, selected: bool, hovered: bool) {
     if selected {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
     } else if hovered {
-        p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
 }
 

@@ -74,7 +74,7 @@ fn checkbox(ui: &mut Ui, row: Rect, key: &str, label: &str, checked: bool) -> bo
     let r = ui.interact(row, Id::new(("var-pop-check", key)), Sense::click());
     let p = ui.painter();
     if r.hovered() {
-        p.rect_filled(row, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     let b = Rect::from_center_size(Pos2::new(row.left() + 16.0, row.center().y), Vec2::splat(14.0));
     if checked {
@@ -114,7 +114,7 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     egui::Area::new(Id::new("vars-edit-popover")).order(Order::Foreground).fixed_pos(pos).constrain(false).show(ctx, |ui| {
         let (full, _) = ui.allocate_exact_size(rect.size(), Sense::click_and_drag());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, full, theme::MENU_RADIUS);
+        widgets::menu_panel(&p, full, theme::RADIUS_FRAME);
         // header
         p.text(Pos2::new(full.left() + 16.0, full.top() + 20.0), Align2::LEFT_CENTER, "Edit variable", theme::font_body_strong(), theme::TEXT);
         let xr = Rect::from_center_size(Pos2::new(full.right() - 20.0, full.top() + 20.0), Vec2::splat(24.0));

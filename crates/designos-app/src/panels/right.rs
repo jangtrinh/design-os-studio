@@ -31,12 +31,12 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     crate::widgets::record(ui, "right-top-avatar", av_r);
     let av_resp = ui.interact(av_r, ui.id().with("right-top-avatar"), Sense::click());
     if av_resp.hovered() {
-        p.rect_filled(av_r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+        p.rect_filled(av_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     let active_user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
     let initial = active_user.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "J".to_string());
     p.circle_filled(av_center, 10.0, egui::Color32::from_rgb(0xF5, 0x9E, 0x0B));
-    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_small_strong(), egui::Color32::WHITE);
+    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_caption_strong(), egui::Color32::WHITE);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(av_center.x + 17.0, av_center.y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     if av_resp.on_hover_text(format!("Active user: {active_user}")).clicked() {
         let doc_title = if app.doc.name.is_empty() { "Untitled" } else { &app.doc.name };
@@ -48,11 +48,11 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     // Present button + chevron (24px height, aligned with Share button).
     let pb = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT - 46.0, rect.top() + theme::RIGHT_BTN_Y), Vec2::splat(top_btn_h));
     let pr = ui.interact(pb, ui.id().with("present"), Sense::click());
-    widgets::button_bg(&p, pb, &pr, false, theme::cr_each(theme::RADIUS_MEDIUM, 0, 0, theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, pb, &pr, false, theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL));
     icons::paint(&p, Icon::Play, pb.center(), 14.0, theme::ICON);
     let cb = Rect::from_min_size(pb.right_top(), Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, top_btn_h));
     let cr = ui.interact(cb, ui.id().with("present-chev"), Sense::click());
-    widgets::button_bg(&p, cb, &cr, false, theme::cr_each(0, theme::RADIUS_MEDIUM, theme::RADIUS_MEDIUM, 0));
+    widgets::button_bg(&p, cb, &cr, false, theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0));
     icons::paint(&p, Icon::ChevronDown, cb.center(), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     crate::widgets::record(ui, "present-button", pb);
     crate::widgets::record(ui, "present-chevron", cb);
@@ -117,9 +117,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         widgets::record(ui, &format!("right-tab-{label}"), r);
         let resp = ui.interact(r, ui.id().with(("tab", label)), Sense::click());
         if sel {
-            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         } else if resp.hovered() {
-            p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         p.text(r.center(), Align2::CENTER_CENTER, label, font, if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
         if resp.clicked() {
@@ -132,7 +132,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let zr = Rect::from_min_size(Pos2::new(right - theme::RIGHT_ZOOM_FROM_RIGHT, ty), Vec2::new(theme::RIGHT_ZOOM_W, theme::RIGHT_TABS_H));
     let zresp = ui.interact(zr, ui.id().with("zoom"), Sense::click());
     let open = app.ui.menu == Some(MenuKind::Zoom);
-    widgets::button_bg(&p, zr, &zresp, open, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, zr, &zresp, open, theme::cr(theme::RADIUS_CONTROL));
     p.text(Pos2::new(zr.left() + 8.0, zr.center().y), Align2::LEFT_CENTER, format!("{}%", (app.view.zoom * 100.0).round()), theme::font_body(), theme::TEXT);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(zr.right() - 10.0, zr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     if zresp.clicked() {
@@ -202,7 +202,7 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
         p.rect_filled(row_r, theme::cr(6), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
         icons::paint(&p, Icon::Dev, Pos2::new(row_r.left() + 14.0, row_r.center().y), 14.0, egui::Color32::from_rgb(0x1B, 0xC4, 0x7D));
         p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 13.0), Align2::LEFT_CENTER, *title, theme::font_body_strong(), theme::TEXT);
-        p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 28.0), Align2::LEFT_CENTER, *subtitle, theme::font_small(), theme::TEXT_SECONDARY);
+        p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 28.0), Align2::LEFT_CENTER, *subtitle, theme::font_caption(), theme::TEXT_SECONDARY);
         if resp.clicked() {
             match idx {
                 0 => {
@@ -332,7 +332,7 @@ fn show_frame_presets_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
             if i > 0 {
                 off += PRESET_CATEGORY_GAP;
             }
-            p.text(Pos2::new(left, top + off + PRESET_HEADING_H / 2.0), Align2::LEFT_CENTER, label, theme::font_small_strong(), theme::TEXT_SECONDARY);
+            p.text(Pos2::new(left, top + off + PRESET_HEADING_H / 2.0), Align2::LEFT_CENTER, label, theme::font_caption_strong(), theme::TEXT_SECONDARY);
             off += PRESET_HEADING_H;
             for preset in frame_presets_in_category(category) {
                 let row = Rect::from_min_size(Pos2::new(left, top + off), Vec2::new(row_w, PRESET_ROW_H));
@@ -363,7 +363,7 @@ fn frame_preset_row(ui: &mut Ui, p: &egui::Painter, row: Rect, preset: &FramePre
         p.rect_filled(row, theme::cr(4), theme::BG_SECONDARY);
     }
     let size = format!("{}×{}", preset.width as i32, preset.height as i32);
-    let (name_font, size_font) = (theme::font_body(), theme::font_small());
+    let (name_font, size_font) = (theme::font_body(), theme::font_caption());
     let name_room = row.width() - PRESET_ROW_INSET * 2.0 - widgets::text_width(p, &size, &size_font) - PRESET_LABEL_GAP;
     let name = widgets::elide(p, preset.name, &name_font, name_room);
     let elided = name != preset.name;

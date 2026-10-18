@@ -47,7 +47,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let r = ui.interact(mb, ui.id().with("rail-menu"), Sense::click());
     widgets::record(ui, "rail-menu", mb);
     let menu_open = app.ui.menu == Some(MenuKind::Main);
-    widgets::button_bg(&p, mb, &r, menu_open, theme::cr(theme::RADIUS_MEDIUM));
+    widgets::button_bg(&p, mb, &r, menu_open, theme::cr(theme::RADIUS_CONTROL));
     let menu_fg = if r.hovered() || menu_open { theme::ICON } else { theme::ICON_SECONDARY };
     icons::paint(&p, Icon::ListView, mb.center(), 18.0, menu_fg);
     if r.clicked() {
@@ -74,9 +74,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         // Active item: 32x32 rounded tile behind the icon.
         let ic = Pos2::new(ir.center().x, ir.top() + theme::RAIL_ICON_CENTER_Y);
         if selected {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() {
-            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+            p.rect_filled(Rect::from_center_size(ic, Vec2::splat(theme::RAIL_TILE)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         let icon_col = if selected && *item == RailItem::Agents { theme::ICON_SELECTED } else { theme::ICON };
         match *item {
@@ -85,7 +85,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             RailItem::Tools => paint_tools_rail_box(&p, ic, icon_col),
             _ => icons::paint(&p, *icon, ic, theme::RAIL_ICON_SIZE, icon_col),
         }
-        let font = if selected { theme::font_small_strong() } else { theme::font_small() };
+        let font = if selected { theme::font_caption_strong() } else { theme::font_caption() };
         p.text(Pos2::new(ir.center().x, ir.top() + theme::RAIL_LABEL_CENTER_Y), Align2::CENTER_CENTER, *label, font, theme::TEXT);
         if resp.secondary_clicked() && *item == RailItem::File {
             toggle(app, MenuKind::FileMenu, ir);

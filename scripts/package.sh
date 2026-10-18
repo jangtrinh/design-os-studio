@@ -55,6 +55,7 @@ done
 cp LICENSE-MIT LICENSE-APACHE README.md "$stage/"
 mkdir -p "$stage/licenses"
 cp "$root/crates/designos-fonts/assets/inter/OFL.txt" "$stage/licenses/Inter-OFL.txt"
+cp "$root/crates/designos-fonts/assets/roboto-mono/OFL.txt" "$stage/licenses/RobotoMono-OFL.txt"
 cp "$root/crates/designos-app/assets/icons/phosphor/LICENSE" "$stage/licenses/Phosphor-LICENSE.txt"
 cp "$root/crates/designos-app/assets/icons/lucide/LICENSE" "$stage/licenses/Lucide-LICENSE.txt"
 

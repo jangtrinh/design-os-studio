@@ -58,10 +58,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
 
     // search
     let sr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, SEARCH_H));
-    p.rect_filled(sr, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let sid = Id::new("comments-search");
     if ui.memory(|m| m.has_focus(sid)) {
-        p.rect_stroke(sr, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+        p.rect_stroke(sr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
     }
     crate::icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 16.0, theme::ICON_SECONDARY);
     let font = theme::font_body();
@@ -90,10 +90,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let resp = ui.interact(cb, ui.id().with("show-resolved"), Sense::click());
     let box_r = Rect::from_min_size(Pos2::new(cb.left(), cb.center().y - 7.0), Vec2::splat(14.0));
     if app.comments.show_resolved {
-        p.rect_filled(box_r, theme::cr(theme::RADIUS_SMALL), theme::BG_BRAND);
+        p.rect_filled(box_r, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
         widgets::paint_icon_in(&p, box_r, Icon::Check, 12.0, theme::TEXT);
     } else {
-        p.rect_stroke(box_r, theme::cr(theme::RADIUS_SMALL), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
+        p.rect_stroke(box_r, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
     }
     p.text(Pos2::new(box_r.right() + 8.0, cb.center().y), Align2::LEFT_CENTER, "Show resolved", font.clone(), theme::TEXT);
     widgets::record(ui, "comments-show-resolved", cb);
@@ -153,9 +153,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             }
             let resp = ui.interact(r, ui.id().with(("comment-card", &c.id)), Sense::click());
             if open.as_deref() == Some(c.id.as_str()) {
-                p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SELECTED);
+                p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
             } else if resp.hovered() {
-                p.rect_filled(r, theme::cr(theme::RADIUS_MEDIUM), theme::BG_HOVER);
+                p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
             }
             let first = &t.messages[0];
             let ax = r.left() + theme::COMMENT_CARD_PAD;
@@ -165,8 +165,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             let nr = widgets::text_on_baseline(&p, ax + AVATAR + 8.0, ay + AVATAR / 2.0 + 4.0, &name, theme::font_body_strong(), theme::TEXT);
             let when = model::last_activity(t);
             let stamp = if when > 0 { relative(now, when) } else { String::new() };
-            let stamp = widgets::elide(&p, &stamp, &theme::font_small(), (r.right() - theme::COMMENT_CARD_PAD - nr.right() - 8.0).max(0.0));
-            widgets::text_on_baseline(&p, nr.right() + 8.0, ay + AVATAR / 2.0 + 4.0, &stamp, theme::font_small(), theme::TEXT_TERTIARY);
+            let stamp = widgets::elide(&p, &stamp, &theme::font_caption(), (r.right() - theme::COMMENT_CARD_PAD - nr.right() - 8.0).max(0.0));
+            widgets::text_on_baseline(&p, nr.right() + 8.0, ay + AVATAR / 2.0 + 4.0, &stamp, theme::font_caption(), theme::TEXT_TERTIARY);
             let ty = ay + AVATAR + 6.0;
             p.galley(Pos2::new(ax, ty), c.galley.clone(), theme::TEXT);
             let mut parts = Vec::new();
@@ -177,8 +177,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                 parts.push(c.page.clone());
             }
             if !parts.is_empty() {
-                let line = widgets::elide(&p, &parts.join("  \u{b7}  "), &theme::font_small(), text_w);
-                widgets::text_on_baseline(&p, ax, ty + c.galley.size().y + 13.0, &line, theme::font_small(), theme::TEXT_SECONDARY);
+                let line = widgets::elide(&p, &parts.join("  \u{b7}  "), &theme::font_caption(), text_w);
+                widgets::text_on_baseline(&p, ax, ty + c.galley.size().y + 13.0, &line, theme::font_caption(), theme::TEXT_SECONDARY);
             }
             widgets::record(ui, &format!("comment-card-{}", first.text.chars().take(24).collect::<String>()), r);
             if resp.clicked() {
