@@ -141,8 +141,17 @@ impl Default for VarsState {
 impl App {
     /// The document with variable bindings applied, for exporters that read raw
     /// node properties (borrowed when nothing is bound).
+    ///
+    /// Auto-layout subtrees still queued for a lazy re-layout are finished on a copy, so an export
+    /// never shows them stale (the live document keeps its own queue for the window to drain).
     pub fn export_doc(&self) -> std::borrow::Cow<'_, Document> {
-        if self.doc.nodes.values().any(|n| !n.variables.bindings.is_empty()) {
+        let bound = self.doc.nodes.values().any(|n| !n.variables.bindings.is_empty());
+        if !self.doc.pending_relayout().is_empty() {
+            let mut settled = self.doc.clone();
+            settled.flush_pending_relayout();
+            return std::borrow::Cow::Owned(if bound { apply_bound_variables(&settled) } else { settled });
+        }
+        if bound {
             std::borrow::Cow::Owned(apply_bound_variables(&self.doc))
         } else {
             std::borrow::Cow::Borrowed(&self.doc)

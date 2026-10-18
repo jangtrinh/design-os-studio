@@ -603,6 +603,7 @@ impl App {
             // an old version is on screen: the file on disk must keep the live document
             return Err("Go back to the current version before saving".into());
         }
+        self.settle_pending_relayout();
         let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
         let replaced = lib.save_file_counted(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
@@ -639,6 +640,7 @@ impl App {
         if self.history.viewing.is_some() {
             return;
         }
+        self.settle_pending_relayout();
         if self.lib_file.is_some() && doc_hash(&self.doc) != self.autosave.saved_hash {
             if let Err(e) = self.save_library_file() {
                 self.show_toast(e, true);
@@ -803,6 +805,7 @@ impl App {
     pub fn save_to_library_as(&mut self, project: &str, folder: Option<&str>, name: &str) {
         crate::decks::ui::flush_notes(self);
         let Some(lib) = self.lib.clone() else { return };
+        self.settle_pending_relayout();
         let mut doc = self.doc.clone();
         doc.name = name.trim().to_string();
         match lib.create_file_counted(project, folder, name, &doc) {

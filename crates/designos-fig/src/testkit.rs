@@ -41,29 +41,59 @@ pub fn figma_like_schema() -> Schema {
             "SLICE",
             "SYMBOL",
             "INSTANCE",
-            "SECTION",
             "STICKY",
             "SHAPE_WITH_TEXT",
             "CONNECTOR",
+            "CODE_BLOCK",
+            "WIDGET",
             "STAMP",
+            "MEDIA",
+            "HIGHLIGHT",
+            "SECTION",
+            "SECTION_OVERLAY",
+            "WASHI_TAPE",
             "VARIABLE",
             "VARIABLE_SET",
-            "VARIABLE_OVERRIDE",
-            "BRUSH",
+            "ASSISTED_LAYOUT",
             "TABLE",
             "TABLE_CELL",
-            "WASHI_TAPE",
-            "WIDGET",
-            "CODE_BLOCK",
+            "VARIABLE_OVERRIDE",
             "SLIDE",
-            "SLIDE_GRID",
             "SLIDE_ROW",
-            "INTERACTIVE_SLIDE_ELEMENT",
+            "SLIDE_GRID",
             "MODULE",
+            "INTERACTIVE_SLIDE_ELEMENT",
+            "RESPONSIVE_SET",
+            "CODE_COMPONENT",
+            "CODE_INSTANCE",
+            "CODE_LIBRARY",
+            "CODE_FILE",
+            "CODE_LAYER",
+            "BRUSH",
+            "MANAGED_STRING",
+            "TRANSFORM",
+            "CMS_RICH_TEXT",
+            "REPEATER",
+            "JSX",
+            "EMBEDDED_PROTOTYPE",
+            "REACT_FIBER",
+            "RESPONSIVE_NODE_SET",
+            "WEBPAGE",
+            "KEYFRAME",
+            "ANIMATION_PRESET_INSTANCE",
+            "TEXT_PATH",
+            "VECTOR_OPERATION",
+            "KEYFRAME_TRACK",
+            "DESIGN_TO_REACT",
+            "SLIDE_THEME_MAP",
+            "MAKE_CHAT",
+            "AI_EDIT",
+            "CANVAS_ROW",
+            "MULTI_REV_MIGRATION",
         ],
     );
     enum_def(&mut b, "PaintType", &["SOLID", "GRADIENT_LINEAR", "GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND", "IMAGE"]);
-    enum_def(&mut b, "StrokeAlign", &["CENTER", "INSIDE", "OUTSIDE"]);
+    enum_def(&mut b, "StrokeAlign", &["CENTER", "INSIDE", "OUTSIDE", "OFFSET"]);
     enum_def(&mut b, "StrokeJoin", &["MITER", "BEVEL", "ROUND"]);
     enum_def(&mut b, "StrokeCap", &["NONE", "ROUND", "SQUARE", "ARROW_LINES", "ARROW_EQUILATERAL"]);
     enum_def(
@@ -415,7 +445,7 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "FontVariantNumericFraction", &["NORMAL", "DIAGONAL", "STACKED"]);
     enum_def(&mut b, "FontVariantCaps", &["NORMAL", "SMALL", "ALL_SMALL", "PETITE", "ALL_PETITE", "UNICASE", "TITLING"]);
     enum_def(&mut b, "FontVariantPosition", &["NORMAL", "SUB", "SUPER"]);
-    enum_def(&mut b, "BrushType", &["PLAIN", "CHARCOAL", "WAX", "MARKER"]);
+    enum_def(&mut b, "BrushType", &["PLAIN", "CHARCOAL", "WAX", "MARKER", "STRETCH", "SCATTER"]);
     let fv = b.define("FontVariation", DefKind::Message);
     b.field(fv, "axisTag", nat(Uint), false, 1);
     b.field(fv, "axisName", nat(String), false, 2);
@@ -753,6 +783,534 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "isSlot", nat(Bool), false);
     f(&mut b, "isSlotContent", nat(Bool), false);
     f(&mut b, "jsonSerialized", jsft, false);
+
+    // Draw, Motion, Table, Slide, Layout, Slot, Widget, and remaining NodeChange passthrough types:
+    enum_def(&mut b, "MaskType", &["ALPHA", "VECTOR", "LUMINANCE"]);
+    enum_def(&mut b, "ScrollDirection", &["NONE", "HORIZONTAL", "VERTICAL", "BOTH"]);
+    enum_def(&mut b, "LockMode", &["NONE", "ALL", "ASPECT_RATIO", "FIXED_SIZE"]);
+    enum_def(&mut b, "GridChildAlign", &["AUTO", "MIN", "CENTER", "MAX", "STRETCH"]);
+    enum_def(&mut b, "ColorProfile", &["SRGB", "DISPLAY_P3"]);
+    enum_def(&mut b, "CodeObjectType", &["COMPONENT", "FILE", "LIBRARY", "INSTANCE", "LAYER"]);
+    enum_def(&mut b, "BrushOrientation", &["FORWARD", "REVERSE"]);
+    enum_def(&mut b, "ScatterBrushRotation", &["NONE", "DIRECTION"]);
+    enum_def(&mut b, "TransformModifierType", &["REPEAT", "SYMMETRY", "SKEW"]);
+    enum_def(&mut b, "TransformModifierCountType", &["NUMBER", "GAP"]);
+    enum_def(&mut b, "SymmetryMode", &["HORIZONTAL", "VERTICAL", "RADIAL", "HORIZONTAL_AND_VERTICAL"]);
+    enum_def(&mut b, "KeyframeInterpolationType", &["LINEAR", "HOLD", "BEZIER", "SPRING", "EASE"]);
+    enum_def(
+        &mut b,
+        "EasingType",
+        &[
+            "NONE",
+            "IN_CUBIC",
+            "OUT_CUBIC",
+            "IN_OUT_CUBIC",
+            "LINEAR",
+            "IN_BACK_CUBIC",
+            "OUT_BACK_CUBIC",
+            "IN_OUT_BACK_CUBIC",
+            "CUSTOM_CUBIC",
+            "SPRING",
+            "GENTLE_SPRING",
+            "CUSTOM_SPRING",
+            "SPRING_PRESET_ONE",
+            "SPRING_PRESET_TWO",
+            "SPRING_PRESET_THREE",
+            "OUT_QUAD",
+            "OUT_QUART",
+            "OUT_QUINT",
+            "OUT_SINE",
+            "OUT_EXPO",
+            "OUT_CIRC",
+            "OUT_BACK",
+            "IN_QUAD",
+            "IN_QUART",
+            "IN_QUINT",
+            "IN_SINE",
+            "IN_EXPO",
+            "IN_CIRC",
+            "IN_BACK",
+            "IN_OUT_QUAD",
+            "IN_OUT_QUART",
+            "IN_OUT_QUINT",
+            "IN_OUT_SINE",
+            "IN_OUT_EXPO",
+            "IN_OUT_CIRC",
+            "IN_OUT_BACK",
+            "CUSTOM_CUBIC_BEZIER",
+        ],
+    );
+    enum_def(&mut b, "InterpolationColorSpace", &["SRGB", "OKLCH"]);
+    enum_def(
+        &mut b,
+        "KeyframeOperation",
+        &[
+            "TRANSLATE_X",
+            "TRANSLATE_Y",
+            "ROTATE",
+            "SCALE_X",
+            "SCALE_Y",
+            "OPACITY",
+            "FILL",
+            "STROKE",
+            "CORNER_RADIUS",
+            "STROKE_WEIGHT",
+            "LINE_HEIGHT",
+            "LETTER_SPACING",
+            "FONT_SIZE",
+            "EFFECT",
+            "PATH_TRIM_START",
+            "PATH_TRIM_END",
+            "PATH_TRIM_OFFSET",
+            "FONT_VARIATION",
+        ],
+    );
+    enum_def(&mut b, "TrackLoopMode", &["ONCE", "REPEAT", "PING_PONG"]);
+    enum_def(&mut b, "TextElementDelayBehaviour", &["NONE", "BY_CHARACTER", "BY_WORD", "BY_LINE"]);
+    enum_def(
+        &mut b,
+        "TransitionType",
+        &[
+            "INSTANT_TRANSITION",
+            "DISSOLVE",
+            "FADE",
+            "SLIDE_FROM_LEFT",
+            "SLIDE_FROM_RIGHT",
+            "SLIDE_FROM_TOP",
+            "SLIDE_FROM_BOTTOM",
+            "PUSH_FROM_LEFT",
+            "PUSH_FROM_RIGHT",
+            "PUSH_FROM_TOP",
+            "PUSH_FROM_BOTTOM",
+            "MOVE_FROM_LEFT",
+            "MOVE_FROM_RIGHT",
+            "MOVE_FROM_TOP",
+            "MOVE_FROM_BOTTOM",
+            "MOVE_OUT_TO_LEFT",
+            "MOVE_OUT_TO_RIGHT",
+            "MOVE_OUT_TO_TOP",
+            "MOVE_OUT_TO_BOTTOM",
+            "SMART_ANIMATE",
+            "SCROLL_ANIMATE",
+            "SLIDE_OUT_TO_LEFT",
+            "SLIDE_OUT_TO_RIGHT",
+            "SLIDE_OUT_TO_TOP",
+            "SLIDE_OUT_TO_BOTTOM",
+        ],
+    );
+    enum_def(
+        &mut b,
+        "InteractionType",
+        &[
+            "ON_CLICK",
+            "AFTER_TIMEOUT",
+            "MOUSE_IN",
+            "MOUSE_OUT",
+            "ON_HOVER",
+            "MOUSE_DOWN",
+            "MOUSE_UP",
+            "ON_PRESS",
+            "NONE",
+            "DRAG",
+            "ON_KEY_DOWN",
+            "ON_VOICE",
+            "ON_MEDIA_HIT",
+            "ON_MEDIA_END",
+        ],
+    );
+    enum_def(&mut b, "ObjectAnimationPhase", &["IN", "OUT", "EMPHASIS"]);
+    enum_def(&mut b, "ConnectorTextSection", &["MIDDLE", "START", "END"]);
+    enum_def(&mut b, "WidgetInputBehavior", &["WRAP", "TRUNCATE", "MULTILINE"]);
+    enum_def(&mut b, "WidgetPropertyMenuItemType", &["ACTION", "SEPARATOR", "COLOR_SELECTOR", "DROPDOWN", "WALLPAPER_SELECTOR", "LINK", "TOGGLE"]);
+
+    let vwp = b.define("VariableWidthPoint", DefKind::Struct);
+    b.field(vwp, "asymmetricStroke", nat(Bool), false, 1);
+    b.field(vwp, "position", nat(Float), false, 2);
+    b.field(vwp, "leadingWidth", nat(Float), false, 3);
+    b.field(vwp, "trailingWidth", nat(Float), false, 4);
+
+    let dss = b.define("DynamicStrokeSettings", DefKind::Message);
+    b.field(dss, "frequency", nat(Float), false, 1);
+    b.field(dss, "wiggle", nat(Float), false, 2);
+    b.field(dss, "smoothen", nat(Float), false, 3);
+
+    let sss = b.define("ScatterStrokeSettings", DefKind::Message);
+    let sbr = def(&b, "ScatterBrushRotation");
+    b.field(sss, "gap", nat(Float), false, 1);
+    b.field(sss, "wiggle", nat(Float), false, 2);
+    b.field(sss, "angularJitter", nat(Float), false, 3);
+    b.field(sss, "sizeJitter", nat(Float), false, 4);
+    b.field(sss, "rotation", sbr, false, 5);
+
+    let stss = b.define("StretchStrokeSettings", DefKind::Message);
+    let bo_ty = def(&b, "BrushOrientation");
+    b.field(stss, "orientation", bo_ty, false, 1);
+
+    let ptrim = b.define("PathTrim", DefKind::Message);
+    b.field(ptrim, "start", nat(Float), false, 1);
+    b.field(ptrim, "end", nat(Float), false, 2);
+    b.field(ptrim, "offset", nat(Float), false, 3);
+
+    let sdata = b.define("StrokeData", DefKind::Message);
+    let vwpt = def(&b, "VariableWidthPoint");
+    b.field(sdata, "dynamicStrokeSeed", nat(Uint), false, 1);
+    b.field(sdata, "variableWidthPoints", vwpt, true, 2);
+
+    let tmod = b.define("TransformModifier", DefKind::Message);
+    let (tm_ty, tmc_ty, nu_ty, vec_ty, sym_ty) =
+        (def(&b, "TransformModifierType"), def(&b, "TransformModifierCountType"), def(&b, "NumberUnits"), def(&b, "Vector"), def(&b, "SymmetryMode"));
+    b.field(tmod, "type", tm_ty, false, 1);
+    b.field(tmod, "count", nat(Uint), false, 2);
+    b.field(tmod, "countType", tmc_ty, false, 3);
+    b.field(tmod, "unit", nu_ty, false, 4);
+    b.field(tmod, "offset", vec_ty, false, 5);
+    b.field(tmod, "symmetryMode", sym_ty, false, 6);
+    b.field(tmod, "symmetryOrigin", vec_ty, false, 7);
+    b.field(tmod, "rotation", nat(Float), false, 8);
+    b.field(tmod, "scale", vec_ty, false, 9);
+    b.field(tmod, "skew", vec_ty, false, 10);
+
+    let tldef = b.define("TimelineDefinition", DefKind::Message);
+    b.field(tldef, "id", guid_ty, false, 1);
+    b.field(tldef, "name", nat(String), false, 2);
+
+    let tlass = b.define("TimelineAssignment", DefKind::Message);
+    b.field(tlass, "timelineId", guid_ty, false, 1);
+    b.field(tlass, "targetNodeId", guid_ty, false, 2);
+
+    let kfv = b.define("KeyframeValue", DefKind::Message);
+    let (col_ty, pt_ty, eff_ty, fv_ty, vdt_ty) = (def(&b, "Color"), def(&b, "Paint"), def(&b, "Effect"), def(&b, "FontVariation"), def(&b, "VectorData"));
+    b.field(kfv, "floatValue", nat(Float), false, 1);
+    b.field(kfv, "vectorValue", vec_ty, false, 2);
+    b.field(kfv, "colorValue", col_ty, false, 3);
+    b.field(kfv, "paintValues", pt_ty, true, 4);
+    b.field(kfv, "effectValues", eff_ty, true, 5);
+    b.field(kfv, "fontVariationValues", fv_ty, true, 6);
+    b.field(kfv, "vectorDataValue", vdt_ty, false, 7);
+
+    let bzh = b.define("BezierHandles", DefKind::Message);
+    b.field(bzh, "inTangent", vec_ty, false, 1);
+    b.field(bzh, "outTangent", vec_ty, false, 2);
+
+    let efcb = b.define("EasingFunctionCubicBezier", DefKind::Struct);
+    b.field(efcb, "x1", nat(Float), false, 1);
+    b.field(efcb, "y1", nat(Float), false, 2);
+    b.field(efcb, "x2", nat(Float), false, 3);
+    b.field(efcb, "y2", nat(Float), false, 4);
+
+    let efsp = b.define("EasingFunctionSpring", DefKind::Struct);
+    b.field(efsp, "mass", nat(Float), false, 1);
+    b.field(efsp, "stiffness", nat(Float), false, 2);
+    b.field(efsp, "damping", nat(Float), false, 3);
+    b.field(efsp, "initialVelocity", nat(Float), false, 4);
+
+    let edata = b.define("EasingData", DefKind::Message);
+    let (et_ty, efcbt, efspt) = (def(&b, "EasingType"), def(&b, "EasingFunctionCubicBezier"), def(&b, "EasingFunctionSpring"));
+    b.field(edata, "easingType", et_ty, false, 1);
+    b.field(edata, "easingFunctionCubicBezier", efcbt, false, 2);
+    b.field(edata, "easingFunctionSpring", efspt, false, 3);
+
+    let apres = b.define("AnimationPreset", DefKind::Message);
+    let (edatat, kfot) = (def(&b, "EasingData"), def(&b, "KeyframeOperation"));
+    b.field(apres, "presetGuid", guid_ty, false, 1);
+    b.field(apres, "delay", nat(Float), false, 2);
+    b.field(apres, "duration", nat(Float), false, 3);
+    b.field(apres, "easingData", edatat, false, 4);
+    b.field(apres, "excludedOperations", kfot, true, 5);
+
+    let trcp = b.define("TableRowColumnPositionEntry", DefKind::Message);
+    b.field(trcp, "id", guid_ty, false, 1);
+    b.field(trcp, "position", nat(String), false, 2);
+
+    let trcs = b.define("TableRowColumnSizeEntry", DefKind::Message);
+    b.field(trcs, "id", guid_ty, false, 1);
+    b.field(trcs, "size", nat(Float), false, 2);
+
+    let tmce = b.define("TableMergedCellEntry", DefKind::Message);
+    b.field(tmce, "rowId", guid_ty, false, 1);
+    b.field(tmce, "colId", guid_ty, false, 2);
+    b.field(tmce, "rowSpan", nat(Uint), false, 3);
+    b.field(tmce, "colSpan", nat(Uint), false, 4);
+
+    let tmc = b.define("TableMergedCells", DefKind::Message);
+    let tmcet = def(&b, "TableMergedCellEntry");
+    b.field(tmc, "entries", tmcet, true, 1);
+
+    let oat = b.define("ObjectAnimationTiming", DefKind::Message);
+    let it_ty = def(&b, "InteractionType");
+    b.field(oat, "type", it_ty, false, 1);
+    b.field(oat, "delay", nat(Float), false, 2);
+
+    let oanim = b.define("ObjectAnimation", DefKind::Message);
+    let (tt_ty, oatt, oapt) = (def(&b, "TransitionType"), def(&b, "ObjectAnimationTiming"), def(&b, "ObjectAnimationPhase"));
+    b.field(oanim, "target", guid_ty, false, 1);
+    b.field(oanim, "transitionType", tt_ty, false, 2);
+    b.field(oanim, "transitionDuration", nat(Float), false, 3);
+    b.field(oanim, "easingType", et_ty, false, 4);
+    b.field(oanim, "easingFunctionCubicBezier", efcbt, false, 5);
+    b.field(oanim, "easingFunctionSpring", efspt, false, 6);
+    b.field(oanim, "timing", oatt, false, 7);
+    b.field(oanim, "phase", oapt, false, 8);
+
+    let slink = b.define("SymbolLink", DefKind::Message);
+    b.field(slink, "uri", nat(String), false, 1);
+    b.field(slink, "displayName", nat(String), false, 2);
+    b.field(slink, "displayText", nat(String), false, 3);
+
+    let wevt = b.define("WidgetEvent", DefKind::Message);
+    b.field(wevt, "eventId", nat(String), false, 1);
+
+    let whst = b.define("WidgetHoverStyle", DefKind::Message);
+    b.field(whst, "fillPaints", pt_ty, true, 1);
+    b.field(whst, "strokePaints", pt_ty, true, 2);
+    b.field(whst, "opacity", nat(Float), false, 3);
+    b.field(whst, "areFillPaintsSet", nat(Bool), false, 4);
+    b.field(whst, "areStrokePaintsSet", nat(Bool), false, 5);
+    b.field(whst, "isOpacitySet", nat(Bool), false, 6);
+
+    let ctm = b.define("ConnectorTextMidpoint", DefKind::Message);
+    let cts_ty = def(&b, "ConnectorTextSection");
+    b.field(ctm, "section", cts_ty, false, 1);
+    b.field(ctm, "offset", nat(Float), false, 2);
+
+    let ccp = b.define("ConnectorControlPoint", DefKind::Message);
+    b.field(ccp, "position", vec_ty, false, 1);
+    b.field(ccp, "axis", vec_ty, false, 2);
+
+    let gat_def = b.define("GridAutoTracks", DefKind::Message);
+    b.field(gat_def, "gridColumnsSizing", nat(String), false, 1);
+    b.field(gat_def, "gridRowsSizing", nat(String), false, 2);
+
+    let psp = b.define("PrototypeStartingPoint", DefKind::Message);
+    b.field(psp, "name", nat(String), false, 1);
+    b.field(psp, "description", nat(String), false, 2);
+
+    let csi = b.define("CodeSourceInfo", DefKind::Message);
+    b.field(csi, "sourcePath", nat(String), false, 1);
+    b.field(csi, "lineNumber", nat(Uint), false, 2);
+
+    let scc = b.define("SourceControlConfig", DefKind::Message);
+    b.field(scc, "repoUrl", nat(String), false, 1);
+    b.field(scc, "branch", nat(String), false, 2);
+
+    let wmeta = b.define("WidgetMetadata", DefKind::Message);
+    b.field(wmeta, "pluginID", nat(String), false, 1);
+    b.field(wmeta, "pluginVersionID", nat(String), false, 2);
+    b.field(wmeta, "widgetName", nat(String), false, 3);
+
+    let rse = b.define("RenderedSyncedStateEntry", DefKind::Message);
+    b.field(rse, "key", nat(String), false, 1);
+    b.field(rse, "value", nat(String), false, 2);
+    let rss = b.define("RenderedSyncedState", DefKind::Message);
+    let rset = def(&b, "RenderedSyncedStateEntry");
+    b.field(rss, "entries", rset, true, 1);
+
+    let acat = b.define("AnnotationCategory", DefKind::Message);
+    b.field(acat, "id", guid_ty, false, 1);
+    b.field(acat, "label", nat(String), false, 2);
+    b.field(acat, "color", col_ty, false, 3);
+
+    let mcs = b.define("MakeContentState", DefKind::Message);
+    b.field(mcs, "prompt", nat(String), false, 1);
+    b.field(mcs, "status", nat(String), false, 2);
+
+    let wpmi = b.define("WidgetPropertyMenuItem", DefKind::Message);
+    let wpmit = def(&b, "WidgetPropertyMenuItemType");
+    b.field(wpmi, "propertyName", nat(String), false, 1);
+    b.field(wpmi, "tooltip", nat(String), false, 2);
+    b.field(wpmi, "itemType", wpmit, false, 3);
+    b.field(wpmi, "icon", nat(String), false, 4);
+    b.field(wpmi, "isToggled", nat(Bool), false, 5);
+
+    let dtd_def = b.define("DerivedTextData", DefKind::Message);
+    b.field(dtd_def, "layoutSize", vec_ty, false, 1);
+    b.field(dtd_def, "fontDigest", nat(Byte), true, 2);
+
+    let difd_def = b.define("DerivedImmutableFrameData", DefKind::Message);
+    b.field(difd_def, "version", nat(Uint), false, 1);
+
+    let (
+        mt_ty,
+        sd_ty,
+        lm_ty,
+        gca_ty,
+        cp_ty,
+        cot_ty,
+        sc_ty,
+        vwpt_nc,
+        dsst,
+        ssst,
+        stsst,
+        mx_ty,
+        ptrimt,
+        sdatat,
+        tmodt,
+        tldeft,
+        tlasst,
+        kfvt,
+        kfit,
+        bzht,
+        edatat_nc,
+        et_ty_nc,
+        icst,
+        kfot_nc,
+        tlmt,
+        sidt_nc,
+        aprest,
+        tedbt,
+        trcpt,
+        trcst,
+        tmct,
+        oanimt,
+        slinkt,
+        wevtt,
+        whstt,
+        ctmt,
+        ccpt,
+        gatt,
+        pspt,
+        csit,
+        wibt,
+        scct,
+        wmetat,
+        rsst,
+        acatt,
+        mcst,
+        wpmit_nc,
+        dtdt,
+        difdt,
+    ) = (
+        def(&b, "MaskType"),
+        def(&b, "ScrollDirection"),
+        def(&b, "LockMode"),
+        def(&b, "GridChildAlign"),
+        def(&b, "ColorProfile"),
+        def(&b, "CodeObjectType"),
+        def(&b, "StrokeCap"),
+        def(&b, "VariableWidthPoint"),
+        def(&b, "DynamicStrokeSettings"),
+        def(&b, "ScatterStrokeSettings"),
+        def(&b, "StretchStrokeSettings"),
+        def(&b, "Matrix"),
+        def(&b, "PathTrim"),
+        def(&b, "StrokeData"),
+        def(&b, "TransformModifier"),
+        def(&b, "TimelineDefinition"),
+        def(&b, "TimelineAssignment"),
+        def(&b, "KeyframeValue"),
+        def(&b, "KeyframeInterpolationType"),
+        def(&b, "BezierHandles"),
+        def(&b, "EasingData"),
+        def(&b, "EasingType"),
+        def(&b, "InterpolationColorSpace"),
+        def(&b, "KeyframeOperation"),
+        def(&b, "TrackLoopMode"),
+        def(&b, "StyleId"),
+        def(&b, "AnimationPreset"),
+        def(&b, "TextElementDelayBehaviour"),
+        def(&b, "TableRowColumnPositionEntry"),
+        def(&b, "TableRowColumnSizeEntry"),
+        def(&b, "TableMergedCells"),
+        def(&b, "ObjectAnimation"),
+        def(&b, "SymbolLink"),
+        def(&b, "WidgetEvent"),
+        def(&b, "WidgetHoverStyle"),
+        def(&b, "ConnectorTextMidpoint"),
+        def(&b, "ConnectorControlPoint"),
+        def(&b, "GridAutoTracks"),
+        def(&b, "PrototypeStartingPoint"),
+        def(&b, "CodeSourceInfo"),
+        def(&b, "WidgetInputBehavior"),
+        def(&b, "SourceControlConfig"),
+        def(&b, "WidgetMetadata"),
+        def(&b, "RenderedSyncedState"),
+        def(&b, "AnnotationCategory"),
+        def(&b, "MakeContentState"),
+        def(&b, "WidgetPropertyMenuItem"),
+        def(&b, "DerivedTextData"),
+        def(&b, "DerivedImmutableFrameData"),
+    );
+
+    f(&mut b, "maskType", mt_ty, false);
+    f(&mut b, "scrollDirection", sd_ty, false);
+    f(&mut b, "lockMode", lm_ty, false);
+    f(&mut b, "gridChildVerticalAlign", gca_ty, false);
+    f(&mut b, "gridChildHorizontalAlign", gca_ty, false);
+    f(&mut b, "codeExportName", nat(String), false);
+    f(&mut b, "documentColorProfile", cp_ty, false);
+    f(&mut b, "codeObjectType", cot_ty, false);
+    f(&mut b, "connectorStartCap", sc_ty, false);
+    f(&mut b, "connectorEndCap", sc_ty, false);
+    f(&mut b, "resizeToFit", nat(Bool), false);
+    f(&mut b, "shapeTruncates", nat(Bool), false);
+    f(&mut b, "isPageDivider", nat(Bool), false);
+    f(&mut b, "backgroundEnabled", nat(Bool), false);
+    f(&mut b, "gridReflowEnabled", nat(Bool), false);
+    f(&mut b, "isCollectionExtendable", nat(Bool), false);
+    f(&mut b, "shouldHideCursorsOnWidgetHover", nat(Bool), false);
+    f(&mut b, "isWidgetStickable", nat(Bool), false);
+    f(&mut b, "shapeUserHeight", nat(Float), false);
+    f(&mut b, "backgroundOpacity", nat(Float), false);
+    f(&mut b, "connectorVersion", nat(Uint), false);
+    f(&mut b, "vectorOperationVersion", nat(Uint), false);
+    f(&mut b, "variableWidthPoints", vwpt_nc, true);
+    f(&mut b, "dynamicStrokeSettings", dsst, false);
+    f(&mut b, "scatterStrokeSettings", ssst, false);
+    f(&mut b, "stretchStrokeSettings", stsst, false);
+    f(&mut b, "scatterBrushTransforms", mx_ty, true);
+    f(&mut b, "strokeBrushGuid", guid_ty, false);
+    f(&mut b, "strokeSeed", nat(Uint), false);
+    f(&mut b, "pathTrim", ptrimt, false);
+    f(&mut b, "strokeOffset", nat(Float), false);
+    f(&mut b, "strokeData", sdatat, false);
+    f(&mut b, "transformModifiers", tmodt, true);
+    f(&mut b, "textPathStart", nat(Float), false);
+    f(&mut b, "timelineDefinitions", tldeft, true);
+    f(&mut b, "timelineAssignments", tlasst, true);
+    f(&mut b, "timelinePosition", nat(Float), false);
+    f(&mut b, "keyframeValue", kfvt, false);
+    f(&mut b, "interpolationType", kfit, false);
+    f(&mut b, "bezierHandles", bzht, false);
+    f(&mut b, "easingData", edatat_nc, false);
+    f(&mut b, "easingType", et_ty_nc, false);
+    f(&mut b, "interpolationColorSpace", icst, false);
+    f(&mut b, "keyframeOperation", kfot_nc, false);
+    f(&mut b, "trackLoopMode", tlmt, false);
+    f(&mut b, "timelineDuration", nat(Float), false);
+    f(&mut b, "timelineOffset", nat(Float), false);
+    f(&mut b, "timelineDisabled", nat(Bool), false);
+    f(&mut b, "styleIdsForAnimation", sidt_nc, true);
+    f(&mut b, "animationPresets", aprest, true);
+    f(&mut b, "textElementDelayBehaviour", tedbt, false);
+    f(&mut b, "tableRowPositions", trcpt, true);
+    f(&mut b, "tableColumnPositions", trcpt, true);
+    f(&mut b, "tableRowHeights", trcst, true);
+    f(&mut b, "tableColumnWidths", trcst, true);
+    f(&mut b, "tableMergedCells", tmct, false);
+    f(&mut b, "slideSpeakerNotes", nat(String), false);
+    f(&mut b, "isSkippedSlide", nat(Bool), false);
+    f(&mut b, "slideNumber", nat(String), false);
+    f(&mut b, "slideNumberSeparator", nat(String), false);
+    f(&mut b, "objectAnimations", oanimt, true);
+    f(&mut b, "symbolLinks", slinkt, true);
+    f(&mut b, "widgetEvents", wevtt, true);
+    f(&mut b, "widgetHoverStyle", whstt, false);
+    f(&mut b, "connectorTextMidpoint", ctmt, false);
+    f(&mut b, "ancestorPathBeforeDeletion", guid_ty, true);
+    f(&mut b, "connectorControlPoints", ccpt, true);
+    f(&mut b, "gridAutoTracks", gatt, false);
+    f(&mut b, "prototypeStartingPoint", pspt, false);
+    f(&mut b, "codeSourceInfo", csit, false);
+    f(&mut b, "widgetInputBehavior", wibt, false);
+    f(&mut b, "sourceControlConfig", scct, false);
+    f(&mut b, "widgetMetadata", wmetat, false);
+    f(&mut b, "renderedSyncedState", rsst, false);
+    f(&mut b, "annotationCategories", acatt, true);
+    f(&mut b, "makeContentState", mcst, false);
+    f(&mut b, "widgetSyncedState", rsst, false);
+    f(&mut b, "widgetPropertyMenuItems", wpmit_nc, true);
+    f(&mut b, "derivedTextData", dtdt, false);
+    f(&mut b, "derivedImmutableFrameData", difdt, false);
 
     let blob = b.define("Blob", DefKind::Message);
     b.field(blob, "bytes", nat(Byte), true, 1);
