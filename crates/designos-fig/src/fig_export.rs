@@ -303,7 +303,7 @@ impl<'a> ExportCtx<'a> {
         for (&id, n) in &doc.nodes {
             if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) && !cx.comp_keys.contains_key(&id) {
                 let g = cx.node_guids[&id];
-                cx.comp_keys.insert(id, format!("comp:{}:{}", g.0, g.1));
+                cx.comp_keys.insert(id, format!("{}:{}", g.0, g.1));
             }
         }
         grid::allocate(&mut cx);
@@ -1104,7 +1104,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     msg(vec![("guidValue", guid(tg.0, tg.1))])
                 }
                 PropValue::Slot(ids) => {
-                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("comp:{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
+                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
                     msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
                 }
             };
@@ -2053,7 +2053,7 @@ fn encode_preferred_values(cx: &ExportCtx, preferred: &[NodeId]) -> Option<V> {
             NodeKind::ComponentSet(_) => "STATE_GROUP",
             _ => "COMPONENT",
         };
-        let key = cx.comp_keys.get(pid).cloned().or_else(|| cx.node_guids.get(pid).map(|g| format!("comp:{}:{}", g.0, g.1)))?;
+        let key = cx.comp_keys.get(pid).cloned().or_else(|| cx.node_guids.get(pid).map(|g| format!("{}:{}", g.0, g.1)))?;
         swap_vals.push(msg(vec![("type", en(ty)), ("key", V::String(key))]));
     }
     if swap_vals.is_empty() {

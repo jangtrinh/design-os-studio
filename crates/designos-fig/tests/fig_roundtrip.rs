@@ -3078,10 +3078,11 @@ fn passthrough_color_struct_array_and_quoted_string_roundtrip() {
             "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
             "slideSpeakerNotes": "\"quoted\"",
             "keyframeValue": {
-                "colorValue": {"r": 1.0, "g": 0.0, "b": 0.0}
+                "value": {"colorValue": {"r": 1.0, "g": 0.0, "b": 0.0}},
+                "valueType": "COLOR"
             },
             "variableWidthPoints": [
-                {"asymmetricStroke": false, "position": 0.25, "leadingWidth": 2.0, "trailingWidth": 4.0},
+                {"position": 0.25, "ascent": 2.0, "descent": 4.0},
                 {"position": "nope"}
             ]
         }
@@ -3098,8 +3099,8 @@ fn passthrough_color_struct_array_and_quoted_string_roundtrip() {
     // 2. A passthrough Color struct without `a` defaults `a` to 1.0 (opaque), not 0.0.
     let kf_raw = slide.fig_metadata.get("keyframeValue").expect("keyframeValue in fig_metadata");
     let kf_json: Value = serde_json::from_str(kf_raw).expect("parse keyframeValue JSON");
-    assert_eq!(kf_json["colorValue"]["r"].as_f64(), Some(1.0));
-    assert_eq!(kf_json["colorValue"]["a"].as_f64(), Some(1.0), "Color.a must default to 1.0 when omitted: {kf_json}");
+    assert_eq!(kf_json["value"]["colorValue"]["r"].as_f64(), Some(1.0));
+    assert_eq!(kf_json["value"]["colorValue"]["a"].as_f64(), Some(1.0), "Color.a must default to 1.0 when omitted: {kf_json}");
 
     // 3. One malformed element in an array must be skipped without dropping the valid elements.
     let vwp_raw = slide.fig_metadata.get("variableWidthPoints").expect("variableWidthPoints kept in fig_metadata");
@@ -3107,8 +3108,8 @@ fn passthrough_color_struct_array_and_quoted_string_roundtrip() {
     let arr = vwp_json.as_array().expect("variableWidthPoints array");
     assert_eq!(arr.len(), 1, "valid element must survive when a sibling element is malformed: {arr:?}");
     assert_eq!(arr[0]["position"].as_f64(), Some(0.25));
-    assert_eq!(arr[0]["leadingWidth"].as_f64(), Some(2.0));
-    assert_eq!(arr[0]["trailingWidth"].as_f64(), Some(4.0));
+    assert_eq!(arr[0]["ascent"].as_f64(), Some(2.0));
+    assert_eq!(arr[0]["descent"].as_f64(), Some(4.0));
 }
 
 #[test]
