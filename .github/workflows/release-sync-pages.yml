@@ -3,8 +3,16 @@ name: Release sync pages
 # After a release is published, point the README, the GitHub Pages site and the docs at it
 # and open one pull request. `main` is protected, so this workflow never pushes to it.
 # The script is scripts/release-sync-pages.py (see docs/releasing.md, checklist step 5).
+#
+# Triggers: the Release workflow publishes with GITHUB_TOKEN, and GitHub starts no workflow
+# for events that token causes, so `release: published` never fires for a tag-driven release.
+# `workflow_run` on the Release workflow covers that path (its head_branch is the tag).
+# `release: published` still covers a release a person publishes from the UI.
 
 on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   release:
     types: [published]
   workflow_dispatch:
@@ -41,8 +49,23 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_PRE: ${{ github.event.release.prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
-          if [ "$EVENT" = "release" ]; then raw="$RELEASE_TAG"; else raw="$INPUT_VERSION"; fi
+          case "$EVENT" in
+            release) raw="$RELEASE_TAG" ;;
+            workflow_run)
+              # Only a successful tag push of the Release workflow published a release;
+              # dry runs (workflow_dispatch on a branch) create none.
+              if [ "$RUN_EVENT" != "push" ] || [ "$RUN_CONCLUSION" != "success" ]; then
+                echo "::notice::Release workflow ended '$RUN_CONCLUSION' on a '$RUN_EVENT' event; no release to sync."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              raw="$RUN_BRANCH" ;;
+            *) raw="$INPUT_VERSION" ;;
+          esac
           version="${raw#v}"
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::notice::'$raw' is not a stable X.Y.Z release; the pages only follow stable releases."
