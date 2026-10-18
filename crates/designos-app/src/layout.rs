@@ -8,7 +8,7 @@ use crate::edit::Edit;
 use crate::util::{aabb_of, rect_corners, v2};
 use designos_doc::{resolve_node, Constraint, Document, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2};
 
-use designos_doc::layout_solver::{compute, ChildIn, SizeLimits};
+use designos_doc::layout_solver::{compute_with_stroke, ChildIn, SizeLimits};
 
 /// Measured text extent when the text hugs its content (no wrapping).
 pub fn estimate_text_size(t: &TextProps) -> Vec2 {
@@ -63,8 +63,8 @@ pub fn layout_node(doc: &mut Document, ed: &mut Edit, id: NodeId) {
 fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let Some(n) = doc.get(id) else { return false };
     let children = n.children.clone();
-    // gap / padding bound to variables count with the value of the mode in effect
-    let Some(al) = doc.get(id).map(|n| resolve_node(doc, n)).and_then(|n| n.kind.frame_props().and_then(|f| f.auto_layout)) else {
+    // gap / padding / stroke weight bound to variables count with the value of the mode in effect
+    let Some((al, stroke)) = doc.get(id).map(|n| resolve_node(doc, n)).and_then(|n| Some((n.kind.frame_props()?.auto_layout?, n.stroke.clone()))) else {
         return false;
     };
     let horiz = al.direction != LayoutDirection::Vertical;
@@ -72,7 +72,7 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let (ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
     let frame_size = doc.get(id).unwrap().size;
     let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
-    let out = compute(&al, frame_size, own_limits, &kids);
+    let out = compute_with_stroke(&al, frame_size, own_limits, &stroke, &kids);
     let new_frame = out.frame;
     let frame_changed = (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3;
     if frame_changed {
@@ -228,7 +228,7 @@ mod tests {
     }
     /// The solver for a frame with no min/max of its own.
     fn compute(al: &AutoLayout, frame: Vec2, kids: &[ChildIn]) -> designos_doc::layout_solver::LayoutOut {
-        super::compute(al, frame, SizeLimits::default(), kids)
+        designos_doc::layout_solver::compute(al, frame, SizeLimits::default(), kids)
     }
     fn al() -> AutoLayout {
         AutoLayout { item_spacing: 10.0, padding: [5.0, 5.0, 5.0, 5.0], ..Default::default() }
