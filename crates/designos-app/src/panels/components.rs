@@ -69,7 +69,7 @@ fn is_dropdown_open(ui: &Ui, key: impl crate::widgets::Key) -> bool {
 fn toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     let r = ui.interact(rect, ui.id().with(("tog", key)), Sense::click());
     widgets::record(ui, &format!("toggle:{key}"), rect);
-    let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - 8.0), Vec2::new(28.0, 16.0));
+    let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
     let p = ui.painter();
     p.rect_filled(
         sw,
@@ -82,7 +82,7 @@ fn toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
             theme::BG_SECONDARY
         },
     );
-    let kx = if on { sw.right() - 8.0 } else { sw.left() + 8.0 };
+    let kx = if on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
     p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, egui::Color32::WHITE);
     r.clicked().then_some(!on)
 }
@@ -667,14 +667,14 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         }
         row_end(pane);
     }
-    pane.y += 4.0;
+    pane.y += theme::SPACE_ROW;
     section_sep(ui, pane, false);
 
     if is_frame && is_slot {
         let prop_name = bound_slot.or_else(|| defs.iter().find(|d| matches!(d.kind, PropKind::Slot)).map(|d| d.name.clone())).unwrap_or_else(|| n.name.clone());
         title(ui, pane, "Slot settings", None, false);
         slot_settings_rows(app, ui, pane, owner, &prop_name);
-        pane.y += 4.0;
+        pane.y += theme::SPACE_ROW;
         section_sep(ui, pane, false);
     }
 }

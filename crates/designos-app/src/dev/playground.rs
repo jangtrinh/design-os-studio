@@ -315,11 +315,11 @@ fn preview_texture(ctx: &Context, base_doc: &Document, id: NodeId, pg: &mut Play
 fn toggle_switch(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     widgets::record(ui, key, rect);
     let r = ui.interact(rect, ui.id().with(("pg-tog", key)), Sense::click());
-    let sw = Rect::from_min_size(Pos2::new(rect.right() - 28.0, rect.center().y - 8.0), Vec2::new(28.0, 16.0));
+    let sw = Rect::from_min_size(Pos2::new(rect.right() - theme::CONTROL_STANDARD, rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
     let p = ui.painter();
     p.rect_filled(
         sw,
-        theme::cr(8),
+        theme::cr_pill(sw.height()),
         if on {
             theme::BG_BRAND
         } else if r.hovered() {
@@ -328,7 +328,7 @@ fn toggle_switch(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
             theme::BG_SECONDARY
         },
     );
-    let kx = if on { sw.right() - 8.0 } else { sw.left() + 8.0 };
+    let kx = if on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
     p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
     r.clicked().then_some(!on)
 }
@@ -443,8 +443,8 @@ fn disabled_select(ui: &mut Ui, rect: Rect, reason: &str) {
     let p = ui.painter();
     p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let font = theme::font_menu();
-    let shown = elide(p, reason, &font, rect.width() - 16.0);
-    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT_DISABLED);
+    let shown = elide(p, reason, &font, rect.width() - theme::SPACE_BLOCK);
+    p.text(Pos2::new(rect.left() + theme::SPACE_INLINE, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT_DISABLED);
 }
 
 /// Renders the read-only Component Playground section in the Dev Mode Inspect panel.
@@ -456,7 +456,7 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     }
 
     section_title(ui, c, "Component playground");
-    let reset_r = c.rect(c.w - PAD - 56.0, -24.0, 56.0, 24.0);
+    let reset_r = c.rect(c.w - PAD - 56.0, -theme::CONTROL_DENSE, 56.0, theme::CONTROL_DENSE);
     widgets::record(ui, "dev-playground-reset", reset_r);
     if small_button(ui, reset_r, "dev-playground-reset", "Reset") {
         app.dev.playground.reset(id);
@@ -471,10 +471,10 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     ui.painter().rect_stroke(stage_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
 
     // Subtle 12px dot grid inside the stage so both light and dark components read cleanly.
-    let mut gx = stage_r.left() + 10.0;
-    while gx < stage_r.right() - 6.0 {
-        let mut gy = stage_r.top() + 26.0;
-        while gy < stage_r.bottom() - 6.0 {
+    let mut gx = stage_r.left() + theme::SPACE_INLINE;
+    while gx < stage_r.right() - theme::SPACE_INLINE {
+        let mut gy = stage_r.top() + theme::SPACE_SECTION;
+        while gy < stage_r.bottom() - theme::SPACE_INLINE {
             ui.painter().circle_filled(Pos2::new(gx, gy), 0.75, Color32::from_white_alpha(18));
             gy += 12.0;
         }
@@ -483,11 +483,14 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 
     let badge_text = if app.dev.playground.has_overrides_for(id) { "Scratch modified" } else { "Read-only" };
     let badge_w = if app.dev.playground.has_overrides_for(id) { 88.0 } else { 58.0 };
-    let badge_r = Rect::from_min_size(Pos2::new(stage_r.left() + 8.0, stage_r.top() + 6.0), Vec2::new(badge_w, 16.0));
-    ui.painter().rect_filled(badge_r, theme::cr(4), theme::BG_SECONDARY);
+    let badge_r = Rect::from_min_size(Pos2::new(stage_r.left() + theme::SPACE_INLINE, stage_r.top() + theme::SPACE_ROW), Vec2::new(badge_w, 16.0));
+    ui.painter().rect_filled(badge_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_text, theme::font_caption(), theme::TEXT_SECONDARY);
 
-    let canvas_area = Rect::from_min_max(Pos2::new(stage_r.left() + 12.0, stage_r.top() + 24.0), Pos2::new(stage_r.right() - 12.0, stage_r.bottom() - 8.0));
+    let canvas_area = Rect::from_min_max(
+        Pos2::new(stage_r.left() + theme::SPACE_GROUP, stage_r.top() + theme::SPACE_SECTION),
+        Pos2::new(stage_r.right() - theme::SPACE_GROUP, stage_r.bottom() - theme::SPACE_INLINE),
+    );
     if let Some(tex) = preview_texture(ui.ctx(), &app.doc, id, &mut app.dev.playground) {
         let sz = tex.size_vec2();
         if sz.x > 0.0 && sz.y > 0.0 {
@@ -515,7 +518,10 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             if is_overridden { theme::font_body_strong() } else { theme::font_body() },
             if is_overridden { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
-        let ctl = Rect::from_min_size(Pos2::new(row_r.left() + label_w, row_r.top() + 2.0), Vec2::new(w - label_w, 24.0));
+        let ctl = Rect::from_min_size(
+            Pos2::new(row_r.left() + label_w, row_r.top() + (row_r.height() - theme::CONTROL_DENSE) / 2.0),
+            Vec2::new(w - label_w, theme::CONTROL_DENSE),
+        );
         let key = format!("dev-playground-prop-{clean_name}");
         widgets::record(ui, &key, ctl);
         match (&def.kind, &val) {
@@ -564,9 +570,9 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
             _ => {}
         }
-        c.y += 28.0;
+        c.y += theme::CONTROL_STANDARD;
     }
-    c.y += 6.0;
+    c.y += theme::SPACE_INLINE;
 }
 
 #[cfg(test)]

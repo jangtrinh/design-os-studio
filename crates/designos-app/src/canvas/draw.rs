@@ -344,12 +344,18 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
                 p.add(egui::Shape::convex_polygon(corners.to_vec(), FIGMA_COMPONENT_PURPLE.gamma_multiply(0.08), Stroke::NONE));
                 dashed_quad(p, &corners, 4.0, 3.0, Stroke::new(1.25, FIGMA_COMPONENT_PURPLE.gamma_multiply(0.85)));
                 if let Some(plus_r) = empty_slot_plus_button_rect(app, rect, id) {
-                    p.rect_filled(plus_r, theme::cr(11), FIGMA_COMPONENT_PURPLE);
+                    p.rect_filled(plus_r, theme::cr_pill(plus_r.height()), FIGMA_COMPONENT_PURPLE);
                     crate::icons::paint(p, crate::icons::Icon::Plus, plus_r.center(), 12.0, Color32::WHITE);
                     let s_rect = ERect::from_two_pos(corners[0], corners[2]);
                     if s_rect.width() >= 64.0 && s_rect.height() >= 48.0 {
                         let font = theme::font_canvas_strong();
-                        p.text(Pos2::new(plus_r.center().x, plus_r.bottom() + 8.0), Align2::CENTER_CENTER, &n.name, font, FIGMA_COMPONENT_PURPLE);
+                        p.text(
+                            Pos2::new(plus_r.center().x, plus_r.bottom() + theme::SPACE_INLINE),
+                            Align2::CENTER_CENTER,
+                            &n.name,
+                            font,
+                            FIGMA_COMPONENT_PURPLE,
+                        );
                     }
                 }
             } else if !n.children.is_empty() || app.is_selected(id) || app.hover == Some(id) || app.hover_layer == Some(id) {

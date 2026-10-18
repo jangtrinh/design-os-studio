@@ -265,6 +265,6 @@ fn truncation_note(ui: &mut Ui) {
     p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), STATUS_WARN_BG);
     p.rect_stroke(inner, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, STATUS_WARN_BORDER), StrokeKind::Inside);
     let note = format!("Stopped after {MAX_SCANNED_LAYERS} layers. Select fewer layers to check the rest.");
-    let galley = p.layout(note, theme::font_body(), STATUS_WARN_TEXT, inner.width() - 16.0);
-    p.galley(Pos2::new(inner.left() + 8.0, inner.center().y - galley.size().y / 2.0), galley, STATUS_WARN_TEXT);
+    let galley = p.layout(note, theme::font_body(), STATUS_WARN_TEXT, inner.width() - theme::SPACE_BLOCK);
+    p.galley(Pos2::new(inner.left() + theme::SPACE_INLINE, inner.center().y - galley.size().y / 2.0), galley, STATUS_WARN_TEXT);
 }
