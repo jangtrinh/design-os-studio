@@ -4,6 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
+use designos_doc::layout_solver::{place_children, ChildIn};
 use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing, MAX_GRID_TRACKS};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
@@ -49,8 +50,9 @@ pub fn format_grid_track(track: GridTrack) -> String {
 }
 
 /// The column (`is_col = true`) or row tracks of the grid frame `grid_id`, one per track the canvas draws a
-/// header pill for. Rows are the rows the layout lays out (`grid_rows`, or more when children fill more
-/// rows), so a pill, a `+` button, an inspector row and a track edit all name the same index.
+/// header pill for. The children are placed exactly as the layout solver places them (explicit rows and
+/// columns included), so the rows are the ones it lays out (`grid_rows`, or more when children fill more rows)
+/// and a pill, a `+` button, an inspector row and a track edit all name the same index.
 pub fn grid_tracks_in(doc: &Document, grid_id: NodeId, is_col: bool) -> Vec<GridTrack> {
     node_css_grid_overlay(doc, grid_id).map(|ov| if is_col { ov.col_tracks } else { ov.row_tracks }).unwrap_or_default()
 }
@@ -212,58 +214,18 @@ pub fn move_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, from: usize
 }
 
 /// Computes the 2D CSS Grid cell rects, column/row tracks, padding, and gaps for `LayoutDirection::Grid`.
-pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, child_sizes: &[DV], spans: &[(u16, u16)]) -> CssGridOverlay {
+/// `kids` are the flow children as the solver sees them.
+pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, kids: &[ChildIn]) -> CssGridOverlay {
     let [pt, pr, pb, pl] = al.padding;
     let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, designos_doc::MAX_GRID_TRACKS);
     let col_gap = al.item_spacing.max(0.0);
     let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
 
-    // Place children into a 2D occupancy grid respecting col_span and row_span.
-    let mut occupied: Vec<Vec<bool>> = Vec::new();
-    let mut placements: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(child_sizes.len());
-    let mut max_row = 0usize;
-
-    for idx in 0..child_sizes.len() {
-        let (cs, rs) = spans.get(idx).copied().unwrap_or((1, 1));
-        let c_span = (cs.max(1) as usize).min(cols);
-        let r_span = (rs.max(1) as usize).min(designos_doc::MAX_GRID_TRACKS);
-        let mut r = 0usize;
-        let placed = loop {
-            while occupied.len() < r + r_span {
-                occupied.push(vec![false; cols]);
-            }
-            let mut found_c = None;
-            for c in 0..=(cols - c_span) {
-                let mut fits = true;
-                for dr in 0..r_span {
-                    for dc in 0..c_span {
-                        if occupied[r + dr][c + dc] {
-                            fits = false;
-                            break;
-                        }
-                    }
-                    if !fits {
-                        break;
-                    }
-                }
-                if fits {
-                    found_c = Some(c);
-                    break;
-                }
-            }
-            if let Some(c) = found_c {
-                for dr in 0..r_span {
-                    for dc in 0..c_span {
-                        occupied[r + dr][c + dc] = true;
-                    }
-                }
-                break (r, c, r_span, c_span);
-            }
-            r += 1;
-        };
-        max_row = max_row.max(placed.0 + placed.2);
-        placements.push(placed);
-    }
+    // Place the children exactly as the solver does (explicit rows and columns, spans, then auto flow), so the
+    // rows and cells drawn here are the ones the layout lays out.
+    let child_sizes: Vec<DV> = kids.iter().map(|k| k.size).collect();
+    let placements: Vec<(usize, usize, usize, usize)> = place_children(kids, cols).iter().map(|p| (p.row, p.col, p.row_span, p.col_span)).collect();
+    let max_row = placements.iter().map(|&(r, _, rs, _)| r + rs).max().unwrap_or(0);
 
     let default_rows = if child_sizes.is_empty() { 2 } else { 1 };
     let rows = max_row.max(al.grid_rows as usize).max(default_rows).clamp(1, designos_doc::MAX_GRID_TRACKS);
@@ -392,17 +354,8 @@ pub fn node_css_grid_overlay(doc: &Document, id: NodeId) -> Option<CssGridOverla
     if al.direction != LayoutDirection::Grid {
         return None;
     }
-    let mut child_sizes = Vec::new();
-    let mut spans = Vec::new();
-    for &cid in &n.children {
-        let Some(c) = doc.get(cid) else { continue };
-        if !c.visible || c.layout_child.absolute {
-            continue;
-        }
-        child_sizes.push(c.size);
-        spans.push((c.layout_child.col_span.max(1), c.layout_child.row_span.max(1)));
-    }
-    Some(compute_css_grid_overlay(al, n.size, &child_sizes, &spans))
+    let kids: Vec<ChildIn> = n.children.iter().filter_map(|&cid| doc.flow_child_input(cid, true)).collect();
+    Some(compute_css_grid_overlay(al, n.size, &kids))
 }
 
 /// Start and length of each stripe of a columns / rows grid along an extent.
@@ -600,7 +553,16 @@ mod tests {
         // Frame width = 24 + 120 + 16 + 100 + 16 + 200 + 24 = 500
         let child_sizes = [v2(120.0, 80.0), v2(100.0, 80.0), v2(200.0, 80.0), v2(200.0, 100.0)];
         let spans = [(1, 1), (1, 1), (1, 1), (2, 1)];
-        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), &child_sizes, &spans);
+        let kids: Vec<ChildIn> = child_sizes
+            .iter()
+            .zip(spans)
+            .map(|(&size, (col_span, row_span))| ChildIn {
+                size,
+                cell: designos_doc::layout_solver::GridCell { col_span, row_span, ..Default::default() },
+                ..Default::default()
+            })
+            .collect();
+        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), &kids);
         assert_eq!(ov.cols, 3);
         assert_eq!(ov.rows, 2);
         assert_eq!(ov.cells.len(), 6);

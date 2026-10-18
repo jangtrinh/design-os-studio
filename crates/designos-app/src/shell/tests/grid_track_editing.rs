@@ -348,18 +348,29 @@ fn resizing_a_track_does_not_write_the_default_column_count() {
 }
 
 #[test]
-fn inserting_a_row_shifts_every_pin_at_or_after_it_including_pins_past_the_track_limit() {
+fn inserting_a_row_shifts_every_pin_at_or_after_it() {
     let mut s = Sim::new();
     let al = AutoLayout { grid_columns: 3, grid_rows: 4, ..AutoLayout::default() };
-    let last = MAX_GRID_TRACKS as u16 - 1;
-    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), Some(last - 1)), (Some(0), Some(last)), (Some(0), Some(100)), (Some(0), Some(1))]);
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), Some(0)), (Some(0), Some(2)), (Some(0), Some(5)), (Some(1), Some(6))]);
 
-    assert!(insert_grid_track(&mut s.shell.app, grid_id, false, 0, GridTrack::Flex(1.0)));
-    assert_eq!(row_pin(&s, kids[0]), Some(last), "pin just under the limit moves");
-    assert_eq!(row_pin(&s, kids[1]), Some(last + 1), "pin at the limit moves, so it never shares a row with the one before");
-    assert_eq!(row_pin(&s, kids[2]), Some(101), "pin past the limit moves");
-    assert_eq!(row_pin(&s, kids[3]), Some(2));
-    assert_eq!(layout_of(&s, grid_id).grid_rows, 5);
+    assert!(insert_grid_track(&mut s.shell.app, grid_id, false, 2, GridTrack::Flex(1.0)));
+    let pins: Vec<_> = kids.iter().map(|&k| row_pin(&s, k)).collect();
+    assert_eq!(pins, [0, 3, 6, 7].map(Some), "the pin on the insert row and every later pin moves one row down");
+    assert_eq!(layout_of(&s, grid_id).grid_rows, 8, "one row more than the seven the pins lay out");
+}
+
+#[test]
+fn a_grid_whose_pinned_rows_reach_the_track_limit_takes_no_more_rows_and_keeps_its_pins() {
+    let mut s = Sim::new();
+    let last = MAX_GRID_TRACKS as u16 - 1;
+    let al = AutoLayout { grid_columns: 3, ..AutoLayout::default() };
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), Some(last)), (Some(0), Some(100)), (Some(0), Some(1))]);
+    assert_eq!(node_css_grid_overlay(&s.app().doc, grid_id).unwrap().rows, MAX_GRID_TRACKS, "the pinned row counts as a row");
+    assert!(add_button(&s, grid_id, false).is_none(), "no row + button at the limit");
+
+    assert!(!insert_grid_track(&mut s.shell.app, grid_id, false, 0, GridTrack::Flex(1.0)));
+    let pins: Vec<_> = kids.iter().map(|&k| row_pin(&s, k)).collect();
+    assert_eq!(pins, [Some(last), Some(100), Some(1)], "a refused insert leaves every pin where it was");
 }
 
 #[test]
@@ -368,9 +379,10 @@ fn appending_a_column_keeps_a_dormant_pin_dormant() {
     let columns = MAX_GRID_TRACKS as u32 - 1;
     let al = AutoLayout { grid_columns: columns, ..AutoLayout::default() };
     // a pin on the first column that does not exist yet: it waits until the grid grows
-    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(columns as u16), None)]);
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(columns as u16), None), (Some(u16::MAX), None)]);
 
     assert!(insert_grid_track(&mut s.shell.app, grid_id, true, columns as usize, GridTrack::Flex(1.0)));
+    assert_eq!(column_pin(&s, kids[1]), Some(u16::MAX), "the largest pin does not wrap around");
     assert_eq!(layout_of(&s, grid_id).grid_columns, MAX_GRID_TRACKS as u32);
     assert_eq!(column_pin(&s, kids[0]), Some(columns as u16 + 1), "the pin moved with the insert, so the child does not lock onto the new last column");
 }
@@ -432,4 +444,123 @@ fn the_inspector_value_field_does_not_pass_clicks_to_the_move_button() {
 
     s.click(Pos2::new(field.right() - 3.0, field.center().y));
     assert_eq!(labels(&s, grid_id, true), ["80px", "120px", "1fr"], "a click on the value field only edits the value");
+}
+
+/// The frame-local top-left of a laid-out child.
+fn child_origin(s: &Sim, id: NodeId) -> (f32, f32) {
+    let t = &s.app().doc.get(id).unwrap().transform;
+    (t.tx, t.ty)
+}
+
+#[test]
+fn a_row_pinned_past_the_auto_flow_is_a_row_the_canvas_shows_and_the_plus_appends_after_it() {
+    let mut s = Sim::new();
+    let mut al = AutoLayout { grid_columns: 3, grid_rows: 1, ..AutoLayout::default() };
+    al.grid_row_tracks[3] = GridTrack::Fixed(80.0);
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), Some(3))]);
+    let origin = child_origin(&s, kids[0]);
+
+    assert_eq!(labels(&s, grid_id, false), ["1fr", "1fr", "1fr", "80px"], "the canvas shows the 4 rows the solver lays out");
+    assert_eq!(pills(&s, grid_id, false).len(), 4);
+
+    s.click(add_button(&s, grid_id, false).expect("row + button").center());
+    let al = layout_of(&s, grid_id);
+    assert_eq!(row_pin(&s, kids[0]), Some(3), "the pinned child stays on its row");
+    assert_eq!(al.grid_row_tracks[3], GridTrack::Fixed(80.0), "and keeps its 80 px track");
+    assert_eq!(al.grid_rows, 5, "the new row comes after the real last row");
+    assert_eq!(labels(&s, grid_id, false), ["1fr", "1fr", "1fr", "80px", "1fr"]);
+    assert_eq!(child_origin(&s, kids[0]), origin, "the child does not move");
+
+    s.shell.app.undo();
+    assert_eq!(layout_of(&s, grid_id).grid_rows, 1, "one undo takes the row back");
+}
+
+#[test]
+fn the_overlay_counts_rows_and_places_pinned_children_the_way_the_solver_does() {
+    let mut s = Sim::new();
+    let al = AutoLayout { grid_columns: 3, grid_rows: 1, ..AutoLayout::default() };
+    // a column pin with no row, a row pin with no column, a cell pin, and two auto children
+    let (grid_id, kids) = add_grid(&mut s, al.clone(), &[(Some(2), None), (None, Some(4)), (Some(1), Some(2)), (None, None), (None, None)]);
+
+    let doc = &s.app().doc;
+    let flow: Vec<_> = doc.get(grid_id).unwrap().children.iter().filter_map(|c| doc.flow_child_input(*c, true)).collect();
+    let solver_rows = designos_doc::layout_solver::placed_grid_rows(&al, &flow).max(al.grid_rows as usize).max(1);
+    let ov = node_css_grid_overlay(doc, grid_id).unwrap();
+    assert_eq!(ov.rows, solver_rows, "the overlay has the rows the solver lays out");
+    assert_eq!(ov.rows, 5);
+    assert_eq!(ov.row_tracks.len(), 5);
+
+    for &id in &kids {
+        // the solver put each child in a column; the overlay's column holds the child's x
+        let (x, _) = child_origin(&s, id);
+        let col = (0..ov.cols).find(|&c| x >= ov.col_x[c] - 0.01 && x < ov.col_x[c] + ov.col_widths[c] - 0.01).expect("a column holds the child");
+        let pinned = s.app().doc.get(id).unwrap().layout_child.grid_column;
+        if let Some(pin) = pinned {
+            assert_eq!(col, pin as usize, "a child pinned to column {pin} sits in that column of the overlay");
+        }
+    }
+}
+
+/// Eight `Fixed(24)` columns whose header pills are 9.6 px apart at the zoom where pills appear.
+fn narrow_columns_at_pill_zoom(s: &mut Sim) -> (NodeId, Vec<NodeId>) {
+    s.shell.app.view.zoom = 0.4;
+    let mut al = AutoLayout { grid_columns: 8, grid_rows: 1, ..AutoLayout::default() };
+    for i in 0..8 {
+        al.grid_col_tracks[i] = GridTrack::Fixed(24.0);
+    }
+    let pins: Vec<_> = (0..8u16).map(|c| (Some(c), None)).collect();
+    add_grid(s, al, &pins)
+}
+
+#[test]
+fn dragging_a_pill_across_narrow_columns_drops_on_the_pill_under_the_pointer() {
+    let mut s = Sim::new();
+    let (grid_id, kids) = narrow_columns_at_pill_zoom(&mut s);
+    let p = pills(&s, grid_id, true);
+    assert_eq!(p.len(), 8);
+    assert!(p[1].center().x - p[0].center().x < 12.0, "the pill pitch is narrower than half a pill");
+
+    s.drag(p[0].center(), p[5].center());
+    let pins: Vec<_> = kids.iter().map(|&k| column_pin(&s, k)).collect();
+    assert_eq!(pins, [5, 0, 1, 2, 3, 4, 6, 7].map(Some), "track 0 moved to index 5");
+}
+
+#[test]
+fn a_click_on_a_narrow_pill_cycles_that_track() {
+    let mut s = Sim::new();
+    let (grid_id, _) = narrow_columns_at_pill_zoom(&mut s);
+    let p = pills(&s, grid_id, true);
+
+    s.click(p[5].center());
+    let tracks = layout_of(&s, grid_id).grid_col_tracks;
+    for i in 0..8 {
+        let expected = if i == 5 { GridTrack::Hug } else { GridTrack::Fixed(24.0) };
+        assert_eq!(tracks[i], expected, "track {i}");
+    }
+}
+
+#[test]
+fn flex_columns_narrower_than_a_pill_still_reorder_by_drag() {
+    let mut s = Sim::new();
+    // 48 flex columns in the 480 px frame: 10 px each at zoom 1
+    let al = AutoLayout { grid_columns: 48, grid_rows: 1, ..AutoLayout::default() };
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), None), (Some(7), None), (Some(30), None)]);
+    let p = pills(&s, grid_id, true);
+    assert_eq!(p.len(), 48);
+
+    s.drag(p[0].center(), p[30].center());
+    let pins: Vec<_> = kids.iter().map(|&k| column_pin(&s, k)).collect();
+    assert_eq!(pins, [30, 6, 29].map(Some));
+}
+
+#[test]
+fn header_pills_of_one_axis_never_overlap() {
+    let mut s = Sim::new();
+    let (grid_id, _) = narrow_columns_at_pill_zoom(&mut s);
+    let p = pills(&s, grid_id, true);
+    for (i, a) in p.iter().enumerate() {
+        for b in &p[i + 1..] {
+            assert!(a.max.x <= b.min.x + 0.001 || b.max.x <= a.min.x + 0.001, "pills {a:?} and {b:?} overlap");
+        }
+    }
 }
