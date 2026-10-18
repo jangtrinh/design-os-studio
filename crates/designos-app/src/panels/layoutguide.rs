@@ -69,6 +69,23 @@ pub(super) fn align_from_index(idx: usize) -> LayoutGridAlign {
     }
 }
 
+/// The "#" field of a columns / rows guide. Auto count (0) lays out fixed-width stripes, so it
+/// needs a width: a Stretch guide ignores its width and fills the frame, so it becomes a
+/// start-aligned guide and keeps the width the field shows.
+pub(super) fn set_count(g: &mut LayoutGrid, v: u32) {
+    if let LayoutGrid::Columns { count, section_size, alignment, .. } | LayoutGrid::Rows { count, section_size, alignment, .. } = g {
+        *count = v;
+        if v == 0 {
+            if *section_size <= 0.0 {
+                *section_size = 60.0;
+            }
+            if *alignment == LayoutGridAlign::Stretch {
+                *alignment = LayoutGridAlign::Min;
+            }
+        }
+    }
+}
+
 fn edit_grids(app: &mut App, sel: &[NodeId], f: impl Fn(&mut Vec<LayoutGrid>)) {
     app.edit_nodes(sel, |n| {
         if let Some(fp) = n.kind.frame_props_mut() {
@@ -175,14 +192,10 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
                 let count_suffix = if c == 0 { " Auto" } else { "" };
                 if let Some(v) = field::num_field(ui, pane.col(0, 0.0), ("lg-count", i), Prefix::Text("#"), Some(c as f32), count_suffix) {
                     let v = v.round().clamp(0.0, 64.0) as u32;
-                    edit_grids(app, sel, |gs| match gs.get_mut(i) {
-                        Some(LayoutGrid::Columns { count, section_size, .. }) | Some(LayoutGrid::Rows { count, section_size, .. }) => {
-                            *count = v;
-                            if v == 0 && *section_size <= 0.0 {
-                                *section_size = 60.0;
-                            }
+                    edit_grids(app, sel, |gs| {
+                        if let Some(g) = gs.get_mut(i) {
+                            set_count(g, v);
                         }
-                        _ => {}
                     });
                 }
                 if let Some(v) = field::num_field(ui, pane.col(1, 0.0), ("lg-gutter", i), Prefix::Text("G"), Some(gt), "") {
@@ -201,7 +214,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
                     });
                 }
                 let size_prefix = if is_cols { "W" } else { "H" };
-                let size_suffix = if align == LayoutGridAlign::Stretch && c > 0 { " Auto" } else { "" };
+                let size_suffix = if align == LayoutGridAlign::Stretch { " Auto" } else { "" };
                 if let Some(v) = field::num_field(ui, pane.col(1, 0.0), ("lg-sec-size", i), Prefix::Text(size_prefix), Some(sec), size_suffix) {
                     let v = v.max(0.0);
                     edit_grids(app, sel, |gs| match gs.get_mut(i) {
@@ -259,5 +272,22 @@ mod tests {
         let g = with_color(&default_grid(1, c), red());
         assert_eq!(color_of(&g), red());
         assert!(matches!(g, LayoutGrid::Columns { count: 5, .. }));
+    }
+
+    #[test]
+    fn auto_count_on_a_stretch_guide_draws_the_width_the_field_shows() {
+        use crate::canvas::grids::stripes_aligned;
+        // inspector sequence: new Columns guide, W = 300, then count 0
+        let mut g = default_grid(1, red());
+        if let LayoutGrid::Columns { section_size, .. } = &mut g {
+            *section_size = 300.0;
+        }
+        set_count(&mut g, 0);
+        let LayoutGrid::Columns { count, gutter, offset, section_size, alignment, .. } = g else { panic!("{g:?}") };
+        assert_eq!((count, section_size), (0, 300.0));
+        assert_eq!(alignment, LayoutGridAlign::Min, "auto count applies to fixed-width alignments only");
+        let drawn = stripes_aligned(count, gutter, offset, section_size, alignment, 1000.0);
+        assert!(!drawn.is_empty() && drawn.iter().all(|&(_, w)| w == 300.0), "painted widths {drawn:?}");
+        assert_eq!(drawn[0].0, offset, "start-aligned");
     }
 }
