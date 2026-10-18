@@ -121,29 +121,6 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }
 
-fn load_non_finite_map() -> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, usize>> {
-    static MAP: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, usize>>> = std::sync::OnceLock::new();
-    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
-}
-
-fn record_load_non_finite(path: &Path, count: usize) {
-    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if let Ok(mut map) = load_non_finite_map().lock() {
-        if count > 0 {
-            map.insert(key, count);
-        } else {
-            map.remove(&key);
-        }
-    }
-}
-
-/// Returns and clears the count of non-finite (`null`) numbers replaced on the most recent
-/// [`Library::load_file`] for `path`.
-pub fn take_load_non_finite(path: &Path) -> usize {
-    let key = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    load_non_finite_map().lock().ok().and_then(|mut map| map.remove(&key)).unwrap_or(0)
-}
-
 /// Loads a document from any importable file: `.designos` / `.json` (native or
 /// Figma REST), `.fig` or `.svg`.
 pub fn load_external(path: &Path) -> Result<Document> {
@@ -422,13 +399,25 @@ impl Library {
 
     /// Overwrites the file's contents atomically and bumps its modified time.
     pub fn save_file(&self, id: &str, doc: &Document) -> Result<()> {
+        let replaced = self.save_file_counted(id, doc)?;
+        if replaced > 0 {
+            eprintln!("designos-library: saved file {id} with {replaced} non-finite numbers replaced by their neutral value");
+        }
+        Ok(())
+    }
+
+    /// [`Self::save_file`], also returning how many non-finite numbers (NaN, infinity) were written
+    /// as their neutral value, counted by the one serialization the save performs.
+    pub fn save_file_counted(&self, id: &str, doc: &Document) -> Result<usize> {
         let _guard = write_lock();
         let (mut m, i) = self.find_file(id)?;
-        write_atomic(&self.file_path(&m.project.id, id), doc.to_json()?.as_bytes())?;
+        let (json, replaced) = doc.to_json_counted()?;
+        write_atomic(&self.file_path(&m.project.id, id), json.as_bytes())?;
         let now = now_ms();
         m.files[i].modified = now;
         m.project.modified = now;
-        self.save_manifest(&m)
+        self.save_manifest(&m)?;
+        Ok(replaced)
     }
 
     /// Whether the file is a design file or a board, read from the document itself (the manifest
@@ -465,14 +454,8 @@ impl Library {
 
     pub fn load_file(&self, id: &str) -> Result<Document> {
         let (m, _) = self.find_file(id)?;
-        let path = self.file_path(&m.project.id, id);
-        let text = std::fs::read_to_string(&path)?;
-        let (doc, report) = Document::from_json_with_report(&text)?;
-        if !report.is_clean() {
-            eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
-        }
-        record_load_non_finite(&path, report.non_finite_numbers);
-        Ok(doc)
+        let text = std::fs::read_to_string(self.file_path(&m.project.id, id))?;
+        Ok(Document::from_json(&text)?)
     }
 
     fn update_file(&self, id: &str, f: impl FnOnce(&mut FileEntry)) -> Result<()> {
