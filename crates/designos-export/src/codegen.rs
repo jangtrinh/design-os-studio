@@ -462,6 +462,77 @@ pub(crate) fn drop_shadows(n: &Node) -> Vec<(&Color, &Vec2, f32, f32)> {
         .collect()
 }
 
+// ---------------------------------------------------------------- Grid templates and placement
+
+/// Columns the layout solver lays out for `al`: the stored count (3 when unset) kept within
+/// `1..=MAX_GRID_TRACKS`. The export writes this count, never the raw stored one.
+pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
+    let stored = if al.grid_columns > 0 { al.grid_columns as usize } else { 3 };
+    stored.clamp(1, MAX_GRID_TRACKS)
+}
+
+/// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
+/// width and lets it shrink to a pixel, while a bare `{n}fr` is `minmax(auto, {n}fr)` and cannot
+/// shrink under its content.
+pub(crate) fn grid_track_token(t: GridTrack) -> String {
+    match t {
+        GridTrack::Flex(f) => format!("minmax(0, {}fr)", num(if f.is_finite() && f > 0.0 { f } else { 1.0 })),
+        GridTrack::Fixed(px) => format!("{}px", num(if px.is_finite() && px >= 0.0 { px } else { 0.0 })),
+        GridTrack::Hug => "auto".into(),
+    }
+}
+
+/// Whether the first `count` tracks are all the default `1fr` (a track the document does not store
+/// is the default, so only the stored ones are looked at).
+pub(crate) fn grid_tracks_are_default(tracks: &[GridTrack], count: usize) -> bool {
+    tracks.iter().take(count).all(|t| *t == GridTrack::default())
+}
+
+/// The value of `grid-template-columns` / `-rows` for `count` tracks. All `1fr` tracks are one
+/// `repeat()`. Otherwise every other track is listed and a run of two or more default tracks (the
+/// ones past the stored list included) folds into a `repeat()`, so the text depends on the tracks
+/// alone and the work on the stored tracks, never on `count`.
+pub(crate) fn grid_tracks_css(tracks: &[GridTrack], count: usize) -> String {
+    let default_track = grid_track_token(GridTrack::default());
+    if grid_tracks_are_default(tracks, count) {
+        return format!("repeat({count}, {default_track})");
+    }
+    fn flush(parts: &mut Vec<String>, run: &mut usize, default_track: &str) {
+        match std::mem::take(run) {
+            0 => {}
+            1 => parts.push(default_track.to_string()),
+            n => parts.push(format!("repeat({n}, {default_track})")),
+        }
+    }
+    let stored = count.min(tracks.len());
+    let (mut parts, mut run) = (Vec::new(), 0usize);
+    for t in &tracks[..stored] {
+        if *t == GridTrack::default() {
+            run += 1;
+        } else {
+            flush(&mut parts, &mut run, &default_track);
+            parts.push(grid_track_token(*t));
+        }
+    }
+    run += count - stored;
+    flush(&mut parts, &mut run, &default_track);
+    parts.join(" ")
+}
+
+/// A track list as one Tailwind arbitrary value: no spaces, `_` between tracks.
+pub(crate) fn tailwind_tracks_value(tracks_css: &str) -> String {
+    tracks_css.replace(", ", ",").replace(' ', "_")
+}
+
+pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {
+    let span = span.max(1);
+    match anchor {
+        Some(idx) => Some(format!("{} / span {span}", u32::from(idx) + 1)),
+        None if span > 1 => Some(format!("span {span}")),
+        None => None,
+    }
+}
+
 // ---------------------------------------------------------------- CSS variable references
 
 fn set_decl(lines: &mut Vec<String>, prop: &str, value: String) {
@@ -533,9 +604,28 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     if let Some(v) = b("opacity", Fallback::Raw) {
         set_decl(lines, "opacity", format!("calc({} / 100)", v.trim()));
     }
-    if let Some(v) = b("itemSpacing", Fallback::Px) {
-        if has_decl(lines, "gap") {
-            set_decl(lines, "gap", v);
+    if has_decl(lines, "gap") {
+        let item_v = b("itemSpacing", Fallback::Px);
+        let counter_v = b("counterAxisSpacing", Fallback::Px);
+        if item_v.is_some() || counter_v.is_some() {
+            if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
+                if al.direction == LayoutDirection::Grid {
+                    let col_fb = format!("{}px", num(al.item_spacing));
+                    let row_px = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+                    let row_fb = format!("{}px", num(row_px));
+                    // The column gap is `itemSpacing`, the row gap `counterAxisSpacing`. An unbound row keeps
+                    // its own pixel gap; only a row with no spacing of its own (`counterAxisSpacing` unset,
+                    // so the solver reuses `itemSpacing`) follows the item variable.
+                    let row_follows_item = al.counter_spacing <= 0.0;
+                    let col_s = item_v.clone().unwrap_or(col_fb);
+                    let row_s = counter_v.or(item_v.filter(|_| row_follows_item)).unwrap_or(row_fb);
+                    set_decl(lines, "gap", if row_s == col_s { row_s } else { format!("{row_s} {col_s}") });
+                } else if let Some(v) = item_v {
+                    set_decl(lines, "gap", v);
+                }
+            } else if let Some(v) = item_v {
+                set_decl(lines, "gap", v);
+            }
         }
     }
     // padding: expand to a 4-value shorthand when any side is bound
@@ -548,7 +638,12 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
             // keep declaration order: padding follows the size declarations
             let at = lines
                 .iter()
-                .position(|l| l.starts_with("flex-direction: ") || l.starts_with("justify-content: ") || l.starts_with("align-items: "))
+                .position(|l| {
+                    l.starts_with("flex-direction: ")
+                        || l.starts_with("justify-content: ")
+                        || l.starts_with("align-items: ")
+                        || l.starts_with("grid-template-columns: ")
+                })
                 .unwrap_or(lines.len());
             lines.insert(at, format!("padding: {value};"));
         }
