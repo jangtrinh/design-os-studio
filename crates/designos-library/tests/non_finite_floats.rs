@@ -107,3 +107,23 @@ fn a_file_saved_by_an_older_version_with_null_numbers_opens() {
     let saved = std::fs::read_to_string(lib.path(format!("projects/{}/files/{}.designos", project.id, entry.id))).unwrap();
     assert!(Document::from_json_with_report(&saved).unwrap().1.is_clean());
 }
+
+#[test]
+fn a_counted_save_reports_the_replaced_numbers_from_the_one_serialization_it_performs() {
+    let dir = scratch("save-counted");
+    let lib = Library::open(dir.join("lib")).unwrap();
+    let project = lib.create_project("P").unwrap();
+    let entry = lib.create_file(&project.id, None, "clean", &Document::new("clean")).unwrap();
+    let texts_built = designos_doc::finite_json::serialize_calls_on_this_thread;
+
+    let before = texts_built();
+    let replaced = lib.save_file_counted(&entry.id, &poisoned_document()).unwrap();
+    assert_eq!(replaced, 4, "size, opacity, corner radius and the x position");
+    assert_eq!(texts_built() - before, 1, "counting must not cost a second serialization");
+    let stored = std::fs::read_to_string(lib.path(format!("projects/{}/files/{}.designos", project.id, entry.id))).unwrap();
+    assert!(Document::from_json_with_report(&stored).unwrap().1.is_clean(), "the stored file needs no repair");
+
+    let before = texts_built();
+    assert_eq!(lib.save_file_counted(&entry.id, &Document::new("clean")).unwrap(), 0);
+    assert_eq!(texts_built() - before, 1);
+}

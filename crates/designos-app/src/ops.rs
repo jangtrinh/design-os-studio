@@ -1700,9 +1700,12 @@ impl App {
         };
         let Some(path) = target else { return };
         self.settle_pending_relayout();
-        match io::save_path(&self.doc, &path) {
-            Ok(p) => {
-                self.show_toast(format!("Saved {}", p.display()), false);
+        match io::save_path_with_notice(&self.doc, &path) {
+            Ok((p, notice)) => {
+                match notice {
+                    Some(w) => self.show_toast(format!("Saved {} ({w})", p.display()), true),
+                    None => self.show_toast(format!("Saved {}", p.display()), false),
+                }
                 if self.lib_file.is_none() {
                     if let Some(old) = self.file_path.replace(p.clone()) {
                         self.release_repaired_original(&old, Some(&p));
