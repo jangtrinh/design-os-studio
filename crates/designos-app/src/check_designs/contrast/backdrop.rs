@@ -14,6 +14,10 @@ struct Layer {
 pub(super) struct Backdrop {
     layers: Vec<Layer>,
     page: Color,
+    /// The innermost ancestor whose fill is opaque and covers the whole text box. Everything
+    /// painted below that fill (its earlier siblings and what they paint, the fills and strokes of
+    /// the ancestors above it) cannot show through it.
+    pub(super) occluder: Option<NodeId>,
 }
 
 /// Premultiplied RGBA.
@@ -105,7 +109,9 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
     let text = doc.get(id)?;
     // The text box in the space of the layer being looked at; it starts in the parent's space.
     let mut corners = box_corners(text.size).map(|c| text.transform.apply(c));
-    let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE };
+    let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE, occluder: None };
+    // Whether every layer between the text and the one being looked at is drawn at full opacity.
+    let mut opaque_chain = true;
     let mut cur = text.parent;
     while let Some(p) = cur {
         let raw = doc.get(p)?;
@@ -124,7 +130,10 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
         if blends_as_group(n.blend) || n.opacity <= 0.0 {
             return None;
         }
+        opaque_chain &= n.opacity >= 1.0;
         let mut how = reach(&here, n.size);
+        // Whether the whole text box is within this layer's box, whatever the layer clips.
+        let whole = matches!(how, Reach::Covers);
         if raw.kind.frame_props().is_some_and(|f| f.clips_content) {
             match how {
                 // Cut away by this layer: nothing of the text is painted.
@@ -136,8 +145,9 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
         }
         corners = up(&here);
         // The renderer paints a layer's stroke over its fill and under its children: a stroke band
-        // under the text is a backdrop this chain does not describe.
-        if stroke_under(&n, &here) {
+        // under the text is a backdrop this chain does not describe, unless an opaque fill below
+        // the text already hides the layer's stroke.
+        if out.occluder.is_none() && stroke_under(&n, &here) {
             return None;
         }
         let mut fills = Vec::new();
@@ -155,6 +165,9 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
                     }
                 }
             }
+        }
+        if out.occluder.is_none() && opaque_chain && whole && fills.iter().any(|(_, alpha)| *alpha >= 1.0) {
+            out.occluder = Some(p);
         }
         out.layers.push(Layer { fills, opacity: n.opacity });
     }

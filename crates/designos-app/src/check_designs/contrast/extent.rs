@@ -2,7 +2,7 @@
 //! far its stroke, shadows and blurs reach beyond the box. Reaches are over-estimates on purpose:
 //! the rule skips text whose backdrop is unknown, so a reach that is too long only costs a finding.
 
-use designos_doc::{Document, Effect, Node, NodeId, NodeKind, Paint, PaintKind, Rect, StrokeAlign, StrokeJoin, Vec2};
+use designos_doc::{Affine, Document, Effect, Node, NodeId, NodeKind, Paint, PaintKind, Rect, StrokeAlign, StrokeJoin, Vec2};
 
 /// The four corners of a box of `size` at the origin of its layer.
 pub(super) fn box_corners(size: Vec2) -> [Vec2; 4] {
@@ -89,22 +89,36 @@ fn effect_outset(n: &Node) -> f32 {
     })
 }
 
-/// A layer's box in page space grown by everything it paints beyond it.
+/// `b` cut down to `clip`; `None` when nothing is left.
+pub(super) fn clipped(b: Rect, clip: Option<Rect>) -> Option<Rect> {
+    let Some(c) = clip else { return Some(b) };
+    let (x0, y0, x1, y1) = (b.x.max(c.x), b.y.max(c.y), (b.x + b.w).min(c.x + c.w), (b.y + b.h).min(c.y + c.h));
+    (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
+}
+
+/// `r` grown by `by` on every side.
+pub(super) fn grown(r: &Rect, by: f32) -> Rect {
+    Rect::new(r.x - by, r.y - by, r.w + 2.0 * by, r.h + 2.0 * by)
+}
+
+/// A layer's box in page space, and that box grown by everything the layer paints beyond it.
 pub(super) struct PaintedBox {
+    /// The layer's own box.
+    pub own: Rect,
+    /// The own box grown by the layer's stroke and effects and by the `inherited` growth.
     pub rect: Rect,
     /// The growth, in page units, that this layer's own effects add to everything inside it: the
     /// effects of a group act on all of its content.
     pub effects: f32,
 }
 
-/// The painted box of layer `id` (`n`). `inherited` is the growth, in page units, that the effects
-/// of its ancestors inside the same subtree add to it.
-pub(super) fn painted_box(doc: &Document, id: NodeId, n: &Node, inherited: f32) -> PaintedBox {
-    let t = doc.world_transform(id);
-    let (x0, x1, y0, y1) = bounds(&box_corners(n.size).map(|c| t.apply(c)));
+/// The painted box of layer `n`, whose transform to the page is `world`. `inherited` is the growth,
+/// in page units, that the effects of its ancestors inside the same subtree add to it.
+pub(super) fn painted_box(world: &Affine, n: &Node, inherited: f32) -> PaintedBox {
+    let (x0, x1, y0, y1) = bounds(&box_corners(n.size).map(|c| world.apply(c)));
     // The largest stretch the layer's transform applies along either axis.
-    let scale = t.a.hypot(t.b).max(t.c.hypot(t.d));
+    let scale = world.a.hypot(world.b).max(world.c.hypot(world.d));
     let effects = effect_outset(n) * scale;
-    let grow = stroke_outset(n) * scale + effects + inherited;
-    PaintedBox { rect: Rect::new(x0 - grow, y0 - grow, x1 - x0 + 2.0 * grow, y1 - y0 + 2.0 * grow), effects }
+    let own = Rect::new(x0, y0, x1 - x0, y1 - y0);
+    PaintedBox { rect: grown(&own, stroke_outset(n) * scale + effects + inherited), own, effects }
 }

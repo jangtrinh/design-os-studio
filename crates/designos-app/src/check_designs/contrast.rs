@@ -24,11 +24,13 @@
 mod backdrop;
 mod behind;
 mod extent;
+mod subtree;
 
 use super::{Finding, Fix, Rule};
 use backdrop::{backdrop, blends_as_group, Backdrop};
-use behind::has_layer_behind;
+pub(super) use behind::has_layer_behind;
 use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind};
+pub(in crate::check_designs) use subtree::SubtreeBounds;
 
 fn linear(v: f32) -> f64 {
     let v = f64::from(v.clamp(0.0, 1.0));
@@ -94,7 +96,7 @@ impl Failure {
     }
 }
 
-fn failure(doc: &Document, id: NodeId) -> Option<Failure> {
+fn failure(doc: &Document, id: NodeId, bounds: &SubtreeBounds) -> Option<Failure> {
     let n = resolved_node(doc, id)?;
     let NodeKind::Text(t) = &n.kind else { return None };
     // A layer with opacity 0 is not drawn, and neither is anything inside it.
@@ -108,7 +110,7 @@ fn failure(doc: &Document, id: NodeId) -> Option<Failure> {
     let ratio = contrast_ratio(backdrop.pixel(Some((color, alpha))), bg);
     let required = required_ratio(t.style.font_size, t.style.font_weight);
     // The layer-behind scan only runs for text that already fails, so passing text stays cheap.
-    (ratio < required && !has_layer_behind(doc, id)).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
+    (ratio < required && !has_layer_behind(doc, id, backdrop.occluder, Some(bounds))).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
 }
 
 /// The mildest recolouring toward black or white that reaches `required`, quantised to 8 bits.
@@ -129,7 +131,7 @@ fn suggest(f: &Failure) -> Option<Color> {
 /// Paint index and replacement colour for `id` as it is right now, or `None` when it passes, is
 /// not checkable, or no recolouring can reach AA. Fixes use this rather than a stored suggestion.
 pub(super) fn fresh_fix(doc: &Document, id: NodeId) -> Option<(usize, Color)> {
-    let f = failure(doc, id)?;
+    let f = failure(doc, id, &SubtreeBounds::default())?;
     if owner(doc, doc.get(id)?, f.paint).is_some() {
         return None;
     }
@@ -154,11 +156,12 @@ fn ratio_label(v: f64) -> String {
     }
 }
 
-pub(super) fn check(doc: &Document, n: &Node, out: &mut Vec<Finding>) {
+/// Checks text layer `n`. `bounds` is shared by all the checks of one audit.
+pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut Vec<Finding>) {
     if !matches!(n.kind, NodeKind::Text(_)) {
         return;
     }
-    let Some(f) = failure(doc, n.id) else { return };
+    let Some(f) = failure(doc, n.id, bounds) else { return };
     let mut message = format!("Contrast {:.2}:1 is below {}:1 (WCAG AA)", floor2(f.ratio), ratio_label(f.required));
     let (fix, fix_label) = match (owner(doc, n, f.paint), suggest(&f)) {
         (Some(owner), _) => {

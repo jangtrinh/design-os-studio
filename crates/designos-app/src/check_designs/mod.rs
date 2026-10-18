@@ -116,6 +116,7 @@ pub fn audit(doc: &Document, scope: &Scope) -> Report {
     };
     let index = hardcoded::Index::new(doc);
     let components = detached::Components::new(doc);
+    let bounds = contrast::SubtreeBounds::default();
     let mut report = Report::default();
     let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
     while let Some(id) = stack.pop() {
@@ -129,7 +130,7 @@ pub fn audit(doc: &Document, scope: &Scope) -> Report {
         }
         report.scanned += 1;
         hardcoded::check(doc, &index, n, &mut report.findings);
-        contrast::check(doc, n, &mut report.findings);
+        contrast::check(doc, &bounds, n, &mut report.findings);
         detached::check(doc, &components, n, &mut report.findings);
         stack.extend(n.children.iter().rev().copied());
     }

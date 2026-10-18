@@ -611,4 +611,6 @@ mod not_painted_as_computed;
 mod outside_the_box;
 mod painted_behind;
 mod safety;
+mod subtree_bounds;
 mod text_run_fills;
+mod under_an_opaque_fill;
