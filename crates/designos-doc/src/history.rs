@@ -81,7 +81,7 @@ impl Command {
             Command::Insert { parent, index, nodes } => {
                 let root = nodes.first().map(|n| n.id).ok_or(DocError::NotFound(parent))?;
                 let p = doc.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
-                if !p.kind.is_container() {
+                if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
                 let index = index.min(p.children.len());

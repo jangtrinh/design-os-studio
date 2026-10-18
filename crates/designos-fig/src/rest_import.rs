@@ -750,7 +750,7 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(&v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container();
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
             return;
@@ -848,7 +848,7 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container();
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
             return;

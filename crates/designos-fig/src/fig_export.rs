@@ -88,7 +88,7 @@ pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     let schema = figma_like_schema();
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
-    let message = build_message(doc);
+    let message = build_message(doc, &schema);
     let schema_bytes = schema.encode();
     let msg_bytes = schema.encode_message(root, &message).map_err(|e| FigError::Format(format!("kiwi encode: {e}")))?;
     let canvas = container::write_container(&schema_bytes, &msg_bytes, Compression::Zstd, 106);
@@ -106,6 +106,8 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
 
 struct ExportCtx<'a> {
     doc: &'a Document,
+    schema: &'a crate::kiwi::Schema,
+    nc_def: usize,
     used_guids: HashSet<(u32, u32)>,
     next_local: u32,
     node_guids: BTreeMap<NodeId, (u32, u32)>,
@@ -133,12 +135,15 @@ fn parse_guid_pair(s: &str) -> Option<(u32, u32)> {
 }
 
 impl<'a> ExportCtx<'a> {
-    fn new(doc: &'a Document) -> Self {
+    fn new(doc: &'a Document, schema: &'a crate::kiwi::Schema) -> Self {
         let mut used = HashSet::new();
         used.insert((0, 0));
         used.insert((0, 999_999));
+        let nc_def = schema.find("NodeChange").unwrap_or(0);
         let mut cx = Self {
             doc,
+            schema,
+            nc_def,
             used_guids: used,
             next_local: 1,
             node_guids: BTreeMap::new(),
@@ -309,8 +314,8 @@ fn pos_str(idx: usize) -> String {
     format!("!{idx:06}")
 }
 
-fn build_message(doc: &Document) -> V {
-    let mut cx = ExportCtx::new(doc);
+fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
+    let mut cx = ExportCtx::new(doc, schema);
     // 1. Root DOCUMENT record.
     cx.changes.push(msg(vec![("guid", guid(0, 0)), ("phase", en("CREATED")), ("type", en("DOCUMENT")), ("name", V::String(doc.name.clone()))]));
 
@@ -564,13 +569,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         NodeKind::ShapeWithText(_) => ("SHAPE_WITH_TEXT", false),
         NodeKind::Connector(_) => ("CONNECTOR", false),
         NodeKind::Stamp { .. } => ("STAMP", false),
-        NodeKind::Unknown { type_name } => (
-            match type_name.as_str() {
-                "SLICE" => "SLICE",
-                _ => "FRAME",
-            },
-            false,
-        ),
+        NodeKind::Unknown { type_name } => (if cx.schema.has_enum_variant("NodeType", type_name) { type_name.as_str() } else { "FRAME" }, false),
     };
 
     let mut fields = vec![
@@ -648,7 +647,6 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if let Some(g) = node.component.slot_content_id.as_deref().and_then(parse_guid_pair) {
         fields.push(("jsonSerialized", msg(vec![("slot-content-id", msg(vec![("guid", guid(g.0, g.1))]))])));
     }
-    append_fig_metadata(&mut fields, &node.fig_metadata);
     if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
@@ -1198,7 +1196,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => {}
     }
 
-    cx.changes.push(msg(fields));
+    let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
+    append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
+    cx.changes.push(V::Message(msg_fields));
 
     let child_in_comp = in_component || matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
     for (cidx, cid) in node.children.into_iter().enumerate() {
@@ -1822,84 +1822,16 @@ fn encode_slot_prop_config(cfg: &designos_doc::SlotPropConfig) -> V {
     msg(f)
 }
 
-fn append_fig_metadata(fields: &mut Vec<(&'static str, V)>, meta: &BTreeMap<String, String>) {
+fn append_fig_metadata(schema: &crate::kiwi::Schema, nc_def: usize, fields: &mut Vec<(std::sync::Arc<str>, V)>, meta: &BTreeMap<String, String>) {
     if meta.is_empty() {
         return;
     }
-    for k in ["userFacingVersion", "sharedSymbolVersion", "publishedVersion", "version"] {
-        if let Some(v) = meta.get(k).filter(|s| !s.is_empty()) {
-            fields.push((k, V::String(v.clone())));
+    for (k, v) in meta {
+        if v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
+            continue;
         }
-    }
-    for k in ["isSymbolPublishable", "isPublishable"] {
-        if let Some(v) = meta.get(k) {
-            fields.push((k, V::Bool(v == "true")));
-        }
-    }
-    if let Some(g) = meta.get("publishID").and_then(|s| parse_guid_pair(s)) {
-        fields.push(("publishID", guid(g.0, g.1)));
-    }
-    if let Some(bt) = meta.get("brushType").filter(|s| !s.is_empty()) {
-        fields.push(("brushType", en(bt)));
-    }
-    if let Some(wca) = meta.get("widgetCachedAncestor").and_then(|s| parse_guid_pair(s)) {
-        fields.push(("widgetCachedAncestor", msg(vec![("nodeId", guid(wca.0, wca.1))])));
-    }
-    if let Some(ei_str) = meta.get("editInfo") {
-        if let Ok(serde_json::Value::Object(ei)) = serde_json::from_str::<serde_json::Value>(ei_str) {
-            let mut m = Vec::new();
-            if let Some(ts) = ei.get("timestampIso8601").and_then(|v| v.as_str()) {
-                m.push(("timestampIso8601", V::String(ts.to_string())));
-            }
-            if let Some(uid) = ei.get("userId").and_then(|v| v.as_str()) {
-                m.push(("userId", V::String(uid.to_string())));
-            }
-            if let Some(le) = ei.get("lastEditedAt").and_then(|v| v.as_u64()) {
-                m.push(("lastEditedAt", V::Uint(le as u32)));
-            }
-            if let Some(ca) = ei.get("createdAt").and_then(|v| v.as_u64()) {
-                m.push(("createdAt", V::Uint(ca as u32)));
-            }
-            if !m.is_empty() {
-                fields.push(("editInfo", msg(m)));
-            }
-        }
-    }
-    if let Some(prd_str) = meta.get("pluginRelaunchData") {
-        if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(prd_str) {
-            let mut items = Vec::new();
-            for item in arr {
-                let mut m = Vec::new();
-                if let Some(pid) = item.get("pluginID").and_then(|v| v.as_str()) {
-                    m.push(("pluginID", V::String(pid.to_string())));
-                }
-                if let Some(ms) = item.get("message").and_then(|v| v.as_str()) {
-                    m.push(("message", V::String(ms.to_string())));
-                }
-                if let Some(cmd) = item.get("command").and_then(|v| v.as_str()) {
-                    m.push(("command", V::String(cmd.to_string())));
-                }
-                if let Some(del) = item.get("isDeleted").and_then(|v| v.as_bool()) {
-                    m.push(("isDeleted", V::Bool(del)));
-                }
-                if !m.is_empty() {
-                    items.push(msg(m));
-                }
-            }
-            if !items.is_empty() {
-                fields.push(("pluginRelaunchData", V::Array(items)));
-            }
-        }
-    }
-    if let Some(ngd_str) = meta.get("nodeGenerationData") {
-        if let Ok(serde_json::Value::Object(ngd)) = serde_json::from_str::<serde_json::Value>(ngd_str) {
-            let mut m = Vec::new();
-            if let Some(fgs) = ngd.get("useFineGrainedSyncing").and_then(|v| v.as_bool()) {
-                m.push(("useFineGrainedSyncing", V::Bool(fgs)));
-            }
-            if !m.is_empty() {
-                fields.push(("nodeGenerationData", msg(m)));
-            }
+        if let Some(pair) = schema.def_field_from_metadata(nc_def, k, v) {
+            fields.push(pair);
         }
     }
 }
