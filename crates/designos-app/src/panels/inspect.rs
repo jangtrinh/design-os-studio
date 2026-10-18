@@ -385,7 +385,8 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         copy(app, ui, bundle, "multi-language code bundle");
     }
     c.y += 24.0;
-    let sub = if count > 1 { format!("{} · {} layers selected, showing the first", kind_label(&n.kind), count) } else { kind_label(&n.kind).to_string() };
+    let base_kind = if n.component.is_slot || is_slot_container(&app.doc, id) { "Slot" } else { kind_label(&n.kind) };
+    let sub = if count > 1 { format!("{base_kind} · {count} layers selected, showing the first") } else { base_kind.to_string() };
     let sub_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 18.0);
     let kind_ic = match &n.kind {
         NodeKind::Section => Icon::Section,

@@ -20,6 +20,7 @@ mod geo;
 mod pdf;
 mod raster;
 mod react;
+mod slots;
 mod svg;
 mod swiftui;
 mod tailwind;

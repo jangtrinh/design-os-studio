@@ -7,11 +7,13 @@ use designos_doc::*;
 pub(crate) struct Out {
     unit: &'static str,
     lines: Vec<String>,
+    /// The exported root is a function that takes a `modifier` parameter (Compose).
+    pub root_takes_modifier: bool,
 }
 
 impl Out {
     pub fn new(unit: &'static str) -> Self {
-        Self { unit, lines: Vec::new() }
+        Self { unit, lines: Vec::new(), root_takes_modifier: false }
     }
 
     pub fn line(&mut self, depth: usize, s: impl AsRef<str>) {
@@ -20,6 +22,15 @@ impl Out {
 
     pub fn finish(self) -> String {
         self.lines.join("\n")
+    }
+
+    /// An empty writer with the same indent unit, for rendering a nested block.
+    pub fn sub(&self) -> Self {
+        Self { unit: self.unit, lines: Vec::new(), root_takes_modifier: self.root_takes_modifier }
+    }
+
+    pub fn into_lines(self) -> Vec<String> {
+        self.lines
     }
 }
 

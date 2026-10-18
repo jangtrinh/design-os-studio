@@ -2,6 +2,7 @@
 
 use crate::codegen::*;
 use crate::css::paint_css;
+use crate::slots::*;
 use crate::util::{css_color, num, num2};
 use designos_doc::*;
 
@@ -540,7 +541,30 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
     let class_attr = if cls.is_empty() { String::new() } else { format!(" {attr}=\"{cls}\"") };
 
     if matches!(n.kind, NodeKind::Instance { .. }) {
-        o.line(depth, format!("<{}{}{class_attr} />", view_name(doc, n), instance_attrs(doc, n)));
+        let vname = view_name(doc, n);
+        let me = Parent::of(n);
+        let fills = react_fills(doc, n);
+        if jsx {
+            let gap = if fills.is_empty() { " " } else { "" }; // `<X a="b" />`
+            let head = [(0, format!("<{vname}{}{class_attr}{gap}", instance_attrs(doc, n)))];
+            emit_jsx_instance(o, depth, &vname, &head, &fills, &|o, k, d| markup(doc, k, me, d, o, true));
+        } else if fills.is_empty() {
+            o.line(depth, format!("<{vname}{}{class_attr} />", instance_attrs(doc, n)));
+        } else {
+            // Plain HTML has no props: named slots become `<template slot="name">` children.
+            o.line(depth, format!("<{vname}{}{class_attr}>", instance_attrs(doc, n)));
+            for id in fills.children.iter().flatten() {
+                markup(doc, *id, me, depth + 1, o, false);
+            }
+            for (prop, ids) in &fills.props {
+                o.line(depth + 1, format!("<template slot=\"{prop}\">"));
+                for id in ids {
+                    markup(doc, *id, me, depth + 2, o, false);
+                }
+                o.line(depth + 1, "</template>");
+            }
+            o.line(depth, format!("</{vname}>"));
+        }
         return;
     }
     if is_vector_asset(doc, id) {
@@ -560,8 +584,10 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
         return;
     }
     let tag = if matches!(n.kind, NodeKind::Section) { "section" } else { "div" };
-    let kids = visible_children(doc, n);
-    if kids.is_empty() {
+    let site = slot_site(doc, id);
+    // A JSX slot renders through its parameter; HTML has no parameters, so it keeps the default content.
+    let kids = if jsx && site.is_some() { Vec::new() } else { visible_children(doc, n) };
+    if kids.is_empty() && site.is_none() {
         if jsx {
             o.line(depth, format!("<{tag}{class_attr} />"));
         } else {
@@ -571,6 +597,13 @@ fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out,
     }
     o.line(depth, format!("<{tag}{class_attr}>"));
     let me = Parent::of(n);
+    if let Some(site) = &site {
+        if jsx {
+            emit_react_slot(o, depth + 1, site, &|o, k, d| markup(doc, k, me, d, o, true));
+        } else {
+            o.line(depth + 1, format!("<!-- slot: {} -->", site.name));
+        }
+    }
     for k in kids {
         markup(doc, k.id, me, depth + 1, o, jsx);
     }

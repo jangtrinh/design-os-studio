@@ -2,6 +2,7 @@
 
 use crate::codegen::*;
 use crate::css::css_for;
+use crate::slots::*;
 use crate::tailwind::{instance_attrs, jsx_markup};
 use crate::util::num;
 use designos_doc::*;
@@ -24,7 +25,7 @@ pub fn react_for(doc: &Document, node: NodeId) -> String {
 pub fn react_with(doc: &Document, node: NodeId, opts: &ReactOptions) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
     let mut o = Out::new("  ");
-    o.line(0, format!("export function {}() {{", view_name(doc, n)));
+    o.line(0, react_slot_signature(doc, n));
     o.line(1, "return (");
     if opts.tailwind {
         jsx_markup(doc, node, 2, &mut o);
@@ -141,7 +142,15 @@ fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out
     }
     let style = style_entries(doc, id, parent.root);
     if matches!(n.kind, NodeKind::Instance { .. }) {
-        open_tag(o, depth, &view_name(doc, n), &instance_attrs(doc, n), &style, "/>");
+        let vname = view_name(doc, n);
+        let me = Parent::of(n);
+        let mut head = vec![(0, format!("<{vname}{}", instance_attrs(doc, n)))];
+        if !style.is_empty() {
+            head.push((1, "style={{".to_string()));
+            head.extend(style.iter().map(|s| (2, s.clone())));
+            head.push((1, "}}".to_string()));
+        }
+        emit_jsx_instance(o, depth, &vname, &head, &react_fills(doc, n), &|o, k, d| element(doc, k, me, d, o));
         return;
     }
     if is_vector_asset(doc, id) {
@@ -163,13 +172,17 @@ fn element(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out
         return;
     }
     let tag = if matches!(n.kind, NodeKind::Section) { "section" } else { "div" };
-    let kids = visible_children(doc, n);
-    if kids.is_empty() {
+    let site = slot_site(doc, id);
+    let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
+    if kids.is_empty() && site.is_none() {
         open_tag(o, depth, tag, "", &style, "/>");
         return;
     }
     open_tag(o, depth, tag, "", &style, ">");
     let me = Parent::of(n);
+    if let Some(site) = &site {
+        emit_react_slot(o, depth + 1, site, &|o, k, d| element(doc, k, me, d, o));
+    }
     for k in kids {
         element(doc, k.id, me, depth + 1, o);
     }

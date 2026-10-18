@@ -1,6 +1,7 @@
 //! SwiftUI output.
 
 use crate::codegen::*;
+use crate::slots::*;
 use crate::util::num;
 use designos_doc::*;
 
@@ -11,8 +12,74 @@ use designos_doc::*;
 /// component properties as arguments; bound variables become `Color("name")` / `Tokens.name`.
 pub fn swiftui_for(doc: &Document, node: NodeId) -> String {
     let mut o = Out::new("    ");
-    view(doc, node, Parent::root(), 0, &mut o);
+    let slots = slot_infos(doc, node);
+    match doc.get(node) {
+        Some(n) if !slots.is_empty() => slot_view(doc, n, &slots, &mut o),
+        _ => view(doc, node, Parent::root(), 0, &mut o),
+    }
     o.finish()
+}
+
+/// Generic type parameter that carries the content of slot `name`.
+fn slot_type(name: &str) -> String {
+    format!("{}Content", pascal(name))
+}
+
+/// `name: Type = default` initializer parameters for the non-slot properties of a component.
+fn prop_init_params(props: &[PropParam]) -> Vec<String> {
+    props
+        .iter()
+        .map(|p| match &p.default {
+            PropDefault::Bool(b) => format!("{}: Bool = {b}", p.name),
+            PropDefault::Text(t) => format!("{}: String = {}", p.name, quote(t)),
+            PropDefault::Instance(v) => format!("{}: AnyView = AnyView({})", p.name, v.as_ref().map_or("EmptyView()".to_string(), |v| format!("{v}()"))),
+        })
+        .collect()
+}
+
+/// A component with slots as a generic `View` struct: its properties and one `@ViewBuilder` init
+/// parameter per slot, and an `init` for callers that keep every slot's default content.
+fn slot_view(doc: &Document, n: &Node, slots: &[SlotInfo], o: &mut Out) {
+    let name = view_name(doc, n);
+    let props = prop_params(doc, n.id);
+    let prop_params = prop_init_params(&props);
+    let generics: Vec<String> = slots.iter().map(|s| format!("{}: View", slot_type(&s.name))).collect();
+    o.line(0, format!("struct {name}<{}>: View {{", generics.join(", ")));
+    for (p, decl) in props.iter().zip(&prop_params) {
+        let ty = decl.split_once(": ").and_then(|(_, r)| r.split(" = ").next()).unwrap_or("String");
+        o.line(1, format!("private let {}: {ty}", p.name));
+    }
+    for s in slots {
+        o.line(1, format!("private let {}: {}?", slot_ident(&s.name, Lang::Swift), slot_type(&s.name)));
+    }
+    o.line(0, "");
+    let closures: Vec<String> = slots.iter().map(|s| format!("@ViewBuilder {}: () -> {}", slot_ident(&s.name, Lang::Swift), slot_type(&s.name))).collect();
+    o.line(1, format!("init({}) {{", prop_params.iter().chain(&closures).cloned().collect::<Vec<_>>().join(", ")));
+    for p in &props {
+        o.line(2, format!("self.{0} = {0}", p.name));
+    }
+    for s in slots {
+        let id = slot_ident(&s.name, Lang::Swift);
+        o.line(2, format!("self.{id} = {id}()"));
+    }
+    o.line(1, "}");
+    o.line(0, "");
+    o.line(1, "var body: some View {");
+    view(doc, n.id, Parent::root(), 2, o);
+    o.line(1, "}");
+    o.line(0, "}");
+    o.line(0, "");
+    let empties: Vec<String> = slots.iter().map(|s| format!("{} == EmptyView", slot_type(&s.name))).collect();
+    o.line(0, format!("extension {name} where {} {{", empties.join(", ")));
+    o.line(1, format!("init({}) {{", prop_params.join(", ")));
+    for p in &props {
+        o.line(2, format!("self.{0} = {0}", p.name));
+    }
+    for s in slots {
+        o.line(2, format!("self.{} = nil", slot_ident(&s.name, Lang::Swift)));
+    }
+    o.line(1, "}");
+    o.line(0, "}");
 }
 
 fn color(doc: &Document, n: &Node, key: &str, c: &Color, opacity: f32) -> String {
@@ -261,7 +328,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     }
     let sz = sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
-    let kids = visible_children(doc, n);
+    let site = slot_site(doc, id);
+    let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
@@ -275,10 +343,37 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             .map(|(name, lit)| match lit {
                 PropLit::Bool(b) => format!("{name}: {b}"),
                 PropLit::Text(t) => format!("{name}: {}", quote(&t)),
-                PropLit::Instance(v) => format!("{name}: {v}()"),
+                PropLit::Instance(v) => format!("{name}: AnyView({v}())"),
             })
             .collect();
-        head.push(call(&view_name(doc, n), &args));
+        let slots = instance_slots(doc, n);
+        let vname = view_name(doc, n);
+        if slots.fills.is_empty() {
+            head.push(call(&vname, &args));
+        } else if slots.single() {
+            stack = Some(if args.is_empty() { format!("{vname} {{") } else { format!("{} {{", call(&vname, &args)) });
+            body = Some(slots.fills.into_iter().flat_map(|f| f.ids).collect());
+        } else {
+            // The generic view needs a closure for every slot; one the instance leaves out stays empty.
+            let me = Parent::of(n);
+            o.line(depth, format!("{vname}("));
+            let total = args.len() + slots.component.len();
+            let mut written = 0;
+            for a in &args {
+                written += 1;
+                o.line(depth + 1, format!("{a}{}", if written < total { "," } else { "" }));
+            }
+            for info in &slots.component {
+                written += 1;
+                o.line(depth + 1, format!("{}: {{", slot_ident(&info.name, Lang::Swift)));
+                match slots.fills.iter().find(|f| f.name == info.name).filter(|f| !f.ids.is_empty()) {
+                    Some(f) => f.ids.iter().for_each(|c| view(doc, *c, me, depth + 2, o)),
+                    None => o.line(depth + 2, "EmptyView()"),
+                }
+                o.line(depth + 1, format!("}}{}", if written < total { "," } else { "" }));
+            }
+            o.line(depth, ")");
+        }
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
@@ -292,7 +387,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
-    } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
+    } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         let counter = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, _) => "center",
@@ -337,7 +432,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             mods.push(f);
         }
         container_style(doc, n, &radius_shape, &mut mods);
-    } else if n.kind.is_container() && !kids.is_empty() {
+    } else if n.kind.is_container() && (!kids.is_empty() || site.is_some()) {
         stack = Some("ZStack(alignment: .topLeading) {".into());
         body = Some(kids.iter().map(|k| k.id).collect());
         if let Some(f) = frame_args(sz.w, sz.h, Some(".topLeading"), n, doc) {
@@ -404,6 +499,20 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         let me = Parent::of(n);
         if spacers.0 {
             o.line(depth + 1, "Spacer()");
+        }
+        if let Some(site) = &site {
+            let name = slot_ident(&site.name, Lang::Swift);
+            o.line(depth + 1, format!("if let {name} {{"));
+            o.line(depth + 2, &name);
+            if site.defaults.is_empty() {
+                o.line(depth + 1, "}");
+            } else {
+                o.line(depth + 1, "} else {");
+                for c in &site.defaults {
+                    view(doc, *c, me, depth + 2, o);
+                }
+                o.line(depth + 1, "}");
+            }
         }
         for (i, c) in children.iter().enumerate() {
             if i > 0 && spacers.1 {

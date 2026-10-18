@@ -157,22 +157,109 @@ pub fn format_value(v: &VariableValue) -> String {
 
 // ------------------------------------------------------------------ component properties
 
-/// `(property, value)` rows for an instance; empty for other layers.
+fn clean_prop_label(raw: &str) -> String {
+    raw.split('#').next().unwrap_or(raw).trim().to_string()
+}
+
+fn slot_label_for_node(doc: &Document, n: &Node) -> String {
+    if let Some(b) = n.component.bindings.get(&OverrideField::SlotContent) {
+        return clean_prop_label(b);
+    }
+    if let Some(src_id) = n.component.source {
+        if let Some(src) = doc.get(src_id) {
+            if let Some(b) = src.component.bindings.get(&OverrideField::SlotContent) {
+                return clean_prop_label(b);
+            }
+        }
+    }
+    n.name.clone()
+}
+
+fn format_slot_items(doc: &Document, ids: &[NodeId]) -> String {
+    let names: Vec<String> = ids.iter().filter_map(|cid| doc.get(*cid)).filter(|c| c.visible).map(|c| c.name.clone()).collect();
+    if names.is_empty() {
+        format!("Slot · {} item(s)", ids.len())
+    } else {
+        format!("Slot · {} item(s) ({})", names.len(), names.join(", "))
+    }
+}
+
+/// `(property, value)` rows for an instance, component or slot frame; empty for other layers.
 pub fn component_rows(doc: &Document, id: NodeId) -> Vec<(String, String)> {
     let Some(n) = doc.get(id) else { return Vec::new() };
-    let Some(comp) = instance_component(n) else { return Vec::new() };
-    let mut rows = vec![("Component".to_string(), doc.get(comp).map(|c| c.name.clone()).unwrap_or_default())];
-    for def in prop_defs(doc, comp) {
-        let value = match prop_value(doc, id, &def) {
-            PropValue::Bool(b) => b.to_string(),
-            PropValue::Text(t) => t,
-            PropValue::Variant(v) => v,
-            PropValue::Instance(c) => doc.get(c).map(|c| c.name.clone()).unwrap_or_default(),
-            PropValue::Slot(ids) => format!("{} item(s)", ids.len()),
-        };
-        rows.push((def.name.split('#').next().unwrap_or(&def.name).to_string(), value));
+    if let Some(comp) = instance_component(n) {
+        let mut rows = vec![("Component".to_string(), doc.get(comp).map(|c| c.name.clone()).unwrap_or_default())];
+        let mut seen_slots = Vec::new();
+        for def in prop_defs(doc, comp) {
+            let label = clean_prop_label(&def.name);
+            let value = match prop_value(doc, id, &def) {
+                PropValue::Bool(b) => b.to_string(),
+                PropValue::Text(t) => t,
+                PropValue::Variant(v) => v,
+                PropValue::Instance(c) => doc.get(c).map(|c| c.name.clone()).unwrap_or_default(),
+                PropValue::Slot(mut ids) => {
+                    for &cid in &n.children {
+                        if let Some(cn) = doc.get(cid) {
+                            if (cn.component.is_slot || is_slot_container(doc, cid)) && slot_label_for_node(doc, cn).eq_ignore_ascii_case(&label) {
+                                for &gc in &cn.children {
+                                    if !ids.contains(&gc) {
+                                        ids.push(gc);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    seen_slots.push(label.to_lowercase());
+                    format_slot_items(doc, &ids)
+                }
+            };
+            rows.push((label, value));
+        }
+        for &cid in &n.children {
+            if let Some(cn) = doc.get(cid) {
+                if cn.component.is_slot || is_slot_container(doc, cid) {
+                    let label = slot_label_for_node(doc, cn);
+                    if !seen_slots.contains(&label.to_lowercase()) {
+                        seen_slots.push(label.to_lowercase());
+                        rows.push((label, format_slot_items(doc, &cn.children)));
+                    }
+                }
+            }
+        }
+        return rows;
     }
-    rows
+    if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+        let mut slot_rows = Vec::new();
+        let mut seen = Vec::new();
+        for def in prop_defs(doc, id) {
+            if def.kind == PropKind::Slot {
+                let label = clean_prop_label(&def.name);
+                seen.push(label.to_lowercase());
+                slot_rows.push((label, "Slot".to_string()));
+            }
+        }
+        for &cid in &n.children {
+            if let Some(cn) = doc.get(cid) {
+                if cn.component.is_slot || is_slot_container(doc, cid) {
+                    let label = slot_label_for_node(doc, cn);
+                    if !seen.contains(&label.to_lowercase()) {
+                        seen.push(label.to_lowercase());
+                        slot_rows.push((label, "Slot".to_string()));
+                    }
+                }
+            }
+        }
+        if !slot_rows.is_empty() {
+            let mut rows = vec![("Component".to_string(), n.name.clone())];
+            rows.extend(slot_rows);
+            return rows;
+        }
+        return Vec::new();
+    }
+    if n.component.is_slot || is_slot_container(doc, id) {
+        return vec![("Slot".to_string(), slot_label_for_node(doc, n)), ("Items".to_string(), format!("{} item(s)", n.children.len()))];
+    }
+    Vec::new()
 }
 
 // ------------------------------------------------------------------ annotations

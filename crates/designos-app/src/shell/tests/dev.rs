@@ -461,3 +461,46 @@ fn library_files_store_the_snapshot_as_a_named_version() {
     let diff = diff_subtree(&nodes, &s.app().doc, card);
     assert!(diff.iter().any(|c| c.id == card), "{diff:?}");
 }
+
+#[test]
+fn dev_mode_inspect_shows_slot_for_component_slot_frame_and_instance() {
+    use designos_doc::{
+        create_instance, instances_of, ComponentPropDef, FrameProps, Node, OverrideField, PropKind, PropValue, Rect as DocRect, TextStyle, Vec2 as DocVec2,
+    };
+    let (mut s, _) = dev_sim();
+    let page = s.app().page;
+    let comp_id = s.shell.app.doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Dialog".into();
+    comp.size = DocVec2::new(240.0, 120.0);
+    comp.component.props.push(ComponentPropDef { name: "Body#1:0".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) });
+    let comp_id = s.shell.app.doc.insert(page, comp).unwrap();
+
+    let slot_id = s.shell.app.doc.alloc_id();
+    let mut slot = Node::frame(slot_id, DocRect::new(0.0, 0.0, 216.0, 96.0));
+    slot.name = "Body".into();
+    slot.component.is_slot = true;
+    slot.component.bindings.insert(OverrideField::SlotContent, "Body#1:0".into());
+    let slot_id = s.shell.app.doc.insert(comp_id, slot).unwrap();
+
+    create_instance(&mut s.shell.app.doc, comp_id, page, DocVec2::new(300.0, 0.0)).apply(&mut s.shell.app.doc).unwrap();
+    let inst_id = instances_of(&s.shell.app.doc, comp_id)[0];
+    let inst_slot = s.shell.app.doc.get(inst_id).unwrap().children[0];
+    let txt_id = s.shell.app.doc.alloc_id();
+    let mut txt = Node::text(txt_id, DocRect::new(0.0, 0.0, 100.0, 20.0), "Hello slot", TextStyle::default());
+    txt.name = "Greeting".into();
+    txt.component.is_slot_content = true;
+    s.shell.app.doc.insert(inst_slot, txt).unwrap();
+
+    let comp_rows = crate::dev::data::component_rows(&s.app().doc, comp_id);
+    assert!(comp_rows.iter().any(|(k, v)| k == "Body" && v.contains("Slot")), "component rows must list the slot: {comp_rows:?}");
+
+    let slot_rows = crate::dev::data::component_rows(&s.app().doc, slot_id);
+    assert!(slot_rows.iter().any(|(k, v)| k == "Slot" && v == "Body"), "slot frame rows must identify the slot: {slot_rows:?}");
+
+    let inst_rows = crate::dev::data::component_rows(&s.app().doc, inst_id);
+    assert!(
+        inst_rows.iter().any(|(k, v)| k == "Body" && v.contains("Slot") && v.contains("Greeting")),
+        "instance rows must show the slot and its child content: {inst_rows:?}"
+    );
+}
