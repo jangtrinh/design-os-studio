@@ -72,11 +72,16 @@ pub struct Tx {
     pub ed: Edit,
     cmds: Vec<Command>,
     inverses: Vec<Command>,
+    poisoned: bool,
 }
 
 impl Tx {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn is_poisoned(&self) -> bool {
+        self.poisoned
     }
 
     /// Applies a structural command now and remembers it for the commit.
@@ -103,7 +108,11 @@ impl Tx {
                     }
                 }
                 self.cmds.truncate(mark);
-                return Err(rollback_failed.unwrap_or(e));
+                if let Some(re) = rollback_failed {
+                    self.poisoned = true;
+                    return Err(re);
+                }
+                return Err(e);
             }
         }
         Ok(())
@@ -118,6 +127,10 @@ impl Tx {
     }
 
     pub fn commit(mut self, doc: &mut Document, hist: &mut History) -> Result<bool, DocError> {
+        if self.poisoned {
+            self.cancel(doc);
+            return Err(DocError::NotFound(designos_doc::NodeId(0)));
+        }
         // connectors follow the nodes they join (and a moved connector its free ends)
         crate::board::connect::reroute_touched(doc, &mut self.ed);
         let mut updates = self.ed.updates(doc);
@@ -242,6 +255,27 @@ mod tests {
         let mut e = Tx::new();
         e.ed.node(&mut d, a);
         assert!(!e.commit(&mut d, &mut h).unwrap());
+        assert!(!h.can_undo());
+    }
+
+    #[test]
+    fn a_failed_rollback_poisons_the_transaction_and_cancels_commit() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let existing = d.alloc_id();
+        d.insert(page, Node::rectangle(existing, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let mut h = History::default();
+        let mut tx = Tx::new();
+        tx.ed.node(&mut d, existing).unwrap().opacity = 0.25;
+        let temp = d.alloc_id();
+        let ghost = d.alloc_id();
+        let insert_temp = Command::Insert { parent: page, index: 1, nodes: vec![Node::rectangle(temp, Rect::new(0.0, 0.0, 5.0, 5.0))] };
+        // The batch removes `temp` and then fails on `ghost`, so rolling back `insert_temp` via `Remove { id: temp }` also fails.
+        let bad_batch = Command::Batch(vec![Command::Remove { id: temp }, Command::Remove { id: ghost }]);
+        assert!(tx.cmds_all_or_none(&mut d, vec![insert_temp, bad_batch]).is_err());
+        assert!(tx.is_poisoned(), "a failed rollback inside cmds_all_or_none poisons the transaction");
+        assert!(tx.commit(&mut d, &mut h).is_err(), "a poisoned transaction refuses to commit partial state");
+        assert_eq!(d.get(existing).unwrap().opacity, 1.0, "earlier edits in the poisoned transaction are reverted");
         assert!(!h.can_undo());
     }
 }

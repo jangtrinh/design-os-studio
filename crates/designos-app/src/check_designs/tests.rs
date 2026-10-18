@@ -27,7 +27,8 @@ fn fx() -> Fx {
 
 impl Fx {
     /// How many layers `parent` already holds. Frames and texts are laid out side by side and one
-    /// under the other, because a layer that overlaps an earlier sibling is not contrast-checked.
+    /// under the other, because a layer that overlaps an earlier sibling is not contrast-checked unless that sibling is a
+    /// plain opaque cover.
     fn slot(&self, parent: NodeId) -> f32 {
         self.doc.get(parent).map_or(0, |p| p.children.len()) as f32
     }
@@ -606,6 +607,7 @@ fn resize(f: &mut Fx, id: NodeId, w: f32, h: f32) {
 }
 
 mod backdrop;
+mod covering_sibling;
 mod fix_all;
 mod not_painted_as_computed;
 mod outside_the_box;

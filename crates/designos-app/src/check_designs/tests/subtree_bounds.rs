@@ -3,7 +3,7 @@
 //! transforms.
 
 use super::*;
-use crate::check_designs::contrast::{has_layer_behind, SubtreeBounds};
+use crate::check_designs::contrast::{has_layer_behind, Behind, SubtreeBounds};
 use designos_doc::{Effect, StrokeAlign, Vec2};
 
 /// A small deterministic generator, so a failing seed can be replayed.
@@ -95,7 +95,7 @@ fn the_bounds_never_change_what_is_found_behind_a_text() {
                 let fast = has_layer_behind(&f.doc, t, occluder, Some(&bounds));
                 assert_eq!(fast, exact, "seed {seed}, text {t:?}, occluder {occluder:?}");
                 if occluder.is_none() {
-                    if exact {
+                    if exact != Behind::Nothing {
                         behind += 1;
                     } else {
                         clear += 1;

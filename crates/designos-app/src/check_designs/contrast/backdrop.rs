@@ -6,6 +6,7 @@ use designos_doc::{resolved_node, BlendMode, Color, Document, NodeId, NodeKind, 
 /// One ancestor: what it paints itself (solid fills, bottom to top, as colour and alpha) and the
 /// opacity its whole subtree is composited with.
 struct Layer {
+    owner: NodeId,
     fills: Vec<(Color, f32)>,
     opacity: f32,
 }
@@ -14,6 +15,8 @@ struct Layer {
 pub(super) struct Backdrop {
     layers: Vec<Layer>,
     page: Color,
+    /// The page the text is on, when it has one.
+    page_node: Option<NodeId>,
     /// The innermost ancestor whose fill is opaque and covers the whole text box. Everything
     /// painted below that fill (its earlier siblings and what they paint, the fills and strokes of
     /// the ancestors above it) cannot show through it.
@@ -49,6 +52,21 @@ impl Px {
 }
 
 impl Backdrop {
+    /// Paints `fills` (colour and alpha, bottom to top) on top of what `parent` paints itself and
+    /// under its children, the text included: the backdrop of text that a plain opaque sibling
+    /// covers. `false` when `parent` is neither a layer of this backdrop nor its page.
+    pub(super) fn covered_by(&mut self, parent: NodeId, fills: Vec<(Color, f32)>) -> bool {
+        if let Some(layer) = self.layers.iter_mut().find(|l| l.owner == parent) {
+            layer.fills.extend(fills);
+        } else if self.page_node == Some(parent) {
+            // The page is below every layer.
+            self.layers.push(Layer { owner: parent, fills, opacity: 1.0 });
+        } else {
+            return false;
+        }
+        true
+    }
+
     /// The colour on screen where `text` (colour and alpha) is drawn over the innermost ancestor, or
     /// the plain backdrop for `None`.
     pub(super) fn pixel(&self, text: Option<(Color, f32)>) -> Color {
@@ -101,6 +119,14 @@ fn inside_layer(corners: &[Vec2; 4], size: Vec2) -> [Vec2; 4] {
     [Vec2::new(x0, y0), Vec2::new(x1, y0), Vec2::new(x0, y1), Vec2::new(x1, y1)]
 }
 
+/// Whether `corners` lies inside the box of `size` inset by its corner radius `radii`, where the
+/// fill is not cut away at the rounded corners.
+pub(super) fn inside_inset_box(corners: &[Vec2; 4], size: Vec2, radii: [f32; 4]) -> bool {
+    const EDGE: f32 = 0.01;
+    let r = radii.into_iter().fold(0.0_f32, f32::max).min(size.x / 2.0).min(size.y / 2.0);
+    corners.iter().all(|c| c.x >= r - EDGE && c.y >= r - EDGE && c.x <= size.x - r + EDGE && c.y <= size.y - r + EDGE)
+}
+
 /// What the ancestors of `id` paint behind it. `None` when the text is not checkable: a visible
 /// ancestor is blended as a group or is not drawn at all (opacity 0), a clipping ancestor cuts the
 /// text away, a stroke band is under it, or a fill under the text is not a plain solid or covers
@@ -109,7 +135,7 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
     let text = doc.get(id)?;
     // The text box in the space of the layer being looked at; it starts in the parent's space.
     let mut corners = box_corners(text.size).map(|c| text.transform.apply(c));
-    let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE, occluder: None };
+    let mut out = Backdrop { layers: Vec::new(), page: Color::WHITE, page_node: None, occluder: None };
     // Whether every layer between the text and the one being looked at is drawn at full opacity.
     let mut opaque_chain = true;
     let mut cur = text.parent;
@@ -121,6 +147,7 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
         let up = |c: &[Vec2; 4]| c.map(|v| raw.transform.apply(v));
         if let NodeKind::Page { background } = &n.kind {
             out.page = Color { a: 1.0, ..*background };
+            out.page_node = Some(p);
             continue;
         }
         if !n.visible {
@@ -166,10 +193,17 @@ pub(super) fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
                 }
             }
         }
-        if out.occluder.is_none() && opaque_chain && whole && fills.iter().any(|(_, alpha)| *alpha >= 1.0) {
+        let no_effects = !n.effects.iter().any(|e| e.visible());
+        if out.occluder.is_none()
+            && opaque_chain
+            && whole
+            && no_effects
+            && inside_inset_box(&here, n.size, n.corner_radii)
+            && fills.iter().any(|(_, alpha)| *alpha >= 1.0)
+        {
             out.occluder = Some(p);
         }
-        out.layers.push(Layer { fills, opacity: n.opacity });
+        out.layers.push(Layer { owner: p, fills, opacity: n.opacity });
     }
     Some(out)
 }

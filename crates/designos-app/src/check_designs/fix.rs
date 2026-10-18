@@ -37,7 +37,15 @@ impl App {
         let mut todo: Vec<&Finding> = findings.iter().filter(|f| f.fix.is_some()).collect();
         todo.sort_by_key(|f| f.fix.as_ref().map_or(u8::MAX, priority));
         let mut tx = Tx::new();
-        let applied = todo.into_iter().filter(|f| self.apply_check_fix(&mut tx, f)).count();
+        let mut applied = 0;
+        for f in todo {
+            if self.apply_check_fix(&mut tx, f) {
+                applied += 1;
+            } else if tx.is_poisoned() {
+                tx.cancel(&mut self.doc);
+                return 0;
+            }
+        }
         if applied == 0 {
             tx.cancel(&mut self.doc);
             return 0;

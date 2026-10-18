@@ -65,3 +65,19 @@ fn faint_but_drawn_text_is_still_checked() {
     assert_eq!(contrast_findings(dark_text(1.0, 0.2)), 1, "text with opacity 0.2 is drawn, and too faint");
     assert_eq!(contrast_findings(dark_text(0.2, 1.0)), 1, "text inside a frame with opacity 0.2 is drawn, and too faint");
 }
+
+#[test]
+fn a_text_paint_whose_own_alpha_or_opacity_is_zero_is_not_drawn_and_has_no_contrast() {
+    let mut zero_color_alpha = fx();
+    white_page(&mut zero_color_alpha);
+    zero_color_alpha.text(zero_color_alpha.page, "Invisible colour", 14.0, 400, Color::rgba(17, 17, 17, 0));
+    assert_eq!(contrast_findings(zero_color_alpha), 0, "text colour alpha 0 paints nothing");
+
+    let mut zero_paint_opacity = fx();
+    white_page(&mut zero_paint_opacity);
+    let t = zero_paint_opacity.text(zero_paint_opacity.page, "Invisible paint", 14.0, 400, gray(0x11));
+    if let NodeKind::Text(tp) = &mut zero_paint_opacity.doc.get_mut(t).unwrap().kind {
+        tp.style.fills[0].opacity = 0.0;
+    }
+    assert_eq!(contrast_findings(zero_paint_opacity), 0, "text paint opacity 0 paints nothing");
+}

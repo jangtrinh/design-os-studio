@@ -5,12 +5,13 @@
 //! (opacity above 0, here and on every ancestor); no layer from the text up to the page may use a
 //! blend mode other than normal or pass-through (the renderer blends such a layer as a whole group,
 //! so the colours inside it are not what reaches the screen); every ancestor fill under the text
-//! must be solid with normal blending; no visible layer painted before the text (a sibling of the
-//! text or of one of its ancestors) may reach it, by its own box, by what it paints beyond the box
-//! (an outside stroke, a shadow, a blur) or by anything painted in its subtree (a frame that does
-//! not clip draws its children wherever they sit, one that clips cuts them to its box); and no
-//! stroke band of an ancestor may lie under it. What those paint behind the text is not modelled,
-//! so such text is neither reported nor fixed.
+//! must be solid with normal blending; the nearest visible layer painted before the text (a sibling
+//! of the text or of one of its ancestors) that reaches it, by its own box, by what it paints beyond
+//! the box (an outside stroke, a shadow, a blur) or by anything painted in its subtree (a frame that
+//! does not clip draws its children wherever they sit, one that clips cuts them to its box), must be
+//! a plain opaque rectangle or frame that covers the whole text box (see `behind`), which then is the
+//! backdrop; and no stroke band of an ancestor may lie under it. What any other layer paints behind
+//! the text is not modelled, so such text is neither reported nor fixed.
 //!
 //! An ancestor fill counts only where it is painted: the layer's own box. A frame that does not
 //! clip lets a child sit outside it, so a fill that does not reach the text is not its backdrop and
@@ -28,7 +29,7 @@ mod subtree;
 
 use super::{Finding, Fix, Rule};
 use backdrop::{backdrop, blends_as_group, Backdrop};
-pub(super) use behind::has_layer_behind;
+pub(super) use behind::{has_layer_behind, Behind};
 use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind};
 pub(in crate::check_designs) use subtree::SubtreeBounds;
 
@@ -104,13 +105,26 @@ fn failure(doc: &Document, id: NodeId, bounds: &SubtreeBounds) -> Option<Failure
         return None;
     }
     let (paint, color) = text_paint(&n)?;
-    let backdrop = backdrop(doc, id)?;
     let alpha = color.a * t.style.fills[paint].opacity * n.opacity;
+    if alpha <= 0.0 {
+        return None;
+    }
+    let mut backdrop = backdrop(doc, id)?;
+    // A plain opaque sibling that covers the text is the backdrop, so it is looked for before the
+    // ratio is known: text that passes against its ancestors can fail against the sibling.
+    match has_layer_behind(doc, id, backdrop.occluder, Some(bounds)) {
+        Behind::Nothing => {}
+        Behind::Unknown => return None,
+        Behind::Cover { parent, fills } => {
+            if !backdrop.covered_by(parent, fills) {
+                return None;
+            }
+        }
+    }
     let bg = backdrop.pixel(None);
     let ratio = contrast_ratio(backdrop.pixel(Some((color, alpha))), bg);
     let required = required_ratio(t.style.font_size, t.style.font_weight);
-    // The layer-behind scan only runs for text that already fails, so passing text stays cheap.
-    (ratio < required && !has_layer_behind(doc, id, backdrop.occluder, Some(bounds))).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
+    (ratio < required).then_some(Failure { paint, color, alpha, backdrop, bg, ratio, required })
 }
 
 /// The mildest recolouring toward black or white that reaches `required`, quantised to 8 bits.
