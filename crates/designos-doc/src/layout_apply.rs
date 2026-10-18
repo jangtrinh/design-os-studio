@@ -69,7 +69,7 @@ impl Document {
             self.pending_relayout.retain(|&id| id != root);
         }
         let Some(root_node) = self.get(root) else { return };
-        let Some(al) = crate::resolve_node(self, root_node).kind.frame_props().and_then(|f| f.auto_layout) else {
+        let Some(al) = crate::resolve_node(self, root_node).kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
             return;
         };
         let children = root_node.children.clone();
@@ -89,7 +89,7 @@ impl Document {
                 .get(*cid)
                 .map(|n| {
                     let changed = (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3;
-                    let has_al = n.kind.frame_props().and_then(|f| f.auto_layout).is_some();
+                    let has_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
                     (changed, has_al)
                 })
                 .unwrap_or((false, false));

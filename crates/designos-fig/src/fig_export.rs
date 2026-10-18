@@ -767,13 +767,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     fields.push(("verticalConstraint", en(cname(node.constraints.vertical))));
 
     // Frame & Auto-Layout properties.
-    let my_dir = node.kind.frame_props().and_then(|f| f.auto_layout).map(|a| a.direction);
+    let my_dir = node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
     if let Some(fp) = node.kind.frame_props() {
         fields.push(("frameMaskDisabled", V::Bool(!fp.clips_content)));
         if !fp.grids.is_empty() {
             fields.push(("layoutGrids", V::Array(fp.grids.iter().map(encode_grid).collect())));
         }
-        if let Some(al) = fp.auto_layout {
+        if let Some(al) = &fp.auto_layout {
             let sm = match al.direction {
                 LayoutDirection::Horizontal => "HORIZONTAL",
                 LayoutDirection::Vertical => "VERTICAL",
@@ -856,6 +856,16 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if lc.absolute {
         fields.push(("stackPositioning", en("ABSOLUTE")));
+    }
+    for (val, key) in [
+        (lc.margin[0], "stackChildMarginTop"),
+        (lc.margin[1], "stackChildMarginRight"),
+        (lc.margin[2], "stackChildMarginBottom"),
+        (lc.margin[3], "stackChildMarginLeft"),
+    ] {
+        if val != 0.0 {
+            fields.push((key, fl(val)));
+        }
     }
     if let Some(c) = lc.grid_column {
         fields.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
@@ -1214,8 +1224,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 }
 
-fn format_grid_tracks(count: u32, tracks: &[GridTrack; 8]) -> String {
-    (0..count.min(8) as usize)
+pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
+    (0..(count as usize).min(tracks.len()))
         .map(|i| match tracks[i] {
             GridTrack::Flex(w) => {
                 let w = finite_or(w, 1.0);
@@ -1418,7 +1428,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Layout) {
                 if let Some(fp) = n.kind.frame_props() {
                     ov.push(("frameMaskDisabled", V::Bool(!fp.clips_content)));
-                    if let Some(al) = fp.auto_layout {
+                    if let Some(al) = &fp.auto_layout {
                         let sm = match al.direction {
                             LayoutDirection::Horizontal => "HORIZONTAL",
                             LayoutDirection::Vertical => "VERTICAL",
@@ -1447,7 +1457,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("stackCounterSizing", en(if al.counter_sizing == Sizing::Hug { "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" } else { "FIXED" })));
                     }
                 }
-                let parent_dir = n.parent.and_then(|p| cx.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout).map(|a| a.direction);
+                let parent_dir =
+                    n.parent.and_then(|p| cx.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
                 let lc = &n.layout_child;
                 let (prim_fill, counter_fill) = match parent_dir {
                     Some(LayoutDirection::Horizontal | LayoutDirection::Grid) => (lc.horizontal == Sizing::Fill || lc.grow > 0.0, lc.vertical == Sizing::Fill),
@@ -1486,6 +1497,12 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if lc.row_span > 1 {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
                 }
+                // Every side is written, zero included: a reader rebuilds the instance from its master and keeps the
+                // master's margin for any side the override does not name, so a cleared margin has to be explicit.
+                ov.push(("stackChildMarginTop", fl(lc.margin[0])));
+                ov.push(("stackChildMarginRight", fl(lc.margin[1])));
+                ov.push(("stackChildMarginBottom", fl(lc.margin[2])));
+                ov.push(("stackChildMarginLeft", fl(lc.margin[3])));
             }
             if ovs.contains(&OverrideField::MainComponent) {
                 if let NodeKind::Instance { component: Some(comp_id), .. } = &n.kind {

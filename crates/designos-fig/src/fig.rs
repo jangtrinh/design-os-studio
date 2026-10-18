@@ -1248,6 +1248,11 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     if fstr(nc, "stackPositioning") == Some("ABSOLUTE") {
         m.insert("layoutPositioning".into(), "ABSOLUTE".into());
     }
+    for k in ["stackChildMarginTop", "stackChildMarginRight", "stackChildMarginBottom", "stackChildMarginLeft"] {
+        if let Some(v) = fnum(nc, k) {
+            m.insert(k.into(), v.into());
+        }
+    }
     for k in ["gridColumnSpan", "gridRowSpan"] {
         copy(&mut m, nc, k, k);
     }
@@ -1791,6 +1796,10 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "stackChildPrimaryGrow"
             | "stackChildAlignSelf"
             | "stackPositioning"
+            | "stackChildMarginTop"
+            | "stackChildMarginRight"
+            | "stackChildMarginBottom"
+            | "stackChildMarginLeft"
             | "layoutSizingHorizontal"
             | "layoutSizingVertical"
             | "gridColumns"
@@ -1936,6 +1945,11 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         if let Some(pos) = fstr(o, "stackPositioning") {
             m.insert("layoutPositioning".into(), pos.into());
+        }
+        for k in ["stackChildMarginTop", "stackChildMarginRight", "stackChildMarginBottom", "stackChildMarginLeft"] {
+            if let Some(v) = fnum(o, k) {
+                m.insert(k.into(), v.into());
+            }
         }
         copy(&mut m, o, "layoutSizingHorizontal", "layoutSizingHorizontal");
         copy(&mut m, o, "layoutSizingVertical", "layoutSizingVertical");

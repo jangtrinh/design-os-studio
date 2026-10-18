@@ -840,7 +840,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     // ---- Auto layout (carries the dimensions of auto-layout frames)
     if is_frame && !multi {
         section_sep(ui, pane, false);
-        let al = n0.kind.frame_props().and_then(|f| f.auto_layout);
+        let al = n0.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
         if title(ui, pane, "Auto layout", Some(if al.is_some() { Icon::Minus } else { Icon::Plus }), al.is_none()) {
             app.toggle_auto_layout();
         }
@@ -971,7 +971,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
 }
 
 fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
-    if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+    if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         if al.sizing_along(horizontal) == Sizing::Hug {
             return Sizing::Hug;
         }
@@ -1048,29 +1048,47 @@ fn resizing_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], n0: 
         set_sizing(app, sel, false, order[i]);
     }
     row_end(pane);
-    let parent_grid = n0
-        .parent
-        .and_then(|p| app.doc.get(p))
-        .and_then(|p| p.kind.frame_props())
-        .and_then(|f| f.auto_layout)
-        .is_some_and(|al| al.direction == LayoutDirection::Grid);
+    let parent_al = n0.parent.and_then(|p| app.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref());
+    let (parent_in_auto_layout, parent_grid) = (parent_al.is_some(), parent_al.is_some_and(|al| al.direction == LayoutDirection::Grid));
     if parent_grid {
         sublabel(ui, pane, "Grid Span");
         let cs = n0.layout_child.col_span.max(1) as f32;
         let rs = n0.layout_child.row_span.max(1) as f32;
         if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "grid-col-span", Prefix::Text("CS"), Some(cs), "") {
-            let span = v.round().clamp(1.0, 12.0) as u16;
+            let span = v.round().clamp(1.0, designos_doc::MAX_GRID_TRACKS as f32) as u16;
             app.edit_nodes(sel, |n| n.layout_child.col_span = span);
         }
         if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "grid-row-span", Prefix::Text("RS"), Some(rs), "") {
-            let span = v.round().clamp(1.0, 12.0) as u16;
+            let span = v.round().clamp(1.0, designos_doc::MAX_GRID_TRACKS as f32) as u16;
             app.edit_nodes(sel, |n| n.layout_child.row_span = span);
+        }
+        row_end(pane);
+    }
+    if parent_in_auto_layout && has_child_margins(n0) {
+        sublabel(ui, pane, "Margin");
+        let [mt, mr, mb, ml] = n0.layout_child.margin;
+        if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "margin-l", Prefix::Text("L"), Some(ml), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[3] = v);
+        }
+        if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "margin-r", Prefix::Text("R"), Some(mr), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[1] = v);
+        }
+        row_end(pane);
+        if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "margin-t", Prefix::Text("T"), Some(mt), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[0] = v);
+        }
+        if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "margin-b", Prefix::Text("B"), Some(mb), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[2] = v);
         }
         row_end(pane);
     }
 }
 
-fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a: AutoLayout, n0: &Node, parent_al: bool) {
+pub fn has_child_margins(n: &Node) -> bool {
+    n.layout_child.margin != [0.0; 4]
+}
+
+fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a: &AutoLayout, n0: &Node, parent_al: bool) {
     sublabel(ui, pane, "Flow");
     // Horizontal and Vertical are the direction, Wrap is a toggle on top of either, Grid replaces both.
     let grid = a.direction == LayoutDirection::Grid;
@@ -1123,11 +1141,11 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         let cols = a.grid_columns.max(1) as f32;
         let rows = a.grid_rows as f32;
         if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "grid-cols", Prefix::Text("C"), Some(cols), "") {
-            let c = v.round().clamp(1.0, 12.0) as u32;
+            let c = v.round().clamp(1.0, designos_doc::MAX_GRID_TRACKS as f32) as u32;
             update_al(app, sel, |al| al.grid_columns = c);
         }
         if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "grid-rows", Prefix::Text("R"), Some(rows), "") {
-            let r = v.round().clamp(0.0, 12.0) as u32;
+            let r = v.round().clamp(0.0, designos_doc::MAX_GRID_TRACKS as f32) as u32;
             update_al(app, sel, |al| al.grid_rows = r);
         }
         row_end(pane);
@@ -1209,7 +1227,7 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
 }
 
 /// Gap between the wrapped lines and how the lines spread across the counter axis.
-fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a: AutoLayout) {
+fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a: &AutoLayout) {
     sublabel(ui, pane, "Wrap");
     // horizontal wrap stacks rows (a vertical gap), vertical wrap stacks columns (a horizontal gap)
     let icon = if a.direction == LayoutDirection::Horizontal { Icon::PaddingV } else { Icon::PaddingH };
@@ -1225,7 +1243,7 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
 }
 
 /// The Auto spacing popup: Between, Around or Evenly, or back to packed items.
-fn auto_spacing_menu(app: &mut App, ui: &mut Ui, sel: &[NodeId], a: AutoLayout, anchor: Rect, toggle: bool) {
+fn auto_spacing_menu(app: &mut App, ui: &mut Ui, sel: &[NodeId], a: &AutoLayout, anchor: Rect, toggle: bool) {
     let id = ui.id().with("al-auto-spacing-menu");
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false) != toggle;
     ui.data_mut(|d| d.insert_temp(id, open));
@@ -2260,6 +2278,14 @@ mod tests {
     }
 
     #[test]
+    fn child_margins_hidden_when_zero_and_visible_when_set() {
+        let mut n = Node::rectangle(NodeId(2), designos_doc::Rect::new(0.0, 0.0, 40.0, 20.0));
+        assert!(!has_child_margins(&n));
+        n.layout_child.margin = [4.0, 0.0, 0.0, 0.0];
+        assert!(has_child_margins(&n));
+    }
+
+    #[test]
     fn grid_frame_sizing_of_and_set_sizing_follow_horizontal_primary_convention() {
         let mut doc = designos_doc::Document::new("test");
         let page = doc.add_page("Page 1");
@@ -2285,7 +2311,7 @@ mod tests {
         set_sizing(&mut app, &[gid], true, Sizing::Fixed);
         set_sizing(&mut app, &[gid], false, Sizing::Hug);
         let n = app.doc.get(gid).unwrap();
-        let al = n.kind.frame_props().unwrap().auto_layout.unwrap();
+        let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!((al.primary_sizing, al.counter_sizing), (Sizing::Fixed, Sizing::Hug));
         assert_eq!((sizing_of(n, true), sizing_of(n, false)), (Sizing::Fixed, Sizing::Hug));
     }

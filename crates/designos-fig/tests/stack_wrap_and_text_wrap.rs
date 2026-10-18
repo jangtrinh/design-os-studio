@@ -29,7 +29,7 @@ fn named<'a>(doc: &'a Document, name: &str) -> &'a Node {
 }
 
 fn auto_layout(doc: &Document) -> AutoLayout {
-    named(doc, "Stack").kind.frame_props().and_then(|f| f.auto_layout).expect("auto layout")
+    named(doc, "Stack").kind.frame_props().and_then(|f| f.auto_layout.clone()).expect("auto layout")
 }
 
 fn text_wrap(doc: &Document) -> TextWrap {

@@ -64,7 +64,8 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let Some(n) = doc.get(id) else { return false };
     let children = n.children.clone();
     // gap / padding / stroke weight bound to variables count with the value of the mode in effect
-    let Some((al, stroke)) = doc.get(id).map(|n| resolve_node(doc, n)).and_then(|n| Some((n.kind.frame_props()?.auto_layout?, n.stroke.clone()))) else {
+    let Some((al, stroke)) = doc.get(id).map(|n| resolve_node(doc, n)).and_then(|n| Some((n.kind.frame_props()?.auto_layout.clone()?, n.stroke.clone())))
+    else {
         return false;
     };
     let horiz = al.direction != LayoutDirection::Vertical;

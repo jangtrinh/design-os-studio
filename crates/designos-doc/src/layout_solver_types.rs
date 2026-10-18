@@ -65,6 +65,8 @@ pub struct ChildIn {
     pub align_self: AlignSelf,
     pub limits: SizeLimits,
     pub cell: GridCell,
+    /// Per-child margins `[top, right, bottom, left]`.
+    pub margin: [f32; 4],
 }
 
 impl ChildIn {
@@ -79,6 +81,7 @@ impl ChildIn {
             align_self: lc.align_self,
             limits: SizeLimits::from(lc),
             cell: GridCell { column: lc.grid_column, row: lc.grid_row, col_span: lc.col_span.max(1), row_span: lc.row_span.max(1) },
+            margin: lc.margin,
         }
     }
 
@@ -92,7 +95,7 @@ impl LayoutChild {
     /// The axis a flow `parent` stretches its children along: `Some(true)` for width (vertical flow),
     /// `Some(false)` for height (horizontal and grid flows), `None` when `parent` is not an auto-layout frame.
     pub fn counter_axis_is_horizontal(parent: &Node) -> Option<bool> {
-        let al = parent.kind.frame_props()?.auto_layout?;
+        let al = parent.kind.frame_props()?.auto_layout.as_ref()?;
         Some(al.direction == LayoutDirection::Vertical)
     }
 

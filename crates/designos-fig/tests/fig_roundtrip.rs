@@ -41,7 +41,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     assert_eq!(card.size, Vec2::new(200.0, 300.0));
     assert_eq!(card.corner_radii, [12.0; 4]);
     let f = card.kind.frame_props().expect("Card is a frame");
-    let al = f.auto_layout.expect("Card has auto_layout");
+    let al = f.auto_layout.as_ref().expect("Card has auto_layout");
     assert_eq!(al.direction, LayoutDirection::Vertical);
     assert_eq!(al.padding, [12.0, 16.0, 12.0, 16.0]);
 
@@ -204,7 +204,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
 
     let imp_comp = find(&rich_imp, "PrimaryButton");
     assert_eq!(imp_comp.dev.status, Some(DevStatus::ReadyForDev));
-    let imp_al = imp_comp.kind.frame_props().unwrap().auto_layout.expect("auto_layout");
+    let imp_al = imp_comp.kind.frame_props().unwrap().auto_layout.as_ref().expect("auto_layout");
     assert_eq!(imp_al.direction, LayoutDirection::Horizontal);
     assert_eq!(imp_al.padding, [8.0, 16.0, 12.0, 20.0]);
     assert_eq!(imp_al.item_spacing, 10.0);
@@ -1079,7 +1079,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
 
     // Verify GAP-04 on V106Grid and V106GridCell
     let grid = find(&doc, "V106Grid");
-    let grid_al = grid.kind.frame_props().unwrap().auto_layout.unwrap();
+    let grid_al = grid.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!(grid_al.direction, LayoutDirection::Grid);
     assert_eq!(grid_al.item_spacing, 16.0);
     assert_eq!(grid_al.counter_spacing, 24.0);
@@ -1098,7 +1098,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
 
     // Verify GAP-05 & GAP-06 on ButtonInst and its cloned child BtnBg
     let btn_inst = find(&doc, "ButtonInst");
-    let btn_inst_al = btn_inst.kind.frame_props().unwrap().auto_layout.unwrap();
+    let btn_inst_al = btn_inst.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!(btn_inst_al.primary_sizing, Sizing::Fixed);
     assert_eq!(btn_inst_al.counter_sizing, Sizing::Fixed);
     let inst_bg = btn_inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "BtnBg").expect("BtnBg in ButtonInst");
@@ -1148,7 +1148,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
     let bytes = export_fig(&doc).expect("export_fig");
     let rt = import_fig(&bytes).expect("import_fig");
     let rt_grid = find(&rt, "V106Grid");
-    let rt_al = rt_grid.kind.frame_props().unwrap().auto_layout.unwrap();
+    let rt_al = rt_grid.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!(&rt_al.grid_col_tracks[..4], &[GridTrack::Flex(1.0), GridTrack::Flex(2.0), GridTrack::Fixed(120.0), GridTrack::Hug]);
     let rt_header = find(&rt, "HeaderBar");
     assert!(rt_header.variables.bindings.contains_key("visible"));
@@ -1515,6 +1515,114 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     let rt_inst_child = rt_inst.children.iter().filter_map(|id| rt.get(*id)).find(|n| n.name == "VariantBtnChild").expect("VariantBtnChild after roundtrip");
     assert_eq!(rt_inst_child.component.override_level, Some(1));
     assert_eq!(rt_inst_child.component.detached_symbol_id.as_deref(), Some("guid:1:20"));
+}
+
+#[test]
+fn roundtrip_stack_child_margins_606_to_609() {
+    let mut doc = Document::new("ChildMarginsTest");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 120.0));
+    frame.name = "MarginFrame".into();
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.auto_layout =
+            Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 8.0, padding: [10.0, 10.0, 10.0, 10.0], ..Default::default() });
+    }
+    doc.insert(page, frame).unwrap();
+
+    let cid = doc.alloc_id();
+    let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 80.0, 40.0));
+    child.name = "MarginChild".into();
+    child.layout_child.margin = [6.0, 12.0, 18.0, 24.0];
+    doc.insert(fid, child).unwrap();
+
+    let bytes = export_fig(&doc).expect("export_fig with child margins");
+    let rt = import_fig(&bytes).expect("import_fig with child margins");
+    let rt_child = find(&rt, "MarginChild");
+    assert_eq!(rt_child.layout_child.margin, [6.0, 12.0, 18.0, 24.0]);
+}
+
+#[test]
+fn roundtrip_twelve_track_grid_columns_and_rows() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {
+            "guid": g(0, 0),
+            "type": "DOCUMENT",
+            "name": "Doc"
+        },
+        {
+            "guid": g(0, 1),
+            "parentIndex": {"guid": g(0, 0), "position": "!"},
+            "type": "CANVAS",
+            "name": "Page 1"
+        },
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "FRAME",
+            "name": "TwelveColGrid",
+            "size": {"x": 1200.0, "y": 800.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
+            "stackMode": "GRID",
+            "gridColumns": 12,
+            "gridRows": 10,
+            "gridColumnsSizing": "1fr 2fr 80px auto 1fr 100px auto 2fr 90px 3fr 110px auto",
+            "gridRowsSizing": "60px auto 1fr 80px 2fr auto 70px 1fr 90px auto"
+        }
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "TwelveTrackGrid").expect("import 12-track grid");
+    let expected_cols = [
+        GridTrack::Flex(1.0),
+        GridTrack::Flex(2.0),
+        GridTrack::Fixed(80.0),
+        GridTrack::Hug,
+        GridTrack::Flex(1.0),
+        GridTrack::Fixed(100.0),
+        GridTrack::Hug,
+        GridTrack::Flex(2.0),
+        GridTrack::Fixed(90.0),
+        GridTrack::Flex(3.0),
+        GridTrack::Fixed(110.0),
+        GridTrack::Hug,
+    ];
+    let expected_rows = [
+        GridTrack::Fixed(60.0),
+        GridTrack::Hug,
+        GridTrack::Flex(1.0),
+        GridTrack::Fixed(80.0),
+        GridTrack::Flex(2.0),
+        GridTrack::Hug,
+        GridTrack::Fixed(70.0),
+        GridTrack::Flex(1.0),
+        GridTrack::Fixed(90.0),
+        GridTrack::Hug,
+    ];
+
+    let grid = find(&doc, "TwelveColGrid");
+    let al = grid.kind.frame_props().unwrap().auto_layout.as_ref().expect("grid auto_layout");
+    assert_eq!(al.grid_columns, 12);
+    assert_eq!(al.grid_rows, 10);
+    for (i, exp) in expected_cols.iter().enumerate() {
+        assert_eq!(al.grid_col_tracks.get(i), Some(exp), "imported col track {i}");
+    }
+    for (i, exp) in expected_rows.iter().enumerate() {
+        assert_eq!(al.grid_row_tracks.get(i), Some(exp), "imported row track {i}");
+    }
+
+    let bytes = export_fig(&doc).expect("export_fig 12-track grid");
+    let rt = import_fig(&bytes).expect("re-import_fig 12-track grid");
+    let rt_grid = find(&rt, "TwelveColGrid");
+    let rt_al = rt_grid.kind.frame_props().unwrap().auto_layout.as_ref().expect("roundtrip grid auto_layout");
+    assert_eq!(rt_al.grid_columns, 12);
+    assert_eq!(rt_al.grid_rows, 10);
+    for (i, exp) in expected_cols.iter().enumerate() {
+        assert_eq!(rt_al.grid_col_tracks.get(i), Some(exp), "roundtrip col track {i}");
+    }
+    for (i, exp) in expected_rows.iter().enumerate() {
+        assert_eq!(rt_al.grid_row_tracks.get(i), Some(exp), "roundtrip row track {i}");
+    }
 }
 
 #[test]

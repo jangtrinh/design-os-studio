@@ -259,7 +259,7 @@ fn auto_layout_shortcut_wraps() {
     s.mods = Modifiers::NONE;
     let id = s.app().selection[0];
     let n = s.app().doc.get(id).unwrap();
-    assert!(n.kind.frame_props().and_then(|f| f.auto_layout).is_some());
+    assert!(n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some());
 }
 
 #[test]

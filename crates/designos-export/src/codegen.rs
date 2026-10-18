@@ -313,17 +313,17 @@ pub(crate) enum Dim {
 
 /// The auto-layout parent context of a node.
 #[derive(Clone, Copy)]
-pub(crate) struct Parent {
-    pub al: Option<AutoLayout>,
+pub(crate) struct Parent<'a> {
+    pub al: Option<&'a AutoLayout>,
     pub root: bool,
 }
 
-impl Parent {
+impl<'a> Parent<'a> {
     pub fn root() -> Self {
         Self { al: None, root: true }
     }
-    pub fn of(n: &Node) -> Self {
-        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout), root: false }
+    pub fn of(n: &'a Node) -> Self {
+        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()), root: false }
     }
 }
 
@@ -338,7 +338,7 @@ pub(crate) struct Sizes {
 
 /// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
 /// grid as a column, so every parent that is not `Horizontal` counts as one.
-pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
+pub(crate) fn sizes(n: &Node, parent: Parent<'_>) -> Sizes {
     let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
     sizes_along(n, parent, row_parent)
 }
@@ -348,10 +348,10 @@ pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
 ///   `grow` stretches an item across its cell and leaves its height alone;
 /// - a grid frame that hugs still exports the size the solver gave it, because its `1fr` tracks
 ///   only split an explicit size (the tracks themselves stay fractions of that size).
-pub(crate) fn web_sizes(n: &Node, parent: Parent) -> Sizes {
+pub(crate) fn web_sizes(n: &Node, parent: Parent<'_>) -> Sizes {
     let row_parent = parent.al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
     let mut sz = sizes_along(n, parent, row_parent);
-    if n.kind.frame_props().and_then(|f| f.auto_layout).is_some_and(|a| a.direction == LayoutDirection::Grid) {
+    if n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|a| a.direction == LayoutDirection::Grid) {
         if sz.w == Dim::Hug {
             sz.w = Dim::Fixed(n.size.x);
         }
@@ -362,9 +362,9 @@ pub(crate) fn web_sizes(n: &Node, parent: Parent) -> Sizes {
     sz
 }
 
-fn sizes_along(n: &Node, parent: Parent, row_parent: bool) -> Sizes {
+fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
     let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
     let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
@@ -392,7 +392,7 @@ fn sizes_along(n: &Node, parent: Parent, row_parent: bool) -> Sizes {
 }
 
 /// Position offset for children that are not placed by auto layout.
-pub(crate) fn offset(n: &Node, parent: Parent, sz: &Sizes) -> Option<(f32, f32)> {
+pub(crate) fn offset(n: &Node, parent: Parent<'_>, sz: &Sizes) -> Option<(f32, f32)> {
     if parent.root || sz.in_flow {
         return None;
     }
@@ -541,7 +541,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     // padding: expand to a 4-value shorthand when any side is bound
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if sides.iter().any(|k| bound(doc, n, k).is_some()) {
-        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));
             let value = css_box(&vals);
@@ -894,7 +894,7 @@ mod tests {
         let al = AutoLayout { direction: LayoutDirection::Grid, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
         let mut item = Node::rectangle(NodeId(2), Rect::new(0.0, 0.0, 80.0, 40.0));
         item.layout_child.grow = 1.0;
-        let parent = Parent { al: Some(al), root: false };
+        let parent = Parent { al: Some(&al), root: false };
         // SwiftUI, UIKit, Compose and Android XML emit a grid as a column, where `grow` fills the height.
         let stack = sizes(&item, parent);
         assert!(!stack.row_parent);
@@ -907,7 +907,7 @@ mod tests {
         // A grid frame always exports the size the solver gave it, even when it hugs.
         let mut grid = Node::frame(NodeId(3), Rect::new(0.0, 0.0, 120.0, 30.0));
         if let NodeKind::Frame(fp) = &mut grid.kind {
-            fp.auto_layout = Some(al);
+            fp.auto_layout = Some(al.clone());
         }
         assert_eq!((sizes(&grid, Parent::root()).w, sizes(&grid, Parent::root()).h), (Dim::Hug, Dim::Hug));
         assert_eq!((web_sizes(&grid, Parent::root()).w, web_sizes(&grid, Parent::root()).h), (Dim::Fixed(120.0), Dim::Fixed(30.0)));
