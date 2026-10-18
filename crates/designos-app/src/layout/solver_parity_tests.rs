@@ -1453,3 +1453,27 @@ fn grid_child_with_auto_alignment_inherits_the_frame_alignment_on_each_axis() {
     });
     assert_eq!(solve_everywhere(al, v2(100.0, 100.0), &[start_h]).kids[0], [0.0, 80.0, 40.0, 20.0]);
 }
+
+#[test]
+fn grid_child_alignment_centres_the_margin_box_inside_its_cell() {
+    use designos_doc::GridChildAlign;
+
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    // Margin [top 10, right 0, bottom 30, left 20] leaves an 80 x 60 area that starts at (20, 10) inside the cell.
+    let aligned = |h: GridChildAlign, v: GridChildAlign| {
+        kid_with(40.0, 20.0, |lc| {
+            lc.margin = [10.0, 0.0, 30.0, 20.0];
+            lc.grid_align_h = h;
+            lc.grid_align_v = v;
+        })
+    };
+    let frame = v2(100.0, 100.0);
+    let at = |h, v| solve_everywhere(al.clone(), frame, &[aligned(h, v)]).kids[0];
+    assert_eq!(at(GridChildAlign::Start, GridChildAlign::Start), [20.0, 10.0, 40.0, 20.0]);
+    assert_eq!(at(GridChildAlign::Center, GridChildAlign::Center), [40.0, 30.0, 40.0, 20.0]);
+    // End puts the child's margin box against the far edge of the cell: right margin 0, bottom margin 30.
+    assert_eq!(at(GridChildAlign::End, GridChildAlign::End), [60.0, 50.0, 40.0, 20.0]);
+}
