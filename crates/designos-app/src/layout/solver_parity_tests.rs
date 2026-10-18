@@ -1604,3 +1604,134 @@ fn version_0_with_stroke_included_adds_stroke_inset_while_version_1_keeps_border
     assert_eq!(v1.kids[0], [16.0, 10.0, 50.0, 20.0]);
     assert_eq!(v1.kids[1], [74.0, 10.0, 30.0, 20.0]);
 }
+
+#[test]
+fn grid_child_aligns_horizontally_and_vertically_within_its_cell() {
+    use designos_doc::GridChildAlign;
+
+    // 1. A centred 40x20 child sits centred at (30, 40) inside a 100x100 cell.
+    let mut al_single = grid(1);
+    al_single.grid_rows = 1;
+    al_single.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al_single.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    let centered = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let solved_single = solve_everywhere(al_single, v2(100.0, 100.0), &[centered]);
+    assert_eq!(solved_single.kids[0], [30.0, 40.0, 40.0, 20.0]);
+
+    // 2. 2x2 grid of 100x100 cells with 10px gap: Start/Start, Center/Center, End/End, and Fill+Center.
+    let mut al = two_fixed_columns();
+    al.grid_rows = 2;
+    al.counter_spacing = 10.0;
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[1] = GridTrack::Fixed(100.0);
+    let k_start = kid(40.0, 20.0);
+    let k_center = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let k_end = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::End;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let k_fill_h_end_v = kid_with(40.0, 20.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let solved = solve_everywhere(al, v2(210.0, 210.0), &[k_start, k_center, k_end, k_fill_h_end_v]);
+    assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[1], [140.0, 40.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[2], [60.0, 190.0, 40.0, 20.0]);
+    assert_eq!(solved.kids[3], [110.0, 190.0, 100.0, 20.0]);
+}
+
+#[test]
+fn grid_child_larger_than_its_cell_overflows_like_the_flow_cross_axis() {
+    use designos_doc::GridChildAlign;
+
+    // One 100x100 cell holding a 160x40 child: the slack is negative on x (-60) and positive on y (60).
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    let centered = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let ended = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::End;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let started = kid(160.0, 40.0);
+    // Centre overflows evenly on both sides (x = -30), End overflows past the near edge only (x = -60), Start stays pinned.
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[centered]).kids[0], [-30.0, 30.0, 160.0, 40.0]);
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[ended]).kids[0], [-60.0, 60.0, 160.0, 40.0]);
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[started]).kids[0], [0.0, 0.0, 160.0, 40.0]);
+
+    // Auto follows the frame's alignment, so a Center frame overflows the same way.
+    al.primary_align = LayoutAlign::Center;
+    al.counter_align = LayoutAlign::Center;
+    let auto_child = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Auto;
+        lc.grid_align_v = GridChildAlign::Auto;
+    });
+    assert_eq!(solve_everywhere(al, v2(100.0, 100.0), &[auto_child]).kids[0], [-30.0, 30.0, 160.0, 40.0]);
+}
+
+#[test]
+fn grid_child_with_auto_alignment_inherits_the_frame_alignment_on_each_axis() {
+    use designos_doc::GridChildAlign;
+
+    let auto_kid = || {
+        kid_with(40.0, 20.0, |lc| {
+            lc.grid_align_h = GridChildAlign::Auto;
+            lc.grid_align_v = GridChildAlign::Auto;
+        })
+    };
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+
+    // A Start frame leaves an Auto child at the cell origin.
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[auto_kid()]).kids[0], [0.0, 0.0, 40.0, 20.0]);
+
+    // Primary (columns, x) Center and counter (rows, y) End: the Auto child centres on x and ends on y.
+    al.primary_align = LayoutAlign::Center;
+    al.counter_align = LayoutAlign::End;
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[auto_kid()]).kids[0], [30.0, 80.0, 40.0, 20.0]);
+
+    // An explicit Start on one axis overrides the frame; the other axis still inherits.
+    let start_h = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Start;
+        lc.grid_align_v = GridChildAlign::Auto;
+    });
+    assert_eq!(solve_everywhere(al, v2(100.0, 100.0), &[start_h]).kids[0], [0.0, 80.0, 40.0, 20.0]);
+}
+
+#[test]
+fn grid_child_alignment_centres_the_margin_box_inside_its_cell() {
+    use designos_doc::GridChildAlign;
+
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    // Margin [top 10, right 0, bottom 30, left 20] leaves an 80 x 60 area that starts at (20, 10) inside the cell.
+    let aligned = |h: GridChildAlign, v: GridChildAlign| {
+        kid_with(40.0, 20.0, |lc| {
+            lc.margin = [10.0, 0.0, 30.0, 20.0];
+            lc.grid_align_h = h;
+            lc.grid_align_v = v;
+        })
+    };
+    let frame = v2(100.0, 100.0);
+    let at = |h, v| solve_everywhere(al.clone(), frame, &[aligned(h, v)]).kids[0];
+    assert_eq!(at(GridChildAlign::Start, GridChildAlign::Start), [20.0, 10.0, 40.0, 20.0]);
+    assert_eq!(at(GridChildAlign::Center, GridChildAlign::Center), [40.0, 30.0, 40.0, 20.0]);
+    // End puts the child's margin box against the far edge of the cell: right margin 0, bottom margin 30.
+    assert_eq!(at(GridChildAlign::End, GridChildAlign::End), [60.0, 50.0, 40.0, 20.0]);
+}

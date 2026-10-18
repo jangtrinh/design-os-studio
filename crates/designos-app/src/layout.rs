@@ -624,8 +624,12 @@ mod tests {
         // 2. An explicitly placed item reserves its cell, and spans are respected.
         let kids = vec![
             kid(40.0, 20.0),
-            ChildIn { size: v2(40.0, 50.0), cell: GridCell { row: Some(0), column: Some(1), col_span: 1, row_span: 2 }, ..Default::default() },
-            ChildIn { size: v2(80.0, 20.0), cell: GridCell { row: None, column: None, col_span: 2, row_span: 1 }, ..Default::default() },
+            ChildIn {
+                size: v2(40.0, 50.0),
+                cell: GridCell { row: Some(0), column: Some(1), col_span: 1, row_span: 2, ..Default::default() },
+                ..Default::default()
+            },
+            ChildIn { size: v2(80.0, 20.0), cell: GridCell { row: None, column: None, col_span: 2, row_span: 1, ..Default::default() }, ..Default::default() },
             kid(40.0, 20.0),
         ];
         let out_span = compute(&al, v2(320.0, 100.0), &kids);
