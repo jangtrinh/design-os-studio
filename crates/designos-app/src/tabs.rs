@@ -225,6 +225,16 @@ impl TabsState {
         tab.dirty = app.hist.can_undo() || tab.hist.can_undo() || app.autosave.pending();
     }
 
+    /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
+    /// `flush_autosave` and `go_home` write `app.doc` to `app.lib_file`; a file still attached to an
+    /// emptied document would be overwritten by the next of them. The parked tab keeps its own
+    /// `lib_file`, and `apply_to_app` attaches the next tab's file together with its document. Callers
+    /// flush the document before taking it, never after.
+    fn take_live_doc(app: &mut App) -> Document {
+        app.lib_file = None;
+        std::mem::take(&mut app.doc)
+    }
+
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, and `app.terminal` into `entries[active_idx]`).
     fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
@@ -235,7 +245,7 @@ impl TabsState {
             let id = self.alloc_id();
             let sid = self.session_id_for_tab(id);
             let mut tab = ProjectTab::from_app(id, app, None);
-            tab.doc = std::mem::take(&mut app.doc);
+            tab.doc = Self::take_live_doc(app);
             tab.hist = std::mem::take(&mut app.hist);
             app.terminal.bind_session(&sid);
             tab.terminal = std::mem::take(&mut app.terminal);
@@ -251,7 +261,7 @@ impl TabsState {
                 let sid = self.session_id_for_tab(active_id);
                 app.terminal.bind_session(&sid);
                 if self.entries[self.active_idx].doc.nodes.is_empty() {
-                    self.entries[self.active_idx].doc = std::mem::take(&mut app.doc);
+                    self.entries[self.active_idx].doc = Self::take_live_doc(app);
                 }
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
                 self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
@@ -268,7 +278,7 @@ impl TabsState {
             let active_id = self.entries[self.active_idx].id;
             let sid = self.session_id_for_tab(active_id);
             app.terminal.bind_session(&sid);
-            self.entries[self.active_idx].doc = std::mem::take(&mut app.doc);
+            self.entries[self.active_idx].doc = Self::take_live_doc(app);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
             self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
             self.entries[self.active_idx].dirty = self.entries[self.active_idx].hist.can_undo() || app.autosave.pending();
@@ -351,6 +361,9 @@ impl TabsState {
     /// Switches to the `Home` screen while keeping all open project tabs intact in the Top Tab Bar.
     pub fn enter_home(&mut self, app: &mut App) {
         if app.home.is_none() {
+            // The closing version needs the live document and its file, which parking detaches.
+            crate::decks::ui::flush_notes(app);
+            app.save_close_version();
             self.park_active_from_app(app);
         }
         self.parked_in_home = true;
@@ -1447,6 +1460,136 @@ mod tests {
         // Reopening from the library shows the edit.
         app.open_library_file(&file_id);
         assert!(app.doc.nodes.values().any(|n| n.name == "Edited"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two library files, each with one rectangle; returns the library, its directory and both files (id, rectangle).
+    fn library_with_two_files(tag: &str) -> (designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
+        let (lib, dir, id_a, rect_a) = library_with_one_file(tag);
+        let project = lib.list_projects().remove(0);
+        let mut doc = Document::new("Other");
+        let page = doc.add_page("Page 1");
+        let rect_id = doc.alloc_id();
+        let rect_b = doc.insert(page, Node::rectangle(rect_id, DRect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let entry = lib.create_file(&project.id, None, "Other", &doc).unwrap();
+        (lib, dir, (id_a, rect_a), (entry.id, rect_b))
+    }
+
+    /// One `reconcile_frame`, as the shell runs every frame.
+    fn reconcile(app: &mut App) {
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(app);
+        app.tabs = tabs;
+    }
+
+    /// The production route to two open library tabs, file B active and unedited: Home, open A from Home,
+    /// the tab-bar Home click, open B from Home. Opening goes through `App::open_library_file` (what the
+    /// Home screen calls) and the tab entries are created by `reconcile_frame`, never by `open_or_focus_lib_file`.
+    fn two_library_tabs_opened_from_home(tag: &str) -> (App, designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
+        let (lib, dir, a, b) = library_with_two_files(tag);
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.go_home();
+        reconcile(&mut app);
+        app.open_library_file(&a.0);
+        reconcile(&mut app);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.enter_home(&mut app);
+        app.tabs = tabs;
+        reconcile(&mut app);
+        app.open_library_file(&b.0);
+        reconcile(&mut app);
+        assert_eq!(app.tabs.entries.len(), 2, "both files are open in tabs");
+        assert_eq!(app.tabs.active_idx, 1);
+        assert_eq!(app.lib_file.as_ref().map(|f| f.id.as_str()), Some(b.0.as_str()));
+        (app, lib, dir, a, b)
+    }
+
+    /// The file keeps its content and none of its stored versions is empty.
+    fn assert_library_file_and_versions_not_emptied(lib: &designos_library::Library, file_id: &str, what: &str) {
+        assert!(lib.load_file(file_id).unwrap().nodes.len() >= 2, "{what}: the file on disk was emptied");
+        for v in lib.list_versions(file_id) {
+            assert!(lib.load_version(file_id, v.n).unwrap().nodes.len() >= 2, "{what}: stored version {} is empty", v.n);
+        }
+    }
+
+    /// Edits the active tab (file B) without letting autosave run, leaves it with `leave`, and checks the disk.
+    fn leaving_the_edited_tab_saves_it(name: &str, leave: fn(&mut TabsState, &mut App)) {
+        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home(&format!("park_{name}"));
+        edit_unsaved(&mut app, &lib, &b.0, b.1);
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        leave(&mut tabs, &mut app);
+        app.tabs = tabs;
+
+        assert!(disk_has_edit(&lib, &b.0), "{name}: the edit made before leaving the tab is on disk");
+        assert_library_file_and_versions_not_emptied(&lib, &b.0, name);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switching_tabs_keeps_the_unsaved_edit_of_the_tab_left() {
+        leaving_the_edited_tab_saves_it("switch_to", |t, a| t.switch_to(0, a));
+    }
+
+    #[test]
+    fn clicking_home_keeps_the_unsaved_edit_of_the_tab_left() {
+        leaving_the_edited_tab_saves_it("enter_home", |t, a| t.enter_home(a));
+    }
+
+    #[test]
+    fn closing_other_tabs_keeps_the_unsaved_edit_of_the_tab_left() {
+        leaving_the_edited_tab_saves_it("close_other_tabs", |t, a| t.close_other_tabs(0, a));
+    }
+
+    #[test]
+    fn clicking_home_stores_the_closing_version_with_the_edit() {
+        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_home_version");
+        edit_unsaved(&mut app, &lib, &b.0, b.1);
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.enter_home(&mut app);
+        app.tabs = tabs;
+
+        let versions = lib.list_versions(&b.0);
+        assert_eq!(versions.len(), 1, "leaving the file stores one automatic version");
+        assert!(versions[0].auto);
+        assert!(lib.load_version(&b.0, versions[0].n).unwrap().nodes.values().any(|n| n.name == "Edited"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switching_tabs_from_home_reached_by_back_to_files_does_not_empty_the_file() {
+        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_back_to_files");
+        edit_unsaved(&mut app, &lib, &b.0, b.1);
+        app.go_home();
+        assert!(disk_has_edit(&lib, &b.0), "Back to files saves the edit");
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(0, &mut app);
+        app.tabs = tabs;
+
+        assert!(disk_has_edit(&lib, &b.0));
+        assert_library_file_and_versions_not_emptied(&lib, &b.0, "switch_to after Back to files");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clicking_home_on_a_library_tab_without_edits_does_not_empty_its_file() {
+        let (lib, dir, a, _b) = library_with_two_files("park_clean_home");
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.go_home();
+        reconcile(&mut app);
+        app.open_library_file(&a.0);
+        reconcile(&mut app);
+        assert_eq!(app.tabs.entries.len(), 1);
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.enter_home(&mut app);
+        app.tabs = tabs;
+
+        assert_library_file_and_versions_not_emptied(&lib, &a.0, "enter_home without an edit");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
