@@ -338,7 +338,10 @@ fn a_new_instance_starts_with_no_slot_assignments() {
     let inst = instances_of(&d, comp)[0];
     assert!(d.get(inst).unwrap().component.slot_content_ids.is_empty(), "the master's definition ids are not assignments");
     assert_eq!(d.get(comp).unwrap().component.slot_content_ids.len(), 2, "the master keeps its own");
-    assert_eq!(d.get(inst).unwrap().component.slot_content_id.as_deref(), Some("7:1"), "the node's own id is not touched");
+    // The node's own id is unique per node: a copy never inherits it, and clearing the per-property
+    // assignments never derives or rewrites it.
+    assert_eq!(d.get(comp).unwrap().component.slot_content_id.as_deref(), Some("7:1"), "the master keeps its own node id");
+    assert_eq!(d.get(inst).unwrap().component.slot_content_id, None, "a new instance must not share the master's node id");
 }
 
 #[test]
