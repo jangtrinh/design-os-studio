@@ -1686,15 +1686,28 @@ fn encode_matrix(xf: &Affine) -> V {
     st(vec![("m00", fl_one(xf.a)), ("m01", fl(xf.c)), ("m02", fl(xf.tx)), ("m10", fl(xf.b)), ("m11", fl_one(xf.d)), ("m12", fl(xf.ty))])
 }
 
-fn gradient_matrix_from_handles(h: &[Vec2; 3]) -> V {
-    // Inverse of `fig.rs` `convert_paint`: `inv` maps `(0, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0, 1.0) -> h[2]`.
-    let inv = Affine {
-        a: h[1].x - h[0].x,
-        b: h[1].y - h[0].y,
-        c: 2.0 * (h[2].x - h[0].x),
-        d: 2.0 * (h[2].y - h[0].y),
-        tx: 2.0 * h[0].x - h[2].x,
-        ty: 2.0 * h[0].y - h[2].y,
+fn gradient_matrix_from_handles(ty: &str, h: &[Vec2; 3]) -> V {
+    // Inverse of `fig.rs` `convert_paint`:
+    // - `GRADIENT_LINEAR`: `inv` maps `(0, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0, 1.0) -> h[2]`.
+    // - `GRADIENT_RADIAL` / `GRADIENT_ANGULAR` / `GRADIENT_DIAMOND`: `inv` maps `(0.5, 0.5) -> h[0]`, `(1, 0.5) -> h[1]`, `(0.5, 1.0) -> h[2]`.
+    let inv = if ty == "GRADIENT_LINEAR" {
+        Affine {
+            a: h[1].x - h[0].x,
+            b: h[1].y - h[0].y,
+            c: 2.0 * (h[2].x - h[0].x),
+            d: 2.0 * (h[2].y - h[0].y),
+            tx: 2.0 * h[0].x - h[2].x,
+            ty: 2.0 * h[0].y - h[2].y,
+        }
+    } else {
+        Affine {
+            a: 2.0 * (h[1].x - h[0].x),
+            b: 2.0 * (h[1].y - h[0].y),
+            c: 2.0 * (h[2].x - h[0].x),
+            d: 2.0 * (h[2].y - h[0].y),
+            tx: 3.0 * h[0].x - h[1].x - h[2].x,
+            ty: 3.0 * h[0].y - h[1].y - h[2].y,
+        }
     };
     let xf = inv.invert().unwrap_or(Affine::IDENTITY);
     encode_matrix(&xf)
@@ -1713,7 +1726,7 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
         fields.push(("type", en(ty)));
         let st_list: Vec<V> = stops.iter().map(|s| st(vec![("color", color(s.color.r, s.color.g, s.color.b, s.color.a)), ("position", fl(s.pos))])).collect();
         fields.push(("stops", V::Array(st_list)));
-        fields.push(("transform", gradient_matrix_from_handles(handles)));
+        fields.push(("transform", gradient_matrix_from_handles(ty, handles)));
     };
     match &p.kind {
         PaintKind::Solid(c) => {

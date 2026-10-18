@@ -108,3 +108,23 @@ fn diamond_gradient_is_four_fold_symmetric() {
         last = r;
     }
 }
+
+#[test]
+fn radial_gradient_on_non_square_frame_centres_and_reaches_all_four_edges() {
+    let mut t = T::new();
+    let r = t.rect(None, Rect::new(0.0, 0.0, 200.0, 100.0), RED);
+    // 90°-rotated handles from .fig radial gradient centered at (0.5, 0.5) with radius (0.5, 0.5)
+    let handles = [Vec2::new(0.5, 0.5), Vec2::new(0.5, 1.0), Vec2::new(0.0, 0.5)];
+    t.node(r).fills = vec![paint(PaintKind::RadialGradient { handles, stops: vec![stop(0.0, RED), stop(1.0, BLUE)] })];
+    let pm = t.render(200, 100);
+    // Centre (100, 50) is pure inner stop (RED)
+    assert!(near(px(&pm, 100, 50), [255, 0, 0, 255], 6), "centre (100, 50): {:?}", px(&pm, 100, 50));
+    // All four edge midpoints (0, 50), (199, 50), (100, 0), (100, 99) reach the outer stop (BLUE)
+    for (x, y) in [(0, 50), (199, 50), (100, 0), (100, 99)] {
+        assert!(near(px(&pm, x, y), [0, 0, 255, 255], 6), "edge ({x}, {y}): {:?}", px(&pm, x, y));
+    }
+    // Halfway along horizontal (50, 50), (150, 50) and vertical (100, 25), (100, 75) semi-axes are 50% mix
+    for (x, y) in [(50, 50), (150, 50), (100, 25), (100, 75)] {
+        assert!(near(px(&pm, x, y), [128, 0, 128, 255], 10), "mid ({x}, {y}): {:?}", px(&pm, x, y));
+    }
+}

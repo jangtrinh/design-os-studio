@@ -3060,3 +3060,77 @@ fn per_side_stroke_weights_ignore_stale_borders_and_merge_partial_overrides() {
     let cell = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "CellDivider").expect("CellDivider in CalendarHeaderInst");
     assert_eq!(cell.stroke.side_weights, Some([0.0, 1.0, 0.0, 0.0]), "partial borderBottomWeight override must preserve borderRightWeight");
 }
+
+#[test]
+fn radial_gradient_transform_imports_centred_handles_and_roundtrips() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    // 90° clockwise gradient-space transform from Untitled UI `_Background mask` (4932:396988):
+    // centered at (0.5, 0.5) with radius 0.5 in normalized node coordinates.
+    let rot90 = json!({"m00": 0.0, "m01": 1.0, "m02": 0.0, "m10": -1.0, "m11": 0.0, "m12": 1.0});
+    let stops = json!([
+        {"position": 0.0, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}},
+        {"position": 1.0, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.0}}
+    ]);
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "RadialDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "BackgroundMask",
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 200.0, "y": 100.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
+            "fillPaints": [
+                {
+                    "type": "GRADIENT_RADIAL",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                },
+                {
+                    "type": "GRADIENT_ANGULAR",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                },
+                {
+                    "type": "GRADIENT_DIAMOND",
+                    "opacity": 1.0,
+                    "visible": true,
+                    "blendMode": "NORMAL",
+                    "transform": rot90,
+                    "stops": stops
+                }
+            ]
+        }
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "RadialDoc").expect("import RadialDoc");
+    let check = |doc: &Document| {
+        let mask = find(doc, "BackgroundMask");
+        assert_eq!(mask.fills.len(), 3);
+        let expected = [Vec2::new(0.5, 0.5), Vec2::new(0.5, 1.0), Vec2::new(0.0, 0.5)];
+        for (i, fill) in mask.fills.iter().enumerate() {
+            let handles = match &fill.kind {
+                PaintKind::RadialGradient { handles, .. } | PaintKind::AngularGradient { handles, .. } | PaintKind::DiamondGradient { handles, .. } => handles,
+                other => panic!("fill {i}: expected radial/angular/diamond gradient, got {other:?}"),
+            };
+            for (h, e) in handles.iter().zip(expected.iter()) {
+                assert!((h.x - e.x).abs() < 1e-5 && (h.y - e.y).abs() < 1e-5, "fill {i}: got {handles:?}, expected {expected:?}");
+            }
+        }
+    };
+    check(&doc);
+
+    let bytes = export_fig(&doc).expect("export_fig RadialDoc");
+    let rt = import_fig(&bytes).expect("re-import RadialDoc");
+    check(&rt);
+}

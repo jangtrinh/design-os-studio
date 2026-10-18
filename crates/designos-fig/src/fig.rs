@@ -2243,7 +2243,12 @@ fn convert_paint(p: &Value) -> Option<Value> {
             let g = |k: &str, d: f32| t.and_then(|t| fnum(t, k)).unwrap_or(d);
             let xf = Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) };
             let inv = xf.invert().unwrap_or(Affine::IDENTITY);
-            let h = [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)].map(|q| {
+            let pts = if ty == "GRADIENT_LINEAR" {
+                [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)]
+            } else {
+                [Vec2::new(0.5, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.5, 1.0)]
+            };
+            let h = pts.map(|q| {
                 let r = inv.apply(q);
                 json!({"x": kiwi::clean_f32(r.x), "y": kiwi::clean_f32(r.y)})
             });
