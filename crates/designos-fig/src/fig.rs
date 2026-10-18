@@ -106,7 +106,8 @@ fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
         _ => None,
     };
     let (s, l) = (u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?);
-    if s >= u32::MAX as u64 || l >= u32::MAX as u64 {
+    // Only the null GUID sentinel is unset; session `u32::MAX` is a real id (paste uses it for its synthetic page).
+    if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
         return None;
     }
     Some(format!("{s}:{l}"))
@@ -312,7 +313,8 @@ fn entry_from_json(j: Value) -> Option<Entry> {
 
 fn guid_str(g: &Value) -> Option<String> {
     let (s, l) = (g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?);
-    if s >= u32::MAX as u64 || l >= u32::MAX as u64 {
+    // Only the null GUID sentinel is unset; session `u32::MAX` is a real id (paste uses it for its synthetic page).
+    if s == u64::from(u32::MAX) && l == u64::from(u32::MAX) {
         return None;
     }
     Some(format!("{s}:{l}"))
