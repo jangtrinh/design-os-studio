@@ -1158,6 +1158,9 @@ fn convert_guides(nc: &Value) -> Option<Value> {
 
 fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     let blobs = lk.blobs;
+    if fstr(nc, "styleType").is_some() {
+        return None;
+    }
     let orig_ty = fstr(nc, "type")?;
     let ty = match orig_ty {
         // Variables are mapped separately (`variables::from_fig_entries`); they are not canvas content.
@@ -1903,6 +1906,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "stackPaddingBottom"
             | "stackPrimaryAlignItems"
             | "stackCounterAlignItems"
+            | "stackCounterAlignContent"
+            | "stackLayoutVersion"
             | "stackPrimarySizing"
             | "stackCounterSizing"
             | "stackWrap"
@@ -2013,12 +2018,19 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     if has_comp_props {
         component_props(&mut m, o, lk);
     }
-    // Auto-layout overrides: full stack when `stackMode` is present, plus individual
-    // overridden stack / child-layout fields when `stackMode` is inherited from the master.
+    // Auto-layout overrides: emit only keys explicitly present on the override entry so
+    // inherited main-component alignment and sizing are not overwritten with defaults.
     if has_layout {
-        if obj.contains_key("stackMode") {
-            convert_stack(&mut m, o);
+        if let Some(mode) = match fstr(o, "stackMode") {
+            Some("HORIZONTAL") => Some("HORIZONTAL"),
+            Some("VERTICAL") => Some("VERTICAL"),
+            Some("GRID") => Some("GRID"),
+            Some("NONE") => Some("NONE"),
+            _ => None,
+        } {
+            m.insert("layoutMode".into(), mode.into());
         }
+        convert_stack_extras(&mut m, o);
         if let Some(x) = fnum(o, "gridColumnGap").or_else(|| fnum(o, "gridColumnsGap")).or_else(|| fnum(o, "stackSpacing")) {
             m.insert("itemSpacing".into(), x.into());
         }

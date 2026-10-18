@@ -157,6 +157,9 @@ impl<'a> ExportCtx<'a> {
         };
         // First pass: reserve explicit `s:l` GUIDs so generated ones never collide.
         for (&id, n) in &doc.nodes {
+            if doc.library_page.is_some_and(|lp| n.parent == Some(lp)) && n.source_id.as_deref().is_some_and(|sid| doc.styles.contains_key(sid)) {
+                continue;
+            }
             if let Some(g) = n.source_id.as_deref().and_then(parse_guid_pair) {
                 if cx.used_guids.insert(g) {
                     cx.next_local = cx.next_local.max(g.1.saturating_add(1));
@@ -375,6 +378,9 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
             if let Some(lib_page) = doc.get(lp) {
                 let kids = lib_page.children.clone();
                 for cid in kids {
+                    if doc.get(cid).and_then(|n| n.source_id.as_deref()).is_some_and(|sid| doc.styles.contains_key(sid)) {
+                        continue;
+                    }
                     export_node_rec(&mut cx, cid, iguid, internal_idx, None, false);
                     internal_idx += 1;
                 }
@@ -1500,8 +1506,35 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));
                         ov.push(("stackPaddingLeft", fl(al.padding[3])));
+                        ov.push(("stackHorizontalPadding", fl(al.padding[3])));
+                        ov.push(("stackVerticalPadding", fl(al.padding[0])));
+                        let align_name = |a: LayoutAlign| match a {
+                            LayoutAlign::Start => "MIN",
+                            LayoutAlign::Center => "CENTER",
+                            LayoutAlign::End => "MAX",
+                            LayoutAlign::SpaceBetween => "SPACE_BETWEEN",
+                            LayoutAlign::Baseline => "BASELINE",
+                            LayoutAlign::SpaceAround | LayoutAlign::SpaceEvenly => "SPACE_BETWEEN",
+                        };
+                        let justify_name = match al.primary_align {
+                            LayoutAlign::SpaceAround => "SPACE_AROUND",
+                            LayoutAlign::SpaceEvenly => "SPACE_EVENLY_CSS",
+                            LayoutAlign::Baseline => "MIN",
+                            other => align_name(other),
+                        };
+                        ov.push(("stackPrimaryAlignItems", en(justify_name)));
+                        ov.push(("stackCounterAlignItems", en(align_name(al.counter_align))));
+                        if al.counter_align_content == CounterAlignContent::SpaceBetween {
+                            ov.push(("stackCounterAlignContent", en("SPACE_BETWEEN")));
+                        }
+                        if al.layout_version > 0 {
+                            ov.push(("stackLayoutVersion", V::Uint(al.layout_version as u32)));
+                        }
                         ov.push(("stackPrimarySizing", en(if al.primary_sizing == Sizing::Hug { "RESIZE_TO_FIT" } else { "FIXED" })));
                         ov.push(("stackCounterSizing", en(if al.counter_sizing == Sizing::Hug { "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" } else { "FIXED" })));
+                        ov.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
+                        ov.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
+                        ov.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
                     }
                 }
                 let parent_dir =
