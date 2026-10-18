@@ -38,6 +38,25 @@ class SyncCase(unittest.TestCase):
             capture_output=True, text=True,
         )
 
+    def release_json(self, version):
+        """Release JSON for `version`: same asset layout as release-0.4.0.json, tagName v<version>."""
+        import json
+        data = json.loads((FIX / FULL).read_text())
+        data["tagName"] = f"v{version}"
+        for asset in data["assets"]:
+            asset["name"] = asset["name"].replace("0.4.0", version)
+        path = self.tree / f"release-{version}.json"
+        path.write_text(json.dumps(data))
+        return path
+
+    def sync_to(self, version, *extra):
+        """Sync to `version` using a release json whose tagName matches it."""
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), version, "--root", str(self.tree),
+             "--assets-json", str(self.release_json(version)), *extra],
+            capture_output=True, text=True,
+        )
+
     def read(self, rel):
         return (self.tree / rel).read_text()
 
@@ -135,10 +154,29 @@ class MissingAssetTests(SyncCase):
 
 class GuardTests(SyncCase):
     def test_refuses_downgrade(self):
-        self.sync()
-        out = self.sync(FULL, "0.3.0")
+        # The json matches the requested tag, so only the downgrade check can reject it.
+        self.assertEqual(self.sync_to("0.4.0").returncode, 0)
+        before = self.snapshot()
+        out = self.sync_to("0.3.0")
         self.assertEqual(out.returncode, 1)
-        self.assertRegex(out.stderr, "refusing to downgrade|release json is for")
+        self.assertIn("pages already point at v0.4.0, newer than v0.3.0; refusing to downgrade", out.stderr)
+        self.assertEqual(before | {"release-0.3.0.json": ""}, self.snapshot() | {"release-0.3.0.json": ""})
+
+    def test_version_compare_is_numeric_not_lexicographic(self):
+        # "0.10.0" < "0.9.0" as strings; as versions 0.10.0 is newer.
+        self.assertEqual(self.sync_to("0.9.0").returncode, 0)
+        up = self.sync_to("0.10.0")
+        self.assertEqual(up.returncode, 0, up.stderr)
+        self.assertIn("releases/download/v0.10.0/designos-0.10.0-macos.dmg", self.read("docs/index.html"))
+        self.assertNotIn("v0.9.0", self.read("docs/index.html"))
+        self.assertIn("build-release.sh 0.10.0", self.read("README.md"))
+
+    def test_numeric_compare_refuses_0_10_0_to_0_9_0(self):
+        self.assertEqual(self.sync_to("0.9.0").returncode, 0)
+        self.assertEqual(self.sync_to("0.10.0").returncode, 0)
+        out = self.sync_to("0.9.0")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("pages already point at v0.10.0, newer than v0.9.0; refusing to downgrade", out.stderr)
 
     def test_refuses_prerelease_and_bad_version(self):
         self.assertEqual(self.sync("release-0.4.0-prerelease.json").returncode, 1)
