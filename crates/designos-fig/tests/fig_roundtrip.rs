@@ -1518,7 +1518,6 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
 }
 
 #[test]
-<<<<<<< HEAD
 fn roundtrip_stack_child_margins_606_to_609() {
     let mut doc = Document::new("ChildMarginsTest");
     let page = doc.add_page("Page 1");
