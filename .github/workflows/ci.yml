@@ -90,3 +90,12 @@ jobs:
 
       - name: Rustfmt
         run: cargo fmt --all --check
+
+  release-sync-tests:
+    name: Release sync script tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test scripts/release-sync-pages.py
+        run: python3 -m unittest discover -s scripts/tests -v

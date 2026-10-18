@@ -1,0 +1,35 @@
+{
+  "tagName": "v0.4.0",
+  "publishedAt": "2026-10-18T12:07:36Z",
+  "isPrerelease": true,
+  "assets": [
+    {
+      "name": "designos-0.4.0-macos-universal.tar.gz",
+      "size": 95044809
+    },
+    {
+      "name": "designos-0.4.0-macos.dmg",
+      "size": 105411149
+    },
+    {
+      "name": "designos-0.4.0-x86_64-pc-windows-msvc.zip",
+      "size": 43278287
+    },
+    {
+      "name": "designos-0.4.0-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 55310140
+    },
+    {
+      "name": "designos_0.4.0_amd64.deb",
+      "size": 41011946
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 1881
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 507
+    }
+  ]
+}
