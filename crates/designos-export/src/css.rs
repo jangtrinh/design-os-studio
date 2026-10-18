@@ -51,11 +51,14 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut flex_done = false;
     let mut stretch = false;
     if in_flow && grid_parent {
-        if let Some(col) = crate::codegen::grid_placement_css(n.layout_child.grid_column, n.layout_child.col_span) {
-            push("grid-column", col);
-        }
-        if let Some(row) = crate::codegen::grid_placement_css(n.layout_child.grid_row, n.layout_child.row_span) {
-            push("grid-row", row);
+        if let Some(al) = parent_al {
+            let placement = crate::codegen::normalise_grid_placement(&n.layout_child, al);
+            if let Some(col) = crate::codegen::grid_placement_css(placement.column, placement.col_span) {
+                push("grid-column", col);
+            }
+            if let Some(row) = crate::codegen::grid_placement_css(placement.row, placement.row_span) {
+                push("grid-row", row);
+            }
         }
         // An item sized by its own content keeps that size instead of stretching across its cell.
         if sz.w == Dim::Hug {

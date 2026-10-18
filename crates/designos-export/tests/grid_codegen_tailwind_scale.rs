@@ -102,10 +102,14 @@ fn spans_use_the_scale_up_to_twelve_and_six() {
 
 #[test]
 fn react_with_tailwind_writes_the_same_classes() {
-    let (d, g) = grid(16, 0, |lc| {
+    let (mut d, g) = grid(16, 0, |lc| {
         lc.grid_column = Some(13);
-        lc.col_span = 13;
     });
+    let cid = d.alloc_id();
+    let mut c2 = Node::rectangle(cid, Rect::new(0.0, 0.0, 40.0, 40.0));
+    c2.fills.clear();
+    c2.layout_child.col_span = 13;
+    d.insert(g, c2).unwrap();
     let jsx = react_with(&d, g, &ReactOptions { tailwind: true });
     assert!(jsx.contains("grid-cols-[repeat(16,minmax(0,1fr))]"), "{jsx}");
     assert!(jsx.contains("col-start-[14]") && jsx.contains("col-[span_13_/_span_13]"), "{jsx}");

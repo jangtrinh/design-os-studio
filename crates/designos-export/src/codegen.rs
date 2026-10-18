@@ -524,6 +524,26 @@ pub(crate) fn tailwind_tracks_value(tracks_css: &str) -> String {
     tracks_css.replace(", ", ",").replace(' ', "_")
 }
 
+/// A child's grid placement after running the same normalisation as `Want::of` in the grid solver:
+/// a column pin at or past the column count is dropped, `col_span` is clamped to `cols`, a pinned
+/// column whose span would overflow `cols` is pulled back to `cols - col_span`, and `row_span` is
+/// clamped to `MAX_GRID_TRACKS`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GridPlacement {
+    pub column: Option<u16>,
+    pub col_span: u16,
+    pub row: Option<u16>,
+    pub row_span: u16,
+}
+
+pub(crate) fn normalise_grid_placement(lc: &LayoutChild, al: &AutoLayout) -> GridPlacement {
+    let cols = grid_column_count(al);
+    let col_span = (lc.col_span.max(1) as usize).min(cols) as u16;
+    let row_span = (lc.row_span.max(1) as usize).min(MAX_GRID_TRACKS) as u16;
+    let column = lc.grid_column.map(usize::from).filter(|c| *c < cols).map(|c| c.min(cols - usize::from(col_span)) as u16);
+    GridPlacement { column, col_span, row: lc.grid_row, row_span }
+}
+
 pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {
     let span = span.max(1);
     match anchor {

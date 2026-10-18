@@ -395,25 +395,28 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             c.extend(pad_classes(doc, n, al));
         }
     }
-    if sz.in_flow && parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid) {
-        if let Some(col) = n.layout_child.grid_column {
-            c.push(line_class("col-start", u32::from(col) + 1, STOCK_COL_START));
-        }
-        if n.layout_child.col_span > 1 {
-            c.push(span_class("col", n.layout_child.col_span, STOCK_COL_SPAN));
-        }
-        if let Some(row) = n.layout_child.grid_row {
-            c.push(line_class("row-start", u32::from(row) + 1, STOCK_ROW_START));
-        }
-        if n.layout_child.row_span > 1 {
-            c.push(span_class("row", n.layout_child.row_span, STOCK_ROW_SPAN));
-        }
-        // An item sized by its own content keeps that size instead of stretching across its cell.
-        if sz.w == Dim::Hug {
-            c.push("justify-self-start".into());
-        }
-        if sz.h == Dim::Hug {
-            c.push("self-start".into());
+    if sz.in_flow {
+        if let Some(al) = parent.al.filter(|a| a.direction == LayoutDirection::Grid) {
+            let placement = normalise_grid_placement(&n.layout_child, al);
+            if let Some(col) = placement.column {
+                c.push(line_class("col-start", u32::from(col) + 1, STOCK_COL_START));
+            }
+            if placement.col_span > 1 {
+                c.push(span_class("col", placement.col_span, STOCK_COL_SPAN));
+            }
+            if let Some(row) = placement.row {
+                c.push(line_class("row-start", u32::from(row) + 1, STOCK_ROW_START));
+            }
+            if placement.row_span > 1 {
+                c.push(span_class("row", placement.row_span, STOCK_ROW_SPAN));
+            }
+            // An item sized by its own content keeps that size instead of stretching across its cell.
+            if sz.w == Dim::Hug {
+                c.push("justify-self-start".into());
+            }
+            if sz.h == Dim::Hug {
+                c.push("self-start".into());
+            }
         }
     }
     // size
