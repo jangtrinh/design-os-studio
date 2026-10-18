@@ -102,12 +102,7 @@ fn find<'a>(doc: &'a Document, name: &str) -> &'a Node {
 }
 
 fn cell_of<'a>(doc: &'a Document, instance: &str) -> &'a Node {
-    find(doc, instance)
-        .children
-        .iter()
-        .filter_map(|id| doc.get(*id))
-        .find(|n| n.name == "Cell")
-        .unwrap_or_else(|| panic!("{instance} has no Cell child"))
+    find(doc, instance).children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Cell").unwrap_or_else(|| panic!("{instance} has no Cell child"))
 }
 
 #[test]

@@ -2052,7 +2052,6 @@ fn slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_m
     assert!(find(&rt, "SlotCard").component.slot_content_id.is_none(), "cleared slot content id came back");
 }
 
-
 #[test]
 fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
     let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
