@@ -45,6 +45,8 @@ mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
 mod settings;
+#[cfg(test)]
+mod slot_model_tests;
 pub mod spec;
 mod styles_ops;
 mod textmodel;
@@ -674,6 +676,9 @@ impl Document {
                         stack.push(*cid);
                     }
                 }
+                for cfg in n.component.slot_configs.values() {
+                    stack.extend(cfg.preferred.iter().copied());
+                }
             }
         }
         let before = self.nodes.len();
@@ -700,6 +705,12 @@ impl Document {
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
         finite_json::to_string_finite(self)
+    }
+
+    /// How many non-finite numbers [`Document::to_json_counted`] would replace, counted without
+    /// building the JSON text.
+    pub fn count_non_finite(&self) -> serde_json::Result<usize> {
+        finite_json::count_non_finite(self)
     }
 
     /// Parses a native document. Text written by older versions that emulated lists with

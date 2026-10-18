@@ -50,9 +50,10 @@ cargo build --release -p designos-app
 cp target/release/designos-studio "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio"
 cp target/release/designos "target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos"
 
-# 3. Run the 112,474-node (723,136 Kiwi records) "VSF - PCP" benchmark fixture directly
-# (or `--open-id 18de8bff2547cd200000` for the full 31-page 1,082,324-node import)
-"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" --open-id 18de678a186512c80000
+# 3. Open the "VSF - PCP.fig" enterprise benchmark directly
+# (1,058,895 Kiwi records -> 336,214 initial / 1,082,324 full scene nodes across 31 pages;
+#  112,474 scene nodes / 723,136 Kiwi records on the 7-page subset)
+"target/release/bundle/DESIGN-OS Studio.app/Contents/MacOS/designos-studio" "$HOME/Downloads/VSF - PCP.fig"
 
 # 4. Run test gates
 cargo test --workspace --lib
@@ -75,7 +76,8 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
 
 - Every piece of demo UI in a project video (launch and promo films, micro clips, GIFs, long-form captures) comes from the Untitled UI PRO VARIABLES v8.0 kit, `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig`, opened in Studio. Never show a blank or self-built demo file, another kit, or a client file (e.g. VSF - PCP).
 - Work from a copy (a `.fig` import saved as `.designos`) so takes never save over the original. Feature demos may edit that copy through Studio or `designos-mcp`. Extra demo frames go on a scratch page inside it.
-- The kit's default brand colour is purple. Use neutral frames, or re-theme through the kit's own colour variables (Purple Ban). Never recolour pixels, and show no photos of people.
+- Kit content keeps the kit's original colours, purple included (owner: "Purple này là style của Untitled nên chấp nhận", i.e. this purple is Untitled's own style, so accept it). The Purple Ban still applies to the film's own chrome and type, not to kit content. Never recolour pixels. Photos of people in kit content are allowed (owner: "Show people cũng được, kệ đi").
+- Demos must be true to the released build. Pick kit frames that the release renders the way Figma does: the CPU and `--gpu` renders match, and no known render bug is hit. Never show behaviour the code does not have. For example, agent undo is one step per tool call, and a paste from Figma drops styles.
 - Credit "Untitled UI PRO v8.0 kit by Untitled UI" in the end card.
 
 ## 4. Non-Negotiable Performance & Safety Invariants
@@ -87,7 +89,8 @@ Since 2026-10-17 `main` is protected by a repository ruleset. Nobody bypasses it
 3. **Preserve `interactive()` Guard in `designos-gpu` (`crates/designos-gpu/src/compile.rs`):**
    - `self.interactive()` (`self.cull && self.geom.budget.is_some()`) separates live interactive rendering from headless test rendering. Keep all LOD approximations (`< 0.75px` culling, `< 3.5px` text greeking, scissor clip fallback, `< 64` `Program` cap) strictly inside `self.interactive()` so headless reference tests (`cargo test -p designos-gpu`) remain bit-exact against `designos-render`.
 4. **Cap Offscreen GPU `Program`s & Preserve `FrameKey` Reuse:**
-   - Do not allocate new offscreen `Program`s beyond `self.progs.len() < 64` during interactive frames, and preserve `FrameKey` caching (`Cb { frame: None }` when `last_key == Some(key) && stale_hits == 0`) plus `frame_build_nanos` 8ms cumulative tessellation budgeting so idle CPU stays at `0.0%` and `egui-wgpu`'s Metal staging buffer never overflows.
+   - Do not allocate new offscreen `Program`s beyond `self.progs.len() < 64` during interactive frames, and preserve `FrameKey` caching (`Cb { frame: None }` when `last_key == Some(key) && stale_hits == 0`) plus `frame_build_nanos` 8ms cumulative tessellation budgeting so idle CPU stays at `0.00%` and `egui-wgpu`'s Metal staging buffer never overflows.
+   - `Autosave::autosave_tick` (`crates/designos-app/src/home/session.rs`) watches `watched_disk_path()` off the UI thread (`DiskWatcher`) and calls `ctx.request_repaint()` only when `modified()` changes (no periodic UI-thread repaint timer); `canvas::grids::paint` takes its frames from `SceneIndex::grid_nodes()` (drawn frames only, kept in paint order) and walks `page.children` only when no scene index is available. Measured idle CPU on Apple M4 Max (`ps -p <pid> -o time=` cumulative CPU delta on `target/release/designos "VSF - PCP (Copy).fig" --gpu --select billing` after initial load + 250 ms `IDLE_REFINE_DELAY`): `0.00% / 0.00%` (`dCPU = 0.000s` across two 20 s idle windows / 40 s total).
 
 <!-- BEGIN ease-design -->
 ## ease-design

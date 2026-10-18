@@ -317,6 +317,7 @@ mod tests {
                 default_mode: "l".into(),
                 variables: vec!["base".into(), "bg".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         let var = |id: &str, vals: Vec<(&str, VariableValue)>| Variable {

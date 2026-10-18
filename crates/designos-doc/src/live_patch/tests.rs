@@ -24,7 +24,15 @@ fn thread(id: &str, page: NodeId, text: &str) -> CommentThread {
     CommentThread {
         id: id.into(),
         anchor: CommentAnchor { page, node: None, offset: Vec2::new(1.0, 1.0) },
-        messages: vec![Comment { id: format!("{id}-m"), author: "a".into(), text: text.into(), created: "2026-10-16T00:00:00Z".into(), edited: None }],
+        messages: vec![Comment {
+            id: format!("{id}-m"),
+            author: "a".into(),
+            author_id: None,
+            author_color: None,
+            text: text.into(),
+            created: "2026-10-16T00:00:00Z".into(),
+            edited: None,
+        }],
         resolved: false,
     }
 }
@@ -241,13 +249,23 @@ fn agent_comments_keep_the_editor_threads_and_follow_their_new_ids() {
     full.comments.iter_mut().find(|t| t.id == "t-2.2").unwrap().messages.push(Comment {
         id: "t-2-r".into(),
         author: "u".into(),
+        author_id: None,
+        author_color: None,
         text: "user reply".into(),
         created: "2026-10-16T00:01:00Z".into(),
         edited: None,
     });
     let mut changed = agent.comments.clone();
     let mine = changed.iter_mut().find(|t| t.id == "t-2").unwrap();
-    mine.messages.push(Comment { id: "t-2-r".into(), author: "a".into(), text: "agent reply".into(), created: "2026-10-16T00:02:00Z".into(), edited: None });
+    mine.messages.push(Comment {
+        id: "t-2-r".into(),
+        author: "a".into(),
+        author_id: None,
+        author_color: None,
+        text: "agent reply".into(),
+        created: "2026-10-16T00:02:00Z".into(),
+        edited: None,
+    });
     mine.resolved = true;
     let mut ops = Vec::new();
     agent_exec(&mut agent, &mut hist, &mut ops, Command::SetComments { comments: changed });

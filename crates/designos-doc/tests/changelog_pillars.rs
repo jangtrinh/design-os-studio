@@ -186,6 +186,7 @@ fn pillar3_variable_bindings_and_subtree_mode_switching() {
                 "v_bg".into(),
             ],
             key: None,
+            source_library_key: None,
         },
     );
 
@@ -364,6 +365,7 @@ fn pillar4_interactive_prototype_runtime() {
             default_mode: "m1".into(),
             variables: vec!["v_count".into(), "v_label".into()],
             key: None,
+            source_library_key: None,
         },
     );
     let mut make_proto_var = |id: &str, kind: VariableKind, val: VariableValue| {

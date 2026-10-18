@@ -178,9 +178,70 @@ pub(crate) fn kind_icon(k: &NodeKind) -> Icon {
     }
 }
 
+pub fn kind_label(k: &NodeKind) -> &'static str {
+    match k {
+        NodeKind::Page { .. } => "Page",
+        NodeKind::Frame(f) => match f.auto_layout.as_ref().map(|al| al.direction) {
+            Some(designos_doc::LayoutDirection::Grid) => "Grid",
+            Some(designos_doc::LayoutDirection::Horizontal | designos_doc::LayoutDirection::Vertical) => "Auto layout",
+            None => "Frame",
+        },
+        NodeKind::Group => "Group",
+        NodeKind::Section => "Section",
+        NodeKind::Rectangle => "Rect",
+        NodeKind::Ellipse(_) => "Ellipse",
+        NodeKind::Line => "Line",
+        NodeKind::Polygon { .. } => "Polygon",
+        NodeKind::Star { .. } => "Star",
+        NodeKind::Vector { .. } => "Vector",
+        NodeKind::Text(_) => "Text",
+        NodeKind::BooleanOp(_) => "Boolean",
+        NodeKind::Component(_) => "Component",
+        NodeKind::ComponentSet(_) => "Variant set",
+        NodeKind::Instance { .. } => "Instance",
+        NodeKind::Sticky(_) => "Sticky",
+        NodeKind::Connector(_) => "Connector",
+        NodeKind::ShapeWithText(_) => "Shape",
+        NodeKind::Stamp { .. } => "Stamp",
+        NodeKind::Unknown { .. } => "Layer",
+    }
+}
+
 fn is_component_like(n: &designos_doc::Node) -> bool {
     // Components, instances and every layer inside an instance read as purple.
     matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. }) || n.component.source.is_some()
+}
+
+/// Gap between the name and the type label, plus the label's inset from the end of the text column.
+const TYPE_LABEL_PAD: f32 = 8.0;
+/// Narrowest name that still reads once the type label takes its share of the text column.
+const MIN_NAME_WIDTH_WITH_LABEL: f32 = 16.0;
+
+/// How a row's text column is shared between the layer name and the right-aligned type label.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RowTextSplit {
+    /// Right edge available to the name.
+    name_right: f32,
+    /// False when the column is too narrow for the label plus a readable name: the name keeps the whole column.
+    show_label: bool,
+}
+
+/// `label_w` is the label's text width plus [`TYPE_LABEL_PAD`].
+fn split_row_text(text_left: f32, text_right: f32, label_w: f32) -> RowTextSplit {
+    if text_right - text_left >= label_w + MIN_NAME_WIDTH_WITH_LABEL {
+        RowTextSplit { name_right: text_right - label_w, show_label: true }
+    } else {
+        RowTextSplit { name_right: text_right, show_label: false }
+    }
+}
+
+/// The type label is dimmer than the name and greys out together with it when the layer is hidden.
+fn type_label_color(node_visible: bool, component_like: bool) -> egui::Color32 {
+    if node_visible && component_like {
+        theme::TEXT_COMPONENT.gamma_multiply(0.75)
+    } else {
+        theme::TEXT_TERTIARY
+    }
 }
 
 fn compute_visible_rows(app: &App) -> Vec<Row> {
@@ -306,8 +367,8 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         for (offset, row) in visible_slice.iter().copied().enumerate() {
             let i = first + offset;
             let Some(node) = app.doc.get(row.id) else { continue };
-            let (node_parent, comp, icon, node_name, node_visible, node_locked) =
-                (node.parent, is_component_like(node), kind_icon(&node.kind), node.name.clone(), node.visible, node.locked);
+            let (node_parent, comp, icon, type_label, node_name, node_visible, node_locked) =
+                (node.parent, is_component_like(node), kind_icon(&node.kind), kind_label(&node.kind), node.name.clone(), node.visible, node.locked);
             let rr = Rect::from_min_size(
                 Pos2::new(region.left(), region.top() + i as f32 * theme::LAYER_ROW_HEIGHT - scroll),
                 Vec2::new(region.width(), theme::LAYER_ROW_HEIGHT),
@@ -473,12 +534,24 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     }
                 }
             } else {
-                let shown = widgets::elide(&p, &node_name, &theme::font_body(), (text_right - text_left).max(10.0));
+                let label_w = widgets::text_width(&p, type_label, &theme::font_small()) + TYPE_LABEL_PAD;
+                let split = split_row_text(text_left, text_right, label_w);
+                let shown = widgets::elide(&p, &node_name, &theme::font_body(), (split.name_right - text_left).max(10.0));
                 if let Some(m) = &filter {
                     let ranges = crate::find::filter::highlights(m, &shown);
-                    crate::find::filter::paint_highlights(&p, &shown, &ranges, text_left, rr, &theme::font_body(), text_right);
+                    crate::find::filter::paint_highlights(&p, &shown, &ranges, text_left, rr, &theme::font_body(), split.name_right);
                 }
                 p.text(Pos2::new(text_left, rr.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), tcol);
+                if split.show_label {
+                    let column = Rect::from_min_max(Pos2::new(text_left, rr.top()), Pos2::new(text_right, rr.bottom()));
+                    p.with_clip_rect(column).text(
+                        Pos2::new(text_right - 2.0, rr.center().y),
+                        Align2::RIGHT_CENTER,
+                        type_label,
+                        theme::font_small(),
+                        type_label_color(node_visible, comp),
+                    );
+                }
             }
 
             // Visibility / lock toggles (visible on hover or when active).
@@ -686,5 +759,274 @@ mod tests {
         let rows2 = visible_rows_cached(&mut app);
         assert_eq!(rows2.len(), 3);
         assert_eq!(app.layers.cache_key, key1, "cache_key must remain valid during transform drags");
+    }
+
+    #[test]
+    fn kind_label_covers_every_node_type() {
+        use designos_doc::{ArcData, AutoLayout, BooleanOp, ConnectorProps, FrameProps, LayoutDirection, ShapeWithTextProps, StickyProps, TextProps};
+
+        let cases: &[(NodeKind, &str)] = &[
+            (NodeKind::Page { background: designos_doc::Color::BLACK }, "Page"),
+            (NodeKind::Frame(FrameProps::default()), "Frame"),
+            (
+                NodeKind::Frame(FrameProps {
+                    auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, ..AutoLayout::default() }),
+                    ..FrameProps::default()
+                }),
+                "Auto layout",
+            ),
+            (
+                NodeKind::Frame(FrameProps {
+                    auto_layout: Some(AutoLayout { direction: LayoutDirection::Grid, ..AutoLayout::default() }),
+                    ..FrameProps::default()
+                }),
+                "Grid",
+            ),
+            (NodeKind::Group, "Group"),
+            (NodeKind::Section, "Section"),
+            (NodeKind::Rectangle, "Rect"),
+            (NodeKind::Ellipse(ArcData::default()), "Ellipse"),
+            (NodeKind::Line, "Line"),
+            (NodeKind::Polygon { count: 5 }, "Polygon"),
+            (NodeKind::Star { count: 5, inner_ratio: 0.5 }, "Star"),
+            (NodeKind::Vector { paths: vec![], network: None }, "Vector"),
+            (NodeKind::Text(TextProps::default()), "Text"),
+            (NodeKind::BooleanOp(BooleanOp::Union), "Boolean"),
+            (NodeKind::Component(FrameProps::default()), "Component"),
+            (NodeKind::ComponentSet(FrameProps::default()), "Variant set"),
+            (NodeKind::Instance { component: Some(NodeId(1)), component_key: None, frame: FrameProps::default() }, "Instance"),
+            (NodeKind::Sticky(StickyProps::default()), "Sticky"),
+            (NodeKind::Connector(ConnectorProps::default()), "Connector"),
+            (NodeKind::ShapeWithText(ShapeWithTextProps::default()), "Shape"),
+            (NodeKind::Stamp { kind: "thumbs-up".into() }, "Stamp"),
+            (NodeKind::Unknown { type_name: "SLICE".into() }, "Layer"),
+        ];
+
+        for (kind, expected) in cases {
+            assert_eq!(kind_label(kind), *expected, "mismatch for {kind:?}");
+        }
+    }
+
+    #[test]
+    fn only_rows_inside_the_viewport_paint_a_type_label() {
+        let mut d = Document::new("perf");
+        let page = d.add_page("Page 1");
+        for idx in 0..2_000 {
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, DRect::new(0.0, (idx * 12) as f32, 40.0, 10.0));
+            n.name = format!("Item {idx}");
+            d.insert(page, n).unwrap();
+        }
+        let mut app = App::new(d);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 600.0));
+        let painted = paint_panel(&mut app, region);
+        let painted_rows = (region.height() / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1;
+        let names = painted.iter().filter(|t| t.size == theme::FONT_SIZE_BODY).count();
+        let labels: Vec<&Painted> = painted.iter().filter(|t| t.size == theme::FONT_SIZE_SMALL).collect();
+        assert_eq!(names, painted_rows, "names are painted for the viewport rows only, not all 2,000");
+        assert_eq!(labels.len(), painted_rows, "type labels are painted for the viewport rows only, not all 2,000");
+        assert!(labels.iter().all(|t| t.text == "Rect"), "every painted label names its node type");
+    }
+
+    #[test]
+    fn row_text_split_keeps_a_readable_name_or_drops_the_label() {
+        // Wide column: the label takes its width and the name gets the rest.
+        assert_eq!(split_row_text(50.0, 180.0, 53.0), RowTextSplit { name_right: 127.0, show_label: true });
+        // Exactly the label plus the smallest readable name: the label stays.
+        let tight = split_row_text(50.0, 50.0 + 53.0 + MIN_NAME_WIDTH_WITH_LABEL, 53.0);
+        assert!(tight.show_label);
+        assert_eq!(tight.name_right - 50.0, MIN_NAME_WIDTH_WITH_LABEL);
+        // One pixel narrower: the label is dropped and the name keeps the whole column.
+        assert_eq!(split_row_text(50.0, 50.0 + 53.0 + MIN_NAME_WIDTH_WITH_LABEL - 1.0, 53.0), RowTextSplit { name_right: 118.0, show_label: false });
+        // A column with no room at all.
+        assert!(!split_row_text(50.0, 50.0, 30.0).show_label);
+    }
+
+    /// One text run the panel painted: string, font size, logical rect, colour and the clip it was drawn under.
+    struct Painted {
+        text: String,
+        size: f32,
+        rect: Rect,
+        color: egui::Color32,
+        clip: Rect,
+    }
+
+    fn paint_panel(app: &mut App, region: Rect) -> Vec<Painted> {
+        fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<Painted>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    if let Some(section) = t.galley.job.sections.first() {
+                        out.push(Painted {
+                            text: t.galley.job.text.clone(),
+                            size: section.format.font_id.size,
+                            rect: Rect::from_min_size(t.pos, t.galley.size()),
+                            color: section.format.color,
+                            clip,
+                        });
+                    }
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, clip, out)),
+                _ => {}
+            }
+        }
+        let ctx = egui::Context::default();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| show(app, ui, region));
+        let mut painted = Vec::new();
+        for clipped in &output.shapes {
+            collect(&clipped.shape, clipped.clip_rect, &mut painted);
+        }
+        painted
+    }
+
+    fn row_texts(painted: &[Painted], region: Rect, row: usize) -> Vec<&Painted> {
+        let center_y = region.top() + (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
+        painted.iter().filter(|t| (t.rect.center().y - center_y).abs() < 1.0).collect()
+    }
+
+    /// A page holding a chain of `depth` plain frames with one auto-layout frame named `name` at the bottom
+    /// (row `depth`), every ancestor expanded.
+    fn nested_auto_layout_app(depth: usize, direction: designos_doc::LayoutDirection, name: &str) -> App {
+        use designos_doc::{AutoLayout, FrameProps};
+        let mut d = Document::new("nested");
+        let page = d.add_page("p");
+        let mut parent = page;
+        let mut ancestors = Vec::new();
+        for level in 0..depth {
+            let id = d.alloc_id();
+            let mut frame = Node::frame(id, DRect::new(0.0, 0.0, 100.0, 100.0));
+            frame.name = format!("L{level}");
+            parent = d.insert(parent, frame).unwrap();
+            ancestors.push(parent);
+        }
+        let id = d.alloc_id();
+        let mut leaf = Node::frame(id, DRect::new(0.0, 0.0, 50.0, 50.0));
+        leaf.name = name.to_string();
+        leaf.kind = NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { direction, ..AutoLayout::default() }), ..FrameProps::default() });
+        d.insert(parent, leaf).unwrap();
+        let mut app = App::new(d);
+        app.layers.expanded.extend(ancestors);
+        app.layers.expanded_gen = 1;
+        app
+    }
+
+    /// Paints an auto-layout frame at every nesting depth the default sidebar can show and calls
+    /// `check(description, name, label, text_right)` for each, where `label` is `None` when the row dropped it.
+    fn for_each_nested_auto_layout_row(mut check: impl FnMut(&str, &Painted, Option<&Painted>, f32)) {
+        use designos_doc::LayoutDirection::{Grid, Horizontal, Vertical};
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::LEFT_PANEL_WIDTH, 600.0));
+        let text_right = region.right() - (theme::LAYER_TOGGLE_SIZE * 2.0 + 8.0);
+        for direction in [Horizontal, Vertical, Grid] {
+            for depth in 0..=7 {
+                let mut app = nested_auto_layout_app(depth, direction, "Primary navigation bar with a very long layer name");
+                let painted = paint_panel(&mut app, region);
+                let row = row_texts(&painted, region, depth);
+                let at = format!("{direction:?} frame at depth {depth}");
+                let name = row.iter().find(|t| t.size == theme::FONT_SIZE_BODY).unwrap_or_else(|| panic!("{at}: the name is not painted"));
+                check(&at, name, row.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).copied(), text_right);
+            }
+        }
+    }
+
+    #[test]
+    fn type_label_never_overlaps_the_name_or_the_layer_icon_at_any_depth() {
+        let mut violations = Vec::new();
+        for_each_nested_auto_layout_row(|at, name, label, text_right| {
+            if name.rect.right() > text_right + 0.5 {
+                violations.push(format!("{at}: name ends at {} past the text column end {text_right}", name.rect.right()));
+            }
+            if let Some(label) = label {
+                if name.rect.right() > label.rect.left() {
+                    violations.push(format!("{at}: name {:?} overlaps label {:?}", name.rect, label.rect));
+                }
+                if label.rect.left() - name.rect.left() < 16.0 {
+                    violations.push(format!("{at}: label {:?} leaves the name under 16 px or covers the layer icon", label.rect));
+                }
+            }
+        });
+        assert!(violations.is_empty(), "{}", violations.join("\n"));
+    }
+
+    #[test]
+    fn type_label_is_clipped_to_the_text_column() {
+        let mut violations = Vec::new();
+        for_each_nested_auto_layout_row(|at, name, label, text_right| {
+            if let Some(label) = label {
+                if label.rect.right() > text_right || label.clip.left() < name.rect.left() || label.clip.right() > text_right {
+                    violations.push(format!(
+                        "{at}: label {:?} is clipped to {:?}, wider than the text column {}..{text_right}",
+                        label.rect,
+                        label.clip,
+                        name.rect.left()
+                    ));
+                }
+            }
+        });
+        assert!(violations.is_empty(), "{}", violations.join("\n"));
+    }
+
+    #[test]
+    fn type_label_stays_on_wide_rows_and_gives_way_to_the_name_on_narrow_ones() {
+        use designos_doc::LayoutDirection::{Grid, Horizontal};
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::LEFT_PANEL_WIDTH, 600.0));
+        let long_name = "Primary navigation bar with a very long layer name";
+        let row_at = |depth: usize, direction| {
+            let mut app = nested_auto_layout_app(depth, direction, long_name);
+            let painted = paint_panel(&mut app, region);
+            let texts = row_texts(&painted, region, depth);
+            let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).map(|t| t.rect).expect("name painted");
+            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).map(|t| t.text.clone());
+            (name, label)
+        };
+        assert_eq!(row_at(0, Horizontal).1.as_deref(), Some("Auto layout"), "a top-level row shows its type");
+        assert_eq!(row_at(3, Horizontal).1.as_deref(), Some("Auto layout"), "depth 3 (82 px) still fits the label and a readable name");
+        // Depth 4 leaves 66 px: less than "Auto layout" plus a 16 px name, so the name keeps the whole column.
+        let (name, label) = row_at(4, Horizontal);
+        assert_eq!(label, None);
+        assert!(name.width() > 50.0, "the name takes the whole 66 px column, got {}", name.width());
+        // Depth 5 leaves 50 px: too narrow for "Auto layout", wide enough for the shorter "Grid".
+        let (name, label) = row_at(5, Horizontal);
+        assert_eq!(label, None);
+        assert!(name.width() > 40.0, "the name takes the whole 50 px column, got {}", name.width());
+        assert_eq!(row_at(5, Grid).1.as_deref(), Some("Grid"));
+        // Depth 6 leaves 34 px: the name still gets all of it, not the old 16 px floor.
+        let (name, label) = row_at(6, Horizontal);
+        assert_eq!(label, None);
+        assert!(name.width() > 24.0, "the name takes the whole 34 px column, got {}", name.width());
+    }
+
+    #[test]
+    fn hidden_layers_grey_the_type_label_with_the_name() {
+        use designos_doc::FrameProps;
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::LEFT_PANEL_WIDTH, 600.0));
+        let mut d = Document::new("visibility");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut hidden = Node::rectangle(id, DRect::new(0.0, 0.0, 10.0, 10.0));
+        hidden.name = "Hidden".into();
+        hidden.visible = false;
+        d.insert(page, hidden).unwrap();
+        let id = d.alloc_id();
+        let mut hidden_instance = Node::rectangle(id, DRect::new(0.0, 0.0, 10.0, 10.0));
+        hidden_instance.name = "Hidden instance".into();
+        hidden_instance.kind = NodeKind::Instance { component: Some(NodeId(1)), component_key: None, frame: FrameProps::default() };
+        hidden_instance.visible = false;
+        d.insert(page, hidden_instance).unwrap();
+        let id = d.alloc_id();
+        let mut shown_instance = Node::rectangle(id, DRect::new(0.0, 0.0, 10.0, 10.0));
+        shown_instance.name = "Shown instance".into();
+        shown_instance.kind = NodeKind::Instance { component: Some(NodeId(1)), component_key: None, frame: FrameProps::default() };
+        d.insert(page, shown_instance).unwrap();
+        let mut app = App::new(d);
+        let painted = paint_panel(&mut app, region);
+        // Rows are listed top-first: shown instance, hidden instance, hidden rectangle.
+        let colors = |row: usize| {
+            let texts = row_texts(&painted, region, row);
+            let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).expect("name painted").color;
+            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_SMALL).expect("type label painted").color;
+            (name, label)
+        };
+        assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");
+        assert_eq!(colors(1), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden instance greys the name and the label together");
+        assert_eq!(colors(2), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden rectangle greys the name and the label together");
     }
 }

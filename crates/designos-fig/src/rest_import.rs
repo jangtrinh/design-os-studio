@@ -1002,6 +1002,9 @@ impl<'a> Ctx<'a> {
         if let Some(lvl) = v.get("overrideLevel").and_then(Value::as_i64) {
             n.component.override_level = Some(lvl as i32);
         }
+        n.component.is_slot = fbool(v, "isSlot").unwrap_or(false);
+        n.component.is_slot_content = fbool(v, "isSlotContent").unwrap_or(false);
+        n.component.slot_content_id = fstr(v, "slotContentId").filter(|s| !s.is_empty()).map(String::from);
         if let Some(ds) = fstr(v, "detachedSymbolId").filter(|s| !s.is_empty()) {
             n.detached_symbol_id = Some(ds.to_string());
             n.component.detached_symbol_id = Some(ds.to_string());
@@ -1177,7 +1180,28 @@ impl<'a> Ctx<'a> {
                         }
                         (PropKind::InstanceSwap { preferred: Vec::new() }, PropValue::Instance(NodeId(0)))
                     }
-                    Some("SLOT") => (PropKind::Slot, PropValue::Slot(Vec::new())),
+                    Some("SLOT") => {
+                        if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object) {
+                            let opt_u32 = |k: &str| cfg.get(k).and_then(Value::as_u64).map(|x| x.min(u64::from(u32::MAX)) as u32);
+                            n.component.slot_configs.insert(
+                                name.clone(),
+                                SlotPropConfig {
+                                    stretch_child_on_insert: cfg.get("stretchChildOnInsert").and_then(Value::as_bool),
+                                    display_by_default: cfg.get("displayByDefault").and_then(Value::as_bool),
+                                    min_children: opt_u32("minChildren"),
+                                    max_children: opt_u32("maxChildren"),
+                                    allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
+                                    preferred: Vec::new(),
+                                },
+                            );
+                        }
+                        for p in farr(d, "preferredValues") {
+                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
+                                self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
+                            }
+                        }
+                        (PropKind::Slot, PropValue::Slot(Vec::new()))
+                    }
                     _ => continue,
                 };
                 n.component.props.push(ComponentPropDef { name, kind, default });
@@ -1489,6 +1513,16 @@ impl<'a> Ctx<'a> {
                             preferred.push(target);
                         }
                     }
+                }
+                continue;
+            }
+            if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
+                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(n) = self.doc.get_mut(node) else { continue };
+                // A slot may list preferred components without ever writing a `slotPropConfig`.
+                let cfg = n.component.slot_configs.entry(name).or_default();
+                if !cfg.preferred.contains(&target) {
+                    cfg.preferred.push(target);
                 }
                 continue;
             }

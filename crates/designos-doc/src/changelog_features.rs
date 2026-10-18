@@ -293,7 +293,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
                         counter_align: row_align,
                         primary_sizing: Sizing::Hug,
                         counter_sizing: Sizing::Hug,
-                        ..Default::default()
+                        ..AutoLayout::v1()
                     });
                 }
                 doc.insert(root_frame, row_node)?;
@@ -324,7 +324,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
                 counter_align,
                 primary_sizing: sizing,
                 counter_sizing: sizing,
-                ..Default::default()
+                ..AutoLayout::v1()
             });
         }
     }
