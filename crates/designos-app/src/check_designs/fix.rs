@@ -6,7 +6,7 @@ use super::{contrast, detached, hardcoded, Finding, Fix};
 use crate::app::App;
 use crate::edit::Tx;
 use crate::layout;
-use designos_doc::{set_bound_property, set_text_fills_everywhere, Command, NodeId, NodeKind, PaintKind, Vec2};
+use designos_doc::{set_bound_property, set_text_fills_everywhere, Command, NodeId, NodeKind, OverrideField, PaintKind, Vec2};
 
 /// Order fixes run in within "Fix all": recolouring first, then links to variables and styles, and
 /// the swap of a detached frame for an instance last. The swap only proceeds while the frame still
@@ -94,6 +94,9 @@ impl App {
         let Command::Insert { mut nodes, .. } = cmd else { return false };
         let Some(root) = nodes.first_mut() else { return false };
         root.name = old.name.clone();
+        // The name is the layer's own. Without the override, a sync from the component (it runs
+        // when the same step also edits the component) copies the component's name over it.
+        root.component.overrides.insert(OverrideField::Name);
         root.size = old.size;
         root.transform = old.transform;
         root.constraints = old.constraints;

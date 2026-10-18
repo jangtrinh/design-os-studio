@@ -2,7 +2,7 @@
 //! drop a finding without saying so. A re-link to a main component runs last for that reason.
 
 use super::*;
-use designos_doc::Vec2;
+use designos_doc::{OverrideField, Vec2};
 
 fn label_color(app: &App, id: NodeId) -> Option<Color> {
     let n = app.doc.get(id)?;
@@ -68,6 +68,25 @@ fn fix_all_on_a_page_recolours_both_copies_then_reconnects() {
     assert_eq!(label_color(&app, comp_label), Some(gray(0x77)));
     assert!(app.doc.get(frame).is_some());
     assert!(!app.hist.can_undo());
+}
+
+#[test]
+fn fix_all_keeps_the_own_name_of_a_frame_it_reconnects_after_editing_the_component() {
+    let mut f = fx();
+    let comp = card_component(&mut f, "12:34");
+    detached_copy(&mut f, comp, "Save", "guid:12:34");
+    let mut app = f.app();
+    let findings = audit(&app.doc, &Scope::Page(app.page)).findings;
+    // The component is edited in the same step, so its instances are synced from it afterwards.
+    assert_eq!(app.check_designs_fix_all(&findings), 3);
+    let page = app.doc.get(app.page).unwrap();
+    let instance =
+        page.children.iter().filter_map(|c| app.doc.get(*c)).find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("the frame became an instance");
+    assert_eq!(instance.name, "Save", "the sync must not rename it to the component's name");
+    assert!(
+        instance.component.overrides.contains(&OverrideField::Name),
+        "the name is recorded as the instance's own, so a later rename of the component leaves it"
+    );
 }
 
 #[test]
