@@ -589,6 +589,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
     }
 }
 
+/// Slot content id written on the definition of slot property `prop_name`. It comes from the
+/// per-property map only: the node's own `slot_content_id` is a different field (written as
+/// `jsonSerialized.slot-content-id`) and is never turned into a property assignment.
+fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&'a str> {
+    link.slot_content_ids.get(prop_name).map(String::as_str)
+}
+
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
     let Some(node) = cx.doc.get(id).cloned() else { return };
     let nguid = cx.node_guids[&id];
@@ -1070,6 +1077,12 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                             df.push(("preferredValues", pv));
                         }
                     }
+                    if let Some(g) = def_slot_content_id(&node.component, &p.name).and_then(parse_guid_pair) {
+                        df.push((
+                            "varValue",
+                            msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                        ));
+                    }
                 }
             }
             prop_defs.push(msg(df));
@@ -1079,7 +1092,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stateGroupPropertyValueOrders", V::Array(variant_orders)));
         }
     }
-    if !node.component.values.is_empty() {
+    if !node.component.values.is_empty() || (!node.component.slot_content_ids.is_empty() && node.component.props.is_empty()) {
         let mut prop_assigns = Vec::new();
         for (prop_name, pval) in &node.component.values {
             let def_g = cx.resolve_prop_guid(id, prop_name);
@@ -1095,9 +1108,34 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
                 }
             };
-            prop_assigns.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)]));
+            let mut assign = vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)];
+            if let Some(g) = node.component.slot_content_ids.get(prop_name).and_then(|s| parse_guid_pair(s)) {
+                assign.push((
+                    "varValue",
+                    msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                ));
+            }
+            prop_assigns.push(msg(assign));
         }
-        fields.push(("componentPropAssignments", V::Array(prop_assigns)));
+        if node.component.props.is_empty() {
+            for (prop_name, scid) in &node.component.slot_content_ids {
+                if node.component.values.contains_key(prop_name) {
+                    continue;
+                }
+                let Some(g) = parse_guid_pair(scid) else { continue };
+                let def_g = cx.resolve_prop_guid(id, prop_name);
+                prop_assigns.push(msg(vec![
+                    ("defID", guid(def_g.0, def_g.1)),
+                    (
+                        "varValue",
+                        msg(vec![("dataType", en("SLOT_CONTENT_ID")), ("value", msg(vec![("slotContentIdValue", msg(vec![("guid", guid(g.0, g.1))]))]))]),
+                    ),
+                ]));
+            }
+        }
+        if !prop_assigns.is_empty() {
+            fields.push(("componentPropAssignments", V::Array(prop_assigns)));
+        }
     }
     if !node.component.bindings.is_empty() {
         let mut prop_refs = Vec::new();

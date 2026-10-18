@@ -158,7 +158,7 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "ExportConstraintType", &["CONTENT_SCALE", "CONTENT_WIDTH", "CONTENT_HEIGHT", "SCALE", "WIDTH", "HEIGHT"]);
     enum_def(&mut b, "GuideAxis", &["X", "Y"]);
     enum_def(&mut b, "VariableResolvedDataType", &["BOOLEAN", "FLOAT", "STRING", "COLOR", "MAP", "SYMBOL_ID", "FONT_STYLE"]);
-    enum_def(&mut b, "VariableDataType", &["BOOLEAN", "FLOAT", "STRING", "COLOR", "ALIAS", "NODE_FIELD_ALIAS", "FONT_STYLE"]);
+    enum_def(&mut b, "VariableDataType", &["BOOLEAN", "FLOAT", "STRING", "COLOR", "ALIAS", "NODE_FIELD_ALIAS", "FONT_STYLE", "SLOT_CONTENT_ID"]);
     enum_def(&mut b, "ComponentPropType", &["BOOL", "TEXT", "INSTANCE_SWAP", "VARIANT", "SLOT"]);
     enum_def(&mut b, "ComponentPropNodeField", &["VISIBLE", "TEXT_DATA", "OVERRIDDEN_SYMBOL_ID", "SLOT_CONTENT_ID"]);
     enum_def(&mut b, "HandoffStatusType", &["NONE", "BUILD", "READY_FOR_DEV", "COMPLETED"]);
@@ -212,6 +212,9 @@ pub fn figma_like_schema() -> Schema {
     b.field(sid, "guid", gt, false, 1);
     b.field(sid, "assetRef", art, false, 2);
 
+    let sci = b.define("SlotContentId", DefKind::Message);
+    b.field(sci, "guid", gt, false, 1);
+
     // Variable data structures (defined before Paint/Effect so colorVar can reference VariableData).
     let vd = b.define("VariableData", DefKind::Message);
     let vdv = b.define("VariableDataValue", DefKind::Message);
@@ -225,6 +228,7 @@ pub fn figma_like_schema() -> Schema {
     b.field(vdv, "colorValue", ct, false, 4);
     b.field(vdv, "alias", sidt, false, 5);
     b.field(vdv, "fontStyleValue", FieldType::Def(fsv), false, 6);
+    b.field(vdv, "slotContentIdValue", FieldType::Def(sci), false, 18);
     let (vdt, vrdt) = (def(&b, "VariableDataType"), def(&b, "VariableResolvedDataType"));
     b.field(vd, "dataType", vdt, false, 1);
     b.field(vd, "resolvedDataType", vrdt, false, 2);
@@ -419,16 +423,13 @@ pub fn figma_like_schema() -> Schema {
     b.field(cpd, "varValue", vdt_def, false, 9);
     b.field(cpd, "description", nat(String), false, 11);
     b.field(cpd, "slotPropConfig", spct, false, 12);
-    // Real schema: `SlotContentId { guid }`. Stored on a node under the non-kiwi `jsonSerialized`
-    // bag, key `slot-content-id` (INFERENCE from the editor, not seen in a real file).
-    let sci = b.define("SlotContentId", DefKind::Message);
-    b.field(sci, "guid", gt, false, 1);
     let jsf = b.define("JsonSerializedFields", DefKind::Message);
     let scit = def(&b, "SlotContentId");
     b.field(jsf, "slot-content-id", scit, false, 1);
     let cpa = b.define("ComponentPropAssignment", DefKind::Message);
     b.field(cpa, "defID", gt, false, 1);
     b.field(cpa, "value", cpvt, false, 2);
+    b.field(cpa, "varValue", FieldType::Def(vd), false, 3);
     let cpr = b.define("ComponentPropRef", DefKind::Message);
     let cpnf = def(&b, "ComponentPropNodeField");
     b.field(cpr, "defID", gt, false, 1);

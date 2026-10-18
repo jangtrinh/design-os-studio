@@ -270,10 +270,15 @@ pub struct ComponentLink {
     /// The node is content placed in a slot (`isSlotContent`, tag=495).
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_slot_content: bool,
-    /// Guid (`session:local`) a node carries as `slot-content-id`. Kept opaque: it names
-    /// slot content that need not be a node of this document.
+    /// Guid (`session:local`) a node carries as its own `slot-content-id` (`jsonSerialized`).
+    /// Kept opaque: it names slot content that need not be a node of this document. It is not a
+    /// per-property value and is never derived from or turned into `slot_content_ids`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot_content_id: Option<String>,
+    /// Per-property slot content guid (`session:local`), keyed by slot property name. Read from
+    /// the `SLOT_CONTENT_ID` value of a property definition or assignment, and only from there.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slot_content_ids: BTreeMap<String, String>,
     /// Binds a node property to a component property, e.g.
     /// `Visible -> "Show icon"`, `Characters -> "Label"`, `MainComponent -> "Icon"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -318,6 +323,7 @@ impl ComponentLink {
             && !self.is_slot
             && !self.is_slot_content
             && self.slot_content_id.is_none()
+            && self.slot_content_ids.is_empty()
             && self.bindings.is_empty()
             && self.description.is_empty()
             && !self.expose_nested_instances

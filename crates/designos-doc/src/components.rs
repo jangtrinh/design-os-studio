@@ -416,6 +416,8 @@ pub fn create_instance(doc: &mut Document, component: NodeId, parent: NodeId, at
     root.component.source = Some(component);
     root.component.bindings.clear();
     root.component.values.clear();
+    // The master's ids define its slots; an instance only has them once it assigns its own.
+    root.component.slot_content_ids.clear();
     let index = doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     Command::Insert { parent, index, nodes }
 }
@@ -508,6 +510,7 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     let mut c = Ctx::new(doc);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.values.clear();
+        n.component.slot_content_ids.clear();
         c.update(n);
     }
     for id in ids {
@@ -1057,6 +1060,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
     if let Some(cfg) = o.component.slot_configs.remove(old) {
         o.component.slot_configs.insert(new.to_string(), cfg);
     }
+    if let Some(scid) = o.component.slot_content_ids.remove(old) {
+        o.component.slot_content_ids.insert(new.to_string(), scid);
+    }
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
@@ -1073,6 +1079,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
         if let Some(v) = n.component.values.remove(old) {
             n.component.values.insert(new.to_string(), v);
         }
+        if let Some(scid) = n.component.slot_content_ids.remove(old) {
+            n.component.slot_content_ids.insert(new.to_string(), scid);
+        }
         c.update(n);
     }
     c.finish()
@@ -1082,6 +1091,8 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
 pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     let mut c = Ctx::new(doc);
     let Some(mut o) = c.s.get(owner).cloned() else { return nothing() };
+    // `slot_content_id` is the node's own id, not a property's: only the per-property entry goes.
+    o.component.slot_content_ids.remove(name);
     o.component.props.retain(|p| p.name != name);
     o.component.slot_configs.remove(name);
     c.update(o);
@@ -1094,6 +1105,7 @@ pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     for inst in instances_of_any(c.s, &comps) {
         let Some(mut n) = c.s.get(inst).cloned() else { continue };
         n.component.values.remove(name);
+        n.component.slot_content_ids.remove(name);
         c.update(n);
     }
     sync_component(&mut c, owner);

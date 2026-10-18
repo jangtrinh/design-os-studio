@@ -1675,6 +1675,15 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let held = |holder: &Value, plain: &str| -> Option<Value> {
         holder.get(plain).and_then(value_of).or_else(|| holder.get("varValue").and_then(|v| v.get("value")).and_then(value_of))
     };
+    let slot_content_id_of = |holder: &Value, plain: &str| -> Option<String> {
+        holder
+            .get("varValue")
+            .and_then(|v| v.get("value"))
+            .or_else(|| holder.get(plain))
+            .and_then(|v| v.get("slotContentIdValue"))
+            .and_then(|s| s.get("guid").or(Some(s)))
+            .and_then(guid_str)
+    };
     let mut defs = Map::new();
     for d in rest_import::farr(nc, "componentPropDefs") {
         let (Some(id), Some(_)) = (d.get("id").and_then(guid_str), fstr(d, "name")) else { continue };
@@ -1725,6 +1734,11 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
             if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object).filter(|_| *ty == "SLOT") {
                 def.insert("slotPropConfig".into(), Value::Object(cfg.clone()));
             }
+            if *ty == "SLOT" {
+                if let Some(scid) = slot_content_id_of(d, "initialValue") {
+                    def.insert("slotContentId".into(), Value::String(scid));
+                }
+            }
         }
         defs.insert(key.clone(), Value::Object(def));
     }
@@ -1734,8 +1748,20 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let mut vals = Map::new();
     for a in rest_import::farr(nc, "componentPropAssignments") {
         let Some((key, ty)) = a.get("defID").and_then(guid_str).and_then(|id| lk.prop_defs.get(&id)) else { continue };
-        let Some(v) = held(a, "value") else { continue };
-        vals.insert(key.clone(), json!({"type": ty, "value": v}));
+        let scid = (*ty == "SLOT").then(|| slot_content_id_of(a, "value")).flatten();
+        let v = held(a, "value");
+        if v.is_none() && scid.is_none() {
+            continue;
+        }
+        let mut entry = Map::new();
+        entry.insert("type".into(), (*ty).into());
+        if let Some(v) = v {
+            entry.insert("value".into(), v);
+        }
+        if let Some(scid) = scid {
+            entry.insert("slotContentId".into(), Value::String(scid));
+        }
+        vals.insert(key.clone(), Value::Object(entry));
     }
     if !vals.is_empty() {
         m.insert("componentProperties".into(), Value::Object(vals));

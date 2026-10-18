@@ -734,3 +734,247 @@ fn an_instance_key_never_replaces_the_key_its_component_already_has() {
     assert_eq!(component_key(&rt, "Icon").as_deref(), Some("K_ICON"));
     assert_eq!(panel_preferred(&rt).0, vec![find(&rt, "Icon").id]);
 }
+
+#[test]
+fn two_slot_props_on_one_node_round_trip_separate_slot_content_ids_through_fig() {
+    let fixture = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc(
+            (5, 1),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "Panel",
+            json!({
+                "componentPropDefs": [
+                    {
+                        "id": g(7, 1),
+                        "name": "Header",
+                        "type": "SLOT",
+                        "varValue": {
+                            "dataType": "SLOT_CONTENT_ID",
+                            "value": { "slotContentIdValue": { "guid": g(8, 1) } }
+                        }
+                    },
+                    {
+                        "id": g(7, 2),
+                        "name": "Body",
+                        "type": "SLOT",
+                        "varValue": {
+                            "dataType": "SLOT_CONTENT_ID",
+                            "value": { "slotContentIdValue": { "guid": g(8, 2) } }
+                        }
+                    }
+                ]
+            })
+        ),
+        nc(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "Panel copy",
+            json!({
+                "symbolData": { "symbolID": g(5, 1), "symbolOverrides": [], "uniformScaleFactor": 1.0 },
+                "componentPropAssignments": [
+                    {
+                        "defID": g(7, 1),
+                        "varValue": {
+                            "dataType": "SLOT_CONTENT_ID",
+                            "value": { "slotContentIdValue": { "guid": g(9, 1) } }
+                        }
+                    },
+                    {
+                        "defID": g(7, 2),
+                        "varValue": {
+                            "dataType": "SLOT_CONTENT_ID",
+                            "value": { "slotContentIdValue": { "guid": g(9, 2) } }
+                        }
+                    }
+                ]
+            })
+        )
+    ]);
+
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let panel = find(&doc, "Panel");
+    assert_eq!(panel.component.slot_content_ids.get("Header").map(String::as_str), Some("8:1"));
+    assert_eq!(panel.component.slot_content_ids.get("Body").map(String::as_str), Some("8:2"));
+
+    let inst = find(&doc, "Panel copy");
+    assert_eq!(inst.component.slot_content_ids.get("Header").map(String::as_str), Some("9:1"));
+    assert_eq!(inst.component.slot_content_ids.get("Body").map(String::as_str), Some("9:2"));
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    let rt_panel = find(&rt, "Panel");
+    assert_eq!(rt_panel.component.slot_content_ids.get("Header").map(String::as_str), Some("8:1"));
+    assert_eq!(rt_panel.component.slot_content_ids.get("Body").map(String::as_str), Some("8:2"));
+
+    let rt_inst = find(&rt, "Panel copy");
+    assert_eq!(rt_inst.component.slot_content_ids.get("Header").map(String::as_str), Some("9:1"));
+    assert_eq!(rt_inst.component.slot_content_ids.get("Body").map(String::as_str), Some("9:2"));
+}
+
+/// The node's own `jsonSerialized.slot-content-id` (field a) and the per-property
+/// `SLOT_CONTENT_ID` assignment (field b) are different fields. These tests pin that a is never
+/// turned into b, and that b is never folded into a.
+fn panel_with_one_slot(panel_extra: Value, instance_extra: Value) -> Value {
+    let mut panel = json!({"componentPropDefs": [{"id": g(7, 1), "name": "Body", "type": "SLOT"}]});
+    for (k, v) in panel_extra.as_object().unwrap() {
+        panel[k] = v.clone();
+    }
+    let mut inst = json!({"symbolData": {"symbolID": g(5, 1), "symbolOverrides": [], "uniformScaleFactor": 1.0}});
+    for (k, v) in instance_extra.as_object().unwrap() {
+        inst[k] = v.clone();
+    }
+    json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc((5, 1), (0, 1), "a", "SYMBOL", "Panel", panel),
+        nc((1, 2), (0, 1), "b", "INSTANCE", "Panel copy", inst)
+    ])
+}
+
+fn node_slot_id(id: (u64, u64)) -> Value {
+    json!({"slot-content-id": {"guid": g(id.0, id.1)}})
+}
+
+fn assert_no_property_slot_ids(doc: &Document) {
+    for name in ["Panel", "Panel copy"] {
+        let ids = &find(doc, name).component.slot_content_ids;
+        assert!(ids.is_empty(), "{name} gained per-property slot content ids it never had: {ids:?}");
+    }
+}
+
+#[test]
+fn a_node_slot_content_id_without_a_property_assignment_stays_the_nodes_own_field_through_fig() {
+    let fixture = panel_with_one_slot(json!({"jsonSerialized": node_slot_id((9, 8))}), json!({"jsonSerialized": node_slot_id((9, 9))}));
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    assert_no_property_slot_ids(&doc);
+    assert_eq!(find(&doc, "Panel").component.slot_content_id.as_deref(), Some("9:8"));
+    assert_eq!(find(&doc, "Panel copy").component.slot_content_id.as_deref(), Some("9:9"));
+
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    assert_no_property_slot_ids(&rt);
+    assert_eq!(find(&rt, "Panel").component.slot_content_id.as_deref(), Some("9:8"), "node field round-trips");
+    assert_eq!(find(&rt, "Panel copy").component.slot_content_id.as_deref(), Some("9:9"), "node field round-trips");
+}
+
+#[test]
+fn a_node_slot_content_id_on_a_one_slot_component_is_not_written_as_a_property_assignment() {
+    let mut doc = Document::new("one-slot");
+    let page = doc.add_page("Page");
+    let id = doc.alloc_id();
+    let mut panel = Node::new(id, NodeKind::Component(FrameProps::default()));
+    panel.name = "Panel".into();
+    panel.component.props = vec![ComponentPropDef { name: "Body#1:1".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) }];
+    panel.component.slot_content_id = Some("7:7".into());
+    doc.insert(page, panel).unwrap();
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    assert!(find(&rt, "Panel").component.slot_content_ids.is_empty(), "{:?}", find(&rt, "Panel").component.slot_content_ids);
+    assert_eq!(find(&rt, "Panel").component.slot_content_id.as_deref(), Some("7:7"));
+}
+
+#[test]
+fn a_legacy_native_file_keeps_its_node_slot_content_id_and_gains_no_property_assignment() {
+    let mut doc = Document::new("legacy");
+    let page = doc.add_page("Page");
+    let id = doc.alloc_id();
+    let mut panel = Node::new(id, NodeKind::Component(FrameProps::default()));
+    panel.name = "Panel".into();
+    panel.component.props = vec![
+        ComponentPropDef { name: "Body#1:1".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) },
+        ComponentPropDef { name: "Footer#1:2".into(), kind: PropKind::Slot, default: PropValue::Slot(vec![]) },
+    ];
+    panel.component.slot_content_id = Some("7:42".into());
+    doc.insert(page, panel).unwrap();
+    let json = doc.to_json().unwrap();
+    assert!(!json.contains("slot_content_ids"), "file as saved before the per-property field existed");
+
+    let loaded = Document::from_json(&json).unwrap();
+    assert_eq!(find(&loaded, "Panel").component.slot_content_id.as_deref(), Some("7:42"));
+    assert!(find(&loaded, "Panel").component.slot_content_ids.is_empty());
+    let rt = import_fig(&export_fig(&loaded).expect("export_fig")).expect("import_fig");
+    assert!(find(&rt, "Panel").component.slot_content_ids.is_empty(), "{:?}", find(&rt, "Panel").component.slot_content_ids);
+    assert_eq!(find(&rt, "Panel").component.slot_content_id.as_deref(), Some("7:42"));
+}
+
+fn slot_assignment(def: (u64, u64), id: (u64, u64)) -> Value {
+    json!({"defID": g(def.0, def.1), "varValue": {"dataType": "SLOT_CONTENT_ID", "value": {"slotContentIdValue": {"guid": g(id.0, id.1)}}}})
+}
+
+#[test]
+fn per_property_slot_assignments_and_the_node_field_stay_separate_through_fig() {
+    let fixture = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc(
+            (5, 1),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "Panel",
+            json!({"componentPropDefs": [
+                {"id": g(7, 1), "name": "Header", "type": "SLOT"},
+                {"id": g(7, 2), "name": "Body", "type": "SLOT"}]})
+        ),
+        nc(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "Panel copy",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "symbolOverrides": [], "uniformScaleFactor": 1.0},
+                "jsonSerialized": node_slot_id((9, 9)),
+                "componentPropAssignments": [slot_assignment((7, 1), (9, 1)), slot_assignment((7, 2), (9, 2))]
+            })
+        )
+    ]);
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    for d in [&doc, &rt] {
+        let inst = find(d, "Panel copy");
+        assert_eq!(inst.component.slot_content_id.as_deref(), Some("9:9"), "node field is not replaced by a property id");
+        assert_eq!(inst.component.slot_content_ids.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect::<Vec<_>>(), vec![("Body", "9:2"), ("Header", "9:1")]);
+        assert!(find(d, "Panel").component.slot_content_ids.is_empty());
+        assert!(find(d, "Panel").component.slot_content_id.is_none());
+    }
+}
+
+#[test]
+fn a_fresh_instance_of_a_two_slot_component_adds_no_slot_assignments_through_fig() {
+    let fixture = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc(
+            (5, 1),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "Panel",
+            json!({
+                "componentPropDefs": [
+                    { "id": g(7, 1), "name": "Header", "type": "SLOT",
+                      "varValue": { "dataType": "SLOT_CONTENT_ID", "value": { "slotContentIdValue": { "guid": g(8, 1) } } } },
+                    { "id": g(7, 2), "name": "Body", "type": "SLOT",
+                      "varValue": { "dataType": "SLOT_CONTENT_ID", "value": { "slotContentIdValue": { "guid": g(8, 2) } } } }
+                ]
+            })
+        )
+    ]);
+    let mut doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let panel_id = find(&doc, "Panel").id;
+    let page = doc.pages[0];
+    create_instance(&mut doc, panel_id, page, Vec2::new(400.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, panel_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "Fresh".into();
+
+    let rt = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    let panel = find(&rt, "Panel");
+    assert_eq!(panel.component.slot_content_ids.get("Header").map(String::as_str), Some("8:1"));
+    assert_eq!(panel.component.slot_content_ids.get("Body").map(String::as_str), Some("8:2"));
+    let fresh = find(&rt, "Fresh");
+    assert!(fresh.component.slot_content_ids.is_empty(), "{:?}", fresh.component.slot_content_ids);
+}

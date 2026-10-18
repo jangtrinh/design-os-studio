@@ -1297,6 +1297,9 @@ impl<'a> Ctx<'a> {
                         for ps in extract_prefs(d) {
                             self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
                         }
+                        if let Some(scid) = fstr(d, "slotContentId").filter(|s| !s.is_empty()) {
+                            n.component.slot_content_ids.insert(name.clone(), scid.to_string());
+                        }
                         (PropKind::Slot, PropValue::Slot(Vec::new()))
                     }
                     _ => continue,
@@ -1318,9 +1321,16 @@ impl<'a> Ctx<'a> {
                         PropValue::Instance(NodeId(0))
                     }
                     Some("SLOT") => {
-                        let s = text();
-                        self.pending_swaps.push((id, name.clone(), format!("SLOT:{s}"), false));
-                        PropValue::Slot(Vec::new())
+                        if let Some(scid) = fstr(d, "slotContentId").filter(|s| !s.is_empty()) {
+                            n.component.slot_content_ids.insert(name.clone(), scid.to_string());
+                        }
+                        if val.is_some() {
+                            let s = text();
+                            self.pending_swaps.push((id, name.clone(), format!("SLOT:{s}"), false));
+                            PropValue::Slot(Vec::new())
+                        } else {
+                            continue;
+                        }
                     }
                     _ => continue,
                 };
