@@ -558,13 +558,96 @@ fn flex_columns_narrower_than_a_pill_still_reorder_by_drag() {
 }
 
 #[test]
-fn header_pills_of_one_axis_never_overlap() {
+fn header_pills_keep_at_least_the_24px_pointer_floor_on_narrow_columns_and_rows() {
     let mut s = Sim::new();
-    let (grid_id, _) = narrow_columns_at_pill_zoom(&mut s);
-    let p = pills(&s, grid_id, true);
-    for (i, a) in p.iter().enumerate() {
-        for b in &p[i + 1..] {
-            assert!(a.max.x <= b.min.x + 0.001 || b.max.x <= a.min.x + 0.001, "pills {a:?} and {b:?} overlap");
+    s.shell.app.view.zoom = 0.4;
+    let mut al = AutoLayout { grid_columns: 8, grid_rows: 8, ..AutoLayout::default() };
+    for i in 0..8 {
+        al.grid_col_tracks[i] = GridTrack::Fixed(24.0);
+        al.grid_row_tracks[i] = GridTrack::Fixed(10.0);
+    }
+    let pins: Vec<_> = (0..8u16).map(|i| (Some(i), Some(i))).collect();
+    let (grid_id, _) = add_grid(&mut s, al, &pins);
+
+    for is_col in [true, false] {
+        let p = pills(&s, grid_id, is_col);
+        assert_eq!(p.len(), 8);
+        for (i, r) in p.iter().enumerate() {
+            assert!(
+                r.width() >= 24.0 && r.height() >= 24.0,
+                "{} pill {i} is {}x{}, below the 24x24 pointer floor",
+                if is_col { "column" } else { "row" },
+                r.width(),
+                r.height()
+            );
         }
     }
+
+    // Repro: eight Fixed(10) rows at zoom 0.4 — clicking a row pill cycles that row instead of falling through.
+    let row_pills = pills(&s, grid_id, false);
+    s.click(row_pills[3].center());
+    assert_eq!(layout_of(&s, grid_id).grid_row_tracks[3], GridTrack::Hug, "row 3 cycled from Fixed(10) to Hug");
+    assert_eq!(s.app().selection, vec![grid_id], "click did not fall through to deselect or marquee");
+}
+
+#[test]
+fn moving_or_deleting_a_column_shrinks_col_span_so_the_solver_honours_the_stored_pin() {
+    let mut s = Sim::new();
+    let mut al = AutoLayout { grid_columns: 4, grid_rows: 1, ..AutoLayout::default() };
+    for i in 0..4 {
+        al.grid_col_tracks[i] = GridTrack::Fixed(100.0);
+    }
+    let (grid_id, kids) = add_grid(&mut s, al, &[(Some(0), Some(0)), (Some(2), Some(0))]);
+    for &k in &kids {
+        s.shell.app.doc.get_mut(k).unwrap().layout_child.col_span = 2;
+    }
+    let mut ed = Edit::new();
+    crate::layout::relayout_around(&mut s.shell.app.doc, &mut ed, grid_id);
+    assert_eq!(child_origin(&s, kids[0]).0, 0.0);
+    assert_eq!(child_origin(&s, kids[1]).0, 200.0);
+
+    // Repro 1: move column 0 to 3; child 0 had pin 0, span 2 -> pin becomes 3, span shrinks to 1 so solver places it at x=300.
+    assert!(move_grid_track(&mut s.shell.app, grid_id, true, 0, 3));
+    assert_eq!(column_pin(&s, kids[0]), Some(3));
+    assert_eq!(s.app().doc.get(kids[0]).unwrap().layout_child.col_span, 1);
+    assert_eq!(child_origin(&s, kids[0]).0, 300.0, "solver honours pin 3 instead of pulling back to column 2");
+
+    s.shell.app.undo();
+    assert_eq!(column_pin(&s, kids[0]), Some(0));
+    assert_eq!(s.app().doc.get(kids[0]).unwrap().layout_child.col_span, 2);
+    assert_eq!(child_origin(&s, kids[0]).0, 0.0);
+
+    // Repro 2: child 1 has pin 2, span 2 in 4 columns; deleting column 3 shrinks span to 1 so child stays at column 2 (x=200).
+    assert!(delete_grid_track(&mut s.shell.app, grid_id, true, 3));
+    assert_eq!(column_pin(&s, kids[1]), Some(2));
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.col_span, 1);
+    assert_eq!(child_origin(&s, kids[1]).0, 200.0, "child stays in column 2 instead of being pulled back to column 1");
+
+    s.shell.app.undo();
+    assert_eq!(column_pin(&s, kids[1]), Some(2));
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.col_span, 2);
+    assert_eq!(child_origin(&s, kids[1]).0, 200.0);
+}
+
+#[test]
+fn releasing_more_than_4px_away_on_the_same_pill_still_cycles_its_sizing() {
+    let mut s = Sim::new();
+    let (grid_id, _) = add_grid(&mut s, three_columns(GridTrack::Fixed(100.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)), &[(None, None); 3]);
+    let p0 = pills(&s, grid_id, true)[0];
+    assert!(p0.width() >= 24.0);
+
+    // Move 6 px horizontally inside pill 0 (> 4 px drag slop, still on pill 0) and release.
+    let from = Pos2::new(p0.center().x - 3.0, p0.center().y);
+    let to = Pos2::new(p0.center().x + 3.0, p0.center().y);
+    s.drag(from, to);
+    assert_eq!(layout_of(&s, grid_id).grid_col_tracks[0], GridTrack::Hug, "releasing on the source pill cycles its sizing");
+}
+
+#[test]
+fn row_add_button_sits_4px_below_the_frame_bottom() {
+    let mut s = Sim::new();
+    let (grid_id, _) = add_grid(&mut s, three_columns(GridTrack::Flex(1.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)), &[(None, None); 3]);
+    let plus = add_button(&s, grid_id, false).expect("row + button");
+    let frame_bottom_screen = s.screen(320.0, 320.0 + 240.0).y;
+    assert!((plus.min.y - (frame_bottom_screen + 4.0)).abs() < 1e-3, "row + top {} is 4px below frame bottom {}", plus.min.y, frame_bottom_screen);
 }

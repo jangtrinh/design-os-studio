@@ -476,12 +476,16 @@ fn arm_grid_track_pill(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -
     true
 }
 
-/// Completes a press that [`arm_grid_track_pill`] held back. A drag that ends off every pill of the grid and
-/// axis it started on changes nothing.
+/// Completes a press that [`arm_grid_track_pill`] held back. A release still on the source pill cycles its sizing;
+/// a drag onto another pill of the same grid and axis reorders the tracks; a release off every pill changes nothing.
 fn finish_grid_track_pill(app: &mut App, ctx: &egui::Context, rect: ERect, release: Option<Pos2>) {
     let Some(press) = ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id())) else { return };
     let Some(release) = release else { return };
-    if (release - press).length() > GRID_PILL_DRAG_SLOP {
+    let same_pill = match (super::draw::grid_track_pill_at(app, rect, press), super::draw::grid_track_pill_at(app, rect, release)) {
+        (Some((g0, c0, i0, _)), Some((g1, c1, i1, _))) => g0 == g1 && c0 == c1 && i0 == i1,
+        _ => false,
+    };
+    if (release - press).length() > GRID_PILL_DRAG_SLOP && !same_pill {
         try_drag_grid_track_pill(app, rect, press, release);
     } else {
         try_cycle_grid_track_pill(app, rect, press);

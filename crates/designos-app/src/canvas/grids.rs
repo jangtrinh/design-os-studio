@@ -162,6 +162,11 @@ fn edit_grid_tracks(app: &mut App, grid_id: NodeId, is_col: bool, edit: TrackEdi
     }
     let Some(children) = app.doc.get(grid_id).map(|n| n.children.clone()) else { return false };
 
+    let new_count = match edit {
+        TrackEdit::Insert { .. } => count + 1,
+        TrackEdit::Delete { .. } => count - 1,
+        TrackEdit::Move { .. } | TrackEdit::Resize { .. } => count,
+    };
     let mut tx = crate::edit::Tx::new();
     if let Some(gn) = tx.ed.node(&mut app.doc, grid_id) {
         if let Some(gal) = gn.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
@@ -172,9 +177,30 @@ fn edit_grid_tracks(app: &mut App, grid_id: NodeId, is_col: bool, edit: TrackEdi
         let Some(c) = app.doc.get(cid) else { continue };
         let Some(pin) = (if is_col { c.layout_child.grid_column } else { c.layout_child.grid_row }) else { continue };
         let next = edit.remap_pin(pin);
-        if next != Some(pin) {
+        let old_span = c.layout_child.col_span;
+        let mut next_span = old_span;
+        if is_col && old_span > 1 {
+            let mut span = old_span as usize;
+            if let TrackEdit::Delete { at } = edit {
+                let start = pin as usize;
+                if (start..start.saturating_add(span)).contains(&at) {
+                    span = span.saturating_sub(1).max(1);
+                }
+            }
+            if let Some(p) = next {
+                let p = p as usize;
+                if p < new_count && p.saturating_add(span) > new_count {
+                    span = (new_count - p).max(1);
+                }
+            }
+            next_span = span as u16;
+        }
+        if next != Some(pin) || next_span != old_span {
             if let Some(cn) = tx.ed.node(&mut app.doc, cid) {
                 *(if is_col { &mut cn.layout_child.grid_column } else { &mut cn.layout_child.grid_row }) = next;
+                if is_col {
+                    cn.layout_child.col_span = next_span;
+                }
             }
         }
     }
