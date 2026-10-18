@@ -1,6 +1,7 @@
-//! A colour variable or a colour style written to a text layer reaches the style runs that still
-//! have the base colour, and leaves runs coloured differently (a highlighted word) alone. The
-//! renderer paints the runs, so a run left behind would keep showing the old colour.
+//! A colour variable bound to a text layer reaches the style runs that still have the base colour
+//! and leaves runs coloured differently (a highlighted word) alone. A colour style written to a
+//! text layer recolours every run. The renderer paints the runs, so a run left behind would keep
+//! showing the old colour.
 
 use super::*;
 use designos_doc::{resolved_node, TextRun};
@@ -75,20 +76,19 @@ fn after_the_variable_changes_only_the_highlighted_run_keeps_its_colour() {
 }
 
 #[test]
-fn applying_a_fill_style_recolours_the_matching_runs_only() {
+fn applying_a_fill_style_recolours_every_run() {
     let (mut f, text, _) = brand_text(&[(0, 10, BLUE), (10, 21, RED)]);
     f.style("ink", "Ink", Style::Fill(vec![Paint::solid(gray(0x20))]), StyleProperty::Fill);
     let mut app = f.app();
     app.apply_style(&[text], "ink");
-    assert_eq!(painted(&app, text), vec![gray(0x20), gray(0x20), RED]);
+    assert_eq!(painted(&app, text), vec![gray(0x20), gray(0x20), gray(0x20)]);
     app.undo();
     assert_eq!(painted(&app, text), vec![BLUE, BLUE, RED], "one undo step puts all of it back");
 }
 
 #[test]
 fn updating_a_linked_colour_style_still_recolours_every_run() {
-    // Editing the style itself is another path from applying it to a layer: it keeps recolouring
-    // every run of the layers linked to it.
+    // Editing the style itself recolours every run of the layers linked to it, as applying it does.
     let (mut f, text, _) = brand_text(&[(0, 10, BLUE), (10, 21, RED)]);
     f.style("ink", "Ink", Style::Fill(vec![Paint::solid(BLUE)]), StyleProperty::Fill);
     f.doc.get_mut(text).unwrap().style_refs.insert("fill".into(), "ink".into());
