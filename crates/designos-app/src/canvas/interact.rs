@@ -419,45 +419,41 @@ pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bo
 
 /// Cycles the sizing (`1fr` -> `Npx` -> `Hug` -> `1fr`) of the grid track whose header pill is at `pos`, in one undo step.
 pub fn try_cycle_grid_track_pill(app: &mut App, rect: ERect, pos: Pos2) -> bool {
-    for (grid_id, is_col, idx, pill_r) in super::draw::grid_track_pill_rects(app, rect) {
-        if pill_r.contains(pos) {
-            let mut tx = Tx::new();
-            let mut label = String::new();
-            if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
-                if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
-                    if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
-                        if is_col {
-                            if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
-                                *tr = match *tr {
-                                    designos_doc::GridTrack::Flex(_) => {
-                                        designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
-                                    }
-                                    designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                    designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                                };
-                                label = super::grids::format_grid_track(*tr);
+    let Some((grid_id, is_col, idx, _)) = super::draw::grid_track_pill_at(app, rect, pos) else {
+        return false;
+    };
+    let mut tx = Tx::new();
+    let mut label = String::new();
+    if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
+        if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
+            if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
+                if is_col {
+                    if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
+                        *tr = match *tr {
+                            designos_doc::GridTrack::Flex(_) => {
+                                designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
                             }
-                        } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
-                            *tr = match *tr {
-                                designos_doc::GridTrack::Flex(_) => {
-                                    designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0))
-                                }
-                                designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                            };
-                            label = super::grids::format_grid_track(*tr);
-                        }
+                            designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                            designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                        };
+                        label = super::grids::format_grid_track(*tr);
                     }
+                } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
+                    *tr = match *tr {
+                        designos_doc::GridTrack::Flex(_) => designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0)),
+                        designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                        designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                    };
+                    label = super::grids::format_grid_track(*tr);
                 }
-                layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
             }
-            if app.run_tx(tx) && !label.is_empty() {
-                app.show_toast(format!("Grid track → {label}"), false);
-            }
-            return true;
         }
+        layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
     }
-    false
+    if app.run_tx(tx) && !label.is_empty() {
+        app.show_toast(format!("Grid track → {label}"), false);
+    }
+    true
 }
 
 /// Pointer travel (screen px) past which a press on a grid track pill is a drag instead of a click.
@@ -473,7 +469,7 @@ fn arm_grid_track_pill(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -
     if super::draw::tidy_up_pill_rect(app, rect).is_some_and(|r| r.contains(pos)) {
         return false;
     }
-    if !super::draw::grid_track_pill_rects(app, rect).iter().any(|(_, _, _, r)| r.contains(pos)) {
+    if super::draw::grid_track_pill_at(app, rect, pos).is_none() {
         return false;
     }
     ctx.data_mut(|d| d.insert_temp(grid_pill_press_id(), pos));
@@ -494,11 +490,11 @@ fn finish_grid_track_pill(app: &mut App, ctx: &egui::Context, rect: ERect, relea
 
 /// Reorders a grid column/row track when dragging from one on-canvas track header pill to another (`#144`).
 pub fn try_drag_grid_track_pill(app: &mut App, rect: ERect, from_pos: Pos2, to_pos: Pos2) -> bool {
-    let pills = super::draw::grid_track_pill_rects(app, rect);
-    let Some(&(grid_id, is_col, from_idx, _)) = pills.iter().find(|(_, _, _, r)| r.contains(from_pos)) else {
+    let Some((grid_id, is_col, from_idx, _)) = super::draw::grid_track_pill_at(app, rect, from_pos) else {
         return false;
     };
-    let Some(&(_, _, to_idx, _)) = pills.iter().find(|&&(gid, col, idx, r)| gid == grid_id && col == is_col && idx != from_idx && r.contains(to_pos)) else {
+    let same_axis = super::draw::grid_track_pill_rects(app, rect).into_iter().filter(|&(gid, col, idx, _)| gid == grid_id && col == is_col && idx != from_idx);
+    let Some((_, _, to_idx, _)) = super::draw::nearest_pill(same_axis, to_pos) else {
         return false;
     };
     super::grids::move_grid_track(app, grid_id, is_col, from_idx, to_idx)
