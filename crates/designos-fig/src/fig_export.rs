@@ -1476,10 +1476,10 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if lc.row_span > 1 {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
                 }
+                // An override that resets an alignment to Start must say MIN: the rebuilt copy of the main component
+                // would otherwise keep the main's alignment.
                 for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-                    if a != GridChildAlign::Start {
-                        ov.push((k, en(grid_child_align_name(a))));
-                    }
+                    ov.push((k, en(grid_child_align_name(a))));
                 }
             }
             if ovs.contains(&OverrideField::MainComponent) {

@@ -2322,3 +2322,139 @@ fn child_of_a_flow_frame_keeps_the_default_alignment_and_writes_no_alignment_key
     let wire = wire_grid_child_aligns(&export_fig(&doc).expect("export_fig AlignDoc"));
     assert!(wire.is_empty(), "flow children wrote alignment keys: {wire:?}");
 }
+
+#[test]
+fn instance_override_that_resets_a_grid_child_alignment_to_start_survives_a_roundtrip() {
+    use designos_doc::GridChildAlign;
+
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 40.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    // The main component centres its child horizontally and ends it vertically; the instance resets the horizontal
+    // alignment to MIN (Start) and leaves the vertical one alone.
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "OverrideAlignDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        node(
+            (1, 10),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "AlignComp",
+            json!({
+                "size": {"x": 100.0, "y": 100.0},
+                "stackMode": "GRID",
+                "gridColumns": 1,
+                "gridRows": 1,
+                "gridColumnsSizing": "100px",
+                "gridRowsSizing": "100px"
+            })
+        ),
+        node(
+            (1, 11),
+            (1, 10),
+            "a",
+            "RECTANGLE",
+            "AlignedChild",
+            json!({
+                "overrideKey": g(9, 11),
+                "gridChildHorizontalAlign": "CENTER",
+                "gridChildVerticalAlign": "MAX"
+            })
+        ),
+        node(
+            (1, 12),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "AlignInst",
+            json!({
+                "size": {"x": 100.0, "y": 100.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [
+                        {"guidPath": {"guids": [g(9, 11)]}, "gridChildHorizontalAlign": "MIN"}
+                    ]
+                }
+            })
+        )
+    ]);
+    let instance_child = |doc: &Document| {
+        let inst = find(doc, "AlignInst");
+        let child = doc.get(*inst.children.first().expect("instance child")).expect("instance child node");
+        (child.layout_child.grid_align_h, child.layout_child.grid_align_v)
+    };
+
+    let doc = import_fig_node_changes(&changes, "OverrideAlignDoc").expect("import OverrideAlignDoc");
+    assert_eq!(instance_child(&doc), (GridChildAlign::Start, GridChildAlign::End), "the override applies on import");
+
+    let bytes = export_fig(&doc).expect("export_fig OverrideAlignDoc");
+
+    // The override entry for the child carries both keys: the MIN reset is an explicit value, not an omitted key.
+    let (_, overrides) = wire_instance_override(&bytes, "AlignInst");
+    assert_eq!(overrides, ("MIN".to_string(), "MAX".to_string()), "the reset to MIN was dropped from the symbolOverrides");
+
+    // A real .fig instance stores no children, so the copy is rebuilt from the component plus the written overrides.
+    let (stripped, _) = wire_instance_override(&bytes, "AlignInst");
+    let rt = import_fig(&stripped).expect("re-import OverrideAlignDoc");
+    assert_eq!(instance_child(&rt), (GridChildAlign::Start, GridChildAlign::End), "the rebuilt copy kept the component's alignment");
+}
+
+/// The `.fig` bytes with the children stored under instance `instance_name` removed, and the
+/// (`gridChildHorizontalAlign`, `gridChildVerticalAlign`) of the first `symbolOverrides` entry that carries either key
+/// (`<absent>` for a key it does not carry).
+fn wire_instance_override(bytes: &[u8], instance_name: &str) -> (Vec<u8>, (String, String)) {
+    use designos_fig::container::{self, Compression};
+    use designos_fig::kiwi::{KiwiValue, Schema};
+    let archive = container::open(bytes).expect("open fig archive");
+    let (schema_bytes, message) = container::read_archive_chunks(&archive).expect("fig chunks");
+    let schema = Schema::decode(&schema_bytes).expect("fig schema");
+    let root = schema.root_message().expect("root message");
+    let mut msg = schema.decode_message(root, &message).expect("decode fig message");
+    let Some(KiwiValue::Array(nodes)) = msg.take_field("nodeChanges") else { panic!("no nodeChanges") };
+    let guid_of = |v: Option<&KiwiValue>| match (v.and_then(|g| g.get("sessionID")), v.and_then(|g| g.get("localID"))) {
+        (Some(KiwiValue::Uint(s)), Some(KiwiValue::Uint(l))) => Some((*s, *l)),
+        _ => None,
+    };
+    let instance = nodes
+        .iter()
+        .find(|n| matches!(n.get("name"), Some(KiwiValue::String(s)) if s == instance_name))
+        .and_then(|n| guid_of(n.get("guid")))
+        .expect("instance guid");
+    let enum_of = |n: &KiwiValue, key: &str| match n.get(key) {
+        Some(KiwiValue::Enum(e)) => e.to_string(),
+        Some(other) => format!("{other:?}"),
+        None => "<absent>".to_string(),
+    };
+    let mut carried = ("<absent>".to_string(), "<absent>".to_string());
+    for n in &nodes {
+        let entries = n.get("symbolData").and_then(|s| s.get("symbolOverrides")).and_then(KiwiValue::as_array).unwrap_or(&[]);
+        for e in entries {
+            let pair = (enum_of(e, "gridChildHorizontalAlign"), enum_of(e, "gridChildVerticalAlign"));
+            if pair != ("<absent>".to_string(), "<absent>".to_string()) {
+                carried = pair;
+            }
+        }
+    }
+    let kept: Vec<KiwiValue> = nodes.into_iter().filter(|n| guid_of(n.get("parentIndex").and_then(|p| p.get("guid"))) != Some(instance)).collect();
+    let KiwiValue::Message(fields) = &mut msg else { panic!("root is not a message") };
+    fields.push(("nodeChanges".into(), KiwiValue::Array(kept)));
+    let encoded = schema.encode_message(root, &msg).expect("encode fig message");
+    let version = container::container_version(&archive.canvas).unwrap_or(106);
+    (container::write_container(&schema_bytes, &encoded, Compression::Deflate, version), carried)
+}
