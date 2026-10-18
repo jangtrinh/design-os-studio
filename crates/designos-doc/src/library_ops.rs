@@ -1250,6 +1250,7 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
             if inode.component.source.is_none() {
                 inode.component.source = Some(ck);
                 inode.component.overrides = record_override(&cnode, &inode);
+                inode.component.grid_align_overrides = record_grid_align_overrides(&cnode, &inode);
                 if let Some(slot) = doc.get_mut(ik) {
                     *slot = inode;
                 }
@@ -1261,6 +1262,7 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
         let Some(mut n) = doc.get(inst).cloned() else { continue };
         let base = doc.get(cid).cloned()?;
         let mut ov = record_override(&base, &n);
+        let align_ov = record_grid_align_overrides(&base, &n);
         for f in [OverrideField::Transform, OverrideField::Visible, OverrideField::Locked] {
             ov.remove(&f);
         }
@@ -1269,6 +1271,7 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
         }
         n.component.source = Some(cid);
         n.component.overrides = ov;
+        n.component.grid_align_overrides = align_ov;
         if let Some(slot) = doc.get_mut(inst) {
             *slot = n;
         }

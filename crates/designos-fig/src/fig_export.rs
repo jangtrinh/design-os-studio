@@ -885,8 +885,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
     }
     for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-        if writes_grid_child_align(a, parent_dir) {
-            fields.push((k, en(grid_child_align_name(a))));
+        let eff = if a == GridChildAlign::Start { node.fig_metadata.get(k).and_then(|s| GridChildAlign::from_figma_name(s)).unwrap_or(a) } else { a };
+        if writes_grid_child_align(eff, parent_dir) {
+            fields.push((k, en(grid_child_align_name(eff))));
         }
     }
     if lc.min_w.is_some() || lc.min_h.is_some() {
@@ -1550,11 +1551,11 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 // both axes are written.
                 let main_lc = n.component.source.and_then(|s| cx.doc.get(s)).map(|s| s.layout_child);
                 let axes = [
-                    ("gridChildHorizontalAlign", lc.grid_align_h, main_lc.map(|m| m.grid_align_h)),
-                    ("gridChildVerticalAlign", lc.grid_align_v, main_lc.map(|m| m.grid_align_v)),
+                    ("gridChildHorizontalAlign", lc.grid_align_h, main_lc.map(|m| m.grid_align_h), n.component.grid_align_overrides[0]),
+                    ("gridChildVerticalAlign", lc.grid_align_v, main_lc.map(|m| m.grid_align_v), n.component.grid_align_overrides[1]),
                 ];
-                for (k, a, main) in axes {
-                    if main != Some(a) {
+                for (k, a, main, axis_overridden) in axes {
+                    if axis_overridden || main != Some(a) {
                         ov.push((k, en(grid_child_align_name(a))));
                     }
                 }

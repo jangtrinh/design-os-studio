@@ -98,6 +98,9 @@ pub fn record_overrides(doc: &Document, before: &BTreeMap<NodeId, Node>, cmds: &
                 ov.remove(&OverrideField::Size);
             }
         }
+        let align_ov = record_grid_align_overrides(old, node);
+        node.component.grid_align_overrides[0] |= align_ov[0];
+        node.component.grid_align_overrides[1] |= align_ov[1];
         node.component.overrides.extend(ov);
     }
 }

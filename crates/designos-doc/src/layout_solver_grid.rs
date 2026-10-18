@@ -219,9 +219,9 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let [mt, mr, mb, ml] = k.margin;
         let cell_w: f32 = (0..p.col_span).map(|dc| col_widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h: f32 = (0..p.row_span).map(|dr| row_heights[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
-        let (area_w, area_h) = ((cell_w - ml - mr).max(0.0), (cell_h - mt - mb).max(0.0));
-        let w = k.limits.clamp_w(if k.main_fill { area_w } else { k.size.x });
-        let h = k.limits.clamp_h(if k.cross_fill { area_h } else { k.size.y });
+        let (area_w, area_h) = (cell_w - ml - mr, cell_h - mt - mb);
+        let w = k.limits.clamp_w(if k.main_fill { area_w.max(0.0) } else { k.size.x });
+        let h = k.limits.clamp_h(if k.cross_fill { area_h.max(0.0) } else { k.size.y });
         // The child aligns inside its cell inset by its margins, so a centred child centres its margin box.
         let dx = cell_offset(k.cell.align_h, al.primary_align, area_w, w);
         let dy = cell_offset(k.cell.align_v, al.counter_align, area_h, h);

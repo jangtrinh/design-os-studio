@@ -798,7 +798,7 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "MaskType", &["ALPHA", "VECTOR", "LUMINANCE"]);
     enum_def(&mut b, "ScrollDirection", &["NONE", "HORIZONTAL", "VERTICAL", "BOTH"]);
     enum_def(&mut b, "LockMode", &["NONE", "ALL", "ASPECT_RATIO", "FIXED_SIZE"]);
-    enum_def(&mut b, "GridChildAlign", &["AUTO", "MIN", "CENTER", "MAX", "STRETCH"]);
+    enum_def(&mut b, "GridChildAlign", &["AUTO", "MIN", "CENTER", "MAX"]);
     enum_def(&mut b, "ColorProfile", &["SRGB", "DISPLAY_P3"]);
     enum_def(&mut b, "CodeObjectType", &["COMPONENT", "FILE", "LIBRARY", "INSTANCE", "LAYER"]);
     enum_def(&mut b, "BrushOrientation", &["FORWARD", "REVERSE"]);

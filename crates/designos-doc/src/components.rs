@@ -104,6 +104,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        n.component.grid_align_overrides = [false, false];
         n.component.props.clear();
         n.component.slot_configs.clear();
     }
@@ -340,6 +341,12 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
     s
 }
 
+/// Which axes (`[horizontal, vertical]`) of [`LayoutChild::grid_align_h`] / [`LayoutChild::grid_align_v`]
+/// differ between two versions of a node.
+pub fn record_grid_align_overrides(before: &Node, after: &Node) -> [bool; 2] {
+    [before.layout_child.grid_align_h != after.layout_child.grid_align_h, before.layout_child.grid_align_v != after.layout_child.grid_align_v]
+}
+
 // ---------------------------------------------------------------------------
 // Create component / instance
 // ---------------------------------------------------------------------------
@@ -431,6 +438,7 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
     if nested && !as_component {
         // Stays mirrored by the outer instance, but is no longer synced.
         n.component.overrides = OverrideField::ALL.into_iter().collect();
+        n.component.grid_align_overrides = [true, true];
         n.component.values.clear();
     } else {
         n.component = ComponentLink::default();
@@ -448,6 +456,7 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
         } else if is_inst {
             dn.component.source = None;
             dn.component.overrides.clear();
+            dn.component.grid_align_overrides = [false, false];
         } else {
             dn.component = ComponentLink::default();
         }
@@ -476,11 +485,14 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = n.component.overrides.len();
+        let before = (n.component.overrides.len(), n.component.grid_align_overrides);
         for f in fields {
             n.component.overrides.remove(f);
+            if *f == OverrideField::Layout {
+                n.component.grid_align_overrides = [false, false];
+            }
         }
-        if n.component.overrides.len() != before {
+        if (n.component.overrides.len(), n.component.grid_align_overrides) != before {
             c.update(n);
         }
     }
@@ -499,8 +511,9 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     }
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        if !n.component.overrides.is_empty() {
+        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] {
             n.component.overrides.clear();
+            n.component.grid_align_overrides = [false, false];
             c.update(n);
         }
     }
@@ -606,8 +619,18 @@ fn variant_target(d: &Document, inst: &Node) -> Option<NodeId> {
 }
 
 fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>) {
+    let target_align = (to.layout_child.grid_align_h, to.layout_child.grid_align_v);
     for f in fields {
         copy_field(*f, from, to);
+    }
+    if fields.contains(&OverrideField::Layout) {
+        if !from.component.grid_align_overrides[0] {
+            to.layout_child.grid_align_h = target_align.0;
+        }
+        if !from.component.grid_align_overrides[1] {
+            to.layout_child.grid_align_v = target_align.1;
+        }
+        to.component.grid_align_overrides = from.component.grid_align_overrides;
     }
     to.component.overrides.extend(fields.iter().copied());
 }
@@ -745,6 +768,13 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         n.constraints = r.constraints;
         if !ov.contains(&OverrideField::Layout) {
             n.layout_child = r.layout_child;
+        } else {
+            if !n.component.grid_align_overrides[0] {
+                n.layout_child.grid_align_h = r.layout_child.grid_align_h;
+            }
+            if !n.component.grid_align_overrides[1] {
+                n.layout_child.grid_align_v = r.layout_child.grid_align_v;
+            }
         }
     }
     n.is_mask = r.is_mask;

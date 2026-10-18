@@ -290,6 +290,15 @@ pub struct ComponentLink {
     /// Detached symbol provenance (`detachedSymbolId`, tag=342).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached_symbol_id: Option<String>,
+    /// Which axes (`[horizontal, vertical]`) of [`LayoutChild::grid_align_h`] / [`LayoutChild::grid_align_v`]
+    /// are overridden on this instance node, tracked independently so a margin/span/sizing `Layout`
+    /// override does not freeze unoverridden grid alignment axes during component sync.
+    #[serde(default, skip_serializing_if = "is_false_pair")]
+    pub grid_align_overrides: [bool; 2],
+}
+
+fn is_false_pair(pair: &[bool; 2]) -> bool {
+    *pair == [false, false]
 }
 
 impl ComponentLink {
@@ -308,6 +317,7 @@ impl ComponentLink {
             && self.variant_props.is_empty()
             && self.override_level.is_none()
             && self.detached_symbol_id.is_none()
+            && self.grid_align_overrides == [false, false]
     }
 }
 
@@ -935,6 +945,40 @@ pub enum GridChildAlign {
     Center,
     End,
     Auto,
+}
+
+impl GridChildAlign {
+    /// Parses a Figma `GridChildAlign` enum name (`MIN` -> `Start`, `CENTER` -> `Center`,
+    /// `MAX` / `END` -> `End`, `AUTO` -> `Auto`).
+    pub fn from_figma_name(s: &str) -> Option<Self> {
+        match s {
+            "MIN" => Some(Self::Start),
+            "CENTER" => Some(Self::Center),
+            "MAX" | "END" => Some(Self::End),
+            "AUTO" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
+
+impl Node {
+    /// Migrates `gridChildHorizontalAlign` and `gridChildVerticalAlign` stored in `fig_metadata`
+    /// by earlier `.designos` files (between #461 and #479) onto `layout_child.grid_align_h/v` and
+    /// removes the migrated keys from `fig_metadata`.
+    pub fn migrate_grid_child_align_metadata(&mut self) {
+        if let Some(a) = self.fig_metadata.get("gridChildHorizontalAlign").and_then(|s| GridChildAlign::from_figma_name(s)) {
+            if self.layout_child.grid_align_h == GridChildAlign::Start {
+                self.layout_child.grid_align_h = a;
+            }
+            self.fig_metadata.remove("gridChildHorizontalAlign");
+        }
+        if let Some(a) = self.fig_metadata.get("gridChildVerticalAlign").and_then(|s| GridChildAlign::from_figma_name(s)) {
+            if self.layout_child.grid_align_v == GridChildAlign::Start {
+                self.layout_child.grid_align_v = a;
+            }
+            self.fig_metadata.remove("gridChildVerticalAlign");
+        }
+    }
 }
 
 fn is_default_grid_child_align(a: &GridChildAlign) -> bool {
