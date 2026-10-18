@@ -61,7 +61,7 @@ Each is owned by one task. Others reference it and never redefine it.
 - **SC-3 Lint findings** (owner: E15-9, #594; per-call block E15-12, #597). Rule ids come from the unified rule registry. These specs add the `surface.*` family (E15-21) and consume rule ids by registry lookup, never by string literal outside a mapping table that a test checks against the registry.
 - **SC-4 Agent identity and node agent metadata** (owner: E15-34 for the struct; RD-3, #572, for run identity). `Node.agent: AgentMeta` and `Document.agent_runs`. Whichever of E15-21, E15-34, E15-39 lands first creates the struct with only its own fields; later tasks add theirs. If E15-7 (#592) already created an equivalent struct for the in-progress flag, extend that one instead.
 - **SC-5 Agent jobs** (owner: E15-39 for the job contract, code in `designos-eval/src/agent_job.rs`; E5-10, #177, for the Studio runtime bridge). One `AgentJob` model (prompt file in, artefact out, timeout, cancel) used by assets (E15-39/40/41), the judge (E15-31), critique helpers and variants (E15-36).
-- **SC-6 Colour space.** Owner rule: colour is Display P3 per document. Today `Color { r, g, b, a }` carries no profile (`crates/designos-doc/src/paint.rs:6-11`) and `designos-doc` has no colour-space field. Every data file in these specs declares `"space": "srgb" | "display-p3"` for its colours. Values are converted into the document's profile on write. Contrast always uses the E15-10 (#595) math.
+- **SC-6 Colour space.** Owner rule: colour is Display P3 per document. Today `Color { r, g, b, a }` carries no profile (`crates/designos-doc/src/paint.rs:6-11`) and `designos-doc` has no colour-space field. Every data file in these specs declares `"space": "srgb" | "display-p3"` for its colours. Values are converted into the document's profile on write. Contrast always uses the E15-10 (#595) math. The document colour profile is owned by E1-7 (#136, pack v0.8). Until it lands, every document is sRGB, so values convert into sRGB on write; no task in this pack adds its own colour-space field to `Document`.
 - **SC-7 Determinism helpers** (owner: E15-25). `designos-eval` owns a seeded xoshiro256** PRNG (SplitMix64 seeding, no `rand` dependency; none is in `Cargo.lock` today) and SHA-1 content hashes via `sha1_smol` (BSD-3-Clause, no dependencies). SHA-1 is also Figma's image hash, so E15-39/E15-48 use the same helper for image keys.
 
 ## `designos-eval` crate map (new; E15-25 creates it)
@@ -91,6 +91,8 @@ crates/designos-eval/
 7. **Assets:** E15-39 (needs #177, E15-7, E15-18) → E15-40 and E15-41 in parallel.
 8. **Code and design:** E15-42 (needs #138) → E15-43 (needs #276, #277, E15-11); E15-44 (needs #277, E15-1); E15-45 (needs #250, #276).
 9. **Skills:** E15-47 last (needs #573, E15-15, E15-34).
+
+Dependencies that are other v0.6 tasks and whose code does not exist on `main` yet: #248 (design-system rules prompt), #276 (web capture script), #277 (web capture import), #250 (HTML codegen). A task that needs one of them starts only after it merges; it never stubs the missing module.
 
 Shared files, merge one at a time in this order: `crates/designos-doc/src/spec.rs` (E15-48 → E15-21 `surface` key), `crates/designos-mcp/src/engine.rs` tool list (E15-19 → E15-21 → E15-34 → E15-35 → E15-36 → E15-37 → E15-39 → E15-42 → E15-45), `crates/designos-doc/src/node.rs` `AgentMeta` (SC-4 rule above).
 
