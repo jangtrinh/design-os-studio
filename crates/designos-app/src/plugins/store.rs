@@ -15,6 +15,7 @@ const ALLOWED_REPOS: &[(&str, &str)] = &[("jangtrinh", "design-os-plugins"), ("j
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 const DEFAULT_FIGMA_VERSION: &str = "1.0.0";
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 const IMPORT_RETRY: &str = "Correct the plugin folder, then import again.";
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
@@ -1128,6 +1129,7 @@ mod tests {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 pub enum PluginSourceKind {
     #[default]
     NativeRegistry,
@@ -1151,6 +1153,7 @@ impl FigmaUi {
         }
     }
 
+    #[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
     pub fn all_paths(&self) -> Vec<&str> {
         match self {
             FigmaUi::Single(path) => vec![path.as_str()],
@@ -1221,6 +1224,7 @@ pub struct FigmaManifest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 pub struct PluginMenuEntry {
     pub plugin_id: String,
     pub plugin_name: String,
@@ -1253,6 +1257,7 @@ impl FigmaManifest {
         self.network_access.as_ref().map(|n| n.allowed_domains.iter().filter(|d| d.as_str() != "none").cloned().collect()).unwrap_or_default()
     }
 
+    #[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
     pub fn menu_entries(&self) -> Vec<PluginMenuEntry> {
         let plugin_id = self.resolved_id();
         let mut out = Vec::new();
@@ -1273,6 +1278,7 @@ impl FigmaManifest {
     }
 }
 
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 fn collect_menu_entries(plugin_id: &str, plugin_name: &str, items: &[FigmaMenuItem], path: &mut Vec<String>, out: &mut Vec<PluginMenuEntry>) {
     for item in items {
         match item {
@@ -1319,6 +1325,7 @@ fn slugify_plugin_id(name: &str) -> String {
 }
 
 impl InstalledPlugin {
+    #[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
     pub fn source_kind(&self) -> PluginSourceKind {
         if self.manifest_url.starts_with("file://") || self.source_url.starts_with("file://") {
             PluginSourceKind::LocalManifest
@@ -1327,6 +1334,7 @@ impl InstalledPlugin {
         }
     }
 
+    #[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
     pub fn menu_entries(&self, root: &Path) -> Vec<PluginMenuEntry> {
         if let Ok(Some(figma)) = load_figma_manifest(root, self) {
             figma.menu_entries()
@@ -1669,6 +1677,7 @@ pub fn load_figma_manifest(root: &Path, plugin: &InstalledPlugin) -> Result<Opti
     Ok(Some(parsed))
 }
 
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<InstalledPlugin, String> {
     let meta = fs::symlink_metadata(manifest_or_dir).map_err(|e| format!("Cannot locate plugin manifest path: {e} Check the path, then import again."))?;
     if meta.file_type().is_symlink() {
@@ -1773,6 +1782,7 @@ pub fn import_figma_manifest(root: &Path, manifest_or_dir: &Path) -> Result<Inst
     Ok(installed)
 }
 
+#[allow(dead_code)] // Figma manifest import and plugin menu entries: wired into the Plugins menu by #482.
 pub fn menu_entries(root: &Path) -> Result<Vec<PluginMenuEntry>, String> {
     let plugins = list(root)?;
     let mut entries = Vec::new();

@@ -6,7 +6,7 @@ use super::*;
 use crate::util::v2;
 use designos_doc::layout_solver::compute;
 use designos_doc::{
-    AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
+    AlignSelf, AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
 };
 
 fn auto(direction: LayoutDirection, primary: LayoutAlign) -> AutoLayout {
@@ -667,6 +667,263 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
 }
 
 #[test]
+fn align_self_children_sit_at_literal_cross_axis_positions_in_flow_frames() {
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_align = LayoutAlign::Start;
+    al.padding = [10.0, 10.0, 10.0, 10.0];
+    al.item_spacing = 8.0;
+    let k_auto = kid(30.0, 20.0);
+    let k_center = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::Center);
+    let k_end = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::End);
+    let k_stretch = kid_with(30.0, 20.0, |lc| lc.align_self = AlignSelf::Stretch);
+    let solved = solve_everywhere(al, v2(200.0, 100.0), &[k_auto, k_center, k_end, k_stretch]);
+    // Inner cross height = 100 - 20 = 80; top padding = 10.
+    // Auto (Start) -> y = 10, Center -> y = 10 + (80 - 20)/2 = 40, End -> y = 10 + 80 - 20 = 70, Stretch -> y = 10, h = 80.
+    assert_eq!(solved.kids[0], [10.0, 10.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[1], [48.0, 40.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[2], [86.0, 70.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[3], [124.0, 10.0, 30.0, 80.0]);
+
+    // Vertical frame with counter_align = End, overridden per-child by Start and Center.
+    let mut val = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    val.counter_align = LayoutAlign::End;
+    let v_auto = kid(20.0, 15.0);
+    let v_start = kid_with(20.0, 15.0, |lc| lc.align_self = AlignSelf::Start);
+    let v_center = kid_with(20.0, 15.0, |lc| lc.align_self = AlignSelf::Center);
+    let v_solved = solve_everywhere(val, v2(100.0, 80.0), &[v_auto, v_start, v_center]);
+    assert_eq!(v_solved.kids[0], [80.0, 0.0, 20.0, 15.0]);
+    assert_eq!(v_solved.kids[1], [0.0, 15.0, 20.0, 15.0]);
+    assert_eq!(v_solved.kids[2], [40.0, 30.0, 20.0, 15.0]);
+}
+
+fn stretch() -> impl FnOnce(&mut LayoutChild) {
+    |lc| lc.align_self = AlignSelf::Stretch
+}
+
+#[test]
+fn hugging_cross_axis_keeps_a_lone_stretch_childs_natural_size() {
+    // every in-flow child stretches: the line is as tall as the tallest natural size, not 0
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 20.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 20.0]);
+
+    // padding wraps the natural line
+    al.padding = [5.0, 0.0, 7.0, 0.0];
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 32.0));
+    assert_eq!(solved.kids[0], [0.0, 5.0, 30.0, 20.0]);
+
+    // the vertical mirror hugs the width
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al.clone(), v2(1.0, 100.0), &[kid_with(20.0, 30.0, stretch())]);
+    assert_eq!(solved.frame, (20.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 20.0, 30.0]);
+}
+
+#[test]
+fn hugging_cross_axis_stretches_every_stretch_child_to_the_tallest_natural_size() {
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    al.item_spacing = 4.0;
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch()), kid_with(30.0, 100.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 100.0]);
+    assert_eq!(solved.kids[1], [34.0, 0.0, 30.0, 100.0]);
+
+    // a child's own cross maximum still caps the natural size that measures the line
+    let capped = kid_with(30.0, 20.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.max_h = Some(15.0);
+    });
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[capped]);
+    assert_eq!(solved.frame, (100.0, 15.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 15.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_sized_by_a_non_stretch_sibling_when_there_is_one() {
+    // the plain 50-high sibling sizes the line; the 20-high stretch child grows to it
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 50.0), kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // a taller stretch child does not drive the frame while a plain sibling sizes the line
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 10.0), kid_with(30.0, 100.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 10.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 10.0]);
+}
+
+#[test]
+fn hugging_cross_axis_shrinks_back_when_the_tallest_plain_sibling_shrinks() {
+    // the stretch child's stored height is the previous solve's output; it must not hold the frame up
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let first = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 100.0), kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(first.frame, (100.0, 100.0));
+    assert_eq!(first.kids[1][3], 100.0);
+
+    let stored = first.kids[1][3];
+    let again = solve_everywhere(al.clone(), v2(100.0, first.frame.1), &[kid(30.0, 50.0), kid_with(30.0, stored, stretch())]);
+    assert_eq!(again.frame, (100.0, 50.0));
+    assert_eq!(again.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // all-stretch children re-solve to the same frame instead of growing it
+    let all = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch()), kid_with(30.0, 100.0, stretch())]);
+    let stored = |i: usize| all.kids[i][3];
+    let settled = solve_everywhere(al.clone(), v2(100.0, all.frame.1), &[kid_with(30.0, stored(0), stretch()), kid_with(30.0, stored(1), stretch())]);
+    assert_eq!(settled, all);
+}
+
+#[test]
+fn hugging_cross_axis_treats_a_fill_only_child_like_a_stretch_child() {
+    // counter-axis Fill with no align_self: the same natural-size rule as Stretch, in both flow directions
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(30.0, 40.0, |lc| lc.vertical = Sizing::Fill);
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[fill]);
+    assert_eq!(solved.frame, (100.0, 40.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 40.0]);
+    assert_eq!(solved, solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid_with(30.0, 40.0, stretch())]));
+
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(40.0, 30.0, |lc| lc.horizontal = Sizing::Fill);
+    let solved = solve_everywhere(al.clone(), v2(1.0, 100.0), &[fill]);
+    assert_eq!(solved.frame, (40.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 30.0]);
+
+    // a plain sibling still sizes the line
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(30.0, 40.0, |lc| lc.vertical = Sizing::Fill);
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 10.0), fill]);
+    assert_eq!(solved.frame, (100.0, 10.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 10.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_floored_by_the_minimum_of_a_stretching_child() {
+    // the plain sibling is 10 high, the stretch child has min_h 50: the line, and so the frame, is 50
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let minimum = kid_with(30.0, 20.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.min_h = Some(50.0);
+    });
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 10.0), minimum]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 10.0]);
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // the same for a Fill child, and in the vertical flow through min_w
+    let fill_min = kid_with(30.0, 20.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.min_h = Some(50.0);
+    });
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 10.0), fill_min]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let minimum = kid_with(20.0, 30.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.min_w = Some(50.0);
+    });
+    let solved = solve_everywhere(al.clone(), v2(1.0, 100.0), &[kid(10.0, 30.0), minimum]);
+    assert_eq!(solved.frame, (50.0, 100.0));
+    assert_eq!(solved.kids[1], [0.0, 30.0, 50.0, 30.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_sized_by_a_plain_sibling_even_when_it_is_flat() {
+    // a plain sibling with cross size 0 still sizes the line: the stretch child follows it to 0
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 0.0), kid_with(30.0, 40.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 0.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 0.0]);
+}
+
+#[test]
+fn a_margined_stretch_child_holds_a_hugging_line_open_by_its_margins_and_minimum_only() {
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let margined = |min_h: Option<f32>| {
+        kid_with(30.0, 10.0, |lc| {
+            lc.align_self = AlignSelf::Stretch;
+            lc.margin = [30.0, 0.0, 30.0, 0.0];
+            lc.min_h = min_h;
+        })
+    };
+    // alone: its 30 + 30 of margin hold the line, not its natural 10 (it would otherwise ratchet), and it fills what is left
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[margined(None)]);
+    assert_eq!((solved.frame, solved.kids[0]), ((100.0, 60.0), [0.0, 30.0, 30.0, 0.0]));
+    // the minimum adds to the margins
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[margined(Some(40.0))]);
+    assert_eq!((solved.frame, solved.kids[0]), ((100.0, 100.0), [0.0, 30.0, 30.0, 40.0]));
+    // a plain sibling sizes the line when it needs more than the margins
+    let solved = solve_everywhere(al.clone(), v2(100.0, 1.0), &[kid(30.0, 100.0), margined(None)]);
+    assert_eq!((solved.frame, solved.kids[1]), ((100.0, 100.0), [30.0, 30.0, 30.0, 40.0]));
+    // a margin-free stretch child next to it still keeps its natural size when no plain child sizes the line
+    let free = kid_with(30.0, 90.0, stretch());
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[free, margined(None)]);
+    assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((100.0, 90.0), [0.0, 0.0, 30.0, 90.0], [30.0, 30.0, 30.0, 30.0]));
+}
+
+#[test]
+fn align_self_positions_the_margin_box_of_a_child_in_the_line() {
+    // 100 high frame, child 20 high with 10 of top margin: the margin box is 30 high
+    let al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    let child = |align_self: AlignSelf| {
+        kid_with(30.0, 20.0, |lc| {
+            lc.align_self = align_self;
+            lc.margin = [10.0, 0.0, 0.0, 0.0];
+        })
+    };
+    for (align_self, expected) in [
+        (AlignSelf::Start, [0.0, 10.0, 30.0, 20.0]),
+        (AlignSelf::Center, [0.0, 45.0, 30.0, 20.0]),
+        (AlignSelf::End, [0.0, 80.0, 30.0, 20.0]),
+        (AlignSelf::Stretch, [0.0, 10.0, 30.0, 90.0]),
+    ] {
+        let solved = solve_everywhere(al.clone(), v2(200.0, 100.0), &[child(align_self)]);
+        assert_eq!(solved.kids[0], expected, "{align_self:?}");
+    }
+}
+
+#[test]
+fn an_imported_stretch_child_made_fixed_on_the_counter_axis_stops_stretching() {
+    // `layoutAlign: STRETCH` imports as Fill plus AlignSelf::Stretch on the counter axis
+    let al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    let imported = kid_with(30.0, 20.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.align_self = AlignSelf::Stretch;
+    });
+    let stretched = solve_everywhere(al.clone(), v2(200.0, 100.0), &[imported]);
+    assert_eq!(stretched.kids[0], [0.0, 0.0, 30.0, 100.0]);
+
+    // the sizing writer sets height Fixed in a horizontal flow (counter axis = height)
+    let fixed = kid_with(30.0, 20.0, |lc| {
+        *lc = imported.lc;
+        lc.set_axis_sizing(false, Sizing::Fixed, Some(false));
+    });
+    assert_eq!(fixed.lc.align_self, AlignSelf::Auto);
+    assert_eq!(solve_everywhere(al.clone(), v2(200.0, 100.0), &[fixed]).kids[0], [0.0, 0.0, 30.0, 20.0]);
+
+    // without the writer's reset the same Fixed child would still be stretched by the override
+    let mut leaking = imported.lc;
+    leaking.vertical = Sizing::Fixed;
+    let leaking = kid_with(30.0, 20.0, |lc| *lc = leaking);
+    assert_eq!(solve_everywhere(al.clone(), v2(200.0, 100.0), &[leaking]).kids[0], [0.0, 0.0, 30.0, 100.0]);
+}
+
+#[test]
 fn auto_layout_child_margins_shift_positions_and_expand_hug_frames_across_all_solvers() {
     // 1. Horizontal Hug/Hug frame with per-child margins [top, right, bottom, left]
     let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
@@ -847,11 +1104,12 @@ fn a_hugging_flow_line_grows_to_the_minimum_size_of_a_cross_fill_child_with_marg
 }
 
 #[test]
-fn a_cross_fill_child_without_margins_keeps_the_line_measure_it_always_had() {
-    // not wrapped, a lone Fill child holds nothing open (0); a wrapped line still counts its stored size (10)
+fn a_lone_cross_fill_child_without_margins_keeps_its_natural_size_in_wrapped_and_flow_lines() {
+    // a lone Fill child with no margins counts its natural size (10) in a wrapped line and, as the only child that
+    // could size a flow line, in a line that does not wrap too; it used to hold a flow line open for nothing (0)
     for direction in DIRECTIONS {
         let row = direction == LayoutDirection::Horizontal;
-        for (wrap, cross) in [(false, 0.0), (true, 10.0)] {
+        for (wrap, cross) in [(false, 10.0), (true, 10.0)] {
             let fill = kid_with(if row { 20.0 } else { 10.0 }, if row { 10.0 } else { 20.0 }, |lc| {
                 if row {
                     lc.vertical = Sizing::Fill;
