@@ -1,6 +1,6 @@
 //! Writes the shared auto-layout solver ([`crate::layout_solver`]) straight into a [`Document`].
 
-use crate::layout_solver::{compute, hugged_axes, ChildIn, SizeLimits};
+use crate::layout_solver::{compute_with_stroke, hugged_axes, ChildIn, SizeLimits};
 use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
 
 impl Document {
@@ -65,10 +65,11 @@ impl Document {
         let children = root_node.children.clone();
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&root_node.layout_child);
+        let stroke = root_node.stroke.clone();
         let horiz = al.direction != LayoutDirection::Vertical;
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
-        let out = compute(&al, frame, own_limits, &kids);
+        let out = compute_with_stroke(&al, frame, own_limits, &stroke, &kids);
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
         }

@@ -1195,6 +1195,20 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         update_al(app, sel, |al| al.counter_align = [LayoutAlign::Start, LayoutAlign::Center, LayoutAlign::End][i]);
     }
     row_end(pane);
+    if a.layout_version < 1 {
+        pane.y += 4.0;
+        let up_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 24.0);
+        widgets::record(ui, "al-upgrade-v1", up_r);
+        let resp = ui.interact(up_r, ui.id().with("al-upgrade-v1"), Sense::click());
+        let bg = if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
+        ui.painter().rect_filled(up_r, theme::cr(5), bg);
+        ui.painter().rect_stroke(up_r, theme::cr(5), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_small(), theme::TEXT);
+        if resp.on_hover_text("Upgrade to Auto layout v1 (borders inside the box)").clicked() {
+            app.upgrade_auto_layout_version();
+        }
+        pane.y += 26.0;
+    }
     pane.y += 4.0;
 }
 

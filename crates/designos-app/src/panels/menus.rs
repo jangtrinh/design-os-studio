@@ -44,6 +44,7 @@ pub enum Action {
     Ungroup,
     FrameSelection,
     AutoLayout,
+    UpdateAutoLayout,
     FitAll,
     FitSelection,
     Zoom100,
@@ -153,6 +154,9 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Ungroup => app.ungroup_selection(),
         Action::FrameSelection => app.group_selection(true),
         Action::AutoLayout => app.toggle_auto_layout(),
+        Action::UpdateAutoLayout => {
+            app.upgrade_auto_layout_version();
+        }
         Action::FitAll => app.fit_all(),
         Action::FitSelection => app.fit_selection(),
         Action::Zoom100 => app.zoom_to(1.0),
@@ -433,7 +437,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
         leaf("Ungroup", "Ctrl+Shift+G", Action::Ungroup).off(!has_sel),
         leaf("Frame selection", "Ctrl+Alt+G", Action::FrameSelection).off(!has_sel),
-        leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel).sep(),
+        leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
+        leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
         leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
         leaf("Detach instance", "Ctrl+Alt+B", Action::Detach).off(!has_inst).sep(),
         leaf("Bring to front", "Ctrl+Shift+]", Action::BringToFront).off(!has_sel),
