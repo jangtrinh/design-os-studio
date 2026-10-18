@@ -5,7 +5,7 @@
 //! tracks, so the export has to write the Fixed slots as explicit rows.
 
 use designos_doc::*;
-use designos_fig::{export_fig, import_fig};
+use designos_fig::{export_fig, export_rest_json, import_fig, import_rest_json};
 
 /// A one-column grid of three 20 px rows. Row 0 has a Fixed(30) slot and the auto-track is Fixed(50).
 fn grid_document(grid_rows: u32, row_tracks: &[(usize, GridTrack)], auto: GridAutoTracks) -> Document {
@@ -58,6 +58,17 @@ fn fixed_row_slot_without_explicit_rows_keeps_its_height_through_fig() {
 
     let mut after = round_trip(&before);
     assert_eq!(solved(&mut after), (vec![0.0, 40.0, 100.0], 150.0), "the Fixed(30) row survives export and import");
+}
+
+#[test]
+fn fixed_row_slot_without_explicit_rows_keeps_its_height_through_rest_json() {
+    // the REST export has no auto-track field, so this one leaves the other rows content-sized
+    let mut before = grid_document(0, &[(0, GridTrack::Fixed(30.0))], GridAutoTracks::None);
+    let expect = solved(&mut before);
+    assert_eq!(expect, (vec![0.0, 40.0, 70.0], 90.0));
+    let json = export_rest_json(&before).to_string();
+    let mut after = import_rest_json(&json).expect("import_rest_json");
+    assert_eq!(solved(&mut after), expect, "the Fixed(30) row survives the REST export and import");
 }
 
 #[test]
