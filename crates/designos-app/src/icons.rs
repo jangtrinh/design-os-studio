@@ -17,6 +17,7 @@ pub enum Icon {
     Tools,
     Variables,
     Help,
+    ChevronUp,
     ChevronDown,
     ChevronRight,
     Plus,
@@ -154,6 +155,7 @@ impl Icon {
         Icon::GridView,
         Icon::ListView,
         Icon::Book,
+        Icon::ChevronUp,
         Icon::ChevronDown,
         Icon::ChevronRight,
         Icon::Plus,
@@ -275,6 +277,7 @@ impl Icon {
             Icon::Tools => "toolbox",
             Icon::Variables => "hexagon",
             Icon::Help => "question",
+            Icon::ChevronUp => "caret-up",
             Icon::ChevronDown => "caret-down",
             Icon::ChevronRight => "caret-right",
             Icon::Plus => "plus",
@@ -425,6 +428,7 @@ phosphor!(
     "bounding-box",
     "caret-down",
     "caret-right",
+    "caret-up",
     "chat-circle",
     "check",
     "checkerboard",
@@ -629,7 +633,7 @@ mod tests {
         for i in Icon::ALL {
             assert!(seen.insert(*i), "{i:?} listed twice");
         }
-        assert_eq!(seen.len(), 116);
+        assert_eq!(seen.len(), 117);
     }
 
     #[test]

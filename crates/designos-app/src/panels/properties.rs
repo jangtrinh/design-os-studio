@@ -1280,8 +1280,32 @@ fn track_move_button(idx: usize, len: usize) -> (Icon, &'static str, usize) {
     if idx + 1 < len {
         (Icon::ChevronDown, "Move down", idx + 1)
     } else {
-        (Icon::ArrowUp, "Move up", idx - 1)
+        (Icon::ChevronUp, "Move up", idx - 1)
     }
+}
+
+/// Index of a track's sizing mode in the Flex / Fixed / Hug dropdown.
+fn track_mode_index(track: designos_doc::GridTrack) -> usize {
+    use designos_doc::GridTrack;
+    match track {
+        GridTrack::Flex(_) => 0,
+        GridTrack::Fixed(_) => 1,
+        GridTrack::Hug => 2,
+    }
+}
+
+/// The track a mode-dropdown pick turns `track` into, or `None` when the pick is the mode it already has.
+/// Re-picking the current mode must keep a custom size such as `Flex(2.0)` or `Fixed(80.0)`.
+fn track_after_mode_pick(track: designos_doc::GridTrack, picked: usize) -> Option<designos_doc::GridTrack> {
+    use designos_doc::GridTrack;
+    if picked == track_mode_index(track) {
+        return None;
+    }
+    Some(match picked {
+        0 => GridTrack::Flex(1.0),
+        1 => GridTrack::Fixed(120.0),
+        _ => GridTrack::Hug,
+    })
 }
 
 /// Column and row track lists of the selected grid: sizing mode, value, move and delete per track, `+` per list.
@@ -1305,18 +1329,9 @@ fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) 
         row_end(pane);
         for (idx, &track) in tracks.iter().enumerate() {
             let row = grid_track_row(pane);
-            let mode = match track {
-                GridTrack::Flex(_) => 0,
-                GridTrack::Fixed(_) => 1,
-                GridTrack::Hug => 2,
-            };
+            let mode = track_mode_index(track);
             if let Some(picked) = dropdown(ui, row.mode, format!("grid-{tag}-mode-{idx}"), &options[mode], &options) {
-                if picked != mode {
-                    let next = match picked {
-                        0 => GridTrack::Flex(1.0),
-                        1 => GridTrack::Fixed(120.0),
-                        _ => GridTrack::Hug,
-                    };
+                if let Some(next) = track_after_mode_pick(track, picked) {
                     resize_grid_track(app, grid_id, is_col, idx, next);
                 }
             }
@@ -2374,11 +2389,24 @@ mod tests {
         assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 1));
         let (icon, tip, to) = track_move_button(1, 3);
         assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 2));
-        // the last track has nowhere to go but up, so the button must not point down
+        // the last track has nowhere to go but up, so the button must point up with ChevronUp
         let (icon, tip, to) = track_move_button(2, 3);
-        assert_eq!((icon, tip, to), (Icon::ArrowUp, "Move up", 1));
+        assert_eq!((icon, tip, to), (Icon::ChevronUp, "Move up", 1));
         let (icon, tip, to) = track_move_button(1, 2);
-        assert_eq!((icon, tip, to), (Icon::ArrowUp, "Move up", 0));
+        assert_eq!((icon, tip, to), (Icon::ChevronUp, "Move up", 0));
+    }
+
+    #[test]
+    fn picking_the_mode_a_track_already_has_keeps_its_custom_size() {
+        use designos_doc::GridTrack;
+        assert_eq!(track_after_mode_pick(GridTrack::Flex(2.0), 0), None);
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 1), None);
+        assert_eq!(track_after_mode_pick(GridTrack::Hug, 2), None);
+        // a different mode still applies its preset
+        assert_eq!(track_after_mode_pick(GridTrack::Flex(2.0), 1), Some(GridTrack::Fixed(120.0)));
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 0), Some(GridTrack::Flex(1.0)));
+        assert_eq!(track_after_mode_pick(GridTrack::Fixed(80.0), 2), Some(GridTrack::Hug));
+        assert_eq!(track_after_mode_pick(GridTrack::Hug, 0), Some(GridTrack::Flex(1.0)));
     }
 
     #[test]

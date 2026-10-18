@@ -675,6 +675,18 @@ fn the_inspector_has_no_delete_button_for_a_row_the_children_create() {
     assert!(!delete_grid_track(&mut s.shell.app, grid_id, false, 1));
     assert_eq!(layout_of(&s, grid_id).grid_rows, 0);
     assert_eq!(node_css_grid_overlay(&s.app().doc, grid_id).unwrap().rows, 2);
+
+    // An implicit row with a custom size still cannot be deleted (children still make 2 rows),
+    // so the inspector must not show a "Delete track" minus that silently resets its size to 1fr.
+    set_row_track(&mut s, grid_id, 0, GridTrack::Fixed(80.0));
+    set_row_track(&mut s, grid_id, 1, GridTrack::Flex(2.0));
+    s.frame(vec![]);
+    let _ = inspector_field(&mut s, "grid-row-px-0");
+    assert!(!delete_button_drawn(&s, false, 0), "implicit row 0 with custom Fixed(80) size has no delete button");
+    assert!(!delete_button_drawn(&s, false, 1), "implicit row 1 with custom Flex(2) size has no delete button");
+    assert!(!delete_grid_track(&mut s.shell.app, grid_id, false, 0));
+    assert_eq!(layout_of(&s, grid_id).grid_row_tracks[0], GridTrack::Fixed(80.0));
+    assert_eq!(layout_of(&s, grid_id).grid_row_tracks[1], GridTrack::Flex(2.0));
 }
 
 #[test]
