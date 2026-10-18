@@ -2,6 +2,95 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.4.0] - 2026-10-18
+
+Pack **Layout 2.0** ([milestone v0.4](https://github.com/jangtrinh/design-os-studio/milestone/2)): auto layout and grid behave the way Figma does.
+
+### Added
+- **Grid auto layout.**
+  - More than 8 rows and columns (#24).
+  - Auto-placed items and auto rows. `.fig` files keep their version 106 track maps (#25).
+  - Children align horizontally and vertically inside their cell (#145).
+  - Dev Mode prints CSS, Tailwind and React grid code from the real tracks and placement (#146).
+  - Edit tracks on the canvas and in the Properties panel: insert, delete, resize, and drag a track to reorder it in one undo step (#144).
+- **Auto layout.**
+  - Child margins from `.fig` files (#29).
+  - Per-child align-self in auto layout version 1 (#148).
+  - Version 1 semantics, with borders inside the box. An **Update auto layout** action upgrades an older frame (#26).
+- **Layout guides match Figma** (#147).
+  - Alignment: Stretch, Left, Center and Right.
+  - A fixed column or row width.
+  - Auto count.
+  - Show or hide each guide.
+  - All of it round-trips through `.fig`.
+- **Check designs** (#35).
+  - A panel that audits the page for low contrast, unbound colours, detached styles and detached instances.
+  - A one-click Fix per finding, and Fix all.
+  - Contrast fixes skip text when something painted under it would make the check unreliable.
+  - Text runs that have their own colour keep it when a variable or style is applied.
+- **Vectors.**
+  - Offset path (#195).
+  - Scale several selected points with a bounding box (#186).
+- **Export.**
+  - PDF export draws shapes as vectors, and its text is selectable. In 0.3.0, PDF pages were images (#40).
+  - Lossless WebP (#215).
+- **Frame and device presets** match Figma's current list (#149).
+- **Board timer** for facilitators in the board toolbar (#338).
+- **Layers panel** shows a label for each layer type (#405).
+- **Variables** from a library are grouped under *From library* and are read-only (#279).
+- **Style editing.** Drag the label prefix to scrub number fields in the style popover (#69).
+- **`.fig` round trip.**
+  - Noise, texture and glass effects survive import and export (#106).
+  - Fields and layer types Studio does not draw yet are kept and written back on export (#174).
+  - Slots are read and written (#31).
+
+### Fixed
+- **An open library file could be emptied (#504).** Switching tabs or going Home could write an empty document over the open file and store an empty version. Unsaved edits are now saved before the tab is parked.
+- **Crash on large pages at rest (#467).** Some large pages with many effects crashed about 1 s after opening. The full-quality refine is now split over several GPU submissions; Metal allows about 2,047 render passes per submission.
+- **Security: copied or selected content is never written into a Shell tab (#513).**
+- **Rendering.**
+  - A mask frame without its own fill takes its alpha from its children (#448).
+  - Hidden icons inside button components stay hidden (#450).
+  - `--screenshot --gpu` captures the full-quality frame at rest (#449).
+- **Layout correctness.**
+  - Fill siblings share the space a clamped child cannot use (#60).
+  - Grid tracks size from clamped children (#61).
+  - The grid axis convention is the same in layout, export and the Properties panel (#63).
+  - Variable-bound sizes resolve in headless relayout (#62).
+  - Deep re-solves have a budget, and nothing past it goes stale silently (#59, #489).
+- **Files and saves.**
+  - Studio tells you when numbers that were not numbers (NaN or infinity) were replaced (#57).
+  - Malformed native and library files open with a warning and keep a backup of the original (#7, #104). An existing `.bak` is never overwritten (#102).
+  - Repaired original bytes are released when the tab closes (#103).
+  - Zip bombs in `.fig` files are rejected before they are buffered (#9).
+  - Atomic save edge cases are handled (#4).
+  - NaN and infinity never reach grid track strings, variables or the clipboard (#71).
+- **Components and styles.**
+  - A per-instance style override survives component sync (#73).
+  - A text in Height mode no longer records a Size override when a style changes (#72).
+  - Library styles cannot be renamed, and the menu says why (#67, #100).
+  - Effect and style popovers no longer show duplicate prefix letters (#101).
+- **Agents and live sync.**
+  - Each Studio window has its own agent session folder (#80).
+  - A retried document switch does not log the same edit twice (#98).
+  - Dropped edits are no longer counted twice (#97).
+  - Comment edits update the canvas (#78).
+  - Edits that would break builder-replaced layers are refused (#95, #96).
+- **Idle CPU is back to 0%** (#12).
+
+### Changed
+- **One auto layout solver.** The editor, the exporters and the MCP server share it (#30).
+- **The GPU refine has a program ceiling, and its VRAM budget counts the root target** (#83).
+- **The homepage** is a dark landing page with the 0.3.0 film.
+
+### Under the hood
+- The document model has comment author identity (#351) and 15 easing types (#139). The editor does not write comment author identity yet (#472).
+
+### Known issues
+- Writing a large `.fig` and reading it back adds nodes on every cycle, and one nested instance can lose its centred alignment (#546). In 0.3.0 such files could not be written at all.
+- The Windows test job is red (#487). Windows and Linux builds are tested by their users; releases are verified on macOS.
+- Follow-ups from the Layout 2.0 reviews ship in [v0.4.1](https://github.com/jangtrinh/design-os-studio/milestone/46).
+
 ## [0.3.0] - 2026-10-17
 
 Pack **Paste & Styles** ([milestone v0.3](https://github.com/jangtrinh/design-os-studio/milestone/1)).
