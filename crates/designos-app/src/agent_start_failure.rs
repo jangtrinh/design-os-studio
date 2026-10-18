@@ -186,61 +186,62 @@ impl StartFailure {
     }
 }
 
-const PAD: f32 = 16.0;
-const BTN_H: f32 = 28.0;
-const CODE_PAD: f32 = 8.0;
+const PAD: f32 = theme::INSET_PANEL;
+const BTN_H: f32 = theme::CONTROL_STANDARD;
+const CODE_PAD: f32 = theme::INSET_CONTROL;
+const BTN_MIN_W: f32 = 96.0;
 
 /// Paints the failure card over `rect` and returns the fix the user clicked, if any.
 pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'static str) -> Option<FixAction> {
     let p: Painter = ui.painter().clone();
     p.rect_filled(rect, 0.0, theme::BG);
 
-    let card_w = (rect.width() - 24.0).clamp(160.0, 460.0);
+    let card_w = (rect.width() - theme::SPACE_SECTION).clamp(160.0, 460.0);
     let inner_w = card_w - 2.0 * PAD;
     let card_left = rect.center().x - card_w / 2.0;
 
-    let title = p.layout(format!("{} failed to start", failure.preset.button_label()), theme::font_large_strong(), theme::TEXT, inner_w - 16.0);
+    let title = p.layout(format!("{} failed to start", failure.preset.button_label()), theme::font_large_strong(), theme::TEXT, inner_w - theme::SPACE_BLOCK);
     let headline = p.layout(failure.headline(), theme::font_body_medium(), theme::DANGER, inner_w);
     let explanation = p.layout(failure.explanation(), theme::font_body(), theme::TEXT_SECONDARY, inner_w);
-    let caption = p.layout_no_wrap("Last output".to_string(), theme::font_small_medium(), theme::TEXT_SECONDARY);
+    let caption = p.layout_no_wrap("Last output".to_string(), theme::font_caption_medium(), theme::TEXT_SECONDARY);
     let code_lines: Vec<_> =
         failure.output_tail.iter().map(|l| p.layout(l.clone(), theme::font_mono(), theme::TEXT_SECONDARY, inner_w - 2.0 * CODE_PAD)).collect();
     let code_h = if code_lines.is_empty() { 0.0 } else { code_lines.iter().map(|g| g.size().y).sum::<f32>() + 2.0 * CODE_PAD };
     let fix_label = failure.fix_label();
     let fix_galley = p.layout_no_wrap(fix_label, theme::font_body_medium(), theme::TEXT_BRAND);
-    let btn_w = (fix_galley.size().x + 32.0).clamp(96.0, inner_w);
+    let btn_w = (fix_galley.size().x + theme::SPACE_BLOCK * 2.0).clamp(BTN_MIN_W, inner_w);
 
-    let gap = 8.0;
-    let mut h = PAD + title.size().y + gap + headline.size().y + 4.0 + explanation.size().y;
+    let gap = theme::SPACE_INLINE;
+    let mut h = PAD + title.size().y + gap + headline.size().y + theme::SPACE_ROW + explanation.size().y;
     if code_h > 0.0 {
-        h += 16.0 + caption.size().y + 4.0 + code_h;
+        h += theme::SPACE_BLOCK + caption.size().y + theme::SPACE_ROW + code_h;
     }
-    h += 16.0 + BTN_H + PAD;
-    let card = Rect::from_min_size(Pos2::new(card_left, rect.top() + 16.0), Vec2::new(card_w, h));
+    h += theme::SPACE_BLOCK + BTN_H + PAD;
+    let card = Rect::from_min_size(Pos2::new(card_left, rect.top() + theme::SPACE_BLOCK), Vec2::new(card_w, h));
 
-    p.rect_filled(card, theme::cr(8), theme::BG_SECONDARY);
-    p.rect_stroke(card, theme::cr(8), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    p.rect_filled(card, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
+    p.rect_stroke(card, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
 
     let x = card.left() + PAD;
     let mut y = card.top() + PAD;
-    p.circle_filled(Pos2::new(x + 4.0, y + title.size().y / 2.0), 4.0, theme::DANGER);
+    p.circle_filled(Pos2::new(x + theme::SPACE_ROW, y + title.size().y / 2.0), theme::SPACE_ROW, theme::DANGER);
     let title_h = title.size().y;
-    p.galley(Pos2::new(x + 16.0, y), title, theme::TEXT);
+    p.galley(Pos2::new(x + theme::SPACE_BLOCK, y), title, theme::TEXT);
     y += title_h + gap;
     let headline_h = headline.size().y;
     p.galley(Pos2::new(x, y), headline, theme::DANGER);
-    y += headline_h + 4.0;
+    y += headline_h + theme::SPACE_ROW;
     let explanation_h = explanation.size().y;
     p.galley(Pos2::new(x, y), explanation, theme::TEXT_SECONDARY);
     y += explanation_h;
     if code_h > 0.0 {
-        y += 16.0;
+        y += theme::SPACE_BLOCK;
         let caption_h = caption.size().y;
         p.galley(Pos2::new(x, y), caption, theme::TEXT_SECONDARY);
-        y += caption_h + 4.0;
+        y += caption_h + theme::SPACE_ROW;
         let block = Rect::from_min_size(Pos2::new(x, y), Vec2::new(inner_w, code_h));
-        p.rect_filled(block, theme::cr(4), theme::BG);
-        p.rect_stroke(block, theme::cr(4), egui::Stroke::new(1.0, theme::BORDER_SUBTLE), egui::StrokeKind::Inside);
+        p.rect_filled(block, theme::cr(theme::RADIUS_CONTROL), theme::BG);
+        p.rect_stroke(block, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SUBTLE), egui::StrokeKind::Inside);
         let mut cy = block.top() + CODE_PAD;
         for g in code_lines {
             let gh = g.size().y;
@@ -249,7 +250,7 @@ pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'stat
         }
         y += code_h;
     }
-    y += 16.0;
+    y += theme::SPACE_BLOCK;
 
     let btn = Rect::from_min_size(Pos2::new(x, y), Vec2::new(btn_w, BTN_H));
     let name = format!("agents-start-failure-fix-{surface_id}");
@@ -257,8 +258,8 @@ pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'stat
     let resp = ui.interact(btn, Id::new((surface_id, "agents-start-failure-fix")), Sense::click());
     // Brand text on the brand-tinted surface (8.1:1), not white on `BG_BRAND` (3.5:1).
     let bg = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
-    p.rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), bg);
-    p.rect_stroke(btn, theme::cr(theme::RADIUS_MEDIUM), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
+    p.rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), bg);
+    p.rect_stroke(btn, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
     p.text(btn.center(), Align2::CENTER_CENTER, failure.fix_label(), theme::font_body_medium(), theme::TEXT_BRAND);
     resp.clicked().then(|| failure.fix.clone())
 }
