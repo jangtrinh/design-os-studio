@@ -73,6 +73,41 @@ fn spaced(prefix: &str, px: f32, var: Option<&Variable>) -> String {
     }
 }
 
+// Largest value each stock grid utility ships with (Tailwind's default theme).
+const STOCK_GRID_COLS: usize = 12;
+const STOCK_GRID_ROWS: usize = 6;
+const STOCK_COL_START: u32 = 13;
+const STOCK_ROW_START: u32 = 7;
+const STOCK_COL_SPAN: u16 = 12;
+const STOCK_ROW_SPAN: u16 = 6;
+
+/// `grid-cols-3` for `count` tracks that are all `1fr`, while the stock class exists. Anything else,
+/// including a count past the stock scale, is an arbitrary value of the same CSS track list.
+fn template_class(prefix: &str, tracks: &[GridTrack], count: usize, stock_max: usize) -> String {
+    if grid_tracks_are_default(tracks, count) && count <= stock_max {
+        return format!("{prefix}-{count}");
+    }
+    format!("{prefix}-[{}]", tailwind_tracks_value(&grid_tracks_css(tracks, count)))
+}
+
+/// `col-start-3` for grid line `line` while the stock class exists, else `col-start-[14]`.
+fn line_class(prefix: &str, line: u32, stock_max: u32) -> String {
+    if line <= stock_max {
+        format!("{prefix}-{line}")
+    } else {
+        format!("{prefix}-[{line}]")
+    }
+}
+
+/// `col-span-2` for a span while the stock class exists, else `col-[span_14_/_span_14]`.
+fn span_class(prefix: &str, span: u16, stock_max: u16) -> String {
+    if span <= stock_max {
+        format!("{prefix}-span-{span}")
+    } else {
+        format!("{prefix}-[span_{span}_/_span_{span}]")
+    }
+}
+
 fn hex8(c: &Color, opacity: f32) -> String {
     let a = (c.a * opacity).clamp(0.0, 1.0);
     let base = format!("#{}", c.to_hex());
@@ -309,14 +344,29 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1);
             c.push("grid".into());
-            c.push(format!("grid-cols-{cols}"));
+            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(al), STOCK_GRID_COLS));
             if al.grid_rows > 0 {
-                c.push(format!("grid-rows-{}", al.grid_rows));
+                c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
             }
-            if al.item_spacing > 0.0 {
-                c.push(spaced("gap", al.item_spacing, bound(doc, n, "itemSpacing")));
+            let col_gap = al.item_spacing;
+            let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+            let col_var = bound(doc, n, "itemSpacing");
+            let row_var = bound(doc, n, "counterAxisSpacing");
+            // One `gap` only when a single value drives both axes: a bound item spacing reaches the row only
+            // when the row has no spacing of its own (`counterAxisSpacing` unset, so the solver reuses it).
+            let one_gap = (row_gap - col_gap).abs() < 1e-4 && row_var.is_none() && (col_var.is_none() || al.counter_spacing <= 0.0);
+            if one_gap {
+                if col_gap > 0.0 || col_var.is_some() {
+                    c.push(spaced("gap", col_gap, col_var));
+                }
+            } else {
+                if col_gap > 0.0 || col_var.is_some() {
+                    c.push(spaced("gap-x", col_gap, col_var));
+                }
+                if row_gap > 0.0 || row_var.is_some() {
+                    c.push(spaced("gap-y", row_gap, row_var));
+                }
             }
             c.extend(pad_classes(doc, n, al));
         } else {
@@ -346,11 +396,17 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         }
     }
     if sz.in_flow && parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid) {
+        if let Some(col) = n.layout_child.grid_column {
+            c.push(line_class("col-start", u32::from(col) + 1, STOCK_COL_START));
+        }
         if n.layout_child.col_span > 1 {
-            c.push(format!("col-span-{}", n.layout_child.col_span));
+            c.push(span_class("col", n.layout_child.col_span, STOCK_COL_SPAN));
+        }
+        if let Some(row) = n.layout_child.grid_row {
+            c.push(line_class("row-start", u32::from(row) + 1, STOCK_ROW_START));
         }
         if n.layout_child.row_span > 1 {
-            c.push(format!("row-span-{}", n.layout_child.row_span));
+            c.push(span_class("row", n.layout_child.row_span, STOCK_ROW_SPAN));
         }
         // An item sized by its own content keeps that size instead of stretching across its cell.
         if sz.w == Dim::Hug {
@@ -548,6 +604,46 @@ mod tests {
         assert!(out.contains("w-[313px]"), "{out}");
         assert!(out.contains("rounded-tl-[10px] rounded-tr-[10px]"), "{out}");
         assert!(out.contains("opacity-[0.37]"), "{out}");
+    }
+
+    #[test]
+    fn golden_grid_tracks_placement_and_gaps() {
+        let mut d = Document::new("grid");
+        let page = d.add_page("p");
+        let gid = d.alloc_id();
+        let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 480.0, 200.0));
+        g.name = "DashboardGrid".into();
+        g.fills = vec![];
+        let mut al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            item_spacing: 16.0,
+            counter_spacing: 24.0,
+            padding: [12.0, 16.0, 12.0, 16.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Fixed,
+            grid_columns: 3,
+            grid_rows: 2,
+            ..Default::default()
+        };
+        al.grid_col_tracks[0] = GridTrack::Flex(1.0);
+        al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+        al.grid_col_tracks[2] = GridTrack::Hug;
+        al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+        al.grid_row_tracks[1] = GridTrack::Hug;
+        g.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), ..Default::default() });
+        let g = d.insert(page, g).unwrap();
+
+        let c1 = d.alloc_id();
+        let mut n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 200.0, 80.0));
+        n1.fills = vec![];
+        n1.layout_child.grid_column = Some(1);
+        n1.layout_child.grid_row = Some(0);
+        n1.layout_child.col_span = 2;
+        n1.layout_child.row_span = 1;
+        d.insert(g, n1).unwrap();
+
+        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
+        assert_eq!(tailwind_for(&d, g), expected);
     }
 
     /// The utility classes on the `n`th line of `html`, split into tokens.
