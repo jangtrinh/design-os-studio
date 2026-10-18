@@ -725,28 +725,6 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn insert_imported_node(&mut self, parent: NodeId, mut node: Node) -> bool {
-        let Some(p_kind_ok) = self.doc.nodes.get(&parent).map(|p| (p.kind.is_container(), matches!(p.kind, NodeKind::Unknown { .. }))) else {
-            return false;
-        };
-        if p_kind_ok.0 {
-            self.doc.insert(parent, node).is_ok()
-        } else if p_kind_ok.1 {
-            let id = node.id;
-            if let Some(p) = self.doc.nodes.get_mut(&parent) {
-                p.children.push(id);
-            }
-            node.parent = Some(parent);
-            self.doc.reserve_ids(id);
-            self.doc.nodes.insert(id, node);
-            self.doc.mark_node_dirty(parent);
-            self.doc.mark_node_dirty(id);
-            true
-        } else {
-            false
-        }
-    }
-
     fn import_node_owned(&mut self, mut v: Value, parent: NodeId, pinfo: ParentInfo, depth: usize) {
         if depth > MAX_DEPTH {
             return;
@@ -772,9 +750,9 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(&v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container() || matches!(node.kind, NodeKind::Unknown { .. });
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
-        if !self.insert_imported_node(parent, node) {
+        if self.doc.insert(parent, node).is_err() {
             return;
         }
         if is_frame {
@@ -870,9 +848,9 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container() || matches!(node.kind, NodeKind::Unknown { .. });
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
-        if !self.insert_imported_node(parent, node) {
+        if self.doc.insert(parent, node).is_err() {
             return;
         }
         if is_frame {

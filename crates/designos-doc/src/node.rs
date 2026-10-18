@@ -444,7 +444,8 @@ pub enum NodeKind {
     Stamp {
         kind: String,
     },
-    /// Anything the importer could not map, kept so nothing is silently lost.
+    /// Anything the importer could not map, kept so nothing is silently lost. It keeps its children
+    /// (see [`NodeKind::can_hold_children`]) but is not a [`NodeKind::is_container`] and is not drawn.
     Unknown {
         type_name: String,
     },
@@ -463,6 +464,16 @@ impl NodeKind {
                 | NodeKind::ComponentSet(_)
                 | NodeKind::Instance { .. }
         )
+    }
+
+    /// Whether the tree edits (insert, reparent, and the undo of a delete) accept this kind as a parent:
+    /// every [`Self::is_container`] kind, plus `Unknown`. The importer keeps the children of a layer it
+    /// cannot map (a table, a slide, a keyframe track, ...) under that `Unknown` node, and the undo of
+    /// deleting one of them has to put it back. This is only about tree membership. An `Unknown` layer
+    /// stays a non-container for clipping, auto layout, hit testing and painting, like a group without
+    /// frame properties.
+    pub fn can_hold_children(&self) -> bool {
+        self.is_container() || matches!(self, NodeKind::Unknown { .. })
     }
 
     /// Board items that are drawn by lowering to ordinary shapes and text.
