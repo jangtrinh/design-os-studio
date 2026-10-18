@@ -101,6 +101,17 @@ fn entries(app: &App) -> Vec<Entry> {
         list.push(leaf(MenuItem::new("Mark as completed"), Action::MarkCompleted));
         list.push(leaf(MenuItem::new("Remove dev status"), Action::ClearDevStatus));
     }
+    let can_convert_to_slot = app.selection.iter().any(|id| {
+        app.doc.get(*id).is_some_and(|n| {
+            matches!(n.kind, NodeKind::Frame(_))
+                && !designos_doc::is_linked(n)
+                && !n.component.is_slot
+                && designos_doc::enclosing_component(&app.doc, *id).is_some_and(|c| c != *id)
+        })
+    });
+    if can_convert_to_slot {
+        list.push(leaf(MenuItem::new("Convert to slot"), Action::ConvertToSlot));
+    }
     list.push(leaf(MenuItem::new("Delete").shortcut("Del").disabled(!has), Action::Delete));
     list
 }

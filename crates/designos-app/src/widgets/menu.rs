@@ -378,6 +378,8 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 let row = Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(rect.width(), theme::MENU_ITEM_HEIGHT));
                 #[cfg(test)]
                 record(ui, &format!("menu-row-{k}-{i}"), row);
+                #[cfg(test)]
+                record(ui, &format!("menu-check-{k}-{i}"), if it.checked { row } else { Rect::NOTHING });
                 let hit = if capped { row.intersect(band) } else { row };
                 if !hit.is_positive() {
                     if it.separator_after {
@@ -501,8 +503,15 @@ fn scroll_thumb(p: &egui::Painter, band: Rect, content_h: f32, scroll: f32, max_
     p.rect_filled(Rect::from_min_size(Pos2::new(band.right() - 6.0, y), Vec2::new(4.0, h)), theme::cr(2), theme::TEXT_TERTIARY);
 }
 
-/// A dropdown field: shows `label` with a chevron; returns the picked option.
+/// A dropdown field: shows `label` with a chevron; returns the picked option. The option equal to `label` is checked.
 pub fn dropdown(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String]) -> Option<usize> {
+    let checked: Vec<bool> = options.iter().map(|o| o == label).collect();
+    dropdown_checked(ui, rect, key, label, options, &checked)
+}
+
+/// Like `dropdown`, but `checked[i]` decides whether option `i` shows a check mark, so a multi-select
+/// list marks every selected row regardless of what the closed field shows.
+pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String], checked: &[bool]) -> Option<usize> {
     let id = ui.id().with(("dd", key));
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
@@ -520,7 +529,8 @@ pub fn dropdown(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &
     }
     let mut picked = None;
     if open {
-        let items: Vec<MenuItem> = options.iter().map(|o| MenuItem::new(o.clone()).checked(o == label)).collect();
+        let items: Vec<MenuItem> =
+            options.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone()).checked(checked.get(i).copied().unwrap_or(false))).collect();
         match popup_menu(ui.ctx(), id.with("menu"), rect.left_bottom() + Vec2::new(0.0, 2.0), rect.width(), &items, Some(rect)) {
             MenuResult::Picked(i) => {
                 picked = Some(i);

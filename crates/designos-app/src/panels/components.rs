@@ -8,7 +8,7 @@ use crate::icons::Icon;
 use crate::theme;
 use crate::widgets;
 use crate::widgets::field;
-use crate::widgets::menu::{dropdown, popup_menu, MenuItem, MenuResult};
+use crate::widgets::menu::{dropdown, dropdown_checked, popup_menu, MenuItem, MenuResult};
 use designos_doc::*;
 use egui::{Align2, Pos2, Rect, Sense, Ui, Vec2};
 
@@ -337,9 +337,22 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
                     let _ = dropdown(ui, ctl, &key, &cur_label, &[]);
                 }
             }
+            (PropKind::Slot, _) => {
+                let cfg = app.doc.get(owner).and_then(|n| n.component.slot_configs.get(&def.name)).cloned().unwrap_or_default();
+                let summary = match (cfg.min_children, cfg.max_children) {
+                    (Some(min), Some(max)) => format!("{min}–{max} items"),
+                    (Some(min), None) => format!("≥ {min} items"),
+                    (None, Some(max)) => format!("≤ {max} items"),
+                    (None, None) => "Any content".into(),
+                };
+                ui.painter().text(Pos2::new(ctl.left(), ctl.center().y), Align2::LEFT_CENTER, summary, theme::font_body(), theme::TEXT_SECONDARY);
+            }
             _ => {}
         }
         row_end(pane);
+        if matches!(def.kind, PropKind::Slot) {
+            slot_settings_rows(app, ui, pane, owner, &def.name);
+        }
         pane.y += 4.0;
     }
     if let Some(anchor) = app.ui.prop_menu {
@@ -362,6 +375,134 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
     section_sep(ui, pane, false);
 }
 
+fn parse_optional_u32(raw: &str) -> Option<Option<u32>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") || trimmed == "-" {
+        Some(None)
+    } else {
+        trimmed.parse::<u32>().ok().map(Some)
+    }
+}
+
+fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId, prop_name: &str) {
+    let cfg = app.doc.get(owner).and_then(|n| n.component.slot_configs.get(prop_name)).cloned().unwrap_or_default();
+
+    // Min children
+    let min_lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
+    ui.painter().text(Pos2::new(min_lab.left(), min_lab.center().y), Align2::LEFT_CENTER, "Min children", theme::font_body(), theme::TEXT_SECONDARY);
+    let min_ctl = pane.col(1, 0.0);
+    widgets::record(ui, "slot-min-children", min_ctl);
+    widgets::record(ui, &format!("slot-min:{prop_name}"), min_ctl);
+    let min_str = cfg.min_children.map(|v| v.to_string()).unwrap_or_default();
+    if let Some(committed) = field::text_input_ph(ui, min_ctl, ("slot-min", prop_name), &min_str, "None") {
+        if let Some(parsed) = parse_optional_u32(&committed) {
+            let mut next = cfg.clone();
+            next.min_children = parsed;
+            app.set_slot_config(owner, prop_name, next);
+        }
+    }
+    row_end(pane);
+
+    // Max children
+    let max_lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 128.0, theme::FIELD_HEIGHT);
+    ui.painter().text(Pos2::new(max_lab.left(), max_lab.center().y), Align2::LEFT_CENTER, "Max children", theme::font_body(), theme::TEXT_SECONDARY);
+    let max_ctl = pane.col(1, 0.0);
+    widgets::record(ui, "slot-max-children", max_ctl);
+    widgets::record(ui, &format!("slot-max:{prop_name}"), max_ctl);
+    let max_str = cfg.max_children.map(|v| v.to_string()).unwrap_or_default();
+    if let Some(committed) = field::text_input_ph(ui, max_ctl, ("slot-max", prop_name), &max_str, "None") {
+        if let Some(parsed) = parse_optional_u32(&committed) {
+            let mut next = cfg.clone();
+            next.max_children = parsed;
+            app.set_slot_config(owner, prop_name, next);
+        }
+    }
+    row_end(pane);
+
+    // Preferred instances only
+    let pref_lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 152.0, theme::FIELD_HEIGHT);
+    ui.painter().text(
+        Pos2::new(pref_lab.left(), pref_lab.center().y),
+        Align2::LEFT_CENTER,
+        "Preferred instances only",
+        theme::font_body(),
+        theme::TEXT_SECONDARY,
+    );
+    let pref_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
+    let pref_on = cfg.allow_preferred_values_only.unwrap_or(false);
+    if let Some(v) = toggle(ui, pref_ctl, &format!("slot-preferred-only:{prop_name}"), pref_on) {
+        let mut next = cfg.clone();
+        next.allow_preferred_values_only = Some(v);
+        app.set_slot_config(owner, prop_name, next);
+    }
+    row_end(pane);
+
+    if pref_on || !cfg.preferred.is_empty() {
+        let cur_pref = match cfg.preferred.split_first() {
+            None => "Add preferred…".to_string(),
+            Some((first, [])) => comp_label(&app.doc, *first),
+            Some((first, rest)) => format!("{} +{}", comp_label(&app.doc, *first), rest.len()),
+        };
+        let dd_r = pane.full(0.0);
+        let pref_key = format!("slot-preferred-picker:{prop_name}");
+        widgets::record(ui, "slot-preferred-picker", dd_r);
+        if is_dropdown_open(ui, &pref_key) {
+            let comps: Vec<NodeId> = all_components_cached(app).into_iter().filter(|x| *x != owner).collect();
+            let names: Vec<String> = comps.iter().map(|x| comp_label(&app.doc, *x)).collect();
+            let selected: Vec<bool> = comps.iter().map(|x| cfg.preferred.contains(x)).collect();
+            if let Some(i) = dropdown_checked(ui, dd_r, &pref_key, &cur_pref, &names, &selected) {
+                let picked = comps[i];
+                let mut next = cfg.clone();
+                if let Some(pos) = next.preferred.iter().position(|x| *x == picked) {
+                    next.preferred.remove(pos);
+                } else {
+                    next.preferred.push(picked);
+                }
+                app.set_slot_config(owner, prop_name, next);
+            }
+        } else {
+            let _ = dropdown(ui, dd_r, &pref_key, &cur_pref, &[]);
+        }
+        row_end(pane);
+    }
+
+    // Stretch child on insert
+    let stretch_lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 152.0, theme::FIELD_HEIGHT);
+    ui.painter().text(
+        Pos2::new(stretch_lab.left(), stretch_lab.center().y),
+        Align2::LEFT_CENTER,
+        "Stretch child on insert",
+        theme::font_body(),
+        theme::TEXT_SECONDARY,
+    );
+    let stretch_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
+    let stretch_on = cfg.stretch_child_on_insert.unwrap_or(false);
+    if let Some(v) = toggle(ui, stretch_ctl, &format!("slot-stretch-on-insert:{prop_name}"), stretch_on) {
+        let mut next = cfg.clone();
+        next.stretch_child_on_insert = Some(v);
+        app.set_slot_config(owner, prop_name, next);
+    }
+    row_end(pane);
+
+    // Show empty by default
+    let empty_lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 152.0, theme::FIELD_HEIGHT);
+    ui.painter().text(
+        Pos2::new(empty_lab.left(), empty_lab.center().y),
+        Align2::LEFT_CENTER,
+        "Show empty by default",
+        theme::font_body(),
+        theme::TEXT_SECONDARY,
+    );
+    let empty_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
+    let empty_on = cfg.display_by_default.unwrap_or(false);
+    if let Some(v) = toggle(ui, empty_ctl, &format!("slot-show-empty:{prop_name}"), empty_on) {
+        let mut next = cfg.clone();
+        next.display_by_default = Some(v);
+        app.set_slot_config(owner, prop_name, next);
+    }
+    row_end(pane);
+}
+
 /// Link a layer's visibility / text / instance / slot to a component property.
 fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
     let Some(comp) = enclosing_component(&app.doc, id) else { return };
@@ -369,7 +510,12 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         return;
     }
     let Some(n) = app.doc.get(id).cloned() else { return };
+    let owner = app.prop_owner(comp);
     let defs = prop_defs(&app.doc, comp);
+    let is_frame = matches!(n.kind, NodeKind::Frame { .. });
+    let bound_slot = n.component.bindings.get(&OverrideField::SlotContent).cloned();
+    let is_slot = n.component.is_slot || bound_slot.is_some();
+
     #[allow(clippy::type_complexity)] // local row table of (label, field, predicate)
     let mut rows: Vec<(&'static str, OverrideField, fn(&PropKind) -> bool)> = vec![("Visibility", OverrideField::Visible, |k| matches!(k, PropKind::Boolean))];
     if matches!(n.kind, NodeKind::Text(_)) {
@@ -378,11 +524,11 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
     if matches!(n.kind, NodeKind::Instance { .. }) {
         rows.push(("Instance", OverrideField::MainComponent, |k| matches!(k, PropKind::InstanceSwap { .. })));
     }
-    if matches!(n.kind, NodeKind::Frame { .. }) {
+    if is_frame {
         rows.push(("Slot", OverrideField::SlotContent, |k| matches!(k, PropKind::Slot)));
     }
     let rows: Vec<_> = rows.into_iter().filter(|(_, f, accepts)| n.component.bindings.contains_key(f) || defs.iter().any(|d| accepts(&d.kind))).collect();
-    if rows.is_empty() {
+    if rows.is_empty() && !is_frame {
         return;
     }
     title(ui, pane, "Component properties", None, false);
@@ -400,6 +546,31 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         }
         row_end(pane);
     }
+    if is_frame && !is_slot {
+        let btn = pane.full(0.0);
+        widgets::record(ui, "convert-to-slot", btn);
+        let resp = ui.interact(btn, ui.id().with(("convert-to-slot", id)), Sense::click());
+        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().rect_stroke(
+            btn,
+            theme::cr(theme::RADIUS_MEDIUM),
+            egui::Stroke::new(1.0, theme::CANVAS_COMPONENT.gamma_multiply(0.45)),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Convert to slot", theme::font_body(), theme::TEXT);
+        if resp.clicked() {
+            app.convert_to_slot(id);
+        }
+        row_end(pane);
+    }
     pane.y += 4.0;
     section_sep(ui, pane, false);
+
+    if is_frame && is_slot {
+        let prop_name = bound_slot.or_else(|| defs.iter().find(|d| matches!(d.kind, PropKind::Slot)).map(|d| d.name.clone())).unwrap_or_else(|| n.name.clone());
+        title(ui, pane, "Slot settings", None, false);
+        slot_settings_rows(app, ui, pane, owner, &prop_name);
+        pane.y += 4.0;
+        section_sep(ui, pane, false);
+    }
 }

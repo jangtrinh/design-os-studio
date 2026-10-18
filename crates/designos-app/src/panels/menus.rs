@@ -57,6 +57,7 @@ pub enum Action {
     SendToBack,
     ToggleSidebar,
     CreateComponent,
+    ConvertToSlot,
     Detach,
     CombineVariants,
     GoToMain,
@@ -169,6 +170,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendToBack => app.reorder(false, true),
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
+        Action::ConvertToSlot => app.convert_selection_to_slot(),
         Action::Detach => app.detach_selection(),
         Action::CombineVariants => app.combine_selection_as_variants(),
         Action::GoToMain => {

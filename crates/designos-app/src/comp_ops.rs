@@ -475,6 +475,39 @@ impl App {
         self.comp_edit(|d| bind_prop(d, node, field, prop.as_deref()));
     }
 
+    /// Converts a frame inside a main component into a component slot in one undo step.
+    pub fn convert_to_slot(&mut self, frame: NodeId) {
+        let mut tx = Tx::new();
+        let cmd = convert_to_slot(&mut self.doc, frame);
+        if self.push_cmd(&mut tx, cmd) {
+            self.run_tx(tx);
+            self.show_toast("Converted to slot", false);
+        }
+    }
+
+    /// Converts any selected frames inside a main component into slots in one undo step.
+    pub fn convert_selection_to_slot(&mut self) {
+        let ids = self.selection.clone();
+        let mut tx = Tx::new();
+        let mut count = 0usize;
+        for id in ids {
+            let cmd = convert_to_slot(&mut self.doc, id);
+            if self.push_cmd(&mut tx, cmd) {
+                count += 1;
+            }
+        }
+        if count > 0 {
+            self.run_tx(tx);
+            self.show_toast(if count == 1 { "Converted to slot" } else { "Converted to slots" }, false);
+        }
+    }
+
+    /// Updates the [`SlotPropConfig`] for a slot property on a component or component set.
+    pub fn set_slot_config(&mut self, owner: NodeId, prop_name: &str, config: SlotPropConfig) {
+        let prop_name = prop_name.to_string();
+        self.comp_edit(|d| set_slot_config(d, owner, &prop_name, config));
+    }
+
     /// Components for the Assets panel, in page order.
     pub fn local_components(&self) -> Vec<AssetEntry> {
         let mut out = Vec::new();

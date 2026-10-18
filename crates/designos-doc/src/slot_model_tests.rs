@@ -362,3 +362,58 @@ fn resetting_an_instance_drops_its_slot_assignments_and_undo_brings_them_back() 
     inverse.apply(&mut d).unwrap();
     assert_eq!(d.get(inst).unwrap().component.slot_content_ids.get("Header").map(String::as_str), Some("9:1"));
 }
+
+#[test]
+fn convert_to_slot_creates_prop_binds_frame_and_syncs_instances_in_one_undo_step() {
+    let mut d = Document::new("slots");
+    let page = d.add_page("P");
+    let id = d.alloc_id();
+    let comp = d.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 240.0, 120.0))).unwrap();
+    let id = d.alloc_id();
+    let mut body = Node::frame(id, Rect::new(16.0, 16.0, 208.0, 88.0));
+    body.name = "Body".into();
+    let body = d.insert(comp, body).unwrap();
+    create_component(&mut d, comp).apply(&mut d).unwrap();
+    create_instance(&mut d, comp, page, Vec2::new(300.0, 0.0)).apply(&mut d).unwrap();
+    let inst = instances_of(&d, comp)[0];
+    let inst_body = d.get(inst).unwrap().children[0];
+
+    let inv = crate::convert_to_slot(&mut d, body).apply(&mut d).unwrap();
+    let body_node = d.get(body).unwrap();
+    assert!(body_node.component.is_slot);
+    assert_eq!(body_node.component.bindings.get(&crate::OverrideField::SlotContent).map(String::as_str), Some("Body"));
+    let comp_node = d.get(comp).unwrap();
+    assert!(comp_node.component.props.iter().any(|p| p.name == "Body" && p.kind == PropKind::Slot));
+    assert!(d.get(inst_body).unwrap().component.is_slot, "instance child is synced as a slot in the same step");
+
+    inv.apply(&mut d).unwrap();
+    assert!(!d.get(body).unwrap().component.is_slot);
+    assert!(!d.get(body).unwrap().component.bindings.contains_key(&crate::OverrideField::SlotContent));
+    assert!(d.get(comp).unwrap().component.props.is_empty());
+    assert!(!d.get(inst_body).unwrap().component.is_slot);
+}
+
+#[test]
+fn set_slot_config_persists_all_settings_and_undoes_in_one_step() {
+    let (mut d, comp, body, icon) = component_with_slot();
+    d.get_mut(body).unwrap().component.is_slot = true;
+    let updated = SlotPropConfig {
+        min_children: Some(1),
+        max_children: Some(4),
+        allow_preferred_values_only: Some(true),
+        stretch_child_on_insert: Some(true),
+        display_by_default: Some(true),
+        preferred: vec![icon],
+        ..Default::default()
+    };
+    let inv = crate::set_slot_config(&mut d, comp, "Body", updated.clone()).apply(&mut d).unwrap();
+    assert_eq!(d.get(comp).unwrap().component.slot_configs.get("Body"), Some(&updated));
+    let roundtripped = Document::from_json(&d.to_json().unwrap()).unwrap();
+    assert_eq!(roundtripped.get(comp).unwrap().component.slot_configs.get("Body"), Some(&updated));
+
+    inv.apply(&mut d).unwrap();
+    assert_eq!(
+        d.get(comp).unwrap().component.slot_configs.get("Body"),
+        Some(&SlotPropConfig { max_children: Some(2), preferred: vec![icon], ..Default::default() })
+    );
+}

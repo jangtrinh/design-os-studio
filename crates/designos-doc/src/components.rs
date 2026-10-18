@@ -209,12 +209,15 @@ fn is_top(n: &Node) -> bool {
 /// override/binding on itself or its master component node, or bound to a `PropKind::Slot` property).
 pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
     let Some(n) = doc.get(id) else { return false };
-    if n.component.overrides.contains(&OverrideField::SlotContent) || n.component.bindings.contains_key(&OverrideField::SlotContent) {
+    if n.component.is_slot || n.component.overrides.contains(&OverrideField::SlotContent) || n.component.bindings.contains_key(&OverrideField::SlotContent) {
         return true;
     }
     if let Some(src_id) = n.component.source {
         if let Some(src) = doc.get(src_id) {
-            if src.component.overrides.contains(&OverrideField::SlotContent) || src.component.bindings.contains_key(&OverrideField::SlotContent) {
+            if src.component.is_slot
+                || src.component.overrides.contains(&OverrideField::SlotContent)
+                || src.component.bindings.contains_key(&OverrideField::SlotContent)
+            {
                 return true;
             }
             if !src.component.bindings.is_empty() {
@@ -1098,7 +1101,11 @@ pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
+        let cleared_slot = n.component.bindings.get(&OverrideField::SlotContent).is_some_and(|v| v == name);
         n.component.bindings.retain(|_, v| v != name);
+        if cleared_slot {
+            n.component.is_slot = false;
+        }
         c.update(n);
     }
     let comps = components_of(c.s, owner);
@@ -1120,9 +1127,15 @@ pub fn bind_prop(doc: &mut Document, node: NodeId, field: OverrideField, prop: O
     match prop {
         Some(p) => {
             n.component.bindings.insert(field, p.to_string());
+            if field == OverrideField::SlotContent {
+                n.component.is_slot = true;
+            }
         }
         None => {
             n.component.bindings.remove(&field);
+            if field == OverrideField::SlotContent {
+                n.component.is_slot = false;
+            }
         }
     }
     c.update(n);
@@ -1131,6 +1144,60 @@ pub fn bind_prop(doc: &mut Document, node: NodeId, field: OverrideField, prop: O
         sync_component(&mut c, owner);
     }
     c.finish()
+}
+
+/// Converts a `Frame` inside a main component into a component slot: creates a
+/// [`PropKind::Slot`] property on the component owner, marks the frame with
+/// `is_slot = true` and `SlotContent -> prop_name`, and syncs all instances in
+/// a single undoable command.
+pub fn convert_to_slot(doc: &mut Document, frame: NodeId) -> Command {
+    let mut c = Ctx::new(doc);
+    let Some(mut n) = c.s.get(frame).cloned() else { return nothing() };
+    if !matches!(n.kind, NodeKind::Frame(_)) || is_linked(&n) {
+        return nothing();
+    }
+    let Some(comp) = enclosing_component(c.s, frame).filter(|&comp| comp != frame) else {
+        return nothing();
+    };
+    let owner = c.s.get(comp).and_then(|x| x.parent).filter(|p| matches!(c.s.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp);
+    let Some(mut o) = c.s.get(owner).cloned() else { return nothing() };
+
+    let prop_name = if let Some(existing) = n.component.bindings.get(&OverrideField::SlotContent).cloned() {
+        existing
+    } else {
+        let base = if n.name.trim().is_empty() { "Slot" } else { n.name.trim() };
+        let taken: Vec<String> = o.component.props.iter().map(|p| p.name.clone()).collect();
+        let mut candidate = base.to_string();
+        let mut idx = 1usize;
+        while taken.contains(&candidate) {
+            idx += 1;
+            candidate = format!("{base} {idx}");
+        }
+        candidate
+    };
+
+    if !o.component.props.iter().any(|p| p.name == prop_name) {
+        o.component.props.push(ComponentPropDef { name: prop_name.clone(), kind: PropKind::Slot, default: PropValue::Slot(n.children.clone()) });
+    }
+    o.component.slot_configs.entry(prop_name.clone()).or_default();
+    c.update(o);
+
+    n.component.is_slot = true;
+    n.component.bindings.insert(OverrideField::SlotContent, prop_name);
+    c.update(n);
+
+    sync_component(&mut c, owner);
+    c.finish()
+}
+
+/// Updates the [`SlotPropConfig`] for `prop_name` on component/set `owner` in one undo step.
+pub fn set_slot_config(doc: &mut Document, owner: NodeId, prop_name: &str, config: SlotPropConfig) -> Command {
+    let Some(mut o) = doc.get(owner).cloned() else { return nothing() };
+    if !o.component.props.iter().any(|p| p.name == prop_name && matches!(p.kind, PropKind::Slot)) {
+        return nothing();
+    }
+    o.component.slot_configs.insert(prop_name.to_string(), config);
+    Command::Update { node: Box::new(o) }
 }
 
 // ---------------------------------------------------------------------------

@@ -226,7 +226,8 @@ pub struct SlotPropConfig {
     /// `stretchChildOnInsert`: inserted content stretches to the slot's width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stretch_child_on_insert: Option<bool>,
-    /// `displayByDefault`: the slot shows its content before anything is inserted.
+    /// `displayByDefault`: Figma's `displayEmptyByDefault` in `SlotSettings`. When set, empty instances of
+    /// the slot keep the slot highlight visible ("Show empty by default").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_by_default: Option<bool>,
     /// `minChildren`.
