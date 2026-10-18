@@ -224,6 +224,18 @@ impl Paint {
     pub fn solid(c: Color) -> Self {
         Self { kind: PaintKind::Solid(c), opacity: 1.0, visible: true, blend: BlendMode::Normal }
     }
+
+    /// The coverage this paint leaves in an effect silhouette (drop shadow, inner shadow,
+    /// background blur, glass, noise): a solid colour contributes its own alpha, every other
+    /// kind is opaque, and the paint opacity scales either. A colour variable keeps its alpha on
+    /// the colour, so reading only `opacity` would ink the silhouette fully.
+    pub fn silhouette_alpha(&self) -> f32 {
+        let base = match &self.kind {
+            PaintKind::Solid(c) => c.a,
+            _ => 1.0,
+        };
+        base * self.opacity
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

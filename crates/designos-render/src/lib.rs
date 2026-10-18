@@ -518,7 +518,11 @@ impl Renderer<'_> {
         if let Some(tl) = tl {
             for (i, path) in tl.paths.iter().enumerate() {
                 if let Some(path) = path {
-                    let a = if opaque { 1.0 } else { tl.styles[i].fills.iter().filter(|p| p.visible).map(|p| p.opacity).fold(0.0, f32::max) };
+                    let a = if opaque {
+                        1.0
+                    } else {
+                        tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
+                    };
                     pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
                 }
             }
@@ -532,15 +536,7 @@ impl Renderer<'_> {
                     }
                 } else if sh.fillable {
                     for p in &fills {
-                        let a = if opaque {
-                            1.0
-                        } else {
-                            let base = match &p.kind {
-                                designos_doc::PaintKind::Solid(c) => c.a,
-                                _ => 1.0,
-                            };
-                            base * p.opacity
-                        };
+                        let a = if opaque { 1.0 } else { p.silhouette_alpha() };
                         let paint = black_paint(a);
                         for (path, rule) in sh.fill_paths() {
                             pm.fill_path(path, &paint, *rule, ts2, None);

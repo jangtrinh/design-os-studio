@@ -161,3 +161,123 @@ fn per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding() {
     let pm_off = t.render(100, 80);
     assert_eq!(px(&pm_off, 40, 48), WHITE);
 }
+
+#[test]
+fn white_paint_with_stored_opacity_bound_to_translucent_color_variable_composites_at_twenty_percent() {
+    let mut t = T::new();
+    let page = t.page;
+    t.node(page).kind = NodeKind::Page { background: Color::BLACK };
+    t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n
+    });
+    t.doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "M".into() }],
+            default_mode: "m".into(),
+            variables: vec!["alpha-white-20".into()],
+            key: None,
+            source_library_key: None,
+        },
+    );
+    let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
+    t.doc.variables.insert(
+        "alpha-white-20".into(),
+        Variable {
+            id: "alpha-white-20".into(),
+            name: "Component colors/Alpha/alpha-white-20".into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(alpha_white_20))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+
+    let pm = t.render(40, 40);
+    // 20% white over black is ~51, not 4% (~10).
+    assert!(near(px(&pm, 20, 20), [51, 51, 51, 255], 2), "got {:?}", px(&pm, 20, 20));
+}
+
+/// A heavy "I" on a mid-grey page: fill white bound to a translucent colour variable (stored
+/// paint opacity 0.2, as an import writes it) and an opaque black drop shadow pushed 60 px to the
+/// right so the shadow sample sits clear of the glyph. Returns the scene and the shadow offset.
+fn translucent_text_with_shadow_scene() -> (T, f32) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| std::env::set_var("DESIGNOS_BUNDLED_FONTS_ONLY", "1"));
+    const SHADOW_DX: f32 = 60.0;
+    let mut t = T::new();
+    let page = t.page;
+    t.node(page).kind = NodeKind::Page { background: Color::rgb(128, 128, 128) };
+    t.add(None, |id| {
+        let style = TextStyle { font_size: 100.0, font_weight: 900, fills: vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }], ..Default::default() };
+        let mut n = Node::text(id, Rect::new(10.0, 10.0, 60.0, 120.0), "I", style);
+        if let NodeKind::Text(tx) = &mut n.kind {
+            tx.auto_resize = TextAutoResize::WidthAndHeight;
+        }
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n.effects = vec![Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 255),
+            offset: Vec2::new(SHADOW_DX, 0.0),
+            radius: 0.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        }];
+        n
+    });
+    t.doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "M".into() }],
+            default_mode: "m".into(),
+            variables: vec!["alpha-white-20".into()],
+            key: None,
+            source_library_key: None,
+        },
+    );
+    t.doc.variables.insert(
+        "alpha-white-20".into(),
+        Variable {
+            id: "alpha-white-20".into(),
+            name: "Component colors/Alpha/alpha-white-20".into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 }))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+    (t, SHADOW_DX)
+}
+
+#[test]
+fn text_drop_shadow_uses_the_bound_colour_alpha_not_full_ink() {
+    let (t, dx) = translucent_text_with_shadow_scene();
+    let pm = t.render(220, 140);
+    if let Ok(dir) = std::env::var("DESIGNOS_TEST_EVIDENCE_DIR") {
+        pm.save_png(std::path::Path::new(&dir).join("text-shadow-bound-alpha-cpu.png")).unwrap();
+    }
+    // glyph stem: the lightened pixels (20% white over 128 grey is ~153) on a mid-height row
+    let row = 70;
+    let lit: Vec<u32> = (0..220).filter(|&x| px(&pm, x, row)[0] > 140).collect();
+    assert!(!lit.is_empty(), "glyph not found");
+    let stem = (lit[0] + lit[lit.len() - 1]) / 2;
+    assert!(near(px(&pm, stem, row), [153, 153, 153, 255], 3), "glyph got {:?}", px(&pm, stem, row));
+    // 20% black over 128 grey is ~102; a fully inked shadow would be ~0
+    let sh = px(&pm, stem + dx as u32, row);
+    assert!(near(sh, [102, 102, 102, 255], 3), "shadow got {sh:?}");
+}

@@ -166,6 +166,9 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
             if let Some(old) = t.style.fills.get(i).map(|p| p.kind.clone()) {
                 for p in t.runs.iter_mut().filter_map(|r| r.style.fills.get_mut(i)).filter(|p| p.kind == old) {
                     p.kind = PaintKind::Solid(c);
+                    if c.a < 1.0 {
+                        p.opacity = 1.0;
+                    }
                 }
             }
         }
@@ -175,6 +178,9 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         };
         if let Some(p) = paint_at(paints, key, "fills/") {
             p.kind = PaintKind::Solid(c);
+            if c.a < 1.0 {
+                p.opacity = 1.0;
+            }
         }
         return;
     }
@@ -182,6 +188,9 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
         let Some(c) = color_of(value) else { return };
         if let Some(p) = paint_at(&mut n.stroke.paints, key, "strokes/") {
             p.kind = PaintKind::Solid(c);
+            if c.a < 1.0 {
+                p.opacity = 1.0;
+            }
         }
         return;
     }
@@ -562,6 +571,28 @@ mod tests {
         assert!(!scope_allows(&["FRAME_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["TEXT_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["ALL_FILLS".into()], "fills/0", &text));
+    }
+
+    #[test]
+    fn color_variable_with_alpha_does_not_multiply_stored_paint_opacity() {
+        let (mut d, _, frame, _) = setup();
+        let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
+        d.variables.insert(
+            "alpha-white-20".into(),
+            var("alpha-white-20", VariableKind::Color, VariableValue::Color(alpha_white_20), VariableValue::Color(alpha_white_20)),
+        );
+        let n = d.get_mut(frame).unwrap();
+        n.variables.bindings.clear();
+        n.fills = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.stroke.paints = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n.variables.bindings.insert("strokes/0".into(), "alpha-white-20".into());
+
+        let r = resolved_node(&d, frame).unwrap();
+        let PaintKind::Solid(fc) = r.fills[0].kind else { panic!() };
+        assert!((fc.a * r.fills[0].opacity - 0.2).abs() < 1e-6, "fill effective alpha was {}", fc.a * r.fills[0].opacity);
+        let PaintKind::Solid(sc) = r.stroke.paints[0].kind else { panic!() };
+        assert!((sc.a * r.stroke.paints[0].opacity - 0.2).abs() < 1e-6, "stroke effective alpha was {}", sc.a * r.stroke.paints[0].opacity);
     }
 
     fn text_with_runs(base: Color, runs: &[Color]) -> Node {

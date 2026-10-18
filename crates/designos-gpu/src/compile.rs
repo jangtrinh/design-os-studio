@@ -1130,7 +1130,7 @@ impl Ctx<'_> {
         if matches!(n.kind, NodeKind::Text(_)) {
             for (i, t) in g.text.iter().enumerate() {
                 let _ = i;
-                let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(|p| p.opacity).fold(0.0, f32::max) };
+                let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
                 self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
             }
             return;
@@ -1142,15 +1142,7 @@ impl Ctx<'_> {
                         self.draw_mesh(fill, ts2, black(1.0), DrawBlend::Over, clip);
                     } else if sh.fillable {
                         for p in visible_fills(n) {
-                            let a = if opaque {
-                                1.0
-                            } else {
-                                let base = match &p.kind {
-                                    d::PaintKind::Solid(c) => c.a,
-                                    _ => 1.0,
-                                };
-                                base * p.opacity
-                            };
+                            let a = if opaque { 1.0 } else { p.silhouette_alpha() };
                             self.draw_mesh(fill, ts2, black(a), DrawBlend::Over, clip);
                         }
                     }

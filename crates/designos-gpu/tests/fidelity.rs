@@ -200,6 +200,123 @@ fn board_kinds_through_the_cpu_fallback_match_cpu() {
 }
 
 #[test]
+fn translucent_color_variable_with_stored_paint_opacity_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let page = t.page;
+    t.node(page).kind = NodeKind::Page { background: Color::BLACK };
+    t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills = vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }];
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n
+    });
+    t.doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "M".into() }],
+            default_mode: "m".into(),
+            variables: vec!["alpha-white-20".into()],
+            key: None,
+            source_library_key: None,
+        },
+    );
+    let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
+    t.doc.variables.insert(
+        "alpha-white-20".into(),
+        Variable {
+            id: "alpha-white-20".into(),
+            name: "Component colors/Alpha/alpha-white-20".into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(alpha_white_20))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "alpha_white_20", &t.doc, page, vp, (40, 40), 2);
+    assert_eq!(c.report.mismatched, 0);
+    let p = c.gpu.pixel(20, 20).unwrap();
+    assert!((p.red() as i32 - 51).abs() <= 2 && (p.green() as i32 - 51).abs() <= 2 && (p.blue() as i32 - 51).abs() <= 2, "got {p:?}");
+}
+
+#[test]
+fn text_drop_shadow_uses_the_bound_colour_alpha_like_cpu() {
+    let Some(mut g) = gpu() else { return };
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| std::env::set_var("DESIGNOS_BUNDLED_FONTS_ONLY", "1"));
+    const SHADOW_DX: u32 = 60;
+    let mut t = T::new();
+    let page = t.page;
+    t.node(page).kind = NodeKind::Page { background: Color::rgb(128, 128, 128) };
+    t.add(None, |id| {
+        let style = TextStyle { font_size: 100.0, font_weight: 900, fills: vec![Paint { opacity: 0.2, ..Paint::solid(Color::WHITE) }], ..Default::default() };
+        let mut n = Node::text(id, Rect::new(10.0, 10.0, 60.0, 120.0), "I", style);
+        if let NodeKind::Text(tx) = &mut n.kind {
+            tx.auto_resize = TextAutoResize::WidthAndHeight;
+        }
+        n.variables.bindings.insert("fills/0".into(), "alpha-white-20".into());
+        n.effects = vec![Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 255),
+            offset: Vec2::new(SHADOW_DX as f32, 0.0),
+            radius: 0.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+        }];
+        n
+    });
+    t.doc.variable_collections.insert(
+        "c".into(),
+        VariableCollection {
+            id: "c".into(),
+            name: "C".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "M".into() }],
+            default_mode: "m".into(),
+            variables: vec!["alpha-white-20".into()],
+            key: None,
+            source_library_key: None,
+        },
+    );
+    t.doc.variables.insert(
+        "alpha-white-20".into(),
+        Variable {
+            id: "alpha-white-20".into(),
+            name: "Component colors/Alpha/alpha-white-20".into(),
+            collection: "c".into(),
+            kind: VariableKind::Color,
+            values: [("m".to_string(), VariableValue::Color(Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 }))].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "text_shadow_bound_alpha", &t.doc, page, vp, (220, 140), 8);
+    assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
+    // glyph stem from the CPU reference, then the shadow sample SHADOW_DX to the right
+    let row = 70;
+    let lit: Vec<u32> = (0..220).filter(|&x| c.cpu.pixel(x, row).unwrap().red() > 140).collect();
+    assert!(!lit.is_empty(), "glyph not found");
+    let stem = (lit[0] + lit[lit.len() - 1]) / 2;
+    // 20% black over 128 grey is ~102; a fully inked shadow would be ~0
+    for (who, pm) in [("cpu", &c.cpu), ("gpu", &c.gpu)] {
+        let p = pm.pixel(stem + SHADOW_DX, row).unwrap();
+        assert!([p.red(), p.green(), p.blue()].iter().all(|v| (*v as i32 - 102).abs() <= 3), "{who} shadow got {p:?}");
+    }
+}
+
+#[test]
 fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
     let Some(mut g) = gpu() else { return };
     let mut t = T::new();
