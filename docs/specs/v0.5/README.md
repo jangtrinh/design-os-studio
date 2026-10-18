@@ -109,3 +109,10 @@ Technical decisions recorded rather than asked:
 - **#157** uses time-sliced scanning on the UI thread instead of a background thread. A thread would need a whole-document clone.
 - **#151** migrate semantics are Studio's own, because Figma 126.9.13 has no equivalent command.
 - **#34** blocks limit-breaking edits with a toast, per the AC, where Figma only flags violations.
+
+## Owner answers (2026-10-18)
+- **Q108-1:** old files open unchanged, with no migration step. Readers accept both the old per-node form and the new per-property form, and saving writes the new form.
+- **Q158-1:** Check designs contrast defaults to **WCAG AA**, with AAA as an option.
+- **Q65-1:** allowed. A single opaque sibling that fully covers the text may be used as its background. This fits ruling 1A: it is one known backdrop, not compositing.
+- **Q160-1:** the self-made fixture is enough for #110. No check with a real Figma file is required.
+- **Q68-1:** the coordinator amends the issue text of #68 to cite ruling 2B: only runs that match the old colour follow the new colour.
