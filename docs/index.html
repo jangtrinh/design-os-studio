@@ -3,20 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DESIGN:OS Studio — Native GPU-accelerated interface design studio, enterprise Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Live Variables &amp; Multi-Edit (Q), and 22-tool Model Context Protocol server built in 100% Rust.</title>
-<meta name="description" content="Local-first Rust/wgpu interface design studio with 387/387 Figma UI3 & .fig v106 binary read/write parity, 100/100 Figma A-to-Z Micro-Interactions, native Agentic PTY Chat UI, Live Variables Mode Switching & Multi-Edit, and 22 MCP tools.">
+<title>DESIGN:OS Studio: a native design editor for Figma files and coding agents</title>
+<meta name="description" content="A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code or Codex edit your canvas. MIT or Apache-2.0.">
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#121215">
 <link rel="canonical" href="https://jangtrinh.github.io/design-os-studio/">
 <link rel="alternate" type="text/plain" href="https://jangtrinh.github.io/design-os-studio/llms.txt" title="LLM documentation">
+<link rel="icon" href="data:,">
 <meta property="og:type" content="website">
-<meta property="og:title" content="DESIGN:OS Studio — Native GPU-accelerated interface design studio, enterprise Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Live Variables &amp; Multi-Edit (Q), and 22-tool Model Context Protocol server built in 100% Rust.">
-<meta property="og:description" content="Local-first Rust/wgpu interface design studio with 387/387 Figma UI3 & .fig v106 binary read/write parity, 100/100 Figma A-to-Z Micro-Interactions, native Agentic PTY Chat UI, Live Variables Mode Switching & Multi-Edit, and 22 MCP tools.">
+<meta property="og:site_name" content="DESIGN:OS Studio">
+<meta property="og:title" content="DESIGN:OS Studio: own your design canvas">
+<meta property="og:description" content="A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code or Codex edit your canvas. MIT or Apache-2.0.">
 <meta property="og:url" content="https://jangtrinh.github.io/design-os-studio/">
-<meta property="og:image" content="https://jangtrinh.github.io/design-os-studio/images/designos-hero.png">
+<meta property="og:image" content="https://jangtrinh.github.io/design-os-studio/images/og-designos-studio.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="DESIGN:OS Studio — Native GPU-accelerated interface design studio, enterprise Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Live Variables &amp; Multi-Edit (Q), and 22-tool Model Context Protocol server built in 100% Rust.">
-<meta name="twitter:description" content="Local-first Rust/wgpu interface design studio with 387/387 Figma UI3 & .fig v106 binary read/write parity, 100/100 Figma A-to-Z Micro-Interactions, native Agentic PTY Chat UI, Live Variables Mode Switching & Multi-Edit, and 22 MCP tools.">
-<meta name="twitter:image" content="https://jangtrinh.github.io/design-os-studio/images/designos-hero.png">
+<meta name="twitter:title" content="DESIGN:OS Studio: own your design canvas">
+<meta name="twitter:description" content="A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code or Codex edit your canvas. MIT or Apache-2.0.">
+<meta name="twitter:image" content="https://jangtrinh.github.io/design-os-studio/images/og-designos-studio.png">
+<meta name="twitter:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
@@ -27,1158 +36,709 @@
     {
       "@type": "SoftwareSourceCode",
       "name": "DESIGN:OS Studio",
-      "description": "Local-first Rust/wgpu interface design studio with 387/387 Figma UI3 & .fig v106 binary read/write parity, 100/100 Figma A-to-Z Micro-Interactions, native Agentic PTY Chat UI, Live Variables Mode Switching & Multi-Edit, and 22 MCP tools.",
+      "description": "A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code, Codex or Antigravity edit the open canvas through a bundled MCP server.",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "codeRepository": "https://github.com/jangtrinh/design-os-studio",
       "programmingLanguage": "Rust",
       "license": "https://opensource.org/licenses/MIT",
       "author": { "@type": "Person", "name": "jangtrinh", "url": "https://github.com/jangtrinh" },
-      "keywords": "design-os, figma, rust, wgpu, tiny-skia, mcp-server, claude-code, codex, antigravity, interface-design"
+      "keywords": "design editor, figma fig files, mcp server, claude code, codex, antigravity, wgpu, rust"
     },
     {
       "@type": "FAQPage",
       "mainEntity": [
         {
           "@type": "Question",
-          "name": "What is DESIGN:OS Studio (design-os-studio)?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Gemini CLI, Grok CLI), Live Variables Mode Switching & Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp)."
-          }
+          "name": "What is DESIGN:OS Studio?",
+          "acceptedAnswer": { "@type": "Answer", "text": "A native desktop design editor written in Rust. It draws on the GPU with wgpu, opens and saves Figma .fig files, and bundles a local server so coding agents can edit the open document." }
         },
         {
           "@type": "Question",
-          "name": "How does DESIGN:OS Studio compare with Figma Desktop, Penpot, and Pencil/OpenPencil?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Unlike browser-wrapped Electron or web DOM tools that stall on 100k+ node files or lock .fig saving behind cloud servers, DESIGN:OS Studio compiles directly to native Metal, DirectX 12, and Vulkan via Rust wgpu + tiny-skia, opens and saves authentic fig-kiwi v106 .fig binaries in ~1.5s with 0.0% idle CPU, implements all 100/100 Figma A-to-Z Micro-Interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a 22-tool MCP server."
-          }
+          "name": "Can I use my Figma files?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Studio opens and saves .fig files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included." }
         },
         {
           "@type": "Question",
-          "name": "Can DESIGN:OS Studio both open and save standard Figma .fig binary files?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes. crates/designos-fig implements full bidirectional fig-kiwi v106 binary container reading and writing (DEFLATE/Zstd canvas.fig + meta.json + images/), preserving Auto-Layout 5.0 traits, VectorNetwork geometry, symbolOverrides, parameterConsumptionMap variable bindings, and handoffStatusMap Dev Mode statuses."
-          }
+          "name": "How do coding agents work with it?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server with 22 tools. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step." }
         },
         {
           "@type": "Question",
-          "name": "How does the embedded Agentic PTY Chat UI work without paid third-party API keys?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Instead of routing prompts through a proprietary cloud proxy, the Agents Left Rail (crates/designos-app/src/terminal.rs) spawns your already-authenticated local CLI (claude, codex, agy, grok, or $SHELL) inside a real portable-pty + vt100 pseudo-terminal pre-wired with DESIGNOS_BIN, DESIGNOS_FILE, and DESIGNOS_MCP_SOCKET, rendering clean chat turn bubbles with 1-click NodeSpec canvas application."
-          }
+          "name": "Which systems does it run on?",
+          "acceptedAnswer": { "@type": "Answer", "text": "macOS, Windows and Linux. Releases are verified on macOS; Windows and Linux builds are tested by users. On a Mac, the first launch needs Open Anyway once." }
         },
         {
           "@type": "Question",
-          "name": "How fast does DESIGN:OS Studio render massive enterprise Figma files?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records / 112,474 scene nodes), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse)."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "How is DESIGN:OS Studio installed and licensed?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Pre-built native installers are available for macOS (.dmg + .tar.gz), Windows (per-user NSIS -setup.exe + .zip), and Linux (.deb + .tar.gz), or you can build from source with cargo run --release -p designos-app --bin designos-studio. It is dual-licensed under permissive MIT OR Apache-2.0 with zero telemetry."
-          }
+          "name": "What is the license?",
+          "acceptedAnswer": { "@type": "Answer", "text": "MIT or Apache-2.0, your choice. The source is on GitHub." }
         }
       ]
     }
   ]
 }
 </script>
-<link rel="stylesheet" href="assets/site.css">
-<style>:root{--font-sans:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--font-display:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--font-mono:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;--stack-sans:var(--font-sans);--stack-mono:var(--font-mono);--c-gray-900:#595959;--c-gray-1000:#595959}body,code,pre,kbd,samp,.ds-table,.prose table,.facts,.register{font-family:var(--font-sans);font-variant-numeric:tabular-nums}</style>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#121215;--panel:#18181B;--surface:#1E1E22;--hover:#232329;--border:#27272A;--line:#52525B;
+  --text:#F4F4F5;--muted:#A1A1AA;--ink:#121215;
+  --blue:#0D99FF;--orange:#E36323;--emerald:#14AE5C;
+  --r-sm:6px;--r-md:8px;--r-lg:12px;--r-pill:999px;
+  --gutter:clamp(16px,4vw,40px);--measure:54ch;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scrollbar-color:#3F3F46 var(--bg)}
+body{margin:0;background:#121215;color:var(--text);font:400 1.0625rem/1.6 var(--font);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;caret-color:var(--blue)}
+::selection{background:var(--blue);color:var(--ink)}
+img,video,svg{display:block;max-width:100%}
+h1,h2,h3,p,ul,ol,figure,pre{margin:0}
+ul,ol{padding:0;list-style:none}
+a{color:var(--blue);text-underline-offset:.2em}
+code,pre,kbd{font-family:var(--font);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--blue);outline-offset:3px;border-radius:var(--r-sm)}
+.wrap{width:min(100% - 2 * var(--gutter),1200px);margin-inline:auto}
+.skip{position:absolute;left:var(--gutter);top:-80px;z-index:50;padding:12px 16px;background:var(--text);color:var(--ink);border-radius:var(--r-md);font-weight:600;text-decoration:none}
+.skip:focus{top:12px}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+.ico{width:20px;height:20px;flex:none}
+
+/* top bar */
+.topbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--border)}
+.topbar nav{display:flex;align-items:center;gap:8px;min-height:64px}
+.brand{display:inline-flex;align-items:center;min-height:44px;margin-right:auto;color:var(--text);font-weight:700;letter-spacing:-.01em;text-decoration:none}
+.navlinks{display:flex;gap:4px}
+.navlinks a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:var(--r-pill);color:var(--muted);font-size:.9375rem;font-weight:500;text-decoration:none}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 24px;border:1px solid transparent;border-radius:var(--r-pill);font:600 1rem/1 var(--font);text-decoration:none;cursor:pointer;transition:background-color .15s ease-out,border-color .15s ease-out,color .15s ease-out}
+.btn-sm{min-height:44px;padding:0 18px;font-size:.9375rem}
+.btn-primary{background:var(--text);color:var(--ink)}
+.btn-primary:active{background:#D4D4D8}
+.btn-ghost{background:transparent;border-color:var(--line);color:var(--text)}
+.btn-ghost:active{background:var(--surface)}
+.btn small{font-size:.875rem;font-weight:500}
+.btn-primary small{color:#3F3F46}
+.btn-ghost small{color:var(--muted)}
+
+/* selection-box motif: 1px blue frame, four handles */
+.sel{position:relative;border:1px solid var(--blue)}
+.sel::before{content:"";position:absolute;inset:-5px;pointer-events:none;
+  background:
+    linear-gradient(var(--text) 0 0) left 1px top 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) right 1px top 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) left 1px bottom 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) right 1px bottom 1px/7px 7px no-repeat,
+    linear-gradient(var(--blue) 0 0) left top/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) right top/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) left bottom/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) right bottom/9px 9px no-repeat}
+.pill{position:absolute;left:50%;top:100%;margin-top:14px;transform:translateX(-50%);padding:5px 10px;border-radius:var(--r-sm);background:var(--blue);color:var(--ink);font-size:.8125rem;font-weight:600;line-height:1.2;letter-spacing:0;text-wrap:nowrap;white-space:nowrap;pointer-events:none}
+
+/* sections */
+section{scroll-margin-top:72px}
+.sec{padding-block:clamp(48px,4.5vw,64px)}
+.sec h2{font-size:clamp(2rem,4.2vw,3.5rem);line-height:1.06;letter-spacing:-.035em;font-weight:700;text-wrap:balance}
+.lead{margin-top:16px;max-width:var(--measure);color:var(--muted);font-size:1.25rem;line-height:1.5;text-wrap:pretty}
+.lead strong,.lead code{color:var(--text)}
+code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-size:.9em;font-weight:500;white-space:nowrap}
+
+/* hero */
+.hero{position:relative;padding:clamp(32px,4vw,48px) 0 clamp(48px,4vw,56px)}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(#2C2C33 1px,transparent 1.3px);background-size:24px 24px;
+  -webkit-mask-image:linear-gradient(#000,transparent 75%);mask-image:linear-gradient(#000,transparent 75%)}
+.hero .wrap{position:relative}
+.hero h1{display:flow-root;font-size:clamp(2.5rem,6.4vw,5.75rem);line-height:1.06;letter-spacing:-.035em;font-weight:700;text-wrap:balance}
+.sel-box{display:inline-block;max-width:100%;padding:.18em .26em .22em}
+.own{color:var(--orange)}
+.hero .sub{margin-top:56px;max-width:38rem;color:var(--muted);font-size:clamp(1.0625rem,1.5vw,1.25rem);line-height:1.5;text-wrap:pretty}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.cta-note{margin-top:14px;font-size:.9375rem;color:var(--muted)}
+.cta-note a{display:inline-flex;align-items:center;min-height:44px}
+
+/* film */
+.film{margin-top:clamp(28px,3vw,40px);scroll-margin-top:80px}
+.film-stage{position:relative;aspect-ratio:16/9;background:var(--panel);border-radius:var(--r-lg);overflow:hidden}
+.film-stage::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);pointer-events:none}
+.film-stage video{width:100%;height:100%;object-fit:cover;border-radius:inherit}
+.film-play{position:absolute;inset:0;display:grid;place-items:end start;padding:24px;border:0;border-radius:inherit;background:transparent;cursor:pointer;color:var(--text)}
+.film-play[hidden],.film-bar[hidden]{display:none}
+.film-play span{display:inline-flex;align-items:center;gap:10px;min-height:56px;padding:0 28px;border-radius:var(--r-pill);background:var(--text);color:var(--ink);font-size:1.0625rem;font-weight:600;transition:background-color .15s ease-out}
+.film-bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px}
+.film-bar p{margin-left:auto;font-size:.875rem;color:var(--muted)}
+.film-bar [data-state]{color:var(--muted);font-weight:500}
+.film[data-playing="true"] .i-play,.film[data-playing="false"] .i-pause{display:none}
+.film-bar [aria-pressed="true"] .i-off,.film-bar [aria-pressed="false"] .i-on{display:none}
+@media (max-width:640px) and (orientation:portrait){
+  .film-stage{aspect-ratio:9/16;width:min(100%,calc(80svh * 9 / 16));margin-inline:auto}
+}
+
+/* 2. figma: pipeline of selected steps */
+.flow{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:20px;margin-top:40px}
+.flow .step{padding:28px 24px 26px}
+.flow .step b{display:block;font-size:clamp(1.5rem,2.5vw,2.125rem);line-height:1.1;letter-spacing:-.025em;font-weight:700}
+.flow .step span{display:block;margin-top:12px;color:var(--muted);font-size:.9375rem;line-height:1.5}
+.flow .arrow{display:grid;place-items:center;color:var(--muted)}
+.flow .arrow .ico{width:28px;height:28px}
+kbd{padding:2px 8px;border-radius:var(--r-sm);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);font-size:.8em;font-weight:600}
+.facts{display:grid;grid-template-columns:1fr 1fr;gap:12px 56px;margin-top:32px;padding-top:20px;border-top:1px solid var(--border)}
+.facts p{color:var(--muted);font-size:1rem;text-wrap:pretty}
+.facts strong{display:block;color:var(--text);font-weight:600}
+
+/* 3. agents: real still + three rules */
+.split{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:clamp(32px,5vw,72px);align-items:center;margin-top:40px}
+.shot{position:relative;display:block;border-radius:var(--r-md);text-decoration:none}
+.shot img{width:100%;height:auto;border-radius:var(--r-md);outline:1px solid rgba(255,255,255,.1);outline-offset:-1px;background:var(--panel)}
+.shot::before{content:"";position:absolute;inset:-5px;pointer-events:none;opacity:0;transition:opacity .15s ease-out;
+  background:
+    linear-gradient(var(--text) 0 0) left 1px top 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) right 1px top 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) left 1px bottom 1px/7px 7px no-repeat,
+    linear-gradient(var(--text) 0 0) right 1px bottom 1px/7px 7px no-repeat,
+    linear-gradient(var(--blue) 0 0) left top/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) right top/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) left bottom/9px 9px no-repeat,
+    linear-gradient(var(--blue) 0 0) right bottom/9px 9px no-repeat}
+.shot::after{content:attr(data-size);content:attr(data-size) / "";position:absolute;left:50%;bottom:14px;transform:translateX(-50%);padding:5px 10px;border-radius:var(--r-sm);background:var(--blue);color:var(--ink);font-size:.8125rem;font-weight:600;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;z-index:2;transition:opacity .15s ease-out}
+.shot:focus-visible{outline:1px solid var(--blue);outline-offset:0}
+.shot:focus-visible::before,.shot:focus-visible::after{opacity:1}
+.media figcaption{margin-top:14px;max-width:var(--measure);color:var(--muted);font-size:.9375rem;line-height:1.5}
+.media figcaption strong{color:var(--text);font-weight:600}
+.points{display:grid;gap:28px}
+.points li{padding-left:20px;position:relative}
+.points li::before{content:"";position:absolute;left:0;top:.62em;width:8px;height:8px;border-radius:2px;background:var(--blue)}
+.points strong{display:block;font-weight:600}
+.points span{display:block;margin-top:4px;color:var(--muted);text-wrap:pretty}
+.agents{display:flex;align-items:center;gap:10px;margin-top:32px;font-size:.9375rem;color:var(--muted)}
+.agents i{flex:none;width:8px;height:8px;border-radius:var(--r-pill);background:var(--emerald)}
+
+/* 4. scale: one number, boxed */
+.band{background:var(--panel);border-block:1px solid var(--border)}
+.scale{display:flex;flex-wrap:wrap;align-items:center;gap:clamp(64px,6vw,80px) clamp(32px,6vw,80px);margin-top:48px}
+.num{display:inline-block;padding:.02em .16em .08em;font-size:clamp(3.5rem,12vw,9.5rem);line-height:1;letter-spacing:-.045em;font-weight:700}
+.scale-copy{flex:1 1 320px;max-width:44ch;color:var(--muted);display:grid;gap:16px}
+.scale-copy strong{color:var(--text);font-weight:600}
+.scale-copy a{display:inline-flex;align-items:center;min-height:44px;font-weight:600}
+
+/* 5. new in 0.3.0: gallery rows share one height per row */
+.gallery{display:grid;gap:28px;margin-top:40px}
+.row{display:flex;gap:16px;align-items:flex-start}
+.row figure{flex:var(--ar) 1 0;min-width:0}
+.row .shot img{aspect-ratio:var(--ar)}
+.row figcaption{margin-top:16px;max-width:64ch;color:var(--muted);font-size:.9375rem;line-height:1.5;text-wrap:pretty}
+.row figcaption strong{display:block;color:var(--text);font-weight:600}
+.also{flex:1.4 1 0;min-width:0;align-self:center;padding-left:clamp(0px,2vw,32px)}
+.also h3{font-size:1.25rem;line-height:1.3;letter-spacing:-.01em;font-weight:600}
+.also ul{display:grid;gap:10px;margin-top:16px;color:var(--muted)}
+.also li{position:relative;padding-left:20px;text-wrap:pretty}
+.also li::before{content:"";position:absolute;left:0;top:.62em;width:8px;height:8px;border-radius:2px;background:var(--blue)}
+.also a{display:inline-flex;align-items:center;min-height:44px;margin-top:8px;font-weight:600}
+
+
+/* 6. install */
+.install{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(40px,6vw,88px);margin-top:40px;align-items:start}
+.install h3{font-size:1.25rem;line-height:1.3;letter-spacing:-.01em;font-weight:600}
+.dl{margin-top:16px;border-top:1px solid var(--border)}
+.dl li{display:grid;grid-template-columns:96px 1fr;gap:8px 16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border)}
+.dl .os{font-weight:600}
+.dl .files{display:flex;flex-wrap:wrap;align-items:center;gap:4px 20px}
+.dl .files a:not(.btn){display:inline-flex;align-items:center;min-height:44px;font-size:.9375rem}
+.dl .files small{margin-left:6px}
+.dl .files a:not(.btn) small{color:var(--muted)}
+.install .note{margin-top:20px;color:var(--muted);font-size:.9375rem;text-wrap:pretty}
+
+.tabs-bar{display:flex;flex-wrap:wrap;gap:4px;margin-top:16px}
+.tab{min-height:44px;padding:0 16px;border:1px solid transparent;border-radius:var(--r-pill);background:transparent;color:var(--muted);font:500 .9375rem/1 var(--font);cursor:pointer;transition:background-color .15s ease-out,color .15s ease-out}
+.tab[aria-selected="true"]{background:var(--surface);border-color:var(--line);color:var(--text)}
+.panel{margin-top:12px}
+.panel[hidden]{display:none}
+.panel h3{margin-bottom:8px}
+.code{position:relative;border-radius:var(--r-md);background:var(--panel);box-shadow:inset 0 0 0 1px var(--border)}
+.code pre{border-radius:inherit;overflow-x:auto;padding:20px 20px 20px;font-size:.875rem;line-height:1.7;color:var(--text);white-space:pre;tab-size:2}
+.code pre code{padding:0;background:none;font-size:inherit;font-weight:400;border-radius:0;white-space:inherit}
+.code pre:focus-visible{outline-offset:-2px}
+.copy{position:absolute;right:6px;top:6px;min-height:44px;padding:0 14px;border:0;border-radius:var(--r-pill);background:var(--panel);color:var(--muted);font:500 .875rem/1 var(--font);cursor:pointer;transition:background-color .15s ease-out,color .15s ease-out}
+.code.has-copy pre{padding-right:96px}
+
+/* 7. faq */
+.faq{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,8fr);gap:clamp(32px,6vw,88px);align-items:start}
+.qa{border-top:1px solid var(--border)}
+.qa details{border-bottom:1px solid var(--border)}
+.qa summary{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:56px;padding:8px 0;font-size:1.125rem;font-weight:600;line-height:1.35;letter-spacing:-.01em;cursor:pointer;list-style:none}
+.qa summary::-webkit-details-marker{display:none}
+.qa summary .ico{color:var(--muted);transition:transform .2s ease-out}
+.qa details[open] summary .ico{transform:rotate(180deg)}
+.qa details p{padding:0 40px 24px 0;max-width:var(--measure);color:var(--muted);text-wrap:pretty}
+
+/* footer */
+.foot{border-top:1px solid var(--border);padding-block:32px 36px;color:var(--muted);font-size:.9375rem}
+.foot-top{display:flex;align-items:flex-start;justify-content:space-between;gap:40px}
+.foot .brand-line{flex:none;max-width:34ch;padding-top:10px;text-wrap:pretty}
+.foot .brand-line strong{display:block;margin-bottom:4px;color:var(--text);font-size:1.0625rem}
+.foot-links{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:0 28px;max-width:760px}
+.foot-links a{display:flex;align-items:center;min-height:44px;color:var(--muted);text-decoration:none}
+.foot .legal{margin-top:20px;padding-top:16px;border-top:1px solid var(--border);font-size:.875rem}
+.foot .legal p{max-width:70ch;text-wrap:pretty}
+
+/* hover styling only where a pointer can hover */
+@media (hover:hover){
+  a:hover{color:#5CB8FF}
+  .skip:hover{color:var(--ink)}
+  .brand:hover{color:var(--text)}
+  .navlinks a:hover{color:var(--text);background:var(--hover)}
+  .btn-primary:hover{background:#fff;color:var(--ink)}
+  .btn-ghost:hover{background:var(--hover);color:var(--text)}
+  .film-play:hover span{background:#fff}
+  .tab:hover{background:var(--hover);color:var(--text)}
+  .copy:hover{background:var(--hover);color:var(--text)}
+  .qa summary:hover{color:#fff}
+  .foot-links a:hover{color:var(--text);text-decoration:underline}
+  .shot:hover{outline:1px solid var(--blue);outline-offset:0}
+  .shot:hover::before,.shot:hover::after{opacity:1}
+}
+
+/* one authored moment: the hero box is selected on load */
+@media (prefers-reduced-motion:no-preference){
+  .hero .sel-box{animation:select-in .5s ease-out .15s both}
+  .hero .sel-box::before{animation:handles-in .3s ease-out .55s both}
+  .hero .pill{animation:pill-in .3s ease-out .75s both}
+  @keyframes select-in{from{border-color:transparent}to{border-color:var(--blue)}}
+  @keyframes handles-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  @keyframes pill-in{from{opacity:0}to{opacity:1}}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{transition-duration:.01ms!important}
+}
+
+/* narrow screens */
+@media (max-width:1024px){
+  .split,.install,.faq{grid-template-columns:minmax(0,1fr)}
+  .split{gap:32px}
+  .foot-top{flex-direction:column;gap:12px}
+  .foot-links{justify-content:flex-start}
+}
+@media (max-width:900px){
+  .navlinks{display:none}
+  .flow{grid-template-columns:minmax(0,1fr);gap:28px;margin-top:48px}
+  .flow .arrow{display:none}
+  .facts{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  .row{flex-direction:column;gap:32px}
+  .row figure{flex:none;width:100%}
+  .gallery{gap:32px}
+  .also{flex:none;width:100%;padding-left:0}
+  .dl li{grid-template-columns:minmax(0,1fr)}
+  .hero .sub{margin-top:56px}
+}
+@media (max-width:480px){
+  .cta .btn{width:100%}
+  .film-bar p{margin-left:0;flex-basis:100%}
+  .code pre{font-size:.8125rem}
+}
+</style>
 </head>
 <body>
-<a class="ds-skip-link" href="#main">Skip to content</a>
-<div class="ds-shell">
-  <nav class="ds-shell-nav" aria-label="Primary">
-    <a class="wordmark" href="https://jangtrinh.github.io/design-os/">DESIGN:OS</a>
-    <div class="home-nav-links">
-      <a class="ds-tab" href="#why">Why</a>
-      <a class="ds-tab" href="#install">Install</a>
-      <a class="ds-tab" href="#loop">Loop</a>
-      <a class="ds-tab" href="#videos">Video Showcase</a>
-      <a class="ds-tab" href="#specs">Visual Proof &amp; Specs</a>
-      <a class="ds-tab" href="#faq">FAQ</a>
-      <a class="ds-tab" href="#ecosystem">Ecosystem</a>
-      <a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>GitHub <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-    </div>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-github" viewBox="0 0 256 256"><path fill="currentColor" d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M128 32v136M80 120l48 48 48-48M40 216h176"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M40 128h176M144 56l72 72-72 72"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M208 96l-80 80-80-80"/></symbol>
+  <symbol id="i-play" viewBox="0 0 256 256"><path fill="currentColor" d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M64 48h32v160H64zM160 48h32v160h-32z"/></symbol>
+  <symbol id="i-sound-off" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M32 104h40l72-56v160l-72-56H32zM48 40l160 176"/></symbol>
+  <symbol id="i-sound-on" viewBox="0 0 256 256"><path fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" d="M32 104h40l72-56v160l-72-56H32zM176 104a32 32 0 0 1 0 48M204 76a64 64 0 0 1 0 104"/></symbol>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <nav class="wrap" aria-label="Primary">
+    <a class="brand" href="#top">DESIGN:OS Studio</a>
+    <ul class="navlinks">
+      <li><a href="#figma">Figma</a></li>
+      <li><a href="#agents">Agents</a></li>
+      <li><a href="#scale">Big files</a></li>
+      <li><a href="#new">What’s new</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio">GitHub</a>
   </nav>
+</header>
 
-  <main id="main" class="ds-shell-main">
-    <!-- 1. HERO SECTION -->
-    <section aria-labelledby="title">
-      <p class="ds-heading eyebrow" data-level="3">DESIGN:OS Toolchain · DESIGN:OS Studio</p>
-      <h1 id="title" class="ds-heading" data-level="1">Native GPU-accelerated interface design studio, enterprise Figma .fig v106 binary read/write engine, Agentic PTY Chat UI, Live Variables &amp; Multi-Edit (Q), and 22-tool Model Context Protocol server built in 100% Rust.</h1>
-      <p class="lede">Open and save 723,136-record enterprise Figma <code>.fig</code> v106 binary archives in ~1.5s with 0.0% idle CPU on Metal, DirectX 12, and Vulkan (<code>wgpu</code> + <code>tiny-skia</code>). Execute all 100 / 100 Figma A-to-Z Micro-Interactions (<code>#1..#100</code>) natively on canvas, run Claude Code (<code>claude</code>), OpenAI Codex (<code>codex</code>), Antigravity CLI (<code>agy</code>), Gemini CLI (<code>gemini</code>), and Grok CLI (<code>grok</code>) directly inside the native Agentic PTY Chat UI with zero paid external API keys, switch live Design Variables across <code>Light</code> and <code>Dark</code> modes with Multi-Edit (<code>Q</code>) and Suggest Auto-Layout (<code>&#8679;A</code>), and generate multi-target Dev Mode code offline.</p>
+<main id="main">
 
-      <p class="badges">
-        <a href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT_%2F_Apache--2.0-202020?style=flat-square&labelColor=202020&color=444444" alt="Dual MIT OR Apache-2.0 License" height="28" onerror="this.onerror=null;this.hidden=true"></a>
-        <img src="https://img.shields.io/badge/engine-100%25_Rust_%C2%B7_wgpu_%2B_tiny--skia-202020?style=flat-square&labelColor=202020&color=444444" alt="100% Rust wgpu and tiny-skia engine" height="28" onerror="this.onerror=null;this.hidden=true">
-        <img src="https://img.shields.io/badge/Figma_.fig_v106-Native_Read_%2F_Write_(387%2F387)-202020?style=flat-square&labelColor=202020&color=444444" alt="Figma .fig v106 Native Read and Write 387/387 parity" height="28" onerror="this.onerror=null;this.hidden=true">
-        <img src="https://img.shields.io/badge/Micro--Interactions-100%2F100_A--to--Z_Verified-202020?style=flat-square&labelColor=202020&color=E36323" alt="100/100 Figma A-to-Z Micro-Interactions Verified" height="28" onerror="this.onerror=null;this.hidden=true">
-        <img src="https://img.shields.io/badge/Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Grok-MCP_%2B_PTY_Chat-202020?style=flat-square&labelColor=202020&color=444444" alt="Compatible AI coding agents via MCP and PTY Chat" height="28" onerror="this.onerror=null;this.hidden=true">
-        <a href="https://github.com/jangtrinh/design-os-studio/blob/main/commands/doctor.md"><img src="https://img.shields.io/badge/diagnostics-%2Fdoctor-202020?style=flat-square&labelColor=202020&color=444444" alt="Doctor diagnostic slash command" height="28" onerror="this.onerror=null;this.hidden=true"></a>
-        <a href="llms.txt"><img src="https://img.shields.io/badge/GEO_index-llms.txt-202020?style=flat-square&labelColor=202020&color=444444" alt="GEO machine-readable llms.txt index" height="28" onerror="this.onerror=null;this.hidden=true"></a>
-        <a href="https://jangtrinh.github.io/design-os-studio/"><img src="https://img.shields.io/badge/live_docs-GitHub_Pages-202020?style=flat-square&labelColor=202020&color=444444" alt="Live GitHub Pages documentation" height="28" onerror="this.onerror=null;this.hidden=true"></a>
-        <a href="https://buymeacoffee.com/jangtrinh"><img src="https://img.shields.io/badge/Buy_Me_a_Coffee-FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black" alt="Support Jang Trinh on Buy Me a Coffee" height="28" onerror="this.onerror=null;this.hidden=true"></a>
-      </p>
-
-      <div class="hero-actions">
-        <a class="ds-btn-pill" data-tone="solid" href="#install"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></svg>Install once</a>
-        <a class="text-link" href="#videos"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></svg>Watch 3 Launch Motion Films (60fps)</a>
-        <a class="text-link" href="#specs"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,160H40V56H216V200Z"/></svg>Explore 23 Visual Proof Surfaces</a>
-        <a class="text-link" href="https://github.com/jangtrinh/design-os-studio#readme"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>Read the README on GitHub <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
+  <!-- 1. Hero -->
+  <section id="top" class="hero" aria-labelledby="title">
+    <div class="wrap">
+      <h1 id="title"><span class="sel sel-box" id="sel-box"><span class="own">Own</span> your design canvas.<span class="pill" id="sel-pill" aria-hidden="true" hidden></span></span></h1>
+      <p class="sub">Open Figma files, paste from Figma desktop, and let a coding agent build on the same canvas.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg"><svg class="ico" aria-hidden="true"><use href="#i-download"/></svg>Download for macOS</a>
+        <a class="btn btn-ghost" href="https://github.com/jangtrinh/design-os-studio"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>View on GitHub</a>
       </div>
+      <p class="cta-note"><a href="https://github.com/jangtrinh/design-os-studio/releases/latest">Windows · Linux · all downloads</a></p>
 
-      <figure id="film" class="ds-card branch-page-media film-hero" data-playing="true">
-        <div class="ds-card-stage capture-stage film-stage">
-          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-promo-16x9-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio promo film, 70 seconds">
-            <source src="videos/designos-studio-promo-16x9.mp4" type="video/mp4">
-            <p>Your browser cannot play this video. <a href="videos/designos-studio-promo-16x9.mp4">Download the 70-second film (MP4, 1080p)</a>.</p>
+      <!-- Film swap: edit the one <video> line below. It holds all four paths (poster, <source src>,
+           data-portrait-src, data-portrait-poster); the script reads them from that line. -->
+      <figure id="film" class="film" data-playing="true">
+        <div class="film-stage">
+          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-v030-16x9-poster.png" data-portrait-src="videos/designos-studio-v030-9x16.mp4" data-portrait-poster="videos/designos-studio-v030-9x16-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio 0.3.0 launch film"><source src="videos/designos-studio-v030-16x9.mp4" type="video/mp4">
+            <p>This browser cannot play the film.</p>
           </video>
-          <button type="button" class="film-overlay" id="film-overlay" tabindex="-1" hidden><span class="film-overlay-label">Play film</span><span class="film-overlay-disc"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></svg></span></button>
+          <button type="button" class="film-play" id="film-play" hidden><span><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg>Play film</span></button>
         </div>
-        <figcaption class="case-plate-caption film-caption">
-          <div class="film-controls" id="film-controls" role="group" aria-label="Film controls" hidden>
-            <button type="button" class="ds-btn-pill film-btn" id="film-sound" data-tone="solid" aria-pressed="false">
-              <svg class="ph film-ico-off" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M32 104h40l72-56v160l-72-56H32z"/><path d="M48 40l160 176"/></svg>
-              <svg class="ph film-ico-on" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M32 104h40l72-56v160l-72-56H32z"/><path d="M176 104a32 32 0 0 1 0 48"/><path d="M204 76a64 64 0 0 1 0 104"/></svg>
-              <span>Sound</span><span data-state aria-hidden="true">Off</span>
-            </button>
-            <button type="button" class="ds-btn-pill film-btn" id="film-toggle">
-              <svg class="ph film-ico-pause" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M64 48h32v160H64z"/><path d="M160 48h32v160h-32z"/></svg>
-              <svg class="ph film-ico-play" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232.4,114.49,88.32,26.35a16,16,0,0,0-16.2-.3A15.86,15.86,0,0,0,64,39.87V216.13A15.94,15.94,0,0,0,80,232a16.07,16.07,0,0,0,8.36-2.35L232.4,141.51a15.81,15.81,0,0,0,0-27ZM80,215.94V40l143.83,88Z"/></svg>
-              <span id="film-toggle-label">Pause</span>
-            </button>
-          </div>
-          <p>DESIGN:OS Studio promo film. Starts muted and loops.</p>
-          <cite>70 s · 60 fps</cite>
-        </figcaption>
+        <div class="film-bar" id="film-bar" role="group" aria-label="Film controls" hidden>
+          <button type="button" class="btn btn-ghost btn-sm" id="film-sound" aria-pressed="false">
+            <svg class="ico i-off" aria-hidden="true"><use href="#i-sound-off"/></svg><svg class="ico i-on" aria-hidden="true"><use href="#i-sound-on"/></svg>
+            <span>Sound <span data-state aria-hidden="true">Off</span></span>
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="film-toggle">
+            <svg class="ico i-pause" aria-hidden="true"><use href="#i-pause"/></svg><svg class="ico i-play" aria-hidden="true"><use href="#i-play"/></svg>
+            <span id="film-toggle-label">Pause</span>
+          </button>
+          <p>0.3.0 launch film. It starts muted and loops.</p>
+        </div>
       </figure>
-      <script>
-      (function () {
-        var fig = document.getElementById('film'), v = document.getElementById('film-video');
-        if (!fig || !v || typeof v.play !== 'function') return;
-        // Same query as the .film-stage rule in assets/site.css: phones held upright get the 9:16 film.
-        var narrow = matchMedia('(max-width:640px) and (orientation:portrait)');
-        var calm = matchMedia('(prefers-reduced-motion: reduce)');
-        var cut = {
-          land: { src: 'videos/designos-studio-promo-16x9.mp4', poster: 'videos/designos-studio-promo-16x9-poster.png' },
-          port: { src: 'videos/designos-studio-promo-9x16.mp4', poster: 'videos/designos-studio-promo-9x16-poster.png' }
-        };
-        var kind = 'land';
-        var bar = document.getElementById('film-controls'), overlay = document.getElementById('film-overlay'),
-            toggle = document.getElementById('film-toggle'), label = document.getElementById('film-toggle-label'),
-            sound = document.getElementById('film-sound'), state = sound.querySelector('[data-state]');
-        function sync() {
-          var playing = !v.paused && !v.ended;
-          fig.setAttribute('data-playing', playing ? 'true' : 'false');
-          label.textContent = playing ? 'Pause' : 'Play';
-          overlay.hidden = playing;
-          sound.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
-          state.textContent = v.muted ? 'Off' : 'On';
-        }
-        function start() { var p = v.play(); if (p && p.catch) p.catch(sync); }
-        function use(next, keepPlace) {
-          if (next === kind) return;
-          var at = keepPlace ? v.currentTime : 0, was = !v.paused;
-          kind = next;
-          v.poster = cut[next].poster;
-          v.src = cut[next].src; // an explicit src replaces the <source> fallback before anything plays
-          v.load();
-          if (!keepPlace) return;
-          v.addEventListener('loadedmetadata', function once() {
-            v.removeEventListener('loadedmetadata', once);
-            if (at && isFinite(v.duration)) v.currentTime = Math.min(at, v.duration - 0.05);
-            if (was) start();
-          });
-        }
-        function listen(mq, fn) { if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn); }
-        ['play', 'playing', 'pause', 'ended', 'volumechange', 'loadedmetadata'].forEach(function (e) { v.addEventListener(e, sync); });
-        toggle.addEventListener('click', function () { if (v.paused) start(); else v.pause(); });
-        overlay.addEventListener('click', start);
-        sound.addEventListener('click', function () { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1; });
-        listen(narrow, function () { use(narrow.matches ? 'port' : 'land', true); });
-        listen(calm, function () { if (calm.matches) v.pause(); });
-        // Start-up: pick the source first, then play (unless the visitor asked for reduced motion).
-        v.removeAttribute('autoplay'); v.removeAttribute('controls');
-        use(narrow.matches ? 'port' : 'land', false);
-        if (calm.matches) v.pause(); else start();
-        bar.hidden = false; sync();
-      })();
-      </script>
+    </div>
+  </section>
 
-      <figure class="ds-card branch-page-media" style="margin-top:var(--s-12)">
-        <div class="ds-card-stage capture-stage">
-          <img src="videos/designos-studio-launch-preview.gif" width="1440" height="1440" alt="DESIGN:OS Studio interactive desktop workflow preview showing UI3 dark canvas, Agentic PTY Chat, Live Variables Mode Switching, and Dev Mode" loading="lazy" style="width:100%;max-height:640px;object-fit:contain;display:block;background:#f4f3ef">
-        </div>
-        <figcaption class="case-plate-caption">
-          <p>Interactive Desktop Overview: Native Metal/Vulkan/DX12 canvas, Agentic PTY Chat UI, Live Variables Mode Switching (<code>Light / Dark</code>), <code>&#8984;K</code> AI Synthesis, and 5-target Dev Mode codegen.</p>
-          <cite><a href="#videos">12 Core Functional Capabilities &amp; Micro-Interactions</a></cite>
-        </figcaption>
-      </figure>
-    </section>
-
-    <!-- 2. FACTS REGISTER -->
-    <section data-pace="tight" aria-labelledby="facts-h">
-      <h2 id="facts-h" class="ds-heading" data-level="3">Facts Register</h2>
-      <dl class="facts">
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>Repository</dt><dd><a href="https://github.com/jangtrinh/design-os-studio">jangtrinh/<wbr>design-os-studio</a></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M223.68,66.15,135.68,18h0a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32h0l80.34,44L128,120,47.66,76ZM40,90l80,43.78v85.79L40,175.82Zm96,129.57V133.82L216,90v85.78Z"/></svg>Engine Stack</dt><dd>100% Rust + <code>wgpu</code> + <code>tiny-skia</code><small>Metal · DX12 · Vulkan · Zero Electron</small></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,160H40V56H216V200ZM80,84A12,12,0,1,1,68,72,12,12,0,0,1,80,84Zm40,0a12,12,0,1,1-12-12A12,12,0,0,1,120,84Z"/></svg>Figma Parity</dt><dd><code>.fig</code> v106 + 100/100 Micro-UX<small>387 / 387 UI3 (487 / 487) · 856 tests</small></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M237.66,18.34a8,8,0,0,0-11.32,0l-52.4,52.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L100,88.69l-6.34-6.35A8,8,0,0,0,82.34,93.66L88.69,100,65.37,123.31a32,32,0,0,0,0,45.26l5.38,5.37-52.41,52.4a8,8,0,0,0,11.32,11.32l52.4-52.41,5.37,5.38a32,32,0,0,0,45.26,0L156,167.31l6.34,6.35a8,8,0,0,0,11.32-11.32L167.31,156l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,52.41-52.4A8,8,0,0,0,237.66,18.34Zm-116.29,161a16,16,0,0,1-22.62,0L76.69,157.25a16,16,0,0,1,0-22.62L100,111.31,144.69,156Zm57.94-57.94L156,144.69,111.31,100l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,179.31,121.37ZM88.57,35A8,8,0,0,1,103.43,29l8,20A8,8,0,0,1,96.57,55ZM24.57,93A8,8,0,0,1,35,88.57l20,8A8,8,0,0,1,49,111.43l-20-8A8,8,0,0,1,24.57,93ZM231.43,163a8,8,0,0,1-10.4,4.46l-20-8A8,8,0,1,1,207,144.57l20,8A8,8,0,0,1,231.43,163Zm-64,58.06A8,8,0,0,1,152.57,227l-8-20A8,8,0,0,1,159.43,201Z"/></svg>Agent Surface</dt><dd>22 MCP Tools + PTY Chat<small>Claude · Codex · Antigravity · Grok</small></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,48H136V16a8,8,0,0,0-16,0V48H56A32,32,0,0,0,24,80V192a32,32,0,0,0,32,32H200a32,32,0,0,0,32-32V80A32,32,0,0,0,200,48Zm16,144a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V80A16,16,0,0,1,56,64H200a16,16,0,0,1,16,16Zm-52-56H92a28,28,0,0,0,0,56h72a28,28,0,0,0,0-56Zm-24,16v24H116V152ZM80,164a12,12,0,0,1,12-12h8v24H92A12,12,0,0,1,80,164Zm84,12h-8V152h8a12,12,0,0,1,0,24ZM72,108a12,12,0,1,1,12,12A12,12,0,0,1,72,108Zm88,0a12,12,0,1,1,12,12A12,12,0,0,1,160,108Z"/></svg>Telemetry</dt><dd>Zero Tracking<small>100% offline local-first</small></dd></div>
-        <div><dt><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M239.43,133l-32-80h0a8,8,0,0,0-9.16-4.84L136,62V40a8,8,0,0,0-16,0V65.58L54.26,80.19A8,8,0,0,0,48.57,85h0v.06L16.57,165a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32a7.92,7.92,0,0,0-.57-3L66.92,93.77,120,82V208H104a8,8,0,0,0,0,16h48a8,8,0,0,0,0-16H136V78.42L187,67.1,160.57,133a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32A7.92,7.92,0,0,0,239.43,133ZM56,184c-7.53,0-22.76-3.61-23.93-14.64L56,109.54l23.93,59.82C78.76,180.39,63.53,184,56,184Zm144-32c-7.53,0-22.76-3.61-23.93-14.64L200,77.54l23.93,59.82C222.76,148.39,207.53,152,200,152Z"/></svg>License</dt><dd>MIT OR Apache-2.0<small>macOS · Windows · Linux</small></dd></div>
-      </dl>
-    </section>
-
-    <!-- 3. HONEST COMPARISON SECTION -->
-    <section id="why" data-pace="chapter" aria-labelledby="why-h">
-      <h2 id="why-h" class="ds-heading" data-level="2">Why DESIGN:OS Studio? (Honest Comparison vs Figma Desktop, Penpot &amp; Pencil/OpenPencil)</h2>
-      <p>Browser-wrapped Electron design tools choke on 100,000+ node enterprise files, lock <code>.fig</code> binary authoring behind proprietary cloud servers, and force AI coding agents to scrape 150KB+ of noisy REST JSON without direct canvas write-back. Our architectural advantages first, followed by the honest trade-offs.</p>
-
-      <div class="register">
-        <div class="register-row">
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M230.33,141.06a24.43,24.43,0,0,0-21.24-4.23l-41.84,9.62A28,28,0,0,0,140,112H89.94a31.82,31.82,0,0,0-22.63,9.37L44.69,144H16A16,16,0,0,0,0,160v40a16,16,0,0,0,16,16H120a7.93,7.93,0,0,0,1.94-.24l64-16a6.94,6.94,0,0,0,1.19-.4L226,182.82l.44-.2a24.6,24.6,0,0,0,3.93-41.56ZM16,160H40v40H16Zm203.43,8.21-38,16.18L119,200H56V155.31l22.63-22.62A15.86,15.86,0,0,1,89.94,128H140a12,12,0,0,1,0,24H112a8,8,0,0,0,0,16h32a8.32,8.32,0,0,0,1.79-.2l67-15.41.31-.08a8.6,8.6,0,0,1,6.3,15.9ZM164,96a36,36,0,0,0,5.9-.48,36,36,0,1,0,28.22-47A36,36,0,1,0,164,96Zm60-12a20,20,0,1,1-20-20A20,20,0,0,1,224,84ZM164,40a20,20,0,0,1,19.25,14.61,36,36,0,0,0-15,24.93A20.42,20.42,0,0,1,164,80a20,20,0,0,1,0-40Z"/></svg>
-          <h3>723k-record enterprise scale &amp; 0.0% idle CPU</h3>
-          <p>Uniform <code>2048x2048</code> spatial grid culling (<code>SceneIndex</code>), 4-tier semantic zoom LOD, canonical <code>GeomCache</code> mesh sharing, and <code>FrameKey</code> GPU texture reuse render 112,474-node files in 1.54s on Metal with zero idle repaints.</p>
-        </div>
-        <div class="register-row">
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M224,128a8,8,0,0,1-8,8H104a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM104,72H216a8,8,0,0,0,0-16H104a8,8,0,0,0,0,16ZM216,184H104a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16ZM43.58,55.16,48,52.94V104a8,8,0,0,0,16,0V40a8,8,0,0,0-11.58-7.16l-16,8a8,8,0,0,0,7.16,14.32ZM79.77,156.72a23.73,23.73,0,0,0-9.6-15.95,24.86,24.86,0,0,0-34.11,4.7,23.63,23.63,0,0,0-3.57,6.46,8,8,0,1,0,15,5.47,7.84,7.84,0,0,1,1.18-2.13,8.76,8.76,0,0,1,12-1.59A7.91,7.91,0,0,1,63.93,159a7.64,7.64,0,0,1-1.57,5.78,1,1,0,0,0-.08.11L33.59,203.21A8,8,0,0,0,40,216H72a8,8,0,0,0,0-16H56l19.08-25.53A23.47,23.47,0,0,0,79.77,156.72Z"/></svg>
-          <h3>Bidirectional Figma <code>.fig</code> v106 binary read &amp; write</h3>
-          <p>Opens and saves authentic <code>fig-kiwi</code> v106 binary archives (<code>DEFLATE</code>/<code>Zstd</code> <code>canvas.fig</code> + <code>meta.json</code> + <code>images/</code>) with full <code>symbolOverrides</code>, <code>parameterConsumptionMap</code>, and <code>handoffStatusMap</code> parity.</p>
-        </div>
-        <div class="register-row">
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></svg>
-          <h3>Pillar 1 &mdash; Native Agentic PTY Chat UI &amp; 22-tool MCP server</h3>
-          <p>Run your existing Claude Code (<code>claude</code>), Codex (<code>codex</code>), Antigravity (<code>agy</code>), or Grok (<code>grok</code>) subscription inside the Agents Left Rail with ANSI-stripped chat bubbles, 1-click <code>NodeSpec</code> canvas apply, and zero extra API bills.</p>
-        </div>
-        <div class="register-row">
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-size="20"><path d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/></svg>
-          <h3>Pillar 2 &mdash; Live Variables Mode Switching, Multi-Edit (<code>Q</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>)</h3>
-          <p>Switch multi-mode token collections (<code>Light</code> / <code>Dark</code>) live on canvas (<a href="images/designos-variables.png"><code>docs/images/designos-variables.png</code></a> via <code>--fixture showcase --panel variables --size 1440x900 --scale 2 --screenshot docs/images/designos-variables.png</code>), batch-edit matching sibling layers with <code>Q</code> Multi-Edit, and infer nested Auto-Layout 5.0 frames in one shortcut (<code>&#8679;A</code>).</p>
-        </div>
-      </div>
-
-      <div class="table-scroll" style="margin-top:var(--s-12)">
-        <table class="ds-table">
-          <thead>
-            <tr>
-              <th>Dimension</th>
-              <th>Figma Desktop (Cloud / Electron)</th>
-              <th>Penpot / Pencil / OpenPencil</th>
-              <th>DESIGN:OS Studio (<code>design-os-studio</code>)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Runtime &amp; GPU Engine</td>
-              <td>Electron + Chromium / WebGL (<code>1.5 GB+</code> RAM, continuous idle repaints)</td>
-              <td>Browser DOM / SVG / Canvas2D or Electron webview wrapper</td>
-              <td><strong>100% Rust (<code>wgpu</code> Metal / DX12 / Vulkan + <code>tiny-skia</code>)</strong>, <strong><code>0.0%</code> static viewport CPU</strong></td>
-            </tr>
-            <tr>
-              <td>Enterprise Scale (<code>723k</code> Records / <code>112k</code> Nodes)</td>
-              <td>Browser tab OOM crashes, multi-second cloud streaming stalls</td>
-              <td>DOM / SVG layout bottlenecks above <code>5k&ndash;10k</code> nodes</td>
-              <td><strong>Uniform <code>2048x2048</code> <code>SceneIndex</code> culling + 4-tier semantic zoom LOD</strong>, <strong><code>1.54s</code> cold load</strong>, <strong><code>-96.5%</code> disk size (<code>242 MB</code> vs <code>6.80 GB</code>)</strong></td>
-            </tr>
-            <tr>
-              <td>Figma <code>.fig</code> v106 Binary Read/Write</td>
-              <td>Proprietary cloud lock-in; <code>.fig</code> saves require online servers</td>
-              <td>Read-only or lossy third-party converters; no native <code>.fig</code> v106 write-back</td>
-              <td><strong>Native bidirectional <code>fig-kiwi</code> v106 Read &amp; Write</strong> (<code>DEFLATE</code>/<code>Zstd</code> <code>canvas.fig</code> + <code>meta.json</code> + <code>images/</code>, <code>symbolOverrides</code>, <code>parameterConsumptionMap</code>)</td>
-            </tr>
-            <tr>
-              <td>Tactile Micro-Interactions (<code>#1..#100</code>)</td>
-              <td>Reference UI3 standard (<code>126.9.13</code>), browser-bound latency on huge files</td>
-              <td>Partial subset; missing CSS Grid track pills, Smart Selection ring swaps, or Scale Tool (<code>K</code>)</td>
-              <td><strong>100 / 100 Figma A-to-Z Micro-Interactions (<code>#1..#100</code>)</strong> verified end-to-end on native GPU canvas</td>
-            </tr>
-            <tr>
-              <td>Agentic Workflow &amp; API Cost</td>
-              <td>Paid per-seat AI credits or read-only <code>155K</code>-char REST JSON dumps</td>
-              <td>External MCP plugins or paid API key wrappers (<code>ANTHROPIC_API_KEY</code> / <code>OPENAI_API_KEY</code>)</td>
-              <td><strong>Native Agentic PTY Chat UI</strong> (<code>Claude Code</code> &middot; <code>Codex</code> &middot; <code>Antigravity</code> &middot; <code>Gemini</code> &middot; <code>Grok</code> &mdash; zero extra API cost) + <strong>22-tool <code>designos-mcp</code></strong></td>
-            </tr>
-            <tr>
-              <td>Variables, Multi-Edit (<code>Q</code>) &amp; Auto-Layout</td>
-              <td>Cloud-bound variable collections &amp; manual frame nesting</td>
-              <td>Partial variable support; no <code>Q</code> Multi-Edit or <code>&#8679;A</code> heuristic inference</td>
-              <td><strong>Live Variables Mode Switching (<code>Light</code> / <code>Dark</code>), Multi-Edit (<code>Q</code> / <code>&#8984;E</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>)</strong> (<code>COLOR</code>, <code>FLOAT</code>, <code>STRING</code>, <code>BOOLEAN</code> + <code>=</code> alias picker)</td>
-            </tr>
-            <tr>
-              <td>Dev Mode Codegen &amp; Visual QA</td>
-              <td>Paid Dev Mode seats required; cloud-only inspection</td>
-              <td>Basic CSS/HTML export; no headless GPU diffing CLI</td>
-              <td><strong>Free built-in Dev Mode (<code>Shift+D</code>)</strong> (React, Tailwind v4, CSS, SwiftUI, Jetpack Compose) + headless <code>--gpu --screenshot</code> &amp; <code>designos-diff</code> SSIM CLI</td>
-            </tr>
-            <tr>
-              <td>Privacy, Offline &amp; Licensing</td>
-              <td>Mandatory cloud sign-in, proprietary license, background telemetry</td>
-              <td>Self-hosted Docker stack or Electron runtime telemetry</td>
-              <td><strong>Zero telemetry &mdash; 100% local offline execution</strong> (<code>PRIVACY.md</code> audited), dual <strong><code>MIT OR Apache-2.0</code></strong></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="aside">
-        <p><strong>Where traditional platforms win, and it is not close:</strong> Browser-hosted multiplayer whiteboarding with 50 simultaneous live WebRTC cursors, enterprise cloud org SSO/SCIM admin consoles, and hosted comment email/Slack notifications. If your workflow requires real-time cloud multiplayer without local git or file ownership, use Figma Cloud (paired with our live bridge <a href="https://jangtrinh.github.io/design-os-figma-plugin/"><code>design-os-figma-plugin</code></a>) or a hosted Penpot instance instead.</p>
-      </div>
-    </section>
-
-    <!-- 4. QUICKSTART & INSTALLATION -->
-    <section id="install" data-pace="chapter" aria-labelledby="install-h">
-      <h2 id="install-h" class="ds-heading" data-level="2">Install once</h2>
-      <p>Install the AI agent skill plugin in Claude Code / Codex, download a native OS installer (<code>.dmg</code>, <code>-setup.exe</code>, <code>.deb</code>), or build all 4 binaries from source.</p>
-<pre class="ds-code"><code># Option A: Claude Code plugin marketplace
-/plugin marketplace add jangtrinh/design-os-studio
-/plugin install design-os-studio@design-os-studio
-
-# Option B: Clone &amp; launch native Rust/wgpu Studio (or package .dmg / -setup.exe / .deb)
-git clone https://github.com/jangtrinh/design-os-studio
-cd design-os-studio
-cargo run --release -p designos-app --bin designos-studio
-./scripts/build-release.sh 0.2.0 --local-host</code></pre>
-    </section>
-
-    <!-- 5. FIRST SAFE USE -->
-    <section data-pace="tight" aria-labelledby="first-h">
-      <h2 id="first-h" class="ds-heading" data-level="3">First safe use</h2>
-      <ol class="steps">
-        <li>Run the deterministic offline repository, crate, and skill self-check.
-<pre class="ds-code"><code>python3 scripts/self_check.py</code></pre></li>
-        <li>Apply a declarative <code>NodeSpec</code> JSON onto a document and roundtrip to a standard Figma <code>.fig</code> v106 binary archive.
-<pre class="ds-code"><code>designos app.designos --apply-spec examples/specs/easeui-agent-console.spec.json
-designos app.designos --export-fig out.fig</code></pre></li>
-        <li>Capture a headless GPU verification screenshot and run perceptual SSIM diffing.
-<pre class="ds-code"><code>designos-studio out.fig --gpu --size 1600x1000 --screenshot actual.png
-designos-diff compare docs/images/designos-agent-spec.png actual.png --out diff.png</code></pre></li>
+  <!-- 2. Bring your Figma in -->
+  <section id="figma" class="sec" aria-labelledby="figma-h">
+    <div class="wrap">
+      <h2 id="figma-h">Bring your Figma in.</h2>
+      <p class="lead">Copy layers in Figma desktop and paste them straight onto the Studio canvas. Your <code>.fig</code> files open and save as they are.</p>
+      <ol class="flow">
+        <li class="step sel"><b>Copy in Figma</b><span>Select layers in Figma desktop and copy them.</span></li>
+        <li class="arrow" aria-hidden="true"><svg class="ico"><use href="#i-arrow"/></svg></li>
+        <li class="step sel"><b>Paste in Studio</b><span>Press <kbd>Cmd</kbd> + <kbd>V</kbd> on the canvas. Images come along.</span></li>
+        <li class="arrow" aria-hidden="true"><svg class="ico"><use href="#i-arrow"/></svg></li>
+        <li class="step sel"><b>Undo in one step</b><span>The layers land centered in your view, and one undo takes them all back.</span></li>
       </ol>
-      <p>Every CLI and MCP operation is local-first, deterministic, and backed by 1-step Undo history inside the Studio.</p>
-    </section>
+      <div class="facts">
+        <p><strong>Read and write <code>.fig</code></strong>Open a Figma file, edit it, save it back as <code>.fig</code>.</p>
+        <p><strong>Styles travel with the file</strong>A <code>.fig</code> file brings its effect and grid styles with it.</p>
+      </div>
+    </div>
+  </section>
 
-    <!-- 5B. PRACTICAL LOOP -->
-    <section id="loop" aria-labelledby="loop-h">
-      <h2 id="loop-h" class="ds-heading" data-level="2">The practical agentic loop</h2>
-      <div class="register">
-        <div class="register-row" data-icon="none">
-          <h3><code>--panel variables</code></h3>
-          <p>Inspects and switches multi-mode Design Variables (<code>Light</code> / <code>Dark</code> token collections, <code>=</code> alias bindings, and semantic tokens) beside the canvas (<code>--fixture showcase --panel variables --size 1440x900 --scale 2 --screenshot docs/images/designos-variables.png</code>).</p>
+  <!-- 3. Let an agent build with you -->
+  <section id="agents" class="sec" aria-labelledby="agents-h">
+    <div class="wrap">
+      <h2 id="agents-h">Let an agent build with you.</h2>
+      <p class="lead">Studio bundles <code>designos-mcp</code>, a local server with 22 tools. Point your coding agent at it and it works on the document you have open.</p>
+      <div class="split">
+        <figure class="media">
+          <a class="shot" href="images/agent-edits-open-file-030.png" data-size="1160 × 725">
+            <img src="images/agent-edits-open-file-030.png" width="1160" height="725" loading="lazy" alt="A DESIGN:OS Studio canvas with a file from the Untitled UI kit open: a 1440 by 883 pricing section that a coding agent added, with a monthly and annual billing toggle and three plan cards, Basic, Business and Enterprise">
+          </a>
+          <figcaption><strong>An agent adds a pricing section</strong> to the file you have open. Antigravity with Gemini 4 Argon, through <code>designos-mcp</code>. A still from the launch film.</figcaption>
+        </figure>
+        <div>
+          <ul class="points">
+            <li><strong>Edits replay into your document.</strong><span>They land as node operations, so the rest of a large file stays intact.</span></li>
+            <li><strong>Agents wait while you work.</strong><span>An edit holds while you drag or edit text, then lands.</span></li>
+            <li><strong>Every agent edit is its own undo.</strong><span>The new layer is selected and your view stays where it was.</span></li>
+          </ul>
+          <p class="agents"><i aria-hidden="true"></i>Built-in presets for Claude Code, Codex and Antigravity.</p>
         </div>
-        <div class="register-row" data-icon="none">
-          <h3><code>--rail agents</code></h3>
-          <p>Opens the native Agentic PTY Chat UI wrapping Claude Code, Codex, Antigravity, or Grok with live selection context and inline <code>NodeSpec</code> apply.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Built for big files -->
+  <section id="scale" class="sec band" aria-labelledby="scale-h">
+    <div class="wrap">
+      <h2 id="scale-h">Built for big files.</h2>
+      <div class="scale">
+        <p class="sel num">208,610<span class="pill" aria-hidden="true">113 pages</span></p>
+        <div class="scale-copy">
+          <p>The canvas draws on the GPU through <strong>wgpu</strong>. The Untitled UI PRO v8.0 Figma kit, <strong>208,610 nodes on 113 pages</strong>, opens and renders.</p>
+          <p>Large pages render at low zoom, and after a quarter second without changes the canvas draws one full-quality frame.</p>
+          <a href="#new">See it in the gallery</a>
         </div>
-        <div class="register-row" data-icon="none">
-          <h3><code>--apply-spec / --export-fig</code></h3>
-          <p>Compiles declarative JSON specs through Auto-Layout 5.0 and writes standard Figma <code>.fig</code> v106 binary archives.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. New in 0.3.0 -->
+  <section id="new" class="sec" aria-labelledby="new-h">
+    <div class="wrap">
+      <h2 id="new-h">New in 0.3.0.</h2>
+      <p class="lead">Real captures from the editor, taken headlessly with <code>--screenshot</code>. Click an image for full size.</p>
+      <div class="gallery">
+        <div class="row">
+          <figure style="--ar:1.6">
+            <a class="shot" href="images/v0.3/styles-effect-and-grid-styles.png" data-size="2880 × 1800"><img src="images/v0.3/styles-effect-and-grid-styles.png" width="2880" height="1800" loading="lazy" alt="DESIGN:OS Studio inspector on the page with no layer selected, listing the file's local Effect styles (Shadow: Card, Floating) and Grid styles (Grid: 12 columns, 8 px) beside three pricing cards (two use the Card shadow, one the Floating shadow) and a 12-column grid frame"></a>
+            <figcaption><strong>Effect and grid styles</strong>Local styles list with two effect styles and two grid styles.</figcaption>
+          </figure>
+          <figure style="--ar:1.6">
+            <a class="shot" href="images/v0.3/styles-edit-effect-style.png" data-size="2880 × 1800"><img src="images/v0.3/styles-edit-effect-style.png" width="2880" height="1800" loading="lazy" alt="DESIGN:OS Studio Edit style panel for the Shadow/Card effect style showing X, Y, blur, spread and color, for a selected pricing card whose Effects section links to that style"></a>
+            <figcaption><strong>Edit a style</strong>The Edit style panel for the Shadow/Card effect style that the selected card uses.</figcaption>
+          </figure>
+          <figure style="--ar:1.6">
+            <a class="shot" href="images/v0.3/auto-layout-space-evenly-vertical-wrap.png" data-size="2880 × 1800"><img src="images/v0.3/auto-layout-space-evenly-vertical-wrap.png" width="2880" height="1800" loading="lazy" alt="DESIGN:OS Studio frame with vertical wrap and Space evenly auto layout: six chips split into two columns, each column spreading its chips evenly top to bottom, with the Auto layout inspector open"></a>
+            <figcaption><strong>Auto layout: Space evenly and vertical wrap</strong>Each wrapped column spreads its own items evenly.</figcaption>
+          </figure>
         </div>
-        <div class="register-row" data-icon="none">
-          <h3><code>--screenshot / designos-diff</code></h3>
-          <p>Renders headless Metal/Vulkan/DX12 frames at <code>1600x1000</code> and verifies perceptual SSIM parity in CI.</p>
+        <div class="row">
+          <figure style="--ar:1.6">
+            <a class="shot" href="images/v0.3/text-wrap-balance.png" data-size="2880 × 1800"><img src="images/v0.3/text-wrap-balance.png" width="2880" height="1800" loading="lazy" alt="DESIGN:OS Studio canvas with two cards holding the same headline, wrapped Auto on the left, which ends on a single word, and Balance on the right, which evens out the lines, with the Type settings panel showing Wrap style Balance"></a>
+            <figcaption><strong>Text wrap: Balance next to Auto</strong>Balance (right) evens out the lines that Auto (left) leaves with a one-word last line.</figcaption>
+          </figure>
+          <figure style="--ar:1.1077">
+            <a class="shot" href="images/v0.3/dev-mode-uikit.png" data-size="2160 × 1950"><img src="images/v0.3/dev-mode-uikit.png" width="2160" height="1950" loading="lazy" alt="DESIGN:OS Studio Dev Mode with UIKit selected: the Code panel for a text layer prints its color as Theme.Color.textPrimary, the variable's iOS code syntax, with the Variables used list below"></a>
+            <figcaption><strong>Dev Mode: UIKit</strong>A variable prints as its iOS code syntax, <code>Theme.Color.textPrimary</code>.</figcaption>
+          </figure>
+          <figure style="--ar:1.1077">
+            <a class="shot" href="images/v0.3/dev-mode-android-xml.png" data-size="2160 × 1950"><img src="images/v0.3/dev-mode-android-xml.png" width="2160" height="1950" loading="lazy" alt="DESIGN:OS Studio Dev Mode with Android XML selected: the Code panel for the same text layer prints android:textColor as @color/text_primary, the variable's Android code syntax"></a>
+            <figcaption><strong>Dev Mode: Android XML</strong>The same variable prints as its Android code syntax, <code>@color/text_primary</code>.</figcaption>
+          </figure>
+        </div>
+        <div class="row">
+          <figure style="--ar:1.6">
+            <a class="shot" href="images/v0.3/scale-untitled-ui-kit.png" data-size="2880 × 1800"><img src="images/v0.3/scale-untitled-ui-kit.png" width="2880" height="1800" loading="lazy" alt="DESIGN:OS Studio on the GPU canvas with the Untitled UI PRO v8.0 Figma kit open: the Input field frame, a dense matrix of text-field variants, with the file's pages and layers listed on the left"></a>
+            <figcaption><strong>Scale: Untitled UI PRO v8.0 Figma kit, by Untitled UI</strong>208,610 nodes on 113 pages when opened. Shown: the Input field frame.</figcaption>
+          </figure>
+          <div class="also">
+            <h3>Also new in 0.3.0</h3>
+            <ul>
+              <li>Multi-page PDF export from the Export panel. Pages are raster images for now.</li>
+              <li>Opacity bound to number variables, and Text wrap Pretty.</li>
+              <li>Files that contained broken numbers open again.</li>
+              <li>Clean captures: <code>--no-toast</code> and <code>--no-caption</code> for <code>--screenshot</code>.</li>
+            </ul>
+            <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md#030---2026-10-17">Read the full changelog</a>
+          </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- 6A. INTERACTIVE FUNCTIONAL SHOWCASE (12 CORE CAPABILITIES & 100/100 MICRO-INTERACTIONS) -->
-    <section id="videos" data-pace="chapter" aria-labelledby="videos-h">
-      <h2 id="videos-h" class="ds-heading" data-level="2">Interactive Functional Showcase &mdash; 12 Core Capabilities &amp; Micro-Interactions (<code>#1..#100</code>)</h2>
-      <p class="lede" style="margin-bottom:var(--s-16);color:var(--c-gray-1000)">Every one of the <strong>100 Figma A-to-Z Micro-Interactions (<code>#1..#100</code>)</strong> executes natively in 100% Rust (<code>wgpu</code> + <code>egui</code> + <code>designos-doc</code>) and is captured below directly from live desktop Studio workflows.</p>
-
-      <ul class="showcase-grid">
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-01-autolayout-5-16x9.gif" width="800" height="450" alt="01 Auto-Layout 5.0 and Edge Sizing on-canvas gap and padding handles" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
+  <!-- 6. Install -->
+  <section id="install" class="sec band" aria-labelledby="install-h">
+    <div class="wrap">
+      <h2 id="install-h">Install.</h2>
+      <div class="install">
+        <div>
+          <h3>Download Studio 0.3.0</h3>
+          <ul class="dl">
+            <li>
+              <span class="os">macOS</span>
+              <span class="files">
+                <a class="btn btn-primary btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg">.dmg <small>104 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos-universal.tar.gz">.tar.gz <small>94 MB</small></a>
+              </span>
+            </li>
+            <li>
+              <span class="os">Windows</span>
+              <span class="files">
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-x86_64-pc-windows-msvc.zip">.zip <small>43 MB</small></a>
+              </span>
+            </li>
+            <li>
+              <span class="os">Linux</span>
+              <span class="files">
+                <a class="btn btn-ghost btn-sm" href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos_0.3.0_amd64.deb">.deb <small>41 MB</small></a>
+                <a href="https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-x86_64-unknown-linux-gnu.tar.gz">.tar.gz <small>55 MB</small></a>
+              </span>
+            </li>
+          </ul>
+          <p class="note">Verified on macOS; Windows and Linux are tested by users. On a Mac, the first launch needs Open Anyway once. <a href="https://github.com/jangtrinh/design-os-studio/releases/latest">All downloads and checksums</a></p>
+        </div>
+        <div id="agent-install">
+          <h3>Add the skill to your coding agent</h3>
+          <div class="panel" data-label="Claude Code">
+            <h3>Claude Code</h3>
+            <div class="code"><pre tabindex="0" aria-label="Claude Code install commands"><code>/plugin marketplace add jangtrinh/design-os-studio
+/plugin install design-os-studio@design-os-studio</code></pre></div>
           </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>01 &middot; Auto-Layout 5.0</span><span>#10..#15</span></div>
-            <h3 class="showcase-card-title">Auto-Layout 5.0 &amp; Edge Sizing</h3>
-            <p class="showcase-card-desc">Drag pink gap handles (<code>8px -&gt; 36px</code>), click the inline pill to type exact spacing, hold <code>Option</code> to mirror padding across opposite edges, and double-click frame edges to cycle <code>Fixed -&gt; Hug -&gt; Fill</code>.</p>
+          <div class="panel" data-label="Codex">
+            <h3>Codex</h3>
+            <div class="code"><pre tabindex="0" aria-label="Codex install commands"><code>git clone https://github.com/jangtrinh/design-os-studio /tmp/design-os-studio
+mkdir -p ~/.codex/skills/design-os-studio ~/.codex/prompts
+cp -R /tmp/design-os-studio/skills/design-os-studio/* ~/.codex/skills/design-os-studio/
+cp /tmp/design-os-studio/prompts/doctor.md ~/.codex/prompts/design-os-studio-doctor.md
+rm -rf /tmp/design-os-studio</code></pre></div>
           </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-02-css-grid-16x9.gif" width="800" height="450" alt="02 2D CSS Grid Tracks and Cell Span" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
+          <div class="panel" data-label="Gemini CLI / Antigravity">
+            <h3>Gemini CLI and Antigravity</h3>
+            <div class="code"><pre tabindex="0" aria-label="Gemini CLI and Antigravity install commands"><code>git clone https://github.com/jangtrinh/design-os-studio /tmp/design-os-studio
+mkdir -p ~/.gemini/skills/design-os-studio
+cp -R /tmp/design-os-studio/skills/design-os-studio/* ~/.gemini/skills/design-os-studio/
+rm -rf /tmp/design-os-studio</code></pre></div>
           </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>02 &middot; CSS Grid 2D</span><span>#16..#18</span></div>
-            <h3 class="showcase-card-title">2D CSS Grid Tracks &amp; Cell Span</h3>
-            <p class="showcase-card-desc">Click column and row track header pills to cycle <code>1fr -&gt; 220px -&gt; Hug</code>, drag on-canvas gutter bars (<code>12px -&gt; 36px</code>), and drag child cell handles to span across multiple tracks (<code>2&times;1 -&gt; 2&times;2</code>).</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-03-smart-selection-16x9.gif" width="800" height="450" alt="03 Smart Selection and One-Click Tidy Up" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>03 &middot; Smart Selection</span><span>#19..#21</span></div>
-            <h3 class="showcase-card-title">Smart Selection &amp; One-Click Tidy Up</h3>
-            <p class="showcase-card-desc">Multi-select unevenly spaced cards, click <code>Tidy up</code> to normalize into equal <code>24px</code> gaps, scrub the pink gap handle across siblings, and drag pink ring handles to swap slots cleanly.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-04-shape-controls-16x9.gif" width="800" height="450" alt="04 Parametric Arc, Donut, Star and Polygon Controls" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>04 &middot; Shape Controls</span><span>#30..#32</span></div>
-            <h3 class="showcase-card-title">Parametric Arc, Donut, Star &amp; Polygon</h3>
-            <p class="showcase-card-desc">Drag on-canvas Sweep (<code>90&deg; -&gt; 330&deg;</code>), inner Donut Ratio (<code>35% -&gt; 76%</code>), and Start Angle handles, or scrub Star inner ratios and point counts (<code>5 -&gt; 9 pts</code>) with lossless <code>.fig</code> v106 roundtrip.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-05-vector-network-16x9.gif" width="800" height="450" alt="05 Vector Network and Bezier Tangents" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>05 &middot; Vector Network</span><span>#33..#35</span></div>
-            <h3 class="showcase-card-title">Vector Network &amp; Bezier Tangents</h3>
-            <p class="showcase-card-desc">Enter Vector Edit (<code>Enter</code>) to manipulate graph-based vertices and cubic Bezier tangents, hold <code>Cmd</code> to break cusp symmetry, click midpoint diamonds (<code>t = 0.5</code>) to subdivide, and press <code>Shift+Delete</code> to heal-delete.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-06-layer-eyedropper-16x9.gif" width="800" height="450" alt="06 Deep-Hit Layer Picker and 7x7 Eyedropper Loupe" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>06 &middot; Layer &amp; Loupe</span><span>#36..#45</span></div>
-            <h3 class="showcase-card-title">Deep-Hit Layer Picker &amp; <code>7&times;7</code> Eyedropper Loupe</h3>
-            <p class="showcase-card-desc"><code>Cmd+Right-Click</code> overlapping canvas stacks to pick nested layers, filter 100k+ layer trees, cycle dev status badges, and sample GPU pixels with the <code>7&times;7</code> Eyedropper (<code>I</code> + <code>Tab</code> for <code>HEX / RGB / HSL</code>).</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-07-devmode-boxmodel-16x9.gif" width="800" height="450" alt="07 Dev Mode Box-Model and 5-Target Codegen" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>07 &middot; Dev Mode Box-Model</span><span>#46..#47</span></div>
-            <h3 class="showcase-card-title">Dev Mode Box-Model &amp; 5-Target Codegen</h3>
-            <p class="showcase-card-desc">Toggle <code>Shift+D</code> to inspect emerald padding (<code>24px</code>) and orange gap (<code>16px</code>) overlays while switching live across production <code>React</code>, <code>Tailwind v4</code>, <code>CSS</code>, <code>SwiftUI</code>, and <code>Jetpack Compose</code> codegen.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-08-scale-navigation-16x9.gif" width="800" height="450" alt="08 Proportional Scale Tool K and Viewport Navigation" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>08 &middot; Scale Tool (K)</span><span>#48..#62</span></div>
-            <h3 class="showcase-card-title">Proportional Scale Tool (<code>K</code>) &amp; Navigation</h3>
-            <p class="showcase-card-desc">Press <code>K</code> to scale bounds, font sizes, corner radii, strokes, and Auto-Layout spacing together via drag (<code>1.0x -&gt; 1.85x</code>) or preset pills (<code>1.25x / 1.5x / 2.0x</code>), paired with <code>Shift+1</code> zoom-to-fit.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-09-inspector-math-16x9.gif" width="800" height="450" alt="09 Inspector Numeric Scrubbing, Inline Math and Hex Shorthand" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>09 &middot; Inspector Math</span><span>#1..#9</span></div>
-            <h3 class="showcase-card-title">Inspector Scrubbing, Math (<code>100+24</code>) &amp; Hex Shorthand</h3>
-            <p class="showcase-card-desc">Drag-scrub Inspector labels (<code>1px</code> / <code>Shift 10px</code> / <code>Option 0.1px</code>), evaluate inline math (<code>100+24</code>), enter <code>10,20,10,20</code> padding shorthand, lock aspect ratio, and expand single-char hex or <code>0..9</code> opacity.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-10-selection-corner-16x9.gif" width="800" height="450" alt="10 Selection Traversal, Cmd+D Offset Memory and 4-Corner Radius" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>10 &middot; Selection &amp; Corners</span><span>#19..#36</span></div>
-            <h3 class="showcase-card-title">Selection Traversal, <code>Cmd+D</code> Offset Memory &amp; 4-Corner Radius</h3>
-            <p class="showcase-card-desc">Traverse hierarchy with <code>Enter</code> / <code>Shift+Enter</code> / <code>Tab</code>, duplicate with <code>Option</code>-drag + <code>Cmd+D</code> offset memory and red distance guides, and sculpt uniform or <code>Option</code> single-corner radii (<code>4px -&gt; 44px</code>).</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-11-typography-multiedit-16x9.gif" width="800" height="450" alt="11 Typography Auto-Height Fit, Tracking and Multi-Edit Q" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>11 &middot; Typography &amp; Multi-Edit</span><span>#55..#70</span></div>
-            <h3 class="showcase-card-title">Typography Auto-Height Fit, Tracking &amp; Multi-Edit (<code>Q</code>)</h3>
-            <p class="showcase-card-desc">Double-click text bounds to auto-fit glyph metrics, nudge tracking (<code>Option+Left/Right</code>) and leading (<code>Option+Up/Down</code>), and press <code>Q</code> to batch-edit text and styles across matching layers simultaneously.</p>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <img src="videos/micro-12-components-variables-16x9.gif" width="800" height="450" alt="12 Components, Variables Live Mode Switch and Prototype Flows" loading="lazy" style="width:100%;height:auto;display:block;background:#f4f3ef">
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>12 &middot; Components &amp; Variables</span><span>#71..#100</span></div>
-            <h3 class="showcase-card-title">Components, Variables (<code>=</code>) Live Mode Switch &amp; Prototype</h3>
-            <p class="showcase-card-desc">Create master Components and purple Variant matrices (<code>Option+Cmd+K</code>), bind semantic token aliases with <code>=</code>, switch collections live between <code>Light</code> and <code>Dark</code> modes, and wire Prototype interaction noodles.</p>
-          </div>
-        </li>
-      </ul>
-    </section>
-
-    <!-- 6B. VISUAL PROOF GALLERY (15 DISCRETE UNCROPPED STUDIO CAPTURES) & 100/100 MICRO-INTERACTIONS MATRIX -->
-    <section id="specs" data-pace="chapter" aria-labelledby="specs-h">
-      <h2 id="specs-h" class="ds-heading" data-level="2">Visual Proof Gallery (15 Discrete Uncropped Retina Captures) &amp; 100/100 Micro-Interactions Matrix</h2>
-      <p class="lede" style="margin-bottom:var(--s-12);color:var(--c-gray-1000)">Every card below is a discrete, uncropped <code>1600x1000</code> GPU capture from the live <code>designos-studio</code> binary (generated via <code>scripts/capture-visual-proof.sh</code>).</p>
-
-      <ul class="showcase-grid">
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-hero.png" aria-label="Open 01 Figma UI3 Dark Chrome and GPU Canvas capture">
-              <img src="images/designos-hero.png" width="800" height="500" alt="01 DESIGN:OS Studio 1:1 Figma UI3 dark chrome and GPU canvas rendering showcase workspace at Retina 2x" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>01 &middot; Canvas &amp; UI3</span><span>1.54s &middot; 0.0% CPU</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-hero.png">1:1 Figma UI3 Dark Chrome &amp; GPU Canvas</a></h3>
-            <p class="showcase-card-desc">Renders 112,474 scene nodes (723,136 Kiwi records) at 60% zoom with <code>#1e1e1e</code> UI3 chrome and unified Phosphor icons.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-hero.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-agents-chat.png" aria-label="Open 02 Native Agentic PTY Chat UI Wrapper capture">
-              <img src="images/designos-agents-chat.png" width="800" height="500" alt="02 DESIGN:OS Studio Native Agentic PTY Chat UI wrapping Claude Code, Codex, Antigravity CLI, and Grok CLI" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>02 &middot; Agents PTY Chat</span><span>--rail agents</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-agents-chat.png">Native Agentic PTY Chat UI Wrapper</a></h3>
-            <p class="showcase-card-desc">Wraps live <code>claude</code>, <code>codex</code>, <code>agy</code>, and <code>grok</code> PTY sessions in structured chat bubbles with 1-click <code>NodeSpec</code> canvas apply.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-agents-chat.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/09-micro-autolayout.png" aria-label="Open 03 Auto-Layout 5.0 and Suggest Auto-Layout capture">
-              <img src="images/09-micro-autolayout.png" width="800" height="500" alt="03 DESIGN:OS Studio Auto-Layout 5.0 and Suggest Auto-Layout with on-canvas pink gap and padding handles" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>03 &middot; Auto-Layout 5.0 &amp; Suggest Auto-Layout</span><span>--micro-showcase autolayout</span></div>
-            <h3 class="showcase-card-title"><a href="images/09-micro-autolayout.png">03 &middot; Auto-Layout 5.0 &amp; Suggest Auto-Layout</a></h3>
-            <p class="showcase-card-desc">On-canvas pink gap/padding handles, inline value editing, edge double-click <code>Fixed -&gt; Hug -&gt; Fill</code>, and <code>&#8679;A</code> Suggest Auto-Layout.</p>
-            <div class="showcase-card-actions">
-              <a href="images/09-micro-autolayout.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-assets-panel.png" aria-label="Open 04 Assets and Libraries Panel capture">
-              <img src="images/designos-assets-panel.png" width="800" height="500" alt="04 DESIGN:OS Studio Assets and Libraries left-rail panel with Created in this file card and library search" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>04 &middot; Assets &amp; Libraries</span><span>--rail assets</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-assets-panel.png">Assets &amp; Libraries Panel</a></h3>
-            <p class="showcase-card-desc">1:1 UI3 <code>File | Assets</code> toggle with <code>Search all libraries</code>, <code>Created in this file</code> vertical card, and component grid.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-assets-panel.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-actions-cmdk.png" aria-label="Open 05 Actions Cmd+K Command Palette capture">
-              <img src="images/designos-actions-cmdk.png" width="800" height="500" alt="05 DESIGN:OS Studio Actions Cmd+K Command Palette and Live Design Gate audit overlay" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>05 &middot; Actions (Cmd+K)</span><span>--panel cmdk</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-actions-cmdk.png">Actions Palette &amp; Live Design Gate</a></h3>
-            <p class="showcase-card-desc">Bottom-dock AI &amp; command launcher (<code>First Draft</code>, <code>Make Prototype</code>, <code>Rename Layers</code>, <code>Ctrl+Shift+G</code> Design Gate).</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-actions-cmdk.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-devmode.png" aria-label="Open 06 Dev Mode Inspector and Multi-Target Codegen capture">
-              <img src="images/designos-devmode.png" width="800" height="500" alt="06 DESIGN:OS Studio Dev Mode Inspector with box model diagram and React Tailwind SwiftUI code generation" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>06 &middot; Dev Mode (&lt;/&gt;)</span><span>--tab dev</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-devmode.png">Dev Mode &amp; 5-Target Codegen</a></h3>
-            <p class="showcase-card-desc">CSS Box Model diagram, resolved variable tokens, and live codegen for React, Tailwind, CSS, SwiftUI, and Jetpack Compose.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-devmode.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-variables.png" aria-label="Open 07 Design Variables and Multi-Mode Token Collections capture">
-              <img src="images/designos-variables.png" width="800" height="500" alt="07 DESIGN:OS Studio Design Variables and Multi-Mode Token Collections modal in Light and Dark modes" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>07 &middot; Variables &amp; Modes</span><span>--panel variables</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-variables.png">Variables &amp; Multi-Mode Tokens</a></h3>
-            <p class="showcase-card-desc">Inspect primitive, semantic, and theme token collections across <code>Light</code> and <code>Dark</code> modes with alias resolution.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-variables.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-components.png" aria-label="Open 08 Master Components and Variant Sets capture">
-              <img src="images/designos-components.png" width="800" height="500" alt="08 DESIGN:OS Studio Master Components, Variant Sets, and Synced Instance Overrides on canvas" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>08 &middot; Components</span><span>--rail components</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-components.png">Master Components &amp; Variant Sets</a></h3>
-            <p class="showcase-card-desc">Purple <code>#9747ff</code> UI3 component styling, dashed variant matrices, instance overrides, and shared <code>GeomCache</code> meshes.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-components.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-prototype.png" aria-label="Open 09 Interactive Prototype Noodle Flows capture">
-              <img src="images/designos-prototype.png" width="800" height="500" alt="09 DESIGN:OS Studio Prototype tab showing interactive cubic Bezier flow noodles and trigger action inspector" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>09 &middot; Prototype Flows</span><span>--tab prototype</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-prototype.png">Interactive Prototype Noodle Flows</a></h3>
-            <p class="showcase-card-desc">Cubic Bezier interaction connectors, flow starting badges, and <code>On Click / Hover -&gt; Navigate / Smart Animate</code> inspector.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-prototype.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-comments.png" aria-label="Open 10 Spatial Canvas Pin-Comments capture">
-              <img src="images/designos-comments.png" width="800" height="500" alt="10 DESIGN:OS Studio Spatial Canvas Pin-Comments and Human-Agent review loop panel" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>10 &middot; Pin-Comments</span><span>--tool-mode comment</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-comments.png">Spatial Pin-Comments &amp; Review Loop</a></h3>
-            <p class="showcase-card-desc">Pin human feedback onto exact <code>NodeId</code> targets, read via <code>--comments-json</code> or MCP, and reply/resolve from agents.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-comments.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-main-menu.png" aria-label="Open 11 Figma UI3 Main Menu Dropdown capture">
-              <img src="images/designos-main-menu.png" width="800" height="500" alt="11 DESIGN:OS Studio Figma UI3 Main Menu dropdown with File Edit View Object Text Arrange Vector and AI balance" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>11 &middot; UI3 Main Menu</span><span>--panel main-menu</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-main-menu.png">Figma UI3 Main Menu Dropdown</a></h3>
-            <p class="showcase-card-desc">Full 248px UI3 menu hierarchy (<code>File</code>, <code>Edit</code>, <code>View</code>, <code>Object</code>, <code>Text</code>, <code>Arrange</code>, <code>Vector</code>, <code>AI balance</code>).</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-main-menu.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-color-picker.png" aria-label="Open 12 Gradient and Color Picker Popover capture">
-              <img src="images/designos-color-picker.png" width="800" height="500" alt="12 DESIGN:OS Studio Gradient and Solid Color Picker Popover with document swatches and hex opacity controls" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>12 &middot; Color Picker</span><span>--panel color-picker</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-color-picker.png">Gradient &amp; Color Picker Popover</a></h3>
-            <p class="showcase-card-desc">2D SV color field, hue &amp; alpha sliders, <code>Solid / Linear / Radial / Angular</code> modes, eyedropper (<code>I</code>), and document swatches.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-color-picker.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-agent-spec.png" aria-label="Open 13 Declarative NodeSpec to .fig v106 Binary Roundtrip capture">
-              <img src="images/designos-agent-spec.png" width="800" height="500" alt="13 DESIGN:OS Studio EaseUI Agent-First Spec Console generated from declarative JSON spec and exported to .fig" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>13 &middot; NodeSpec -&gt; .fig</span><span>--apply-spec</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-agent-spec.png">NodeSpec -&gt; Auto-Layout 5.0 -&gt; .fig</a></h3>
-            <p class="showcase-card-desc">Generated from <code>easeui-agent-console.spec.json</code>, laid out via Auto-Layout 5.0, and saved to a native <code>.fig</code> v106 binary.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-agent-spec.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-overview.png" aria-label="Open 14 4-Tier Semantic Zoom LOD Overview capture">
-              <img src="images/designos-overview.png" width="800" height="500" alt="14 DESIGN:OS Studio 49,410-node page rendered at 2 percent semantic zoom LOD with container collapse" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>14 &middot; Semantic Zoom LOD</span><span>49,410 Nodes @ 2%</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-overview.png">4-Tier Semantic Zoom LOD</a></h3>
-            <p class="showcase-card-desc">Bird&rsquo;s-eye overview of a 49,410-node page at 2% zoom using Container Collapse (<code>&lt; 6px</code>) and sub-pixel culling.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-overview.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-
-        <li class="showcase-card">
-          <div class="showcase-card-stage">
-            <a href="images/designos-home.png" aria-label="Open 15 Studio Home Screen and Local Library capture">
-              <img src="images/designos-home.png" width="800" height="500" alt="15 DESIGN:OS Studio Home Screen showing Recents, Starred, Local Library thumbnails, and New Design File actions" loading="lazy" onerror="this.onerror=null;if(window.__imgFallback)window.__imgFallback(this);">
-            </a>
-          </div>
-          <div class="showcase-card-body">
-            <div class="showcase-card-meta"><span>15 &middot; Local Library</span><span>8 KB Fast Probe</span></div>
-            <h3 class="showcase-card-title"><a href="images/designos-home.png">Studio Home &amp; Local Library</a></h3>
-            <p class="showcase-card-desc">Instant local file browser (<code>Recents</code>, <code>Starred</code>, thumbnails) with zero-allocation <code>HashSerializer</code> autosave.</p>
-            <div class="showcase-card-actions">
-              <a href="images/designos-home.png">Full PNG (1600x1000) <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
-            </div>
-          </div>
-        </li>
-      </ul>
-
-      <!-- Table 0: 100/100 Figma A-to-Z Micro-Interactions Matrix -->
-      <h3 id="100-figma-micro-interactions" class="ds-heading" data-level="3" style="margin-top:var(--s-24)">100 / 100 Figma A-to-Z Micro-Interactions Matrix (<code>#1..#100</code>)</h3>
-      <p>Verified by <code>launch_e2e_proves_100_figma_micro_interactions_end_to_end</code>, the 12 desktop functional showcases above, and the 8 discrete Retina 2x <code>--micro-showcase</code> captures.</p>
-      <div class="table-scroll">
-        <table class="ds-table">
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>IDs</th>
-              <th>Verified Micro-Interactions Implemented in <code>designos-app</code> &amp; <code>designos-doc</code></th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>A. Inspector Numeric Scrubbing, Math &amp; Mixed Values</td>
-              <td><code>#1..#9</code></td>
-              <td>Label drag-scrub (<code>1px</code> / <code>&#8679; 10px</code> / <code>&#8997; 0.1px</code>), <code>&uarr;</code>/<code>&darr;</code> step keys, inline math (<code>+ - * /</code>), <code>%</code> relative parent sizing, <code>auto</code>/<code>hug</code>/<code>fill</code> keywords, <code>Mixed</code> multi-select override, <code>10,20,10,20</code> padding shorthand, Aspect Ratio Lock (<code>W/H</code>), <code>0..9</code> / <code>00</code> quick opacity</td>
-              <td><strong>9 / 9 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>B. Auto-Layout 5.0, Edge Sizing, CSS Grid &amp; Smart Selection</td>
-              <td><code>#10..#21</code></td>
-              <td>Edge double-click <code>Fixed &lt;-&gt; Hug</code>, <code>&#8997;</code>+double-click <code>Fill</code>, on-canvas pink gap drag, inline gap click-to-type, pink padding handles (<code>&#8997;</code> opposite / <code>&#8679;&#8997;</code> all 4), 9-dot alignment matrix (<code>Space-Between</code> on <code>W</code>/<code>X</code>), drag reorder, <code>Space</code> ignore Auto-Layout, 2D CSS Grid track pills (<code>1fr</code>/<code>px</code>/<code>Hug</code>) &amp; span handles, Smart Selection pink swap rings &amp; <code>Tidy up</code></td>
-              <td><strong>12 / 12 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>C. Canvas Selection, Marquee, Guides &amp; Transform Handles</td>
-              <td><code>#22..#29</code></td>
-              <td><code>&#8984;</code>-click deep select, <code>&#8984;</code>+Right-click overlapping layer menu, <code>Enter</code> drill children / <code>&#8679;Enter</code> climb parent / <code>Tab</code> cycle siblings, <code>&#8997;</code>-marquee containment-only, <code>&#8997;</code>-hover red distance guides, <code>&#8997;</code>-drag duplicate + <code>&#8984;D</code> repeat, <code>&#8679;</code>-axis lock + red smart snap guides, corner rotation (<code>15&deg;</code> snap) &amp; on-canvas corner radius handles (<code>&#8997;</code> single corner)</td>
-              <td><strong>8 / 8 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>D. Parametric Shapes, Vector Network, Layer Tree &amp; Eyedropper</td>
-              <td><code>#30..#45</code></td>
-              <td>Donut Arc Sweep/Start/Ratio handles, Star inner ratio &amp; point-count handles, Polygon side count, Vector midpoint split, <code>&#8984;</code> tangent break, <code>&#8679;&#9003;</code> heal-delete, Layer <code>&#8984;R</code> inline rename (<code>Tab</code> next), <code>&#8997;</code>-click collapse all, hover highlight, icon double-click zoom-to-fit, lock/eye drag-sweep, status badge cycle, Eyedropper (<code>I</code>) <code>7x7</code> pixel loupe + <code>Tab</code> <code>HEX/RGB/HSL</code> cycle</td>
-              <td><strong>16 / 16 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>E. Dev Mode Box-Model, Scale Tool (<code>K</code>) &amp; Viewport Navigation</td>
-              <td><code>#46..#62</code></td>
-              <td>Dev Mode emerald padding &amp; orange gap overlay, 1-click code copy toast, Proportional Scale Tool (<code>K</code> with <code>1x/1.5x/2x</code>), <code>Space</code>-drag pan, <code>Z</code> marquee zoom (<code>&#8997;Z</code> out), <code>&#8679;1</code> fit all / <code>&#8679;2</code> fit selection / <code>&#8679;0</code> 100%, <code>N</code> / <code>&#8679;N</code> frame walk, <code>&#8679;R</code> rulers + guides, <code>&#8984;\</code> zen UI toggle, <code>&#8984;/</code> &amp; <code>&#8984;K</code> palette, <code>F</code> frame preset drawer</td>
-              <td><strong>17 / 17 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>F. Typography, Fills, Strokes, Effects &amp; Arrange Shortcuts</td>
-              <td><code>#63..#85</code></td>
-              <td>Double-click inline text edit, double-click text handle auto-width/height, <code>&#8679;&#8984;&gt;</code>/<code>&lt;</code> font size, <code>&#8997;&uarr;</code>/<code>&darr;</code> line-height, <code>&#8997;&larr;</code>/<code>&rarr;</code> letter-spacing, <code>&#8984;B</code>/<code>&#8984;I</code>/<code>&#8984;U</code>, <code>&#8679;X</code> swap fill/stroke, <code>/</code> remove fill, <code>&#8997;&#8984;C</code>/<code>&#8997;&#8984;V</code> copy/paste style, <code>[</code>/<code>]</code> &amp; <code>&#8984;[</code>/<code>]</code> z-order, <code>&#8984;G</code>/<code>&#8679;&#8984;G</code> group/ungroup, <code>&#8997;&#8984;G</code> frame selection, <code>&#8997;W/A/S/D/H/V</code> align</td>
-              <td><strong>23 / 23 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>G. Components, Variables, Prototype, Multi-Edit &amp; Agent PTY</td>
-              <td><code>#86..#100</code></td>
-              <td><code>&#8997;&#8984;K</code> create component, <code>&#8997;&#8984;B</code> detach instance, double-click master jump, purple Variant matrix &amp; pill toggles, Variable mode switch (<code>Light</code>/<code>Dark</code>) &amp; token alias pills, Prototype blue flow node drag &amp; trigger popover, Multi-Edit (<code>Q</code>) batch text/style override &amp; <code>C</code> pin-comment anchor, Multi-Agent PTY runtime switcher &amp; <code>NodeSpec</code> apply with <code>&#8984;Z</code> undo</td>
-              <td><strong>15 / 15 PASS</strong></td>
-            </tr>
-            <tr>
-              <td>Total Figma A-to-Z Micro-Interactions</td>
-              <td><code>#1..#100</code></td>
-              <td>Verified by <code>launch_e2e_proves_100_figma_micro_interactions_end_to_end</code> + 12 desktop functional showcases + 8 Retina 2x <code>--micro-showcase</code> captures</td>
-              <td><strong>100 / 100 (100%)</strong></td>
-            </tr>
-          </tbody>
-        </table>
+        </div>
       </div>
+    </div>
+  </section>
 
-      <!-- Table 1: Verified 1:1 Figma Parity Scorecard -->
-      <h3 class="ds-heading" data-level="3" style="margin-top:var(--s-24)">Verified 1:1 Figma 126.9.13 UI3, .fig v106 &amp; A-to-Z Micro-Interactions Scorecard (487 / 487 &mdash; 100.00%)</h3>
-      <p>Every UI3 surface, Auto-Layout 5.0 rule, <code>fig-kiwi</code> v106 binary record type, and Figma A-to-Z Micro-Interaction (<code>#1..#100</code>) is tested in CI across 856 automated workspace tests.</p>
-      <div class="table-scroll">
-        <table class="ds-table">
-          <thead>
-            <tr>
-              <th>Domain</th>
-              <th>Scope &amp; Surface Coverage</th>
-              <th>Verified Items</th>
-              <th>Parity</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>1. UI3 Chrome &amp; Dark Palette</td>
-              <td><code>#1e1e1e</code> panel surface, <code>#2c2c2c</code> controls, <code>#0d99ff</code> selection, <code>#9747ff</code> component purple, <code>#0c8ce9</code> Dev Mode pill</td>
-              <td><code>42 / 42</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>2. Unified Phosphor Icons</td>
-              <td>Official <code>@phosphor-icons/core</code> 256x256 vector paths rasterized via <code>resvg</code> across Left Rail, Bottom Dock, Inspector, and Variables Modal</td>
-              <td><code>48 / 48</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>3. Scene Graph &amp; .fig v106 Binary</td>
-              <td><code>fig-kiwi</code> v106 read &amp; write (<code>canvas.fig</code> DEFLATE/Zstd + <code>meta.json</code> + <code>images/</code>), <code>VectorNetwork</code>, boolean ops (<code>i_overlay</code>)</td>
-              <td><code>64 / 64</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>4. Auto-Layout 5.0 Engine</td>
-              <td><code>Horizontal</code>, <code>Vertical</code>, <code>Wrap</code>, <code>Grid</code>, <code>Hug</code> / <code>Fill</code> / <code>Fixed</code> sizing, min/max constraints, baseline alignment</td>
-              <td><code>38 / 38</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>5. Variables, Styles &amp; Modes</td>
-              <td><code>COLOR</code>, <code>FLOAT</code>, <code>STRING</code>, <code>BOOLEAN</code> collections, <code>Light</code>/<code>Dark</code> mode switching, <code>VariableAlias</code> chains</td>
-              <td><code>34 / 34</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>6. Components &amp; Variants</td>
-              <td>Master <code>Component</code>, <code>ComponentSet</code> dashed matrix, <code>Instance</code> override preservation, <code>GeomCache</code> canonical sharing</td>
-              <td><code>36 / 36</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>7. Right Inspector &amp; Popovers</td>
-              <td>Position, Layout, Appearance, Fill, Stroke, Effects, Export, Color Picker, and 248px UI3 Main Menu dropdown</td>
-              <td><code>45 / 45</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>8. Dev Mode, Prototype &amp; Agentic Hub</td>
-              <td>Box-model inspector, 5-target codegen, prototype noodle flows, <code>Actions (Cmd+K)</code>, Multi-Edit (<code>Q</code>) &amp; Suggest Auto-Layout (<code>&#8679;A</code>), Agentic PTY Chat UI, 22 MCP tools</td>
-              <td><code>80 / 80</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>9. Figma A-to-Z Micro-Interactions</td>
-              <td>All 100 tactile interactions (<code>#1..#100</code>): Auto-Layout edge <code>Fixed-&gt;Hug-&gt;Fill</code>, CSS Grid track pills, Smart Selection ring swaps, Corner/Arc/Star handles, Vector Network tangents, Scale Tool (<code>K</code>), Inspector scrub/math</td>
-              <td><code>100 / 100</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-            <tr>
-              <td>Total Verified Parity</td>
-              <td>856 Automated Unit, Golden &amp; Integration Tests (<code>cargo test --workspace</code> -&gt; 0 failures) &middot; 12/12 Zero-Fake-UI Invariants &middot; 9/9 ALIVE Gates</td>
-              <td><code>487 / 487</code></td>
-              <td><strong>100.00%</strong></td>
-            </tr>
-          </tbody>
-        </table>
+  <!-- 7. FAQ -->
+  <section id="faq" class="sec" aria-labelledby="faq-h">
+    <div class="wrap faq">
+      <h2 id="faq-h">Questions.</h2>
+      <div class="qa">
+        <details>
+          <summary>What is DESIGN:OS Studio?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>A native desktop design editor written in Rust. It draws on the GPU with wgpu, opens and saves Figma <code>.fig</code> files, and bundles a local server so coding agents can edit the open document.</p>
+        </details>
+        <details>
+          <summary>Can I use my Figma files?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>Yes. Studio opens and saves <code>.fig</code> files. You can also copy layers in Figma desktop and paste them onto the Studio canvas with Cmd+V. They land centered in the view as one undo step, images included.</p>
+        </details>
+        <details>
+          <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>Studio bundles <code>designos-mcp</code>, a local MCP server with 22 tools. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step.</p>
+        </details>
+        <details>
+          <summary>Which systems does it run on?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>macOS, Windows and Linux. Releases are verified on macOS; Windows and Linux builds are tested by users. On a Mac, the first launch needs Open Anyway once.</p>
+        </details>
+        <details>
+          <summary>What is the license?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+          <p>MIT or Apache-2.0, your choice. The source is on GitHub.</p>
+        </details>
       </div>
+    </div>
+  </section>
 
-      <!-- Table 2: Verified Enterprise Benchmark -->
-      <h3 class="ds-heading" data-level="3" style="margin-top:var(--s-24)">Enterprise Benchmark (VSF - PCP.fig &mdash; 723,136 Kiwi Records / 112,474 Nodes)</h3>
-      <p>Measured on Apple Silicon Metal comparing unoptimized JSON/CPU baselines against the Phase 2 <code>wgpu</code> + <code>SceneIndex</code> architecture.</p>
-      <div class="table-scroll">
-        <table class="ds-table">
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Unoptimized Baseline</th>
-              <th>DESIGN:OS Studio (wgpu + SceneIndex)</th>
-              <th>Improvement</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>On-Disk Library File Size</td>
-              <td><code>6.80 GB</code> (pretty JSON + int arrays)</td>
-              <td><code>242 MB</code> (compact JSON + <code>"hex:..."</code> images + sparse defaults)</td>
-              <td><strong>-96.5% (28.3x smaller)</strong></td>
-            </tr>
-            <tr>
-              <td>Cold Start + Load + 1600x1000 GPU Render</td>
-              <td>Metal staging buffer crash / OOM</td>
-              <td><code>1.48s - 1.63s</code></td>
-              <td><strong>Zero crash, instant boot</strong></td>
-            </tr>
-            <tr>
-              <td>Static Viewport GPU / CPU Usage</td>
-              <td><code>100%</code> CPU (infinite repaint loop)</td>
-              <td><code>0.0%</code> CPU (<code>FrameKey</code> GPU texture reuse)</td>
-              <td><strong>Zero idle CPU/GPU work</strong></td>
-            </tr>
-            <tr>
-              <td>Top-Level Viewport &amp; Hit-Test Culling</td>
-              <td><code>O(N)</code> full-page linear scan</td>
-              <td><code>O(k)</code> Uniform Spatial Grid (<code>2048x2048</code>)</td>
-              <td><strong>SceneIndex::query_top_level</strong></td>
-            </tr>
-            <tr>
-              <td>Single-Node Drag / Resize Index Update</td>
-              <td>Full 112k-node <code>SceneIndex::ensure</code></td>
-              <td><code>O(subtree)</code> Incremental Propagation</td>
-              <td><strong>SceneIndex::update_subtree</strong></td>
-            </tr>
-            <tr>
-              <td>Component Instance &amp; Repeated Shape Mesh</td>
-              <td>Re-tessellated per <code>NodeId</code></td>
-              <td>Shared Canonical Pool (<code>GeomCache::shared</code>)</td>
-              <td><strong>Zero duplicate Lyon / cosmic-text builds</strong></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+</main>
 
-      <!-- Table 3: Cross-Platform Native Installers -->
-      <h3 class="ds-heading" data-level="3" style="margin-top:var(--s-24)">Cross-Platform Native Installers (macOS &middot; Windows &middot; Linux)</h3>
-      <p>Built deterministically via <code>scripts/build-release.sh</code> with SHA-256 checksums and Layer-1 atomic self-update support (<code>updater.rs</code>).</p>
-      <div class="table-scroll">
-        <table class="ds-table">
-          <thead>
-            <tr>
-              <th>Platform</th>
-              <th>Primary Installer</th>
-              <th>Portable Archive &amp; CLI Setup</th>
-              <th>Bundled Binaries (4)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>macOS (arm64 / x86_64)</td>
-              <td><code>designos-&lt;ver&gt;-macos.dmg</code> (<code>designos.app</code> + <code>install-cli.command</code>)</td>
-              <td><code>designos-&lt;ver&gt;-macos-universal.tar.gz</code></td>
-              <td><code>designos-studio</code>, <code>designos</code>, <code>designos-mcp</code>, <code>designos-diff</code></td>
-            </tr>
-            <tr>
-              <td>Windows (x64)</td>
-              <td><code>designos-&lt;ver&gt;-x86_64-pc-windows-msvc-setup.exe</code> (Per-user NSIS)</td>
-              <td><code>designos-&lt;ver&gt;-x86_64-pc-windows-msvc.zip</code> (<code>install.ps1</code>)</td>
-              <td><code>designos-studio.exe</code>, <code>designos.exe</code>, <code>designos-mcp.exe</code>, <code>designos-diff.exe</code></td>
-            </tr>
-            <tr>
-              <td>Linux (x64 / arm64)</td>
-              <td><code>designos_&lt;ver&gt;_amd64.deb</code> (<code>apt install</code> + MIME + <code>.desktop</code>)</td>
-              <td><code>designos-&lt;ver&gt;-x86_64-unknown-linux-gnu.tar.gz</code> (<code>./install.sh</code>)</td>
-              <td><code>designos-studio</code>, <code>designos</code>, <code>designos-mcp</code>, <code>designos-diff</code></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- 7. FAQ SECTION (1:1 with JSON-LD FAQPage for AEO) -->
-    <section id="faq" class="faq" data-pace="chapter" aria-labelledby="faq-h">
-      <h2 id="faq-h" class="ds-heading" data-level="2">Frequently asked questions</h2>
-      <details>
-        <summary>What is DESIGN:OS Studio (design-os-studio)? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>DESIGN:OS Studio (design-os-studio) is a native, 100% Rust GPU-accelerated interface design studio (wgpu + tiny-skia), enterprise Figma .fig v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (Claude Code, Codex, Antigravity CLI, Gemini CLI, Grok CLI), Live Variables Mode Switching &amp; Multi-Edit (Q), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (designos-mcp).</p>
-      </details>
-      <details>
-        <summary>How does DESIGN:OS Studio compare with Figma Desktop, Penpot, and Pencil/OpenPencil? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>Unlike browser-wrapped Electron or web DOM tools that stall on 100k+ node files or lock .fig saving behind cloud servers, DESIGN:OS Studio compiles directly to native Metal, DirectX 12, and Vulkan via Rust wgpu + tiny-skia, opens and saves authentic fig-kiwi v106 .fig binaries in ~1.5s with 0.0% idle CPU, implements all 100/100 Figma A-to-Z Micro-Interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a 22-tool MCP server.</p>
-      </details>
-      <details>
-        <summary>Can DESIGN:OS Studio both open and save standard Figma .fig binary files? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>Yes. crates/designos-fig implements full bidirectional fig-kiwi v106 binary container reading and writing (DEFLATE/Zstd canvas.fig + meta.json + images/), preserving Auto-Layout 5.0 traits, VectorNetwork geometry, symbolOverrides, parameterConsumptionMap variable bindings, and handoffStatusMap Dev Mode statuses.</p>
-      </details>
-      <details>
-        <summary>How does the embedded Agentic PTY Chat UI work without paid third-party API keys? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>Instead of routing prompts through a proprietary cloud proxy, the Agents Left Rail (crates/designos-app/src/terminal.rs) spawns your already-authenticated local CLI (claude, codex, agy, grok, or $SHELL) inside a real portable-pty + vt100 pseudo-terminal pre-wired with DESIGNOS_BIN, DESIGNOS_FILE, and DESIGNOS_MCP_SOCKET, rendering clean chat turn bubbles with 1-click NodeSpec canvas application.</p>
-      </details>
-      <details>
-        <summary>How fast does DESIGN:OS Studio render massive enterprise Figma files? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>On the VSF - PCP.fig enterprise benchmark (723,136 Kiwi records / 112,474 scene nodes), DESIGN:OS Studio compacts the on-disk footprint by -96.5% (6.80 GB to 242 MB), cold-starts and renders a 1600x1000 GPU frame in 1.48s to 1.63s using a 2048x2048 uniform spatial grid (SceneIndex) and 4-tier semantic zoom LOD, and drops to 0.0% CPU when the viewport is static (FrameKey GPU texture reuse).</p>
-      </details>
-      <details>
-        <summary>How is DESIGN:OS Studio installed and licensed? <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg></summary>
-        <p>Pre-built native installers are available for macOS (.dmg + .tar.gz), Windows (per-user NSIS -setup.exe + .zip), and Linux (.deb + .tar.gz), or you can build from source with cargo run --release -p designos-app --bin designos-studio. It is dual-licensed under permissive MIT OR Apache-2.0 with zero telemetry.</p>
-      </details>
-    </section>
-
-    <!-- 8. ECOSYSTEM & RELATED PROJECTS -->
-    <section id="ecosystem" class="ecosystem" data-pace="chapter" aria-labelledby="ecosystem-h">
-      <h2 id="ecosystem-h" class="ds-heading" data-level="3">DESIGN:OS Ecosystem &amp; Related Projects</h2>
-      <p class="lede" style="margin-bottom:var(--s-6);color:var(--c-gray-1000)">Explore the 13 open-source companion engines in the DESIGN:OS ecosystem designed to work alongside DESIGN:OS Studio.</p>
-      <div class="link-list">
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></svg>
-          <span class="ds-icon-row-label">DESIGN:OS CLI &mdash; Multi-runtime design CLI for Claude Code, Codex &amp; Antigravity</span>
-          <span class="ds-icon-row-meta">cli</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-knowledge-builder/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></svg>
-          <span class="ds-icon-row-label">Knowledge Builder &mdash; Multimodal knowledge compiler with UKMC.v1 contract &amp; epistemic gate</span>
-          <span class="ds-icon-row-meta">compiler</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-figma-plugin/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M237.66,18.34a8,8,0,0,0-11.32,0l-52.4,52.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L100,88.69l-6.34-6.35A8,8,0,0,0,82.34,93.66L88.69,100,65.37,123.31a32,32,0,0,0,0,45.26l5.38,5.37-52.41,52.4a8,8,0,0,0,11.32,11.32l52.4-52.41,5.37,5.38a32,32,0,0,0,45.26,0L156,167.31l6.34,6.35a8,8,0,0,0,11.32-11.32L167.31,156l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,52.41-52.4A8,8,0,0,0,237.66,18.34Zm-116.29,161a16,16,0,0,1-22.62,0L76.69,157.25a16,16,0,0,1,0-22.62L100,111.31,144.69,156Zm57.94-57.94L156,144.69,111.31,100l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,179.31,121.37ZM88.57,35A8,8,0,0,1,103.43,29l8,20A8,8,0,0,1,96.57,55ZM24.57,93A8,8,0,0,1,35,88.57l20,8A8,8,0,0,1,49,111.43l-20-8A8,8,0,0,1,24.57,93ZM231.43,163a8,8,0,0,1-10.4,4.46l-20-8A8,8,0,1,1,207,144.57l20,8A8,8,0,0,1,231.43,163Zm-64,58.06A8,8,0,0,1,152.57,227l-8-20A8,8,0,0,1,159.43,201Z"/></svg>
-          <span class="ds-icon-row-label">Figma Plugin &amp; CLI &mdash; Live canvas bridge for AI coding agents on Figma Free</span>
-          <span class="ds-icon-row-meta">plugin</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-svg-animation/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></svg>
-          <span class="ds-icon-row-label">SVG Animation Engine &mdash; Deterministic vector animation &amp; 1080p 60fps video pipeline</span>
-          <span class="ds-icon-row-meta">engine</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-3d-blender/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48ZM80,192H32V144H80Zm0-64H32V80H80Zm64,64H96V144h48Zm0-64H96V80h48Zm80,64H160V144h64Zm0-64H160V80h64Z"/></svg>
-          <span class="ds-icon-row-label">3D Blender Agent &mdash; Mechanical parts generation with embedded Three.js CAD viewer</span>
-          <span class="ds-icon-row-meta">3d / cad</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-drone-showcase/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232,120H208.31a56.06,56.06,0,0,0-48.44-55.47A39.8,39.8,0,0,0,168,40H144a8,8,0,0,0,0,16h24a24,24,0,0,1,24,24v8H152a8,8,0,0,0-8,8v32a8,8,0,0,0,8,8h48v8a24,24,0,0,1-24,24H144a8,8,0,0,0,0,16h24a39.8,39.8,0,0,0,24.53-8.44A56.06,56.06,0,0,0,208.31,136H232a8,8,0,0,0,0-16ZM104,136H56V120h48Zm-64,8a24,24,0,0,1,24-24h48V88H64a24,24,0,0,1-24,24H16a8,8,0,0,0,0,16H39.69a56.06,56.06,0,0,0,8.44,24.53A39.8,39.8,0,0,0,72,168H96a8,8,0,0,0,0-16H72a24,24,0,0,1-24-24V120h0a8,8,0,0,0,8-8V80a8,8,0,0,0-8-8H48a39.8,39.8,0,0,0-8.44,8.44A56.06,56.06,0,0,0,32,104H16a8,8,0,0,0,0,16H32v16H16a8,8,0,0,0,0,16H32A56.06,56.06,0,0,0,40,144Z"/></svg>
-          <span class="ds-icon-row-label">OPAH ONE &mdash; 249g indoor drone showcase with scroll-scrub kinematics</span>
-          <span class="ds-icon-row-meta">hardware</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-github-page/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V184a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,144H40V56H216V184ZM176,88a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,88Zm0,32a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,120Zm0,32a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,152Z"/></svg>
-          <span class="ds-icon-row-label">GitHub Pages Engine &mdash; 9-tier zero-dependency scaffolder with SEO, AEO &amp; GEO</span>
-          <span class="ds-icon-row-meta">pages</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-apple/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48ZM80,192H32V144H80Zm0-64H32V80H80Zm64,64H96V144h48Zm0-64H96V80h48Zm80,64H160V144h64Zm0-64H160V80h64Z"/></svg>
-          <span class="ds-icon-row-label">Apple Design OS &mdash; Native SwiftUI 6.2 component system for iOS, iPadOS &amp; macOS</span>
-          <span class="ds-icon-row-meta">swiftui</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-pedagogy/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V184a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,144H40V56H216V184ZM176,88a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,88Zm0,32a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,120Zm0,32a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,152Z"/></svg>
-          <span class="ds-icon-row-label">Agent Teacher &mdash; Evidence-graded pedagogy library and curriculum tree runtime</span>
-          <span class="ds-icon-row-meta">pedagogy</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-origami/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M223.68,66.15,135.68,18a15.88,15.88,0,0,0-15.36,0l-88,48.17a16,16,0,0,0-8.32,14v95.64a16,16,0,0,0,8.32,14l88,48.17a15.88,15.88,0,0,0,15.36,0l88-48.17a16,16,0,0,0,8.32-14V80.18A16,16,0,0,0,223.68,66.15ZM128,32l80.34,44-29.77,16.3-80.35-44ZM128,120,47.66,76l33.9-18.56,80.34,44ZM40,90l80,43.78v85.79L40,175.82Zm176,85.78h0l-80,43.79V133.82l32-17.51V152a8,8,0,0,0,16,0V107.55L216,90v85.77Z"/></svg>
-          <span class="ds-icon-row-label">Origami CAD &mdash; Parametric packaging dielines, spot-color PDFs &amp; 3D fold previews</span>
-          <span class="ds-icon-row-meta">packaging</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-voice-ux/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"/></svg>
-          <span class="ds-icon-row-label">Voice UX &amp; AI Agent Architecture &mdash; Full-duplex barge-in FSMs &amp; sub-500ms voice specs</span>
-          <span class="ds-icon-row-meta">voice-ai</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-code2flow/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M237.66,18.34a8,8,0,0,0-11.32,0l-52.4,52.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L100,88.69l-6.34-6.35A8,8,0,0,0,82.34,93.66L88.69,100,65.37,123.31a32,32,0,0,0,0,45.26l5.38,5.37-52.41,52.4a8,8,0,0,0,11.32,11.32l52.4-52.41,5.37,5.38a32,32,0,0,0,45.26,0L156,167.31l6.34,6.35a8,8,0,0,0,11.32-11.32L167.31,156l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,52.41-52.4A8,8,0,0,0,237.66,18.34Zm-116.29,161a16,16,0,0,1-22.62,0L76.69,157.25a16,16,0,0,1,0-22.62L100,111.31,144.69,156Zm57.94-57.94L156,144.69,111.31,100l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,179.31,121.37ZM88.57,35A8,8,0,0,1,103.43,29l8,20A8,8,0,0,1,96.57,55ZM24.57,93A8,8,0,0,1,35,88.57l20,8A8,8,0,0,1,49,111.43l-20-8A8,8,0,0,1,24.57,93ZM231.43,163a8,8,0,0,1-10.4,4.46l-20-8A8,8,0,1,1,207,144.57l20,8A8,8,0,0,1,231.43,163Zm-64,58.06A8,8,0,0,1,152.57,227l-8-20A8,8,0,0,1,159.43,201Z"/></svg>
-          <span class="ds-icon-row-label">Code2Flow &mdash; Local-first codebase-to-user-flow audit CLI across 7 UI frameworks</span>
-          <span class="ds-icon-row-meta">ast / audit</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://jangtrinh.github.io/design-os-generative-ui/">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224,48H32A16,16,0,0,0,16,64V192a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V64A16,16,0,0,0,224,48ZM80,192H32V144H80Zm0-64H32V80H80Zm64,64H96V144h48Zm0-64H96V80h48Zm80,64H160V144h64Zm0-64H160V80h64Z"/></svg>
-          <span class="ds-icon-row-label">Generative UI &mdash; Streaming interactive visual runtime with morphdom &amp; WebGL</span>
-          <span class="ds-icon-row-meta">runtime</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-      </div>
-    </section>
-
-    <!-- 9. READ NEXT -->
-    <section aria-labelledby="read-h">
-      <h2 id="read-h" class="ds-heading" data-level="3">Read next</h2>
-      <div class="link-list">
-        <a class="ds-icon-row" href="https://github.com/jangtrinh/design-os-studio#readme">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>
-          <span class="ds-icon-row-label">README: Comparison Table, 23 Visual Proofs &amp; 100/100 Micro-Interactions Matrix</span>
-          <span class="ds-icon-row-meta">github</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V184a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,144H40V56H216V184Z"/></svg>
-          <span class="ds-icon-row-label">Installation Guide: macOS .dmg, Windows -setup.exe, Linux .deb &amp; CLI setup</span>
-          <span class="ds-icon-row-meta">install.md</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V184a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,144H40V56H216V184Z"/></svg>
-          <span class="ds-icon-row-label">Prompt &amp; CLI Cookbook: NodeSpec roundtrips, PTY Chat, and headless GPU QA</span>
-          <span class="ds-icon-row-meta">cookbook.md</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://github.com/jangtrinh/design-os-studio/blob/main/docs/releasing.md">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216,40H40A16,16,0,0,0,24,56V184a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,144H40V56H216V184Z"/></svg>
-          <span class="ds-icon-row-label">Release Engineering: Cross-platform packaging &amp; atomic self-updater</span>
-          <span class="ds-icon-row-meta">releasing.md</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-        <a class="ds-icon-row" href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE">
-          <svg class="ph" data-lead="true" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M239.43,133l-32-80h0a8,8,0,0,0-9.16-4.84L136,62V40a8,8,0,0,0-16,0V65.58L54.26,80.19A8,8,0,0,0,48.57,85h0v.06L16.57,165a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32a7.92,7.92,0,0,0-.57-3L66.92,93.77,120,82V208H104a8,8,0,0,0,0,16h48a8,8,0,0,0,0-16H136V78.42L187,67.1,160.57,133a7.92,7.92,0,0,0-.57,3c0,23.31,24.54,32,40,32s40-8.69,40-32A7.92,7.92,0,0,0,239.43,133ZM56,184c-7.53,0-22.76-3.61-23.93-14.64L56,109.54l23.93,59.82C78.76,180.39,63.53,184,56,184Zm144-32c-7.53,0-22.76-3.61-23.93-14.64L200,77.54l23.93,59.82C222.76,148.39,207.53,152,200,152Z"/></svg>
-          <span class="ds-icon-row-label">Dual MIT OR Apache-2.0 License: Permissive open-source rights</span>
-          <span class="ds-icon-row-meta">license</span>
-          <svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
-        </a>
-      </div>
-    </section>
-  </main>
-
-  <!-- 9B. UNIFIED MINIMAL FOOTER -->
-  <footer class="ds-shell-footer">
-    <div class="ds-shell-footer-inner">
-      <nav class="ds-shell-footer-nav" aria-label="Footer">
-        <a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio"><svg class="ph" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>GitHub</a>
-        <a class="ds-tab" href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE">MIT / Apache-2.0</a>
-        <a class="ds-tab" href="#main">Back to top</a>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <p class="brand-line"><strong>DESIGN:OS Studio</strong>A native design editor for Figma files and coding agents.</p>
+      <nav aria-label="Footer">
+        <ul class="foot-links">
+          <li><a href="https://github.com/jangtrinh/design-os-studio">GitHub</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio/releases">Releases</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio/blob/main/LICENSE">License: MIT / Apache-2.0</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio#why-this-exists">Honest comparison</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio#designos-ecosystem">Ecosystem</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio/blob/main/docs/install.md">Install guide</a></li>
+          <li><a href="https://github.com/jangtrinh/design-os-studio/blob/main/docs/cookbook.md">Cookbook</a></li>
+          <li><a href="https://buymeacoffee.com/jangtrinh">Buy me a coffee</a></li>
+        </ul>
       </nav>
     </div>
-  </footer>
-</div>
-<script data-name="BMC-Widget" data-cfasync="false" src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js" data-id="jangtrinh" data-description="Support me on Buy me a coffee!" data-message="" data-color="#FF813F" data-position="Right" data-x_margin="18" data-y_margin="18"></script>
+    <div class="legal"><p>DESIGN:OS Studio is an independent open-source project. Figma is a trademark of Figma, Inc. The film, the agent still and the big-file render show the Untitled UI PRO v8.0 kit by Untitled UI.</p></div>
+  </div>
+</footer>
 
 <script>
-(function(){function svg(w,h){return"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='"+(w||400)+"' height='"+(h||300)+"'%3E%3Crect width='100%25' height='100%25' fill='%23f0f0f0'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dy='.3em' fill='%23999' font-size='14'%3EImage%3C/text%3E%3C/svg%3E"}window.__imgFallback=function(i){i.src=svg(i.width,i.height)}})();
+(function () {
+  'use strict';
+
+  // The hero box reports its own size, like a selected frame in the editor.
+  var box = document.getElementById('sel-box'), pill = document.getElementById('sel-pill');
+  if (box && pill && 'ResizeObserver' in window) {
+    new ResizeObserver(function () {
+      var r = box.getBoundingClientRect();
+      pill.textContent = Math.round(r.width) + ' × ' + Math.round(r.height);
+    }).observe(box);
+    pill.hidden = false;
+  }
+
+  // Film: 16:9 on wide screens, 9:16 on phones held upright. Paths come from the <video> tag.
+  var fig = document.getElementById('film'), v = document.getElementById('film-video');
+  if (fig && v && typeof v.play === 'function') {
+    var narrow = matchMedia('(max-width:640px) and (orientation:portrait)');
+    var calm = matchMedia('(prefers-reduced-motion: reduce)');
+    var cut = {
+      land: { src: v.querySelector('source').getAttribute('src'), poster: v.getAttribute('poster') },
+      port: { src: v.getAttribute('data-portrait-src'), poster: v.getAttribute('data-portrait-poster') }
+    };
+    var kind = 'land';
+    var bar = document.getElementById('film-bar'), overlay = document.getElementById('film-play'),
+        toggle = document.getElementById('film-toggle'), label = document.getElementById('film-toggle-label'),
+        sound = document.getElementById('film-sound'), state = sound.querySelector('[data-state]');
+    var sync = function () {
+      var playing = !v.paused && !v.ended;
+      fig.setAttribute('data-playing', playing ? 'true' : 'false');
+      label.textContent = playing ? 'Pause' : 'Play';
+      overlay.hidden = playing;
+      sound.setAttribute('aria-pressed', v.muted ? 'false' : 'true');
+      state.textContent = v.muted ? 'Off' : 'On';
+    };
+    var start = function () { var p = v.play(); if (p && p.catch) p.catch(sync); };
+    var use = function (next, keepPlace) {
+      if (next === kind) return;
+      var at = keepPlace ? v.currentTime : 0, was = !v.paused;
+      kind = next;
+      v.poster = cut[next].poster;
+      v.src = cut[next].src + (at > 0.5 ? '#t=' + at.toFixed(1) : '');
+      v.load();
+      if (keepPlace && was) start();
+    };
+    var listen = function (mq, fn) { if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn); };
+    ['play', 'playing', 'pause', 'ended', 'volumechange', 'loadedmetadata'].forEach(function (e) { v.addEventListener(e, sync); });
+    toggle.addEventListener('click', function () { if (v.paused) start(); else v.pause(); });
+    overlay.addEventListener('click', start);
+    sound.addEventListener('click', function () { v.muted = !v.muted; if (!v.muted && v.volume === 0) v.volume = 1; });
+    listen(narrow, function () { use(narrow.matches ? 'port' : 'land', true); });
+    listen(calm, function () { if (calm.matches) v.pause(); });
+    v.removeAttribute('autoplay'); v.removeAttribute('controls');
+    use(narrow.matches ? 'port' : 'land', false);
+    if (calm.matches) v.pause(); else start();
+    bar.hidden = false; sync();
+  }
+
+  // Install: one tab per agent, each with a working Copy button. Without JS every panel shows.
+  var host = document.getElementById('agent-install');
+  if (host) {
+    var panels = Array.prototype.slice.call(host.querySelectorAll('.panel'));
+    var list = document.createElement('div');
+    list.className = 'tabs-bar'; list.setAttribute('role', 'tablist'); list.setAttribute('aria-label', 'Coding agent');
+    var tabs = panels.map(function (panel, i) {
+      var tab = document.createElement('button');
+      tab.type = 'button'; tab.className = 'tab'; tab.setAttribute('role', 'tab');
+      tab.id = 'agent-tab-' + i; tab.setAttribute('aria-controls', 'agent-panel-' + i);
+      tab.textContent = panel.getAttribute('data-label');
+      panel.id = 'agent-panel-' + i; panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', tab.id);
+      panel.querySelector('h3').hidden = true;
+      list.appendChild(tab);
+      var code = panel.querySelector('.code'), pre = code.querySelector('pre'), copy = document.createElement('button');
+      copy.type = 'button'; copy.className = 'copy'; copy.textContent = 'Copy';
+      copy.setAttribute('aria-label', 'Copy ' + tab.textContent + ' commands');
+      copy.addEventListener('click', function () {
+        var text = pre.textContent, done = function () {
+          copy.textContent = 'Copied';
+          setTimeout(function () { copy.textContent = 'Copy'; }, 1800);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { pre.focus(); });
+        } else { pre.focus(); }
+      });
+      code.classList.add('has-copy'); code.appendChild(copy);
+      return tab;
+    });
+    var select = function (n, focus) {
+      tabs.forEach(function (tab, i) {
+        var on = i === n;
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        tab.tabIndex = on ? 0 : -1;
+        panels[i].hidden = !on;
+      });
+      if (focus) tabs[n].focus();
+    };
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(i, false); });
+      tab.addEventListener('keydown', function (e) {
+        var n = null;
+        if (e.key === 'ArrowRight') n = (i + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') n = (i + tabs.length - 1) % tabs.length;
+        else if (e.key === 'Home') n = 0;
+        else if (e.key === 'End') n = tabs.length - 1;
+        if (n !== null) { e.preventDefault(); select(n, true); }
+      });
+    });
+    host.insertBefore(list, panels[0]);
+    select(0, false);
+  }
+})();
 </script>
 </body>
 </html>
