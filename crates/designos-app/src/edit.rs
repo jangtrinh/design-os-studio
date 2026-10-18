@@ -87,6 +87,28 @@ impl Tx {
         Ok(())
     }
 
+    /// Applies `cmds` in order as part of this transaction, all or none. When one fails, the ones
+    /// already applied are undone and forgotten, so the transaction (and a "Fix all" built on it)
+    /// never commits half of a multi-step edit such as an insert followed by a remove.
+    pub fn cmds_all_or_none(&mut self, doc: &mut Document, cmds: Vec<Command>) -> Result<(), DocError> {
+        let mark = self.cmds.len();
+        for c in cmds {
+            if let Err(e) = self.cmd(doc, c) {
+                let mut rollback_failed = None;
+                while self.inverses.len() > mark {
+                    if let Some(inv) = self.inverses.pop() {
+                        if let Err(re) = inv.apply(doc) {
+                            rollback_failed.get_or_insert(re);
+                        }
+                    }
+                }
+                self.cmds.truncate(mark);
+                return Err(rollback_failed.unwrap_or(e));
+            }
+        }
+        Ok(())
+    }
+
     /// Restores the document to its state before the transaction began.
     pub fn cancel(mut self, doc: &mut Document) {
         self.ed.revert(doc);
@@ -155,6 +177,39 @@ mod tests {
         tx.cancel(&mut d);
         assert!(d.get(nid).is_none());
         assert!(d.get(page).unwrap().children.is_empty());
+    }
+
+    #[test]
+    fn a_failing_step_rolls_back_the_steps_before_it() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ghost = d.alloc_id();
+        let mk = |d: &mut Document| {
+            let id = d.alloc_id();
+            Command::Insert { parent: page, index: 0, nodes: vec![Node::rectangle(id, Rect::new(0.0, 0.0, 5.0, 5.0))] }
+        };
+        // Control: applying the steps one by one leaves the first one behind when the second fails.
+        let mut plain = Tx::new();
+        let first = mk(&mut d);
+        assert!(plain.cmd(&mut d, first).is_ok());
+        assert!(plain.cmd(&mut d, Command::Remove { id: ghost }).is_err());
+        assert_eq!(d.get(page).unwrap().children.len(), 1, "a plain step sequence is not atomic");
+        plain.cancel(&mut d);
+        assert!(d.get(page).unwrap().children.is_empty());
+
+        let mut tx = Tx::new();
+        let kept = mk(&mut d);
+        tx.cmd(&mut d, kept).unwrap();
+        let before = d.get(page).unwrap().children.clone();
+        let (a, b) = (mk(&mut d), mk(&mut d));
+        assert!(tx.cmds_all_or_none(&mut d, vec![a, b, Command::Remove { id: ghost }]).is_err());
+        assert_eq!(d.get(page).unwrap().children, before, "the two inserts were undone");
+        assert_eq!((tx.cmds.len(), tx.inverses.len()), (1, 1), "only the earlier step is left in the transaction");
+        let ok = mk(&mut d);
+        assert!(tx.cmds_all_or_none(&mut d, vec![ok]).is_ok());
+        assert_eq!(d.get(page).unwrap().children.len(), before.len() + 1);
+        tx.cancel(&mut d);
+        assert!(d.get(page).unwrap().children.is_empty(), "cancel still restores everything");
     }
 
     #[test]

@@ -88,7 +88,14 @@ impl App {
             }
             Style::Fill(paints) => {
                 match &mut n.kind {
-                    NodeKind::Text(t) => t.style.fills = paints.clone(),
+                    NodeKind::Text(t) => {
+                        // Runs are what is painted: a run that had the old base fills follows the
+                        // style, a run coloured differently (a highlighted word) keeps its own.
+                        let old = std::mem::replace(&mut t.style.fills, paints.clone());
+                        for r in t.runs.iter_mut().filter(|r| r.style.fills == old) {
+                            r.style.fills = paints.clone();
+                        }
+                    }
                     _ => n.fills = paints.clone(),
                 }
                 n.style_refs.insert("fill".into(), key.into());
@@ -435,7 +442,7 @@ mod tests {
     fn effect_and_grid_styles_have_their_own_groups() {
         let (mut ed, f, r, _t) = app();
         ed.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![Effect::LayerBlur { radius: 4.0, visible: true }]));
-        ed.doc.styles.insert("g".into(), Style::Grid(vec![LayoutGrid::Grid { size: 8.0, color: Color::rgba(255, 0, 0, 26) }]));
+        ed.doc.styles.insert("g".into(), Style::Grid(vec![LayoutGrid::grid(8.0, Color::rgba(255, 0, 0, 26))]));
         ed.doc.style_meta.insert("g".into(), StyleMeta { name: "Layout/8pt".into(), property: StyleProperty::Grid, ..Default::default() });
         let keys = |k| style_entries_of(&ed.doc, k).into_iter().map(|e| (e.key, e.folder, e.leaf)).collect::<Vec<_>>();
         assert_eq!(keys(StyleKind::Effect), vec![("Shadow/Card".to_string(), "Shadow".to_string(), "Card".to_string())]);

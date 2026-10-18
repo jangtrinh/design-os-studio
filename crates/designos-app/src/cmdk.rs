@@ -89,6 +89,8 @@ pub enum CmdKAction {
     ExportFig,
     SelectNode(NodeId),
     AutoFixDesignGate,
+    /// Opens the Check designs panel on the selection (or the page).
+    OpenCheckDesigns,
 }
 
 #[allow(non_upper_case_globals, non_snake_case)]
@@ -118,7 +120,7 @@ struct QuickCommandItem {
     keywords: &'static str,
 }
 
-const QUICK_COMMANDS: [QuickCommandItem; 11] = [
+const QUICK_COMMANDS: [QuickCommandItem; 12] = [
     QuickCommandItem {
         id: "cmdk-open-terminal",
         section: "Recents",
@@ -206,6 +208,17 @@ const QUICK_COMMANDS: [QuickCommandItem; 11] = [
         shortcut: "⌥⌘G",
         tab_mask: 0b1100,
         keywords: "audit gate review vsf lint spacing tap target token readability plugin widget",
+    },
+    QuickCommandItem {
+        id: "cmdk-check-designs",
+        section: "Quality & Audit",
+        icon: Icon::Check,
+        title: "Check designs",
+        subtitle: "Finds hard-coded values that match a variable or style, WCAG AA contrast failures and detached instances, each with a one-click fix",
+        badge: "Audit",
+        shortcut: "",
+        tab_mask: 0b1000,
+        keywords: "check designs lint hard-coded hardcoded variable style bind contrast wcag detached instance reconnect fix all",
     },
     QuickCommandItem {
         id: "cmdk-send-selection",
@@ -504,6 +517,10 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                         state.status =
                             Some(format!("Design Gate Score: {}/100 ({} warnings across {} nodes)", report.score, report.warnings.len(), report.node_count));
                         state.last_audit = Some(report);
+                    }
+                    "cmdk-check-designs" => {
+                        state.open = false;
+                        out_action = Some(CmdKAction::OpenCheckDesigns);
                     }
                     "cmdk-open-terminal" => {
                         state.status = Some("Opened live interactive Agent PTY CLI".into());
