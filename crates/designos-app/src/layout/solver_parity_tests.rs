@@ -693,6 +693,72 @@ fn auto_layout_child_margins_shift_positions_and_expand_hug_frames_across_all_so
     assert_eq!(solved_v.kids[1], [22.0, 64.0, 84.0, 20.0]);
 }
 
+/// A flow frame hugging its counter axis, holding a fixed child `A` and a counter-axis Fill child `B` that has
+/// `before` / `after` margin on the counter axis (top / bottom in a row, left / right in a column).
+fn hug_counter_frame_with_cross_fill_margins(
+    direction: LayoutDirection,
+    counter_align: LayoutAlign,
+    before: f32,
+    after: f32,
+    with_fixed_sibling: bool,
+) -> Solved {
+    let row = direction == LayoutDirection::Horizontal;
+    // (main, cross) -> (w, h)
+    let size = |main: f32, cross: f32| if row { (main, cross) } else { (cross, main) };
+    let cross_margin = if row { [before, 0.0, after, 0.0] } else { [0.0, after, 0.0, before] };
+    let mut al = auto(direction, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    al.counter_align = counter_align;
+    let a = size(30.0, 40.0);
+    let b = size(20.0, 10.0);
+    let fill = kid_with(b.0, b.1, |lc| {
+        if row {
+            lc.vertical = Sizing::Fill;
+        } else {
+            lc.horizontal = Sizing::Fill;
+        }
+        lc.margin = cross_margin;
+    });
+    let kids: Vec<Kid> = if with_fixed_sibling { vec![kid(a.0, a.1), fill] } else { vec![fill] };
+    solve_everywhere(al, frame_for(direction, 100.0, 1.0), &kids)
+}
+
+#[test]
+fn a_hugging_counter_axis_reserves_the_margins_of_a_cross_fill_child() {
+    for direction in DIRECTIONS {
+        let row = direction == LayoutDirection::Horizontal;
+        // [main pos, cross pos, main size, cross size] -> [x, y, w, h]
+        let rect = |m_pos: f32, c_pos: f32, m_size: f32, c_size: f32| if row { [m_pos, c_pos, m_size, c_size] } else { [c_pos, m_pos, c_size, m_size] };
+        let frame = |cross: f32| if row { (100.0, cross) } else { (cross, 100.0) };
+
+        // Fixed A is 40 across; B stretches but its margins alone need 60: the frame grows to 60 so B's margin box stays inside it.
+        for (align, a_cross) in [(LayoutAlign::Start, 0.0), (LayoutAlign::Center, 10.0), (LayoutAlign::End, 20.0)] {
+            let solved = hug_counter_frame_with_cross_fill_margins(direction, align, 30.0, 30.0, true);
+            assert_eq!(solved.frame, frame(60.0), "{direction:?} {align:?}");
+            assert_eq!(solved.kids[0], rect(0.0, a_cross, 30.0, 40.0), "{direction:?} {align:?} A");
+            assert_eq!(solved.kids[1], rect(30.0, 30.0, 20.0, 0.0), "{direction:?} {align:?} B sits inside its reserved margin box");
+        }
+
+        // The margins fit beside A (40 across): the frame stays 40 and B fills what the margins leave.
+        let solved = hug_counter_frame_with_cross_fill_margins(direction, LayoutAlign::Start, 5.0, 7.0, true);
+        assert_eq!(solved.frame, frame(40.0), "{direction:?}");
+        assert_eq!(solved.kids[1], rect(30.0, 5.0, 20.0, 28.0), "{direction:?}");
+    }
+}
+
+#[test]
+fn a_lone_cross_fill_child_still_reserves_its_margins_in_a_hugging_counter_axis() {
+    // A lone Fill child has no natural extent to hold the frame open, but its margins still do.
+    for direction in DIRECTIONS {
+        let solved = hug_counter_frame_with_cross_fill_margins(direction, LayoutAlign::Start, 8.0, 12.0, false);
+        if direction == LayoutDirection::Horizontal {
+            assert_eq!((solved.frame, solved.kids[0]), ((100.0, 20.0), [0.0, 8.0, 20.0, 0.0]), "{direction:?}");
+        } else {
+            assert_eq!((solved.frame, solved.kids[0]), ((20.0, 100.0), [8.0, 0.0, 0.0, 20.0]), "{direction:?}");
+        }
+    }
+}
+
 #[test]
 fn nested_container_resized_by_parent_fill_resolves_its_own_children() {
     // Parent Fixed 300x100 (padding 10, gap 20) holds a Fixed 40x30 child and a nested auto-layout
