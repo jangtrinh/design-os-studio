@@ -1242,8 +1242,8 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     if let Some(g) = fnum(nc, "stackChildPrimaryGrow") {
         m.insert("layoutGrow".into(), g.into());
     }
-    if fstr(nc, "stackChildAlignSelf") == Some("STRETCH") {
-        m.insert("layoutAlign".into(), "STRETCH".into());
+    if let Some(a) = fstr(nc, "stackChildAlignSelf") {
+        m.insert("layoutAlign".into(), a.into());
     }
     if fstr(nc, "stackPositioning") == Some("ABSOLUTE") {
         m.insert("layoutPositioning".into(), "ABSOLUTE".into());

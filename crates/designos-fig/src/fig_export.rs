@@ -843,8 +843,16 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if prim_fill {
         fields.push(("stackChildPrimaryGrow", fl(if lc.grow > 0.0 { lc.grow } else { 1.0 })));
     }
-    if counter_fill {
-        fields.push(("stackChildAlignSelf", en("STRETCH")));
+    let align_self_name = match lc.align_self {
+        AlignSelf::Start => Some("MIN"),
+        AlignSelf::Center => Some("CENTER"),
+        AlignSelf::End => Some("MAX"),
+        AlignSelf::Stretch => Some("STRETCH"),
+        AlignSelf::Baseline => Some("BASELINE"),
+        AlignSelf::Auto => counter_fill.then_some("STRETCH"),
+    };
+    if let Some(a) = align_self_name {
+        fields.push(("stackChildAlignSelf", en(a)));
     }
     if lc.absolute {
         fields.push(("stackPositioning", en("ABSOLUTE")));
@@ -1462,10 +1470,18 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 } else if parent_dir.is_some() {
                     ov.push(("stackChildPrimaryGrow", fl(0.0)));
                 }
-                if counter_fill {
-                    ov.push(("stackChildAlignSelf", en("STRETCH")));
-                } else if parent_dir.is_some() {
-                    ov.push(("stackChildAlignSelf", en("AUTO")));
+                let align_self_ov = match lc.align_self {
+                    AlignSelf::Start => Some("MIN"),
+                    AlignSelf::Center => Some("CENTER"),
+                    AlignSelf::End => Some("MAX"),
+                    AlignSelf::Stretch => Some("STRETCH"),
+                    AlignSelf::Baseline => Some("BASELINE"),
+                    AlignSelf::Auto if counter_fill => Some("STRETCH"),
+                    AlignSelf::Auto if parent_dir.is_some() => Some("AUTO"),
+                    AlignSelf::Auto => None,
+                };
+                if let Some(a) = align_self_ov {
+                    ov.push(("stackChildAlignSelf", en(a)));
                 }
                 if let Some(c) = lc.grid_column {
                     ov.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));

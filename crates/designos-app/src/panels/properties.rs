@@ -989,18 +989,14 @@ fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
 }
 
 fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
+    // the parent flow's counter axis per node: a counter-axis write other than Fill ends an AlignSelf::Stretch
+    let counter_axes: Vec<(NodeId, Option<bool>)> = sel
+        .iter()
+        .map(|id| (*id, app.doc.get(*id).and_then(|n| n.parent).and_then(|p| app.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal)))
+        .collect();
     app.edit_nodes(sel, |n| {
-        if s != Sizing::Hug {
-            if horizontal {
-                n.layout_child.horizontal = s;
-            } else {
-                n.layout_child.vertical = s;
-            }
-        } else if horizontal {
-            n.layout_child.horizontal = Sizing::Fixed;
-        } else {
-            n.layout_child.vertical = Sizing::Fixed;
-        }
+        let counter = counter_axes.iter().find(|(id, _)| *id == n.id).and_then(|(_, axis)| *axis);
+        n.layout_child.set_axis_sizing(horizontal, if s == Sizing::Hug { Sizing::Fixed } else { s }, counter);
         if let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
             let primary_h = al.primary_is_horizontal();
             let target = if horizontal == primary_h { &mut al.primary_sizing } else { &mut al.counter_sizing };
@@ -2318,5 +2314,60 @@ mod tests {
         let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!((al.primary_sizing, al.counter_sizing), (Sizing::Fixed, Sizing::Hug));
         assert_eq!((sizing_of(n, true), sizing_of(n, false)), (Sizing::Fixed, Sizing::Hug));
+    }
+
+    /// A `direction` flow frame of 200x100 holding one 30x20 rectangle imported the way `layoutAlign: STRETCH` is
+    /// stored: Fill on the counter axis plus `AlignSelf::Stretch`. The child has not been laid out yet.
+    fn app_with_imported_stretch_child(direction: LayoutDirection) -> (App, NodeId) {
+        let mut doc = designos_doc::Document::new("test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let fid = app.doc.alloc_id();
+        let mut frame = Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        let al = AutoLayout { direction, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        frame.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        let fid = app.doc.insert(page, frame).unwrap();
+        let cid = app.doc.alloc_id();
+        let mut child = Node::rectangle(cid, designos_doc::Rect::new(0.0, 0.0, 30.0, 20.0));
+        match direction {
+            LayoutDirection::Vertical => child.layout_child.horizontal = Sizing::Fill,
+            _ => child.layout_child.vertical = Sizing::Fill,
+        }
+        child.layout_child.align_self = AlignSelf::Stretch;
+        let cid = app.doc.insert(fid, child).unwrap();
+        (app, cid)
+    }
+
+    #[test]
+    fn leaving_fill_on_the_counter_axis_ends_an_imported_stretch() {
+        // horizontal flow: height is the counter axis
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        set_sizing(&mut app, &[cid], false, Sizing::Fixed);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
+        assert_eq!((n.size.x, n.size.y), (30.0, 20.0), "Fixed stops the stretch");
+
+        // Hug on the counter axis ends it as well
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        set_sizing(&mut app, &[cid], false, Sizing::Hug);
+        assert_eq!(app.doc.get(cid).unwrap().layout_child.align_self, AlignSelf::Auto);
+
+        // vertical flow: width is the counter axis
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Vertical);
+        set_sizing(&mut app, &[cid], true, Sizing::Fixed);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
+        assert_eq!((n.size.x, n.size.y), (30.0, 20.0));
+    }
+
+    #[test]
+    fn sizing_writes_that_keep_the_stretch_axis_leave_the_stretch_alone() {
+        // the main axis of a horizontal flow is not stretched, and Fill on the counter axis still is
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        set_sizing(&mut app, &[cid], true, Sizing::Fixed);
+        set_sizing(&mut app, &[cid], false, Sizing::Fill);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.align_self, AlignSelf::Stretch);
+        assert_eq!(n.size.y, 100.0);
     }
 }

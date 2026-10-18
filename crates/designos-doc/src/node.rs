@@ -910,12 +910,30 @@ impl AutoLayout {
     }
 }
 
+/// Per-child cross-axis alignment override (`stackChildAlignSelf` / `layoutAlign`) in auto layout.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AlignSelf {
+    #[default]
+    Auto,
+    Start,
+    Center,
+    End,
+    Stretch,
+    Baseline,
+}
+
+fn is_default_align_self(a: &AlignSelf) -> bool {
+    *a == AlignSelf::default()
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChild {
     pub absolute: bool,
     pub horizontal: Sizing,
     pub vertical: Sizing,
     pub grow: f32,
+    #[serde(default, skip_serializing_if = "is_default_align_self")]
+    pub align_self: AlignSelf,
     pub min_w: Option<f32>,
     pub max_w: Option<f32>,
     pub min_h: Option<f32>,

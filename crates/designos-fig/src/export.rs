@@ -486,6 +486,17 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             if lc.grow != 0.0 {
                 m.insert("layoutGrow".into(), n(lc.grow));
             }
+            let align_self_str = match lc.align_self {
+                AlignSelf::Start => Some("MIN"),
+                AlignSelf::Center => Some("CENTER"),
+                AlignSelf::End => Some("MAX"),
+                AlignSelf::Stretch => Some("STRETCH"),
+                AlignSelf::Baseline => Some("BASELINE"),
+                AlignSelf::Auto => None,
+            };
+            if let Some(a) = align_self_str {
+                m.insert("layoutAlign".into(), a.into());
+            }
             if lc.absolute {
                 m.insert("layoutPositioning".into(), "ABSOLUTE".into());
             }

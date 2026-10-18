@@ -342,6 +342,9 @@ pub struct TerminalTab {
     pub title: String,
     #[allow(dead_code)]
     pub preset: AgentCliPreset,
+    /// Process kind at spawn. Never mutated afterwards: `preset` is relabelled by
+    /// `set_active_runtime` / `submit_chat_prompt` and does not reflect the real process.
+    pub spawn_preset: AgentCliPreset,
     pub parser: Arc<Mutex<vt100::Parser>>,
     pub writer: Box<dyn Write + Send>,
     pub master: Box<dyn MasterPty + Send>,
@@ -353,6 +356,8 @@ pub struct TerminalTab {
     pub selection: Option<((u16, u16), (u16, u16))>,
     pub agent_status: Arc<Mutex<AgentTabStatus>>,
     pub last_output_at: Arc<Mutex<Option<std::time::Instant>>>,
+    /// Set after the agent-exit notice is written into the vt100 parser. Never respawn a shell.
+    pub exited_notice_shown: bool,
 }
 
 impl TerminalTab {
@@ -370,31 +375,49 @@ impl TerminalTab {
         file_path: Option<&Path>,
         session: Option<&SessionEnv>,
     ) -> Result<Self, String> {
+        Self::spawn_with_session_cmd(id, preset, rows, cols, file_path, session, None)
+    }
+
+    /// Like [`Self::spawn_with_session`], with an optional prepared `CommandBuilder` (tests inject a stub agent).
+    fn spawn_with_session_cmd(
+        id: usize,
+        preset: AgentCliPreset,
+        rows: u16,
+        cols: u16,
+        file_path: Option<&Path>,
+        session: Option<&SessionEnv>,
+        cmd_override: Option<CommandBuilder>,
+    ) -> Result<Self, String> {
         let rows = rows.max(6);
         let cols = cols.max(20);
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("openpty failed: {e}"))?;
 
-        let shell_bin = default_shell_program();
-        let mut cmd = match preset {
-            AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-                let mut c = CommandBuilder::new(&shell_bin);
-                if cfg!(test) {
-                    if shell_bin.ends_with("zsh") {
-                        c.arg("-f");
-                    } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
-                        c.arg("--norc");
-                        c.arg("--noprofile");
+        let mut cmd = match cmd_override {
+            Some(c) => c,
+            None => {
+                let shell_bin = default_shell_program();
+                match preset {
+                    AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
+                        let mut c = CommandBuilder::new(&shell_bin);
+                        if cfg!(test) {
+                            if shell_bin.ends_with("zsh") {
+                                c.arg("-f");
+                            } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
+                                c.arg("--norc");
+                                c.arg("--noprofile");
+                            }
+                        } else if !cfg!(windows) {
+                            c.arg("-l");
+                        }
+                        c
                     }
-                } else if !cfg!(windows) {
-                    c.arg("-l");
+                    AgentCliPreset::Claude => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Claude.cli_launch_command()),
+                    AgentCliPreset::Codex => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Codex.cli_launch_command()),
+                    AgentCliPreset::Antigravity => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Antigravity.cli_launch_command()),
+                    AgentCliPreset::Grok => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Grok.cli_launch_command()),
                 }
-                c
             }
-            AgentCliPreset::Claude => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Claude.cli_launch_command()),
-            AgentCliPreset::Codex => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Codex.cli_launch_command()),
-            AgentCliPreset::Antigravity => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Antigravity.cli_launch_command()),
-            AgentCliPreset::Grok => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Grok.cli_launch_command()),
         };
 
         configure_pty_env_with_session(&mut cmd, preset, file_path, session);
@@ -467,6 +490,7 @@ impl TerminalTab {
             id,
             title: format!("{} #{}", preset.button_label(), id),
             preset,
+            spawn_preset: preset,
             parser,
             writer,
             master: pair.master,
@@ -478,7 +502,21 @@ impl TerminalTab {
             selection: None,
             agent_status,
             last_output_at,
+            exited_notice_shown: false,
         })
+    }
+
+    /// Test helper: Claude `spawn_preset` running a stub that prints and exits (no `$SHELL` fallback).
+    #[cfg(test)]
+    fn spawn_exiting_stub_agent(id: usize, rows: u16, cols: u16, file_path: Option<&Path>, session: Option<&SessionEnv>) -> Result<Self, String> {
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo STUB-AGENT-EXIT; exit 1'");
+        // Isolate zsh from the real HOME: `zsh -l -i -c ...` in a PTY otherwise starts
+        // zsh-newuser-install when ~/.zshrc is missing and the stub never runs.
+        let zdotdir = std::env::temp_dir().join(format!("dos-p0-zdotdir-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&zdotdir);
+        let _ = std::fs::write(zdotdir.join(".zshrc"), b"");
+        cmd.env("ZDOTDIR", &zdotdir);
+        Self::spawn_with_session_cmd(id, AgentCliPreset::Claude, rows, cols, file_path, session, Some(cmd))
     }
 
     /// Resizes both the underlying OS PTY and the `vt100::Parser` when the viewport changes.
@@ -504,6 +542,29 @@ impl TerminalTab {
 
     /// Writes a single line followed by `\r` to execute in the PTY.
     pub fn send_line(&mut self, line: &str) {
+        let _ = self.writer.write_all(line.as_bytes());
+        let _ = self.writer.write_all(b"\r");
+        let _ = self.writer.flush();
+    }
+
+    /// True when the spawned process is a login/help shell rather than an agent CLI.
+    pub fn is_shell_process(&self) -> bool {
+        matches!(self.spawn_preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
+    }
+
+    /// True when the child has not yet exited (`child.try_wait() == Ok(None)`).
+    pub fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// True when this tab is a live agent CLI (not a shell process, and the child is still running).
+    pub fn accepts_agent_input(&mut self) -> bool {
+        !self.is_shell_process() && self.is_alive()
+    }
+
+    /// Writes `Ctrl-E` (end-of-line) then `Ctrl-U` (kill line / tty VKILL), then `line` and `\r`.
+    pub fn send_line_clearing_pending(&mut self, line: &str) {
+        let _ = self.writer.write_all(b"\x05\x15");
         let _ = self.writer.write_all(line.as_bytes());
         let _ = self.writer.write_all(b"\r");
         let _ = self.writer.flush();
@@ -995,7 +1056,7 @@ impl TerminalState {
         let pty_exec_line = if is_raw_shell {
             format!("printf 'DESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN'; {raw_cmd}; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'")
         } else {
-            let safe = trimmed.replace('\'', "").replace('\n', " ");
+            let safe = sanitize_pty_paste_text(trimmed).replace('\'', "").replace('\n', " ");
             let bin = runtime.binary_name();
             let title = runtime.tab_title();
             let lower = trimmed.to_ascii_lowercase();
@@ -1053,8 +1114,14 @@ impl TerminalState {
             applied_to_canvas: false,
         });
 
-        if let Some(tab) = self.active_tab_mut() {
-            tab.send_line(&pty_exec_line);
+        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
+        if skip_dead_agent {
+            self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
+        } else if let Some(tab) = self.active_tab_mut() {
+            tab.send_line_clearing_pending(&pty_exec_line);
+            self.status_msg = Some(format!("Executed in {} PTY shell", runtime.tab_title()));
+        } else {
+            self.status_msg = Some(format!("Executed in {} PTY shell", runtime.tab_title()));
         }
         // Keep `side_panel_pty_open = true` in normal interactive Terminal-first workflow;
         // only switch to chat bubble view in tests or when already in chat view.
@@ -1062,7 +1129,6 @@ impl TerminalState {
             self.side_panel_pty_open = false;
             self.chat_mode = true;
         }
-        self.status_msg = Some(format!("Executed in {} PTY shell", runtime.tab_title()));
     }
 
     /// Synchronizes all `Assistant` chat turns with the live PTY `raw_log` buffer, stripping ANSI
@@ -1232,6 +1298,24 @@ impl TerminalState {
             }
         }
 
+        let mut agent_exited = false;
+        for tab in &mut self.tabs {
+            if tab.is_shell_process() || tab.exited_notice_shown {
+                continue;
+            }
+            if !tab.is_alive() {
+                if let Ok(mut parser) = tab.parser.lock() {
+                    parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
+                }
+                tab.title.push_str(" (exited)");
+                tab.exited_notice_shown = true;
+                agent_exited = true;
+            }
+        }
+        if agent_exited {
+            self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
+        }
+
         actions
     }
 
@@ -1294,20 +1378,38 @@ impl TerminalState {
             aid
         };
 
-        let safe_title = task_title.replace('\'', "").replace('\n', " ");
-        let safe_prompt = cli_prompt.replace('\'', "").replace('\n', " ");
+        let safe_title = sanitize_pty_paste_text(task_title).replace('\'', "").replace('\n', " ");
+        let safe_prompt = sanitize_pty_paste_text(cli_prompt).replace('\'', "").replace('\n', " ");
         let line =
             format!("printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[Figma AI · %s] %s\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN' '{safe_title}' '{safe_prompt}' 'END'");
-        if let Some(tab) = self.active_tab_mut() {
-            tab.send_line(&line);
+        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
+        if skip_dead_agent {
+            self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
+        } else {
+            if let Some(tab) = self.active_tab_mut() {
+                tab.send_line_clearing_pending(&line);
+            }
+            let title = self.active_tab().map(|t| t.title.clone()).unwrap_or_else(|| "Agent".into());
+            self.status_msg = Some(format!("Dispatched '{task_title}' to {title} PTY"));
         }
-        let title = self.active_tab().map(|t| t.title.clone()).unwrap_or_else(|| "Agent".into());
-        self.status_msg = Some(format!("Dispatched '{task_title}' to {title} PTY"));
     }
 
-    /// Copies the `product-os-spec-driven` block citation (`File: spec/...`, `Mục:`, `Trang reader:`,
-    /// `Project:`, `Yêu cầu của tôi:`) to the system clipboard, records a structured PRD/Spec chat turn
-    /// in the Agent Chat UI, AND pipes it directly into the active `claude` / `codex` / `agy` / `grok` PTY tab.
+    /// Pastes sanitized text into the active agent tab using bracketed paste.
+    /// Writes nothing and returns false when no tab is open, the tab is a shell process, or the agent has exited.
+    /// Never spawns a tab.
+    pub fn paste_into_agent_tab(&mut self, text: &str) -> bool {
+        if let Some(tab) = self.active_tab_mut() {
+            if tab.accepts_agent_input() {
+                tab.write_bytes(&bracketed_paste_bytes(text));
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Copies the `product-os-spec-driven` block citation to the system clipboard and a session
+    /// file. Pastes only a single-line file reference into an already-open agent tab (never a
+    /// shell tab, never auto-Enter, never spawns a tab).
     pub fn send_copy_for_ai(&mut self, block_markdown: &str) {
         let payload = format_copy_for_ai_payload(block_markdown);
 
@@ -1315,20 +1417,17 @@ impl TerminalState {
             let _ = cb.set_text(payload.clone());
         }
 
-        let summary_line = payload
-            .lines()
-            .find(|l| l.trim_start().starts_with("- Mục:") || l.trim_start().starts_with("- File:"))
-            .map(|l| l.trim().trim_start_matches('-').trim())
-            .unwrap_or("Spec Driven v2 block");
-        let chat_prompt = format!("@prd Review & implement spec block ({summary_line})");
-        self.submit_chat_prompt(&chat_prompt, None);
+        let excerpt_path = self.session_dir.join("copy-for-ai.md");
+        let _ = atomic_write_session_file(&excerpt_path, payload.as_bytes());
 
-        self.dock_open = true;
-        if let Some(tab) = self.active_tab_mut() {
-            tab.write_bytes(payload.as_bytes());
-            tab.write_bytes(b"\r");
+        let paste_line = format!("Read the design:os spec excerpt at {} and follow the request inside it.", excerpt_path.display());
+        let pasted = self.paste_into_agent_tab(&paste_line);
+        if pasted {
+            self.dock_open = true;
+            self.status_msg = Some("Copied to clipboard & pasted file reference into agent tab (press Enter to send)".into());
+        } else {
+            self.status_msg = Some("Copied to clipboard (no agent tab open — nothing sent to the terminal)".into());
         }
-        self.status_msg = Some("Copied PRD/Spec citation & dispatched to Agent Chat PTY".into());
     }
 }
 
@@ -1377,6 +1476,34 @@ pub fn strip_ansi_codes(raw: &str) -> String {
             out.push(ch);
         }
     }
+    out
+}
+
+/// Flatten a paste payload so it cannot execute as a shell command: `\r`/`\n`/`\t` become a
+/// space; every other `char::is_control()` (C0, DEL, C1 including ESC/`\u{9b}`) and U+2028/U+2029
+/// are dropped. Nothing else is collapsed. Result is trimmed.
+pub fn sanitize_pty_paste_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch == '\r' || ch == '\n' || ch == '\t' {
+            out.push(' ');
+            continue;
+        }
+        if ch.is_control() || ch == '\u{2028}' || ch == '\u{2029}' {
+            continue;
+        }
+        out.push(ch);
+    }
+    out.trim().to_string()
+}
+
+/// Bracketed-paste wrapper around [`sanitize_pty_paste_text`]. Never appends `\r`/Enter.
+pub fn bracketed_paste_bytes(s: &str) -> Vec<u8> {
+    let inner = sanitize_pty_paste_text(s);
+    let mut out = Vec::with_capacity(inner.len() + 12);
+    out.extend_from_slice(b"\x1b[200~");
+    out.extend_from_slice(inner.as_bytes());
+    out.extend_from_slice(b"\x1b[201~");
     out
 }
 
@@ -1937,7 +2064,11 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
         c.arg("-l");
         c.arg("-i");
         c.arg("-c");
-        c.arg(format!("{agent_cli} || exec \"{shell_bin}\" -l"));
+        // Single command: `exec` so the agent is the PTY child; when it exits the child exits.
+        // Compound commands (Antigravity's `agy ... || antigravity ...`) keep their own fallback,
+        // with no `|| exec $SHELL`.
+        let inner = if agent_cli.contains("||") { agent_cli.to_string() } else { format!("exec {agent_cli}") };
+        c.arg(inner);
     }
     c
 }
@@ -2093,17 +2224,16 @@ fn is_valid_node_spec_json(candidate: &str) -> bool {
 }
 
 /// Serializes the active selection (or first top-level frame on `page`) to
-/// the session's `selection.spec.json` (plus `/tmp/designos-live-selection.spec.json`) and pipes its path,
-/// dimensions, and unresolved Canvas Pin-Comments into the active PTY tab's stdin.
+/// the session's `selection.spec.json` (plus `/tmp/designos-live-selection.spec.json`) with a
+/// `designos_context` object (node name, id, open pin-comments). Pastes only a fixed
+/// file-reference sentence into a live agent tab (never node name, id, or comment text).
 pub fn export_selection_and_comments_to_pty(
     state: &mut TerminalState,
     doc: &Document,
     page: NodeId,
     selection: &[NodeId],
-    file_path: Option<&Path>,
+    _file_path: Option<&Path>,
 ) -> Result<PathBuf, String> {
-    state.ensure_default_tab(file_path);
-
     let target_id = selection
         .first()
         .copied()
@@ -2111,11 +2241,6 @@ pub fn export_selection_and_comments_to_pty(
         .ok_or_else(|| "No frame or node on current page to export".to_string())?;
 
     let spec = doc.export_spec(target_id)?;
-    let json = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
-    let _ = atomic_write_session_file(&state.selection_spec_path, json.as_bytes());
-    let tmp_path = std::env::temp_dir().join("designos-live-selection.spec.json");
-    std::fs::write(&tmp_path, &json).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
-
     let unresolved_comments: Vec<String> = doc
         .resolve_comment_targets()
         .into_iter()
@@ -2126,26 +2251,33 @@ pub fn export_selection_and_comments_to_pty(
             format!("[Pin on {target}]: {msg}")
         })
         .collect();
-
     let node_name = doc.get(target_id).map(|n| n.name.clone()).unwrap_or_else(|| "Selection".into());
-    let comment_summary = if unresolved_comments.is_empty() {
-        "0 open pin-comments".to_string()
-    } else {
-        format!("{} open pin-comments ({})", unresolved_comments.len(), unresolved_comments.join(" | "))
-    };
 
-    let cmd_snippet = format!(
-        "# [design:os studio Canvas Context] Node '{}' (#{}) exported to {} — {}",
-        node_name,
-        target_id.0,
-        state.selection_spec_path.display(),
-        comment_summary
-    );
-
-    if let Some(tab) = state.active_tab_mut() {
-        tab.send_line(&cmd_snippet);
+    let mut json_value = serde_json::to_value(&spec).map_err(|e| e.to_string())?;
+    if let Some(obj) = json_value.as_object_mut() {
+        obj.insert(
+            "designos_context".to_string(),
+            serde_json::json!({
+                "node_name": node_name,
+                "node_id": target_id.0,
+                "open_comments": unresolved_comments,
+            }),
+        );
     }
-    state.status_msg = Some(format!("Sent '{}' (#{}) + comments to {}", node_name, target_id.0, state.selection_spec_path.display()));
+    let json = serde_json::to_string_pretty(&json_value).map_err(|e| e.to_string())?;
+    let _ = atomic_write_session_file(&state.selection_spec_path, json.as_bytes());
+    let tmp_path = std::env::temp_dir().join("designos-live-selection.spec.json");
+    std::fs::write(&tmp_path, &json).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
+
+    let cmd_snippet =
+        format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", state.selection_spec_path.display());
+
+    let pasted = state.paste_into_agent_tab(&cmd_snippet);
+    if pasted {
+        state.status_msg = Some(format!("Sent '{}' (#{}) + comments to {}", node_name, target_id.0, state.selection_spec_path.display()));
+    } else {
+        state.status_msg = Some(format!("Selection exported to {} (no agent tab open — nothing sent to the terminal)", state.selection_spec_path.display()));
+    }
     Ok(state.selection_spec_path.clone())
 }
 
@@ -3833,6 +3965,7 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::{Comment, CommentAnchor, CommentThread, Node};
 
     #[test]
     fn extract_spec_json_from_fenced_and_raw_terminal_output() {
@@ -4087,7 +4220,7 @@ Done!
     #[test]
     fn agent_chat_supports_prd_and_spec_context_handoff() {
         let mut st = TerminalState::default();
-        st.send_copy_for_ai("REQ-01: Native Spec Reader & Linear/Confluence Reading Experience");
+        st.submit_chat_prompt("@prd Review & implement spec block (REQ-01)", None);
         assert_eq!(st.chat_turns.len(), 2);
         assert!(st.chat_turns[0].text.contains("@prd"), "User turn should carry @prd tag: {}", st.chat_turns[0].text);
 
@@ -4328,5 +4461,551 @@ Done!
         assert_eq!(vt100_color_to_egui(vt100::Color::Idx(0), true), Color32::from_rgb(0x1D, 0x1F, 0x21));
         assert_eq!(vt100_color_to_egui(vt100::Color::Idx(1), true), Color32::from_rgb(0xCC, 0x66, 0x66));
         assert_eq!(vt100_color_to_egui(vt100::Color::Idx(15), true), Color32::from_rgb(0xEA, 0xEA, 0xEA));
+    }
+
+    /// Records every byte the app writes to the tab. `_pty_writer` is the real PTY writer this recorder replaced:
+    /// portable-pty's `UnixMasterWriter` sends a newline plus VEOF into the PTY when dropped, which makes the shell
+    /// child exit. Holding it here keeps the child alive until the tab itself is dropped, so `is_alive()` stays
+    /// deterministic for the whole test instead of racing the shell's exit.
+    struct RecordingWriter {
+        recorded: Arc<Mutex<Vec<u8>>>,
+        _pty_writer: Box<dyn Write + Send>,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.recorded.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn attach_recorder(tab: &mut TerminalTab) -> Arc<Mutex<Vec<u8>>> {
+        let rec = Arc::new(Mutex::new(Vec::new()));
+        let pty_writer = std::mem::replace(&mut tab.writer, Box::new(std::io::sink()));
+        tab.writer = Box::new(RecordingWriter { recorded: Arc::clone(&rec), _pty_writer: pty_writer });
+        rec
+    }
+
+    fn injection_doc(frame_name: &str, comment_text: &str) -> (Document, NodeId, NodeId) {
+        let mut doc = Document::new("p0");
+        let page = doc.add_page("Page");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        frame.name = frame_name.to_string();
+        doc.insert(page, frame).unwrap();
+        doc.comments.push(CommentThread {
+            id: "t1".into(),
+            anchor: CommentAnchor { page, node: Some(fid), offset: designos_doc::Vec2::new(1.0, 1.0) },
+            messages: vec![Comment {
+                id: "m1".into(),
+                author: "qa".into(),
+                author_id: None,
+                author_color: None,
+                text: comment_text.into(),
+                created: "2026-10-16T00:00:00Z".into(),
+                edited: None,
+            }],
+            resolved: false,
+        });
+        (doc, page, fid)
+    }
+
+    const MALICIOUS_SPEC: &str = "```\n$(touch x)\n\x1b[201~";
+
+    #[test]
+    fn shell_tab_receives_zero_bytes_from_copy_and_send_selection() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.send_copy_for_ai(MALICIOUS_SPEC);
+
+        let (doc, page, fid) = injection_doc("Card-$(touch x)", "ok\ntouch x #");
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+
+        assert!(rec.lock().unwrap().is_empty(), "shell tab must receive zero bytes from copy/export");
+        assert_eq!(st.tabs.len(), 1);
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+    }
+
+    #[test]
+    fn copy_for_ai_never_spawns_a_tab() {
+        let mut st = TerminalState::default();
+        st.send_copy_for_ai(MALICIOUS_SPEC);
+        assert!(st.tabs.is_empty());
+    }
+
+    #[test]
+    fn agent_tab_gets_single_line_bracketed_paste() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+        }
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.send_copy_for_ai(MALICIOUS_SPEC);
+
+        let bytes = rec.lock().unwrap().clone();
+        assert!(bytes.starts_with(b"\x1b[200~"), "paste must start with bracketed-paste begin");
+        assert!(bytes.ends_with(b"\x1b[201~"), "paste must end with bracketed-paste end");
+        assert!(!bytes.ends_with(b"\r"), "must not auto-Enter");
+        let begin = b"\x1b[200~".len();
+        let end = bytes.len() - b"\x1b[201~".len();
+        let inner = String::from_utf8_lossy(&bytes[begin..end]);
+        assert!(!inner.contains('\r'));
+        assert!(!inner.contains('\n'));
+        assert!(!inner.contains('\x1b'));
+        assert!(inner.chars().all(|c| !c.is_control()), "inner paste must contain no control chars: {inner:?}");
+
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+    }
+
+    #[test]
+    fn sanitize_pty_paste_text_strips_controls() {
+        assert_eq!(sanitize_pty_paste_text("a\rb\nc\td"), "a b c d");
+        let stripped = sanitize_pty_paste_text("x\x1by\u{9b}z\x07w\u{7f}q");
+        assert_eq!(stripped, "xyzwq");
+        let escaped = sanitize_pty_paste_text("\x1b[201~");
+        assert_eq!(escaped, "[201~");
+        assert!(!escaped.contains('\x1b'));
+        assert_ne!(escaped, "\x1b[201~");
+        let seps = sanitize_pty_paste_text("keep\u{2028}me\u{2029}please");
+        assert_eq!(seps, "keepmeplease");
+    }
+
+    fn wait_shell_ready(st: &TerminalState) {
+        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < ready_deadline {
+            if let Some(tab) = st.active_tab() {
+                if let Ok(p) = tab.parser.lock() {
+                    if !p.screen().contents().trim().is_empty() {
+                        return;
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+    }
+
+    fn poll_full_3s() {
+        let poll_deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < poll_deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn kill_tabs(st: &mut TerminalState) {
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+    }
+
+    #[test]
+    fn pty_injection_fixture_real_shell() {
+        let pid = std::process::id();
+        let md = format!("/tmp/dos-p0-fixture-{pid}-md");
+        let mcp = format!("/tmp/dos-p0-fixture-{pid}-mcp");
+        let nl = format!("/tmp/dos-p0-fixture-{pid}-nl");
+        let trunc = format!("/tmp/dos-p0-fixture-{pid}-trunc.txt");
+
+        // md payload: copy-for-ai markdown with a trunc-file overwrite + touch.
+        {
+            let _ = std::fs::remove_file(&md);
+            std::fs::write(&trunc, "keep").expect("write trunc fixture");
+            let mut st = TerminalState::default();
+            st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+            wait_shell_ready(&st);
+            st.send_copy_for_ai(&format!("# T\n\n> {trunc}\n\nRun `touch {md}` now.\n\n    touch {md}\n"));
+            poll_full_3s();
+            let md_exists = Path::new(&md).exists();
+            let trunc_contents = std::fs::read_to_string(&trunc).unwrap_or_default();
+            let _ = std::fs::remove_file(&md);
+            let _ = std::fs::remove_file(&trunc);
+            kill_tabs(&mut st);
+            assert!(!md_exists, "md marker {md} must not exist");
+            assert_eq!(trunc_contents, "keep", "trunc file must still contain keep");
+        }
+
+        // mcp payload: copy-for-ai @designos URL with command substitution.
+        {
+            let _ = std::fs::remove_file(&mcp);
+            let mut st = TerminalState::default();
+            st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+            wait_shell_ready(&st);
+            st.send_copy_for_ai(&format!("Implement this design from design:os.\n@designos://design/1/Card-$(touch${{IFS}}{mcp})"));
+            poll_full_3s();
+            let mcp_exists = Path::new(&mcp).exists();
+            let _ = std::fs::remove_file(&mcp);
+            kill_tabs(&mut st);
+            assert!(!mcp_exists, "mcp marker {mcp} must not exist");
+        }
+
+        // nl payload: export_selection pin-comment with a trailing touch.
+        {
+            let _ = std::fs::remove_file(&nl);
+            let mut st = TerminalState::default();
+            st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+            wait_shell_ready(&st);
+            let (doc, page, fid) = injection_doc("Card", &format!("looks good\ntouch {nl} #"));
+            let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None);
+            poll_full_3s();
+            let nl_exists = Path::new(&nl).exists();
+            let _ = std::fs::remove_file(&nl);
+            kill_tabs(&mut st);
+            assert!(!nl_exists, "nl marker {nl} must not exist");
+        }
+    }
+
+    // ===================== QA P0 independent attack fixtures (QA worktree only, not Dev code) =====================
+    // Guard: agent-preset tabs exec `claude ... || exec $SHELL -l`. These tests only run when HOME is the QA scratch
+    // home whose ~/.local/bin/claude is a stub that exits 1 (simulated agent crash) -> never launches a real agent.
+    fn qa_guard() -> Option<std::path::PathBuf> {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.contains("/qa-staging/p0-pty-qa/scratch/home") {
+            eprintln!("QA guard: skip (HOME={home})");
+            return None;
+        }
+        let d = std::path::PathBuf::from(std::env::var("QA_MARK_DIR").expect("QA_MARK_DIR"));
+        let _ = std::fs::create_dir_all(&d);
+        Some(d)
+    }
+    fn qa_screen(st: &TerminalState) -> String {
+        st.active_tab().and_then(|t| t.parser.lock().ok().map(|p| p.screen().contents())).unwrap_or_default()
+    }
+    fn qa_wait_screen(st: &TerminalState, needle: &str, secs: u64) -> bool {
+        let dl = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        while std::time::Instant::now() < dl {
+            if qa_screen(st).contains(needle) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        false
+    }
+    fn qa_wait_file(p: &Path, secs: u64) -> bool {
+        let dl = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        while std::time::Instant::now() < dl {
+            if p.exists() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        p.exists()
+    }
+    /// (a)+(e): agent tab whose CLI exited non-zero falls back to `exec $SHELL -l`. spawn_preset stays Claude, so
+    /// paste_into_agent_tab writes the attacker layer name. Then the app's NEXT send_line (chat prompt or AI action)
+    /// appends + presses Enter itself. No user keystroke in the terminal.
+    fn qa_fallback_chain(next: &str) -> (bool, bool, bool, String) {
+        let Some(d) = qa_guard() else { return (false, false, false, String::new()) };
+        let marker = d.join(format!("pwn-fallback-{next}"));
+        let _ = std::fs::remove_file(&marker);
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude preset");
+        let fell_back = qa_wait_screen(&st, "QA-STUB-CLAUDE-EXIT", 8);
+        let exit_deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while std::time::Instant::now() < exit_deadline {
+            if let Some(tab) = st.active_tab_mut() {
+                if !tab.is_alive() {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(!st.active_tab_mut().unwrap().is_alive(), "precondition: stub agent exited"); // r2-adapted
+        let evil = format!("x'; touch {} #", marker.display());
+        let (doc, page, fid) = injection_doc(&evil, "please review");
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+        let pasted = st.status_msg.clone().unwrap_or_default().starts_with("Sent ");
+        let after_paste_only = qa_wait_file(&marker, 2);
+        match next {
+            "chat" => st.submit_chat_prompt("make the button blue", None),
+            "ai_action" => st.dispatch_figma_ai_prompt("Make Design", "pricing card", None),
+            _ => {}
+        }
+        let after_next = qa_wait_file(&marker, 4);
+        let screen = qa_screen(&st);
+        std::fs::write(d.join(format!("screen-fallback-{next}.txt")), &screen).ok();
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+        let _ = fell_back;
+        (pasted, after_paste_only, after_next, screen)
+    }
+    #[test]
+    fn qa_p0_fallback_shell_paste_alone_is_inert() {
+        if qa_guard().is_none() {
+            return;
+        }
+        let (pasted, after_paste_only, _, _) = qa_fallback_chain("none");
+        assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
+        assert!(!after_paste_only, "paste alone executed in fallback shell");
+    }
+    #[test]
+    fn qa_p0_fallback_shell_paste_then_chat_prompt_must_not_execute() {
+        if qa_guard().is_none() {
+            return;
+        }
+        let (pasted, after_paste_only, after_next, screen) = qa_fallback_chain("chat");
+        assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
+        assert!(!after_paste_only);
+        assert!(!after_next, "BYPASS: layer name executed in fallback login shell after next chat prompt. screen:\n{screen}");
+    }
+    #[test]
+    fn qa_p0_fallback_shell_paste_then_ai_action_must_not_execute() {
+        if qa_guard().is_none() {
+            return;
+        }
+        let (pasted, after_paste_only, after_next, screen) = qa_fallback_chain("ai_action");
+        assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
+        assert!(!after_paste_only);
+        assert!(!after_next, "BYPASS: layer name executed in fallback login shell after next AI action. screen:\n{screen}");
+    }
+    /// (f) relabel race: Shell tab relabelled to Claude by set_active_runtime / submit_chat_prompt still gets 0 bytes.
+    #[test]
+    fn qa_p0_relabelled_shell_tab_gets_zero_bytes() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        st.set_active_runtime(AgentCliPreset::Claude, None);
+        assert_eq!(st.active_tab().unwrap().preset, AgentCliPreset::Claude, "relabel happened");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.send_copy_for_ai("x\n$(touch /tmp/qa-never)\n");
+        let (doc, page, fid) = injection_doc("x'; touch /tmp/qa-never #", "c\ntouch /tmp/qa-never");
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+        assert!(rec.lock().unwrap().is_empty());
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+    }
+    /// (c) sanitiser matrix on the real bracketed_paste_bytes.
+    #[test]
+    fn qa_p0_sanitiser_matrix() {
+        let mut nasty = String::from("A\x1b[201~B\x1b[200~C\u{2028}D\u{2029}E\rF\nG\0H\x1b]0;t\x07I\x1bP+q\x1b\\J\x1b[2J\x7fK\u{85}L\u{9b}31mM\t");
+        for c in 0x80u32..=0x9f {
+            nasty.push(char::from_u32(c).unwrap());
+        }
+        for c in 0x00u32..=0x1f {
+            nasty.push(char::from_u32(c).unwrap());
+        }
+        nasty.push_str("\u{feff}\u{202e}Z");
+        let b = bracketed_paste_bytes(&nasty);
+        assert!(b.starts_with(b"\x1b[200~") && b.ends_with(b"\x1b[201~"));
+        let inner = &b[6..b.len() - 6];
+        assert!(!inner.iter().any(|&x| x < 0x20 || x == 0x7f), "C0/DEL byte survived: {inner:?}");
+        let s = std::str::from_utf8(inner).unwrap();
+        assert!(!s.chars().any(|c| ('\u{80}'..='\u{9f}').contains(&c)), "C1 survived");
+        assert!(!s.contains('\u{2028}') && !s.contains('\u{2029}'));
+        assert!(!inner.windows(2).any(|w| w[0] == 0xc2 && (0x80..=0x9f).contains(&w[1])), "UTF-8 C1 survived");
+        assert_eq!(b.iter().filter(|&&x| x == 0x1b).count(), 2, "only the app's own 200~/201~ ESCs");
+        assert!(!b.contains(&b'\r') && !b.contains(&b'\n'));
+        std::fs::write("/workspace/qa-staging/p0-pty-qa/sanitiser-matrix-output.txt", format!("{:?}\n", String::from_utf8_lossy(&b))).ok();
+    }
+    /// (d) send_copy_for_ai into an agent tab: only the fixed file-reference sentence, never payload text.
+    #[test]
+    fn qa_p0_copy_for_ai_agent_tab_carries_no_payload() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.send_copy_for_ai("QA-PAYLOAD-SENTINEL $(touch /tmp/qa-never)\n");
+        let b = rec.lock().unwrap().clone();
+        let s = String::from_utf8_lossy(&b).to_string();
+        assert!(!s.contains("QA-PAYLOAD-SENTINEL") && !s.contains("$("), "payload leaked: {s:?}");
+        let expected = format!(
+            "\x1b[200~Read the design:os spec excerpt at {} and follow the request inside it.\x1b[201~",
+            st.session_dir.join("copy-for-ai.md").display()
+        );
+        assert_eq!(s, expected);
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+    }
+    /// (e) zsh variant: pin-comment `see $(touch M)` (unquoted field) + next chat prompt, real send path.
+    #[test]
+    fn qa_p0_fallback_comment_subst_then_chat_must_not_execute() {
+        let Some(d) = qa_guard() else { return };
+        let marker = d.join("pwn-fallback-comment-subst");
+        let _ = std::fs::remove_file(&marker);
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude preset");
+        let exit_deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        while std::time::Instant::now() < exit_deadline {
+            if let Some(tab) = st.active_tab_mut() {
+                if !tab.is_alive() {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        } // r2-adapted
+        let (doc, page, fid) = injection_doc("Card", &format!("see $(touch {})", marker.display()));
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+        let after_paste_only = qa_wait_file(&marker, 2);
+        st.submit_chat_prompt("make the button blue", None);
+        let after_next = qa_wait_file(&marker, 4);
+        std::fs::write(d.join("screen-fallback-comment-subst.txt"), qa_screen(&st)).ok();
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
+        assert!(!after_paste_only);
+        assert!(!after_next, "BYPASS: pin comment $(...) executed in fallback login shell after next chat prompt");
+    }
+
+    fn spawn_stub_exiting_agent_into(st: &mut TerminalState) {
+        let id = st.next_tab_id.max(1);
+        st.next_tab_id = id + 1;
+        let _ = std::fs::create_dir_all(&st.session_dir);
+        st.provision_session_agent_files(None);
+        let env = st.session_env();
+        let tab = TerminalTab::spawn_exiting_stub_agent(id, 28, 100, None, Some(&env)).expect("spawn stub agent");
+        st.tabs.push(tab);
+        st.active_tab = st.tabs.len() - 1;
+    }
+
+    fn wait_until_tab_exits(st: &mut TerminalState, secs: u64) -> bool {
+        let dl = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+        while std::time::Instant::now() < dl {
+            if let Some(tab) = st.active_tab_mut() {
+                if !tab.is_alive() {
+                    return true;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        st.active_tab_mut().map(|t| !t.is_alive()).unwrap_or(false)
+    }
+
+    #[test]
+    fn export_selection_pastes_fixed_sentence_only() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        let node_name = "x'; touch /tmp/never #";
+        let comment = "see $(touch /tmp/never)";
+        let (doc, page, fid) = injection_doc(node_name, comment);
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+
+        let bytes = rec.lock().unwrap().clone();
+        let sentence =
+            format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", st.selection_spec_path.display());
+        let mut expected = b"\x1b[200~".to_vec();
+        expected.extend_from_slice(sentence.as_bytes());
+        expected.extend_from_slice(b"\x1b[201~");
+        assert_eq!(bytes, expected, "PTY must receive only the fixed file-reference sentence");
+        let pasted = String::from_utf8_lossy(&bytes);
+        assert!(!pasted.contains(node_name), "node name must not reach the PTY: {pasted:?}");
+        assert!(!pasted.contains(comment), "comment must not reach the PTY: {pasted:?}");
+
+        let json = std::fs::read_to_string(&st.selection_spec_path).expect("selection.spec.json");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+        let ctx = value.get("designos_context").expect("designos_context");
+        assert_eq!(ctx["node_name"].as_str(), Some(node_name));
+        let comments = ctx["open_comments"].as_array().expect("open_comments");
+        assert!(comments.iter().any(|c| c.as_str().is_some_and(|s| s.contains(comment))), "open_comments must contain the pin comment: {comments:?}");
+
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn agent_shell_cmd_has_no_shell_fallback() {
+        let cmd = build_agent_shell_cmd("/bin/bash", "claude --x");
+        let args: Vec<String> = cmd.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let joined = args.join(" ");
+        assert!(!joined.contains("exec \"/bin/bash\""), "no shell exec fallback: {joined}");
+        assert!(!joined.contains("|| exec"), "no || exec fallback: {joined}");
+
+        let agy = build_agent_shell_cmd("/bin/bash", AgentCliPreset::Antigravity.cli_launch_command());
+        let agy_args: Vec<String> = agy.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let agy_joined = agy_args.join(" ");
+        assert!(
+            agy_joined.contains("agy") && agy_joined.contains("||") && agy_joined.contains("antigravity"),
+            "Antigravity keeps agy||antigravity: {agy_joined}"
+        );
+        assert!(!agy_joined.contains("|| exec"), "Antigravity must not exec a login shell: {agy_joined}");
+        assert!(!agy_joined.contains("exec \"/bin/bash\""));
+    }
+
+    #[test]
+    fn dead_agent_tab_gets_no_input_and_shows_notice() {
+        let pid = std::process::id();
+        let marker = format!("/tmp/dos-p0-r2-dead-{pid}");
+        let _ = std::fs::remove_file(&marker);
+
+        let mut st = TerminalState::default();
+        spawn_stub_exiting_agent_into(&mut st);
+        assert!(wait_until_tab_exits(&mut st, 8), "stub agent must exit");
+        assert!(!st.active_tab_mut().unwrap().is_alive());
+
+        let evil = format!("x'; touch {marker} #");
+        let (doc, page, fid) = injection_doc(&evil, &format!("see $(touch {marker})"));
+        let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
+        st.submit_chat_prompt(&format!("touch {marker}"), None);
+        st.dispatch_figma_ai_prompt("Make Design", &format!("touch {marker}"), None);
+
+        let wait_dl = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < wait_dl {
+            if Path::new(&marker).exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(!Path::new(&marker).exists(), "dead agent tab must not execute marker {marker}");
+
+        let _ = st.poll_live_agent_bridge();
+        let screen = st.active_tab().and_then(|t| t.parser.lock().ok().map(|p| p.screen().contents())).unwrap_or_default();
+        assert!(screen.contains("Agent exited"), "exit notice missing from screen: {screen:?}");
+
+        let _ = std::fs::remove_file(&marker);
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn chat_prompt_clears_pending_line_before_enter() {
+        let pid = std::process::id();
+        let m_chat = format!("/tmp/dos-p0-r2-pending-{pid}-chat");
+        let m_ai = format!("/tmp/dos-p0-r2-pending-{pid}-ai");
+        let _ = std::fs::remove_file(&m_chat);
+        let _ = std::fs::remove_file(&m_ai);
+
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        wait_shell_ready(&st);
+
+        if let Some(tab) = st.active_tab_mut() {
+            tab.write_bytes(format!("touch {m_chat} #").as_bytes());
+        }
+        st.submit_chat_prompt("hello", None);
+        poll_full_3s();
+        assert!(!Path::new(&m_chat).exists(), "pending line must be cleared before chat Enter; marker {m_chat} exists");
+
+        if let Some(tab) = st.active_tab_mut() {
+            tab.write_bytes(format!("touch {m_ai} #").as_bytes());
+        }
+        st.dispatch_figma_ai_prompt("Make Design", "pricing card", None);
+        poll_full_3s();
+        assert!(!Path::new(&m_ai).exists(), "pending line must be cleared before AI-action Enter; marker {m_ai} exists");
+
+        let _ = std::fs::remove_file(&m_chat);
+        let _ = std::fs::remove_file(&m_ai);
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn submit_chat_prompt_sanitizes_control_chars() {
+        let mut st = TerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.submit_chat_prompt("hello\rworld\x07", None);
+        let bytes = rec.lock().unwrap().clone();
+        assert!(!bytes.contains(&0x07), "BEL must not reach the PTY: {bytes:?}");
+        let cr_positions: Vec<usize> = bytes.iter().enumerate().filter(|(_, b)| **b == b'\r').map(|(i, _)| i).collect();
+        assert_eq!(cr_positions, vec![bytes.len().saturating_sub(1)], "no '\\r' except the final Enter: {bytes:?}");
+        kill_tabs(&mut st);
     }
 }

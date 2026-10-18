@@ -2365,6 +2365,7 @@ impl<'a> Ctx<'a> {
             }
         }
         if let Some(a) = fstr(set, "layoutAlign") {
+            n.layout_child.align_self = parse_align_self(Some(a));
             if a == "STRETCH" {
                 match parent_dir {
                     Some(LayoutDirection::Horizontal | LayoutDirection::Grid) => n.layout_child.vertical = Sizing::Fill,
@@ -3002,6 +3003,17 @@ fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<
     runs
 }
 
+fn parse_align_self(s: Option<&str>) -> AlignSelf {
+    match s {
+        Some("MIN") => AlignSelf::Start,
+        Some("CENTER") => AlignSelf::Center,
+        Some("MAX") => AlignSelf::End,
+        Some("STRETCH") => AlignSelf::Stretch,
+        Some("BASELINE") => AlignSelf::Baseline,
+        _ => AlignSelf::Auto,
+    }
+}
+
 fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> LayoutChild {
     let sizing = |s: Option<&str>| match s {
         Some("HUG") => Some(Sizing::Hug),
@@ -3014,6 +3026,7 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
     let mut lc = LayoutChild {
         absolute: fstr(v, "layoutPositioning") == Some("ABSOLUTE"),
         grow,
+        align_self: parse_align_self(fstr(v, "layoutAlign")),
         min_w: fnum(v, "minWidth"),
         max_w: fnum(v, "maxWidth"),
         min_h: fnum(v, "minHeight"),

@@ -112,7 +112,7 @@ pub fn figma_like_schema() -> Schema {
     enum_def(&mut b, "StackCounterAlignContent", &["AUTO", "SPACE_BETWEEN"]);
     enum_def(&mut b, "TextWrapStyle", &["AUTO", "BALANCE", "PRETTY"]);
     enum_def(&mut b, "StackSize", &["FIXED", "RESIZE_TO_FIT", "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE"]);
-    enum_def(&mut b, "StackCounterAlign", &["STRETCH", "AUTO"]);
+    enum_def(&mut b, "StackCounterAlign", &["MIN", "CENTER", "MAX", "STRETCH", "AUTO", "BASELINE"]);
     enum_def(&mut b, "StackPositioning", &["AUTO", "ABSOLUTE"]);
     enum_def(&mut b, "StackWrap", &["NO_WRAP", "WRAP"]);
     enum_def(&mut b, "TextAlignHorizontal", &["LEFT", "CENTER", "RIGHT", "JUSTIFIED"]);

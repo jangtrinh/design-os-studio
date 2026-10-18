@@ -2076,3 +2076,106 @@ fn slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_m
     assert!(!find(&rt, "SlotCard").component.is_slot_content, "cleared isSlotContent came back");
     assert!(find(&rt, "SlotCard").component.slot_content_id.is_none(), "cleared slot content id came back");
 }
+
+#[test]
+fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 30.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "AlignSelfDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node(
+            (1, 10),
+            (0, 1),
+            "!",
+            "FRAME",
+            "Row",
+            json!({
+                "size": {"x": 200.0, "y": 100.0},
+                "stackMode": "HORIZONTAL",
+                "stackLayoutVersion": 1,
+                "stackSpacing": 10.0,
+                "stackPrimaryAlignItems": "MIN",
+                "stackCounterAlignItems": "MIN",
+                "stackPrimarySizing": "FIXED",
+                "stackCounterSizing": "FIXED"
+            })
+        ),
+        node((1, 11), (1, 10), "!", "RECTANGLE", "ChildCenter", json!({"stackChildAlignSelf": "CENTER"})),
+        node((1, 12), (1, 10), "\"", "RECTANGLE", "ChildMax", json!({"stackChildAlignSelf": "MAX"})),
+        node((1, 13), (1, 10), "#", "RECTANGLE", "ChildMin", json!({"stackChildAlignSelf": "MIN"})),
+        node((1, 14), (1, 10), "$", "RECTANGLE", "ChildBaseline", json!({"stackChildAlignSelf": "BASELINE"})),
+    ]);
+    let mut doc = import_fig_node_changes(&changes, "AlignSelfDoc").expect("import AlignSelfDoc");
+    let row_id = find(&doc, "Row").id;
+    doc.relayout_subtree(row_id);
+
+    let c_center = find(&doc, "ChildCenter");
+    let c_max = find(&doc, "ChildMax");
+    let c_min = find(&doc, "ChildMin");
+    assert_eq!(c_center.layout_child.align_self, AlignSelf::Center);
+    assert_eq!(c_max.layout_child.align_self, AlignSelf::End);
+    assert_eq!(c_min.layout_child.align_self, AlignSelf::Start);
+    // BASELINE is stored even though the solver does not align baselines yet
+    assert_eq!(find(&doc, "ChildBaseline").layout_child.align_self, AlignSelf::Baseline);
+    assert_eq!((c_center.transform.tx, c_center.transform.ty), (0.0, 40.0));
+    assert_eq!((c_max.transform.tx, c_max.transform.ty), (40.0, 80.0));
+    assert_eq!((c_min.transform.tx, c_min.transform.ty), (80.0, 0.0));
+
+    let bytes = export_fig(&doc).expect("export_fig AlignSelfDoc");
+    let mut rt = import_fig(&bytes).expect("re-import AlignSelfDoc");
+    let rt_row = find(&rt, "Row").id;
+    rt.relayout_subtree(rt_row);
+    let rt_center = find(&rt, "ChildCenter");
+    let rt_max = find(&rt, "ChildMax");
+    let rt_min = find(&rt, "ChildMin");
+    assert_eq!(rt_center.layout_child.align_self, AlignSelf::Center);
+    assert_eq!(rt_max.layout_child.align_self, AlignSelf::End);
+    assert_eq!(rt_min.layout_child.align_self, AlignSelf::Start);
+    assert_eq!(find(&rt, "ChildBaseline").layout_child.align_self, AlignSelf::Baseline);
+    assert_eq!((rt_center.transform.tx, rt_center.transform.ty), (0.0, 40.0));
+    assert_eq!((rt_max.transform.tx, rt_max.transform.ty), (40.0, 80.0));
+    assert_eq!((rt_min.transform.tx, rt_min.transform.ty), (80.0, 0.0));
+}
+
+#[test]
+fn counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_round_trip() {
+    let mut doc = Document::new("HugFill");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 1.0));
+    row.name = "Row".into();
+    let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Hug, ..Default::default() };
+    row.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+    let row_id = doc.insert(page, row).unwrap();
+    let cid = doc.alloc_id();
+    let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 30.0, 40.0));
+    child.name = "FillChild".into();
+    child.layout_child.vertical = Sizing::Fill;
+    doc.insert(row_id, child).unwrap();
+    doc.relayout_subtree(row_id);
+    assert_eq!(find(&doc, "Row").size.y, 40.0, "Fill on the counter axis alone keeps the natural size");
+
+    let bytes = export_fig(&doc).expect("export_fig HugFill");
+    let mut rt = import_fig(&bytes).expect("re-import HugFill");
+    let rt_row = find(&rt, "Row").id;
+    rt.relayout_subtree(rt_row);
+    assert_eq!(find(&rt, "Row").size.y, 40.0, "the round trip must not change the cross size");
+    assert_eq!(find(&rt, "FillChild").size.y, 40.0);
+}

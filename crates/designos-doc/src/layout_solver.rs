@@ -11,7 +11,7 @@
 //! Flow frames (`Horizontal` / `Vertical`) live here; the 2D `Grid` solver is in
 //! `layout_solver_grid.rs` and is reached through [`compute`] too.
 
-use crate::{AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
+use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
 
 pub use crate::layout_solver_grid::compute_grid;
 pub use crate::layout_solver_types::{ChildIn, GridCell, LayoutOut, SizeLimits};
@@ -177,19 +177,31 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     }
     let main_avail = (frame_main - pm).max(0.0);
 
-    // Cross extent of each line. A counter-axis Fill child with cross margins stretches to its line minus those margins, so
-    // its stored size is the stretched one and counting it would stop the line from ever shrinking again (wrapped or not): it
-    // holds the line open by its minimum size and margins. Without margins nothing changes: a flow line that does not wrap
-    // counts such a child for nothing, a wrapped line for its stored size.
-    let cross_need = |k: &ChildIn| {
-        let margins = ax.margin_cross(&k.margin);
-        match (k.cross_fill, margins > 0.0, al.wrap) {
-            (false, _, _) | (true, false, true) => outer_cross(k),
-            (true, false, false) => 0.0,
-            (true, true, _) => ax.clamp_cross(&k.limits, 0.0) + margins,
-        }
-    };
-    let mut line_cross: Vec<f32> = lines.iter().map(|l| l.iter().map(|i| cross_need(&kids[*i])).fold(0.0, f32::max)).collect();
+    // Cross extent of each line. A plain child needs its outer extent (size plus margins). A child that stretches the
+    // counter axis (Fill or `align_self` stretch) stores the stretched size, so counting it would stop the line from ever
+    // shrinking again: with cross margins it only holds the line open by its minimum size plus margins, wrapped or not.
+    // Without margins it counts as a plain child in a wrapped line; in a flow line that does not wrap it counts for
+    // nothing while a plain child sizes the line, and keeps its natural extent as the line size when none does, so a
+    // hugging frame whose children all stretch does not fold to its padding. Its cross minimum floors the line either
+    // way, so a stretched child never overflows the frame.
+    let mut line_cross: Vec<f32> = lines
+        .iter()
+        .map(|l| {
+            let (mut plain, mut natural, mut floor) = (None::<f32>, 0.0f32, 0.0f32);
+            for k in l.iter().map(|i| &kids[*i]) {
+                let margins = ax.margin_cross(&k.margin);
+                if !k.stretches_cross() || (al.wrap && margins <= 0.0) {
+                    plain = Some(plain.map_or(outer_cross(k), |p| p.max(outer_cross(k))));
+                } else {
+                    floor = floor.max(ax.clamp_cross(&k.limits, 0.0) + margins);
+                    if margins <= 0.0 {
+                        natural = natural.max(nat_cross(k));
+                    }
+                }
+            }
+            plain.unwrap_or(natural).max(floor)
+        })
+        .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
     if !al.wrap {
@@ -308,12 +320,19 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
             let m_end = ax.margin_main_end(&kid.margin);
             let c_start = ax.margin_cross_start(&kid.margin);
             let c_margin = ax.margin_cross(&kid.margin);
-            let c = if kid.cross_fill { ax.clamp_cross(&kid.limits, (line_cross[li] - c_margin).max(0.0)) } else { nat_cross(kid) };
+            let c = if kid.stretches_cross() { ax.clamp_cross(&kid.limits, (line_cross[li] - c_margin).max(0.0)) } else { nat_cross(kid) };
             let outer_c = c + c_margin;
-            let off = match al.counter_align {
-                LayoutAlign::Center => (line_cross[li] - outer_c) / 2.0,
-                LayoutAlign::End => line_cross[li] - outer_c,
-                _ => 0.0,
+            let off = match kid.align_self {
+                AlignSelf::Start | AlignSelf::Stretch => 0.0,
+                AlignSelf::Center => (line_cross[li] - outer_c) / 2.0,
+                AlignSelf::End => line_cross[li] - outer_c,
+                // Baseline is stored (and round-trips through .fig) but baselines are not aligned yet:
+                // it behaves like Auto and inherits the frame's counter_align.
+                AlignSelf::Auto | AlignSelf::Baseline => match al.counter_align {
+                    LayoutAlign::Center => (line_cross[li] - outer_c) / 2.0,
+                    LayoutAlign::End => line_cross[li] - outer_c,
+                    _ => 0.0,
+                },
             } + c_start;
             let pos = ax.vec(cursor + m_start, cross_cursor + off);
             let size = ax.vec(m, c);

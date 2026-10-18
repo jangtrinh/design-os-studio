@@ -423,7 +423,12 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
         );
         ui.ctx().copy_text(payload);
         let _ = crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref());
-        app.show_toast("Copied MCP JSON-RPC payload to clipboard", false);
+        let sent = app.terminal.status_msg.as_deref().is_some_and(|s| s.starts_with("Sent "));
+        if sent {
+            app.show_toast("Copied MCP JSON-RPC payload to clipboard and sent the selection reference to the agent tab", false);
+        } else {
+            app.show_toast("Copied MCP JSON-RPC payload to clipboard; no agent tab open", false);
+        }
     }
     c.y += theme::SECTION_TITLE_HEIGHT - 6.0;
 
@@ -494,7 +499,6 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let copy_mcp_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 28.0);
     if small_button(ui, copy_mcp_r, "mcp-copy-prompt", "Copy design:os MCP link") {
         copy(app, ui, prompt_text.clone(), "MCP prompt");
-        app.terminal.send_copy_for_ai(&prompt_text);
     }
     c.y += 34.0;
 
