@@ -273,6 +273,9 @@ struct Lk<'a> {
     /// Property definition id (including the `parentPropDefId` aliases that
     /// variants carry) -> (`Name#s:l`, REST type).
     prop_defs: HashMap<String, (String, &'static str)>,
+    /// Component or state-group key (`componentKey` / `key`) -> node guid (`s:l`). Only masters
+    /// are indexed; an instance contributes a key no master carries, mapped to the master it instances.
+    comp_by_key: HashMap<String, String>,
     /// Node guid (`s:l`) -> Dev Mode handoff status (`READY_FOR_DEV` / `COMPLETED`)
     /// from `CANVAS.handoffStatusMap`.
     handoff_status: HashMap<String, &'static str>,
@@ -297,11 +300,13 @@ impl<'a> Lk<'a> {
             style_by_id: HashMap::new(),
             deleted_styles: std::collections::HashSet::new(),
             prop_defs: HashMap::new(),
+            comp_by_key: HashMap::new(),
             handoff_status: HashMap::new(),
             grid_column_index: HashMap::new(),
             grid_row_index: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
+        let mut instance_keys: Vec<(String, String)> = Vec::new();
         for e in entries {
             let j = &e.json;
             let key = fstr(j, "key").filter(|k| !k.is_empty());
@@ -332,6 +337,17 @@ impl<'a> Lk<'a> {
                 };
                 if let Some(st) = mapped {
                     lk.handoff_status.insert(gid, st);
+                }
+            }
+            if matches!(fstr(j, "type"), Some("SYMBOL")) || rest_import::fbool(j, "isStateGroup") == Some(true) {
+                if let Some(ck) = fstr(j, "componentKey").filter(|k| !k.is_empty()).or(key) {
+                    lk.comp_by_key.insert(ck.to_string(), e.id.clone());
+                }
+            } else if let Some(ck) = fstr(j, "componentKey").filter(|k| !k.is_empty()) {
+                // An instance repeats its master's key. It only stands in for the master when
+                // nothing else carries the key, and then it points at the master it instances.
+                if let Some(master) = j.get("symbolData").and_then(|s| s.get("symbolID")).and_then(guid_str) {
+                    instance_keys.push((ck.to_string(), master));
                 }
             }
             match (fstr(j, "type"), key) {
@@ -370,6 +386,9 @@ impl<'a> Lk<'a> {
                     }
                 }
             }
+        }
+        for (ck, master) in instance_keys {
+            lk.comp_by_key.entry(ck).or_insert(master);
         }
         for (id, parent) in aliases {
             if let Some(def) = lk.prop_defs.get(&parent).cloned() {
@@ -1182,6 +1201,13 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     }
     copy(&mut m, nc, "name", "name");
     copy(&mut m, nc, "componentKey", "componentKey");
+    // A symbol or state group indexed by its publish `key` (see `Lk::new`) keeps that key the way
+    // `componentKey` is kept, so export writes it back. An explicit `componentKey` wins.
+    if !m.contains_key("componentKey") && matches!(ty, "COMPONENT" | "COMPONENT_SET") {
+        if let Some(k) = fstr(nc, "key").filter(|k| !k.is_empty()) {
+            m.insert("componentKey".into(), Value::String(k.to_string()));
+        }
+    }
     copy(&mut m, nc, "sourceLibraryKey", "sourceLibraryKey");
     if let Some(desc) = fstr(nc, "symbolDescription").or_else(|| fstr(nc, "description")).filter(|s| !s.is_empty()) {
         m.insert("symbolDescription".into(), Value::String(desc.to_string()));
@@ -1666,7 +1692,32 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
                 .unwrap_or_default();
             def.insert("variantOptions".into(), Value::Array(options));
         } else if *ty == "INSTANCE_SWAP" || *ty == "SLOT" {
-            let prefs: Vec<Value> = rest_import::farr(d, "preferredValues").iter().filter_map(|p| guid_str(p).map(Value::String)).collect();
+            let mut prefs: Vec<Value> = Vec::new();
+            if let Some(pv) = d.get("preferredValues") {
+                if pv.is_object() {
+                    for entry in rest_import::farr(pv, "instanceSwapValues") {
+                        if let Some(k) = fstr(entry, "key") {
+                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            prefs.push(Value::String(resolved));
+                        }
+                    }
+                    for s in rest_import::farr(pv, "stringValues") {
+                        if let Some(k) = s.as_str() {
+                            let resolved = lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string());
+                            prefs.push(Value::String(resolved));
+                        }
+                    }
+                } else {
+                    for p in rest_import::farr(d, "preferredValues") {
+                        if let Some(id_or_key) = guid_str(p)
+                            .or_else(|| p.as_str().map(String::from))
+                            .or_else(|| fstr(p, "key").map(|k| lk.comp_by_key.get(k).cloned().unwrap_or_else(|| k.to_string())))
+                        {
+                            prefs.push(Value::String(id_or_key));
+                        }
+                    }
+                }
+            }
             if !prefs.is_empty() {
                 def.insert("preferredValues".into(), Value::Array(prefs));
             }

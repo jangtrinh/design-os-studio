@@ -116,6 +116,7 @@ struct ExportCtx<'a> {
     var_guids: BTreeMap<String, (u32, u32)>,
     style_guids: BTreeMap<String, (u32, u32)>,
     prop_guids: BTreeMap<(NodeId, String), (u32, u32)>,
+    comp_keys: BTreeMap<NodeId, String>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
 }
@@ -152,6 +153,7 @@ impl<'a> ExportCtx<'a> {
             var_guids: BTreeMap::new(),
             style_guids: BTreeMap::new(),
             prop_guids: BTreeMap::new(),
+            comp_keys: BTreeMap::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
         };
@@ -238,6 +240,41 @@ impl<'a> ExportCtx<'a> {
             for p in &n.component.props {
                 let g = cx.alloc_guid(4);
                 cx.prop_guids.insert((id, p.name.clone()), g);
+            }
+        }
+        for (ext_key, asset) in &doc.library.external {
+            if let Some(nid) = asset.node {
+                let prefix = format!("{}:", asset.library_id);
+                let raw_key = ext_key.strip_prefix(&prefix).unwrap_or(ext_key);
+                if !raw_key.is_empty() {
+                    cx.comp_keys.insert(nid, raw_key.to_string());
+                }
+            }
+        }
+        // Keys flow from a component to its instances, never the other way. Owners first: the
+        // component's stored key (`componentKey` metadata) and the library assets that point at it.
+        for (&id, n) in &doc.nodes {
+            if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+                if let Some(ck) = n.fig_metadata.get("componentKey").filter(|s| !s.is_empty()) {
+                    cx.comp_keys.insert(id, ck.clone());
+                }
+            }
+        }
+        // An instance only names a component that has no key yet, and only with a key no other
+        // component owns. Otherwise its key would make a second component claim the same key.
+        let mut owned: std::collections::HashSet<String> = cx.comp_keys.values().cloned().collect();
+        for n in doc.nodes.values() {
+            if let NodeKind::Instance { component: Some(cid), component_key: Some(ck), .. } = &n.kind {
+                if !ck.is_empty() && !cx.comp_keys.contains_key(cid) && !owned.contains(ck) {
+                    cx.comp_keys.insert(*cid, ck.clone());
+                    owned.insert(ck.clone());
+                }
+            }
+        }
+        for (&id, n) in &doc.nodes {
+            if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) && !cx.comp_keys.contains_key(&id) {
+                let g = cx.node_guids[&id];
+                cx.comp_keys.insert(id, format!("comp:{}:{}", g.0, g.1));
             }
         }
         cx
@@ -1011,11 +1048,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         _ => (0, 0),
                     };
                     df.push(("initialValue", msg(vec![("guidValue", guid(tg.0, tg.1))])));
-                    if !preferred.is_empty() {
-                        let prefs: Vec<V> = preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
-                        if !prefs.is_empty() {
-                            df.push(("preferredValues", V::Array(prefs)));
-                        }
+                    if let Some(pv) = encode_preferred_values(cx, preferred) {
+                        df.push(("preferredValues", pv));
                     }
                 }
                 PropKind::Variant { options } => {
@@ -1032,9 +1066,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     df.push(("initialValue", msg(vec![("textValue", msg(vec![("characters", V::String(String::new()))]))])));
                     if let Some(cfg) = node.component.slot_configs.get(&p.name) {
                         df.push(("slotPropConfig", encode_slot_prop_config(cfg)));
-                        let prefs: Vec<V> = cfg.preferred.iter().filter_map(|pid| cx.node_guids.get(pid).copied()).map(|g| guid(g.0, g.1)).collect();
-                        if !prefs.is_empty() {
-                            df.push(("preferredValues", V::Array(prefs)));
+                        if let Some(pv) = encode_preferred_values(cx, &cfg.preferred) {
+                            df.push(("preferredValues", pv));
                         }
                     }
                 }
@@ -1140,6 +1173,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 BooleanOp::Exclude => "XOR",
             };
             fields.push(("booleanOperation", en(op_name)));
+        }
+        NodeKind::Component(_) | NodeKind::ComponentSet(_) => {
+            if let Some(ck) = cx.comp_keys.get(&id) {
+                fields.push(("componentKey", V::String(ck.clone())));
+            }
         }
         NodeKind::Instance { component, component_key, .. } => {
             let mut sd = Vec::new();
@@ -1956,6 +1994,24 @@ fn encode_detached_symbol_id(ds: &str) -> V {
         return msg(vec![("guid", guid(g.0, g.1))]);
     }
     msg(vec![("assetRef", msg(vec![("key", V::String(ds.to_string()))]))])
+}
+
+/// Encodes preferred component/component-set `NodeId`s as a real `ComponentPropPreferredValues` message.
+fn encode_preferred_values(cx: &ExportCtx, preferred: &[NodeId]) -> Option<V> {
+    let mut swap_vals = Vec::new();
+    for pid in preferred {
+        let Some(target) = cx.doc.get(*pid) else { continue };
+        let ty = match target.kind {
+            NodeKind::ComponentSet(_) => "STATE_GROUP",
+            _ => "COMPONENT",
+        };
+        let key = cx.comp_keys.get(pid).cloned().or_else(|| cx.node_guids.get(pid).map(|g| format!("comp:{}:{}", g.0, g.1)))?;
+        swap_vals.push(msg(vec![("type", en(ty)), ("key", V::String(key))]));
+    }
+    if swap_vals.is_empty() {
+        return None;
+    }
+    Some(msg(vec![("stringValues", V::Array(Vec::new())), ("instanceSwapValues", V::Array(swap_vals)), ("parameterValues", V::Array(Vec::new()))]))
 }
 
 /// `SlotPropConfig`: only the fields the document holds are written.

@@ -561,10 +561,12 @@ pub(crate) fn import_rest_value_owned<'a>(
         connectors: Vec::new(),
         deferred_pending: None,
     };
-    if let Some(comps) = v.get("components").and_then(Value::as_object) {
-        for (id, c) in comps {
-            if let Some(k) = fstr(c, "key") {
-                cx.component_keys.insert(id.clone(), k.to_string());
+    for section in ["components", "componentSets"] {
+        if let Some(comps) = v.get(section).and_then(Value::as_object) {
+            for (id, c) in comps {
+                if let Some(k) = fstr(c, "key") {
+                    cx.component_keys.insert(id.clone(), k.to_string());
+                }
             }
         }
     }
@@ -672,10 +674,12 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         connectors: Vec::new(),
         deferred_pending: None,
     };
-    if let Some(comps) = v.get("components").and_then(Value::as_object) {
-        for (id, c) in comps {
-            if let Some(k) = fstr(c, "key") {
-                cx.component_keys.insert(id.clone(), k.to_string());
+    for section in ["components", "componentSets"] {
+        if let Some(comps) = v.get(section).and_then(Value::as_object) {
+            for (id, c) in comps {
+                if let Some(k) = fstr(c, "key") {
+                    cx.component_keys.insert(id.clone(), k.to_string());
+                }
             }
         }
     }
@@ -774,8 +778,14 @@ impl<'a> Ctx<'a> {
         if let Some(k) = fstr(&v, "_overrideKey") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
-        if let (Some(k), true) = (fstr(&v, "componentKey"), matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))) {
-            self.library_keys.insert(id, (k.to_string(), fstr(&v, "sourceLibraryKey").map(String::from)));
+        if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+            // The file's `components` / `componentSets` maps carry the publish key of a component
+            // that has no `componentKey` field of its own; keep it the same way.
+            let map_key = node.source_id.as_deref().and_then(|s| self.component_keys.get(s)).map(String::as_str);
+            if let Some(k) = fstr(&v, "componentKey").or(map_key) {
+                node.fig_metadata.entry("componentKey".into()).or_insert_with(|| k.to_string());
+                self.library_keys.insert(id, (k.to_string(), fstr(&v, "sourceLibraryKey").map(String::from)));
+            }
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(&v).unwrap_or(pinfo.origin);
@@ -872,8 +882,14 @@ impl<'a> Ctx<'a> {
         if let Some(k) = fstr(v, "_overrideKey") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
-        if let (Some(k), true) = (fstr(v, "componentKey"), matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))) {
-            self.library_keys.insert(id, (k.to_string(), fstr(v, "sourceLibraryKey").map(String::from)));
+        if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+            // The file's `components` / `componentSets` maps carry the publish key of a component
+            // that has no `componentKey` field of its own; keep it the same way.
+            let map_key = node.source_id.as_deref().and_then(|s| self.component_keys.get(s)).map(String::as_str);
+            if let Some(k) = fstr(v, "componentKey").or(map_key) {
+                node.fig_metadata.entry("componentKey".into()).or_insert_with(|| k.to_string());
+                self.library_keys.insert(id, (k.to_string(), fstr(v, "sourceLibraryKey").map(String::from)));
+            }
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(v).unwrap_or(pinfo.origin);
@@ -1214,6 +1230,30 @@ impl<'a> Ctx<'a> {
                 let name = prop_name(key);
                 let dv = d.get("defaultValue");
                 let text = || dv.and_then(Value::as_str).unwrap_or("").to_string();
+                let extract_prefs = |d: &Value| -> Vec<String> {
+                    let mut out = Vec::new();
+                    if let Some(pv) = d.get("preferredValues") {
+                        if pv.is_object() {
+                            for entry in farr(pv, "instanceSwapValues") {
+                                if let Some(k) = fstr(entry, "key") {
+                                    out.push(k.to_string());
+                                }
+                            }
+                            for s in farr(pv, "stringValues") {
+                                if let Some(k) = s.as_str() {
+                                    out.push(k.to_string());
+                                }
+                            }
+                        } else {
+                            for p in farr(d, "preferredValues") {
+                                if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
+                                    out.push(ps.to_string());
+                                }
+                            }
+                        }
+                    }
+                    out
+                };
                 let (kind, default) = match fstr(d, "type") {
                     Some("BOOLEAN") => (PropKind::Boolean, PropValue::Bool(dv.and_then(Value::as_bool).unwrap_or(true))),
                     Some("TEXT") => (PropKind::Text, PropValue::Text(text())),
@@ -1223,10 +1263,8 @@ impl<'a> Ctx<'a> {
                     ),
                     Some("INSTANCE_SWAP") => {
                         self.pending_swaps.push((id, name.clone(), text(), true));
-                        for p in farr(d, "preferredValues") {
-                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
-                                self.pending_swaps.push((id, name.clone(), format!("PREF:{ps}"), true));
-                            }
+                        for ps in extract_prefs(d) {
+                            self.pending_swaps.push((id, name.clone(), format!("PREF:{ps}"), true));
                         }
                         (PropKind::InstanceSwap { preferred: Vec::new() }, PropValue::Instance(NodeId(0)))
                     }
@@ -1256,10 +1294,8 @@ impl<'a> Ctx<'a> {
                                 },
                             );
                         }
-                        for p in farr(d, "preferredValues") {
-                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
-                                self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
-                            }
+                        for ps in extract_prefs(d) {
+                            self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
                         }
                         (PropKind::Slot, PropValue::Slot(Vec::new()))
                     }
@@ -1568,10 +1604,18 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn resolve_pref_target(&self, pref_key: &str) -> Option<NodeId> {
+        self.ids
+            .get(pref_key)
+            .copied()
+            .or_else(|| self.library_keys.iter().find_map(|(&nid, (k, _))| (k == pref_key).then_some(nid)))
+            .or_else(|| self.component_keys.iter().find_map(|(sid, k)| (k == pref_key).then(|| self.ids.get(sid).copied()).flatten()))
+    }
+
     fn resolve_swaps(&mut self) {
         for (node, name, rest_id, is_def) in std::mem::take(&mut self.pending_swaps) {
             if let Some(pref_key) = rest_id.strip_prefix("PREF:") {
-                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(target) = self.resolve_pref_target(pref_key) else { continue };
                 let Some(n) = self.doc.get_mut(node) else { continue };
                 if let Some(d) = n.component.props.iter_mut().find(|d| d.name == name) {
                     if let PropKind::InstanceSwap { preferred } = &mut d.kind {
@@ -1583,7 +1627,7 @@ impl<'a> Ctx<'a> {
                 continue;
             }
             if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
-                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(target) = self.resolve_pref_target(pref_key) else { continue };
                 let Some(n) = self.doc.get_mut(node) else { continue };
                 // A slot may list preferred components without ever writing a `slotPropConfig`.
                 let cfg = n.component.slot_configs.entry(name).or_default();
@@ -1878,10 +1922,15 @@ impl<'a> Ctx<'a> {
             return;
         }
         let keys = std::mem::take(&mut self.library_keys);
+        let mut lib_comp_keys: HashMap<NodeId, String> = HashMap::new();
         for (node, (key, lib)) in &keys {
             let Some(n) = self.doc.get(*node) else { continue };
+            if !self.doc.is_ancestor(lp, *node) {
+                continue;
+            }
+            lib_comp_keys.insert(*node, key.clone());
             let in_set = n.parent.and_then(|p| self.doc.get(p)).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet(_)));
-            if in_set || !self.doc.is_ancestor(lp, *node) {
+            if in_set {
                 continue;
             }
             let kind = if matches!(n.kind, NodeKind::ComponentSet(_)) { LibraryAssetKind::ComponentSet } else { LibraryAssetKind::Component };
@@ -1891,7 +1940,7 @@ impl<'a> Ctx<'a> {
         for n in self.doc.nodes.values_mut() {
             if let NodeKind::Instance { component: Some(comp), component_key, .. } = &mut n.kind {
                 if component_key.is_none() {
-                    if let Some((key, _)) = keys.get(comp) {
+                    if let Some(key) = lib_comp_keys.get(comp) {
                         *component_key = Some(key.clone());
                     }
                 }

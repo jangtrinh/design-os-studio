@@ -396,15 +396,29 @@ pub fn figma_like_schema() -> Schema {
     b.field(spc, "minChildren", nat(Uint), false, 3);
     b.field(spc, "maxChildren", nat(Uint), false, 4);
     b.field(spc, "allowPreferredValuesOnly", nat(Bool), false, 5);
+    enum_def(&mut b, "InstanceSwapPreferredValueType", &["COMPONENT", "STATE_GROUP"]);
+    let ispv = b.define("InstanceSwapPreferredValue", DefKind::Message);
+    let ispvt = def(&b, "InstanceSwapPreferredValueType");
+    b.field(ispv, "type", ispvt, false, 1);
+    b.field(ispv, "key", nat(String), false, 2);
+    let cppv = b.define("ComponentPropPreferredValues", DefKind::Message);
+    let vdt_def = def(&b, "VariableData");
+    b.field(cppv, "stringValues", nat(String), true, 1);
+    b.field(cppv, "instanceSwapValues", FieldType::Def(ispv), true, 2);
+    b.field(cppv, "parameterValues", vdt_def, true, 3);
     let cpd = b.define("ComponentPropDef", DefKind::Message);
     let (gt, cptt, cpvt, spct) = (def(&b, "GUID"), def(&b, "ComponentPropType"), def(&b, "ComponentPropValue"), def(&b, "SlotPropConfig"));
     b.field(cpd, "id", gt, false, 1);
     b.field(cpd, "name", nat(String), false, 2);
-    b.field(cpd, "type", cptt, false, 3);
-    b.field(cpd, "initialValue", cpvt, false, 4);
+    b.field(cpd, "initialValue", cpvt, false, 3);
+    b.field(cpd, "sortPosition", nat(String), false, 4);
     b.field(cpd, "parentPropDefId", gt, false, 5);
-    b.field(cpd, "preferredValues", gt, true, 6);
-    b.field(cpd, "slotPropConfig", spct, false, 7);
+    b.field(cpd, "type", cptt, false, 6);
+    b.field(cpd, "isDeleted", nat(Bool), false, 7);
+    b.field(cpd, "preferredValues", FieldType::Def(cppv), false, 8);
+    b.field(cpd, "varValue", vdt_def, false, 9);
+    b.field(cpd, "description", nat(String), false, 11);
+    b.field(cpd, "slotPropConfig", spct, false, 12);
     // Real schema: `SlotContentId { guid }`. Stored on a node under the non-kiwi `jsonSerialized`
     // bag, key `slot-content-id` (INFERENCE from the editor, not seen in a real file).
     let sci = b.define("SlotContentId", DefKind::Message);
