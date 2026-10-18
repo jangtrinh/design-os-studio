@@ -658,6 +658,7 @@ pub enum LayoutDirection {
     Grid,
 }
 
+/// Most columns and spanned rows one grid auto layout solves; also the minimum length of a [`GridTracks`] list.
 pub const MAX_GRID_TRACKS: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
