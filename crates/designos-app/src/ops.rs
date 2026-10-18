@@ -1076,9 +1076,10 @@ impl App {
                 continue;
             }
             let new_size = Vec2::new((old_size.x + dw).max(1.0), (old_size.y + dh).max(1.0));
+            let counter = self.doc.get(id).and_then(|n| n.parent).and_then(|p| self.doc.get(p)).and_then(designos_doc::LayoutChild::counter_axis_is_horizontal);
             if let Some(n) = tx.ed.node(&mut self.doc, id) {
                 if dw.abs() > 1e-4 {
-                    n.layout_child.horizontal = Sizing::Fixed;
+                    n.layout_child.set_axis_sizing(true, Sizing::Fixed, counter);
                     if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                         if matches!(al.direction, LayoutDirection::Horizontal | LayoutDirection::Grid) {
                             if al.primary_sizing == Sizing::Hug {
@@ -1090,7 +1091,7 @@ impl App {
                     }
                 }
                 if dh.abs() > 1e-4 {
-                    n.layout_child.vertical = Sizing::Fixed;
+                    n.layout_child.set_axis_sizing(false, Sizing::Fixed, counter);
                     if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                         if al.direction == LayoutDirection::Vertical {
                             if al.primary_sizing == Sizing::Hug {
@@ -2181,5 +2182,27 @@ mod tests {
         assert_eq!(app.doc.get(fid).unwrap().size, Vec2::new(116.0, 48.0));
         assert_eq!((app.doc.get(cid_a).unwrap().transform.tx, app.doc.get(cid_a).unwrap().transform.ty), (14.0, 14.0));
         assert_eq!((app.doc.get(cid_b).unwrap().transform.tx, app.doc.get(cid_b).unwrap().transform.ty), (72.0, 14.0));
+    }
+
+    #[test]
+    fn keyboard_resize_of_an_imported_stretch_child_ends_the_stretch_on_the_counter_axis() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        frame.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        let fid = d.insert(page, frame).unwrap();
+        let cid = d.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 30.0, 20.0));
+        child.layout_child.vertical = Sizing::Fill;
+        child.layout_child.align_self = AlignSelf::Stretch;
+        let cid = d.insert(fid, child).unwrap();
+        let mut app = App::new(d);
+        app.selection = vec![cid];
+        app.resize_selection_by(0.0, 10.0);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
+        assert_eq!(n.size, v2(30.0, 30.0), "the typed height sticks instead of snapping back to the stretched 100");
     }
 }

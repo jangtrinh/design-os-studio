@@ -598,6 +598,56 @@ mod tests {
         assert!(estimate_text_size(&t("hello world")).x > estimate_text_size(&t("hi")).x);
         assert!(estimate_text_size(&t("a\nb")).y > estimate_text_size(&t("a")).y);
     }
+
+    #[test]
+    fn seven_items_in_3_col_grid_auto_rows_and_auto_tracks() {
+        use designos_doc::layout_solver::GridCell;
+        use designos_doc::{GridAutoTracks, GridTrack};
+
+        let mut al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            grid_columns: 3,
+            grid_rows: 0,
+            item_spacing: 10.0,
+            counter_spacing: 10.0,
+            counter_sizing: Sizing::Hug,
+            ..Default::default()
+        };
+
+        // 1. 7 items in a 3-column grid with no explicit rows produce 3 rows.
+        let seven: Vec<ChildIn> = (0..7).map(|_| kid(40.0, 20.0)).collect();
+        let out = compute(&al, v2(320.0, 100.0), &seven);
+        let ys: Vec<f32> = out.rects.iter().map(|r| r.y).collect();
+        assert_eq!(ys, vec![0.0, 0.0, 0.0, 30.0, 30.0, 30.0, 60.0]);
+        assert_eq!(out.frame.y, 80.0);
+
+        // 2. An explicitly placed item reserves its cell, and spans are respected.
+        let kids = vec![
+            kid(40.0, 20.0),
+            ChildIn {
+                size: v2(40.0, 50.0),
+                cell: GridCell { row: Some(0), column: Some(1), col_span: 1, row_span: 2, ..Default::default() },
+                ..Default::default()
+            },
+            ChildIn { size: v2(80.0, 20.0), cell: GridCell { row: None, column: None, col_span: 2, row_span: 1, ..Default::default() }, ..Default::default() },
+            kid(40.0, 20.0),
+        ];
+        let out_span = compute(&al, v2(320.0, 100.0), &kids);
+        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0); kid[3] takes (0, 2).
+        assert_eq!((out_span.rects[0].x, out_span.rects[0].y), (0.0, 0.0));
+        assert_eq!((out_span.rects[1].x, out_span.rects[1].y), (110.0, 0.0));
+        assert_eq!((out_span.rects[2].x, out_span.rects[2].y), (0.0, 60.0));
+        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 0.0));
+
+        // 3. Explicit row 0 uses grid_row_tracks[0] (30px), while overflow auto rows (1, 2) use grid_auto_tracks (50px).
+        al.grid_rows = 1;
+        al.grid_row_tracks[0] = GridTrack::Fixed(30.0);
+        al.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Fixed(50.0));
+        let out_auto = compute(&al, v2(320.0, 100.0), &seven);
+        let ys_auto: Vec<f32> = out_auto.rects.iter().map(|r| r.y).collect();
+        assert_eq!(ys_auto, vec![0.0, 0.0, 0.0, 40.0, 40.0, 40.0, 100.0]);
+        assert_eq!(out_auto.frame.y, 150.0);
+    }
 }
 
 #[cfg(test)]

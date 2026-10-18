@@ -2316,6 +2316,9 @@ impl<'a> Ctx<'a> {
                 if let Some(r) = set.get("gridRows").and_then(Value::as_u64) {
                     al.grid_rows = r as u32;
                 }
+                if let Some(s) = fstr(set, "gridAutoTracks") {
+                    al.grid_auto_tracks = parse_grid_auto_tracks(s);
+                }
             }
         }
         let non_fill_sizing = |kind: &NodeKind, dir_h: bool| -> Sizing {
@@ -2365,6 +2368,7 @@ impl<'a> Ctx<'a> {
             }
         }
         if let Some(a) = fstr(set, "layoutAlign") {
+            n.layout_child.align_self = parse_align_self(Some(a));
             if a == "STRETCH" {
                 match parent_dir {
                     Some(LayoutDirection::Horizontal | LayoutDirection::Grid) => n.layout_child.vertical = Sizing::Fill,
@@ -2722,6 +2726,7 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "gridRows"
         | "gridColumnsSizing"
         | "gridRowsSizing"
+        | "gridAutoTracks"
         | "gridColumnSpan"
         | "gridRowSpan"
         | "gridColumnAnchorIndex"
@@ -2897,6 +2902,22 @@ fn parse_grid_sizing(s: &str) -> (u32, GridTracks) {
     (list.count, GridTracks::from(list.kept))
 }
 
+fn parse_grid_auto_tracks(s: &str) -> GridAutoTracks {
+    let t = s.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("NONE") {
+        GridAutoTracks::None
+    } else if t.eq_ignore_ascii_case("ROWS") {
+        GridAutoTracks::Rows
+    } else {
+        let (count, tracks) = parse_grid_sizing(t);
+        if count > 0 {
+            GridAutoTracks::Track(tracks[0])
+        } else {
+            GridAutoTracks::Rows
+        }
+    }
+}
+
 fn frame_props(v: &Value) -> FrameProps {
     let dir = match fstr(v, "layoutMode") {
         Some("HORIZONTAL") => Some(LayoutDirection::Horizontal),
@@ -2920,6 +2941,7 @@ fn frame_props(v: &Value) -> FrameProps {
         let (sizing_rows, grid_row_tracks) = fstr(v, "gridRowsSizing").map(parse_grid_sizing).unwrap_or_default();
         let grid_columns = v.get("gridColumns").and_then(Value::as_u64).map(|x| x as u32).filter(|&x| x > 0).unwrap_or(sizing_cols);
         let grid_rows = v.get("gridRows").and_then(Value::as_u64).map(|x| x as u32).filter(|&x| x > 0).unwrap_or(sizing_rows);
+        let grid_auto_tracks = fstr(v, "gridAutoTracks").map(parse_grid_auto_tracks).unwrap_or_default();
         AutoLayout {
             direction,
             wrap: fstr(v, "layoutWrap") == Some("WRAP"),
@@ -2942,6 +2964,7 @@ fn frame_props(v: &Value) -> FrameProps {
             grid_rows,
             grid_col_tracks,
             grid_row_tracks,
+            grid_auto_tracks,
         }
     });
     FrameProps { clips_content: fbool(v, "clipsContent").unwrap_or(false), auto_layout, grids: farr(v, "layoutGrids").iter().filter_map(parse_grid).collect() }
@@ -3038,6 +3061,17 @@ pub(crate) fn writes_grid_child_align(a: GridChildAlign, parent: Option<LayoutDi
     a != GridChildAlign::Start || parent == Some(LayoutDirection::Grid)
 }
 
+fn parse_align_self(s: Option<&str>) -> AlignSelf {
+    match s {
+        Some("MIN") => AlignSelf::Start,
+        Some("CENTER") => AlignSelf::Center,
+        Some("MAX") => AlignSelf::End,
+        Some("STRETCH") => AlignSelf::Stretch,
+        Some("BASELINE") => AlignSelf::Baseline,
+        _ => AlignSelf::Auto,
+    }
+}
+
 fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> LayoutChild {
     let sizing = |s: Option<&str>| match s {
         Some("HUG") => Some(Sizing::Hug),
@@ -3055,6 +3089,7 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
     let mut lc = LayoutChild {
         absolute: fstr(v, "layoutPositioning") == Some("ABSOLUTE"),
         grow,
+        align_self: parse_align_self(fstr(v, "layoutAlign")),
         min_w: fnum(v, "minWidth"),
         max_w: fnum(v, "maxWidth"),
         min_h: fnum(v, "minHeight"),
