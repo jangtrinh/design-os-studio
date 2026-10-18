@@ -200,7 +200,11 @@ impl App {
     fn reconnect_detached(&mut self, tx: &mut Tx, id: NodeId, component: NodeId) -> bool {
         let Some(old) = self.doc.get(id).cloned() else { return false };
         let still_detached = detached::symbol_of(&old).is_some_and(|s| detached::is_main_component(&self.doc, s, component));
-        let Some(parent) = old.parent.filter(|_| still_detached && detached::matches_component(&self.doc, id, component)) else { return false };
+        // A mirror inside an instance would be removed again by the next sync from its main.
+        let Some(parent) = old.parent.filter(|_| still_detached && old.component.source.is_none() && detached::matches_component(&self.doc, id, component))
+        else {
+            return false;
+        };
         let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { return false };
         let cmd = designos_doc::create_instance(&mut self.doc, component, parent, Vec2::new(old.transform.tx, old.transform.ty));
         let Command::Insert { mut nodes, .. } = cmd else { return false };

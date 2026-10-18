@@ -127,7 +127,9 @@ impl Report {
 }
 
 /// Scans `scope` with the document's own variables and styles only (the app always audits with
-/// its enabled libraries through [`audit_with_libraries`]).
+/// its enabled libraries through [`audit_with_libraries`]). Hidden layers are skipped; layers inside
+/// an instance are audited only where their effective properties or backdrop diverge from their
+/// main component.
 #[cfg(test)]
 pub fn audit(doc: &Document, scope: &Scope) -> Report {
     audit_with_libraries(doc, scope, &LibrarySources::default())
@@ -143,20 +145,26 @@ pub fn audit_with_libraries(doc: &Document, scope: &Scope, libs: &LibrarySources
     let components = detached::Components::new(doc);
     let bounds = contrast::SubtreeBounds::default();
     let mut report = Report::default();
+    let mut visited = 0usize;
     let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
     while let Some(id) = stack.pop() {
         let Some(n) = doc.get(id) else { continue };
-        if !n.visible || n.component.source.is_some() || matches!(n.kind, NodeKind::Page { .. }) {
+        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
             continue;
         }
-        if report.scanned >= MAX_SCANNED_LAYERS {
+        if visited >= MAX_SCANNED_LAYERS {
+            report.scanned = visited;
             report.truncated = true;
             break;
         }
-        report.scanned += 1;
+        visited += 1;
+        let before = report.findings.len();
         hardcoded::check(doc, &index, n, &mut report.findings);
         contrast::check(doc, &bounds, n, &mut report.findings);
         detached::check(doc, &components, n, &mut report.findings);
+        if n.component.source.is_none() || !n.component.overrides.is_empty() || report.findings.len() > before {
+            report.scanned += 1;
+        }
         stack.extend(n.children.iter().rev().copied());
     }
     report

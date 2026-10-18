@@ -59,6 +59,15 @@ impl Fx {
 
     /// A colour variable with one value per mode of the shared "Theme" collection (light default, dark).
     fn color_var(&mut self, name: &str, light: Color, dark: Color) -> String {
+        self.theme_var(name, VariableKind::Color, VariableValue::Color(light), VariableValue::Color(dark))
+    }
+
+    /// A number variable with one value per mode of the shared "Theme" collection.
+    fn number_var(&mut self, name: &str, light: f32, dark: f32) -> String {
+        self.theme_var(name, VariableKind::Number, VariableValue::Number(light), VariableValue::Number(dark))
+    }
+
+    fn theme_var(&mut self, name: &str, kind: VariableKind, light: VariableValue, dark: VariableValue) -> String {
         let coll = self.doc.variable_collections.entry("theme".into()).or_insert_with(|| VariableCollection {
             id: "theme".into(),
             name: "Theme".into(),
@@ -70,14 +79,14 @@ impl Fx {
         });
         let id = format!("var:{name}");
         coll.variables.push(id.clone());
-        let values = [("light".to_string(), VariableValue::Color(light)), ("dark".to_string(), VariableValue::Color(dark))].into_iter().collect();
+        let values = [("light".to_string(), light), ("dark".to_string(), dark)].into_iter().collect();
         self.doc.variables.insert(
             id.clone(),
             Variable {
                 id: id.clone(),
                 name: name.into(),
                 collection: "theme".into(),
-                kind: VariableKind::Color,
+                kind,
                 values,
                 description: String::new(),
                 scopes: vec![],
@@ -373,6 +382,11 @@ fn component(f: &mut Fx, source_id: &str) -> NodeId {
 /// A detached copy of `comp` on the page: the same tree with its component bookkeeping replaced by
 /// the `detachedSymbolId` provenance a `.fig` import leaves, named `name`, at (40, 60).
 fn detached_copy(f: &mut Fx, comp: NodeId, name: &str, symbol: &str) -> NodeId {
+    detached_copy_in(f, comp, f.page, name, symbol)
+}
+
+/// [`detached_copy`] placed under `parent`, which may itself be a main component.
+fn detached_copy_in(f: &mut Fx, comp: NodeId, parent: NodeId, name: &str, symbol: &str) -> NodeId {
     fn copy(f: &mut Fx, src: NodeId, parent: NodeId) -> NodeId {
         let mut n = f.doc.get(src).unwrap().clone();
         let kids = std::mem::take(&mut n.children);
@@ -387,7 +401,7 @@ fn detached_copy(f: &mut Fx, comp: NodeId, name: &str, symbol: &str) -> NodeId {
         }
         id
     }
-    let id = copy(f, comp, f.page);
+    let id = copy(f, comp, parent);
     let n = f.doc.get_mut(id).unwrap();
     n.name = name.into();
     n.transform.tx = 40.0;
@@ -609,11 +623,13 @@ fn resize(f: &mut Fx, id: NodeId, w: f32, h: f32) {
 mod backdrop;
 mod covering_sibling;
 mod fix_all;
+mod instances;
 mod libraries;
 mod not_painted_as_computed;
 mod numbers;
 mod outside_the_box;
 mod painted_behind;
+mod resolved_styles;
 mod safety;
 mod subtree_bounds;
 mod text_run_fills;

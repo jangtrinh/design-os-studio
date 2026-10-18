@@ -446,13 +446,20 @@ pub(super) fn check(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Findi
     if matches!(n.kind, NodeKind::Unknown { .. }) {
         return;
     }
-    paints_rule(doc, index, n, Slot::Fill, out);
-    if n.stroke.weight > 0.0 {
-        paints_rule(doc, index, n, Slot::Stroke, out);
+    let resolved = designos_doc::resolved_node(doc, n.id);
+    let rn = resolved.as_deref().unwrap_or(n);
+    let src_resolved = n.component.source.and_then(|s| designos_doc::resolved_node(doc, s));
+    if n.component.source.is_some() && src_resolved.is_none() {
+        return;
     }
-    numbers_rule(doc, index, n, out);
-    text_rule(doc, index, n, out);
-    effects_rule(index, n, out);
+    let src = src_resolved.as_deref();
+    paints_rule(doc, index, rn, src, Slot::Fill, out);
+    if rn.stroke.weight > 0.0 {
+        paints_rule(doc, index, rn, src, Slot::Stroke, out);
+    }
+    numbers_rule(doc, index, rn, src, out);
+    text_rule(doc, index, rn, src, out);
+    effects_rule(index, rn, src, out);
 }
 
 fn check_number_prop(doc: &Document, index: &Index, n: &Node, keys: &[&str], label: &str, val: f32, out: &mut Vec<Finding>) -> bool {
@@ -552,15 +559,24 @@ fn number_value_at(n: &Node, key: &str) -> Option<f32> {
     (v.is_finite() && v > 0.0).then_some(v)
 }
 
-fn check_single_number(doc: &Document, index: &Index, n: &Node, key: &str, label: &str, out: &mut Vec<Finding>) -> bool {
-    if n.variables.bindings.contains_key(key) {
+/// Whether `key` on an instance's layer is exactly what its main component's layer already has, so
+/// the finding belongs to the main component and not to the instance.
+fn number_inherited(n: &Node, src: Option<&Node>, key: &str) -> bool {
+    src.is_some_and(|s| n.variables.bindings.get(key) == s.variables.bindings.get(key) && number_value_at(n, key) == number_value_at(s, key))
+}
+
+fn check_single_number(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, key: &str, label: &str, out: &mut Vec<Finding>) -> bool {
+    if n.variables.bindings.contains_key(key) || number_inherited(n, src, key) {
         return false;
     }
     let Some(val) = number_value_at(n, key) else { return false };
     check_number_prop(doc, index, n, &[key], label, val, out)
 }
 
-fn check_quad(doc: &Document, index: &Index, n: &Node, uniform_label: &str, sides: [(&str, &str); 4], out: &mut Vec<Finding>) {
+fn check_quad(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, uniform_label: &str, sides: [(&str, &str); 4], out: &mut Vec<Finding>) {
+    if sides.iter().all(|(k, _)| number_inherited(n, src, k)) {
+        return;
+    }
     let all_unbound = sides.iter().all(|(k, _)| !n.variables.bindings.contains_key(*k));
     if all_unbound {
         if let Some(v0) = number_value_at(n, sides[0].0) {
@@ -573,20 +589,21 @@ fn check_quad(doc: &Document, index: &Index, n: &Node, uniform_label: &str, side
         }
     }
     for (k, label) in sides {
-        check_single_number(doc, index, n, k, label, out);
+        check_single_number(doc, index, n, src, k, label, out);
     }
 }
 
-fn numbers_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>) {
+fn numbers_rule(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, out: &mut Vec<Finding>) {
     if index.by_num.is_empty() {
         return;
     }
-    check_single_number(doc, index, n, "itemSpacing", "Gap", out);
-    check_single_number(doc, index, n, "counterAxisSpacing", "Row gap", out);
+    check_single_number(doc, index, n, src, "itemSpacing", "Gap", out);
+    check_single_number(doc, index, n, src, "counterAxisSpacing", "Row gap", out);
     check_quad(
         doc,
         index,
         n,
+        src,
         "Padding",
         [("paddingTop", "Top padding"), ("paddingRight", "Right padding"), ("paddingBottom", "Bottom padding"), ("paddingLeft", "Left padding")],
         out,
@@ -595,6 +612,7 @@ fn numbers_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>)
         doc,
         index,
         n,
+        src,
         "Corner radius",
         [
             ("topLeftRadius", "Top-left radius"),
@@ -604,27 +622,40 @@ fn numbers_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>)
         ],
         out,
     );
-    check_single_number(doc, index, n, "strokeWeight", "Stroke weight", out);
+    check_single_number(doc, index, n, src, "strokeWeight", "Stroke weight", out);
     for (k, label) in [
         ("strokeTopWeight", "Stroke top weight"),
         ("strokeRightWeight", "Stroke right weight"),
         ("strokeBottomWeight", "Stroke bottom weight"),
         ("strokeLeftWeight", "Stroke left weight"),
     ] {
-        check_single_number(doc, index, n, k, label, out);
+        check_single_number(doc, index, n, src, k, label, out);
     }
 }
 
-fn paints_rule(doc: &Document, index: &Index, n: &Node, slot: Slot, out: &mut Vec<Finding>) {
+fn paints_rule(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, slot: Slot, out: &mut Vec<Finding>) {
     let paints = slot.paints(n);
     if paints.is_empty() || n.style_refs.contains_key(slot.ref_key()) {
         return;
+    }
+    if let Some(s) = src {
+        let same_paints = slot.paints(s) == paints && s.style_refs.get(slot.ref_key()) == n.style_refs.get(slot.ref_key());
+        let same_bindings = (0..paints.len()).all(|i| {
+            let key = format!("{}/{i}", slot.prefix());
+            s.variables.bindings.get(&key) == n.variables.bindings.get(&key)
+        });
+        if same_paints && same_bindings {
+            return;
+        }
     }
     let mut matched_variable = false;
     for (i, p) in paints.iter().enumerate() {
         let PaintKind::Solid(c) = &p.kind else { continue };
         let key = format!("{}/{i}", slot.prefix());
         if !p.visible || n.variables.bindings.contains_key(&key) {
+            continue;
+        }
+        if src.is_some_and(|s| slot.paints(s).get(i) == Some(p) && s.variables.bindings.get(&key) == n.variables.bindings.get(&key)) {
             continue;
         }
         match index.find(doc, n, &key, c) {
@@ -666,15 +697,23 @@ fn has_bound_text_number(n: &Node) -> bool {
     n.variables.bindings.keys().any(|k| matches!(k.as_str(), "fontSize" | "lineHeight" | "fontWeight" | "letterSpacing"))
 }
 
-fn text_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>) {
+fn text_rule(doc: &Document, index: &Index, n: &Node, src: Option<&Node>, out: &mut Vec<Finding>) {
     let NodeKind::Text(t) = &n.kind else { return };
     if n.style_refs.contains_key("text") {
         return;
     }
+    if let Some(NodeKind::Text(st)) = src.map(|s| &s.kind) {
+        if same_text_style(&t.style, &st.style)
+            && t.runs.len() == st.runs.len()
+            && t.runs.iter().zip(&st.runs).all(|(a, b)| same_text_style(&a.style, &b.style))
+        {
+            return;
+        }
+    }
     let mut matched_variable = false;
     if !index.by_num.is_empty() {
-        matched_variable |= check_single_number(doc, index, n, "fontSize", "Font size", out);
-        matched_variable |= check_single_number(doc, index, n, "lineHeight", "Line height", out);
+        matched_variable |= check_single_number(doc, index, n, src, "fontSize", "Font size", out);
+        matched_variable |= check_single_number(doc, index, n, src, "lineHeight", "Line height", out);
     }
     if matched_variable || has_bound_text_number(n) {
         return;
@@ -688,8 +727,11 @@ fn text_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>) {
     }
 }
 
-fn effects_rule(index: &Index, n: &Node, out: &mut Vec<Finding>) {
+fn effects_rule(index: &Index, n: &Node, src: Option<&Node>, out: &mut Vec<Finding>) {
     if n.effects.is_empty() || n.style_refs.contains_key("effect") {
+        return;
+    }
+    if src.is_some_and(|s| s.effects == n.effects) {
         return;
     }
     let style = index.styles.iter().find(|s| matches!(s.style, Style::Effect(fx) if *fx == n.effects));
@@ -809,9 +851,12 @@ fn style_matches_node(n: &Node, s: &Style, property: StyleProperty) -> bool {
 }
 
 /// Whether applying `style` to `id` is still a pure re-link: the layer is not linked yet and its
-/// own values already equal the style's.
+/// values, as painted in its mode, already equal the style's. This compares on the same resolved
+/// view [`check`] matched on, so a value that equals the style only once a variable resolves in
+/// the layer's mode stays fixable.
 pub(super) fn style_is_current(doc: &Document, id: NodeId, style: &str) -> bool {
-    let (Some(n), Some(s)) = (doc.get(id), doc.styles.get(style)) else { return false };
+    let (Some(resolved), Some(s)) = (designos_doc::resolved_node(doc, id), doc.styles.get(style)) else { return false };
+    let n: &Node = &resolved;
     if style_library_id(doc, style).is_some_and(|lib_id| enabled_library_name(doc, lib_id).is_none()) {
         return false;
     }
@@ -823,7 +868,8 @@ pub(super) fn library_style_is_current(doc: &Document, snap: &LibrarySnapshot, i
     if enabled_library_name(doc, &snap.library_id).is_none() || snap.asset(&format!("style:{raw_style}")).is_none() {
         return false;
     }
-    let (Some(n), Some(s)) = (doc.get(id), snap.styles.get(raw_style)) else { return false };
+    let (Some(resolved), Some(s)) = (designos_doc::resolved_node(doc, id), snap.styles.get(raw_style)) else { return false };
+    let n: &Node = &resolved;
     let property = snap.style_meta.get(raw_style).map(|m| m.property).unwrap_or_else(|| default_style_property(s));
     style_matches_node(n, s, property)
 }

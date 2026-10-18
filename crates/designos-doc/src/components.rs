@@ -456,6 +456,34 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
         OverrideField::Layout,
     );
     add(instance_component(before) != instance_component(after), OverrideField::MainComponent);
+    if before.variables.bindings != after.variables.bindings {
+        let is_text = matches!(after.kind, NodeKind::Text(_));
+        for key in before.variables.bindings.keys().chain(after.variables.bindings.keys()) {
+            if before.variables.bindings.get(key) == after.variables.bindings.get(key) {
+                continue;
+            }
+            if key.starts_with("fills/") {
+                s.insert(if is_text { OverrideField::TextStyle } else { OverrideField::Fills });
+            } else if key.starts_with("strokes/") || key == "strokeWeight" {
+                s.insert(OverrideField::Stroke);
+            } else if matches!(key.as_str(), "fontSize" | "fontFamily" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+            {
+                s.insert(OverrideField::TextStyle);
+            } else if matches!(key.as_str(), "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" | "cornerRadius") {
+                s.insert(OverrideField::CornerRadii);
+            } else if matches!(key.as_str(), "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") {
+                s.insert(OverrideField::Layout);
+            } else if matches!(key.as_str(), "width" | "height") {
+                s.insert(OverrideField::Size);
+            } else if key == "opacity" {
+                s.insert(OverrideField::Opacity);
+            } else if key == "visible" {
+                s.insert(OverrideField::Visible);
+            } else if key == "characters" {
+                s.insert(OverrideField::Characters);
+            }
+        }
+    }
     s
 }
 

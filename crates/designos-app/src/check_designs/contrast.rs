@@ -176,6 +176,24 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
         return;
     }
     let Some(f) = failure(doc, n.id, bounds) else { return };
+    if let Some(src_id) = n.component.source {
+        let same_own = match (resolved_node(doc, n.id).as_deref(), resolved_node(doc, src_id).as_deref()) {
+            (Some(a), Some(b)) => match (&a.kind, &b.kind) {
+                (NodeKind::Text(ta), NodeKind::Text(tb)) => {
+                    a.opacity == b.opacity
+                        && a.blend == b.blend
+                        && ta.style.fills == tb.style.fills
+                        && ta.runs == tb.runs
+                        && required_ratio(ta.style.font_size, ta.style.font_weight) == required_ratio(tb.style.font_size, tb.style.font_weight)
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if same_own && failure(doc, src_id, bounds).is_some_and(|sf| sf.bg == f.bg) {
+            return;
+        }
+    }
     let mut message = format!("Contrast {:.2}:1 is below {}:1 (WCAG AA)", floor2(f.ratio), ratio_label(f.required));
     let (fix, fix_label) = match (owner(doc, n, f.paint), suggest(&f)) {
         (Some(owner), _) => {

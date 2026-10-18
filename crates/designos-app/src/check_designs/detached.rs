@@ -2,7 +2,9 @@
 //! import) and is no longer an instance. When the main component is in this file and the frame
 //! still equals it (apart from its name and where it sits), the fix swaps the frame for a fresh
 //! instance of it. A frame that was edited after detaching is reported without a fix, because an
-//! instance would silently throw those edits away.
+//! instance would silently throw those edits away. A copy of such a frame inside an instance is not
+//! reported: it mirrors the detached frame of the main component, which is where it is reported
+//! and reconnected once. A reconnect on the copy would be undone by the next sync of the instance.
 
 use super::{Finding, Fix, Rule};
 use designos_doc::{Affine, ComponentLink, Constraints, Document, LayoutChild, Node, NodeId, NodeKind};
@@ -101,11 +103,18 @@ pub(super) fn matches_component(doc: &Document, frame: NodeId, component: NodeId
 
 pub(super) fn check(doc: &Document, components: &Components, n: &Node, out: &mut Vec<Finding>) {
     let Some(symbol) = symbol_of(n) else { return };
+    // A layer inside an instance (`component.source`) is a mirror kept by the sync from its main.
+    let mirrored = n.component.source.is_some();
+    if mirrored && n.component.source.and_then(|s| doc.get(s)).and_then(symbol_of) == Some(symbol) {
+        return;
+    }
     let component = components.resolve(symbol).filter(|c| !doc.is_ancestor(*c, n.id));
     let (message, fix, fix_label) = match component {
         Some(c) => {
             let name = instance_name(doc, c);
-            if matches_component(doc, n.id, c) {
+            if mirrored {
+                (format!("Detached from \"{name}\" inside an instance · reconnect on the main component"), None, String::new())
+            } else if matches_component(doc, n.id, c) {
                 (format!("Detached from component \"{name}\""), Some(Fix::Reconnect { component: c }), format!("Reconnect to {name}"))
             } else {
                 (format!("Detached from \"{name}\" and edited since · no safe reconnect"), None, String::new())
