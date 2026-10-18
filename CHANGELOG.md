@@ -2,6 +2,38 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.5.0] - 2026-10-19
+
+Pack **Components** ([milestone v0.5 Components](https://github.com/jangtrinh/design-os-studio/milestone/3)): slots and a stronger Check designs.
+
+### Added
+- **Slots.**
+  - Create a slot on a component and set its rules in the slot settings panel: minimum and maximum children, preferred components, stretch on insert, and show empty by default (#32).
+  - Edit slot content in an instance without detaching it. The limits hold on every edit: draw, paste, drag, drop, group, ungroup, and placing images or video (#34).
+  - An empty slot shows a placeholder with a **+** that opens the preferred-instance picker. Inserting stretches the child to the slot when the slot asks for it (#150).
+  - **Migrate to slot** turns an instance-swap or boolean region into a slot and keeps each instance's content, in one undo step (#151).
+  - Dev Mode codegen emits slots: one parameter per slot with the slot's own layers as the fallback, in React, Tailwind, SwiftUI and Compose (#152).
+- **Component playground** in Dev Mode: try a component's properties and variants without editing the file (#159).
+- **Check designs.**
+  - Flags hard-coded numbers that exactly match a number variable (#154).
+  - Suggests variables and styles from enabled libraries (#155).
+  - Audits text and overrides inside component instances. A finding inside a component is reported once, on the main component (#52).
+  - Contrast checks use an opaque parent or sibling as the backdrop (#65).
+- **Chrome design standard.** One spacing ladder, concentric radii (frame 14, control 6, inset 8), pills for chips and dialog buttons, a neutral selection fill, 10 px captions, and Roboto Mono for code (#580).
+
+### Fixed
+- **`.fig` files.**
+  - Export uses the field numbering, types and enum values from Figma's own files (#110).
+  - Slot preferred values are read and written as Figma's real object (#107).
+  - Slot content ids are stored per property, and older files load unchanged (#108).
+  - The slot-list parser rejects the raw-number fallback (#111). Unknown slot settings keys are kept (#112).
+  - Nested instance swaps update the shell's fills, strokes and properties (#525).
+  - Instance text overrides with several paragraphs or mixed styles are kept (#518).
+  - Resized instances apply Stretch and Scale constraints to their children (#522).
+- **Paste from Figma** remaps slot and instance-swap ids and drops unknown ones (#109).
+- **Styles.** Applying a colour style recolours every text run, in one undo step (#68).
+- Windows CI: terminal tests use the system temp folder (#581).
+
 ## [0.4.1] - 2026-10-19
 
 Patch for **Layout 2.0** ([milestone v0.4.1 patch](https://github.com/jangtrinh/design-os-studio/milestone/46)): fixes found after 0.4.0, many of them from rendering the Untitled UI PRO v8.0 kit against Figma.

@@ -906,7 +906,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "designos-app"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arboard",
  "base64",
@@ -941,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "designos-diff"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "clap",
  "image",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "designos-doc"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "regex",
  "serde",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "designos-export"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "designos-doc",
@@ -973,7 +973,7 @@ dependencies = [
 
 [[package]]
 name = "designos-fig"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "designos-doc",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "designos-fonts"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "designos-doc",
  "dirs",
@@ -1001,7 +1001,7 @@ dependencies = [
 
 [[package]]
 name = "designos-gpu"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "designos-diff",
@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "designos-library"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "designos-doc",
  "designos-fig",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "designos-mcp"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "designos-doc",
  "designos-export",
@@ -1044,7 +1044,7 @@ dependencies = [
 
 [[package]]
 name = "designos-render"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "cosmic-text",
  "designos-doc",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "designos-svg"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "base64",
  "designos-doc",
