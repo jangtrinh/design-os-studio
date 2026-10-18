@@ -2848,4 +2848,44 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn opening_malformed_library_file_warns_user_and_writes_backup_on_save() {
+        let tmp = std::env::temp_dir().join(format!("designos_lib_open_repair_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let mut app = App::new(designos_doc::Document::new("Init"));
+        app.attach_library(tmp.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("TestProj").unwrap());
+
+        let mut damaged = designos_doc::Document::new("Damaged Library Doc");
+        let page = damaged.add_page("Page 1");
+        let r = damaged.alloc_id();
+        damaged.insert(page, designos_doc::Node::rectangle(r, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        let entry = lib.create_file(&proj.id, None, "Damaged Library Doc", &damaged).unwrap();
+
+        // Corrupt the stored library file with a dangling child id and cycle
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(7777));
+        damaged.nodes.get_mut(&r).unwrap().children.push(page);
+        damaged.nodes.get_mut(&page).unwrap().parent = Some(r);
+        let original_bytes = damaged.to_json().unwrap().into_bytes();
+        let disk_path = lib.path("projects").join(&proj.id).join("files").join(format!("{}.designos", entry.id));
+        let bak_path = crate::io::backup_path(&disk_path);
+        std::fs::write(&disk_path, &original_bytes).unwrap();
+
+        app.toast = None;
+        app.open_library_file(&entry.id);
+
+        let toast = app.toast.as_ref().expect("malformed library open must surface a warning toast");
+        assert!(toast.error, "repair warning toast should use warning/error styling");
+        assert!(toast.text.starts_with("Opened Damaged Library Doc with a warning: repaired malformed document"), "unexpected toast: {}", toast.text);
+        assert!(toast.text.contains("1 dangling ids"), "toast must describe the structural repair: {}", toast.text);
+        assert!(!bak_path.exists(), "backup is deferred until save");
+
+        app.save_library_file().expect("saving repaired library file succeeds");
+        assert_eq!(std::fs::read(&bak_path).unwrap(), original_bytes, "saving a repaired library file must back up the untouched pre-repair bytes");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

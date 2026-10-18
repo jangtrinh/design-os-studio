@@ -456,7 +456,7 @@ impl Document {
             node.size.x = w_explicit.max(0.0);
             if spec.width_sizing.is_none() {
                 if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
-                    if al.direction == LayoutDirection::Horizontal {
+                    if al.primary_is_horizontal() {
                         al.primary_sizing = Sizing::Fixed;
                     } else {
                         al.counter_sizing = Sizing::Fixed;
@@ -468,7 +468,7 @@ impl Document {
             node.size.y = h_explicit.max(0.0);
             if spec.height_sizing.is_none() {
                 if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
-                    if al.direction == LayoutDirection::Vertical {
+                    if !al.primary_is_horizontal() {
                         al.primary_sizing = Sizing::Fixed;
                     } else {
                         al.counter_sizing = Sizing::Fixed;
@@ -512,7 +512,7 @@ impl Document {
             let s = parse_sizing(ws);
             node.layout_child.horizontal = s;
             if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
-                if al.direction == LayoutDirection::Horizontal {
+                if al.primary_is_horizontal() {
                     al.primary_sizing = if s == Sizing::Hug { Sizing::Hug } else { Sizing::Fixed };
                 } else {
                     al.counter_sizing = if s == Sizing::Hug { Sizing::Hug } else { Sizing::Fixed };
@@ -523,7 +523,7 @@ impl Document {
             let s = parse_sizing(hs);
             node.layout_child.vertical = s;
             if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
-                if al.direction == LayoutDirection::Vertical {
+                if !al.primary_is_horizontal() {
                     al.primary_sizing = if s == Sizing::Hug { Sizing::Hug } else { Sizing::Fixed };
                 } else {
                     al.counter_sizing = if s == Sizing::Hug { Sizing::Hug } else { Sizing::Fixed };
@@ -883,5 +883,108 @@ mod tests {
         let exported = doc.export_spec(screen_id).unwrap();
         assert_eq!(exported.name, "IAM · Login Screen");
         assert_eq!(exported.children[0].children[2].comments.len(), 1);
+    }
+
+    #[test]
+    fn grid_frame_width_and_height_sizing_map_to_primary_and_counter() {
+        let mut doc = Document::new("Grid Spec");
+        let page = doc.add_page("P");
+        let hug_w_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "HugWidthGrid",
+            "kind": "frame",
+            "width_sizing": "hug",
+            "height": 300.0,
+            "layout": { "direction": "grid", "grid_columns": 3, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 20.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 20.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 20.0 }
+            ]
+        }))
+        .unwrap();
+        let hug_w_id = doc.apply_spec(page, &hug_w_spec).unwrap();
+        let al_w = doc.get(hug_w_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_w.primary_sizing, al_w.counter_sizing),
+            (Sizing::Hug, Sizing::Fixed),
+            "width_sizing=hug and explicit height on a grid frame must set primary_sizing=Hug, counter_sizing=Fixed"
+        );
+        assert_eq!(doc.get(hug_w_id).unwrap().size, Vec2::new(170.0, 300.0));
+
+        let hug_h_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "HugHeightGrid",
+            "kind": "frame",
+            "width": 400.0,
+            "height_sizing": "hug",
+            "layout": { "direction": "grid", "grid_columns": 2, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 }
+            ]
+        }))
+        .unwrap();
+        let hug_h_id = doc.apply_spec(page, &hug_h_spec).unwrap();
+        let al_h = doc.get(hug_h_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_h.primary_sizing, al_h.counter_sizing),
+            (Sizing::Fixed, Sizing::Hug),
+            "explicit width and height_sizing=hug on a grid frame must set primary_sizing=Fixed, counter_sizing=Hug"
+        );
+        assert_eq!(doc.get(hug_h_id).unwrap().size, Vec2::new(400.0, 30.0));
+    }
+
+    #[test]
+    fn grid_height_hug_keeps_an_explicit_width_pinned() {
+        let mut doc = Document::new("Grid Spec");
+        let page = doc.add_page("P");
+        // A preset leaves the grid hugging both ways. The explicit width pins the primary axis and
+        // height_sizing=hug keeps the counter axis hugging, so the width stays 400.
+        let preset_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "PresetGrid",
+            "kind": "frame",
+            "preset": "easeui-panel",
+            "width": 400.0,
+            "height_sizing": "hug",
+            "layout": { "direction": "grid", "grid_columns": 2, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 }
+            ]
+        }))
+        .unwrap();
+        let preset_id = doc.apply_spec(page, &preset_spec).unwrap();
+        let al_p = doc.get(preset_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_p.primary_sizing, al_p.counter_sizing),
+            (Sizing::Fixed, Sizing::Hug),
+            "an explicit width on a hugging grid frame must pin primary_sizing, and height_sizing=hug must leave counter_sizing hugging"
+        );
+        assert_eq!(doc.get(preset_id).unwrap().size, Vec2::new(400.0, 62.0), "400 wide, one row of 30 plus the preset's 16px padding above and below");
+    }
+
+    #[test]
+    fn grid_width_and_height_hug_together_hug_both_axes() {
+        let mut doc = Document::new("Grid Spec");
+        let page = doc.add_page("P");
+        let hug_both_spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "name": "HugBothGrid",
+            "kind": "frame",
+            "width_sizing": "hug",
+            "height_sizing": "hug",
+            "layout": { "direction": "grid", "grid_columns": 2, "gap": 10.0 },
+            "children": [
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 },
+                { "kind": "rectangle", "width": 50.0, "height": 30.0 }
+            ]
+        }))
+        .unwrap();
+        let hug_both_id = doc.apply_spec(page, &hug_both_spec).unwrap();
+        let al_b = doc.get(hug_both_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        assert_eq!(
+            (al_b.primary_sizing, al_b.counter_sizing),
+            (Sizing::Hug, Sizing::Hug),
+            "width_sizing=hug and height_sizing=hug on a grid frame must hug the columns and the rows"
+        );
+        assert_eq!(doc.get(hug_both_id).unwrap().size, Vec2::new(110.0, 30.0));
     }
 }

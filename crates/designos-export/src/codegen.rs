@@ -357,12 +357,37 @@ pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<Strin
     }
 }
 
+/// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
+/// grid as a column, so every parent that is not `Horizontal` counts as one.
 pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
+    let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
+    sizes_along(n, parent, row_parent)
+}
+
+/// Sizing as a browser lays the node out (CSS and Tailwind). It differs from [`sizes`] only for grids:
+/// - a grid runs along the width, as in the layout solver (`AutoLayout::primary_is_horizontal`), so
+///   `grow` stretches an item across its cell and leaves its height alone;
+/// - a grid frame that hugs still exports the size the solver gave it, because its `1fr` tracks
+///   only split an explicit size (the tracks themselves stay fractions of that size).
+pub(crate) fn web_sizes(n: &Node, parent: Parent) -> Sizes {
+    let row_parent = parent.al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
+    let mut sz = sizes_along(n, parent, row_parent);
+    if n.kind.frame_props().and_then(|f| f.auto_layout).is_some_and(|a| a.direction == LayoutDirection::Grid) {
+        if sz.w == Dim::Hug {
+            sz.w = Dim::Fixed(n.size.x);
+        }
+        if sz.h == Dim::Hug {
+            sz.h = Dim::Fixed(n.size.y);
+        }
+    }
+    sz
+}
+
+fn sizes_along(n: &Node, parent: Parent, row_parent: bool) -> Sizes {
     let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
-    let row_parent = parent.al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
-    let hug_w = own_al.map(|a| a.sizing_along(true) == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| a.sizing_along(false) == Sizing::Hug).unwrap_or(false);
+    let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
+    let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;
@@ -595,6 +620,26 @@ fn css_box(v: &[String]) -> String {
 pub(crate) mod fixture {
     use super::*;
 
+    /// An empty grid frame on a fresh page. Insert children with [`add_rect`], then call
+    /// `Document::relayout_subtree` so the frame and its children hold the solver's output.
+    pub fn grid_frame(al: AutoLayout, size: Vec2) -> (Document, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut g = Node::frame(id, Rect::new(0.0, 0.0, size.x, size.y));
+        g.fills.clear();
+        if let NodeKind::Frame(fp) = &mut g.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Grid, ..al });
+        }
+        let id = d.insert(page, g).unwrap();
+        (d, id)
+    }
+
+    pub fn add_rect(d: &mut Document, parent: NodeId, size: Vec2) -> NodeId {
+        let id = d.alloc_id();
+        d.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, size.x, size.y))).unwrap()
+    }
+
     pub fn card() -> (Document, NodeId) {
         let mut d = Document::new("t");
         let page = d.add_page("p");
@@ -607,6 +652,7 @@ pub(crate) mod fixture {
                 default_mode: "light".into(),
                 variables: vec!["primary".into(), "muted".into(), "md".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         let var = |id: &str, name: &str, kind, values: Vec<(&str, VariableValue)>| Variable {
@@ -882,5 +928,29 @@ mod tests {
         assert_eq!(css_var(v), "var(--Color-Primary)");
         assert_eq!(token_camel(&d.variables["muted"], true), "textMuted");
         assert_eq!(css_var(&d.variables["md"]), "var(--Spacing-Md)");
+    }
+
+    #[test]
+    fn grid_items_are_sized_as_a_column_by_the_stack_generators_and_along_the_width_by_the_web_ones() {
+        let al = AutoLayout { direction: LayoutDirection::Grid, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+        let mut item = Node::rectangle(NodeId(2), Rect::new(0.0, 0.0, 80.0, 40.0));
+        item.layout_child.grow = 1.0;
+        let parent = Parent { al: Some(al), root: false };
+        // SwiftUI, UIKit, Compose and Android XML emit a grid as a column, where `grow` fills the height.
+        let stack = sizes(&item, parent);
+        assert!(!stack.row_parent);
+        assert_eq!((stack.w, stack.h), (Dim::Fixed(80.0), Dim::Fill));
+        // The browser runs a grid along the width, like the layout solver: `grow` fills the width.
+        let web = web_sizes(&item, parent);
+        assert!(web.row_parent);
+        assert_eq!((web.w, web.h), (Dim::Fill, Dim::Fixed(40.0)));
+
+        // A grid frame always exports the size the solver gave it, even when it hugs.
+        let mut grid = Node::frame(NodeId(3), Rect::new(0.0, 0.0, 120.0, 30.0));
+        if let NodeKind::Frame(fp) = &mut grid.kind {
+            fp.auto_layout = Some(al);
+        }
+        assert_eq!((sizes(&grid, Parent::root()).w, sizes(&grid, Parent::root()).h), (Dim::Hug, Dim::Hug));
+        assert_eq!((web_sizes(&grid, Parent::root()).w, web_sizes(&grid, Parent::root()).h), (Dim::Fixed(120.0), Dim::Fixed(30.0)));
     }
 }

@@ -322,6 +322,7 @@ mod tests {
     <div
       style={{
         display: 'grid',
+        width: 480,
         height: 200,
         padding: '12px 16px',
         gridTemplateColumns: '1fr 120px auto',
@@ -333,6 +334,7 @@ mod tests {
         style={{
           gridColumn: '2 / span 2',
           gridRow: '1 / span 1',
+          width: 200,
           height: 80,
         }}
       />
@@ -343,8 +345,8 @@ mod tests {
 
         let expected_tw = r####"export function DashboardGrid() {
   return (
-    <div className="grid grid-cols-[1fr_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 h-[200px]">
-      <div className="col-start-2 col-span-2 row-start-1 h-20" />
+    <div className="grid grid-cols-[1fr_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]">
+      <div className="col-start-2 col-span-2 row-start-1 w-[200px] h-20" />
     </div>
   );
 }"####;

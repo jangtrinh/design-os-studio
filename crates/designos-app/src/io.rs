@@ -169,6 +169,34 @@ pub fn backup_path(path: &Path) -> PathBuf {
     unreachable!("u64 backup index exhausted")
 }
 
+/// If `path` was structurally repaired when loaded, writes its pre-repair bytes to `<path>.bak`.
+pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let key = repair_key(&p);
+    let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
+    if let Some(original_bytes) = &pending_backup {
+        let bak = backup_path(&p);
+        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// Drops the pending pre-repair backup bytes for `path` after a save has succeeded.
+pub fn clear_pending_repair_backup(path: &Path) {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let key = repair_key(&p);
+    if let Ok(mut map) = repaired_originals().lock() {
+        map.remove(&key);
+    }
+}
+
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     let mut p = path.to_path_buf();
@@ -183,17 +211,10 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
         doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?.into_bytes()
     };
 
-    let key = repair_key(&p);
-    let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
-    if let Some(original_bytes) = &pending_backup {
-        let bak = backup_path(&p);
-        designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
-    }
+    let wrote_backup = write_pending_repair_backup(&p)?;
     designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
-    if pending_backup.is_some() {
-        if let Ok(mut map) = repaired_originals().lock() {
-            map.remove(&key);
-        }
+    if wrote_backup {
+        clear_pending_repair_backup(&p);
     }
     Ok(p)
 }
