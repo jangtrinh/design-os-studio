@@ -18,6 +18,7 @@ fn full_config(preferred: Vec<NodeId>) -> SlotPropConfig {
         max_children: Some(3),
         allow_preferred_values_only: Some(true),
         preferred,
+        ..Default::default()
     }
 }
 
@@ -225,6 +226,7 @@ fn imports_slot_fields_from_a_kiwi_shaped_fixture() {
             max_children: Some(4),
             allow_preferred_values_only: Some(true),
             preferred: vec![],
+            ..Default::default()
         })
     );
     let slot = find(&doc, "Body slot");
@@ -290,4 +292,45 @@ fn raw_numeric_slot_entries_are_rejected_and_do_not_bind_unrelated_nodes() {
         Some(&PropValue::Slot(vec![card_id])),
         "raw numbers in a SLOT list must be rejected instead of aliasing internal NodeIds"
     );
+}
+
+#[test]
+fn unknown_slot_prop_config_keys_are_preserved_in_native_format() {
+    let fixture = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        nc(
+            (5, 1),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "Panel",
+            json!({
+                "componentPropDefs": [{
+                    "id": g(7, 1),
+                    "name": "Body",
+                    "type": "SLOT",
+                    "slotPropConfig": {
+                        "stretchChildOnInsert": true,
+                        "minChildren": 1,
+                        "futureSlotMode": "WRAP",
+                        "customLimit": 8
+                    }
+                }]
+            })
+        )
+    ]);
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let cfg = find(&doc, "Panel").component.slot_configs.get("Body").expect("Body slot config exists");
+    assert_eq!(cfg.stretch_child_on_insert, Some(true));
+    assert_eq!(cfg.min_children, Some(1));
+    assert_eq!(cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
+    assert_eq!(cfg.extra.get("customLimit"), Some(&json!(8)));
+
+    let native_json = doc.to_json().unwrap();
+    let reloaded = Document::from_json(&native_json).unwrap();
+    let reloaded_cfg = find(&reloaded, "Panel").component.slot_configs.get("Body").expect("Body slot config survives native round-trip");
+    assert_eq!(reloaded_cfg, cfg);
+    assert_eq!(reloaded_cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
+    assert_eq!(reloaded_cfg.extra.get("customLimit"), Some(&json!(8)));
 }

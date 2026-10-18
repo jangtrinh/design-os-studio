@@ -1,8 +1,8 @@
 //! Slot data on [`ComponentLink`]: compact serialization, instance copies and garbage collection.
 
 use crate::{
-    create_component, create_instance, delete_prop, instances_of, rename_prop, sync_instances, ComponentPropDef, Document, Node, NodeId, NodeKind, PropKind,
-    PropValue, Rect, SlotPropConfig, Vec2,
+    create_component, create_instance, delete_prop, duplicate_subtree, instances_of, rename_prop, sync_instances, ComponentPropDef, Document, Node, NodeId,
+    NodeKind, PropKind, PropValue, Rect, SlotPropConfig, Vec2,
 };
 
 /// A component frame holding a slot frame, with a slot property, its settings and a preferred component.
@@ -146,4 +146,38 @@ fn settings_of_the_other_slot_properties_are_not_touched() {
     assert_eq!(n.component.slot_configs.len(), 1);
     assert_eq!(n.component.slot_configs.get("Footer"), Some(&SlotPropConfig { min_children: Some(1), ..Default::default() }));
     assert!(n.component.slot_configs.values().all(|c| !c.preferred.contains(&icon)));
+}
+
+#[test]
+fn duplicate_subtree_clears_slot_content_id_so_copies_do_not_share_a_guid() {
+    let (mut d, comp, body, _) = component_with_slot();
+    d.get_mut(comp).unwrap().component.slot_content_id = Some("9:9".into());
+    d.get_mut(body).unwrap().component.slot_content_id = Some("9:10".into());
+
+    let page = d.pages[0];
+    create_instance(&mut d, comp, page, Vec2::new(300.0, 100.0)).apply(&mut d).unwrap();
+    let inst = instances_of(&d, comp)[0];
+    d.get_mut(inst).unwrap().component.slot_content_id = Some("12:34".into());
+    let inst_body = d.get(inst).unwrap().children[0];
+    d.get_mut(inst_body).unwrap().component.slot_content_id = Some("12:35".into());
+
+    let copied = duplicate_subtree(&mut d, inst);
+    assert_eq!(copied.len(), 2);
+    assert_eq!(d.get(inst).unwrap().component.slot_content_id.as_deref(), Some("12:34"));
+    assert_eq!(copied[0].component.slot_content_id, None, "duplicated instance must not share slot_content_id with original");
+    assert_eq!(copied[1].component.slot_content_id, None, "duplicated child must not share slot_content_id with original");
+}
+
+#[test]
+fn sync_instances_propagates_is_slot_content_flipped_on_the_component() {
+    let (mut d, comp, body, _) = component_with_slot();
+    let page = d.pages[0];
+    create_instance(&mut d, comp, page, Vec2::new(300.0, 100.0)).apply(&mut d).unwrap();
+    let inst = instances_of(&d, comp)[0];
+    let inst_body = d.get(inst).unwrap().children[0];
+    assert!(!d.get(inst_body).unwrap().component.is_slot_content);
+
+    d.get_mut(body).unwrap().component.is_slot_content = true;
+    sync_instances(&mut d, comp).apply(&mut d).unwrap();
+    assert!(d.get(inst_body).unwrap().component.is_slot_content);
 }

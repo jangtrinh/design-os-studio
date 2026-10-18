@@ -273,6 +273,8 @@ fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashM
             let mut n = (*src).clone();
             n.id = map[&id];
             n.source_id = None;
+            // a slot content guid names one node; copies must not share it
+            n.component.slot_content_id = None;
             // connectors copied together with their nodes join the copies; a connector copied alone
             // keeps its nodes while they exist, and is left loose (at its last point) otherwise
             if let NodeKind::Connector(c) = &mut n.kind {

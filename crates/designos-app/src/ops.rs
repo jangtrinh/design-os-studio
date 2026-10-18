@@ -1846,6 +1846,54 @@ mod tests {
         assert_eq!(app.doc.get(app.page).unwrap().children.len(), 3);
     }
 
+    /// An instance (slot id "9:9") holding one child (slot id "9:10") on the page.
+    fn app_with_slot_instance() -> (App, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let iid = d.alloc_id();
+        let mut inst = Node::frame(iid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        let frame = inst.kind.frame_props().cloned().unwrap();
+        inst.kind = NodeKind::Instance { frame, component: None, component_key: None };
+        inst.component.slot_content_id = Some("9:9".into());
+        let inst = d.insert(page, inst).unwrap();
+        let cid = d.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(5.0, 5.0, 10.0, 10.0));
+        child.component.slot_content_id = Some("9:10".into());
+        let child = d.insert(inst, child).unwrap();
+        (App::new(d), inst, child)
+    }
+
+    fn slot_ids(app: &App, id: NodeId) -> Vec<Option<String>> {
+        let n = app.doc.get(id).unwrap();
+        std::iter::once(id).chain(n.children.iter().copied()).map(|i| app.doc.get(i).unwrap().component.slot_content_id.clone()).collect()
+    }
+
+    #[test]
+    fn duplicate_gives_the_copy_its_own_slot_content_id() {
+        let (mut app, inst, child) = app_with_slot_instance();
+        app.selection = vec![inst];
+        app.duplicate_selection();
+        let copy = app.selection[0];
+        assert_ne!(copy, inst);
+        assert_eq!(slot_ids(&app, inst), vec![Some("9:9".into()), Some("9:10".into())], "original keeps its ids");
+        assert_eq!(slot_ids(&app, copy), vec![None, None], "copy must not share the original's slot content ids");
+        assert_eq!(app.doc.get(child).unwrap().component.slot_content_id.as_deref(), Some("9:10"));
+    }
+
+    #[test]
+    fn pasting_twice_never_shares_a_slot_content_id() {
+        let (mut app, inst, _) = app_with_slot_instance();
+        app.selection = vec![inst];
+        let json = app.copy_selection().unwrap();
+        for text in [Some(json.as_str()), None] {
+            app.paste(text);
+            let pasted = app.selection[0];
+            assert_ne!(pasted, inst);
+            assert_eq!(slot_ids(&app, pasted), vec![None, None]);
+        }
+        assert_eq!(slot_ids(&app, inst), vec![Some("9:9".into()), Some("9:10".into())]);
+    }
+
     #[test]
     fn align_left_multi() {
         let (mut app, ids) = app_with_rects();

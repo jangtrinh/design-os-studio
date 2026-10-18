@@ -241,6 +241,9 @@ pub struct SlotPropConfig {
     /// Components offered for this slot (`preferredValues`), as local node ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preferred: Vec<NodeId>,
+    /// Unmapped keys from `slotPropConfig` preserved across REST import and native JSON save/load.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
