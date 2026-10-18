@@ -1628,7 +1628,7 @@ impl<'a> Ctx<'a> {
 
     /// Scales the copied children of an instance made with the scale tool
     /// (`uniformScaleFactor`): positions, sizes, radii, strokes, text sizes,
-    /// layout spacing and geometry. Overrides and derived data are applied after.
+    /// layout spacing, child margins and geometry. Overrides and derived data are applied after.
     fn scale_contents(&mut self, inst: NodeId, s: f32) {
         fn scale_path(p: &mut Path, s: f32) {
             let f = |v: &mut Vec2| *v = Vec2::new(v.x * s, v.y * s);
@@ -1659,6 +1659,7 @@ impl<'a> Ctx<'a> {
                 *r *= s;
             }
             n.stroke.weight *= s;
+            n.layout_child.margin.iter_mut().for_each(|m| *m *= s);
             for g in n.fill_geometry.iter_mut().chain(n.stroke_geometry.iter_mut()).flatten() {
                 scale_path(g, s);
             }
