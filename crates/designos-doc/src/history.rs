@@ -220,6 +220,10 @@ impl History {
     /// would solve them against the reverted frame and write layout nothing can undo. Finishing
     /// them makes the layout below the edit one whole state, which a redo restores unchanged;
     /// dropping them would leave it half old and half new.
+    ///
+    /// This does not lay the document out again for the reverted state: what a relayout wrote to
+    /// children is not a step on this stack, so after the undo they still hold the edited layout.
+    /// Callers that need the pre-edit layout back lay the container out again themselves.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.undo.pop() else { return Ok(false) };
         doc.flush_pending_relayout();

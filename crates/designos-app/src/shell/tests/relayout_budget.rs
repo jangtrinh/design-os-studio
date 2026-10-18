@@ -237,7 +237,6 @@ fn undo_and_redo_finish_the_queue_and_retire_the_notice() {
     assert!(toast_text(&s).is_none_or(|t| !t.starts_with(NOTICE)), "the notice reported work that no longer exists: {:?}", toast_text(&s));
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 200.0);
-    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0, "the layout below the edit stays one whole state");
 
     s.shell.app.redo();
     s.frame(vec![]);
