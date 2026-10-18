@@ -928,6 +928,9 @@ pub struct LayoutChild {
     pub col_span: u16,
     #[serde(default, skip_serializing_if = "is_zero_or_one_u16")]
     pub row_span: u16,
+    /// Per-child margins `[top, right, bottom, left]` in an auto-layout parent (`stackChildMarginTop/Right/Bottom/Left`, Kiwi 606..609).
+    #[serde(default, skip_serializing_if = "is_zero_radii")]
+    pub margin: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

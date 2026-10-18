@@ -779,6 +779,11 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "inheritEffectStyleID", guid_ty, false);
     f(&mut b, "inheritGridStyleID", guid_ty, false);
     f(&mut b, "isSoftDeletedStyle", nat(Bool), false);
+    // Child margins (rea-findings: stackChildMarginTop/Right/Bottom/Left = 606..609).
+    b.field(nc, "stackChildMarginTop", nat(Float), false, 606);
+    b.field(nc, "stackChildMarginRight", nat(Float), false, 607);
+    b.field(nc, "stackChildMarginBottom", nat(Float), false, 608);
+    b.field(nc, "stackChildMarginLeft", nat(Float), false, 609);
     let jsft = def(&b, "JsonSerializedFields");
     f(&mut b, "isSlot", nat(Bool), false);
     f(&mut b, "isSlotContent", nat(Bool), false);

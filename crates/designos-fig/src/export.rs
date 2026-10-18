@@ -506,6 +506,16 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                     m.insert(k.into(), n(v));
                 }
             }
+            for (k, v) in [
+                ("stackChildMarginTop", lc.margin[0]),
+                ("stackChildMarginRight", lc.margin[1]),
+                ("stackChildMarginBottom", lc.margin[2]),
+                ("stackChildMarginLeft", lc.margin[3]),
+            ] {
+                if v != 0.0 {
+                    m.insert(k.into(), n(v));
+                }
+            }
             if !node.style_refs.is_empty() {
                 let mut sm = Map::new();
                 for (k, v) in &node.style_refs {
