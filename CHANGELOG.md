@@ -2,6 +2,37 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.4.1] - 2026-10-19
+
+Patch for **Layout 2.0** ([milestone v0.4.1 patch](https://github.com/jangtrinh/design-os-studio/milestone/46)): fixes found after 0.4.0, many of them from rendering the Untitled UI PRO v8.0 kit against Figma.
+
+### Fixed
+- **Grid and auto layout.**
+  - Grid placement pins and spans in Dev Mode now match the solver (#531).
+  - An instance that restates its grid track list keeps its children in the right cells and its track sizes in the right order (#539).
+  - Older grid alignment data migrates on load. Unoverridden alignment axes stay in sync with the main component, and large margins centre correctly (#541).
+  - Fill children are measured the same way in flow and grid layouts (#530).
+  - Changing a frame's direction no longer stretches a child twice, and an all-stretch line shrinks back. CSS export writes `align-self`, and a grid child exports its solved size (#532).
+  - A bound stroke weight is resolved during relayout (#507).
+  - Undo and redo re-solve only the layouts they touch, so stroke colour, move and effect edits cost no relayout (#509).
+  - The delete action is hidden on custom-sized implicit grid rows (#562).
+  - Preset frames get the catalogue corner radius (#498).
+- **Rendering.**
+  - Frames with "First on top" canvas stacking paint and hit-test in Figma's order on the canvas, in exports and in prototypes. The Layers panel keeps layer order, as Figma does (#517, #527).
+  - Strokes on per-side borders follow corner radii (#526). Outside-aligned strokes clip with imported stroke geometry (#524).
+  - Radial, angular and diamond gradients use centred handles (#529).
+  - Soft line breaks (U+2028) break the line without adding paragraph spacing (#523).
+  - A bound colour variable's alpha is applied once (#516).
+  - The mask stand-in no longer overdraws or disappears at sub-pixel sizes (#500).
+  - Children of unknown layer types paint and can be selected (#511).
+- **`.fig` import and export.**
+  - Per-side stroke weights are imported only when they differ, and partial overrides merge (#515).
+  - Style records no longer turn into canvas nodes in libraries, and instance layout alignment survives a round trip (#546).
+  - An instance whose auto layout was removed writes `stackMode: NONE`, so the removal survives a round trip (#539).
+- **Files and libraries.**
+  - Non-finite numbers in imported files are cleaned up in memory, and a failed write rolls back (#56). The open document, hot reload and file switch stay consistent with the notice (#506).
+  - Replacing a repaired original releases its cache (#505).
+
 ## [0.4.0] - 2026-10-18
 
 Pack **Layout 2.0** ([milestone v0.4](https://github.com/jangtrinh/design-os-studio/milestone/2)): auto layout and grid behave the way Figma does.
