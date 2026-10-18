@@ -186,7 +186,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         io::ensure_page(&mut d);
         (d, SaveTarget::Library(lib, id.clone()))
     } else if let Some(path) = &opts.file {
-        let d = if !path.exists() && opts.apply_spec.is_some() {
+        let d = if !path.exists() && (opts.apply_spec.is_some() || opts.import_variables.is_some()) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
             let mut d = designos_doc::Document::new(stem);
             io::ensure_page(&mut d);
@@ -286,6 +286,62 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         }
         std::fs::write(out_path, &bytes).map_err(|e| format!("Cannot write {}: {e}", out_path.display()))?;
         let out = serde_json::json!({ "exported_fig": true, "path": out_path, "bytes": bytes.len() });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+
+    if let Some(var_path) = &opts.import_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::Auto);
+        let bytes = std::fs::read(var_path).map_err(|e| format!("Cannot read {}: {e}", var_path.display()))?;
+        let mut import_opts = designos_fig::ImportVariablesOptions::default();
+        // If importing a manifest or sibling .tokens.json files from a directory, collect siblings
+        if let Some(parent_dir) = var_path.parent() {
+            if var_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifest.json") {
+                if let Ok(entries) = std::fs::read_dir(parent_dir) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p != *var_path && p.extension().and_then(|e| e.to_str()) == Some("json") {
+                            if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(&p)) {
+                                import_opts.additional_files.push((fname.to_string(), fbytes));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let report = designos_fig::import_variables_bytes(&mut doc, &bytes, var_path.file_name().and_then(|s| s.to_str()), fmt, import_opts)
+            .map_err(|e| format!("Cannot import variables from {}: {e}", var_path.display()))?;
+        save_target.save(&doc)?;
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
+
+    if let Some(out_target) = &opts.export_variables {
+        let fmt = opts.format.as_deref().and_then(designos_fig::VariablesFormat::parse_label).unwrap_or(designos_fig::VariablesFormat::FigmaRest);
+        let bundle = designos_fig::export_variables(&doc, fmt).map_err(|e| format!("Cannot export variables: {e}"))?;
+        let ext = out_target.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext.eq_ignore_ascii_case("zip") {
+            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let zip_bytes = bundle.to_zip_bytes().map_err(|e| format!("Cannot build zip: {e}"))?;
+            std::fs::write(out_target, &zip_bytes).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+        } else if ext.eq_ignore_ascii_case("json") && bundle.files.len() == 1 {
+            if let Some(parent) = out_target.parent().filter(|p| !p.as_os_str().is_empty()) {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(out_target, &bundle.files[0].1).map_err(|e| format!("Cannot write {}: {e}", out_target.display()))?;
+        } else {
+            std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
+            for (name, bytes) in &bundle.files {
+                let dest = out_target.join(name);
+                std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
+            }
+        }
+        let files_written: Vec<&str> = bundle.files.iter().map(|(n, _)| n.as_str()).collect();
+        let out = serde_json::json!({
+            "format": bundle.format.label(),
+            "path": out_target,
+            "files": files_written,
+        });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 

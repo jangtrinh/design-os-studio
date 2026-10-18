@@ -28,6 +28,7 @@ pub mod svgpath;
 pub mod testkit;
 mod textfmt;
 mod variables;
+pub mod variables_dtcg;
 mod vecnet;
 
 pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
@@ -41,6 +42,10 @@ pub use pen::{export_pen_json, import_pen_json, import_pen_json_with_warnings};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{image_refs, import_rest_json};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
+pub use variables_dtcg::{
+    detect_variables_format, detect_variables_format_value, export_variables, import_variables, import_variables_bytes, mode_name_from_filename,
+    validate_dtcg_json, validate_dtcg_value, DtcgValidationError, ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable, VariablesFormat,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FigError {

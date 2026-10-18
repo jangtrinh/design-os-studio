@@ -1410,6 +1410,7 @@ fn run_popups(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     run_menu(app, ctx, fr);
     run_alias_picker(app, ctx, fr);
     run_cell_picker(app, ctx);
+    run_skipped_details_popover(app, ctx, *g);
     super::popover::show(app, ctx, g, fr);
     crate::panels::var_bind::bind_picker(app, ctx);
 }
@@ -1429,6 +1430,7 @@ fn unique_group_name(fr: &Frame, coll: &str, parent: &str) -> String {
 fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
     let Some(menu) = app.vars.menu.clone() else { return };
     let cid = app.vars.collection.clone().unwrap_or_default();
+    let has_skipped = app.vars.last_import_report.as_ref().is_some_and(|r| !r.skipped.is_empty());
     let items: Vec<MenuItem> = match &menu.kind {
         VarMenuKind::Create => ["Color", "Number", "String", "Boolean"].iter().map(|s| MenuItem::new(*s)).collect(),
         VarMenuKind::Row(_) => {
@@ -1455,13 +1457,27 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
             vec![MenuItem::new("Rename").disabled(read_only), MenuItem::new("Duplicate"), MenuItem::new("Delete").disabled(read_only)]
         }
         VarMenuKind::Folder(..) => vec![MenuItem::new("Rename group")],
-        VarMenuKind::Settings => vec![MenuItem::new("Import variables..."), MenuItem::new("Export variables...")],
+        VarMenuKind::Settings => {
+            let mut list = vec![
+                MenuItem::new("Import variables (Figma)…"),
+                MenuItem::new("Import variables (Design tokens / DTCG)…"),
+                MenuItem::new("Import variables (Figma REST)…").sep(),
+                MenuItem::new("Export variables (Figma)…"),
+                MenuItem::new("Export variables (Design tokens / DTCG)…"),
+                if has_skipped { MenuItem::new("Export variables (Figma REST)…").sep() } else { MenuItem::new("Export variables (Figma REST)…") },
+            ];
+            if has_skipped {
+                list.push(MenuItem::new("Skipped import details…"));
+            }
+            list
+        }
         VarMenuKind::Filter => [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean]
             .iter()
             .map(|k| MenuItem::new(kind_name(*k)).checked(!app.vars.hidden_kinds.contains(k)))
             .collect(),
     };
-    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, 168.0, &items, Some(menu.anchor)) {
+    let menu_w = if matches!(menu.kind, VarMenuKind::Settings) { 248.0 } else { 168.0 };
+    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, menu_w, &items, Some(menu.anchor)) {
         MenuResult::Open => {}
         MenuResult::Closed => app.vars.menu = None,
         MenuResult::Picked(i) => {
@@ -1548,15 +1564,28 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                     app.vars.renaming = Some(('f', folded_key(c, f)));
                     app.vars.rename_frames = 0;
                 }
-                (VarMenuKind::Settings, 0) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).pick_file() {
-                        app.import_variables_file(&path);
+                (VarMenuKind::Settings, 0..=2) => {
+                    let fmt = match i {
+                        0 => designos_fig::VariablesFormat::FigmaNative,
+                        1 => designos_fig::VariablesFormat::Dtcg,
+                        _ => designos_fig::VariablesFormat::FigmaRest,
+                    };
+                    if let Some(paths) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", &["json", "zip"]).pick_files() {
+                        app.import_variables_files_with_format(&paths, fmt);
+                    }
+                }
+                (VarMenuKind::Settings, 3..=5) => {
+                    let (fmt, default_name, exts) = match i {
+                        3 => (designos_fig::VariablesFormat::FigmaNative, "tokens.zip", &["zip", "json"][..]),
+                        4 => (designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"][..]),
+                        _ => (designos_fig::VariablesFormat::FigmaRest, "variables.json", &["json"][..]),
+                    };
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", exts).set_file_name(default_name).save_file() {
+                        app.export_variables_with_format(&path, fmt);
                     }
                 }
                 (VarMenuKind::Settings, _) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).set_file_name("variables.json").save_file() {
-                        app.export_variables_file(&path);
-                    }
+                    app.vars.show_skipped_details = true;
                 }
                 (VarMenuKind::Filter, i) => {
                     let k = [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean][i];
@@ -1570,6 +1599,64 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 }
             }
         }
+    }
+}
+
+fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
+    if !app.vars.show_skipped_details {
+        return;
+    }
+    let Some(rep) = app.vars.last_import_report.clone() else {
+        app.vars.show_skipped_details = false;
+        return;
+    };
+    if rep.skipped.is_empty() {
+        app.vars.show_skipped_details = false;
+        return;
+    }
+    let size = Vec2::new(360.0, 220.0);
+    let pos = Pos2::new((g.panel.right() - size.x - 16.0).max(g.panel.left() + 8.0), g.head_top() + 8.0);
+    let mut close = false;
+    let area = egui::Area::new(Id::new("vars-skipped-details")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(size, Sense::click());
+        widgets::menu_panel(ui.painter(), rect, theme::MENU_RADIUS);
+        let p = ui.painter();
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + 32.0));
+        p.text(
+            Pos2::new(head.left() + 12.0, head.center().y),
+            Align2::LEFT_CENTER,
+            format!("Skipped variables ({})", rep.skipped.len()),
+            egui::FontId::proportional(11.0),
+            theme::TEXT,
+        );
+        let close_rect = Rect::from_center_size(Pos2::new(head.right() - 16.0, head.center().y), Vec2::splat(20.0));
+        let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());
+        cross_glyph(p, close_rect.center(), 4.5, if close_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        if close_resp.clicked() {
+            close = true;
+        }
+        p.hline(rect.x_range(), head.bottom(), Stroke::new(1.0, theme::BORDER));
+        let body = Rect::from_min_max(Pos2::new(rect.left() + 12.0, head.bottom() + 6.0), Pos2::new(rect.right() - 12.0, rect.bottom() - 8.0));
+        let mut y = body.top();
+        for item in rep.skipped.iter().take(8) {
+            if y + 20.0 > body.bottom() {
+                break;
+            }
+            p.text(
+                Pos2::new(body.left(), y + 8.0),
+                Align2::LEFT_CENTER,
+                format!("{}: {}", item.path, item.reason),
+                egui::FontId::proportional(11.0),
+                theme::TEXT_SECONDARY,
+            );
+            y += 20.0;
+        }
+        rect
+    });
+    let esc = ctx.input(|i| i.key_pressed(Key::Escape));
+    let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|pt| !area.inner.contains(pt)));
+    if close || esc || outside {
+        app.vars.show_skipped_details = false;
     }
 }
 
