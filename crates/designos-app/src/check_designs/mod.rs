@@ -53,8 +53,10 @@ impl Rule {
 /// The edit that resolves a finding.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Fix {
-    /// Bind the property `key` (`fills/0`, `strokes/1`) to a variable.
+    /// Bind the property `key` (`fills/0`, `strokes/1`, `itemSpacing`, …) to a variable.
     BindVariable { key: String, variable: String },
+    /// Bind several properties at once (uniform corner radius or uniform padding) to a variable.
+    BindVariables { keys: Vec<String>, variable: String },
     /// Link the layer to a shared style (fill, stroke, text or effect: the style knows which).
     ApplyStyle { style: String },
     /// Replace the text colour with `color` (alpha is kept).
