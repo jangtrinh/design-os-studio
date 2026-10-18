@@ -1537,7 +1537,7 @@ fn a_group_ignores_width_and_height_variables_because_it_always_fits_its_childre
     }
 }
 
-fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_doc::Stroke, kids: &[Kid]) -> Solved {
+fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_doc::Stroke, bound_stroke_weight: Option<f32>, kids: &[Kid]) -> Solved {
     let solve_one = |entry: Entry| {
         let mut d = Document::new("t");
         let page = d.add_page("p");
@@ -1545,6 +1545,45 @@ fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_do
         let mut f = Node::frame(fid, Rect::new(0.0, 0.0, frame.x, frame.y));
         f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al.clone()), ..Default::default() });
         f.stroke = stroke.clone();
+        if let Some(bw) = bound_stroke_weight {
+            d.variable_collections.insert(
+                "col".into(),
+                designos_doc::VariableCollection {
+                    id: "col".into(),
+                    name: "Border".into(),
+                    modes: vec![
+                        designos_doc::VariableMode { id: "compact".into(), name: "Compact".into() },
+                        designos_doc::VariableMode { id: "spacious".into(), name: "Spacious".into() },
+                    ],
+                    default_mode: "compact".into(),
+                    variables: vec!["v-stroke".into()],
+                    key: None,
+                    source_library_key: None,
+                },
+            );
+            d.variables.insert(
+                "v-stroke".into(),
+                designos_doc::Variable {
+                    id: "v-stroke".into(),
+                    name: "border/weight".into(),
+                    collection: "col".into(),
+                    kind: designos_doc::VariableKind::Number,
+                    values: [
+                        ("compact".to_string(), designos_doc::VariableValue::Number(stroke.weight)),
+                        ("spacious".to_string(), designos_doc::VariableValue::Number(bw)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    code_syntax: Default::default(),
+                    hidden_from_publishing: false,
+                    key: None,
+                },
+            );
+            f.variables.bindings.insert("strokeWeight".into(), "v-stroke".into());
+            f.variables.modes.insert("col".into(), "spacious".into());
+        }
         let f = d.insert(page, f).unwrap();
         let mut ids: Vec<NodeId> = vec![];
         for k in kids {
@@ -1593,16 +1632,29 @@ fn version_0_with_stroke_included_adds_stroke_inset_while_version_1_keeps_border
     let kids = [kid(50.0, 20.0), kid(30.0, 20.0)];
 
     // Version 0 + stroke_included: 4px inside stroke adds to all 4 padding sides -> [14, 16, 18, 20]
-    let v0 = solve_everywhere_with_stroke(base.clone(), v2(100.0, 100.0), stroke.clone(), &kids);
+    let v0 = solve_everywhere_with_stroke(base.clone(), v2(100.0, 100.0), stroke.clone(), None, &kids);
     assert_eq!(v0.frame, (124.0, 52.0));
     assert_eq!(v0.kids[0], [20.0, 14.0, 50.0, 20.0]);
     assert_eq!(v0.kids[1], [78.0, 14.0, 30.0, 20.0]);
 
+    // Version 0 + stroke_included + bound strokeWeight (stored weight = 1, active mode resolves to 20):
+    // every entry point insets by 20 -> padding [30, 32, 34, 36].
+    let stored_one = Stroke { weight: 1.0, ..stroke.clone() };
+    let v0_bound = solve_everywhere_with_stroke(base.clone(), v2(100.0, 100.0), stored_one.clone(), Some(20.0), &kids);
+    assert_eq!(v0_bound.frame, (156.0, 84.0));
+    assert_eq!(v0_bound.kids[0], [36.0, 30.0, 50.0, 20.0]);
+    assert_eq!(v0_bound.kids[1], [94.0, 30.0, 30.0, 20.0]);
+
     // Version 1 + stroke_included: border stays inside the box without adding inset space -> [10, 12, 14, 16]
-    let v1 = solve_everywhere_with_stroke(AutoLayout { layout_version: 1, ..base }, v2(100.0, 100.0), stroke, &kids);
+    let v1 = solve_everywhere_with_stroke(AutoLayout { layout_version: 1, ..base.clone() }, v2(100.0, 100.0), stroke, None, &kids);
     assert_eq!(v1.frame, (116.0, 44.0));
     assert_eq!(v1.kids[0], [16.0, 10.0, 50.0, 20.0]);
     assert_eq!(v1.kids[1], [74.0, 10.0, 30.0, 20.0]);
+
+    let v1_bound = solve_everywhere_with_stroke(AutoLayout { layout_version: 1, ..base }, v2(100.0, 100.0), stored_one, Some(20.0), &kids);
+    assert_eq!(v1_bound.frame, (116.0, 44.0));
+    assert_eq!(v1_bound.kids[0], [16.0, 10.0, 50.0, 20.0]);
+    assert_eq!(v1_bound.kids[1], [74.0, 10.0, 30.0, 20.0]);
 }
 
 #[test]

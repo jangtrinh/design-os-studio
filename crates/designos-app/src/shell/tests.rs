@@ -1080,6 +1080,57 @@ fn launch_e2e_proves_100_figma_micro_interactions_end_to_end() {
 }
 
 #[test]
+fn inspector_button_and_object_menu_upgrade_auto_layout_from_v0_to_v1() {
+    use designos_doc::{AutoLayout, FrameProps, LayoutDirection, Node, Rect, Sizing, Stroke, StrokeAlign};
+
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let fid = s.shell.app.doc.alloc_id();
+    let mut f = Node::frame(fid, Rect::new(100.0, 100.0, 120.0, 60.0));
+    f.kind = NodeKind::Frame(FrameProps {
+        auto_layout: Some(AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            item_spacing: 8.0,
+            padding: [10.0, 12.0, 14.0, 16.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Hug,
+            stroke_included: true,
+            layout_version: 0,
+            ..AutoLayout::default()
+        }),
+        ..FrameProps::default()
+    });
+    f.stroke = Stroke { paints: vec![Paint::solid(Color::BLACK)], weight: 4.0, align: StrokeAlign::Inside, ..Stroke::default() };
+    let f = s.shell.app.doc.insert(page, f).unwrap();
+    let cid = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(f, Node::rectangle(cid, Rect::new(0.0, 0.0, 50.0, 20.0))).unwrap();
+    s.shell.app.doc.relayout_subtree(f);
+    s.shell.app.selection = vec![f];
+    s.frame(vec![]);
+
+    // 1. Clicking the inspector "Update auto layout" button upgrades layout_version from 0 to 1
+    // and re-solves without stroke inset (width drops from 50 + 16 + 12 + 8 = 86 to 78).
+    assert_eq!(s.app().doc.get(f).unwrap().size.x, 86.0);
+    let btn = s.rect_of("al-upgrade-v1");
+    s.click(btn.center());
+    assert_eq!(s.app().doc.get(f).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap().layout_version, 1);
+    assert_eq!(s.app().doc.get(f).unwrap().size.x, 78.0);
+
+    // 2. Undo restores layout_version 0 (86px); then selecting "Update auto layout" in main/Object upgrades again.
+    s.shell.app.undo();
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(f).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap().layout_version, 0);
+    assert_eq!(s.app().doc.get(f).unwrap().size.x, 86.0);
+
+    assert!(crate::panels::menus::preset_menu(&s.ctx, &mut s.shell.app, "main/Object/Update auto layout", s.ctx.content_rect()));
+    s.frame(vec![]);
+    s.key(Key::Enter);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(f).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap().layout_version, 1);
+    assert_eq!(s.app().doc.get(f).unwrap().size.x, 78.0);
+}
+
+#[test]
 fn grid_track_editing_insert_delete_resize_and_reorder() {
     use crate::canvas::grids::{delete_grid_track, insert_grid_track, move_grid_track, resize_grid_track};
     use crate::edit::Edit;

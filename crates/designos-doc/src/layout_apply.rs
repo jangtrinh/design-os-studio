@@ -69,13 +69,14 @@ impl Document {
             self.pending_relayout.retain(|&id| id != root);
         }
         let Some(root_node) = self.get(root) else { return };
-        let Some(al) = crate::resolve_node(self, root_node).kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
+        let resolved = crate::resolve_node(self, root_node);
+        let Some(al) = resolved.kind.frame_props().and_then(|f| f.auto_layout.clone()) else {
             return;
         };
         let children = root_node.children.clone();
         let frame = root_node.size;
         let own_limits = SizeLimits::from(&root_node.layout_child);
-        let stroke = root_node.stroke.clone();
+        let stroke = resolved.stroke.clone();
         let horiz = al.direction != LayoutDirection::Vertical;
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
@@ -571,5 +572,72 @@ mod tests {
         assert_eq!(doc.relayout_skipped_count(), 0, "a flush that returns must leave nothing queued");
         assert!(doc.relayout_notice().is_none());
         assert_eq!(doc.get(*frames.last().unwrap()).unwrap().size.x, 600.0, "the innermost frame follows the outermost");
+    }
+
+    #[test]
+    fn relayout_subtree_uses_resolved_bound_stroke_weight_and_side_weights_in_version_0() {
+        use crate::{Color, Paint, Stroke, StrokeAlign};
+
+        let mut doc = Document::new("bound-stroke-relayout");
+        let page = doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "col".into(),
+            VariableCollection {
+                id: "col".into(),
+                name: "Border".into(),
+                modes: vec![VariableMode { id: "compact".into(), name: "Compact".into() }, VariableMode { id: "spacious".into(), name: "Spacious".into() }],
+                default_mode: "compact".into(),
+                variables: vec!["v-stroke".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "v-stroke".into(),
+            Variable {
+                id: "v-stroke".into(),
+                name: "border/weight".into(),
+                collection: "col".into(),
+                kind: VariableKind::Number,
+                values: [("compact".to_string(), VariableValue::Number(1.0)), ("spacious".to_string(), VariableValue::Number(20.0))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                code_syntax: Default::default(),
+                hidden_from_publishing: false,
+                key: None,
+            },
+        );
+
+        let fid = doc.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                item_spacing: 8.0,
+                padding: [10.0, 12.0, 14.0, 16.0],
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Hug,
+                stroke_included: true,
+                layout_version: 0,
+                ..AutoLayout::default()
+            }),
+            ..FrameProps::default()
+        });
+        f.stroke = Stroke { paints: vec![Paint::solid(Color::BLACK)], weight: 1.0, align: StrokeAlign::Inside, ..Stroke::default() };
+        f.variables.bindings.insert("strokeWeight".into(), "v-stroke".into());
+        f.variables.modes.insert("col".into(), "spacious".into());
+        let f = doc.insert(page, f).unwrap();
+
+        let c0 = doc.alloc_id();
+        let c1 = doc.alloc_id();
+        let c0 = doc.insert(f, Node::rectangle(c0, Rect::new(0.0, 0.0, 50.0, 20.0))).unwrap();
+        let c1 = doc.insert(f, Node::rectangle(c1, Rect::new(0.0, 0.0, 30.0, 20.0))).unwrap();
+
+        // Stored stroke weight is 1, but the active mode resolves `strokeWeight` to 20:
+        // padding [10, 12, 14, 16] + 20 on every side = [30, 32, 34, 36].
+        doc.relayout_subtree(f);
+        assert_eq!(doc.get(f).unwrap().size, Vec2::new(156.0, 84.0));
+        assert_eq!((doc.get(c0).unwrap().transform.tx, doc.get(c0).unwrap().transform.ty), (36.0, 30.0));
+        assert_eq!((doc.get(c1).unwrap().transform.tx, doc.get(c1).unwrap().transform.ty), (94.0, 30.0));
     }
 }
