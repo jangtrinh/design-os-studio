@@ -1136,7 +1136,7 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         }
         row_end(pane);
         if let &[grid_id] = sel {
-            grid_tracks_ui(app, ui, pane, grid_id, a);
+            grid_tracks_ui(app, ui, pane, grid_id);
         }
     }
     dimensions_ui(app, ui, pane, sel, false);
@@ -1231,56 +1231,92 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     row_end(pane);
 }
 
-fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId, a: &AutoLayout) {
-    use crate::canvas::grids::{delete_grid_track, format_grid_track_list, grid_tracks_of, insert_grid_track, move_grid_track, resize_grid_track};
+/// Rects of the widgets of one grid-track row of the inspector, left to right. The heading row of a track
+/// list uses `label` and `add`; a track row uses `mode`, `value`, `move_btn` and `delete`. Every button is
+/// the panel's 24 px action size, rows are 24 px tall, and nothing overlaps or leaves the section content.
+struct GridTrackRow {
+    label: Rect,
+    add: Rect,
+    mode: Rect,
+    value: Rect,
+    move_btn: Rect,
+    delete: Rect,
+}
+
+fn grid_track_row(pane: &Pane) -> GridTrackRow {
+    const GAP: f32 = 4.0;
+    const MODE_W: f32 = 64.0;
+    let (b, h) = (theme::PANEL_ACTION_BUTTON, theme::FIELD_HEIGHT);
+    let left = theme::SECTION_CONTENT_X;
+    let delete_x = left + theme::SECTION_CONTENT_W - b;
+    let move_x = delete_x - GAP - b;
+    let value_x = left + MODE_W + GAP;
+    GridTrackRow {
+        label: pane.rect(left, 0.0, delete_x - GAP - left, h),
+        add: pane.rect(delete_x, 0.0, b, b),
+        mode: pane.rect(left, 0.0, MODE_W, h),
+        value: pane.rect(value_x, 0.0, move_x - GAP - value_x, h),
+        move_btn: pane.rect(move_x, 0.0, b, b),
+        delete: pane.rect(delete_x, 0.0, b, b),
+    }
+}
+
+/// Column and row track lists of the selected grid: sizing mode, value, move and delete per track, `+` per list.
+/// The rows listed are the ones the canvas draws a header pill for.
+fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) {
+    use crate::canvas::grids::{delete_grid_track, insert_grid_track, move_grid_track, node_css_grid_overlay, resize_grid_track};
     use designos_doc::GridTrack;
 
-    let right_x = theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W;
-    let options = ["1fr", "Fixed", "Hug"].map(String::from);
-    for (is_col, heading, tag) in [(true, "Columns", "col"), (false, "Rows", "row")] {
-        let tracks = grid_tracks_of(a, is_col);
-        let labels = format_grid_track_list(a, is_col);
-        sublabel(ui, pane, heading);
-        let add_r = pane.rect(right_x - 20.0, -20.0, 20.0, 20.0);
-        if widgets::icon_button(ui, add_r, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked() {
+    let Some(ov) = node_css_grid_overlay(&app.doc, grid_id) else { return };
+    let options = ["Flex", "Fixed", "Hug"].map(String::from);
+    for (is_col, heading, tag, tracks) in [(true, "Columns", "col", &ov.col_tracks), (false, "Rows", "row", &ov.row_tracks)] {
+        let head = grid_track_row(pane);
+        ui.painter().text(Pos2::new(head.label.left(), head.label.center().y), Align2::LEFT_CENTER, heading, theme::font_small_medium(), theme::TEXT_SECONDARY);
+        if tracks.len() < MAX_GRID_TRACKS
+            && widgets::icon_button(ui, head.add, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked()
+        {
             insert_grid_track(app, grid_id, is_col, tracks.len(), GridTrack::Flex(1.0));
         }
-        for (idx, (&tr, cur_lbl)) in tracks.iter().zip(labels.iter()).enumerate() {
-            let dd_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 74.0, theme::FIELD_HEIGHT);
-            if let Some(mode_i) = dropdown(ui, dd_r, format!("grid-{tag}-mode-{idx}"), cur_lbl, &options) {
-                let next = match mode_i {
-                    0 => GridTrack::Flex(1.0),
-                    1 => GridTrack::Fixed(120.0),
-                    _ => GridTrack::Hug,
-                };
-                resize_grid_track(app, grid_id, is_col, idx, next);
+        row_end(pane);
+        for (idx, &track) in tracks.iter().enumerate() {
+            let row = grid_track_row(pane);
+            let mode = match track {
+                GridTrack::Flex(_) => 0,
+                GridTrack::Fixed(_) => 1,
+                GridTrack::Hug => 2,
+            };
+            if let Some(picked) = dropdown(ui, row.mode, format!("grid-{tag}-mode-{idx}"), &options[mode], &options) {
+                if picked != mode {
+                    let next = match picked {
+                        0 => GridTrack::Flex(1.0),
+                        1 => GridTrack::Fixed(120.0),
+                        _ => GridTrack::Hug,
+                    };
+                    resize_grid_track(app, grid_id, is_col, idx, next);
+                }
             }
-            let val_r = pane.rect(theme::SECTION_CONTENT_X + 78.0, 0.0, 76.0, theme::FIELD_HEIGHT);
-            match tr {
+            match track {
                 GridTrack::Flex(fr) => {
-                    if let Some(v) = field::num_field(ui, val_r, format!("grid-{tag}-fr-{idx}"), Prefix::Text("fr"), Some(fr), "") {
+                    if let Some(v) = field::num_field(ui, row.value, format!("grid-{tag}-fr-{idx}"), Prefix::Text("fr"), Some(fr), "") {
                         resize_grid_track(app, grid_id, is_col, idx, GridTrack::Flex(v.max(0.1)));
                     }
                 }
                 GridTrack::Fixed(px) => {
-                    if let Some(v) = field::num_field(ui, val_r, format!("grid-{tag}-px-{idx}"), Prefix::Text("px"), Some(px), "") {
+                    if let Some(v) = field::num_field(ui, row.value, format!("grid-{tag}-px-{idx}"), Prefix::Text("px"), Some(px), "") {
                         resize_grid_track(app, grid_id, is_col, idx, GridTrack::Fixed(v.max(1.0)));
                     }
                 }
                 GridTrack::Hug => {}
             }
             if tracks.len() > 1 {
-                let next_idx = if idx + 1 < tracks.len() { idx + 1 } else { idx.saturating_sub(1) };
-                let mv_r = pane.rect(right_x - 44.0, 2.0, 20.0, 20.0);
-                if widgets::icon_button(ui, mv_r, format!("grid-{tag}-mv-{idx}"), Icon::ChevronDown, false, "Move track").clicked() {
+                let next_idx = if idx + 1 < tracks.len() { idx + 1 } else { idx - 1 };
+                if widgets::icon_button(ui, row.move_btn, format!("grid-{tag}-mv-{idx}"), Icon::ChevronDown, false, "Move track").clicked() {
                     move_grid_track(app, grid_id, is_col, idx, next_idx);
                 }
             }
-            if !is_col || tracks.len() > 1 {
-                let del_r = pane.rect(right_x - 20.0, 2.0, 20.0, 20.0);
-                if widgets::icon_button(ui, del_r, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
-                    delete_grid_track(app, grid_id, is_col, idx);
-                }
+            let deletable = !is_col || tracks.len() > 1;
+            if deletable && widgets::icon_button(ui, row.delete, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
+                delete_grid_track(app, grid_id, is_col, idx);
             }
             row_end(pane);
         }
@@ -2351,5 +2387,30 @@ mod tests {
         let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!((al.primary_sizing, al.counter_sizing), (Sizing::Fixed, Sizing::Hug));
         assert_eq!((sizing_of(n, true), sizing_of(n, false)), (Sizing::Fixed, Sizing::Hug));
+    }
+
+    #[test]
+    fn grid_track_rows_fit_the_section_without_overlap_at_the_pointer_floor() {
+        let heading = Pane { x0: 0.0, oy: 0.0, y: 0.0 };
+        let mut below = Pane { x0: 0.0, oy: 0.0, y: 0.0 };
+        row_end(&mut below);
+        let (head, row) = (grid_track_row(&heading), grid_track_row(&below));
+        let named =
+            [("heading label", head.label), ("add", head.add), ("mode", row.mode), ("value", row.value), ("move", row.move_btn), ("delete", row.delete)];
+        let (left, right) = (theme::SECTION_CONTENT_X, theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W);
+        for (name, r) in named {
+            assert!(r.height() >= 24.0, "{name} is {} px tall", r.height());
+            assert!(r.min.x >= left && r.max.x <= right, "{name} {r:?} leaves the section content {left}..{right}");
+        }
+        for (name, r) in [("add", head.add), ("move", row.move_btn), ("delete", row.delete)] {
+            assert!(r.width() >= 24.0, "{name} button is {} px wide", r.width());
+        }
+        assert!(row.value.width() >= 40.0, "the value field keeps room for a number: {}", row.value.width());
+        for (i, (a_name, a)) in named.iter().enumerate() {
+            for (b_name, b) in &named[i + 1..] {
+                let overlap = a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y;
+                assert!(!overlap, "{a_name} {a:?} overlaps {b_name} {b:?}");
+            }
+        }
     }
 }
