@@ -295,6 +295,10 @@ pub struct ComponentLink {
     /// override does not freeze unoverridden grid alignment axes during component sync.
     #[serde(default, skip_serializing_if = "is_false_pair")]
     pub grid_align_overrides: [bool; 2],
+    /// The node's auto layout was removed on purpose (`stackMode: NONE`), so it must not inherit the
+    /// layout of its main component. A node that merely lacks auto layout does not set it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub layout_cleared: bool,
 }
 
 fn is_false_pair(pair: &[bool; 2]) -> bool {
@@ -318,6 +322,7 @@ impl ComponentLink {
             && self.override_level.is_none()
             && self.detached_symbol_id.is_none()
             && self.grid_align_overrides == [false, false]
+            && !self.layout_cleared
     }
 }
 

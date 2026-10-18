@@ -839,6 +839,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
             fields.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
             fields.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
+        } else if clears_inherited_auto_layout(&node) {
+            // An instance without auto layout over a component that has it must say so, or an importer
+            // would hand the component's layout back to it.
+            fields.push(("stackMode", en("NONE")));
         }
     }
 
@@ -1299,6 +1303,13 @@ pub(crate) fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
     }
 }
 
+/// True for a frame or instance whose auto layout was removed on purpose (`layout_cleared`): the file needs
+/// an explicit `stackMode: NONE` to keep it that way. A node that merely lacks auto layout, or only has
+/// some other layout field overridden, must not be written with it.
+fn clears_inherited_auto_layout(n: &Node) -> bool {
+    n.component.layout_cleared && n.kind.frame_props().is_some_and(|fp| fp.auto_layout.is_none())
+}
+
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     let mut var_entries = Vec::new();
     for (k, vid) in &vars.bindings {
@@ -1535,6 +1546,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("stackWrap", en(if al.wrap { "WRAP" } else { "NO_WRAP" })));
                         ov.push(("bordersTakeSpace", V::Bool(al.stroke_included)));
                         ov.push(("stackReverseZIndex", V::Bool(al.reverse_z)));
+                    } else if clears_inherited_auto_layout(n) {
+                        ov.push(("stackMode", en("NONE")));
                     }
                 }
                 let parent_dir =

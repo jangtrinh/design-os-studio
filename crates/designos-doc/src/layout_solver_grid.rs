@@ -219,6 +219,11 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let frozen = (s.start..s.end).map(|r| fixed_row(r).is_some()).collect();
         level_span_rows(&mut row_heights[s.start..s.end], frozen, (s.need - gaps).max(0.0));
     }
+    if al.counter_sizing == Sizing::Fixed && matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0) {
+        let gaps = row_gap * (rows.saturating_sub(1) as f32);
+        let frozen: Vec<bool> = (0..rows).map(|r| r < explicit_rows || fixed_row(r).is_some()).collect();
+        level_span_rows(&mut row_heights, frozen, (frame.y - pt - pb - gaps).max(0.0));
+    }
 
     let mut col_x = vec![0.0f32; cols];
     let mut cx = pl;
@@ -471,5 +476,28 @@ mod tests {
                 assert_eq!(out.rects[0].h, 40.0, "top margin {top}, relayout {pass}: child");
             }
         }
+}
+
+#[test]
+    fn flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid() {
+        let mut al = grid(1, Sizing::Fixed, Sizing::Fixed);
+        al.grid_rows = 1;
+        al.grid_row_tracks[0] = GridTrack::Fixed(40.0);
+        al.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
+        al.counter_spacing = 10.0;
+        let kids = [
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+            ChildIn { cross_fill: true, ..child(40.0, 20.0) },
+        ];
+        // Frame height 200, explicit row 0 is 40, two 10px gaps -> 140 left for the two flex auto-rows (70 each).
+        let out = compute_grid(&al, Vec2::new(100.0, 200.0), SizeLimits::default(), &kids);
+        assert_eq!(out.rects[0], Rect::new(0.0, 0.0, 40.0, 40.0));
+        assert_eq!(out.rects[1], Rect::new(0.0, 50.0, 40.0, 70.0));
+        assert_eq!(out.rects[2], Rect::new(0.0, 130.0, 40.0, 70.0));
+
+        // In a hugging grid there is no leftover height, so flex auto-rows stay content-sized.
+        let hug = compute_grid(&AutoLayout { counter_sizing: Sizing::Hug, ..al }, Vec2::new(100.0, 200.0), SizeLimits::default(), &kids);
+        assert_eq!(hug.frame.y, 40.0 + 20.0 + 20.0 + 20.0);
     }
 }

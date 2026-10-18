@@ -205,3 +205,61 @@ fn a_flow_frame_never_gets_explicit_rows_from_stale_slots() {
         assert_eq!(explicit_rows(&after), 0, "{format}: a vertical frame has no grid rows to keep");
     }
 }
+
+#[test]
+fn instance_layout_override_writes_only_fixed_row_slots_inside_placed_rows() {
+    let mut doc = Document::new("inst-fixed-row-override");
+    let page = doc.add_page("p");
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::frame(comp_id, Rect::new(0.0, 0.0, 120.0, 120.0));
+    comp.name = "GridHolderComp".into();
+    comp.kind = NodeKind::Component(FrameProps::default());
+    doc.insert(page, comp).unwrap();
+
+    let inner_id = doc.alloc_id();
+    let mut inner = Node::frame(inner_id, Rect::new(0.0, 0.0, 100.0, 80.0));
+    inner.name = "InnerGrid".into();
+    inner.kind = NodeKind::Frame(FrameProps {
+        auto_layout: Some(AutoLayout {
+            direction: LayoutDirection::Grid,
+            grid_columns: 1,
+            item_spacing: 10.0,
+            counter_spacing: 10.0,
+            counter_sizing: Sizing::Hug,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    doc.insert(comp_id, inner).unwrap();
+    for i in 0..3 {
+        let cid = doc.alloc_id();
+        let mut r = Node::rectangle(cid, Rect::new(0.0, 0.0, 40.0, 20.0));
+        r.name = format!("Cell{i}");
+        doc.insert(inner_id, r).unwrap();
+    }
+
+    create_instance(&mut doc, comp_id, page, Vec2::ZERO).apply(&mut doc).expect("instantiate");
+    let inst_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).unwrap().id;
+    doc.get_mut(inst_id).unwrap().name = "HolderInst".into();
+    let inst_inner_id = doc.get(inst_id).unwrap().children[0];
+    {
+        let inst_inner = doc.get_mut(inst_inner_id).unwrap();
+        let al = inst_inner.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap();
+        // Three rows are placed; slot 1 is inside them (30px), slot 5 is past them (stale 40px).
+        al.grid_row_tracks[1] = GridTrack::Fixed(30.0);
+        al.grid_row_tracks[5] = GridTrack::Fixed(40.0);
+        inst_inner.component.overrides.insert(OverrideField::Layout);
+    }
+    doc.relayout_subtree(inst_inner_id);
+    assert_eq!(doc.get(inst_inner_id).unwrap().size.y, 90.0);
+
+    for (format, mut after) in both_round_trips(&doc) {
+        let holder = after.nodes.values().find(|n| n.name == "HolderInst").unwrap();
+        let after_inner_id = holder.children[0];
+        after.relayout_subtree(after_inner_id);
+        let after_inner = after.get(after_inner_id).unwrap();
+        let al = after_inner.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(al.grid_rows, 2, "{format}: only rows 0..=1 inside the 3 placed rows are exported");
+        assert_eq!(after_inner.size.y, 90.0, "{format}: stale slot 5 does not inflate the instance grid");
+    }
+}

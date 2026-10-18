@@ -1034,10 +1034,12 @@ fn format_v106_track_size(ts: &Value) -> Option<String> {
 }
 
 fn convert_grid_track_fields(m: &mut Map<String, Value>, nc: &Value) {
-    for (count_key, sizing_key) in [("gridColumns", "gridColumnsSizing"), ("gridRows", "gridRowsSizing")] {
+    for (count_key, sizing_key, guids_key) in [("gridColumns", "gridColumnsSizing", "_gridColumnTrackIds"), ("gridRows", "gridRowsSizing", "_gridRowTrackIds")]
+    {
         let ordered_guids = grid_position_guids(nc, count_key);
         if !ordered_guids.is_empty() {
             m.insert(count_key.into(), json!(ordered_guids.len()));
+            m.insert(guids_key.into(), json!(ordered_guids));
         } else {
             copy(m, nc, count_key, count_key);
         }
@@ -1372,9 +1374,15 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         copy(&mut m, nc, k, k);
     }
     if let Some(c) = nc.get("gridColumnAnchor").or_else(|| nc.get("gridColumnAnchorIndex")) {
+        if let Some(g) = guid_str(c) {
+            m.insert("_gridColumnAnchorGuid".into(), g.into());
+        }
         m.insert("gridColumnAnchorIndex".into(), c.clone());
     }
     if let Some(r) = nc.get("gridRowAnchor").or_else(|| nc.get("gridRowAnchorIndex")) {
+        if let Some(g) = guid_str(r) {
+            m.insert("_gridRowAnchorGuid".into(), g.into());
+        }
         m.insert("gridRowAnchorIndex".into(), r.clone());
     }
     for (src, dst_x, dst_y) in [("minSize", "minWidth", "minHeight"), ("maxSize", "maxWidth", "maxHeight")] {
@@ -2158,11 +2166,21 @@ type RestatedTracks = HashMap<Vec<String>, (Vec<String>, Vec<String>)>;
 /// the instance restates for the parent grid (`restated`) win over the file-wide map, since an
 /// instance that restates the tracks can shift them. An anchor that matches no track, or an id that
 /// two grids place differently, is left as it is: a wrong cell is worse than the component's cell.
-fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restated: Option<&[String]>, file_wide: &HashMap<String, Option<usize>>) {
+fn resolve_override_grid_anchor(
+    set: &mut Map<String, Value>,
+    key: &str,
+    guid_key: &str,
+    restated: Option<&[String]>,
+    file_wide: &HashMap<String, Option<usize>>,
+) {
     let Some(id) = set.get(key).and_then(guid_str) else { return };
-    let index = restated.and_then(|ids| ids.iter().position(|t| *t == id)).or_else(|| file_wide.get(&id).copied().flatten());
+    let index = match restated.filter(|ids| !ids.is_empty()) {
+        Some(ids) => ids.iter().position(|t| *t == id),
+        None => file_wide.get(&id).copied().flatten(),
+    };
     if let Some(i) = index {
         set.insert(key.into(), json!(i));
+        set.insert(guid_key.into(), Value::String(id));
     }
 }
 
@@ -2170,31 +2188,53 @@ fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restate
 /// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
 /// an entry restates for the parent.
 fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
-    let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
+    let a = list.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
     let mut restated = RestatedTracks::new();
+    let mut out = Vec::new();
     if !derived {
+        let sym_id = instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str);
         for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|o| (guid_path(o), o))) {
             let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
             if !cols.is_empty() || !rows.is_empty() {
-                restated.insert(path, (cols, rows));
+                let is_root_sym = path.len() == 1 && sym_id.as_deref() == Some(path[0].as_str());
+                let entry = restated.entry(path).or_default();
+                if !cols.is_empty() {
+                    entry.0 = cols.clone();
+                }
+                if !rows.is_empty() {
+                    entry.1 = rows.clone();
+                }
+                if is_root_sym {
+                    let root_entry = restated.entry(Vec::new()).or_default();
+                    if !cols.is_empty() {
+                        root_entry.0 = cols;
+                    }
+                    if !rows.is_empty() {
+                        root_entry.1 = rows;
+                    }
+                }
             }
         }
+        let mut inst_grid = Map::new();
+        convert_grid_track_fields(&mut inst_grid, instance);
+        if !inst_grid.is_empty() {
+            out.push(json!({"path": Vec::<String>::new(), "set": Value::Object(inst_grid)}));
+        }
     }
-    a.iter()
-        .filter_map(|o| {
-            let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
-            if set.is_empty() {
-                return None;
-            }
-            let path = guid_path(o);
-            if !derived {
-                let parent = path.split_last().and_then(|(_, up)| restated.get(up));
-                resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
-                resolve_override_grid_anchor(&mut set, "gridRowAnchorIndex", parent.map(|p| p.1.as_slice()), &lk.grid_row_index);
-            }
-            Some(json!({"path": path, "set": Value::Object(set)}))
-        })
-        .collect()
+    out.extend(a.iter().filter_map(|o| {
+        let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
+        if set.is_empty() {
+            return None;
+        }
+        let path = guid_path(o);
+        if !derived {
+            let parent = path.split_last().and_then(|(_, up)| restated.get(up));
+            resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", "_gridColumnAnchorGuid", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
+            resolve_override_grid_anchor(&mut set, "gridRowAnchorIndex", "_gridRowAnchorGuid", parent.map(|p| p.1.as_slice()), &lk.grid_row_index);
+        }
+        Some(json!({"path": path, "set": Value::Object(set)}))
+    }));
+    out
 }
 
 fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
@@ -2202,6 +2242,10 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
         Some("HORIZONTAL") => "HORIZONTAL",
         Some("VERTICAL") => "VERTICAL",
         Some("GRID") => "GRID",
+        Some("NONE") => {
+            m.insert("layoutMode".into(), "NONE".into());
+            return;
+        }
         _ => return,
     };
     m.insert("layoutMode".into(), mode.into());
