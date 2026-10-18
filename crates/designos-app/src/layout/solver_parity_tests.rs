@@ -769,6 +769,103 @@ fn hugging_cross_axis_shrinks_back_when_the_tallest_plain_sibling_shrinks() {
 }
 
 #[test]
+fn hugging_cross_axis_treats_a_fill_only_child_like_a_stretch_child() {
+    // counter-axis Fill with no align_self: the same natural-size rule as Stretch, in both flow directions
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(30.0, 40.0, |lc| lc.vertical = Sizing::Fill);
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[fill]);
+    assert_eq!(solved.frame, (100.0, 40.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 40.0]);
+    assert_eq!(solved, solve_everywhere(al, v2(100.0, 1.0), &[kid_with(30.0, 40.0, stretch())]));
+
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(40.0, 30.0, |lc| lc.horizontal = Sizing::Fill);
+    let solved = solve_everywhere(al, v2(1.0, 100.0), &[fill]);
+    assert_eq!(solved.frame, (40.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 30.0]);
+
+    // a plain sibling still sizes the line
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(30.0, 40.0, |lc| lc.vertical = Sizing::Fill);
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 10.0), fill]);
+    assert_eq!(solved.frame, (100.0, 10.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 10.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_floored_by_the_minimum_of_a_stretching_child() {
+    // the plain sibling is 10 high, the stretch child has min_h 50: the line, and so the frame, is 50
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let minimum = kid_with(30.0, 20.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.min_h = Some(50.0);
+    });
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 10.0), minimum]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 10.0]);
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // the same for a Fill child, and in the vertical flow through min_w
+    let fill_min = kid_with(30.0, 20.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.min_h = Some(50.0);
+    });
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 10.0), fill_min]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let minimum = kid_with(20.0, 30.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.min_w = Some(50.0);
+    });
+    let solved = solve_everywhere(al, v2(1.0, 100.0), &[kid(10.0, 30.0), minimum]);
+    assert_eq!(solved.frame, (50.0, 100.0));
+    assert_eq!(solved.kids[1], [0.0, 30.0, 50.0, 30.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_sized_by_a_plain_sibling_even_when_it_is_flat() {
+    // a plain sibling with cross size 0 still sizes the line: the stretch child follows it to 0
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 0.0), kid_with(30.0, 40.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 0.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 0.0]);
+}
+
+#[test]
+fn an_imported_stretch_child_made_fixed_on_the_counter_axis_stops_stretching() {
+    // `layoutAlign: STRETCH` imports as Fill plus AlignSelf::Stretch on the counter axis
+    let al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    let imported = kid_with(30.0, 20.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.align_self = AlignSelf::Stretch;
+    });
+    let stretched = solve_everywhere(al, v2(200.0, 100.0), &[imported]);
+    assert_eq!(stretched.kids[0], [0.0, 0.0, 30.0, 100.0]);
+
+    // the sizing writer sets height Fixed in a horizontal flow (counter axis = height)
+    let fixed = kid_with(30.0, 20.0, |lc| {
+        *lc = imported.lc;
+        lc.set_axis_sizing(false, Sizing::Fixed, Some(false));
+    });
+    assert_eq!(fixed.lc.align_self, AlignSelf::Auto);
+    assert_eq!(solve_everywhere(al, v2(200.0, 100.0), &[fixed]).kids[0], [0.0, 0.0, 30.0, 20.0]);
+
+    // without the writer's reset the same Fixed child would still be stretched by the override
+    let mut leaking = imported.lc;
+    leaking.vertical = Sizing::Fixed;
+    let leaking = kid_with(30.0, 20.0, |lc| *lc = leaking);
+    assert_eq!(solve_everywhere(al, v2(200.0, 100.0), &[leaking]).kids[0], [0.0, 0.0, 30.0, 100.0]);
+}
+
+#[test]
 fn nested_container_resized_by_parent_fill_resolves_its_own_children() {
     // Parent Fixed 300x100 (padding 10, gap 20) holds a Fixed 40x30 child and a nested auto-layout
     // child frame with horizontal Fill + vertical Hug. The nested frame hugs (98, 32) on the bottom-up

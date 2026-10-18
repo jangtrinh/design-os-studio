@@ -141,21 +141,23 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     }
     let main_avail = (frame_main - pm).max(0.0);
 
-    // Cross extent of each line. Children that stretch to the line do not size it, except when nothing
-    // else does: an `align_self` stretch child then keeps its natural extent as the line size, so a
-    // hugging frame whose children all stretch does not fold to its padding.
+    // Cross extent of each line. Children that stretch the counter axis (Fill or `align_self` stretch) do not
+    // size it, except when no plain child exists: they then keep their natural extent as the line size, so a
+    // hugging frame whose children all stretch does not fold to its padding. Their cross minimum floors the
+    // line either way, so a stretched child never overflows the frame.
     let mut line_cross: Vec<f32> = lines
         .iter()
         .map(|l| {
-            let plain = l
-                .iter()
-                .filter(|i| !(kids[**i].cross_fill || kids[**i].align_self == AlignSelf::Stretch) || al.wrap)
-                .map(|i| nat_cross(&kids[*i]))
-                .fold(0.0, f32::max);
-            if plain > 0.0 {
-                return plain;
+            let (mut plain, mut stretched, mut floor) = (None::<f32>, 0.0f32, 0.0f32);
+            for k in l.iter().map(|i| &kids[*i]) {
+                if al.wrap || !k.stretches_cross() {
+                    plain = Some(plain.map_or(nat_cross(k), |p| p.max(nat_cross(k))));
+                } else {
+                    stretched = stretched.max(nat_cross(k));
+                    floor = floor.max(ax.clamp_cross(&k.limits, 0.0));
+                }
             }
-            l.iter().filter(|i| kids[**i].align_self == AlignSelf::Stretch).map(|i| nat_cross(&kids[*i])).fold(plain, f32::max)
+            plain.unwrap_or(stretched).max(floor)
         })
         .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
@@ -271,7 +273,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         for (j, i) in line.iter().enumerate() {
             let kid = &kids[*i];
             let m = mains[j];
-            let c = if kid.cross_fill || kid.align_self == AlignSelf::Stretch { ax.clamp_cross(&kid.limits, line_cross[li]) } else { nat_cross(kid) };
+            let c = if kid.stretches_cross() { ax.clamp_cross(&kid.limits, line_cross[li]) } else { nat_cross(kid) };
             let off = match kid.align_self {
                 AlignSelf::Start | AlignSelf::Stretch => 0.0,
                 AlignSelf::Center => (line_cross[li] - c) / 2.0,

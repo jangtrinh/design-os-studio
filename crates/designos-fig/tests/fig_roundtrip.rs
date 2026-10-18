@@ -1593,3 +1593,29 @@ fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
     assert_eq!((rt_max.transform.tx, rt_max.transform.ty), (40.0, 80.0));
     assert_eq!((rt_min.transform.tx, rt_min.transform.ty), (80.0, 0.0));
 }
+
+#[test]
+fn counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_round_trip() {
+    let mut doc = Document::new("HugFill");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 1.0));
+    row.name = "Row".into();
+    let al = AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Hug, ..Default::default() };
+    row.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+    let row_id = doc.insert(page, row).unwrap();
+    let cid = doc.alloc_id();
+    let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 30.0, 40.0));
+    child.name = "FillChild".into();
+    child.layout_child.vertical = Sizing::Fill;
+    doc.insert(row_id, child).unwrap();
+    doc.relayout_subtree(row_id);
+    assert_eq!(find(&doc, "Row").size.y, 40.0, "Fill on the counter axis alone keeps the natural size");
+
+    let bytes = export_fig(&doc).expect("export_fig HugFill");
+    let mut rt = import_fig(&bytes).expect("re-import HugFill");
+    let rt_row = find(&rt, "Row").id;
+    rt.relayout_subtree(rt_row);
+    assert_eq!(find(&rt, "Row").size.y, 40.0, "the round trip must not change the cross size");
+    assert_eq!(find(&rt, "FillChild").size.y, 40.0);
+}
