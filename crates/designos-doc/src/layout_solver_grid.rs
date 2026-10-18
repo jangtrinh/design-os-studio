@@ -2,7 +2,7 @@
 
 use crate::layout_solver_grid_placement::{place_children, Placed, MAX_GRID_TRACKS};
 use crate::layout_solver_types::{ChildIn, LayoutOut, SizeLimits};
-use crate::{AutoLayout, GridAutoTracks, GridTrack, Rect, Sizing, Vec2};
+use crate::{AutoLayout, GridAutoTracks, GridChildAlign, GridTrack, LayoutAlign, Rect, Sizing, Vec2};
 
 /// The width `k` asks of an auto column: its clamped width and margins. A child that fills the width and has margins on it
 /// is stretched to its column minus those margins, so its stored width is that stretched one and counting it would pin the
@@ -219,9 +219,13 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let [mt, mr, mb, ml] = k.margin;
         let cell_w: f32 = (0..p.col_span).map(|dc| col_widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h: f32 = (0..p.row_span).map(|dr| row_heights[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
-        let w = k.limits.clamp_w(if k.main_fill { (cell_w - ml - mr).max(0.0) } else { k.size.x });
-        let h = k.limits.clamp_h(if k.cross_fill { (cell_h - mt - mb).max(0.0) } else { k.size.y });
-        rects.push(Rect::new(col_x[p.col] + ml, row_y[p.row] + mt, w, h));
+        let (area_w, area_h) = ((cell_w - ml - mr).max(0.0), (cell_h - mt - mb).max(0.0));
+        let w = k.limits.clamp_w(if k.main_fill { area_w } else { k.size.x });
+        let h = k.limits.clamp_h(if k.cross_fill { area_h } else { k.size.y });
+        // The child aligns inside its cell inset by its margins, so a centred child centres its margin box.
+        let dx = cell_offset(k.cell.align_h, al.primary_align, area_w, w);
+        let dy = cell_offset(k.cell.align_v, al.counter_align, area_h, h);
+        rects.push(Rect::new(col_x[p.col] + ml + dx, row_y[p.row] + mt + dy, w, h));
     }
 
     let total_w = col_widths.iter().sum::<f32>() + col_gap * (cols.saturating_sub(1) as f32) + pl + pr;
@@ -230,6 +234,24 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     let out_h = if al.counter_sizing == Sizing::Hug { own.clamp_h(total_h) } else { frame.y };
 
     LayoutOut { frame: Vec2::new(out_w, out_h), rects }
+}
+
+/// Offset of a child from the near edge of its cell's area (the cell less the child's margins) on one
+/// axis. `Auto` follows the frame's alignment on that axis. The slack is negative when the child is
+/// larger than that area, so Center overflows both sides evenly and End overflows past the near edge,
+/// as the flow solver does across its lines.
+fn cell_offset(child_align: GridChildAlign, container_align: LayoutAlign, cell_extent: f32, child_extent: f32) -> f32 {
+    let slack = cell_extent - child_extent;
+    match child_align {
+        GridChildAlign::Start => 0.0,
+        GridChildAlign::Center => slack * 0.5,
+        GridChildAlign::End => slack,
+        GridChildAlign::Auto => match container_align {
+            LayoutAlign::Center => slack * 0.5,
+            LayoutAlign::End => slack,
+            _ => 0.0,
+        },
+    }
 }
 
 #[cfg(test)]

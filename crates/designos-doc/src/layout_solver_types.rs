@@ -1,6 +1,6 @@
 //! Input and output types of the one auto-layout solver (see `layout_solver.rs`).
 
-use crate::{AlignSelf, LayoutChild, LayoutDirection, Node, Rect, Sizing, Vec2};
+use crate::{AlignSelf, GridChildAlign, LayoutChild, LayoutDirection, Node, Rect, Sizing, Vec2};
 
 /// Optional min/max size of a layout child, in px (`x` = width, `y` = height).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -45,11 +45,13 @@ pub struct GridCell {
     pub row: Option<u16>,
     pub col_span: u16,
     pub row_span: u16,
+    pub align_h: GridChildAlign,
+    pub align_v: GridChildAlign,
 }
 
 impl Default for GridCell {
     fn default() -> Self {
-        Self { column: None, row: None, col_span: 1, row_span: 1 }
+        Self { column: None, row: None, col_span: 1, row_span: 1, align_h: GridChildAlign::Start, align_v: GridChildAlign::Start }
     }
 }
 
@@ -80,7 +82,14 @@ impl ChildIn {
             grow: lc.grow,
             align_self: lc.align_self,
             limits: SizeLimits::from(lc),
-            cell: GridCell { column: lc.grid_column, row: lc.grid_row, col_span: lc.col_span.max(1), row_span: lc.row_span.max(1) },
+            cell: GridCell {
+                column: lc.grid_column,
+                row: lc.grid_row,
+                col_span: lc.col_span.max(1),
+                row_span: lc.row_span.max(1),
+                align_h: lc.grid_align_h,
+                align_v: lc.grid_align_v,
+            },
             margin: lc.margin,
         }
     }
@@ -136,10 +145,22 @@ mod tests {
 
     #[test]
     fn child_in_reads_the_primary_axis_and_grid_cell_from_the_layout_child() {
-        let lc = LayoutChild { horizontal: Sizing::Fill, grid_column: Some(2), col_span: 0, row_span: 3, max_h: Some(9.0), ..Default::default() };
+        let lc = LayoutChild {
+            horizontal: Sizing::Fill,
+            grid_column: Some(2),
+            col_span: 0,
+            row_span: 3,
+            grid_align_h: GridChildAlign::Center,
+            grid_align_v: GridChildAlign::End,
+            max_h: Some(9.0),
+            ..Default::default()
+        };
         let horiz = ChildIn::from_layout_child(Vec2::new(4.0, 5.0), &lc, true);
         assert!(horiz.main_fill && !horiz.cross_fill);
-        assert_eq!(horiz.cell, GridCell { column: Some(2), row: None, col_span: 1, row_span: 3 });
+        assert_eq!(
+            horiz.cell,
+            GridCell { column: Some(2), row: None, col_span: 1, row_span: 3, align_h: GridChildAlign::Center, align_v: GridChildAlign::End }
+        );
         assert_eq!(horiz.limits.max_h, Some(9.0));
         let vert = ChildIn::from_layout_child(Vec2::new(4.0, 5.0), &lc, false);
         assert!(!vert.main_fill && vert.cross_fill);

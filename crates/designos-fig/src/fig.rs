@@ -745,6 +745,8 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "gridColumnAnchorIndex",
     "gridRowAnchor",
     "gridRowAnchorIndex",
+    "gridChildHorizontalAlign",
+    "gridChildVerticalAlign",
     "minSize",
     "maxSize",
     "variableConsumptionMap",
@@ -892,8 +894,6 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "maskType"
             | "scrollDirection"
             | "lockMode"
-            | "gridChildVerticalAlign"
-            | "gridChildHorizontalAlign"
             | "codeExportName"
             | "documentColorProfile"
             | "codeObjectType"
@@ -1367,7 +1367,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             m.insert(k.into(), v.into());
         }
     }
-    for k in ["gridColumnSpan", "gridRowSpan"] {
+    for k in ["gridColumnSpan", "gridRowSpan", "gridChildHorizontalAlign", "gridChildVerticalAlign"] {
         copy(&mut m, nc, k, k);
     }
     if let Some(c) = nc.get("gridColumnAnchor").or_else(|| nc.get("gridColumnAnchorIndex")) {
@@ -1926,7 +1926,9 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridColumnAnchor"
             | "gridColumnAnchorIndex"
             | "gridRowAnchor"
-            | "gridRowAnchorIndex" => {
+            | "gridRowAnchorIndex"
+            | "gridChildHorizontalAlign"
+            | "gridChildVerticalAlign" => {
                 has_layout = true;
             }
             "fontName"
@@ -2069,7 +2071,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         copy(&mut m, o, "layoutSizingHorizontal", "layoutSizingHorizontal");
         copy(&mut m, o, "layoutSizingVertical", "layoutSizingVertical");
         convert_grid_track_fields(&mut m, o);
-        for k in ["gridColumnSpan", "gridRowSpan"] {
+        for k in ["gridColumnSpan", "gridRowSpan", "gridChildHorizontalAlign", "gridChildVerticalAlign"] {
             copy(&mut m, o, k, k);
         }
         if let Some(c) = obj.get("gridColumnAnchor").or_else(|| obj.get("gridColumnAnchorIndex")) {

@@ -928,6 +928,19 @@ impl AutoLayout {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GridChildAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+    Auto,
+}
+
+fn is_default_grid_child_align(a: &GridChildAlign) -> bool {
+    *a == GridChildAlign::Start
+}
+
 /// Per-child cross-axis alignment override (`stackChildAlignSelf` / `layoutAlign`) in auto layout.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AlignSelf {
@@ -964,6 +977,10 @@ pub struct LayoutChild {
     pub col_span: u16,
     #[serde(default, skip_serializing_if = "is_zero_or_one_u16")]
     pub row_span: u16,
+    #[serde(default, skip_serializing_if = "is_default_grid_child_align")]
+    pub grid_align_h: GridChildAlign,
+    #[serde(default, skip_serializing_if = "is_default_grid_child_align")]
+    pub grid_align_v: GridChildAlign,
     /// Per-child margins `[top, right, bottom, left]` in an auto-layout parent (`stackChildMarginTop/Right/Bottom/Left`, Kiwi 606..609).
     #[serde(default, skip_serializing_if = "is_zero_radii")]
     pub margin: [f32; 4],
@@ -1000,5 +1017,73 @@ mod auto_layout_axis_tests {
         let v = al(LayoutDirection::Vertical);
         assert!(!v.primary_is_horizontal());
         assert_eq!((v.sizing_along(true), v.sizing_along(false)), (Sizing::Fixed, Sizing::Hug));
+    }
+}
+
+#[cfg(test)]
+mod grid_child_align_compat_tests {
+    use super::*;
+    use crate::{Document, Rect};
+
+    /// A 100x100 grid cell in a frame that centres its children on x and ends them on y, holding one 40x20 child.
+    fn doc_with_grid_child(align_h: GridChildAlign, align_v: GridChildAlign) -> (Document, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            grid_columns: 1,
+            grid_rows: 1,
+            primary_align: LayoutAlign::Center,
+            counter_align: LayoutAlign::End,
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+        al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        let f = d.insert(page, f).unwrap();
+        let cid = d.alloc_id();
+        let mut c = Node::rectangle(cid, Rect::new(0.0, 0.0, 40.0, 20.0));
+        c.layout_child.grid_align_h = align_h;
+        c.layout_child.grid_align_v = align_v;
+        let c = d.insert(f, c).unwrap();
+        (d, f, c)
+    }
+
+    fn solved_origin(d: &mut Document, frame: NodeId, child: NodeId) -> (f32, f32) {
+        d.relayout_subtree(frame);
+        let n = d.get(child).unwrap();
+        (n.transform.tx, n.transform.ty)
+    }
+
+    #[test]
+    fn a_file_without_grid_align_fields_loads_as_start_and_solves_at_the_cell_origin() {
+        // Start is the serde default and is not written, so this JSON is what a file saved before the fields existed
+        // looks like. The frame centres on x and ends on y, so only a child that stayed Start sits at the origin.
+        let (d, _, _) = doc_with_grid_child(GridChildAlign::Start, GridChildAlign::Start);
+        let json = d.to_json().unwrap();
+        assert!(!json.contains("grid_align"), "Start leaked into {json}");
+
+        let mut back = Document::from_json(&json).unwrap();
+        let child = back.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle)).map(|n| n.id).unwrap();
+        let frame = back.get(child).and_then(|n| n.parent).unwrap();
+        let lc = back.get(child).unwrap().layout_child;
+        assert_eq!((lc.grid_align_h, lc.grid_align_v), (GridChildAlign::Start, GridChildAlign::Start));
+        assert_eq!(solved_origin(&mut back, frame, child), (0.0, 0.0));
+    }
+
+    #[test]
+    fn auto_alignment_is_written_and_follows_the_frame_after_a_reload() {
+        let (d, _, _) = doc_with_grid_child(GridChildAlign::Auto, GridChildAlign::Auto);
+        let json = d.to_json().unwrap();
+        assert!(json.contains("\"grid_align_h\":\"Auto\"") && json.contains("\"grid_align_v\":\"Auto\""), "Auto was not written: {json}");
+
+        let mut back = Document::from_json(&json).unwrap();
+        let child = back.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle)).map(|n| n.id).unwrap();
+        let frame = back.get(child).and_then(|n| n.parent).unwrap();
+        assert_eq!(solved_origin(&mut back, frame, child), (30.0, 80.0));
     }
 }
