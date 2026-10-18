@@ -945,6 +945,9 @@ pub struct LayoutChild {
     pub grid_align_h: GridChildAlign,
     #[serde(default, skip_serializing_if = "is_default_grid_child_align")]
     pub grid_align_v: GridChildAlign,
+    /// Per-child margins `[top, right, bottom, left]` in an auto-layout parent (`stackChildMarginTop/Right/Bottom/Left`, Kiwi 606..609).
+    #[serde(default, skip_serializing_if = "is_zero_radii")]
+    pub margin: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

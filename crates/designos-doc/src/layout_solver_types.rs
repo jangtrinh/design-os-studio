@@ -66,6 +66,8 @@ pub struct ChildIn {
     pub grow: f32,
     pub limits: SizeLimits,
     pub cell: GridCell,
+    /// Per-child margins `[top, right, bottom, left]`.
+    pub margin: [f32; 4],
 }
 
 impl ChildIn {
@@ -86,6 +88,7 @@ impl ChildIn {
                 align_h: lc.grid_align_h,
                 align_v: lc.grid_align_v,
             },
+            margin: lc.margin,
         }
     }
 }

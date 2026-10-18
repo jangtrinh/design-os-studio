@@ -1052,12 +1052,8 @@ fn resizing_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], n0: 
         set_sizing(app, sel, false, order[i]);
     }
     row_end(pane);
-    let parent_grid = n0
-        .parent
-        .and_then(|p| app.doc.get(p))
-        .and_then(|p| p.kind.frame_props())
-        .and_then(|f| f.auto_layout.as_ref())
-        .is_some_and(|al| al.direction == LayoutDirection::Grid);
+    let parent_al = n0.parent.and_then(|p| app.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref());
+    let (parent_in_auto_layout, parent_grid) = (parent_al.is_some(), parent_al.is_some_and(|al| al.direction == LayoutDirection::Grid));
     if parent_grid {
         sublabel(ui, pane, "Grid Span");
         let cs = n0.layout_child.col_span.max(1) as f32;
@@ -1072,6 +1068,28 @@ fn resizing_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], n0: 
         }
         row_end(pane);
     }
+    if parent_in_auto_layout && has_child_margins(n0) {
+        sublabel(ui, pane, "Margin");
+        let [mt, mr, mb, ml] = n0.layout_child.margin;
+        if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "margin-l", Prefix::Text("L"), Some(ml), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[3] = v);
+        }
+        if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "margin-r", Prefix::Text("R"), Some(mr), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[1] = v);
+        }
+        row_end(pane);
+        if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "margin-t", Prefix::Text("T"), Some(mt), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[0] = v);
+        }
+        if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "margin-b", Prefix::Text("B"), Some(mb), "") {
+            app.edit_nodes(sel, |n| n.layout_child.margin[2] = v);
+        }
+        row_end(pane);
+    }
+}
+
+pub fn has_child_margins(n: &Node) -> bool {
+    n.layout_child.margin != [0.0; 4]
 }
 
 fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a: &AutoLayout, n0: &Node, parent_al: bool) {
@@ -2261,6 +2279,14 @@ mod tests {
         n.kind = NodeKind::Frame(FrameProps { auto_layout: Some(AutoLayout { primary_sizing: Sizing::Hug, ..Default::default() }), ..Default::default() });
         assert_eq!(sizing_of(&n, true), Sizing::Hug);
         assert_eq!(sizing_of(&n, false), Sizing::Fixed);
+    }
+
+    #[test]
+    fn child_margins_hidden_when_zero_and_visible_when_set() {
+        let mut n = Node::rectangle(NodeId(2), designos_doc::Rect::new(0.0, 0.0, 40.0, 20.0));
+        assert!(!has_child_margins(&n));
+        n.layout_child.margin = [4.0, 0.0, 0.0, 0.0];
+        assert!(has_child_margins(&n));
     }
 
     #[test]

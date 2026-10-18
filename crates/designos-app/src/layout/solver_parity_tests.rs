@@ -158,7 +158,9 @@ enum Entry {
 
 const ENTRIES: [Entry; 3] = [Entry::Editor, Entry::Spec, Entry::Changelog];
 
-fn solve_through(entry: Entry, al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid]) -> Solved {
+/// Solves the frame through one entry point. With `resize` = (child index, new size) that child is resized after the first
+/// pass and the frame is solved again, so the result shows what the sizes stored by the first pass leave behind.
+fn solve_through_resizing(entry: Entry, al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid], resize: Option<(usize, (f32, f32))>) -> Solved {
     let mut d = Document::new("t");
     let page = d.add_page("p");
     let fid = d.alloc_id();
@@ -173,10 +175,15 @@ fn solve_through(entry: Entry, al: AutoLayout, frame: Vec2, frame_lc: LayoutChil
         n.layout_child = k.lc;
         ids.push(d.insert(f, n).unwrap());
     }
-    match entry {
-        Entry::Editor => layout_node(&mut d, &mut Edit::new(), f),
+    let run = |d: &mut Document| match entry {
+        Entry::Editor => layout_node(d, &mut Edit::new(), f),
         Entry::Spec => d.relayout_subtree(f),
-        Entry::Changelog => designos_doc::relayout_subtree(&mut d, f),
+        Entry::Changelog => designos_doc::relayout_subtree(d, f),
+    };
+    run(&mut d);
+    if let Some((index, (w, h))) = resize {
+        d.get_mut(ids[index]).unwrap().size = Vec2::new(w, h);
+        run(&mut d);
     }
     let fs = d.get(f).unwrap().size;
     let kids = ids
@@ -195,9 +202,13 @@ fn solve_everywhere(al: AutoLayout, frame: Vec2, kids: &[Kid]) -> Solved {
 }
 
 fn solve_everywhere_with_frame_limits(al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid]) -> Solved {
-    let editor = solve_through(Entry::Editor, al.clone(), frame, frame_lc, kids);
+    solve_everywhere_resizing(al, frame, frame_lc, kids, None)
+}
+
+fn solve_everywhere_resizing(al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid], resize: Option<(usize, (f32, f32))>) -> Solved {
+    let editor = solve_through_resizing(Entry::Editor, al.clone(), frame, frame_lc, kids, resize);
     for entry in ENTRIES {
-        assert_eq!(solve_through(entry, al.clone(), frame, frame_lc, kids), editor, "{entry:?} drifted from the editor solver");
+        assert_eq!(solve_through_resizing(entry, al.clone(), frame, frame_lc, kids, resize), editor, "{entry:?} drifted from the editor solver");
     }
     editor
 }
@@ -653,6 +664,250 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     let solved = solve_everywhere_with_frame_limits(al, v2(100.0, 50.0), frame_lc, &[fill, fill]);
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
+}
+
+#[test]
+fn auto_layout_child_margins_shift_positions_and_expand_hug_frames_across_all_solvers() {
+    // 1. Horizontal Hug/Hug frame with per-child margins [top, right, bottom, left]
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.primary_sizing = Sizing::Hug;
+    al.counter_sizing = Sizing::Hug;
+    al.padding = [4.0, 4.0, 4.0, 4.0];
+    al.item_spacing = 6.0;
+    let k0 = kid_with(40.0, 20.0, |lc| lc.margin = [10.0, 8.0, 5.0, 12.0]);
+    let k1 = kid_with(30.0, 20.0, |lc| lc.margin = [0.0, 4.0, 0.0, 2.0]);
+    let solved = solve_everywhere(al, v2(10.0, 10.0), &[k0, k1]);
+    // Child 0: x = 4 (pl) + 12 (ml0) = 16, y = 4 (pt) + 10 (mt0) = 14
+    assert_eq!(solved.kids[0], [16.0, 14.0, 40.0, 20.0]);
+    // Child 1: x = 16 + 40 + 8 (mr0) + 6 (spacing) + 2 (ml1) = 72, y = 4 (pt) + 0 = 4
+    assert_eq!(solved.kids[1], [72.0, 4.0, 30.0, 20.0]);
+    // Frame Hug size: w = 4 + (12 + 40 + 8) + 6 + (2 + 30 + 4) + 4 = 110, h = 4 + max(10 + 20 + 5, 20) + 4 = 43
+    assert_eq!(solved.frame, (110.0, 43.0));
+
+    // 2. Vertical Fixed frame with Fill child and CounterAlign::End child with margins
+    let mut al_v = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al_v.counter_align = LayoutAlign::End;
+    al_v.padding = [8.0, 8.0, 8.0, 8.0];
+    al_v.item_spacing = 10.0;
+    let v0 = kid_with(50.0, 10.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.margin = [6.0, 10.0, 4.0, 2.0];
+    });
+    let v1 = kid_with(40.0, 20.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.margin = [2.0, 6.0, 8.0, 14.0];
+    });
+    let solved_v = solve_everywhere(al_v, v2(120.0, 100.0), &[v0, v1]);
+    // Vertical available height = 100 - 16 = 84; spacing = 10; fixed v1 height = 20; vertical margins = (6+4) + (2+8) = 20 -> v0 Fill height = 84 - 10 - 20 - 20 = 34
+    // CounterAlign::End for v0 (width 50, mr=10, ml=2 in cross_avail=104): x = 8 + (104 - (2 + 50 + 10)) + 2 = 52, y = 8 + 6 = 14
+    assert_eq!(solved_v.kids[0], [52.0, 14.0, 50.0, 34.0]);
+    // v1 has horizontal=Fill (cross_fill in vertical frame): width = 104 - 14 - 6 = 84, x = 8 + 14 = 22, y = 14 + 34 + 4 + 10 + 2 = 64
+    assert_eq!(solved_v.kids[1], [22.0, 64.0, 84.0, 20.0]);
+}
+
+/// A flow frame hugging its counter axis, holding a fixed child `A` and a counter-axis Fill child `B` that has
+/// `before` / `after` margin on the counter axis (top / bottom in a row, left / right in a column).
+fn hug_counter_frame_with_cross_fill_margins(
+    direction: LayoutDirection,
+    counter_align: LayoutAlign,
+    before: f32,
+    after: f32,
+    with_fixed_sibling: bool,
+) -> Solved {
+    let row = direction == LayoutDirection::Horizontal;
+    // (main, cross) -> (w, h)
+    let size = |main: f32, cross: f32| if row { (main, cross) } else { (cross, main) };
+    let cross_margin = if row { [before, 0.0, after, 0.0] } else { [0.0, after, 0.0, before] };
+    let mut al = auto(direction, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    al.counter_align = counter_align;
+    let a = size(30.0, 40.0);
+    let b = size(20.0, 10.0);
+    let fill = kid_with(b.0, b.1, |lc| {
+        if row {
+            lc.vertical = Sizing::Fill;
+        } else {
+            lc.horizontal = Sizing::Fill;
+        }
+        lc.margin = cross_margin;
+    });
+    let kids: Vec<Kid> = if with_fixed_sibling { vec![kid(a.0, a.1), fill] } else { vec![fill] };
+    solve_everywhere(al, frame_for(direction, 100.0, 1.0), &kids)
+}
+
+#[test]
+fn a_hugging_counter_axis_reserves_the_margins_of_a_cross_fill_child() {
+    for direction in DIRECTIONS {
+        let row = direction == LayoutDirection::Horizontal;
+        // [main pos, cross pos, main size, cross size] -> [x, y, w, h]
+        let rect = |m_pos: f32, c_pos: f32, m_size: f32, c_size: f32| if row { [m_pos, c_pos, m_size, c_size] } else { [c_pos, m_pos, c_size, m_size] };
+        let frame = |cross: f32| if row { (100.0, cross) } else { (cross, 100.0) };
+
+        // Fixed A is 40 across; B stretches but its margins alone need 60: the frame grows to 60 so B's margin box stays inside it.
+        for (align, a_cross) in [(LayoutAlign::Start, 0.0), (LayoutAlign::Center, 10.0), (LayoutAlign::End, 20.0)] {
+            let solved = hug_counter_frame_with_cross_fill_margins(direction, align, 30.0, 30.0, true);
+            assert_eq!(solved.frame, frame(60.0), "{direction:?} {align:?}");
+            assert_eq!(solved.kids[0], rect(0.0, a_cross, 30.0, 40.0), "{direction:?} {align:?} A");
+            assert_eq!(solved.kids[1], rect(30.0, 30.0, 20.0, 0.0), "{direction:?} {align:?} B sits inside its reserved margin box");
+        }
+
+        // The margins fit beside A (40 across): the frame stays 40 and B fills what the margins leave.
+        let solved = hug_counter_frame_with_cross_fill_margins(direction, LayoutAlign::Start, 5.0, 7.0, true);
+        assert_eq!(solved.frame, frame(40.0), "{direction:?}");
+        assert_eq!(solved.kids[1], rect(30.0, 5.0, 20.0, 28.0), "{direction:?}");
+    }
+}
+
+#[test]
+fn a_lone_cross_fill_child_still_reserves_its_margins_in_a_hugging_counter_axis() {
+    // A lone Fill child has no natural extent to hold the frame open, but its margins still do.
+    for direction in DIRECTIONS {
+        let solved = hug_counter_frame_with_cross_fill_margins(direction, LayoutAlign::Start, 8.0, 12.0, false);
+        if direction == LayoutDirection::Horizontal {
+            assert_eq!((solved.frame, solved.kids[0]), ((100.0, 20.0), [0.0, 8.0, 20.0, 0.0]), "{direction:?}");
+        } else {
+            assert_eq!((solved.frame, solved.kids[0]), ((20.0, 100.0), [8.0, 0.0, 0.0, 20.0]), "{direction:?}");
+        }
+    }
+}
+
+#[test]
+fn a_flow_line_shrinks_back_around_a_cross_fill_child_with_margins() {
+    // A is 100 across and B stretches to 40 between its margins; A then shrinks to 40: the line follows down to B's margins,
+    // wrapped or not (a wrapped line used to keep B's stretched size as its high-water mark)
+    for direction in DIRECTIONS {
+        for wrap in [false, true] {
+            let row = direction == LayoutDirection::Horizontal;
+            let size = |main: f32, cross: f32| if row { (main, cross) } else { (cross, main) };
+            let fill = kid_with(size(20.0, 10.0).0, size(20.0, 10.0).1, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                    lc.margin = [30.0, 0.0, 30.0, 0.0];
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                    lc.margin = [0.0, 30.0, 0.0, 30.0];
+                }
+            });
+            let a = size(30.0, 100.0);
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let frame = frame_for(direction, 200.0, 1.0);
+            let kids = [kid(a.0, a.1), fill];
+
+            let first = solve_everywhere(al.clone(), frame, &kids);
+            assert_eq!(first.frame, if row { (200.0, 100.0) } else { (100.0, 200.0) }, "{direction:?} wrap {wrap}");
+
+            let solved = solve_everywhere_resizing(al, frame, LayoutChild::default(), &kids, Some((0, size(30.0, 40.0))));
+            if row {
+                assert_eq!(
+                    (solved.frame, solved.kids[0], solved.kids[1]),
+                    ((200.0, 60.0), [0.0, 0.0, 30.0, 40.0], [30.0, 30.0, 20.0, 0.0]),
+                    "{direction:?} wrap {wrap}"
+                );
+            } else {
+                assert_eq!(
+                    (solved.frame, solved.kids[0], solved.kids[1]),
+                    ((60.0, 200.0), [0.0, 0.0, 40.0, 30.0], [30.0, 30.0, 0.0, 20.0]),
+                    "{direction:?} wrap {wrap}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_hugging_flow_line_grows_to_the_minimum_size_of_a_cross_fill_child_with_margins() {
+    // a lone Fill child with a 40 minimum and 10 + 10 of margin: the frame holds the whole margin box (60), wrapped or not
+    for direction in DIRECTIONS {
+        for wrap in [false, true] {
+            let row = direction == LayoutDirection::Horizontal;
+            let fill = kid_with(if row { 20.0 } else { 10.0 }, if row { 10.0 } else { 20.0 }, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                    lc.min_h = Some(40.0);
+                    lc.margin = [10.0, 0.0, 10.0, 0.0];
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                    lc.min_w = Some(40.0);
+                    lc.margin = [0.0, 10.0, 0.0, 10.0];
+                }
+            });
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let solved = solve_everywhere(al, frame_for(direction, 100.0, 1.0), &[fill]);
+            if row {
+                assert_eq!((solved.frame, solved.kids[0]), ((100.0, 60.0), [0.0, 10.0, 20.0, 40.0]), "{direction:?} wrap {wrap}");
+            } else {
+                assert_eq!((solved.frame, solved.kids[0]), ((60.0, 100.0), [10.0, 0.0, 40.0, 20.0]), "{direction:?} wrap {wrap}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_cross_fill_child_without_margins_keeps_the_line_measure_it_always_had() {
+    // not wrapped, a lone Fill child holds nothing open (0); a wrapped line still counts its stored size (10)
+    for direction in DIRECTIONS {
+        let row = direction == LayoutDirection::Horizontal;
+        for (wrap, cross) in [(false, 0.0), (true, 10.0)] {
+            let fill = kid_with(if row { 20.0 } else { 10.0 }, if row { 10.0 } else { 20.0 }, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                }
+            });
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let solved = solve_everywhere(al, frame_for(direction, 100.0, 1.0), &[fill]);
+            if row {
+                assert_eq!((solved.frame, solved.kids[0]), ((100.0, cross), [0.0, 0.0, 20.0, cross]), "{direction:?} wrap {wrap}");
+            } else {
+                assert_eq!((solved.frame, solved.kids[0]), ((cross, 100.0), [0.0, 0.0, cross, 20.0]), "{direction:?} wrap {wrap}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_grid_auto_row_shrinks_back_around_a_cross_fill_child_with_margins() {
+    let mut al = grid(2);
+    al.primary_sizing = Sizing::Fixed;
+    al.counter_sizing = Sizing::Hug;
+    let fill = kid_with(20.0, 10.0, |lc| {
+        lc.vertical = Sizing::Fill;
+        lc.margin = [30.0, 0.0, 30.0, 0.0];
+    });
+    let kids = [kid(30.0, 100.0), fill];
+
+    let first = solve_everywhere(al.clone(), v2(200.0, 1.0), &kids);
+    assert_eq!((first.frame, first.kids[1]), ((200.0, 100.0), [100.0, 30.0, 20.0, 40.0]));
+
+    // A shrinks to 40: the row follows down to what B's margins need
+    let solved = solve_everywhere_resizing(al, v2(200.0, 1.0), LayoutChild::default(), &kids, Some((0, (30.0, 40.0))));
+    assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((200.0, 60.0), [0.0, 0.0, 30.0, 40.0], [100.0, 30.0, 20.0, 0.0]));
+}
+
+#[test]
+fn a_grid_hug_column_shrinks_back_around_a_main_fill_child_with_margins() {
+    let mut al = grid(1);
+    al.primary_sizing = Sizing::Hug;
+    al.counter_sizing = Sizing::Fixed;
+    let fill = kid_with(10.0, 20.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.margin = [0.0, 30.0, 0.0, 30.0];
+    });
+    let kids = [kid(100.0, 30.0), fill];
+
+    let first = solve_everywhere(al.clone(), v2(1.0, 200.0), &kids);
+    assert_eq!((first.frame, first.kids[1]), ((100.0, 200.0), [30.0, 30.0, 40.0, 20.0]));
+
+    // A shrinks to 40 wide: the column follows down to what B's margins need
+    let solved = solve_everywhere_resizing(al, v2(1.0, 200.0), LayoutChild::default(), &kids, Some((0, (40.0, 30.0))));
+    assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((60.0, 200.0), [0.0, 0.0, 40.0, 30.0], [30.0, 30.0, 0.0, 20.0]));
 }
 
 #[test]

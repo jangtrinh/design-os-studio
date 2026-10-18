@@ -1518,6 +1518,31 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
 }
 
 #[test]
+fn roundtrip_stack_child_margins_606_to_609() {
+    let mut doc = Document::new("ChildMarginsTest");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 120.0));
+    frame.name = "MarginFrame".into();
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.auto_layout =
+            Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 8.0, padding: [10.0, 10.0, 10.0, 10.0], ..Default::default() });
+    }
+    doc.insert(page, frame).unwrap();
+
+    let cid = doc.alloc_id();
+    let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 80.0, 40.0));
+    child.name = "MarginChild".into();
+    child.layout_child.margin = [6.0, 12.0, 18.0, 24.0];
+    doc.insert(fid, child).unwrap();
+
+    let bytes = export_fig(&doc).expect("export_fig with child margins");
+    let rt = import_fig(&bytes).expect("import_fig with child margins");
+    let rt_child = find(&rt, "MarginChild");
+    assert_eq!(rt_child.layout_child.margin, [6.0, 12.0, 18.0, 24.0]);
+}
+
+#[test]
 fn roundtrip_twelve_track_grid_columns_and_rows() {
     let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
     let changes = json!([

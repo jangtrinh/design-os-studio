@@ -56,6 +56,40 @@ impl Axes {
             l.clamp_w(v)
         }
     }
+    fn margin_main_start(&self, m: &[f32; 4]) -> f32 {
+        if self.horiz {
+            m[3]
+        } else {
+            m[0]
+        }
+    }
+    fn margin_main_end(&self, m: &[f32; 4]) -> f32 {
+        if self.horiz {
+            m[1]
+        } else {
+            m[2]
+        }
+    }
+    fn margin_main(&self, m: &[f32; 4]) -> f32 {
+        self.margin_main_start(m) + self.margin_main_end(m)
+    }
+    fn margin_cross_start(&self, m: &[f32; 4]) -> f32 {
+        if self.horiz {
+            m[0]
+        } else {
+            m[3]
+        }
+    }
+    fn margin_cross_end(&self, m: &[f32; 4]) -> f32 {
+        if self.horiz {
+            m[2]
+        } else {
+            m[1]
+        }
+    }
+    fn margin_cross(&self, m: &[f32; 4]) -> f32 {
+        self.margin_cross_start(m) + self.margin_cross_end(m)
+    }
 }
 
 /// Solves an auto-layout frame accounting for its [`crate::Stroke`]: in version 0
@@ -99,6 +133,8 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     // natural extents with the child's own min/max applied
     let nat_main = |k: &ChildIn| ax.clamp_main(&k.limits, ax.main(k.size));
     let nat_cross = |k: &ChildIn| ax.clamp_cross(&k.limits, ax.cross(k.size));
+    let outer_main = |k: &ChildIn| nat_main(k) + ax.margin_main(&k.margin);
+    let outer_cross = |k: &ChildIn| nat_cross(k) + ax.margin_cross(&k.margin);
 
     if kids.is_empty() {
         if hug_main {
@@ -117,7 +153,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         let mut cur: Vec<usize> = Vec::new();
         let mut used = 0.0;
         for (i, k) in kids.iter().enumerate() {
-            let m = nat_main(k);
+            let m = outer_main(k);
             let add = if cur.is_empty() { m } else { al.item_spacing + m };
             if !cur.is_empty() && used + add > avail + 1e-3 {
                 lines.push(std::mem::take(&mut cur));
@@ -136,14 +172,24 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
 
     // Hug along the primary axis (single line only).
     if hug_main {
-        let total: f32 = kids.iter().map(nat_main).sum::<f32>() + al.item_spacing * (kids.len() as f32 - 1.0);
+        let total: f32 = kids.iter().map(outer_main).sum::<f32>() + al.item_spacing * (kids.len() as f32 - 1.0);
         frame_main = ax.clamp_main(&own, total + pm);
     }
     let main_avail = (frame_main - pm).max(0.0);
 
-    // Cross extent of each line.
-    let mut line_cross: Vec<f32> =
-        lines.iter().map(|l| l.iter().filter(|i| !kids[**i].cross_fill || al.wrap).map(|i| nat_cross(&kids[*i])).fold(0.0, f32::max)).collect();
+    // Cross extent of each line. A counter-axis Fill child with cross margins stretches to its line minus those margins, so
+    // its stored size is the stretched one and counting it would stop the line from ever shrinking again (wrapped or not): it
+    // holds the line open by its minimum size and margins. Without margins nothing changes: a flow line that does not wrap
+    // counts such a child for nothing, a wrapped line for its stored size.
+    let cross_need = |k: &ChildIn| {
+        let margins = ax.margin_cross(&k.margin);
+        match (k.cross_fill, margins > 0.0, al.wrap) {
+            (false, _, _) | (true, false, true) => outer_cross(k),
+            (true, false, false) => 0.0,
+            (true, true, _) => ax.clamp_cross(&k.limits, 0.0) + margins,
+        }
+    };
+    let mut line_cross: Vec<f32> = lines.iter().map(|l| l.iter().map(|i| cross_need(&kids[*i])).fold(0.0, f32::max)).collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
     if !al.wrap {
@@ -177,7 +223,8 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         if !al.wrap && !hug_main {
             let mut frozen: Vec<bool> = line.iter().map(|i| !kids[*i].main_fill).collect();
             let fixed: f32 = line.iter().zip(&frozen).filter(|(_, &f)| f).map(|(i, _)| nat_main(&kids[*i])).sum();
-            let mut rem_for_fill = (main_avail - al.item_spacing * (k - 1.0) - fixed).max(0.0);
+            let total_margins: f32 = line.iter().map(|i| ax.margin_main(&kids[*i].margin)).sum();
+            let mut rem_for_fill = (main_avail - al.item_spacing * (k - 1.0) - fixed - total_margins).max(0.0);
             loop {
                 let weight: f32 = line.iter().zip(&frozen).filter(|(_, &f)| !f).map(|(i, _)| fill_weight(&kids[*i])).sum();
                 if weight <= 0.0 {
@@ -241,7 +288,7 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
                 }
             }
         }
-        let sum_main: f32 = mains.iter().sum();
+        let sum_main: f32 = line.iter().enumerate().map(|(j, i)| mains[j] + ax.margin_main(&kids[*i].margin)).sum();
         // CSS justify-content: the free space ignores the fixed gap; with no free space the items pack from the start.
         let free = main_avail - sum_main;
         let (start, gap) = match al.primary_align {
@@ -257,16 +304,21 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
         for (j, i) in line.iter().enumerate() {
             let kid = &kids[*i];
             let m = mains[j];
-            let c = if kid.cross_fill { ax.clamp_cross(&kid.limits, line_cross[li]) } else { nat_cross(kid) };
+            let m_start = ax.margin_main_start(&kid.margin);
+            let m_end = ax.margin_main_end(&kid.margin);
+            let c_start = ax.margin_cross_start(&kid.margin);
+            let c_margin = ax.margin_cross(&kid.margin);
+            let c = if kid.cross_fill { ax.clamp_cross(&kid.limits, (line_cross[li] - c_margin).max(0.0)) } else { nat_cross(kid) };
+            let outer_c = c + c_margin;
             let off = match al.counter_align {
-                LayoutAlign::Center => (line_cross[li] - c) / 2.0,
-                LayoutAlign::End => line_cross[li] - c,
+                LayoutAlign::Center => (line_cross[li] - outer_c) / 2.0,
+                LayoutAlign::End => line_cross[li] - outer_c,
                 _ => 0.0,
-            };
-            let pos = ax.vec(cursor, cross_cursor + off);
+            } + c_start;
+            let pos = ax.vec(cursor + m_start, cross_cursor + off);
             let size = ax.vec(m, c);
             rects[*i] = Rect::new(pos.x, pos.y, size.x, size.y);
-            cursor += m + gap;
+            cursor += m_start + m + m_end + gap;
         }
         cross_cursor += line_cross[li] + counter_gap;
     }
@@ -278,5 +330,68 @@ fn fill_weight(k: &ChildIn) -> f32 {
         k.grow
     } else {
         1.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Document, FrameProps, LayoutChild, Node, NodeId, NodeKind};
+
+    /// A row (wrapping or not) hugging its height: `A` is a fixed 30 x `a_height` child, `B` a 20 x 10 child that fills the
+    /// row's height and carries 30 of margin above and below. Returns the document with the row's, `A`'s and `B`'s ids.
+    fn row_with_cross_fill_margins(a_height: f32, wrap: bool) -> (Document, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let row_id = d.alloc_id();
+        let mut row = Node::frame(row_id, Rect::new(0.0, 0.0, 100.0, 1.0));
+        row.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, counter_sizing: Sizing::Hug, wrap, ..Default::default() }),
+            ..Default::default()
+        });
+        let row = d.insert(page, row).unwrap();
+        let a_id = d.alloc_id();
+        let a = d.insert(row, Node::rectangle(a_id, Rect::new(0.0, 0.0, 30.0, a_height))).unwrap();
+        let b_id = d.alloc_id();
+        let mut b = Node::rectangle(b_id, Rect::new(0.0, 0.0, 20.0, 10.0));
+        b.layout_child = LayoutChild { vertical: Sizing::Fill, margin: [30.0, 0.0, 30.0, 0.0], ..Default::default() };
+        let b = d.insert(row, b).unwrap();
+        (d, row, a, b)
+    }
+
+    #[test]
+    fn a_hugging_row_shrinks_back_around_a_cross_fill_child_with_margins() {
+        for wrap in [false, true] {
+            let (mut d, row, a, b) = row_with_cross_fill_margins(40.0, wrap);
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}: B's margins need 60, more than A's 40");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0), "wrap {wrap}");
+
+            // A grows to 100: the row follows and B stretches to what its margins leave
+            d.get_mut(a).unwrap().size.y = 100.0;
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 100.0, "wrap {wrap}");
+            assert_eq!(d.get(b).unwrap().size.y, 40.0, "wrap {wrap}");
+
+            // A shrinks back: the stretched B must not hold the row open at its stretched size
+            d.get_mut(a).unwrap().size.y = 40.0;
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0), "wrap {wrap}");
+        }
+    }
+
+    #[test]
+    fn a_hugging_row_grows_to_the_minimum_height_of_a_cross_fill_child_with_margins() {
+        for wrap in [false, true] {
+            let (mut d, row, a, b) = row_with_cross_fill_margins(5.0, wrap);
+            d.get_mut(b).unwrap().layout_child.min_h = Some(40.0);
+            d.get_mut(b).unwrap().layout_child.margin = [10.0, 0.0, 10.0, 0.0];
+            d.relayout_subtree(row);
+            // 40 minimum + 10 + 10 of margin; B sits at its minimum inside its margin box
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (10.0, 40.0), "wrap {wrap}");
+            assert_eq!(d.get(a).unwrap().transform.ty, 0.0, "wrap {wrap}");
+        }
     }
 }
