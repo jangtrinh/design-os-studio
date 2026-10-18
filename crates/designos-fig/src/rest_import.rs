@@ -2413,6 +2413,10 @@ impl<'a> Ctx<'a> {
             }
             if fstr(set, "layoutMode") == Some("NONE") {
                 fp.auto_layout = None;
+                n.component.layout_cleared = true;
+                self.no_auto_layout.insert(id);
+                self.grid_col_track_ids.remove(&id);
+                self.grid_row_track_ids.remove(&id);
             } else if fp.auto_layout.is_none() && set.get("layoutMode").is_some() {
                 fp.auto_layout = frame_props(set).auto_layout;
                 n.component.layout_cleared = fp.auto_layout.is_none();
@@ -2424,6 +2428,10 @@ impl<'a> Ctx<'a> {
                     self.no_auto_layout.remove(&id);
                 }
             } else if let Some(al) = fp.auto_layout.as_mut() {
+                if set.get("layoutMode").is_some() {
+                    n.component.layout_cleared = false;
+                    self.no_auto_layout.remove(&id);
+                }
                 match fstr(set, "layoutMode") {
                     Some("HORIZONTAL") => al.direction = LayoutDirection::Horizontal,
                     Some("VERTICAL") => al.direction = LayoutDirection::Vertical,
