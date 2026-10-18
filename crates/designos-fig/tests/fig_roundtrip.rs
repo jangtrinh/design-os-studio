@@ -2444,6 +2444,107 @@ fn counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_roun
 }
 
 #[test]
+fn resized_instance_applies_stretch_and_scale_constraints_to_children_without_derived_data() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 160.0, "y": 160.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "ResizedPieInstance", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node((1, 2), (0, 1), "!", "SYMBOL", "_Pie chart", json!({"size": {"x": 160.0, "y": 160.0}})),
+        node(
+            (1, 3),
+            (1, 2),
+            "!",
+            "ELLIPSE",
+            "Background",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "horizontalConstraint": "STRETCH",
+                "verticalConstraint": "STRETCH",
+            }),
+        ),
+        node(
+            (1, 4),
+            (1, 2),
+            "\"",
+            "ELLIPSE",
+            "Series 2",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "transform": {
+                    "m00": 0.5, "m01": 0.8660254, "m02": -29.282032,
+                    "m10": -0.8660254, "m11": 0.5, "m12": 109.282036
+                },
+                "horizontalConstraint": "STRETCH",
+                "verticalConstraint": "STRETCH",
+                "overrideKey": {"sessionID": 4294967295u64, "localID": 4294967295u64},
+            }),
+        ),
+        node(
+            (1, 5),
+            (1, 2),
+            "#",
+            "RECTANGLE",
+            "ScaledBadge",
+            json!({
+                "size": {"x": 40.0, "y": 40.0},
+                "transform": {
+                    "m00": 1.0, "m01": 0.0, "m02": 20.0,
+                    "m10": 0.0, "m11": 1.0, "m12": 40.0
+                },
+                "horizontalConstraint": "SCALE",
+                "verticalConstraint": "SCALE",
+            }),
+        ),
+        node(
+            (1, 10),
+            (0, 1),
+            "\"",
+            "INSTANCE",
+            "_Pie chart",
+            json!({
+                "size": {"x": 280.0, "y": 280.0},
+                "symbolData": {
+                    "symbolID": {"sessionID": 1, "localID": 2},
+                    "symbolOverrides": []
+                }
+            }),
+        ),
+    ]);
+    let doc = import_fig_node_changes(&changes, "ResizedPieInstance").expect("import ResizedPieInstance");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance exists");
+    assert_eq!(inst.size, Vec2::new(280.0, 280.0));
+    let bg = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Background").expect("Background child");
+    assert_eq!(bg.size, Vec2::new(280.0, 280.0), "160x160 component with Stretch/Stretch child instanced at 280x280 must import child at 280x280");
+    assert_eq!((bg.transform.tx, bg.transform.ty), (0.0, 0.0));
+
+    let series2 = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Series 2").expect("Series 2 child");
+    assert_eq!(series2.size, Vec2::new(280.0, 280.0));
+    assert!((series2.transform.tx - (-51.243556)).abs() < 1e-3, "got tx={}", series2.transform.tx);
+    assert!((series2.transform.ty - 191.24356).abs() < 1e-3, "got ty={}", series2.transform.ty);
+
+    let badge = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "ScaledBadge").expect("ScaledBadge child");
+    assert_eq!(badge.size, Vec2::new(70.0, 70.0));
+    assert_eq!((badge.transform.tx, badge.transform.ty), (35.0, 70.0));
+}
+
+#[test]
 fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
     let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
     let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {

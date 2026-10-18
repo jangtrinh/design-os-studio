@@ -329,3 +329,44 @@ fn untitled_ui_instance_text_overrides_resolve() {
     }
     assert!(overridden_notes >= 40, "expected >= 40 overridden note instances, found {overridden_notes}");
 }
+
+#[test]
+#[ignore = "needs the private reference/untitled-ui.fig"]
+fn untitled_ui_pie_chart_resized_instances_match() {
+    let Some(bytes) = reference("untitled-ui.fig").or_else(|| reference("❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig")) else {
+        eprintln!("untitled-ui.fig not found: skipped");
+        return;
+    };
+    let mut doc = import_fig(&bytes).expect("import untitled-ui.fig");
+    for page in doc.pages.clone() {
+        doc.ensure_page_hydrated(page);
+    }
+    let pie_set = doc.nodes.values().find(|n| n.source_id.as_deref() == Some("1084:114")).expect("Pie chart component set (1084:114)").id;
+    let mut count = 0usize;
+    for n in subtree(&doc, pie_set) {
+        if matches!(n.kind, NodeKind::Instance { .. }) && n.name == "_Pie chart" {
+            count += 1;
+            let inst_sz = n.size;
+            assert_eq!(n.children.len(), 7, "each _Pie chart instance has 7 arc children");
+            for &cid in &n.children {
+                let child = doc.get(cid).expect("arc child");
+                assert!(
+                    (child.size.x - inst_sz.x).abs() < 1e-2 && (child.size.y - inst_sz.y).abs() < 1e-2,
+                    "child {:?} of {:?}-sized _Pie chart has size {:?}",
+                    child.name,
+                    inst_sz,
+                    child.size
+                );
+                let center = child.transform.apply(Vec2::new(child.size.x * 0.5, child.size.y * 0.5));
+                assert!(
+                    (center.x - inst_sz.x * 0.5).abs() < 1e-2 && (center.y - inst_sz.y * 0.5).abs() < 1e-2,
+                    "child {:?} of {:?}-sized _Pie chart is off-centre: center={:?}",
+                    child.name,
+                    inst_sz,
+                    center
+                );
+            }
+        }
+    }
+    assert_eq!(count, 10, "expected all 10 _Pie chart instances across the 10 variants of 1084:114");
+}
