@@ -113,6 +113,103 @@ pub struct StrokePlan {
     pub clip: StrokeClip,
 }
 
+const KAPPA: f32 = 0.552_284_8;
+
+fn push_elliptical_rrect(pb: &mut sk::PathBuilder, x0: f32, y0: f32, x1: f32, y1: f32, corners: [(f32, f32); 4], reverse: bool) {
+    let [(tl_x, tl_y), (tr_x, tr_y), (br_x, br_y), (bl_x, bl_y)] = corners;
+    let k = KAPPA;
+    if !reverse {
+        pb.move_to(x0 + tl_x, y0);
+        pb.line_to(x1 - tr_x, y0);
+        if tr_x > 0.0 && tr_y > 0.0 {
+            pb.cubic_to(x1 - tr_x + tr_x * k, y0, x1, y0 + tr_y - tr_y * k, x1, y0 + tr_y);
+        }
+        pb.line_to(x1, y1 - br_y);
+        if br_x > 0.0 && br_y > 0.0 {
+            pb.cubic_to(x1, y1 - br_y + br_y * k, x1 - br_x + br_x * k, y1, x1 - br_x, y1);
+        }
+        pb.line_to(x0 + bl_x, y1);
+        if bl_x > 0.0 && bl_y > 0.0 {
+            pb.cubic_to(x0 + bl_x - bl_x * k, y1, x0, y1 - bl_y + bl_y * k, x0, y1 - bl_y);
+        }
+        pb.line_to(x0, y0 + tl_y);
+        if tl_x > 0.0 && tl_y > 0.0 {
+            pb.cubic_to(x0, y0 + tl_y - tl_y * k, x0 + tl_x - tl_x * k, y0, x0 + tl_x, y0);
+        }
+        pb.close();
+    } else {
+        pb.move_to(x0 + tl_x, y0);
+        if tl_x > 0.0 && tl_y > 0.0 {
+            pb.cubic_to(x0 + tl_x - tl_x * k, y0, x0, y0 + tl_y - tl_y * k, x0, y0 + tl_y);
+        }
+        pb.line_to(x0, y1 - bl_y);
+        if bl_x > 0.0 && bl_y > 0.0 {
+            pb.cubic_to(x0, y1 - bl_y + bl_y * k, x0 + bl_x - bl_x * k, y1, x0 + bl_x, y1);
+        }
+        pb.line_to(x1 - br_x, y1);
+        if br_x > 0.0 && br_y > 0.0 {
+            pb.cubic_to(x1 - br_x + br_x * k, y1, x1, y1 - br_y + br_y * k, x1, y1 - br_y);
+        }
+        pb.line_to(x1, y0 + tr_y);
+        if tr_x > 0.0 && tr_y > 0.0 {
+            pb.cubic_to(x1, y0 + tr_y - tr_y * k, x1 - tr_x + tr_x * k, y0, x1 - tr_x, y0);
+        }
+        pb.line_to(x0 + tl_x, y0);
+        pb.close();
+    }
+}
+
+/// Rounded ring path for a rectangle-like node with independent per-side stroke weights.
+pub fn per_side_stroke_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> {
+    let [t, r, b, l] = n.stroke.side_weights?.map(|v| v.max(0.0));
+    if t <= 0.0 && r <= 0.0 && b <= 0.0 && l <= 0.0 {
+        return None;
+    }
+    let (w, h) = (n.size.x, n.size.y);
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let f = match align {
+        d::StrokeAlign::Inside => 0.0,
+        d::StrokeAlign::Center => 0.5,
+        d::StrokeAlign::Outside => 1.0,
+    };
+    let g = 1.0 - f;
+    let radii = if matches!(n.kind, d::NodeKind::Section) {
+        [0.0; 4]
+    } else {
+        let lim = w.min(h) / 2.0;
+        n.corner_radii.map(|v| v.max(0.0).min(lim))
+    };
+    let [rtl, rtr, rbr, rbl] = radii;
+    let out_corner = |rc: f32, sx: f32, sy: f32| {
+        if rc > 0.0 {
+            (rc + f * sx, rc + f * sy)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+    let in_corner = |rc: f32, sx: f32, sy: f32| {
+        let rx = rc - g * sx;
+        let ry = rc - g * sy;
+        if rx > 0.0 && ry > 0.0 {
+            (rx, ry)
+        } else {
+            (0.0, 0.0)
+        }
+    };
+    let (ox0, oy0, ox1, oy1) = (-f * l, -f * t, w + f * r, h + f * b);
+    let out_corners = [out_corner(rtl, l, t), out_corner(rtr, r, t), out_corner(rbr, r, b), out_corner(rbl, l, b)];
+    let mut pb = sk::PathBuilder::new();
+    push_elliptical_rrect(&mut pb, ox0, oy0, ox1, oy1, out_corners, false);
+    let (ix0, iy0, ix1, iy1) = (g * l, g * t, w - g * r, h - g * b);
+    if ix1 > ix0 && iy1 > iy0 {
+        let in_corners = [in_corner(rtl, l, t), in_corner(rtr, r, t), in_corner(rbr, r, b), in_corner(rbl, l, b)];
+        push_elliptical_rrect(&mut pb, ix0, iy0, ix1, iy1, in_corners, true);
+    }
+    pb.finish()
+}
+
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
@@ -121,35 +218,10 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
         let clip = if align == d::StrokeAlign::Outside { StrokeClip::Outside } else { StrokeClip::None };
         return Some(StrokePlan { outline: sp.clone(), clip });
     }
-    if let (Some(sw), true) = (n.stroke.side_weights, sh.is_rect) {
-        let [t, r, b, l] = sw;
-        let f = match align {
-            d::StrokeAlign::Inside => 0.0,
-            d::StrokeAlign::Center => 0.5,
-            d::StrokeAlign::Outside => 1.0,
-        };
-        let (w, h) = (n.size.x, n.size.y);
-        let mut pb = sk::PathBuilder::new();
-        let mut rect = |x: f32, y: f32, rw: f32, rh: f32| {
-            if let Some(rc) = sk::Rect::from_xywh(x, y, rw, rh) {
-                pb.push_rect(rc);
-            }
-        };
-        if t > 0.0 {
-            rect(-f * l, -f * t, w + f * l + f * r, t);
-        }
-        if b > 0.0 {
-            rect(-f * l, h - (1.0 - f) * b, w + f * l + f * r, b);
-        }
-        if l > 0.0 {
-            rect(-f * l, -f * t, l, h + f * t + f * b);
-        }
-        if r > 0.0 {
-            rect(w - (1.0 - f) * r, -f * t, r, h + f * t + f * b);
-        }
-        let path = pb.finish()?;
+    if sh.is_rect && n.stroke.side_weights.is_some() {
+        let path = per_side_stroke_path(n, align)?;
         let rounded = n.corner_radii.iter().any(|v| *v > 0.0);
-        let clip = if rounded && align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::None };
+        let clip = if rounded && n.corner_smoothing > 0.0 && align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::None };
         return Some(StrokePlan { outline: vec![(path, sk::FillRule::Winding)], clip });
     }
     let w = n.stroke.weight;

@@ -347,6 +347,27 @@ fn unknown_layer_children_match_cpu() {
 }
 
 #[test]
+fn per_side_stroke_rounded_corners_match_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.get_mut(t.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+    let r = t.rect(None, Rect::new(0.0, 0.0, 160.0, 156.0), Color::WHITE);
+    let n = t.node(r);
+    n.corner_radii = [12.0; 4];
+    n.stroke.paints = vec![Paint::solid(Color::rgb(0xD9, 0x3B, 0x2A))];
+    n.stroke.weight = 1.0;
+    n.stroke.side_weights = Some([0.0, 1.0, 1.0, 1.0]);
+    n.stroke.align = StrokeAlign::Inside;
+    let c = compare(&mut g, "per_side_rounded", &t.doc, t.page, Viewport::default(), (160, 156), 8);
+    let top_gpu = c.gpu.pixel(80, 0).unwrap();
+    assert_eq!([top_gpu.red(), top_gpu.green(), top_gpu.blue()], [255, 255, 255], "top edge row must stay unpainted on GPU");
+    let bl_gpu = c.gpu.pixel(4, 152).unwrap();
+    assert!(bl_gpu.red() > 210 && bl_gpu.green() < 200, "bottom-left corner arc at 45 degrees must be painted on GPU, got {bl_gpu:?}");
+    assert!(c.report.ratio < 0.01, "strict mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report_aa.ratio < 0.002, "mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
+}
+
+#[test]
 fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
     let Some(mut g) = gpu() else { return };
     let mut t = T::new();

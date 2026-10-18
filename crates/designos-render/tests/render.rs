@@ -295,6 +295,36 @@ fn per_side_stroke_weights() {
 }
 
 #[test]
+fn per_side_stroke_follows_rounded_corners() {
+    // 160x156 rectangle, radius 12, side_weights [0, 1, 1, 1], Inside:
+    // pixel on bottom-left arc at 45 degrees is painted, top edge row stays unpainted.
+    let mut t = T::new();
+    let r = t.rect(None, Rect::new(0.0, 0.0, 160.0, 156.0), Color::WHITE);
+    let n = t.node(r);
+    n.corner_radii = [12.0; 4];
+    n.stroke.paints = vec![Paint::solid(RED)];
+    n.stroke.weight = 1.0;
+    n.stroke.side_weights = Some([0.0, 1.0, 1.0, 1.0]);
+    n.stroke.align = StrokeAlign::Inside;
+    let pm = t.render(160, 156);
+    assert_eq!(px(&pm, 80, 0), WHITE, "top edge row stays unpainted when top weight is 0");
+    let bl_arc = px(&pm, 4, 152);
+    assert!(bl_arc[0] == 255 && bl_arc[1] < 200, "bottom-left corner arc at 45 degrees must be painted, got {bl_arc:?}");
+
+    // Outside stroke on a rounded rectangle must not leave square bars outside the corner rounding.
+    let mut t2 = T::new();
+    let r2 = t2.rect(None, Rect::new(10.0, 10.0, 80.0, 80.0), Color::WHITE);
+    let n2 = t2.node(r2);
+    n2.corner_radii = [20.0; 4];
+    n2.stroke.paints = vec![Paint::solid(RED)];
+    n2.stroke.weight = 4.0;
+    n2.stroke.side_weights = Some([0.0, 4.0, 4.0, 4.0]);
+    n2.stroke.align = StrokeAlign::Outside;
+    let pm2 = t2.render(100, 100);
+    assert_eq!(px(&pm2, 10, 90), WHITE, "square corner outside the rounded arc must stay unpainted");
+}
+
+#[test]
 fn dashed_line_and_caps() {
     let mut t = T::new();
     let l = t.add(None, |id| {

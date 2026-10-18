@@ -662,36 +662,11 @@ impl Renderer<'_> {
         }
 
         // per-side weights on rectangles
-        if let (Some(sw), true) = (n.stroke.side_weights, sh.is_rect) {
-            let [t, r, b, l] = sw;
-            let f = match align {
-                designos_doc::StrokeAlign::Inside => 0.0,
-                designos_doc::StrokeAlign::Center => 0.5,
-                designos_doc::StrokeAlign::Outside => 1.0,
-            };
-            let (w, h) = (n.size.x, n.size.y);
-            let mut pb = sk::PathBuilder::new();
-            let mut rect = |x: f32, y: f32, rw: f32, rh: f32| {
-                if let Some(rc) = sk::Rect::from_xywh(x, y, rw, rh) {
-                    pb.push_rect(rc);
-                }
-            };
-            if t > 0.0 {
-                rect(-f * l, -f * t, w + f * l + f * r, t);
-            }
-            if b > 0.0 {
-                rect(-f * l, h - (1.0 - f) * b, w + f * l + f * r, b);
-            }
-            if l > 0.0 {
-                rect(-f * l, -f * t, l, h + f * t + f * b);
-            }
-            if r > 0.0 {
-                rect(w - (1.0 - f) * r, -f * t, r, h + f * t + f * b);
-            }
-            if let Some(path) = pb.finish() {
+        if sh.is_rect && n.stroke.side_weights.is_some() {
+            if let Some(path) = outline::per_side_stroke_path(n, align) {
                 let rounded = n.corner_radii.iter().any(|v| *v > 0.0);
                 let paths = [(path, sk::FillRule::Winding)];
-                let mask = if rounded && align == designos_doc::StrokeAlign::Inside {
+                let mask = if rounded && n.corner_smoothing > 0.0 && align == designos_doc::StrokeAlign::Inside {
                     shape_mask(tw, th, sh.fill_paths(), ts).map(|mut m| {
                         if let Some(c) = clip {
                             mask_mul(&mut m, c);
