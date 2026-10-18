@@ -348,7 +348,7 @@ fn draw_component_slot_and_slice_chrome(app: &App, p: &Painter, rect: ERect) {
                     crate::icons::paint(p, crate::icons::Icon::Plus, plus_r.center(), 12.0, Color32::WHITE);
                     let s_rect = ERect::from_two_pos(corners[0], corners[2]);
                     if s_rect.width() >= 64.0 && s_rect.height() >= 48.0 {
-                        let font = theme::font_small_strong();
+                        let font = theme::font_canvas_strong();
                         p.text(Pos2::new(plus_r.center().x, plus_r.bottom() + 8.0), Align2::CENTER_CENTER, &n.name, font, FIGMA_COMPONENT_PURPLE);
                     }
                 }

@@ -441,7 +441,7 @@ fn dropdown_open_id(ui: &Ui, key: &str) -> egui::Id {
 /// A select that cannot be opened, with the reason it shows instead of a menu.
 fn disabled_select(ui: &mut Ui, rect: Rect, reason: &str) {
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MEDIUM), theme::BG_SECONDARY);
+    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let font = theme::font_menu();
     let shown = elide(p, reason, &font, rect.width() - 16.0);
     p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT_DISABLED);
@@ -467,8 +467,8 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let stage_h = 96.0;
     let stage_r = c.rect(PAD, 0.0, w, stage_h);
     widgets::record(ui, "dev-playground-preview", stage_r);
-    ui.painter().rect_filled(stage_r, theme::cr(theme::RADIUS_MEDIUM), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    ui.painter().rect_stroke(stage_r, theme::cr(theme::RADIUS_MEDIUM), Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    ui.painter().rect_filled(stage_r, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+    ui.painter().rect_stroke(stage_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
 
     // Subtle 12px dot grid inside the stage so both light and dark components read cleanly.
     let mut gx = stage_r.left() + 10.0;
@@ -485,7 +485,7 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let badge_w = if app.dev.playground.has_overrides_for(id) { 88.0 } else { 58.0 };
     let badge_r = Rect::from_min_size(Pos2::new(stage_r.left() + 8.0, stage_r.top() + 6.0), Vec2::new(badge_w, 16.0));
     ui.painter().rect_filled(badge_r, theme::cr(4), theme::BG_SECONDARY);
-    ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_text, theme::font_small(), theme::TEXT_SECONDARY);
+    ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_text, theme::font_caption(), theme::TEXT_SECONDARY);
 
     let canvas_area = Rect::from_min_max(Pos2::new(stage_r.left() + 12.0, stage_r.top() + 24.0), Pos2::new(stage_r.right() - 12.0, stage_r.bottom() - 8.0));
     if let Some(tex) = preview_texture(ui.ctx(), &app.doc, id, &mut app.dev.playground) {

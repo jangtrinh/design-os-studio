@@ -217,8 +217,8 @@ fn row(ui: &mut Ui, idx: usize, f: &Finding) -> Option<Act> {
     if from_lib {
         let nw = widgets::text_width(&p, &name, &theme::font_body_medium());
         let badge = Rect::from_min_size(Pos2::new(text_x + nw + 6.0, rect.top() + 8.0), Vec2::new(42.0, 16.0));
-        p.rect_filled(badge, theme::cr(theme::RADIUS_SMALL), theme::BG_TERTIARY);
-        p.text(badge.center(), Align2::CENTER_CENTER, "Library", theme::font_small(), theme::TEXT_SECONDARY);
+        p.rect_filled(badge, theme::cr(theme::RADIUS_MARK), theme::BG_TERTIARY);
+        p.text(badge.center(), Align2::CENTER_CENTER, "Library", theme::font_caption(), theme::TEXT_SECONDARY);
     }
     let galley = p.layout_job(message_job(f, theme::TEXT_SECONDARY));
     p.galley(Pos2::new(text_x, rect.top() + 26.0), galley, theme::TEXT_SECONDARY);
@@ -243,8 +243,8 @@ fn unreadable_library_note(ui: &mut Ui, name: &str) {
     widgets::record(ui, "check-designs-unreadable-library", rect);
     let p = ui.painter();
     let note = format!("Library \"{name}\" couldn't be read; its suggestions are missing");
-    let txt = widgets::elide(p, &note, &theme::font_small(), PANEL_W - 2.0 * PAD);
-    p.text(Pos2::new(rect.left() + PAD, rect.center().y), Align2::LEFT_CENTER, txt, theme::font_small(), theme::TEXT_SECONDARY);
+    let txt = widgets::elide(p, &note, &theme::font_caption(), PANEL_W - 2.0 * PAD);
+    p.text(Pos2::new(rect.left() + PAD, rect.center().y), Align2::LEFT_CENTER, txt, theme::font_caption(), theme::TEXT_SECONDARY);
     widgets::hline(p, rect.left() + PAD, rect.right() - PAD, rect.bottom() - 1.0, theme::BORDER_SUBTLE);
 }
 

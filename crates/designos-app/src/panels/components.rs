@@ -643,10 +643,10 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         let btn = pane.full(0.0);
         widgets::record(ui, "convert-to-slot", btn);
         let resp = ui.interact(btn, ui.id().with(("convert-to-slot", id)), Sense::click());
-        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
         ui.painter().rect_stroke(
             btn,
-            theme::cr(theme::RADIUS_MEDIUM),
+            theme::cr(theme::RADIUS_CONTROL),
             egui::Stroke::new(1.0, theme::CANVAS_COMPONENT.gamma_multiply(0.45)),
             egui::StrokeKind::Inside,
         );
@@ -660,7 +660,7 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         let btn = pane.full(0.0);
         widgets::record(ui, "migrate-to-slot", btn);
         let resp = ui.interact(btn, ui.id().with("migrate-to-slot"), Sense::click());
-        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_MEDIUM), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        ui.painter().rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
         ui.painter().text(btn.center(), Align2::CENTER_CENTER, "Migrate to slot", theme::font_body(), theme::TEXT);
         if resp.clicked() {
             let _ = app.migrate_node_to_slot(id);
