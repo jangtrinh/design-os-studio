@@ -208,6 +208,27 @@ fn edit_grid_tracks(app: &mut App, grid_id: NodeId, is_col: bool, edit: TrackEdi
     app.run_tx(tx)
 }
 
+/// Whether deleting track `at` of one axis of `grid_id` (which has `count` tracks there) would change the document.
+/// A row only the children make (past `grid_rows`, with default sizing, no child pinned at or after it) is rebuilt
+/// by the same children, so deleting it does nothing and the inspector must not offer a button for it.
+pub fn grid_track_delete_changes_document(doc: &Document, grid_id: NodeId, is_col: bool, at: usize, count: usize) -> bool {
+    let edit = TrackEdit::Delete { at };
+    if !edit.fits(count, is_col) {
+        return false;
+    }
+    let Some(node) = doc.get(grid_id) else { return false };
+    let Some(al) = node.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()) else { return false };
+    let mut after = al.clone();
+    edit.write(&mut after, is_col, count);
+    if after != *al {
+        return true;
+    }
+    node.children.iter().filter_map(|&cid| doc.get(cid)).any(|c| {
+        let pin = if is_col { c.layout_child.grid_column } else { c.layout_child.grid_row };
+        pin.is_some_and(|p| edit.remap_pin(p) != Some(p))
+    })
+}
+
 /// Inserts a column (`is_col = true`) or row (`is_col = false`) track at `at` in one undo step, moving
 /// the children pinned at or after it. `at` counts tracks as [`grid_track_count`] does.
 pub fn insert_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize, track: GridTrack) -> bool {

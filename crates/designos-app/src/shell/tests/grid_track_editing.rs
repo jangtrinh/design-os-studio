@@ -651,3 +651,81 @@ fn row_add_button_sits_4px_below_the_frame_bottom() {
     let frame_bottom_screen = s.screen(320.0, 320.0 + 240.0).y;
     assert!((plus.min.y - (frame_bottom_screen + 4.0)).abs() < 1e-3, "row + top {} is 4px below frame bottom {}", plus.min.y, frame_bottom_screen);
 }
+
+/// Where the inspector drew the delete button of track `idx` on one axis (`grid-row-del-0`), if it drew one.
+fn delete_button(s: &Sim, is_col: bool, idx: usize) -> Option<Rect> {
+    let key = format!("grid-{}-del-{idx}", if is_col { "col" } else { "row" });
+    s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key))))
+}
+
+fn delete_button_drawn(s: &Sim, is_col: bool, idx: usize) -> bool {
+    delete_button(s, is_col, idx).is_some()
+}
+
+#[test]
+fn the_inspector_has_no_delete_button_for_a_row_the_children_create() {
+    let mut s = Sim::new();
+    let grid_id = default_grid_with_two_rows(&mut s);
+    let _ = inspector_field(&mut s, "grid-row-fr-0");
+    assert!(delete_button_drawn(&s, true, 0), "a column of the same grid does have one");
+    assert!(!delete_button_drawn(&s, false, 0), "deleting row 0 would change nothing: the 4 children still make 2 rows");
+    assert!(!delete_button_drawn(&s, false, 1));
+
+    // the edit itself would be a no-op too, which is why no button is offered
+    assert!(!delete_grid_track(&mut s.shell.app, grid_id, false, 1));
+    assert_eq!(layout_of(&s, grid_id).grid_rows, 0);
+    assert_eq!(node_css_grid_overlay(&s.app().doc, grid_id).unwrap().rows, 2);
+}
+
+#[test]
+fn the_inspector_row_delete_button_removes_an_explicit_row_and_undoes() {
+    let mut s = Sim::new();
+    let al = AutoLayout { grid_columns: 3, grid_rows: 3, ..AutoLayout::default() };
+    let (grid_id, _) = add_grid(&mut s, al, &[(None, None); 4]);
+    assert_eq!(node_css_grid_overlay(&s.app().doc, grid_id).unwrap().rows, 3);
+    let _ = inspector_field(&mut s, "grid-row-fr-0");
+    // the children only fill 2 rows, so the third is explicit and its button deletes it
+    let minus = delete_button(&s, false, 2).expect("the explicit row has a delete button");
+    assert!(minus.width() >= 24.0 && minus.height() >= 24.0);
+
+    s.click(minus.center());
+    assert_eq!(layout_of(&s, grid_id).grid_rows, 2);
+    assert_eq!(node_css_grid_overlay(&s.app().doc, grid_id).unwrap().rows, 2);
+    s.shell.app.undo();
+    assert_eq!(layout_of(&s, grid_id).grid_rows, 3);
+}
+
+/// The text shapes on the canvas that equal `text`, as screen rects.
+fn canvas_texts(s: &Sim, text: &str) -> Vec<Rect> {
+    let canvas = s.app().canvas_rect;
+    s.shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => Some(t.visual_bounding_rect()),
+            _ => None,
+        })
+        .filter(|r| canvas.contains(r.center()))
+        .collect()
+}
+
+#[test]
+fn only_the_header_pills_a_click_can_reach_are_drawn() {
+    let mut s = Sim::new();
+    let (grid_id, _) = add_grid(&mut s, three_columns(GridTrack::Fixed(80.0), GridTrack::Fixed(120.0), GridTrack::Flex(1.0)), &[(None, None); 3]);
+
+    let reachable = pills(&s, grid_id, true);
+    assert_eq!(reachable.len(), 3);
+    for label in ["80px", "120px"] {
+        let painted = canvas_texts(&s, label);
+        assert_eq!(painted.len(), 1, "the selected grid paints its {label} pill once");
+        assert!(reachable.iter().any(|r| r.contains(painted[0].center())), "the {label} pill is painted inside a clickable rect");
+    }
+
+    // a selected child makes its parent grid draw its overlay, but a click cannot reach the parent's pills
+    let child = s.app().doc.get(grid_id).unwrap().children[0];
+    s.shell.app.selection = vec![child];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(grid_track_pill_rects(s.app(), s.app().canvas_rect).is_empty());
+    assert!(canvas_texts(&s, "80px").is_empty() && canvas_texts(&s, "120px").is_empty(), "no pill is painted that a click would not reach");
+}

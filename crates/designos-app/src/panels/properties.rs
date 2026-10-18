@@ -1275,10 +1275,21 @@ fn grid_track_row(pane: &Pane) -> GridTrackRow {
     }
 }
 
+/// The move button of track `idx` in a list of `len` tracks (`len > 1`): its icon, tooltip and the track it swaps with.
+fn track_move_button(idx: usize, len: usize) -> (Icon, &'static str, usize) {
+    if idx + 1 < len {
+        (Icon::ChevronDown, "Move down", idx + 1)
+    } else {
+        (Icon::ArrowUp, "Move up", idx - 1)
+    }
+}
+
 /// Column and row track lists of the selected grid: sizing mode, value, move and delete per track, `+` per list.
 /// The rows listed are the ones the canvas draws a header pill for.
 fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) {
-    use crate::canvas::grids::{delete_grid_track, insert_grid_track, move_grid_track, node_css_grid_overlay, resize_grid_track};
+    use crate::canvas::grids::{
+        delete_grid_track, grid_track_delete_changes_document, insert_grid_track, move_grid_track, node_css_grid_overlay, resize_grid_track,
+    };
     use designos_doc::GridTrack;
 
     let Some(ov) = node_css_grid_overlay(&app.doc, grid_id) else { return };
@@ -1323,14 +1334,16 @@ fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId) 
                 GridTrack::Hug => {}
             }
             if tracks.len() > 1 {
-                let next_idx = if idx + 1 < tracks.len() { idx + 1 } else { idx - 1 };
-                if widgets::icon_button(ui, row.move_btn, format!("grid-{tag}-mv-{idx}"), Icon::ChevronDown, false, "Move track").clicked() {
+                let (icon, tip, next_idx) = track_move_button(idx, tracks.len());
+                if widgets::icon_button(ui, row.move_btn, format!("grid-{tag}-mv-{idx}"), icon, false, tip).clicked() {
                     move_grid_track(app, grid_id, is_col, idx, next_idx);
                 }
             }
-            let deletable = !is_col || tracks.len() > 1;
-            if deletable && widgets::icon_button(ui, row.delete, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
-                delete_grid_track(app, grid_id, is_col, idx);
+            if grid_track_delete_changes_document(&app.doc, grid_id, is_col, idx, tracks.len()) {
+                widgets::record(ui, &format!("grid-{tag}-del-{idx}"), row.delete);
+                if widgets::icon_button(ui, row.delete, format!("grid-{tag}-del-{idx}"), Icon::Minus, false, "Delete track").clicked() {
+                    delete_grid_track(app, grid_id, is_col, idx);
+                }
             }
             row_end(pane);
         }
@@ -2354,6 +2367,19 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_move_button_icon_and_tip_name_the_direction_the_track_goes() {
+        let (icon, tip, to) = track_move_button(0, 3);
+        assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 1));
+        let (icon, tip, to) = track_move_button(1, 3);
+        assert_eq!((icon, tip, to), (Icon::ChevronDown, "Move down", 2));
+        // the last track has nowhere to go but up, so the button must not point down
+        let (icon, tip, to) = track_move_button(2, 3);
+        assert_eq!((icon, tip, to), (Icon::ArrowUp, "Move up", 1));
+        let (icon, tip, to) = track_move_button(1, 2);
+        assert_eq!((icon, tip, to), (Icon::ArrowUp, "Move up", 0));
+    }
 
     #[test]
     fn color_conversion_roundtrip() {

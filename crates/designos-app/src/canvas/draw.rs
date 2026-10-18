@@ -328,6 +328,18 @@ pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<
     Some((r, status))
 }
 
+/// The grid frames whose header pills and `+` buttons a click can reach: the selected ones and the hovered one.
+/// What is painted and what is hit-tested both come from this list.
+fn grid_track_candidates(app: &App) -> Vec<NodeId> {
+    let mut candidates = app.selection.clone();
+    if let Some(h) = app.hover {
+        if !candidates.contains(&h) {
+            candidates.push(h);
+        }
+    }
+    candidates
+}
+
 /// Paints the Figma UI3 2D CSS Grid Overlay (`LayoutDirection::Grid`) for selected/hovered grid containers.
 fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
     let mut grid_ids: Vec<NodeId> = Vec::new();
@@ -346,6 +358,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         push_unique(h);
     }
 
+    let reachable = grid_track_candidates(app);
     let cell_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 140));
     let gap_fill = Color32::from_rgba_unmultiplied(0xFF, 0x38, 0x8C, 36);
     let pill_bg = Color32::from_rgba_unmultiplied(0x1E, 0x1E, 0x1E, 230);
@@ -388,7 +401,8 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         }
 
         // 3. Compact Column & Row Track Header Pills outside top/left edges when zoom >= 0.4.
-        if app.view.zoom >= 0.4 {
+        // Only the grids a click can reach get pills and `+` buttons, so a drawn control always works.
+        if app.view.zoom >= 0.4 && reachable.contains(&grid_id) {
             let font = theme::font_small_strong();
             for (is_col, idx, _hit, pill) in grid_pill_rects_of(&ov, to_s) {
                 let label = super::grids::format_grid_track(if is_col { ov.col_tracks[idx] } else { ov.row_tracks[idx] });
@@ -397,13 +411,10 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
                 // a pill squeezed by its neighbours clips its label instead of spilling over them
                 p.with_clip_rect(pill).text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
             }
-            // Only the grids a click can reach get `+` buttons, so a drawn button always works.
-            if app.selection.contains(&grid_id) || app.hover == Some(grid_id) {
-                for (_, add) in grid_add_buttons(&ov, n.size, to_s) {
-                    p.rect_filled(add, theme::cr(3), pill_bg);
-                    p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
-                    p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
-                }
+            for (_, add) in grid_add_buttons(&ov, n.size, to_s) {
+                p.rect_filled(add, theme::cr(3), pill_bg);
+                p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
+                p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
             }
         }
     }
@@ -483,13 +494,7 @@ pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize
     if app.view.zoom < 0.4 {
         return out;
     }
-    let mut candidates = app.selection.clone();
-    if let Some(h) = app.hover {
-        if !candidates.contains(&h) {
-            candidates.push(h);
-        }
-    }
-    for id in candidates {
+    for id in grid_track_candidates(app) {
         let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
         let w_xform = super::fast_world_transform(&app.doc, id);
         let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
@@ -538,13 +543,7 @@ pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool,
     if app.view.zoom < 0.4 {
         return out;
     }
-    let mut candidates = app.selection.clone();
-    if let Some(h) = app.hover {
-        if !candidates.contains(&h) {
-            candidates.push(h);
-        }
-    }
-    for id in candidates {
+    for id in grid_track_candidates(app) {
         let Some(n) = app.doc.get(id) else { continue };
         let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
         let w_xform = super::fast_world_transform(&app.doc, id);
