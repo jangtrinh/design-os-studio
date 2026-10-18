@@ -141,6 +141,24 @@ fn editing_a_grid_style_from_the_style_menu_updates_the_linked_frame() {
 }
 
 #[test]
+fn a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing() {
+    use crate::canvas::grids::stripes_aligned;
+    let (mut s, welcome, _card) = welcome_with_styles();
+    let r = s.rect_of("grid-style-button");
+    s.click(r.center());
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
+    s.frame(vec![]);
+    let field = s.field_rect("se-grid-count");
+    // 0 means "auto count", which needs a column width; this popover has no width field
+    type_into(&mut s, field, "0");
+    let grids = s.app().doc.get(welcome).unwrap().kind.frame_props().unwrap().grids.clone();
+    let [LayoutGrid::Columns { count, gutter, offset, section_size, alignment, .. }] = grids.as_slice() else { panic!("{grids:?}") };
+    let drawn = stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, 1440.0);
+    assert!(!drawn.is_empty(), "count {count}, section size {section_size}: the guide disappeared from a 1440px frame");
+}
+
+#[test]
 fn a_drag_is_recorded_once_when_the_pointer_is_released() {
     let (mut s, welcome, card) = welcome_with_styles();
     let button = s.rect_of("effect-style-edit");
