@@ -15,11 +15,13 @@ fn reactions(s: &Sim, name: &str) -> Vec<Reaction> {
     s.app().doc.get(s.by_name(name)).unwrap().prototype.reactions.clone()
 }
 
-/// Clicks item `i` of the dropdown menu that opened under `ctl`.
+/// Clicks item `i` of the dropdown menu that opened under `ctl`. The row is found from the panel the
+/// popup drew: a menu taller than the window is clamped to the window instead of opening under `ctl`.
 fn pick(s: &mut Sim, name: &str, i: usize) {
     let ctl = s.rect_of(name);
     s.click(ctl.center());
-    let y = ctl.bottom() + 2.0 + 4.0 + i as f32 * theme::MENU_ITEM_HEIGHT + theme::MENU_ITEM_HEIGHT / 2.0;
+    let menu = s.rect_of("menu-level-0");
+    let y = menu.top() + theme::MENU_PADDING + i as f32 * theme::MENU_ITEM_HEIGHT + theme::MENU_ITEM_HEIGHT / 2.0;
     s.click(Pos2::new(ctl.left() + 20.0, y));
 }
 

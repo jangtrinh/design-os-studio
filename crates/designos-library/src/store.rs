@@ -108,96 +108,17 @@ fn write_lock() -> MutexGuard<'static, ()> {
     WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Distinguishes the temporary files of concurrent saves within one process.
-static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
-
 /// Writes `bytes` to `path` via a temporary file next to it, so a crash mid-write never leaves a
 /// truncated file behind.
 ///
-/// Behaviour a plain `std::fs::write` has and this keeps:
-/// - a symlink is saved *through*: the real file receives the bytes and the link stays a link;
-/// - the existing file's permission mode survives the save;
-/// - a read-only target is refused with a `PermissionDenied` error instead of being replaced.
-///
-/// Concurrent saves of one path each use their own temporary file, so they never share bytes; the
-/// last rename wins and the file always holds exactly one caller's complete content.
-///
-/// Limitation: a rename swaps the directory entry, so other *hard links* to the old file keep the
-/// old bytes. Rename-based saves cannot preserve hard links, and this does not try to. The same
-/// goes for owner, group and extended attributes of the replaced file.
+/// Delegates to [`designos_fonts::write_atomic`] so every crate in the workspace shares the same
+/// atomic save guarantees: symlink traversal (including dangling links), temp-file names truncated
+/// on a char boundary for 249–255 byte filenames, the existing permission mode applied when the
+/// temp file is created, refusal of read-only, unwritable and non-regular targets, and cleanup of
+/// stale temp files left by crashed saves. Because the save renames a new file over the old one,
+/// the old file's ACLs, extended attributes, ownership and hard links are not carried over.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let (target, existing) = resolve_save_target(path)?;
-    let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    // Earlier versions staged every save in the one fixed `<file>.tmp`; a crash left it behind.
-    // Nothing writes that name any more, so removing it is safe and best-effort.
-    let mut legacy = target.as_os_str().to_owned();
-    legacy.push(".tmp");
-    let _ = std::fs::remove_file(legacy);
-    let res = write_via_tmp(&target, dir, bytes, existing.as_ref());
-    Ok(res?)
-}
-
-/// Follows symlinks to the file that must really change. Returns the metadata of that file when
-/// it exists, and refuses a directory or a read-only file.
-fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<std::fs::Metadata>)> {
-    use std::io::{Error, ErrorKind};
-    let target = match std::fs::canonicalize(path) {
-        Ok(real) => real,
-        // Missing file (or a dangling link): create `path` itself.
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok((path.to_path_buf(), None)),
-        Err(e) => return Err(e),
-    };
-    let meta = std::fs::metadata(&target)?;
-    if meta.is_dir() {
-        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", target.display())));
-    }
-    if meta.permissions().readonly() {
-        return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only", target.display())));
-    }
-    Ok((target, Some(meta)))
-}
-
-fn write_via_tmp(target: &Path, dir: &Path, bytes: &[u8], existing: Option<&std::fs::Metadata>) -> std::io::Result<()> {
-    use std::io::{ErrorKind, Write};
-    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let (tmp, mut file) = loop {
-        let tmp = dir.join(format!("{name}.{}-{}.tmp", std::process::id(), TMP_SEQ.fetch_add(1, Ordering::Relaxed)));
-        // create_new: a leftover from an earlier process with the same pid is skipped, never reused.
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp) {
-            Ok(file) => break (tmp, file),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    };
-    let res = file
-        .write_all(bytes)
-        .and_then(|_| match existing {
-            Some(meta) => file.set_permissions(meta.permissions()),
-            None => Ok(()),
-        })
-        .and_then(|_| file.sync_all())
-        .and_then(|_| {
-            drop(file);
-            std::fs::rename(&tmp, target)
-        });
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-        return res;
-    }
-    sync_dir(dir)
-}
-
-/// Makes the rename itself durable. Platforms that cannot open or sync a directory are skipped.
-fn sync_dir(dir: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    match std::fs::File::open(dir).and_then(|d| d.sync_all()) {
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::InvalidInput | std::io::ErrorKind::Unsupported) => {}
-        other => return other,
-    }
-    #[cfg(not(unix))]
-    let _ = dir;
-    Ok(())
+    Ok(designos_fonts::write_atomic(path, bytes)?)
 }
 
 /// Loads a document from any importable file: `.designos` / `.json` (native or

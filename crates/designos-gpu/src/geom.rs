@@ -346,6 +346,11 @@ pub struct GeomCache {
     frame_build_nanos: u64,
     /// Nodes that kept stale-bucket or deferred geometry in the current frame.
     pub stale_hits: u32,
+    /// Nodes handed back with no geometry at all because the frame was over
+    /// budget (uncached text, vectors and boolean operations). Counts up for
+    /// the life of the cache: compare two readings to see whether a span of
+    /// drawing met such a node.
+    pub deferred_empty: u64,
 }
 
 /// Zoom bucket for a device scale: the power of two at or above it.
@@ -441,6 +446,7 @@ impl GeomCache {
         }
         if over && matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
             self.stale_hits += 1;
+            self.deferred_empty += 1;
             let scale = bucket_scale(bucket);
             return Rc::new(NodeGeom { shape: None, fill: None, stroke: RefCell::default(), text: Vec::new(), scale, lazy: RefCell::default() });
         }

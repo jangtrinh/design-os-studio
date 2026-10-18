@@ -906,6 +906,7 @@ mod tests {
                 default_mode: "light".into(),
                 variables: vec!["background".into()],
                 key: None,
+                source_library_key: None,
             },
         );
         d.variables.insert(

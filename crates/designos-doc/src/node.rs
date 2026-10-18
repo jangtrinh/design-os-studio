@@ -218,6 +218,31 @@ pub struct ComponentPropDef {
     pub default: PropValue,
 }
 
+/// Settings of a [`PropKind::Slot`] property (`SlotPropConfig` plus the slot's
+/// `preferredValues`). Every scalar is optional: `None` means the file did not
+/// write the field, which is not the same as writing its default, and is kept so.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotPropConfig {
+    /// `stretchChildOnInsert`: inserted content stretches to the slot's width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stretch_child_on_insert: Option<bool>,
+    /// `displayByDefault`: the slot shows its content before anything is inserted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_by_default: Option<bool>,
+    /// `minChildren`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_children: Option<u32>,
+    /// `maxChildren`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_children: Option<u32>,
+    /// `allowPreferredValuesOnly`: only [`SlotPropConfig::preferred`] may be inserted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_preferred_values_only: Option<bool>,
+    /// Components offered for this slot (`preferredValues`), as local node ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred: Vec<NodeId>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ComponentLink {
     /// For a node inside an instance: the node of the main component it mirrors.
@@ -233,6 +258,19 @@ pub struct ComponentLink {
     /// Property values chosen on an instance root, by property name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub values: BTreeMap<String, PropValue>,
+    /// Slot settings by property name, for the [`PropKind::Slot`] definitions in `props`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slot_configs: BTreeMap<String, SlotPropConfig>,
+    /// The frame is a slot (`isSlot`, tag=463).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_slot: bool,
+    /// The node is content placed in a slot (`isSlotContent`, tag=495).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_slot_content: bool,
+    /// Guid (`session:local`) a node carries as `slot-content-id`. Kept opaque: it names
+    /// slot content that need not be a node of this document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_content_id: Option<String>,
     /// Binds a node property to a component property, e.g.
     /// `Visible -> "Show icon"`, `Characters -> "Label"`, `MainComponent -> "Icon"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -260,6 +298,10 @@ impl ComponentLink {
             && self.overrides.is_empty()
             && self.props.is_empty()
             && self.values.is_empty()
+            && self.slot_configs.is_empty()
+            && !self.is_slot
+            && !self.is_slot_content
+            && self.slot_content_id.is_none()
             && self.bindings.is_empty()
             && self.description.is_empty()
             && !self.expose_nested_instances

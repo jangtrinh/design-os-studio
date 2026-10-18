@@ -314,6 +314,94 @@ fn marquee_selects_vertices_and_a_click_on_empty_space_clears() {
     assert!(s.app().canvas.vedit.is_some(), "still editing");
 }
 
+/// Screen position of the scale handle `h` of the selected points' box, found by probing the
+/// canvas hit test, so the tests do not depend on where the handle is drawn.
+fn scale_handle_at(s: &Sim, h: crate::canvas::handles::Handle) -> Pos2 {
+    use crate::canvas::vector::{hit_test, Hit};
+    let app = s.app();
+    let v = app.canvas.vedit.as_ref().expect("editing");
+    let world = app.doc.world_transform(v.id);
+    let to_s = |p: DV| {
+        let q = app.view.to_screen(app.canvas_rect.min, world.apply(p));
+        DV::new(q.x, q.y)
+    };
+    let pts: Vec<DV> = v.sel.iter().map(|i| to_s(v.net.vertices[*i].pos)).collect();
+    let (x0, x1) = (pts.iter().map(|p| p.x).fold(f32::MAX, f32::min) - 60.0, pts.iter().map(|p| p.x).fold(f32::MIN, f32::max) + 60.0);
+    let (y0, y1) = (pts.iter().map(|p| p.y).fold(f32::MAX, f32::min) - 60.0, pts.iter().map(|p| p.y).fold(f32::MIN, f32::max) + 60.0);
+    let (mut sum, mut n) = (DV::new(0.0, 0.0), 0u32);
+    let mut y = y0;
+    while y <= y1 {
+        let mut x = x0;
+        while x <= x1 {
+            let hit = hit_test(&v.net, &v.sel, v.seg.map(|g| g.0), &to_s, DV::new(x, y), crate::theme::VEDIT_HIT, crate::theme::VEDIT_SEGMENT_HIT);
+            if hit == Some(Hit::BoxHandle(h)) {
+                sum = DV::new(sum.x + x, sum.y + y);
+                n += 1;
+            }
+            x += 1.0;
+        }
+        y += 1.0;
+    }
+    assert!(n > 0, "the {h:?} scale handle cannot be hit");
+    Pos2::new(sum.x / n as f32, sum.y / n as f32)
+}
+
+#[test]
+fn scaling_selected_points_bounding_box_scales_only_selected_points() {
+    let (mut s, id) = editing();
+    // Split segment 0 ((300,800) -> (370,840)) at t=0.5 so vertex 3 is at (335, 820)
+    crate::canvas::vector::insert_point(&mut s.shell.app, 0, 0.5);
+    // Select vertices 0 ((300,800)), 3 ((335,820)), and 1 ((370,840)); leave vertex 2 ((300,880)) unselected
+    s.shell.app.canvas.vedit.as_mut().unwrap().sel = BTreeSet::from([0, 1, 3]);
+    s.frame(vec![]);
+
+    // Drag the BR corner handle of the selected points' box by the pointer travel from (370, 840)
+    // to (440, 880): the handle ends 2x as far from the TL anchor in X and Y
+    let from = scale_handle_at(&s, crate::canvas::handles::Handle::BR);
+    let travel = at(&s, 440.0, 880.0) - at(&s, 370.0, 840.0);
+    s.drag(from, from + travel);
+
+    let w = s.app().doc.world_transform(id);
+    let net = network(&s, id);
+    let p0 = w.apply(net.vertices[0].pos);
+    let p3 = w.apply(net.vertices[3].pos);
+    let p1 = w.apply(net.vertices[1].pos);
+    let p2 = w.apply(net.vertices[2].pos);
+
+    assert!((p0.x - 300.0).abs() < 1.0 && (p0.y - 800.0).abs() < 1.0, "anchor TL stayed at (300,800), got {p0:?}");
+    assert!((p3.x - 370.0).abs() < 1.0 && (p3.y - 840.0).abs() < 1.0, "midpoint scaled 2x to (370,840), got {p3:?}");
+    assert!((p1.x - 440.0).abs() < 1.0 && (p1.y - 880.0).abs() < 1.0, "BR corner scaled 2x to (440,880), got {p1:?}");
+    assert!((p2.x - 300.0).abs() < 1.0 && (p2.y - 880.0).abs() < 1.0, "unselected vertex stayed at (300,880), got {p2:?}");
+
+    // Undo restores all vertices in one step
+    s.cmd_key(Key::Z);
+    let w_undo = s.app().doc.world_transform(id);
+    let net_undo = network(&s, id);
+    let p1_undo = w_undo.apply(net_undo.vertices[1].pos);
+    let p3_undo = w_undo.apply(net_undo.vertices[3].pos);
+    assert!((p1_undo.x - 370.0).abs() < 1.0 && (p1_undo.y - 840.0).abs() < 1.0, "{p1_undo:?}");
+    assert!((p3_undo.x - 335.0).abs() < 1.0 && (p3_undo.y - 820.0).abs() < 1.0, "{p3_undo:?}");
+}
+
+#[test]
+fn dragging_a_selected_vertex_of_a_multi_point_selection_moves_the_whole_selection() {
+    let (mut s, id) = editing();
+    // marquee the first two vertices: (300, 800) and (370, 840) are the corners of their box
+    s.drag(at(&s, 250.0, 780.0), at(&s, 400.0, 850.0));
+    assert_eq!(sel_of(&s), BTreeSet::from([0, 1]));
+
+    // dragging a selected vertex moves every selected vertex, even one that is a corner of the box
+    let from = at(&s, 370.0, 840.0);
+    s.drag(from, from + (at(&s, 390.0, 840.0) - at(&s, 370.0, 840.0)));
+
+    let w = s.app().doc.world_transform(id);
+    let net = network(&s, id);
+    let (p0, p1, p2) = (w.apply(net.vertices[0].pos), w.apply(net.vertices[1].pos), w.apply(net.vertices[2].pos));
+    assert!((p0.x - 320.0).abs() < 1.0 && (p0.y - 800.0).abs() < 1.0, "the other selected vertex followed, got {p0:?}");
+    assert!((p1.x - 390.0).abs() < 1.0 && (p1.y - 840.0).abs() < 1.0, "the dragged vertex moved by 20, got {p1:?}");
+    assert!((p2.x - 300.0).abs() < 1.0 && (p2.y - 880.0).abs() < 1.0, "the unselected vertex stayed, got {p2:?}");
+}
+
 #[test]
 fn alt_drag_lassos_the_vertices_it_encloses() {
     let (mut s, _) = editing();
