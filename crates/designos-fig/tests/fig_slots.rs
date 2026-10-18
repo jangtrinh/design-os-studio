@@ -303,6 +303,36 @@ fn unknown_slot_prop_config_keys_are_preserved_in_native_format() {
             (5, 1),
             (0, 1),
             "a",
+            "SYMBOL",
+            "Panel",
+            json!({
+                "componentPropDefs": [{
+                    "id": g(7, 1),
+                    "name": "Body",
+                    "type": "SLOT",
+                    "slotPropConfig": {
+                        "stretchChildOnInsert": true,
+                        "minChildren": 1,
+                        "futureSlotMode": "WRAP",
+                        "customLimit": 8
+                    }
+                }]
+            })
+        )
+    ]);
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let cfg = find(&doc, "Panel").component.slot_configs.get("Body").expect("Body slot config exists");
+    assert_eq!(cfg.stretch_child_on_insert, Some(true));
+    assert_eq!(cfg.min_children, Some(1));
+    assert_eq!(cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
+    assert_eq!(cfg.extra.get("customLimit"), Some(&json!(8)));
+
+    let native_json = doc.to_json().unwrap();
+    let reloaded = Document::from_json(&native_json).unwrap();
+    let reloaded_cfg = find(&reloaded, "Panel").component.slot_configs.get("Body").expect("Body slot config survives native round-trip");
+    assert_eq!(reloaded_cfg, cfg);
+    assert_eq!(reloaded_cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
+    assert_eq!(reloaded_cfg.extra.get("customLimit"), Some(&json!(8)));
 }
 
 #[test]
@@ -515,14 +545,6 @@ fn preferred_key_carried_only_by_an_instance_resolves_to_the_instanced_component
             json!({
                 "componentPropDefs": [{
                     "id": g(7, 1),
-                    "name": "Body",
-                    "type": "SLOT",
-                    "slotPropConfig": {
-                        "stretchChildOnInsert": true,
-                        "minChildren": 1,
-                        "futureSlotMode": "WRAP",
-                        "customLimit": 8
-                    }
                     "name": "LeadIcon",
                     "type": "INSTANCE_SWAP",
                     "preferredValues": {"stringValues": [], "instanceSwapValues": [{"type": "COMPONENT", "key": "K_VIA_INSTANCE"}]}
@@ -531,18 +553,6 @@ fn preferred_key_carried_only_by_an_instance_resolves_to_the_instanced_component
         )
     ]);
     let doc = import_fig_node_changes(&fixture, "t").unwrap();
-    let cfg = find(&doc, "Panel").component.slot_configs.get("Body").expect("Body slot config exists");
-    assert_eq!(cfg.stretch_child_on_insert, Some(true));
-    assert_eq!(cfg.min_children, Some(1));
-    assert_eq!(cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
-    assert_eq!(cfg.extra.get("customLimit"), Some(&json!(8)));
-
-    let native_json = doc.to_json().unwrap();
-    let reloaded = Document::from_json(&native_json).unwrap();
-    let reloaded_cfg = find(&reloaded, "Panel").component.slot_configs.get("Body").expect("Body slot config survives native round-trip");
-    assert_eq!(reloaded_cfg, cfg);
-    assert_eq!(reloaded_cfg.extra.get("futureSlotMode"), Some(&json!("WRAP")));
-    assert_eq!(reloaded_cfg.extra.get("customLimit"), Some(&json!(8)));
     let icon = find(&doc, "Icon").id;
     let panel = find(&doc, "Panel");
     let swap = panel.component.props.iter().find(|p| p.name == "LeadIcon").expect("LeadIcon prop");
