@@ -517,7 +517,7 @@ mod tests {
         let mut inst = Node::new(
             inst_id,
             NodeKind::Instance {
-                frame: FrameProps { clips_content: false, auto_layout: None, grids: vec![LayoutGrid::Grid { size: 8.0, color: Color::BLACK }] },
+                frame: FrameProps { clips_content: false, auto_layout: None, grids: vec![LayoutGrid::grid(8.0, Color::BLACK)] },
                 component: Some(comp_id),
                 component_key: Some("btn-primary".into()),
             },

@@ -116,10 +116,11 @@ pub struct StrokePlan {
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
-    if let Some(sp) = &sh.stroke_paths {
-        return Some(StrokePlan { outline: sp.clone(), clip: StrokeClip::None });
-    }
     let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
+    if let Some(sp) = &sh.stroke_paths {
+        let clip = if align == d::StrokeAlign::Outside { StrokeClip::Outside } else { StrokeClip::None };
+        return Some(StrokePlan { outline: sp.clone(), clip });
+    }
     if let (Some(sw), true) = (n.stroke.side_weights, sh.is_rect) {
         let [t, r, b, l] = sw;
         let f = match align {

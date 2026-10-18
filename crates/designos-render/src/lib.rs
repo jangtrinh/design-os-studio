@@ -28,7 +28,7 @@ pub mod vectorops;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
-pub use mask::mask_stencil;
+pub use mask::{mask_frame_box, mask_stencil};
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
     StrokeClip, StrokePlan, TextOutline,
@@ -634,15 +634,27 @@ impl Renderer<'_> {
         if paints.is_empty() {
             return;
         }
+        let (tw, th) = (target.width(), target.height());
+        let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
         // precomputed outline: already expanded by weight and alignment
         if let Some(sp) = &sh.stroke_paths {
+            let mask = if align == designos_doc::StrokeAlign::Outside {
+                shape_mask(tw, th, sh.fill_paths(), ts).map(|mut m| {
+                    m.invert();
+                    if let Some(c) = clip {
+                        mask_mul(&mut m, c);
+                    }
+                    m
+                })
+            } else {
+                None
+            };
+            let cl = mask.as_ref().or(clip);
             for p in paints {
-                fill_paths(&self.env, target, sp, ts, n.size, p, alpha, clip);
+                fill_paths(&self.env, target, sp, ts, n.size, p, alpha, cl);
             }
             return;
         }
-        let (tw, th) = (target.width(), target.height());
-        let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
 
         // per-side weights on rectangles
         if let (Some(sw), true) = (n.stroke.side_weights, sh.is_rect) {

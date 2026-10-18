@@ -14,7 +14,7 @@ use designos_doc as d;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use designos_render::board;
 use designos_render::tiny_skia as sk;
-use designos_render::{node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
+use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -311,20 +311,6 @@ fn hits(bb: FBox, r: IRect) -> bool {
 
 fn draws_children(n: &Node) -> bool {
     !n.children.is_empty() && !matches!(n.kind, NodeKind::BooleanOp(_))
-}
-
-/// The opaque box of a mask whose stencil takes its alpha from its children
-/// alone (a frame, component or instance with children and no visible fill, see
-/// `designos_render::mask_stencil`), drawn without those children; `None` for
-/// any other mask.
-fn mask_frame_box(mask: &Node) -> Option<Node> {
-    if !draws_children(mask) || matches!(mask.kind, NodeKind::Text(_) | NodeKind::Group) || has_visible_fills(mask) {
-        return None;
-    }
-    let mut n = designos_render::mask_stencil(mask);
-    n.children.clear();
-    n.fills = vec![d::Paint::solid(d::Color::BLACK)];
-    Some(n)
 }
 
 fn special_blend(b: d::BlendMode) -> bool {
@@ -633,6 +619,16 @@ impl Ctx<'_> {
         }
     }
 
+    /// Whether program `id` (or any child program it composites) recorded a draw.
+    fn prog_has_draws(&self, id: ProgId) -> bool {
+        let p = &self.progs[id as usize];
+        p.pixels.is_some()
+            || p.ops.iter().any(|op| match op {
+                Op::Draw(_) | Op::Backdrop(_) => true,
+                Op::Composite(c) => self.prog_has_draws(c.src),
+            })
+    }
+
     /// A mask node clips the siblings that follow it.
     fn draw_mask(&mut self, mask: &Node, siblings: &[NodeId], i: usize, parent_ts: sk::Transform, ts: sk::Transform, clip: ClipId) {
         let doc = self.doc;
@@ -659,7 +655,7 @@ impl Ctx<'_> {
         let lclip = self.narrow_clip(clip, rect);
         // the mask program below is opened after the siblings: keep its slot
         self.reserving(1, mask_cost, |c| c.with_prog(layer, |c| c.draw_children(rest, parent_ts, lclip)));
-        let mask_node = designos_render::mask_stencil(mask);
+        let mask_node = mask_stencil(mask);
         let mprog = self.new_prog(rect);
         let mclip = self.full_clip(rect);
         let deferred = self.geom.deferred_empty;
@@ -668,9 +664,10 @@ impl Ctx<'_> {
             c.draw_node(&mask_node, ts, mclip);
             // A frame mask takes its alpha from its children. If this frame left
             // them out (geometry not built yet, or a frame too small for its
-            // children), the stencil is empty and hides every sibling the mask
-            // cuts: stand in the frame's box until the children draw.
-            if c.geom.deferred_empty != deferred || c.stencil_children_skipped {
+            // children) and nothing else drew into the stencil, it is empty and
+            // hides every sibling the mask cuts: stand in the frame's box until
+            // the children draw.
+            if !c.prog_has_draws(mprog) && (c.geom.deferred_empty != deferred || c.stencil_children_skipped) {
                 if let Some(frame_box) = mask_frame_box(mask) {
                     c.draw_node(&frame_box, ts, mclip);
                 }
@@ -750,7 +747,7 @@ impl Ctx<'_> {
         }
         let bw = bb.2 - bb.0;
         let bh = bb.3 - bb.1;
-        if self.zoom_lod() && !has_kids && ((bw < 1.25 && bh < 1.25) || (bw.max(bh) < 4.0 && bw.min(bh) < 0.35)) {
+        if self.zoom_lod() && !has_kids && self.stencil_root != Some(n.id) && ((bw < 1.25 && bh < 1.25) || (bw.max(bh) < 4.0 && bw.min(bh) < 0.35)) {
             return;
         }
         let paints = visible_fills(n).count() + visible_strokes(n).count();

@@ -75,3 +75,22 @@ fn stroke_geometry_honours_even_odd_fill_rule() {
     assert_eq!(px(&pm, 5, 20), [0, 0, 255, 255]);
     assert_eq!(px(&pm, 20, 20), WHITE, "hole");
 }
+
+#[test]
+fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
+    let mut t = T::new();
+    // 8 px ellipse at (6, 6)..(14, 14), centre at (10, 10)
+    let e = t.add(None, |id| Node::ellipse(id, Rect::new(6.0, 6.0, 8.0, 8.0)));
+    let n = t.node(e);
+    n.fills = vec![Paint::solid(RED)];
+    n.stroke.paints = vec![Paint::solid(Color::WHITE)];
+    n.stroke.weight = 1.5;
+    n.stroke.align = StrokeAlign::Outside;
+    // Imported stroke_geometry covering the full outer disc (r = 5.5, local -1.5..9.5)
+    n.stroke_geometry = Some(vec![rect_path(-1.5, -1.5, 11.0, 11.0)]);
+    let pm = t.render(20, 20);
+    // Centre at (10, 10) must keep its red fill
+    assert_eq!(px(&pm, 10, 10), [255, 0, 0, 255], "interior fill must not be covered by outside stroke_geometry");
+    // Outside ring at (5, 10) (1 px left of the ellipse's x=6 edge) must be painted with the white stroke
+    assert_eq!(px(&pm, 5, 10), [255, 255, 255, 255], "outside ring must be stroked");
+}
