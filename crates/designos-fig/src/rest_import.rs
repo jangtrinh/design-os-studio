@@ -1903,24 +1903,46 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Points the nested instance `d` at `target` and rebuilds its children.
+    /// Points the nested instance `d` at `target`, updates its component shell
+    /// properties to `target`'s defaults, rebuilds its children, and re-applies
+    /// `d`'s own component property values.
     fn swap_nested(&mut self, d: NodeId, target: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
         let current = match self.doc.get(d).map(|n| &n.kind) {
             Some(NodeKind::Instance { component, .. }) => *component,
             _ => return,
         };
-        if current == Some(target) || !matches!(self.doc.get(target).map(|n| &n.kind), Some(NodeKind::Component(_))) {
+        if current == Some(target) {
             return;
         }
+        let Some(target_node) = self.doc.get(target).cloned() else {
+            return;
+        };
+        let NodeKind::Component(target_fp) = &target_node.kind else {
+            return;
+        };
         self.expand_nested(target, targets, done);
         for k in self.doc.get(d).map(|n| n.children.clone()).unwrap_or_default() {
             let _ = self.doc.remove(k);
         }
-        if let Some(NodeKind::Instance { component, component_key, .. }) = self.doc.get_mut(d).map(|n| &mut n.kind) {
-            *component = Some(target);
-            *component_key = None;
+        if let Some(dn) = self.doc.get_mut(d) {
+            dn.kind = NodeKind::Instance { frame: target_fp.clone(), component: Some(target), component_key: None };
+            dn.size = target_node.size;
+            dn.fills = target_node.fills;
+            dn.stroke = target_node.stroke;
+            dn.effects = target_node.effects;
+            dn.opacity = target_node.opacity;
+            dn.blend = target_node.blend;
+            dn.is_mask = target_node.is_mask;
+            dn.corner_radii = target_node.corner_radii;
+            dn.corner_smoothing = target_node.corner_smoothing;
+            dn.fill_geometry = target_node.fill_geometry;
+            dn.stroke_geometry = target_node.stroke_geometry;
+            dn.style_refs = target_node.style_refs;
+            dn.variables.bindings = target_node.variables.bindings;
+            dn.component.variant_props = target_node.component.variant_props;
         }
         self.expand_instance(d, target);
+        self.apply_props(d, targets, done);
     }
 
     /// `.fig` library components of internal-only canvases become external

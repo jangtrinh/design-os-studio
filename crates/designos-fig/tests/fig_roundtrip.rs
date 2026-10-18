@@ -2418,6 +2418,150 @@ fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
 }
 
 #[test]
+fn nested_instance_swap_updates_shell_fills_strokes_effects_and_reapplies_props() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 150.0, "y": 36.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let purple_fill = json!([{"type": "SOLID", "visible": true, "opacity": 1.0, "color": {"r": 0.498, "g": 0.337, "b": 0.851, "a": 1.0}}]);
+    let purple_stroke = json!([{"type": "SOLID", "visible": true, "opacity": 1.0, "color": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 0.12}}]);
+    let shadow_effect = json!([{"type": "DROP_SHADOW", "visible": true, "radius": 2.0, "spread": 0.0, "offset": {"x": 0.0, "y": 1.0}, "color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 0.05}}]);
+    let prop_defs = json!([{"id": g(100, 1), "name": "Icon leading", "type": "BOOL", "initialValue": {"boolValue": true}}]);
+    let icon_refs = json!([{"componentPropNodeField": "VISIBLE", "defID": g(100, 1)}]);
+
+    let changes = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "ButtonSwapDoc", json!({})),
+        nc((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        nc(
+            (1, 2),
+            (0, 1),
+            "!",
+            "SYMBOL",
+            "Hierarchy=Primary",
+            json!({
+                "size": {"x": 150.0, "y": 36.0},
+                "fillPaints": purple_fill,
+                "strokePaints": purple_stroke,
+                "strokeWeight": 2.0,
+                "effects": shadow_effect,
+                "cornerRadius": 8.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 12.0,
+                "stackVerticalPadding": 8.0,
+                "componentPropDefs": prop_defs,
+            }),
+        ),
+        nc((1, 3), (1, 2), "!", "RECTANGLE", "Icon", json!({"size": {"x": 20.0, "y": 20.0}, "componentPropRefs": icon_refs})),
+        nc((1, 4), (1, 2), "\"", "TEXT", "Text", json!({"textData": {"characters": "Button"}, "size": {"x": 60.0, "y": 20.0}})),
+        nc(
+            (1, 5),
+            (0, 1),
+            "\"",
+            "SYMBOL",
+            "Hierarchy=Link color",
+            json!({
+                "size": {"x": 126.0, "y": 20.0},
+                "fillPaints": [],
+                "strokePaints": [],
+                "strokeWeight": 0.0,
+                "effects": [],
+                "cornerRadius": 0.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 0.0,
+                "stackVerticalPadding": 0.0,
+                "componentPropDefs": prop_defs,
+            }),
+        ),
+        nc((1, 6), (1, 5), "!", "RECTANGLE", "Icon", json!({"size": {"x": 20.0, "y": 20.0}, "componentPropRefs": icon_refs})),
+        nc((1, 7), (1, 5), "\"", "TEXT", "Text", json!({"textData": {"characters": "Button"}, "size": {"x": 60.0, "y": 20.0}})),
+        nc((1, 10), (0, 1), "#", "SYMBOL", "Section footer", json!({"size": {"x": 343.0, "y": 40.0}}),),
+        nc(
+            (1, 11),
+            (1, 10),
+            "!",
+            "INSTANCE",
+            "ActionButton",
+            json!({
+                "size": {"x": 150.0, "y": 36.0},
+                "fillPaints": purple_fill,
+                "strokePaints": purple_stroke,
+                "strokeWeight": 2.0,
+                "effects": shadow_effect,
+                "cornerRadius": 8.0,
+                "stackMode": "HORIZONTAL",
+                "stackSpacing": 6.0,
+                "stackHorizontalPadding": 12.0,
+                "stackVerticalPadding": 8.0,
+                "symbolData": {
+                    "symbolID": g(1, 2),
+                    "symbolOverrides": []
+                },
+                "componentPropAssignments": [
+                    {"defID": g(100, 1), "value": {"boolValue": false}}
+                ],
+            }),
+        ),
+        nc(
+            (1, 20),
+            (0, 1),
+            "$",
+            "INSTANCE",
+            "FooterUse",
+            json!({
+                "size": {"x": 343.0, "y": 40.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(1, 11)]},
+                            "overriddenSymbolID": g(1, 5),
+                        },
+                        {
+                            "guidPath": {"guids": [g(1, 11), g(1, 7)]},
+                            "textData": {"characters": "View integration"},
+                        }
+                    ]
+                }
+            }),
+        ),
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "ButtonSwapDoc").expect("import ButtonSwapDoc");
+    let link_comp = find(&doc, "Hierarchy=Link color").id;
+    let footer_use = find(&doc, "FooterUse");
+    let swapped_btn = footer_use.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "ActionButton").expect("ActionButton inside FooterUse");
+    assert_eq!(instance_component(swapped_btn), Some(link_comp));
+    assert!(swapped_btn.fills.is_empty(), "swapped Link color button must not keep Primary purple fill: {:?}", swapped_btn.fills);
+    assert!(swapped_btn.stroke.paints.is_empty(), "swapped Link color button must not keep Primary stroke");
+    assert!(swapped_btn.effects.is_empty(), "swapped Link color button must not keep Primary shadow");
+    assert_eq!(swapped_btn.corner_radii, [0.0; 4]);
+    assert_eq!(swapped_btn.size, Vec2::new(126.0, 20.0));
+    let al = swapped_btn.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    assert_eq!(al.padding, [0.0, 0.0, 0.0, 0.0]);
+    let icon = swapped_btn.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Icon").expect("Icon inside ActionButton");
+    assert!(!icon.visible, "Icon leading = false assignment on ActionButton must be re-applied after swap");
+    let text = swapped_btn.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Text").expect("Text inside ActionButton");
+    let NodeKind::Text(tp) = &text.kind else { panic!("expected text") };
+    assert_eq!(tp.content, "View integration");
+}
+
+#[test]
 fn layout_guide_alignment_fixed_width_auto_count_and_visibility_roundtrip() {
     use designos_doc::{Color, Document, LayoutGrid, LayoutGridAlign, Node, NodeKind, Rect, Style};
 
