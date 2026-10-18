@@ -8,6 +8,7 @@
 use crate::frame::*;
 use crate::pipelines::*;
 use crate::resources::*;
+use crate::submit::{Splitter, HAL_BUFFERS_PER_COPY, HAL_BUFFERS_PER_PASS, SUBMIT_HAL_BUDGET};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -27,6 +28,10 @@ pub struct ExecStats {
     pub programs_run: u32,
     pub meshes_uploaded: u32,
     pub pool_bytes: u64,
+    /// Queue submissions the frame was recorded into (see `submit.rs`).
+    pub submissions: u32,
+    /// Estimated wgpu-hal command buffers of the frame's largest submission.
+    pub hal_buffers_max: u32,
 }
 
 /// The rendered page.
@@ -65,6 +70,10 @@ pub struct Renderer {
     frame_no: u64,
     max_dim: u32,
     pub stats: ExecStats,
+    /// Estimated command buffers one submission may hold before
+    /// `render_submitted` and `render_to_rgba` continue in a new one (see
+    /// `submit.rs`). `u32::MAX` keeps a frame in one submission.
+    pub submit_budget: u32,
 }
 
 const RAMP_ROWS: u32 = 1024;
@@ -165,6 +174,7 @@ impl Renderer {
             frame_no: 0,
             max_dim: device.limits().max_texture_dimension_2d,
             stats: ExecStats::default(),
+            submit_budget: SUBMIT_HAL_BUDGET,
         })
     }
 
@@ -248,17 +258,29 @@ impl Renderer {
     }
 
     /// Records the passes for `frame` into `enc` and returns the page texture.
+    ///
+    /// `enc` is the caller's, so the frame lands in one submission: it must stay
+    /// within the command buffer limit of the Metal backend (2,047 render
+    /// passes, see `submit.rs`; `stats.hal_buffers_max` is the estimate). Use
+    /// [`Renderer::render_submitted`] for frames of unknown size.
     pub fn render(&mut self, frame: &Frame, enc: &mut wgpu::CommandEncoder) -> Output {
+        self.render_into(frame, enc, false)
+    }
+
+    fn render_into(&mut self, frame: &Frame, enc: &mut wgpu::CommandEncoder, split: bool) -> Output {
         self.frame_no += 1;
         self.stats = ExecStats::default();
         self.ring.reset();
         let output = self.ensure_output(frame.out_size, frame.size);
-        let mut run = FrameRun::new(self, frame, enc, output.clone());
+        let budget = split.then_some(self.submit_budget);
+        let mut run = FrameRun::new(self, frame, enc, output.clone(), budget);
         run.run_program(enc, frame.root);
         if frame.ss > 1 {
             run.downsample_root(enc);
         }
-        let st = run.stats;
+        let mut st = run.stats;
+        st.submissions = run.split.submissions;
+        st.hal_buffers_max = run.split.max_used;
         self.stats = st;
         self.ms_pool.trim(self.frame_no, 0);
         self.plain_pool.trim(self.frame_no, 0);
@@ -269,18 +291,21 @@ impl Renderer {
         output
     }
 
-    /// Renders `frame` with an encoder of its own and submits it right away.
+    /// Renders `frame` with encoders of its own and submits them right away: one
+    /// submission, or several when the frame has more passes than the Metal
+    /// backend can hold in one (see `submit.rs`).
     pub fn render_submitted(&mut self, frame: &Frame) -> Output {
         let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu frame") });
-        let out = self.render(frame, &mut enc);
+        let out = self.render_into(frame, &mut enc, true);
         self.queue.submit([enc.finish()]);
+        self.stats.submissions += 1;
         out
     }
 
     /// Renders `frame` and reads the result back as premultiplied RGBA8 rows.
     pub fn render_to_rgba(&mut self, frame: &Frame) -> Vec<u8> {
         let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu frame") });
-        let out = self.render(frame, &mut enc);
+        let out = self.render_into(frame, &mut enc, true);
         let (w, h) = out.size;
         let row = (w * 4).div_ceil(256) * 256;
         let buf = self.dev.create_buffer(&wgpu::BufferDescriptor {
@@ -295,6 +320,7 @@ impl Renderer {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         self.queue.submit([enc.finish()]);
+        self.stats.submissions += 1;
         let slice = buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -348,6 +374,7 @@ struct FrameRun<'a> {
     clip_bgs: HashMap<ProgId, wgpu::BindGroup>,
     output: Output,
     stats: ExecStats,
+    split: Splitter,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -397,7 +424,7 @@ fn f4(r: IRect) -> [f32; 4] {
 }
 
 impl<'a> FrameRun<'a> {
-    fn new(r: &'a mut Renderer, frame: &'a Frame, enc: &mut wgpu::CommandEncoder, output: Output) -> Self {
+    fn new(r: &'a mut Renderer, frame: &'a Frame, enc: &mut wgpu::CommandEncoder, output: Output, budget: Option<u32>) -> Self {
         let n = frame.programs.len();
         // ---- dependencies
         let mut deps: Vec<Vec<ProgId>> = vec![Vec::new(); n];
@@ -482,6 +509,7 @@ impl<'a> FrameRun<'a> {
             }
         }
         let (dev, queue) = (r.dev.clone(), r.queue.clone());
+        let mut splitter = Splitter::new(&dev, &queue, budget);
         r.arena.ensure(&dev, &queue, &meshes);
         {
             let mut seen = std::collections::HashSet::new();
@@ -504,6 +532,7 @@ impl<'a> FrameRun<'a> {
                     ring: &mut r.ring,
                     max_dim: r.max_dim,
                     frame: r.frame_no,
+                    split: &mut splitter,
                 };
                 let t = up.upload(&img);
                 r.images.insert(img.id, t);
@@ -537,6 +566,7 @@ impl<'a> FrameRun<'a> {
             clip_bgs: HashMap::new(),
             output,
             stats: ExecStats::default(),
+            split: splitter,
         }
     }
 
@@ -887,6 +917,7 @@ impl<'a> FrameRun<'a> {
         let load = if started { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(color_of(prog.clear)) };
         self.live.get_mut(&id).unwrap().started = true;
         self.stats.passes += 1;
+        self.split.reserve(enc, HAL_BUFFERS_PER_PASS);
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("program"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1037,6 +1068,7 @@ impl<'a> FrameRun<'a> {
         let prog_rect = self.frame.programs[id as usize].rect;
         let l = self.r.plain_pool.acquire(&self.r.dev, rect.w() as u32, rect.h() as u32, self.r.frame_no);
         let src = self.live[&id].resolve_tex.clone();
+        self.split.reserve(enc, HAL_BUFFERS_PER_COPY);
         enc.copy_texture_to_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &src,
@@ -1060,6 +1092,7 @@ impl<'a> FrameRun<'a> {
             (l.ms.view.clone(), l.resolve_view.clone())
         };
         self.stats.passes += 1;
+        self.split.reserve(enc, HAL_BUFFERS_PER_PASS);
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("composite"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1140,6 +1173,7 @@ impl<'a> FrameRun<'a> {
             let (view, load) = (self.live[&p].resolve_view.clone(), if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load });
             first = false;
             self.stats.passes += 1;
+            self.split.reserve(enc, HAL_BUFFERS_PER_PASS);
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("backdrop"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1276,6 +1310,7 @@ impl<'a> FrameRun<'a> {
 
     fn full_pass(&mut self, enc: &mut wgpu::CommandEncoder, dst: &wgpu::TextureView, extent: (u32, u32), pipe: &wgpu::RenderPipeline, bg: &wgpu::BindGroup) {
         self.stats.passes += 1;
+        self.split.reserve(enc, HAL_BUFFERS_PER_PASS);
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("post"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

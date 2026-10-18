@@ -1,7 +1,7 @@
 //! [`Document`] -> Figma REST-shaped JSON (the inverse of `import_rest_json`).
 
 use crate::kiwi::clean_f32;
-use crate::rest_import::utf16_to_byte_offsets;
+use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
 use crate::svgpath::write_path;
 use designos_doc::*;
 use serde_json::{json, Map, Value};
@@ -514,6 +514,12 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             }
             if lc.row_span > 1 {
                 m.insert("gridRowSpan".into(), lc.row_span.into());
+            }
+            let parent_dir = node.parent.and_then(|p| doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
+            for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
+                if writes_grid_child_align(a, parent_dir) {
+                    m.insert(k.into(), grid_child_align_name(a).into());
+                }
             }
             for (k, v) in [("minWidth", lc.min_w), ("maxWidth", lc.max_w), ("minHeight", lc.min_h), ("maxHeight", lc.max_h)] {
                 if let Some(v) = v {
