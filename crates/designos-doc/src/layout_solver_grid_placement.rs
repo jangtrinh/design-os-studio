@@ -16,8 +16,8 @@ use crate::layout_solver_types::ChildIn;
 pub(crate) use crate::MAX_GRID_TRACKS;
 
 /// A child's resolved cell.
-#[derive(Clone, Copy)]
-pub(crate) struct Placed {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placed {
     pub row: usize,
     pub col: usize,
     pub row_span: usize,
@@ -69,8 +69,8 @@ fn first_free_cell(occupied: &mut Occupancy, start_row: usize, column: Option<us
     }
 }
 
-/// Places every child; the result is in child order.
-pub(crate) fn place_children(kids: &[ChildIn], cols: usize) -> Vec<Placed> {
+/// Places every child of a `cols`-column grid exactly as the solver does; the result is in child order.
+pub fn place_children(kids: &[ChildIn], cols: usize) -> Vec<Placed> {
     let wants: Vec<Want> = kids.iter().map(|k| Want::of(k, cols)).collect();
     let mut occupied: Occupancy = Vec::new();
     // every slot is overwritten by exactly one of the three passes below

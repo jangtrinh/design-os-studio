@@ -115,6 +115,25 @@ fn childless_frame_without_fill_masks_as_an_opaque_box() {
     assert_eq!(px(&pm, 60, 60), WHITE, "outside the box");
 }
 
+#[test]
+fn mask_frame_box_matches_alpha_only_from_children_rule() {
+    let mut frame = Node::frame(NodeId(1), Rect::new(0.0, 0.0, 40.0, 40.0));
+    frame.fills.clear();
+    assert!(designos_render::mask_frame_box(&frame).is_none(), "childless frame gets its own fill from mask_stencil");
+
+    frame.children = vec![NodeId(2)];
+    let stand_in = designos_render::mask_frame_box(&frame).expect("fill-less frame with children has a stand-in box");
+    assert!(stand_in.children.is_empty());
+    assert_eq!(stand_in.fills, vec![Paint::solid(Color::BLACK)]);
+
+    frame.fills = vec![Paint::solid(BLUE)];
+    assert!(designos_render::mask_frame_box(&frame).is_none(), "frame with a visible fill already has its own alpha");
+
+    let mut group = Node::new(NodeId(3), NodeKind::Group);
+    group.children = vec![NodeId(4)];
+    assert!(designos_render::mask_frame_box(&group).is_none(), "group has no box of its own");
+}
+
 impl T {
     fn node(&mut self, id: NodeId) -> &mut Node {
         self.doc.get_mut(id).unwrap()

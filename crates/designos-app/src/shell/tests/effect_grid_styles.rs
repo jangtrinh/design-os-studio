@@ -9,7 +9,7 @@ fn shadow() -> Effect {
 }
 
 fn columns() -> LayoutGrid {
-    LayoutGrid::Columns { count: 12, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) }
+    LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))
 }
 
 /// "Welcome" selected, with a drop shadow and a 12 column grid, inspector scrolled to its end.

@@ -123,6 +123,7 @@ fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_
         ("specs reader", Options { panel: Some("specs".into()), ..Options::default() }),
         ("libraries modal", Options { panel: Some("libraries".into()), ..Options::default() }),
         ("cmdk modal", Options { panel: Some("cmdk".into()), ..Options::default() }),
+        ("check designs panel", Options { fixture: Some(crate::check_designs::FIXTURE.into()), panel: Some("check-designs".into()), ..Options::default() }),
     ] {
         let mut s = Sim::with(opts);
         s.shell.app.tabs.always_visible = true;

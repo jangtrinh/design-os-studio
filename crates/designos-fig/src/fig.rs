@@ -1754,7 +1754,10 @@ fn convert_grids(nc: &Value) -> Option<Value> {
             copy(&mut m, g, "offset", "offset");
             copy(&mut m, g, "color", "color");
             copy(&mut m, g, "visible", "visible");
-            if let Some(c) = g.get("count").or_else(|| g.get("numSections")) {
+            if let Some(a) = fstr(g, "alignment").or_else(|| fstr(g, "type").filter(|s| matches!(*s, "MIN" | "CENTER" | "STRETCH" | "MAX"))) {
+                m.insert("alignment".into(), a.into());
+            }
+            if let Some(c) = g.get("numSections").or_else(|| g.get("count")) {
                 m.insert("count".into(), c.clone());
             }
             Some(Value::Object(m))

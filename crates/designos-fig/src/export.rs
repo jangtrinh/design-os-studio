@@ -127,12 +127,28 @@ fn effect(e: &Effect) -> Value {
 
 fn grid(g: &LayoutGrid) -> Value {
     match g {
-        LayoutGrid::Grid { size, color } => json!({"pattern": "GRID", "sectionSize": n(*size), "visible": true, "color": col(*color)}),
-        LayoutGrid::Columns { count, gutter, offset, color } => {
-            json!({"pattern": "COLUMNS", "count": count, "gutterSize": n(*gutter), "offset": n(*offset), "visible": true, "color": col(*color), "alignment": "STRETCH"})
-        }
-        LayoutGrid::Rows { count, gutter, offset, color } => {
-            json!({"pattern": "ROWS", "count": count, "gutterSize": n(*gutter), "offset": n(*offset), "visible": true, "color": col(*color), "alignment": "STRETCH"})
+        LayoutGrid::Grid { size, color, visible } => json!({"pattern": "GRID", "sectionSize": n(*size), "visible": *visible, "color": col(*color)}),
+        LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color, visible }
+        | LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color, visible } => {
+            let pat = if matches!(g, LayoutGrid::Columns { .. }) { "COLUMNS" } else { "ROWS" };
+            let align = match alignment {
+                LayoutGridAlign::Min => "MIN",
+                LayoutGridAlign::Center => "CENTER",
+                LayoutGridAlign::Stretch => "STRETCH",
+                LayoutGridAlign::Max => "MAX",
+            };
+            let cnt: i64 = if *count == 0 { -1 } else { i64::from(*count) };
+            json!({
+                "pattern": pat,
+                "count": cnt,
+                "gutterSize": n(*gutter),
+                "offset": n(*offset),
+                "visible": *visible,
+                "color": col(*color),
+                "alignment": align,
+                // 0 is a real mode (equal-width stripes), so it is written like any other width
+                "sectionSize": n(*section_size)
+            })
         }
     }
 }
