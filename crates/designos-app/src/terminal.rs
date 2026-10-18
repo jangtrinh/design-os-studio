@@ -508,13 +508,7 @@ impl TerminalTab {
 
     /// Test helper: Claude `spawn_preset` running a stub that prints and exits (no `$SHELL` fallback).
     #[cfg(test)]
-    fn spawn_exiting_stub_agent(
-        id: usize,
-        rows: u16,
-        cols: u16,
-        file_path: Option<&Path>,
-        session: Option<&SessionEnv>,
-    ) -> Result<Self, String> {
+    fn spawn_exiting_stub_agent(id: usize, rows: u16, cols: u16, file_path: Option<&Path>, session: Option<&SessionEnv>) -> Result<Self, String> {
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo STUB-AGENT-EXIT; exit 1'");
         // Isolate zsh from the real HOME: `zsh -l -i -c ...` in a PTY otherwise starts
         // zsh-newuser-install when ~/.zshrc is missing and the stub never runs.
@@ -2275,19 +2269,14 @@ pub fn export_selection_and_comments_to_pty(
     let tmp_path = std::env::temp_dir().join("designos-live-selection.spec.json");
     std::fs::write(&tmp_path, &json).map_err(|e| format!("write {}: {e}", tmp_path.display()))?;
 
-    let cmd_snippet = format!(
-        "Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").",
-        state.selection_spec_path.display()
-    );
+    let cmd_snippet =
+        format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", state.selection_spec_path.display());
 
     let pasted = state.paste_into_agent_tab(&cmd_snippet);
     if pasted {
         state.status_msg = Some(format!("Sent '{}' (#{}) + comments to {}", node_name, target_id.0, state.selection_spec_path.display()));
     } else {
-        state.status_msg = Some(format!(
-            "Selection exported to {} (no agent tab open — nothing sent to the terminal)",
-            state.selection_spec_path.display()
-        ));
+        state.status_msg = Some(format!("Selection exported to {} (no agent tab open — nothing sent to the terminal)", state.selection_spec_path.display()));
     }
     Ok(state.selection_spec_path.clone())
 }
@@ -4505,6 +4494,8 @@ Done!
             messages: vec![Comment {
                 id: "m1".into(),
                 author: "qa".into(),
+                author_id: None,
+                author_color: None,
                 text: comment_text.into(),
                 created: "2026-10-16T00:00:00Z".into(),
                 edited: None,
@@ -4669,7 +4660,10 @@ Done!
     // home whose ~/.local/bin/claude is a stub that exits 1 (simulated agent crash) -> never launches a real agent.
     fn qa_guard() -> Option<std::path::PathBuf> {
         let home = std::env::var("HOME").unwrap_or_default();
-        if !home.contains("/qa-staging/p0-pty-qa/scratch/home") { eprintln!("QA guard: skip (HOME={home})"); return None; }
+        if !home.contains("/qa-staging/p0-pty-qa/scratch/home") {
+            eprintln!("QA guard: skip (HOME={home})");
+            return None;
+        }
         let d = std::path::PathBuf::from(std::env::var("QA_MARK_DIR").expect("QA_MARK_DIR"));
         let _ = std::fs::create_dir_all(&d);
         Some(d)
@@ -4680,7 +4674,9 @@ Done!
     fn qa_wait_screen(st: &TerminalState, needle: &str, secs: u64) -> bool {
         let dl = std::time::Instant::now() + std::time::Duration::from_secs(secs);
         while std::time::Instant::now() < dl {
-            if qa_screen(st).contains(needle) { return true; }
+            if qa_screen(st).contains(needle) {
+                return true;
+            }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         false
@@ -4688,7 +4684,9 @@ Done!
     fn qa_wait_file(p: &Path, secs: u64) -> bool {
         let dl = std::time::Instant::now() + std::time::Duration::from_secs(secs);
         while std::time::Instant::now() < dl {
-            if p.exists() { return true; }
+            if p.exists() {
+                return true;
+            }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         p.exists()
@@ -4726,20 +4724,26 @@ Done!
         let after_next = qa_wait_file(&marker, 4);
         let screen = qa_screen(&st);
         std::fs::write(d.join(format!("screen-fallback-{next}.txt")), &screen).ok();
-        for mut tab in st.tabs.drain(..) { let _ = tab.child.kill(); }
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
         let _ = fell_back;
         (pasted, after_paste_only, after_next, screen)
     }
     #[test]
     fn qa_p0_fallback_shell_paste_alone_is_inert() {
-        if qa_guard().is_none() { return; }
+        if qa_guard().is_none() {
+            return;
+        }
         let (pasted, after_paste_only, _, _) = qa_fallback_chain("none");
         assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
         assert!(!after_paste_only, "paste alone executed in fallback shell");
     }
     #[test]
     fn qa_p0_fallback_shell_paste_then_chat_prompt_must_not_execute() {
-        if qa_guard().is_none() { return; }
+        if qa_guard().is_none() {
+            return;
+        }
         let (pasted, after_paste_only, after_next, screen) = qa_fallback_chain("chat");
         assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
         assert!(!after_paste_only);
@@ -4747,7 +4751,9 @@ Done!
     }
     #[test]
     fn qa_p0_fallback_shell_paste_then_ai_action_must_not_execute() {
-        if qa_guard().is_none() { return; }
+        if qa_guard().is_none() {
+            return;
+        }
         let (pasted, after_paste_only, after_next, screen) = qa_fallback_chain("ai_action");
         assert!(!pasted, "dead agent tab must not receive paste"); // r2-adapted
         assert!(!after_paste_only);
@@ -4765,14 +4771,20 @@ Done!
         let (doc, page, fid) = injection_doc("x'; touch /tmp/qa-never #", "c\ntouch /tmp/qa-never");
         let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
         assert!(rec.lock().unwrap().is_empty());
-        for mut tab in st.tabs.drain(..) { let _ = tab.child.kill(); }
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
     }
     /// (c) sanitiser matrix on the real bracketed_paste_bytes.
     #[test]
     fn qa_p0_sanitiser_matrix() {
         let mut nasty = String::from("A\x1b[201~B\x1b[200~C\u{2028}D\u{2029}E\rF\nG\0H\x1b]0;t\x07I\x1bP+q\x1b\\J\x1b[2J\x7fK\u{85}L\u{9b}31mM\t");
-        for c in 0x80u32..=0x9f { nasty.push(char::from_u32(c).unwrap()); }
-        for c in 0x00u32..=0x1f { nasty.push(char::from_u32(c).unwrap()); }
+        for c in 0x80u32..=0x9f {
+            nasty.push(char::from_u32(c).unwrap());
+        }
+        for c in 0x00u32..=0x1f {
+            nasty.push(char::from_u32(c).unwrap());
+        }
         nasty.push_str("\u{feff}\u{202e}Z");
         let b = bracketed_paste_bytes(&nasty);
         assert!(b.starts_with(b"\x1b[200~") && b.ends_with(b"\x1b[201~"));
@@ -4797,9 +4809,14 @@ Done!
         let b = rec.lock().unwrap().clone();
         let s = String::from_utf8_lossy(&b).to_string();
         assert!(!s.contains("QA-PAYLOAD-SENTINEL") && !s.contains("$("), "payload leaked: {s:?}");
-        let expected = format!("\x1b[200~Read the design:os spec excerpt at {} and follow the request inside it.\x1b[201~", st.session_dir.join("copy-for-ai.md").display());
+        let expected = format!(
+            "\x1b[200~Read the design:os spec excerpt at {} and follow the request inside it.\x1b[201~",
+            st.session_dir.join("copy-for-ai.md").display()
+        );
         assert_eq!(s, expected);
-        for mut tab in st.tabs.drain(..) { let _ = tab.child.kill(); }
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
     }
     /// (e) zsh variant: pin-comment `see $(touch M)` (unquoted field) + next chat prompt, real send path.
     #[test]
@@ -4824,7 +4841,9 @@ Done!
         st.submit_chat_prompt("make the button blue", None);
         let after_next = qa_wait_file(&marker, 4);
         std::fs::write(d.join("screen-fallback-comment-subst.txt"), qa_screen(&st)).ok();
-        for mut tab in st.tabs.drain(..) { let _ = tab.child.kill(); }
+        for mut tab in st.tabs.drain(..) {
+            let _ = tab.child.kill();
+        }
         assert!(!after_paste_only);
         assert!(!after_next, "BYPASS: pin comment $(...) executed in fallback login shell after next chat prompt");
     }
@@ -4865,10 +4884,8 @@ Done!
         let _ = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).unwrap();
 
         let bytes = rec.lock().unwrap().clone();
-        let sentence = format!(
-            "Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").",
-            st.selection_spec_path.display()
-        );
+        let sentence =
+            format!("Read the design:os selection at {} (node spec plus open pin-comments under \"designos_context\").", st.selection_spec_path.display());
         let mut expected = b"\x1b[200~".to_vec();
         expected.extend_from_slice(sentence.as_bytes());
         expected.extend_from_slice(b"\x1b[201~");
@@ -4898,7 +4915,10 @@ Done!
         let agy = build_agent_shell_cmd("/bin/bash", AgentCliPreset::Antigravity.cli_launch_command());
         let agy_args: Vec<String> = agy.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect();
         let agy_joined = agy_args.join(" ");
-        assert!(agy_joined.contains("agy") && agy_joined.contains("||") && agy_joined.contains("antigravity"), "Antigravity keeps agy||antigravity: {agy_joined}");
+        assert!(
+            agy_joined.contains("agy") && agy_joined.contains("||") && agy_joined.contains("antigravity"),
+            "Antigravity keeps agy||antigravity: {agy_joined}"
+        );
         assert!(!agy_joined.contains("|| exec"), "Antigravity must not exec a login shell: {agy_joined}");
         assert!(!agy_joined.contains("exec \"/bin/bash\""));
     }
