@@ -4,7 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, LayoutGridAlign, NodeKind, Sizing};
+use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
 /// One resolved `(row, col)` cell in a `LayoutDirection::Grid` container (frame-local coordinates).
@@ -257,6 +257,8 @@ pub fn stripes(count: u32, gutter: f32, offset: f32, extent: f32) -> Vec<(f32, f
     }
     (0..count).map(|i| (offset + i as f32 * (w + gutter), w)).collect()
 }
+
+use designos_doc::LayoutGridAlign;
 
 /// Most stripes an auto-count guide builds; beyond this a stripe is thinner than a pixel at any
 /// useful zoom and the overlay is rebuilt every frame.
