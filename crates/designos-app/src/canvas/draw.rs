@@ -408,15 +408,15 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
                 p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
                 p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
             }
+            // Only the grids a click can reach get `+` buttons, so a drawn button always works.
+            if app.selection.contains(&grid_id) || app.hover == Some(grid_id) {
+                for (_, add) in grid_add_buttons(&ov, n.size, to_s) {
+                    p.rect_filled(add, theme::cr(3), pill_bg);
+                    p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
+                    p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
+                }
+            }
         }
-    }
-
-    // The `+` add-track buttons are painted from the rects a click tests, so a drawn button always works.
-    let font = theme::font_small_strong();
-    for (_, _, add) in grid_track_add_button_rects(app, rect) {
-        p.rect_filled(add, theme::cr(3), pill_bg);
-        p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
-        p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
     }
 
     // 4. Child span badge (`2×1`) when a selected child inside a Grid frame has col_span > 1 or row_span > 1.
@@ -484,8 +484,27 @@ pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize
 /// Side (screen px) of the `+` add-track buttons: the pointer-target floor of the design system.
 const GRID_ADD_BUTTON_SIZE: f32 = 24.0;
 
-/// Returns `(grid_frame_id, is_col, screen_rect)` for the on-canvas `+` add-column / add-row buttons (`#144`).
-/// A grid with the most tracks it solves has no button for that axis.
+/// The `+` add-column / add-row buttons of one grid frame as `(is_col, screen_rect)`. An axis that already
+/// has the most tracks the solver lays out has no button.
+fn grid_add_buttons(ov: &super::grids::CssGridOverlay, frame: designos_doc::Vec2, to_s: impl Fn(f32, f32) -> Pos2) -> Vec<(bool, ERect)> {
+    let [pt, pr, pb, pl] = ov.padding;
+    let size = EV::splat(GRID_ADD_BUTTON_SIZE);
+    let mut out = Vec::with_capacity(2);
+    if ov.cols < designos_doc::MAX_GRID_TRACKS {
+        // right of the column pills, level with them
+        let top_right = to_s((frame.x - pr).max(pl), 0.0);
+        out.push((true, ERect::from_min_size(Pos2::new(top_right.x + 4.0, top_right.y - 12.0 - GRID_ADD_BUTTON_SIZE * 0.5), size)));
+    }
+    if ov.rows < designos_doc::MAX_GRID_TRACKS {
+        // under the row pills, ending where they end
+        let bot_left = to_s(0.0, (frame.y - pb).max(pt));
+        out.push((false, ERect::from_min_size(Pos2::new(bot_left.x - 5.0 - GRID_ADD_BUTTON_SIZE, bot_left.y + 3.0), size)));
+    }
+    out
+}
+
+/// Returns `(grid_frame_id, is_col, screen_rect)` for the on-canvas `+` add-column / add-row buttons (`#144`)
+/// of the selected and hovered grid frames.
 pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, ERect)> {
     let mut out = Vec::new();
     if app.view.zoom < 0.4 {
@@ -497,25 +516,12 @@ pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool,
             candidates.push(h);
         }
     }
-    let size = EV::splat(GRID_ADD_BUTTON_SIZE);
     for id in candidates {
         let Some(n) = app.doc.get(id) else { continue };
         let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
         let w_xform = super::fast_world_transform(&app.doc, id);
         let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
-        let [pt, pr, pb, pl] = ov.padding;
-        let inner_x1 = (n.size.x - pr).max(pl);
-        let inner_y1 = (n.size.y - pb).max(pt);
-        if ov.cols < designos_doc::MAX_GRID_TRACKS {
-            // right of the column pills, level with them
-            let top_right = to_s(inner_x1, 0.0);
-            out.push((id, true, ERect::from_min_size(Pos2::new(top_right.x + 4.0, top_right.y - 12.0 - GRID_ADD_BUTTON_SIZE * 0.5), size)));
-        }
-        if ov.rows < designos_doc::MAX_GRID_TRACKS {
-            // under the row pills, ending where they end
-            let bot_left = to_s(0.0, inner_y1);
-            out.push((id, false, ERect::from_min_size(Pos2::new(bot_left.x - 5.0 - GRID_ADD_BUTTON_SIZE, bot_left.y + 3.0), size)));
-        }
+        out.extend(grid_add_buttons(&ov, n.size, to_s).into_iter().map(|(is_col, r)| (id, is_col, r)));
     }
     out
 }

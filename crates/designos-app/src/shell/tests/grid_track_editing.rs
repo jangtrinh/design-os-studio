@@ -202,6 +202,37 @@ fn track_edits_keep_the_slot_list_at_least_the_track_limit_and_never_lose_a_slot
 }
 
 #[test]
+fn only_the_add_buttons_a_click_can_reach_are_drawn() {
+    let mut s = Sim::new();
+    let (grid_id, _) = add_grid(&mut s, three_columns(GridTrack::Flex(1.0), GridTrack::Flex(1.0), GridTrack::Flex(1.0)), &[(None, None); 3]);
+    let drawn_pluses = |s: &Sim| -> Vec<egui::Pos2> {
+        s.shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(t) if t.galley.text() == "+" => Some(t.visual_bounding_rect().center()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let reachable = grid_track_add_button_rects(s.app(), s.app().canvas_rect);
+    assert_eq!(reachable.len(), 2);
+    let pluses = drawn_pluses(&s);
+    assert_eq!(pluses.len(), 2, "one + per axis is painted");
+    for (_, _, r) in &reachable {
+        assert!(pluses.iter().any(|p| r.contains(*p)), "a + is painted inside the clickable rect {r:?}");
+    }
+
+    // a selected child makes its parent grid draw its overlay, but a click cannot reach the parent's buttons
+    let child = s.app().doc.get(grid_id).unwrap().children[0];
+    s.shell.app.selection = vec![child];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(grid_track_add_button_rects(s.app(), s.app().canvas_rect).is_empty());
+    assert!(drawn_pluses(&s).is_empty(), "no + is painted that a click would not reach");
+}
+
+#[test]
 fn track_edits_leave_frames_that_are_not_grids_alone() {
     let mut s = Sim::new();
     let al = AutoLayout { direction: LayoutDirection::Vertical, grid_columns: 5, ..AutoLayout::default() };
