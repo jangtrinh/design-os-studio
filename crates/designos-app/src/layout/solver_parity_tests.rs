@@ -277,6 +277,43 @@ fn child_limits_clamp_the_distributed_size_and_siblings_follow() {
 }
 
 #[test]
+fn fill_siblings_redistribute_space_after_min_or_max_clamping_freeze_loop() {
+    // Width 300, Fill A capped at 60 and Fill B uncapped: B must be 240, not 150.
+    let fill_a_capped = kid_with(10.0, 10.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.max_w = Some(60.0);
+    });
+    let fill_b = kid_with(10.0, 10.0, |lc| lc.horizontal = Sizing::Fill);
+    let solved = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[fill_a_capped, fill_b]);
+    assert_eq!(solved.kids[0], [0.0, 0.0, 60.0, 10.0]);
+    assert_eq!(solved.kids[1], [60.0, 0.0, 240.0, 10.0]);
+
+    // Min-clamped Fill child freezes at 200 and leaves 100 for its Fill sibling.
+    let fill_a_min = kid_with(10.0, 10.0, |lc| {
+        lc.horizontal = Sizing::Fill;
+        lc.min_w = Some(200.0);
+    });
+    let solved_min = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[fill_a_min, fill_b]);
+    assert_eq!(solved_min.kids[0], [0.0, 0.0, 200.0, 10.0]);
+    assert_eq!(solved_min.kids[1], [200.0, 0.0, 100.0, 10.0]);
+
+    // Multi-pass cascade: A (grow 1, max 50) freezes first, then B (grow 1, max 80) exceeds 80 on pass 2 and freezes, leaving 170 for C (grow 2).
+    let a = kid_with(10.0, 10.0, |lc| {
+        lc.grow = 1.0;
+        lc.max_w = Some(50.0);
+    });
+    let b = kid_with(10.0, 10.0, |lc| {
+        lc.grow = 1.0;
+        lc.max_w = Some(80.0);
+    });
+    let c = kid_with(10.0, 10.0, |lc| lc.grow = 2.0);
+    let solved_cascade = solve_everywhere(auto(LayoutDirection::Horizontal, LayoutAlign::Start), v2(300.0, 50.0), &[a, b, c]);
+    assert_eq!(solved_cascade.kids[0], [0.0, 0.0, 50.0, 10.0]);
+    assert_eq!(solved_cascade.kids[1], [50.0, 0.0, 80.0, 10.0]);
+    assert_eq!(solved_cascade.kids[2], [130.0, 0.0, 170.0, 10.0]);
+}
+
+#[test]
 fn child_minimums_raise_natural_sizes_and_cross_fill_respects_maximums() {
     let raised = kid_with(10.0, 10.0, |lc| {
         lc.min_w = Some(30.0);
@@ -374,6 +411,120 @@ fn grid_fixed_child_spanning_rows_keeps_its_size() {
     let spanning = kid_with(40.0, 25.0, |lc| lc.row_span = 2);
     let solved = solve_everywhere(al, v2(300.0, 300.0), &[spanning, kid(40.0, 40.0)]);
     assert_eq!(solved.kids[0], [0.0, 0.0, 40.0, 25.0]);
+}
+
+#[test]
+fn grid_clamps_child_sizes_when_sizing_hug_columns_and_auto_rows() {
+    let mut al = grid(2);
+    al.item_spacing = 10.0;
+    al.primary_sizing = Sizing::Hug;
+    al.counter_sizing = Sizing::Hug;
+    al.grid_col_tracks[0] = GridTrack::Hug;
+    al.grid_col_tracks[1] = GridTrack::Hug;
+    let capped = kid_with(120.0, 80.0, |lc| {
+        lc.max_w = Some(50.0);
+        lc.max_h = Some(30.0);
+    });
+    let plain = kid(40.0, 20.0);
+    let solved = solve_everywhere(al, v2(300.0, 300.0), &[capped, plain]);
+    assert_eq!(solved.frame, (100.0, 30.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 50.0, 30.0]);
+    assert_eq!(solved.kids[1], [60.0, 0.0, 40.0, 20.0]);
+}
+
+#[test]
+fn grid_row_span_does_not_inflate_rows_that_already_hold_it() {
+    let mut al = grid(2);
+    al.item_spacing = 10.0;
+    al.counter_sizing = Sizing::Hug;
+    // Row 0 is 40 high, row 1 is 15 high; with the 10 gap they already provide 65 >= 50.
+    let spanning_fits = kid_with(40.0, 50.0, |lc| lc.row_span = 2);
+    let solved = solve_everywhere(al, v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
+    assert_eq!(solved.frame, (300.0, 65.0));
+    assert_eq!(solved.kids[2], [155.0, 50.0, 40.0, 15.0]);
+
+    // When a spanning item (70) exceeds row 0 (40) + gap (10) + row 1 (10) = 60,
+    // row 0 already exceeds an even 30 split, so only row 1 grows to 20 (total 70).
+    let spanning_grows_short_row = kid_with(40.0, 70.0, |lc| lc.row_span = 2);
+    let solved2 = solve_everywhere(al, v2(300.0, 300.0), &[spanning_grows_short_row, kid(40.0, 40.0), kid(40.0, 10.0)]);
+    assert_eq!(solved2.frame, (300.0, 70.0));
+    assert_eq!(solved2.kids[2], [155.0, 50.0, 40.0, 10.0]);
+}
+
+/// Solves `kids` placed in child order `order` (indices into `kids`); returns the frame and each
+/// kid's rect keyed by its index in `kids`, so different orders can be compared kid by kid.
+fn solve_in_child_order(al: AutoLayout, frame: Vec2, kids: &[Kid], order: &[usize]) -> ((f32, f32), Vec<[f32; 4]>) {
+    let reordered: Vec<Kid> = order.iter().map(|&i| kids[i]).collect();
+    let solved = solve_everywhere(al, frame, &reordered);
+    let mut rects = vec![[0.0; 4]; kids.len()];
+    for (pos, &i) in order.iter().enumerate() {
+        rects[i] = solved.kids[pos];
+    }
+    (solved.frame, rects)
+}
+
+const ORDERS_OF_THREE: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+
+fn pinned_span(h: f32, column: u16, row: u16, row_span: u16) -> Kid {
+    kid_with(40.0, h, |lc| {
+        lc.grid_column = Some(column);
+        lc.grid_row = Some(row);
+        lc.row_span = row_span;
+    })
+}
+
+fn hugging_grid(columns: u32) -> AutoLayout {
+    let mut al = grid(columns);
+    al.item_spacing = 10.0;
+    al.counter_sizing = Sizing::Hug;
+    al
+}
+
+#[test]
+fn grid_overlapping_row_spans_size_rows_independent_of_child_order() {
+    // The tall item holds rows 0-1 (100 high), the short one rows 1-2 (40 high). Rows 0 and 1 share the
+    // tall item's 90 (45 each), which already holds the short item, so the empty row 2 stays flat:
+    // 45 + 45 + 0 + two 10 gaps = 110 whichever of the two comes first.
+    let pair = [pinned_span(100.0, 0, 0, 2), pinned_span(40.0, 1, 1, 2)];
+    let forward = solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &pair, &[0, 1]);
+    let reversed = solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &pair, &[1, 0]);
+    assert_eq!(forward.0, (300.0, 110.0));
+    assert_eq!(reversed, forward);
+}
+
+#[test]
+fn grid_overlapping_row_spans_keep_content_below_in_place_for_every_child_order() {
+    // Same spans plus a plain 5-high item in row 2: the rows stay 45, 45, 5 (frame 115) and the item sits at 110.
+    let kids = [pinned_span(100.0, 0, 0, 2), pinned_span(40.0, 1, 1, 2), pinned_span(5.0, 0, 2, 1)];
+    let first = solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &kids, &ORDERS_OF_THREE[0]);
+    assert_eq!(first.0, (300.0, 115.0));
+    assert_eq!(first.1[2], [0.0, 110.0, 40.0, 5.0]);
+    for order in &ORDERS_OF_THREE[1..] {
+        assert_eq!(solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &kids, order), first, "child order {order:?} changed the layout");
+    }
+}
+
+#[test]
+fn grid_row_spans_of_different_lengths_size_rows_independent_of_child_order() {
+    // A 3-row span (110), a 2-row span over rows 0-1 (100) and a 2-row span over rows 1-2 (60).
+    // The 2-row spans settle first: rows 45, 45, then row 2 gains the 5 the lower span still needs.
+    // The 3-row span (90 without gaps) already fits in 95, so no row grows: 45 + 45 + 5 + two gaps.
+    let kids = [pinned_span(110.0, 0, 0, 3), pinned_span(100.0, 1, 0, 2), pinned_span(60.0, 2, 1, 2)];
+    let first = solve_in_child_order(hugging_grid(3), v2(300.0, 300.0), &kids, &ORDERS_OF_THREE[0]);
+    assert_eq!(first.0, (300.0, 115.0));
+    for order in &ORDERS_OF_THREE[1..] {
+        assert_eq!(solve_in_child_order(hugging_grid(3), v2(300.0, 300.0), &kids, order), first, "child order {order:?} changed the layout");
+    }
+}
+
+#[test]
+fn grid_overlapping_row_spans_size_rows_the_same_when_the_tall_span_is_lower() {
+    // Mirror image of the pair above: the tall item holds rows 1-2, the short one rows 0-1.
+    let pair = [pinned_span(40.0, 1, 0, 2), pinned_span(100.0, 0, 1, 2)];
+    let forward = solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &pair, &[0, 1]);
+    let reversed = solve_in_child_order(hugging_grid(2), v2(300.0, 300.0), &pair, &[1, 0]);
+    assert_eq!(forward.0, (300.0, 110.0));
+    assert_eq!(reversed, forward);
 }
 
 // ---- grid placement: pinned first, then locked, then auto -------------------------------------
@@ -501,4 +652,295 @@ fn grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns(
     let solved = solve_everywhere_with_frame_limits(al, v2(100.0, 50.0), frame_lc, &[fill, fill]);
     assert_eq!(solved.kids[0], [0.0, 0.0, 145.0, 10.0]);
     assert_eq!(solved.kids[1], [155.0, 0.0, 145.0, 10.0]);
+}
+
+#[test]
+fn nested_container_resized_by_parent_fill_resolves_its_own_children() {
+    // Parent Fixed 300x100 (padding 10, gap 20) holds a Fixed 40x30 child and a nested auto-layout
+    // child frame with horizontal Fill + vertical Hug. The nested frame hugs (98, 32) on the bottom-up
+    // pass, then the parent stretches it to width 220, so the nested frame must re-solve its own
+    // children inside 220 (stretching its Fill grandchild to 220 - 16 - 50 - 12 = 142).
+    let run = |entry: Entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut parent = Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 100.0));
+        let mut parent_al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        parent_al.padding = [10.0, 10.0, 10.0, 10.0];
+        parent_al.item_spacing = 20.0;
+        parent.kind = NodeKind::Frame(FrameProps { auto_layout: Some(parent_al), ..Default::default() });
+        let parent = d.insert(page, parent).unwrap();
+
+        let lead_id = d.alloc_id();
+        let lead = d.insert(parent, Node::rectangle(lead_id, Rect::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+
+        let nested_id = d.alloc_id();
+        let mut nested = Node::frame(nested_id, Rect::new(0.0, 0.0, 80.0, 40.0));
+        let mut nested_al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        nested_al.primary_sizing = Sizing::Fixed;
+        nested_al.counter_sizing = Sizing::Hug;
+        nested_al.padding = [4.0, 8.0, 4.0, 8.0];
+        nested_al.item_spacing = 12.0;
+        nested.kind = NodeKind::Frame(FrameProps { auto_layout: Some(nested_al), ..Default::default() });
+        nested.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Hug, ..Default::default() };
+        let nested = d.insert(parent, nested).unwrap();
+
+        let gc_fixed_id = d.alloc_id();
+        let gc_fixed = d.insert(nested, Node::rectangle(gc_fixed_id, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+
+        let gc_fill_id = d.alloc_id();
+        let mut gc_fill_node = Node::rectangle(gc_fill_id, Rect::new(0.0, 0.0, 20.0, 24.0));
+        gc_fill_node.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fixed, ..Default::default() };
+        let gc_fill = d.insert(nested, gc_fill_node).unwrap();
+
+        match entry {
+            Entry::Editor => layout_node(&mut d, &mut Edit::new(), parent),
+            Entry::Spec => d.relayout_subtree(parent),
+            Entry::Changelog => designos_doc::relayout_subtree(&mut d, parent),
+        }
+        let rect_of = |id: NodeId| {
+            let n = d.get(id).unwrap();
+            [n.transform.tx, n.transform.ty, n.size.x, n.size.y]
+        };
+        (rect_of(parent), rect_of(lead), rect_of(nested), rect_of(gc_fixed), rect_of(gc_fill))
+    };
+
+    let editor = run(Entry::Editor);
+    for entry in [Entry::Spec, Entry::Changelog] {
+        assert_eq!(run(entry), editor, "{entry:?} disagrees with Editor");
+    }
+    assert_eq!(editor.0, [0.0, 0.0, 300.0, 100.0]);
+    assert_eq!(editor.1, [10.0, 10.0, 40.0, 30.0]);
+    assert_eq!(editor.2, [70.0, 10.0, 220.0, 32.0]);
+    assert_eq!(editor.3, [8.0, 4.0, 50.0, 24.0]);
+    assert_eq!(editor.4, [70.0, 4.0, 142.0, 24.0]);
+}
+
+/// Registers the two-mode number collection `col-space` (default `compact`, plus `spacious`) with one
+/// variable per `(id, compact, spacious)`.
+fn add_space_variables(d: &mut Document, vars: &[(&str, f32, f32)]) {
+    use designos_doc::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    d.variable_collections.insert(
+        "col-space".into(),
+        VariableCollection {
+            id: "col-space".into(),
+            name: "Space".into(),
+            modes: vec![VariableMode { id: "compact".into(), name: "Compact".into() }, VariableMode { id: "spacious".into(), name: "Spacious".into() }],
+            default_mode: "compact".into(),
+            variables: vars.iter().map(|(id, ..)| (*id).to_string()).collect(),
+            key: None,
+            source_library_key: None,
+        },
+    );
+    for &(id, compact, spacious) in vars {
+        d.variables.insert(
+            id.into(),
+            Variable {
+                id: id.into(),
+                name: id.into(),
+                collection: "col-space".into(),
+                kind: VariableKind::Number,
+                values: [("compact".to_string(), VariableValue::Number(compact)), ("spacious".to_string(), VariableValue::Number(spacious))]
+                    .into_iter()
+                    .collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+            },
+        );
+    }
+}
+
+fn relayout_through(entry: Entry, d: &mut Document, root: NodeId) {
+    match entry {
+        Entry::Editor => layout_node(d, &mut Edit::new(), root),
+        Entry::Spec => d.relayout_subtree(root),
+        Entry::Changelog => designos_doc::relayout_subtree(d, root),
+    }
+}
+
+fn box_of(d: &Document, id: NodeId) -> [f32; 4] {
+    let n = d.get(id).unwrap();
+    [n.transform.tx, n.transform.ty, n.size.x, n.size.y]
+}
+
+/// Runs `scene` through every entry point and requires the same result from each.
+fn same_through_every_entry<T: PartialEq + std::fmt::Debug>(scene: impl Fn(Entry) -> T) -> T {
+    let editor = scene(Entry::Editor);
+    for entry in [Entry::Spec, Entry::Changelog] {
+        assert_eq!(scene(entry), editor, "{entry:?} disagrees with Editor");
+    }
+    editor
+}
+
+#[test]
+fn variable_bound_width_gap_and_padding_under_non_default_mode() {
+    let run = |entry: Entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        add_space_variables(&mut d, &[("var-w", 40.0, 90.0), ("var-gap", 4.0, 16.0), ("var-px", 6.0, 20.0), ("var-py", 4.0, 12.0)]);
+
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+        al.primary_sizing = Sizing::Hug;
+        al.counter_sizing = Sizing::Hug;
+        al.item_spacing = 4.0;
+        al.padding = [4.0, 6.0, 4.0, 6.0];
+        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        f.variables.modes.insert("col-space".into(), "spacious".into());
+        for (k, v) in [("itemSpacing", "var-gap"), ("paddingLeft", "var-px"), ("paddingRight", "var-px"), ("paddingTop", "var-py"), ("paddingBottom", "var-py")]
+        {
+            f.variables.bindings.insert(k.into(), v.into());
+        }
+        let f = d.insert(page, f).unwrap();
+
+        let c0_id = d.alloc_id();
+        let mut c0 = Node::rectangle(c0_id, Rect::new(0.0, 0.0, 40.0, 24.0));
+        c0.variables.bindings.insert("width".into(), "var-w".into());
+        let c0 = d.insert(f, c0).unwrap();
+
+        let c1_id = d.alloc_id();
+        let c1 = d.insert(f, Node::rectangle(c1_id, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+
+        relayout_through(entry, &mut d, f);
+        let fs = d.get(f).unwrap().size;
+        Solved { frame: (fs.x, fs.y), kids: vec![box_of(&d, c0), box_of(&d, c1)] }
+    };
+
+    let editor = same_through_every_entry(run);
+    assert_eq!(editor.frame, (196.0, 48.0));
+    assert_eq!(editor.kids[0], [20.0, 12.0, 90.0, 24.0]);
+    assert_eq!(editor.kids[1], [126.0, 12.0, 50.0, 24.0]);
+}
+
+/// A fixed `parent_dir` flow frame holding a child frame (flow `child_dir`, the given sizing, one 10x10
+/// rectangle inside) whose `width` and `height` are bound to variables, followed by a 30x10 rectangle.
+/// Returns the child's and the sibling's `[x, y, w, h]`.
+fn bound_child_frame_then_sibling(entry: Entry, parent_dir: LayoutDirection, child_dir: LayoutDirection, primary: Sizing, counter: Sizing) -> [[f32; 4]; 2] {
+    let mut d = Document::new("t");
+    let page = d.add_page("p");
+    add_space_variables(&mut d, &[("var-w", 200.0, 300.0), ("var-h", 60.0, 90.0)]);
+
+    let pid = d.alloc_id();
+    let mut parent = Node::frame(pid, Rect::new(0.0, 0.0, 300.0, 300.0));
+    parent.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto(parent_dir, LayoutAlign::Start)), ..Default::default() });
+    let parent = d.insert(page, parent).unwrap();
+
+    let cid = d.alloc_id();
+    let mut child = Node::frame(cid, Rect::new(0.0, 0.0, 10.0, 10.0));
+    let mut child_al = auto(child_dir, LayoutAlign::Start);
+    child_al.primary_sizing = primary;
+    child_al.counter_sizing = counter;
+    child.kind = NodeKind::Frame(FrameProps { auto_layout: Some(child_al), ..Default::default() });
+    child.variables.bindings.insert("width".into(), "var-w".into());
+    child.variables.bindings.insert("height".into(), "var-h".into());
+    let child = d.insert(parent, child).unwrap();
+    let inner_id = d.alloc_id();
+    d.insert(child, Node::rectangle(inner_id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+
+    let sibling_id = d.alloc_id();
+    let sibling = d.insert(parent, Node::rectangle(sibling_id, Rect::new(0.0, 0.0, 30.0, 10.0))).unwrap();
+
+    relayout_through(entry, &mut d, parent);
+    [box_of(&d, child), box_of(&d, sibling)]
+}
+
+#[test]
+fn a_hugging_frame_ignores_width_and_height_variables_so_siblings_sit_behind_the_hugged_size() {
+    // the frame hugs its 10x10 content on both axes: the bound 200 x 60 never reaches the parent, which
+    // packs the next sibling right behind the hugged 10 (no hole), whichever way either flow runs
+    for parent_dir in DIRECTIONS {
+        for child_dir in DIRECTIONS {
+            let got = same_through_every_entry(|entry| bound_child_frame_then_sibling(entry, parent_dir, child_dir, Sizing::Hug, Sizing::Hug));
+            let sibling = if parent_dir == LayoutDirection::Horizontal { [10.0, 0.0, 30.0, 10.0] } else { [0.0, 10.0, 30.0, 10.0] };
+            assert_eq!(got, [[0.0, 0.0, 10.0, 10.0], sibling], "parent {parent_dir:?} child {child_dir:?}");
+        }
+    }
+}
+
+#[test]
+fn only_the_hugging_axis_of_a_frame_ignores_its_variable_the_fixed_axis_keeps_it() {
+    // child hugs along its own flow (primary) and is fixed across it (counter)
+    let cases = [
+        // (parent flow, child flow, child box, sibling box)
+        (LayoutDirection::Horizontal, LayoutDirection::Horizontal, [0.0, 0.0, 10.0, 60.0], [10.0, 0.0, 30.0, 10.0]),
+        (LayoutDirection::Horizontal, LayoutDirection::Vertical, [0.0, 0.0, 200.0, 10.0], [200.0, 0.0, 30.0, 10.0]),
+        (LayoutDirection::Vertical, LayoutDirection::Horizontal, [0.0, 0.0, 10.0, 60.0], [0.0, 60.0, 30.0, 10.0]),
+        (LayoutDirection::Vertical, LayoutDirection::Vertical, [0.0, 0.0, 200.0, 10.0], [0.0, 10.0, 30.0, 10.0]),
+    ];
+    for (parent_dir, child_dir, child_box, sibling_box) in cases {
+        let got = same_through_every_entry(|entry| bound_child_frame_then_sibling(entry, parent_dir, child_dir, Sizing::Hug, Sizing::Fixed));
+        assert_eq!(got, [child_box, sibling_box], "parent {parent_dir:?} child {child_dir:?}");
+    }
+}
+
+#[test]
+fn a_fixed_frame_with_a_variable_bound_width_lays_its_children_out_in_the_bound_box() {
+    // Fixed frame stored 10x10, width bound to 200: its Fill child follows the bound width in every entry
+    let got = same_through_every_entry(|entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        add_space_variables(&mut d, &[("var-w", 200.0, 300.0)]);
+
+        let pid = d.alloc_id();
+        let mut parent = Node::frame(pid, Rect::new(0.0, 0.0, 300.0, 100.0));
+        parent.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto(LayoutDirection::Horizontal, LayoutAlign::Start)), ..Default::default() });
+        let parent = d.insert(page, parent).unwrap();
+
+        let cid = d.alloc_id();
+        let mut child = Node::frame(cid, Rect::new(0.0, 0.0, 10.0, 10.0));
+        child.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto(LayoutDirection::Horizontal, LayoutAlign::Start)), ..Default::default() });
+        child.variables.bindings.insert("width".into(), "var-w".into());
+        let child = d.insert(parent, child).unwrap();
+        let inner_id = d.alloc_id();
+        let mut inner = Node::rectangle(inner_id, Rect::new(0.0, 0.0, 10.0, 10.0));
+        inner.layout_child = LayoutChild { horizontal: Sizing::Fill, ..Default::default() };
+        let inner = d.insert(child, inner).unwrap();
+
+        let sibling_id = d.alloc_id();
+        let sibling = d.insert(parent, Node::rectangle(sibling_id, Rect::new(0.0, 0.0, 30.0, 10.0))).unwrap();
+
+        relayout_through(entry, &mut d, parent);
+        [box_of(&d, child), box_of(&d, inner), box_of(&d, sibling)]
+    });
+    assert_eq!(got, [[0.0, 0.0, 200.0, 10.0], [0.0, 0.0, 200.0, 10.0], [200.0, 0.0, 30.0, 10.0]]);
+}
+
+#[test]
+fn a_group_ignores_width_and_height_variables_because_it_always_fits_its_children() {
+    // the group is stored 40x20 around its 40x20 rectangle; a bound 200 x 60 would only be refit away by
+    // the editor, so no solver may let it push the sibling
+    for parent_dir in DIRECTIONS {
+        let got = same_through_every_entry(|entry| {
+            let mut d = Document::new("t");
+            let page = d.add_page("p");
+            add_space_variables(&mut d, &[("var-w", 200.0, 300.0), ("var-h", 60.0, 90.0)]);
+
+            let pid = d.alloc_id();
+            let mut parent = Node::frame(pid, Rect::new(0.0, 0.0, 300.0, 300.0));
+            parent.kind = NodeKind::Frame(FrameProps { auto_layout: Some(auto(parent_dir, LayoutAlign::Start)), ..Default::default() });
+            let parent = d.insert(page, parent).unwrap();
+
+            let gid = d.alloc_id();
+            let mut group = Node::new(gid, NodeKind::Group);
+            group.size = v2(40.0, 20.0);
+            group.variables.bindings.insert("width".into(), "var-w".into());
+            group.variables.bindings.insert("height".into(), "var-h".into());
+            let group = d.insert(parent, group).unwrap();
+            let inner_id = d.alloc_id();
+            d.insert(group, Node::rectangle(inner_id, Rect::new(0.0, 0.0, 40.0, 20.0))).unwrap();
+
+            let sibling_id = d.alloc_id();
+            let sibling = d.insert(parent, Node::rectangle(sibling_id, Rect::new(0.0, 0.0, 30.0, 10.0))).unwrap();
+
+            relayout_through(entry, &mut d, parent);
+            [box_of(&d, group), box_of(&d, sibling)]
+        });
+        let sibling = if parent_dir == LayoutDirection::Horizontal { [40.0, 0.0, 30.0, 10.0] } else { [0.0, 20.0, 30.0, 10.0] };
+        assert_eq!(got, [[0.0, 0.0, 40.0, 20.0], sibling], "parent {parent_dir:?}");
+    }
 }

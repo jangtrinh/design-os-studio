@@ -130,6 +130,7 @@ pub struct TabsState {
     pub entries: Vec<ProjectTab>,
     pub active_idx: usize,
     pub next_id: u64,
+    pub instance_id: String,
     pub ctx_menu_tab: Option<(usize, Pos2)>,
     pub new_menu_pos: Option<Pos2>,
     /// True in the live native window and screenshot runs so the 32px Top Tab Bar is always shown.
@@ -146,6 +147,7 @@ impl Default for TabsState {
             entries: Vec::new(),
             active_idx: 0,
             next_id: 1,
+            instance_id: String::new(),
             ctx_menu_tab: None,
             new_menu_pos: None,
             always_visible: false,
@@ -156,7 +158,29 @@ impl Default for TabsState {
 }
 
 impl TabsState {
+    fn ensure_instance_id(&mut self) {
+        if self.instance_id.is_empty() {
+            static NEXT_INSTANCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let n = NEXT_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.instance_id = format!("p{}-w{n}", std::process::id());
+        }
+    }
+
+    pub fn session_id_for_tab(&mut self, tab_id: u64) -> String {
+        self.ensure_instance_id();
+        crate::terminal::tab_session_id(&self.instance_id, tab_id)
+    }
+
+    /// Session id the window's terminal keeps: the active tab's, or the first tab's when no tab
+    /// exists yet. A shell started before the first frame captures its session directory once, so
+    /// the terminal is bound to this id before such a shell can start.
+    pub fn active_session_id(&mut self) -> String {
+        let tab_id = self.entries.get(self.active_idx).map_or(self.next_id, |t| t.id);
+        self.session_id_for_tab(tab_id)
+    }
+
     fn alloc_id(&mut self) -> u64 {
+        self.ensure_instance_id();
         let id = self.next_id;
         self.next_id += 1;
         id
@@ -173,7 +197,10 @@ impl TabsState {
     pub fn sync_from_app(&mut self, app: &App) {
         if self.entries.is_empty() {
             let id = self.alloc_id();
-            self.entries.push(ProjectTab::from_app(id, app, None));
+            let sid = self.session_id_for_tab(id);
+            let mut tab = ProjectTab::from_app(id, app, None);
+            tab.terminal.bind_session(&sid);
+            self.entries.push(tab);
             self.active_idx = 0;
             self.hist_in_app = true;
             return;
@@ -206,10 +233,11 @@ impl TabsState {
             app.exit_version_view();
             app.flush_autosave();
             let id = self.alloc_id();
+            let sid = self.session_id_for_tab(id);
             let mut tab = ProjectTab::from_app(id, app, None);
             tab.doc = std::mem::take(&mut app.doc);
             tab.hist = std::mem::take(&mut app.hist);
-            app.terminal.bind_session(&format!("tab-{id}"));
+            app.terminal.bind_session(&sid);
             tab.terminal = std::mem::take(&mut app.terminal);
             tab.dirty = tab.hist.can_undo() || app.autosave.pending();
             self.entries.push(tab);
@@ -220,7 +248,8 @@ impl TabsState {
         if app.home.is_some() {
             if self.hist_in_app && self.active_idx < self.entries.len() {
                 let active_id = self.entries[self.active_idx].id;
-                app.terminal.bind_session(&format!("tab-{active_id}"));
+                let sid = self.session_id_for_tab(active_id);
+                app.terminal.bind_session(&sid);
                 if self.entries[self.active_idx].doc.nodes.is_empty() {
                     self.entries[self.active_idx].doc = std::mem::take(&mut app.doc);
                 }
@@ -237,7 +266,8 @@ impl TabsState {
             app.exit_version_view();
             app.flush_autosave();
             let active_id = self.entries[self.active_idx].id;
-            app.terminal.bind_session(&format!("tab-{active_id}"));
+            let sid = self.session_id_for_tab(active_id);
+            app.terminal.bind_session(&sid);
             self.entries[self.active_idx].doc = std::mem::take(&mut app.doc);
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
             self.entries[self.active_idx].terminal = std::mem::take(&mut app.terminal);
@@ -309,9 +339,10 @@ impl TabsState {
         self.parked_in_home = false;
         self.apply_to_app(idx, app);
         let tab_id = self.entries[idx].id;
+        let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[idx].hist);
         app.terminal = std::mem::take(&mut self.entries[idx].terminal);
-        app.terminal.bind_session(&format!("tab-{tab_id}"));
+        app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.entries[idx].dirty = app.hist.can_undo() || app.autosave.pending();
         self.hist_in_app = true;
@@ -340,8 +371,9 @@ impl TabsState {
         }
         if self.entries.is_empty() {
             self.sync_from_app(app);
-            if let Some(tab) = self.entries.get(self.active_idx) {
-                app.terminal.bind_session(&format!("tab-{}", tab.id));
+            if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
+                let sid = self.session_id_for_tab(tab_id);
+                app.terminal.bind_session(&sid);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             }
             return;
@@ -352,10 +384,11 @@ impl TabsState {
             if let Some(lf) = &app.lib_file {
                 if let Some(existing) = self.entries.iter().position(|t| t.lib_file.as_ref().is_some_and(|tlf| tlf.id == lf.id)) {
                     let tab_id = self.entries[existing].id;
+                    let sid = self.session_id_for_tab(tab_id);
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
                     app.terminal = std::mem::take(&mut self.entries[existing].terminal);
-                    app.terminal.bind_session(&format!("tab-{tab_id}"));
+                    app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                     self.hist_in_app = true;
                     self.sync_from_app(app);
@@ -364,10 +397,11 @@ impl TabsState {
             } else if let Some(path) = &app.file_path {
                 if let Some(existing) = self.entries.iter().position(|t| t.file_path.as_ref() == Some(path)) {
                     let tab_id = self.entries[existing].id;
+                    let sid = self.session_id_for_tab(tab_id);
                     self.active_idx = existing;
                     self.entries[existing].doc = Document::default();
                     app.terminal = std::mem::take(&mut self.entries[existing].terminal);
-                    app.terminal.bind_session(&format!("tab-{tab_id}"));
+                    app.terminal.bind_session(&sid);
                     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                     self.hist_in_app = true;
                     self.sync_from_app(app);
@@ -381,10 +415,13 @@ impl TabsState {
                 .is_some_and(|cur| cur.lib_file != app.lib_file || cur.file_path != app.file_path || cur.title != ProjectTab::derive_title(app));
             if differs {
                 let id = self.alloc_id();
-                let tab = ProjectTab::from_app(id, app, None);
+                let sid = self.session_id_for_tab(id);
+                let mut tab = ProjectTab::from_app(id, app, None);
+                tab.terminal.bind_session(&sid);
                 self.entries.push(tab);
                 self.active_idx = self.entries.len() - 1;
                 app.terminal = crate::terminal::TerminalState::for_tab(id);
+                app.terminal.bind_session(&sid);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                 self.hist_in_app = true;
                 return;
@@ -396,12 +433,14 @@ impl TabsState {
                     app.terminal = std::mem::take(&mut tab.terminal);
                 }
                 self.hist_in_app = true;
-                app.terminal.bind_session(&format!("tab-{tab_id}"));
+                let sid = self.session_id_for_tab(tab_id);
+                app.terminal.bind_session(&sid);
             }
         }
         self.sync_from_app(app);
-        if let Some(tab) = self.entries.get(self.active_idx) {
-            app.terminal.bind_session(&format!("tab-{}", tab.id));
+        if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
+            let sid = self.session_id_for_tab(tab_id);
+            app.terminal.bind_session(&sid);
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         }
     }
@@ -420,13 +459,16 @@ impl TabsState {
         crate::io::ensure_page(&mut doc);
         let page = doc.pages[0];
         let id = self.alloc_id();
+        let sid = self.session_id_for_tab(id);
+        let mut terminal = crate::terminal::TerminalState::for_tab(id);
+        terminal.bind_session(&sid);
         let tab = ProjectTab {
             id,
             title: title.to_string(),
             kind,
             doc,
             hist: History::default(),
-            terminal: crate::terminal::TerminalState::for_tab(id),
+            terminal,
             page,
             selection: Vec::new(),
             view: View::default(),
@@ -443,7 +485,7 @@ impl TabsState {
         self.apply_to_app(new_idx, app);
         app.hist = History::default();
         app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
-        app.terminal.bind_session(&format!("tab-{id}"));
+        app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
         app.fit_all();
@@ -515,13 +557,16 @@ impl TabsState {
         app.open_library_file(file_id);
         if app.lib_file.as_ref().is_some_and(|lf| lf.id == file_id) {
             let id = self.alloc_id();
-            let tab = ProjectTab::from_app(id, app, None);
+            let sid = self.session_id_for_tab(id);
+            let mut tab = ProjectTab::from_app(id, app, None);
+            tab.terminal.bind_session(&sid);
             self.entries.push(tab);
             let idx = self.entries.len() - 1;
             self.active_idx = idx;
             self.parked_in_home = false;
             self.hist_in_app = true;
             app.terminal = crate::terminal::TerminalState::for_tab(id);
+            app.terminal.bind_session(&sid);
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             Some(idx)
         } else {
@@ -574,9 +619,10 @@ impl TabsState {
         self.parked_in_home = false;
         self.apply_to_app(next_idx, app);
         let tab_id = self.entries[next_idx].id;
+        let sid = self.session_id_for_tab(tab_id);
         app.hist = std::mem::take(&mut self.entries[next_idx].hist);
         app.terminal = std::mem::take(&mut self.entries[next_idx].terminal);
-        app.terminal.bind_session(&format!("tab-{tab_id}"));
+        app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
         true
@@ -599,12 +645,13 @@ impl TabsState {
         self.entries.retain(|t| t.id == keep_id || t.pinned);
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
+            let sid = self.session_id_for_tab(tab_id);
             self.active_idx = new_idx;
             self.parked_in_home = false;
             self.apply_to_app(new_idx, app);
             app.hist = std::mem::take(&mut self.entries[new_idx].hist);
             app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
-            app.terminal.bind_session(&format!("tab-{tab_id}"));
+            app.terminal.bind_session(&sid);
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             self.hist_in_app = true;
         }
@@ -629,13 +676,16 @@ impl TabsState {
         let copy_dev_mode = src.dev_mode;
 
         let new_id = self.alloc_id();
+        let sid = self.session_id_for_tab(new_id);
+        let mut terminal = crate::terminal::TerminalState::for_tab(new_id);
+        terminal.bind_session(&sid);
         let new_tab = ProjectTab {
             id: new_id,
             title: copy_title,
             kind: copy_kind,
             doc: copy_doc,
             hist: History::default(),
-            terminal: crate::terminal::TerminalState::for_tab(new_id),
+            terminal,
             page: copy_page,
             selection: copy_selection,
             view: copy_view,
@@ -652,7 +702,7 @@ impl TabsState {
         self.apply_to_app(insert_idx, app);
         app.hist = History::default();
         app.terminal = std::mem::take(&mut self.entries[insert_idx].terminal);
-        app.terminal.bind_session(&format!("tab-{new_id}"));
+        app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;
         Some(insert_idx)
@@ -1239,5 +1289,66 @@ mod tests {
         assert_eq!(app.tabs.active_idx, 0);
         assert_eq!(app.doc.name, "File Two");
         assert_eq!(app.terminal.input_line, "codex --file-two");
+    }
+
+    #[test]
+    fn two_studio_instances_have_distinct_agent_session_directories() {
+        let mut app_a = App::new(Document::new("Window A"));
+        let mut tabs_a = std::mem::take(&mut app_a.tabs);
+        tabs_a.reconcile_frame(&mut app_a);
+        app_a.tabs = tabs_a;
+
+        let mut app_b = App::new(Document::new("Window B"));
+        let mut tabs_b = std::mem::take(&mut app_b.tabs);
+        tabs_b.reconcile_frame(&mut app_b);
+        app_b.tabs = tabs_b;
+
+        assert_eq!(app_a.tabs.entries[0].id, 1);
+        assert_eq!(app_b.tabs.entries[0].id, 1);
+        assert_ne!(app_a.terminal.session_dir, app_b.terminal.session_dir, "two Studio instances must not share the same agent session directory for tab 1");
+        let pid_tag = format!("p{}-", std::process::id());
+        assert!(
+            app_a.terminal.session_id.starts_with(&pid_tag) && app_b.terminal.session_id.starts_with(&pid_tag),
+            "session ids should include the process id: {} vs {}",
+            app_a.terminal.session_id,
+            app_b.terminal.session_id
+        );
+        let _ = std::fs::remove_dir_all(&app_a.terminal.session_dir);
+        let _ = std::fs::remove_dir_all(&app_b.terminal.session_dir);
+    }
+
+    /// The terminal is bound to `active_session_id` before a shell can start in it (`Shell::build`);
+    /// that must be the id the first reconcile binds, or the shell keeps writing to a directory
+    /// Studio no longer watches.
+    #[test]
+    fn the_session_bound_before_a_shell_starts_is_the_one_the_first_reconcile_keeps() {
+        let mut app = App::new(Document::new("Preset"));
+        let bound = app.tabs.active_session_id();
+        app.terminal.bind_session(&bound);
+        app.terminal.ensure_default_tab(None);
+        assert_eq!(app.terminal.tabs.len(), 1, "precondition: the shell started");
+        let started_with = app.terminal.session_env();
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        assert_eq!(app.terminal.session_id, started_with.session_id, "the first frame moved Studio off the session the shell was started with");
+        assert_eq!(app.terminal.session_dir, started_with.session_dir);
+        assert_eq!(started_with.session_id, bound);
+        assert_eq!(bound, app.tabs.session_id_for_tab(app.tabs.entries[0].id));
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&app.terminal.session_dir);
+    }
+
+    #[test]
+    fn active_session_id_follows_the_active_tab() {
+        let mut app = make_app_with_doc("Tab 1");
+        let first = app.tabs.entries[0].id;
+        assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(first));
+        app.open_new_tab("Tab 2", Document::new("Tab 2"), ProjectTabKind::Design);
+        let second = app.tabs.entries[app.tabs.active_idx].id;
+        assert_ne!(first, second);
+        assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(second));
     }
 }

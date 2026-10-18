@@ -93,11 +93,20 @@ fn a_switch_the_editor_was_not_told_about_is_reported_and_no_edit_reaches_the_lo
     assert!(err.contains("previous document"), "{err}");
     assert_eq!(session.engine.doc.nodes.values().filter(|n| n.name == "After").count(), 0, "the refused edit is rolled back");
 
-    // Once the log works the switch is announced first, then the edit.
+    // Once the log works the switch is announced with `After` already inside `doc-sync.designos`
+    // (not re-logged as a duplicate patch), and subsequent edits follow as patches.
     fs::remove_dir(&log).unwrap();
     create(&mut session, "After").unwrap();
     let lines = dirs.log();
-    assert!(matches!(lines[0], LiveLogLine::DocEpoch(_)), "{lines:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let LiveLogLine::DocEpoch(mark) = &lines[0] else { panic!("expected DocEpoch: {lines:?}") };
+    let published = fs::read(dirs.session.join("doc-sync.designos")).unwrap();
+    assert!(mark.matches(&published));
+    let published_doc = Document::from_json(std::str::from_utf8(&published).unwrap()).unwrap();
+    assert_eq!(published_doc.nodes.values().filter(|n| n.name == "After").count(), 1);
+
+    create(&mut session, "Second").unwrap();
+    let lines = dirs.log();
+    assert_eq!(lines.len(), 2, "{lines:?}");
     assert!(matches!(lines[1], LiveLogLine::Patch(_)), "{lines:?}");
-    assert_eq!(lines.len(), 2);
 }

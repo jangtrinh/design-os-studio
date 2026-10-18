@@ -660,7 +660,10 @@ pub fn show_sidebar_card(ui: &mut Ui, state: &mut UpdaterState) {
 
 /// Renders the Dual-Layer Auto-Update & Upstream Figma Watchdog modal dialog (`US-09`).
 pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {
-    if !UPDATER_UI_ENABLED || !state.modal_open {
+    if !UPDATER_UI_ENABLED {
+        return;
+    }
+    if !state.modal_open {
         return;
     }
 

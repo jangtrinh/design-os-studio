@@ -70,7 +70,7 @@ fn menu_model(app: &App, sel: &[NodeId], prop: StyleProperty) -> (Vec<MenuItem>,
     // A library style is edited and renamed in its library file.
     let read_only = current.as_deref().is_some_and(|k| style_edit::is_read_only(app, k));
     items.push(MenuItem::new(create).disabled(linked || !has_values(app, sel, prop)));
-    items.push(MenuItem::new("Rename style").disabled(!linked || read_only));
+    items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Rename style" }).disabled(!linked || read_only));
     items.push(MenuItem::new("Detach style").disabled(!linked));
     items.push(MenuItem::new(if read_only { style_edit::LIBRARY_STYLE_TIP } else { "Edit style" }).disabled(!linked || read_only));
     picks.extend([Some(Pick::Create), Some(Pick::Rename), Some(Pick::Detach), Some(Pick::Edit)]);
@@ -83,10 +83,11 @@ pub(crate) fn edit_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> 
     menu_model(app, sel, prop).0.pop().expect("the menu always ends with the Edit style row")
 }
 
-/// The "Rename style" row of the menu, so tests can read its state.
+/// The "Rename style" row of the menu, so tests can read its label and state.
 #[cfg(test)]
 pub(crate) fn rename_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -> MenuItem {
-    menu_model(app, sel, prop).0.into_iter().find(|item| item.label == "Rename style").expect("the menu always has a Rename style row")
+    let (items, picks) = menu_model(app, sel, prop);
+    items.into_iter().zip(picks).find_map(|(item, pick)| matches!(pick, Some(Pick::Rename)).then_some(item)).expect("the menu always has a Rename style row")
 }
 
 /// The "Style" button left of the "+" of a section header whose title row was just laid out, and

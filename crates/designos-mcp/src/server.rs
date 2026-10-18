@@ -254,13 +254,15 @@ impl Session {
         let Some(path) = self.bridge.live_doc_patch_path.as_ref().filter(|_| !ops.is_empty()) else {
             return Ok(());
         };
+        // An edit logged behind a switch the editor never heard of would land on the wrong document.
+        // Because `self.engine.doc` already holds the edit, publishing the unannounced switch sends it
+        // in full and must not also append the patch line after the switch mark.
+        if self.bridge.doc_unannounced {
+            return self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"));
+        }
         let base = self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64);
         let line = live_patch_line(&LivePatch::new(ops).with_base(base), MAX_LIVE_PATCH_LINE_BYTES)?;
         let path = path.clone();
-        // An edit logged behind a switch the editor never heard of would land on the wrong document.
-        if self.bridge.doc_unannounced {
-            self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"))?;
-        }
         append_log_line(&path, &line)
     }
 
@@ -833,6 +835,55 @@ mod tests {
         assert!(session.engine.doc.get(designos_doc::NodeId(stack_id)).is_none(), "the failed redo was reverted");
         assert!(session.engine.history.can_redo());
         assert_eq!(lines(), written + 1, "only the successful undo reached the editor");
+
+        let _ = fs::remove_dir_all(&ws_dir);
+        let _ = fs::remove_dir_all(&sess_dir);
+    }
+
+    #[test]
+    fn retried_document_switch_on_next_edit_does_not_relog_the_edit() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-switch98-{}-{nonce}", std::process::id()));
+        let sess_dir = std::env::temp_dir().join(format!("designos-mcp-sess-switch98-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        fs::create_dir_all(&sess_dir).unwrap();
+
+        let mut switched = Document::new("SwitchedDoc");
+        let page = switched.add_page("Page 1");
+        let nid = switched.alloc_id();
+        switched.insert(page, designos_doc::Node::frame(nid, designos_doc::Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let switched_file = ws_dir.join("switched.designos");
+        fs::write(&switched_file, switched.to_json().unwrap()).unwrap();
+
+        let mut init = Document::new("InitialDoc");
+        init.add_page("Page 1");
+        fs::write(sess_dir.join("canvas.designos"), init.to_json().unwrap()).unwrap();
+
+        let mut session = Session::with_session_dir(&ws_dir, &sess_dir).unwrap();
+        let log = session.bridge.live_doc_patch_path.clone().unwrap();
+
+        // Simulate a document switch (`designos_open_file`) whose initial sync write fails.
+        let blocker = sess_dir.join("blocker");
+        fs::write(&blocker, "not a directory").unwrap();
+        session.bridge.live_doc_patch_path = Some(blocker.join("doc-patch.jsonl"));
+        let err = session.call("designos_open_file", json!({ "path": "switched.designos", "discard_changes": true })).unwrap_err();
+        assert!(err.contains("still shows the previous document"), "{err}");
+        assert!(session.bridge.doc_unannounced, "switch remains unannounced after write failure");
+
+        // Restore the writable log path and delete `nid`: the retried switch publishes `doc-sync.designos`
+        // with `nid` already removed, so it must NOT also append a Remove patch line after the DocEpoch mark.
+        session.bridge.live_doc_patch_path = Some(log.clone());
+        session.call("designos_delete_node", json!({ "node_id": nid.0 })).unwrap();
+        assert!(!session.bridge.doc_unannounced);
+
+        let synced_raw = fs::read_to_string(sess_dir.join("doc-sync.designos")).unwrap();
+        let synced_doc = Document::from_json(&synced_raw).unwrap();
+        assert!(synced_doc.get(nid).is_none(), "doc-sync.designos already holds the deletion");
+
+        let log_raw = fs::read_to_string(&log).unwrap();
+        let log_lines: Vec<&str> = log_raw.lines().collect();
+        assert_eq!(log_lines.len(), 1, "retried document switch must only write the DocEpoch mark, not re-log the edit: {log_lines:?}");
+        assert!(serde_json::from_str::<DocEpoch>(log_lines[0]).is_ok(), "single line must be the DocEpoch mark");
 
         let _ = fs::remove_dir_all(&ws_dir);
         let _ = fs::remove_dir_all(&sess_dir);

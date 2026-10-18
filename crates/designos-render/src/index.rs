@@ -131,6 +131,23 @@ fn is_chrome_node(doc: &Document, n: &Node, id: NodeId) -> bool {
     (has_own || has_src) && designos_doc::is_slot_container(doc, id)
 }
 
+fn is_grid_node(n: &Node) -> bool {
+    n.kind.frame_props().is_some_and(|fp| !fp.grids.is_empty())
+}
+
+/// Child positions from the page down to `id`. Comparing two paths gives paint order:
+/// a parent sorts before its descendants and a lower sibling before the ones above it.
+fn paint_path(doc: &Document, id: NodeId) -> Vec<usize> {
+    let mut path = Vec::new();
+    let mut cur = id;
+    while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
+        path.push(doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == cur)).unwrap_or(usize::MAX));
+        cur = parent;
+    }
+    path.reverse();
+    path
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Entry {
     /// Page-space bounds of the node and everything it draws (empty if hidden).
@@ -141,6 +158,7 @@ pub(crate) struct Entry {
     pub mask: bool,
     pub boolean: bool,
     pub chrome: bool,
+    pub has_grids: bool,
     pub children_len: u32,
     pub top_order: u32,
     pub world_ts: [f32; 6],
@@ -166,6 +184,12 @@ pub struct SceneIndex {
     pub(crate) top_grid: HashMap<(i32, i32), Vec<NodeId>, BuildHasherDefault<IdHasher>>,
     pub(crate) top_large: Vec<NodeId>,
     pub(crate) chrome_nodes: Vec<NodeId>,
+    /// Visible nodes with layout grids, in paint order (see `restore_grid_order`).
+    pub(crate) grid_nodes: Vec<NodeId>,
+    /// An edit of a built index may have broken the paint order of `grid_nodes`.
+    grid_order_stale: bool,
+    /// Child ids of the page as of the last build; the page has no `Entry` to remember them in.
+    page_children: Box<[NodeId]>,
     top_has_mask: bool,
 }
 
@@ -187,6 +211,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -200,6 +225,8 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
+        // A front-to-back build lists the grid nodes in paint order.
+        self.grid_order_stale = false;
         self.rebuild_top_grid(doc, page);
         Some(prev)
     }
@@ -209,6 +236,7 @@ impl SceneIndex {
         self.top_large.clear();
         self.top_has_mask = false;
         let Some(p) = doc.get(page) else { return };
+        self.page_children = p.children.as_slice().into();
         for (order, &cid) in p.children.iter().enumerate() {
             let Some(n) = doc.get(cid) else { continue };
             if !n.visible {
@@ -252,11 +280,15 @@ impl SceneIndex {
                         self.doc_epoch = doc.mutation_epoch();
                         return;
                     }
+                    self.note_child_order_changes(doc, page, &dirty);
                     let mut top_dirty = false;
                     for &rid in &removed {
                         if let Some(old_e) = self.entries.remove(&rid) {
                             if old_e.chrome {
                                 self.chrome_nodes.retain(|&x| x != rid);
+                            }
+                            if old_e.has_grids {
+                                self.grid_nodes.retain(|&x| x != rid);
                             }
                             if old_e.parent == Some(page) {
                                 top_dirty = true;
@@ -275,12 +307,20 @@ impl SceneIndex {
                                     }
                                 }
                             }
-                        } else if doc.get(id).is_some() && doc.page_of(id) == Some(page) && !self.update_subtree(doc, id, rev) {
-                            ok = false;
-                            break;
+                        } else if doc.get(id).is_some() {
+                            if doc.page_of(id) == Some(page) {
+                                if !self.apply_subtree_update(doc, id, rev) {
+                                    ok = false;
+                                    break;
+                                }
+                            } else {
+                                // Moved to another page: nothing of it is drawn here any more.
+                                self.forget_grid_nodes_under(doc, id);
+                            }
                         }
                     }
                     if ok {
+                        self.restore_grid_order(doc);
                         if top_dirty {
                             self.rebuild_top_grid(doc, page);
                         }
@@ -298,6 +338,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
         self.top_has_mask = false;
         self.page = Some(page);
         self.rev = rev;
@@ -311,6 +352,7 @@ impl SceneIndex {
                 self.build(doc, *c, id, Some(page));
             }
         }
+        self.grid_order_stale = false;
         self.rebuild_top_grid(doc, page);
     }
 
@@ -321,6 +363,8 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.chrome_nodes.clear();
+        self.grid_nodes.clear();
+        self.grid_order_stale = false;
         self.top_has_mask = false;
     }
 
@@ -352,6 +396,50 @@ impl SceneIndex {
     #[inline]
     pub fn chrome_nodes(&self) -> &[NodeId] {
         &self.chrome_nodes
+    }
+
+    /// Drawn nodes on the active page that have non-empty `FrameProps::grids`, in paint order:
+    /// a node with a hidden ancestor is not drawn, so it is not listed.
+    #[inline]
+    pub fn grid_nodes(&self) -> &[NodeId] {
+        &self.grid_nodes
+    }
+
+    fn note_grid_node(&mut self, id: NodeId) {
+        if !self.grid_nodes.contains(&id) {
+            self.grid_nodes.push(id);
+            self.grid_order_stale = true;
+        }
+    }
+
+    /// Stops listing `root` and every node beneath it, for a subtree that is no longer drawn.
+    fn forget_grid_nodes_under(&mut self, doc: &Document, root: NodeId) {
+        if !self.grid_nodes.is_empty() {
+            self.grid_nodes.retain(|&id| id != root && !doc.is_ancestor(root, id));
+        }
+    }
+
+    /// Flags `grid_nodes` for re-sorting when a dirty container lists its children in another order
+    /// than the build saw: every grid node beneath it then paints at a different position.
+    /// Must run before the dirty nodes are re-indexed, which overwrite the remembered child lists.
+    fn note_child_order_changes(&mut self, doc: &Document, page: NodeId, dirty: &[NodeId]) {
+        if self.grid_order_stale || self.grid_nodes.len() < 2 {
+            return;
+        }
+        self.grid_order_stale = dirty.iter().any(|&id| {
+            let Some(n) = doc.get(id) else { return false };
+            if id == page {
+                return *self.page_children != *n.children;
+            }
+            n.visible && self.entries.get(&id).is_some_and(|e| *e.children != *n.children)
+        });
+    }
+
+    /// Re-sorts `grid_nodes` into paint order after an edit listed nodes out of order.
+    fn restore_grid_order(&mut self, doc: &Document) {
+        if std::mem::take(&mut self.grid_order_stale) && self.grid_nodes.len() > 1 {
+            self.grid_nodes.sort_by_cached_key(|&id| paint_path(doc, id));
+        }
     }
 
     /// Cached page-space affine matrix `[sx, ky, kx, sy, tx, ty]` (`a, b, c, d, tx, ty`) for `id`.
@@ -449,6 +537,16 @@ impl SceneIndex {
     /// Incrementally rebuilds `dirty_id`'s subtree and updates ancestor `Entry.bounds`
     /// up to `self.page`, stopping early when an ancestor's `bounds` does not change.
     pub fn update_subtree(&mut self, doc: &Document, dirty_id: NodeId, rev: u64) -> bool {
+        if let Some(page) = self.page {
+            self.note_child_order_changes(doc, page, &[page, dirty_id]);
+        }
+        let updated = self.apply_subtree_update(doc, dirty_id, rev);
+        self.restore_grid_order(doc);
+        updated
+    }
+
+    /// `update_subtree` without re-sorting `grid_nodes`, so a batch of updates sorts once.
+    fn apply_subtree_update(&mut self, doc: &Document, dirty_id: NodeId, rev: u64) -> bool {
         if !self.built {
             return false;
         }
@@ -482,7 +580,7 @@ impl SceneIndex {
         let mut parent_ts = sk::Transform::identity();
         for &aid in ancestors.iter().rev() {
             if !self.entries.contains_key(&aid) {
-                return self.update_subtree(doc, aid, rev);
+                return self.apply_subtree_update(doc, aid, rev);
             }
             let Some(an) = doc.get(aid) else {
                 return false;
@@ -490,6 +588,8 @@ impl SceneIndex {
             let an = &*designos_doc::resolve_node(doc, an);
             let drawn = an.visible && !matches!(an.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
             if !drawn {
+                // Under a hidden ancestor nothing of this subtree is drawn, whatever its own flags say.
+                self.forget_grid_nodes_under(doc, dirty_id);
                 self.rev = rev;
                 return true;
             }
@@ -526,7 +626,12 @@ impl SceneIndex {
                             if stationary || pure_translate {
                                 let children_box = if pure_translate {
                                     self.translate_descendants(dirty_id, dx, dy, rev);
-                                    old_e.children
+                                    // Same children can still have been put in another order.
+                                    if *old_e.children == *n.children {
+                                        old_e.children
+                                    } else {
+                                        n.children.as_slice().into()
+                                    }
                                 } else {
                                     for &c in &n.children {
                                         if self.entries.get(&c).is_none_or(|ce| ce.parent != Some(dirty_id)) {
@@ -561,6 +666,12 @@ impl SceneIndex {
                                 } else if old_e.chrome {
                                     self.chrome_nodes.retain(|&x| x != dirty_id);
                                 }
+                                let has_grids = is_grid_node(n);
+                                if has_grids {
+                                    self.note_grid_node(dirty_id);
+                                } else if old_e.has_grids {
+                                    self.grid_nodes.retain(|&x| x != dirty_id);
+                                }
                                 self.entries.insert(
                                     dirty_id,
                                     Entry {
@@ -570,6 +681,7 @@ impl SceneIndex {
                                         mask: n.is_mask,
                                         boolean: false,
                                         chrome,
+                                        has_grids,
                                         children_len: n.children.len() as u32,
                                         top_order: old_e.top_order,
                                         world_ts: new_wts,
@@ -666,12 +778,22 @@ impl SceneIndex {
         } else if !self.chrome_nodes.is_empty() && self.entries.get(&id).is_some_and(|e| e.chrome) {
             self.chrome_nodes.retain(|&x| x != id);
         }
+        let has_grids = n.visible && is_grid_node(n);
+        if has_grids {
+            self.note_grid_node(id);
+        } else if !self.grid_nodes.is_empty() && self.entries.get(&id).is_some_and(|e| e.has_grids) {
+            self.grid_nodes.retain(|&x| x != id);
+        }
         let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
         let children_len = n.children.len() as u32;
         let ts = parent_ts.pre_concat(to_sk_transform(&n.transform));
         let world_ts = [ts.sx, ts.ky, ts.kx, ts.sy, ts.tx, ts.ty];
         let size = (n.size.x, n.size.y);
         if !drawn {
+            // The subtree below is no longer walked, so the grids in it stop being drawn.
+            if self.entries.get(&id).is_some_and(|e| !e.children.is_empty()) {
+                self.forget_grid_nodes_under(doc, id);
+            }
             self.entries.insert(
                 id,
                 Entry {
@@ -681,6 +803,7 @@ impl SceneIndex {
                     mask: n.is_mask,
                     boolean,
                     chrome,
+                    has_grids,
                     children_len,
                     top_order: 0,
                     world_ts,
@@ -734,6 +857,7 @@ impl SceneIndex {
                 mask: n.is_mask,
                 boolean,
                 chrome,
+                has_grids,
                 children_len,
                 top_order: 0,
                 world_ts,
@@ -1075,5 +1199,264 @@ mod tests {
         inc.query_top_level((-1000.0, -1000.0, 5000.0, 5000.0), &mut inc_top);
         full.query_top_level((-1000.0, -1000.0, 5000.0, 5000.0), &mut full_top);
         assert_eq!(inc_top, full_top);
+    }
+
+    #[test]
+    fn grid_nodes_tracks_only_visible_frames_with_layout_grids() {
+        let mut doc = Document::new("grid-index-test");
+        let page = doc.add_page("page-1");
+
+        let sample_grid = designos_doc::LayoutGrid::Grid { size: 8.0, color: designos_doc::Color::rgba(255, 0, 0, 26) };
+
+        let plain_id = doc.alloc_id();
+        doc.insert(page, Node::frame(plain_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+
+        let gridded_id = doc.alloc_id();
+        let mut gridded = Node::frame(gridded_id, Rect::new(300.0, 0.0, 200.0, 200.0));
+        if let NodeKind::Frame(fp) = &mut gridded.kind {
+            fp.grids.push(sample_grid.clone());
+        }
+        doc.insert(page, gridded).unwrap();
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[gridded_id]);
+
+        if let Some(NodeKind::Frame(fp)) = doc.get_mut(plain_id).map(|n| &mut n.kind) {
+            fp.grids.push(sample_grid);
+        }
+        assert!(idx.update_subtree(&doc, plain_id, 2));
+        assert!(idx.grid_nodes().contains(&gridded_id));
+        assert!(idx.grid_nodes().contains(&plain_id));
+
+        if let Some(NodeKind::Frame(fp)) = doc.get_mut(gridded_id).map(|n| &mut n.kind) {
+            fp.grids.clear();
+        }
+        assert!(idx.update_subtree(&doc, gridded_id, 3));
+        assert_eq!(idx.grid_nodes(), &[plain_id]);
+    }
+
+    fn column_grid() -> designos_doc::LayoutGrid {
+        designos_doc::LayoutGrid::Columns { count: 4, gutter: 8.0, offset: 0.0, color: designos_doc::Color::rgba(255, 0, 0, 26) }
+    }
+
+    fn insert_frame(doc: &mut Document, parent: NodeId, rect: Rect, grid: bool) -> NodeId {
+        let id = doc.alloc_id();
+        let mut frame = Node::frame(id, rect);
+        if let (true, NodeKind::Frame(fp)) = (grid, &mut frame.kind) {
+            fp.grids.push(column_grid());
+        }
+        doc.insert(parent, frame).unwrap()
+    }
+
+    fn insert_group(doc: &mut Document, parent: NodeId, visible: bool) -> NodeId {
+        let id = doc.alloc_id();
+        let mut group = Node::new(id, NodeKind::Group);
+        group.size = Vec2 { x: 400.0, y: 400.0 };
+        group.visible = visible;
+        doc.insert(parent, group).unwrap()
+    }
+
+    /// The layout-grid list a from-scratch build produces for the current document.
+    fn grid_nodes_of_full_build(doc: &Document, page: NodeId, rev: u64) -> Vec<NodeId> {
+        let mut full = SceneIndex::new();
+        full.ensure(doc, page, rev);
+        full.grid_nodes().to_vec()
+    }
+
+    #[test]
+    fn hiding_an_ancestor_drops_the_layout_grids_beneath_it() {
+        let mut doc = Document::new("grid-hidden-ancestor");
+        let page = doc.add_page("page-1");
+        let group = insert_group(&mut doc, page, true);
+        let framed = insert_frame(&mut doc, group, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[framed]);
+
+        doc.get_mut(group).unwrap().visible = false;
+        idx.ensure(&doc, page, 2);
+        assert!(idx.grid_nodes().is_empty(), "a grid under a hidden group is not drawn, so it must not be listed");
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+
+        doc.get_mut(group).unwrap().visible = true;
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.grid_nodes(), &[framed], "showing the group again brings the grid back");
+    }
+
+    #[test]
+    fn hiding_a_deep_ancestor_drops_every_nested_layout_grid() {
+        let mut doc = Document::new("grid-hidden-deep-ancestor");
+        let page = doc.add_page("page-1");
+        let outer = insert_group(&mut doc, page, true);
+        let inner = insert_group(&mut doc, outer, true);
+        let a = insert_frame(&mut doc, inner, Rect::new(0.0, 0.0, 100.0, 100.0), true);
+        let b = insert_frame(&mut doc, outer, Rect::new(120.0, 0.0, 100.0, 100.0), true);
+        let kept = insert_frame(&mut doc, page, Rect::new(600.0, 0.0, 100.0, 100.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b, kept]);
+
+        doc.get_mut(outer).unwrap().visible = false;
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[kept]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn moving_a_gridded_frame_under_a_hidden_group_drops_its_layout_grid() {
+        let mut doc = Document::new("grid-moved-under-hidden");
+        let page = doc.add_page("page-1");
+        let hidden = insert_group(&mut doc, page, false);
+        let framed = insert_frame(&mut doc, page, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[framed]);
+
+        doc.reparent(framed, hidden, 0).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert!(idx.grid_nodes().is_empty());
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn moving_a_gridded_frame_to_another_page_drops_its_layout_grid() {
+        let mut doc = Document::new("grid-moved-to-other-page");
+        let page = doc.add_page("page-1");
+        let other = doc.add_page("page-2");
+        let framed = insert_frame(&mut doc, page, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[framed]);
+
+        doc.reparent(framed, other, 0).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert!(idx.grid_nodes().is_empty());
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn grid_nodes_stay_in_paint_order_after_incremental_edits() {
+        let mut doc = Document::new("grid-paint-order");
+        let page = doc.add_page("page-1");
+        let outer = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 400.0, 400.0), false);
+        let inner = insert_frame(&mut doc, outer, Rect::new(20.0, 20.0, 200.0, 200.0), true);
+        let below = insert_frame(&mut doc, page, Rect::new(500.0, 0.0, 200.0, 200.0), false);
+        let above = insert_frame(&mut doc, page, Rect::new(500.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[inner, above]);
+
+        // A parent that gains a grid after its child already has one still paints beneath the child.
+        doc.get_mut(outer).unwrap().kind.frame_props_mut().unwrap().grids.push(column_grid());
+        // A lower sibling that gains a grid late still paints beneath the sibling above it.
+        doc.get_mut(below).unwrap().kind.frame_props_mut().unwrap().grids.push(column_grid());
+        idx.ensure(&doc, page, 2);
+
+        let expected = [outer, inner, below, above];
+        assert_eq!(idx.grid_nodes(), &expected);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_siblings_on_the_page_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-page-reorder");
+        let page = doc.add_page("page-1");
+        let a = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        doc.reparent(a, page, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a], "the frame that moved up now paints last");
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_siblings_inside_a_group_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-group-reorder");
+        let page = doc.add_page("page-1");
+        let group = insert_group(&mut doc, page, true);
+        let a = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, group, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        doc.reparent(a, group, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn swapping_two_artboards_re_sorts_the_layout_grids_inside_them() {
+        let mut doc = Document::new("grid-artboard-swap");
+        let page = doc.add_page("page-1");
+        let first = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 400.0, 400.0), false);
+        let first_child = insert_frame(&mut doc, first, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+        let second = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 400.0, 400.0), false);
+        let second_child = insert_frame(&mut doc, second, Rect::new(10.0, 10.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[first_child, second_child]);
+
+        doc.reparent(first, page, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[second_child, first_child]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn moving_a_listed_frame_into_another_group_re_sorts_the_layout_grid_list() {
+        let mut doc = Document::new("grid-move-between-groups");
+        let page = doc.add_page("page-1");
+        let group = insert_group(&mut doc, page, true);
+        let inside = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let moving = insert_frame(&mut doc, page, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[inside, moving]);
+
+        doc.reparent(moving, group, 0).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[moving, inside]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 2));
+    }
+
+    #[test]
+    fn reordering_while_the_group_is_translated_still_re_sorts_later_reorders() {
+        let mut doc = Document::new("grid-translate-and-reorder");
+        let page = doc.add_page("page-1");
+        let group = insert_frame(&mut doc, page, Rect::new(0.0, 0.0, 600.0, 400.0), false);
+        let a = insert_frame(&mut doc, group, Rect::new(0.0, 0.0, 200.0, 200.0), true);
+        let b = insert_frame(&mut doc, group, Rect::new(100.0, 0.0, 200.0, 200.0), true);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+
+        // One batch: the group moves and its children swap places.
+        doc.get_mut(group).unwrap().transform.tx += 50.0;
+        doc.reparent(a, group, 1).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.grid_nodes(), &[b, a]);
+
+        // Swapping back must be noticed too: the index has to remember the new child order.
+        doc.reparent(a, group, 0).unwrap();
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.grid_nodes(), &[a, b]);
+        assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
     }
 }

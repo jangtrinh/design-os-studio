@@ -45,6 +45,8 @@ mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
 mod settings;
+#[cfg(test)]
+mod slot_model_tests;
 pub mod spec;
 mod styles_ops;
 mod textmodel;
@@ -387,6 +389,11 @@ impl Document {
     }
 
     #[inline]
+    pub fn bump_mutation_epoch(&mut self) {
+        self.dirty.epoch += 1;
+    }
+
+    #[inline]
     pub fn mark_full_dirty(&mut self) {
         self.dirty.epoch += 1;
         self.dirty.geom_full_epoch = self.dirty.epoch;
@@ -668,6 +675,9 @@ impl Document {
                     if let PropValue::Instance(cid) = val {
                         stack.push(*cid);
                     }
+                }
+                for cfg in n.component.slot_configs.values() {
+                    stack.extend(cfg.preferred.iter().copied());
                 }
             }
         }

@@ -78,6 +78,8 @@ pub fn parse_threads(doc: &Document, text: &str) -> Result<(Vec<CommentThread>, 
         Comment {
             id: format!("figma-{}", str_of(c, "id")),
             author: author.unwrap_or("Unknown").to_string(),
+            author_id: None,
+            author_color: None,
             text: str_of(c, "message").to_string(),
             created: if time::parse_rfc3339(created).is_some() { created.to_string() } else { time::now_rfc3339() },
             edited: None,

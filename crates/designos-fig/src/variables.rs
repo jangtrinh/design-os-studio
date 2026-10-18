@@ -78,6 +78,15 @@ fn type_name(k: VariableKind) -> &'static str {
     }
 }
 
+/// The shared library a collection is a subscribed copy of. `.fig` files and our own export write
+/// `sourceLibraryKey`; a REST `variables/local` response flags such collections `remote: true` and
+/// names no library, so the collection's own key stands in.
+fn library_key_of(c: &Value) -> Option<String> {
+    let explicit = fstr(c, "sourceLibraryKey").filter(|k| !k.is_empty());
+    let remote = fbool(c, "remote") == Some(true);
+    explicit.or_else(|| remote.then(|| fstr(c, "key").or_else(|| fstr(c, "id")).unwrap_or("remote"))).map(String::from)
+}
+
 /// Maps `meta.variableCollections` / `meta.variables` into `doc`, replacing
 /// whatever it had. Returns the number of variables imported.
 pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
@@ -102,6 +111,7 @@ pub fn import_variables_value(doc: &mut Document, v: &Value) -> usize {
                 default_mode,
                 variables: farr(c, "variableIds").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
                 key: fstr(c, "key").map(String::from),
+                source_library_key: library_key_of(c),
             },
         );
     }
@@ -163,10 +173,23 @@ pub fn import_variables_json(doc: &mut Document, json: &str) -> Result<usize, Fi
     Ok(import_variables_value(doc, &v))
 }
 
+fn finite_or(x: f32, neutral: f32) -> f32 {
+    if x.is_finite() {
+        x
+    } else {
+        neutral
+    }
+}
+
 fn value_json(v: &VariableValue) -> Value {
     match v {
-        VariableValue::Color(c) => json!({"r": c.r, "g": c.g, "b": c.b, "a": c.a}),
-        VariableValue::Number(n) => json!(n),
+        VariableValue::Color(c) => json!({
+            "r": finite_or(c.r, 0.0),
+            "g": finite_or(c.g, 0.0),
+            "b": finite_or(c.b, 0.0),
+            "a": finite_or(c.a, 1.0),
+        }),
+        VariableValue::Number(n) => json!(finite_or(*n, 0.0)),
         VariableValue::String(s) => json!(s),
         VariableValue::Boolean(b) => json!(b),
         VariableValue::Alias(id) => json!({"type": "VARIABLE_ALIAS", "id": id}),
@@ -203,7 +226,10 @@ pub fn export_variables_meta(doc: &Document) -> Value {
         }
         m.insert("modes".into(), Value::Array(c.modes.iter().map(|x| json!({"modeId": x.id, "name": x.name})).collect()));
         m.insert("defaultModeId".into(), c.default_mode.clone().into());
-        m.insert("remote".into(), false.into());
+        if let Some(lib) = &c.source_library_key {
+            m.insert("sourceLibraryKey".into(), lib.clone().into());
+        }
+        m.insert("remote".into(), c.is_library().into());
         m.insert("hiddenFromPublishing".into(), false.into());
         m.insert("variableIds".into(), json!(c.variables));
         colls.insert(c.id.clone(), Value::Object(m));
@@ -416,6 +442,9 @@ pub(crate) fn from_fig_entries(entries: &[&Value]) -> Option<Value> {
         if let Some(k) = fstr(e, "key").filter(|k| !k.is_empty()) {
             c["key"] = k.into();
         }
+        if let Some(lib) = fstr(e, "sourceLibraryKey").filter(|k| !k.is_empty()) {
+            c["sourceLibraryKey"] = lib.into();
+        }
         colls.insert(id, c);
     }
     let mut order: Vec<(&str, &Value)> =
@@ -486,5 +515,102 @@ mod tests {
         assert_eq!(v.values["1:6"], VariableValue::Number(4.0));
         assert_eq!(v.values["1:7"], VariableValue::Alias("VariableID:1:9".into()));
         assert!(from_fig_entries(&[]).is_none());
+    }
+    fn fig_set(local: u64, name: &str, key: &str, source_library: Option<&str>) -> Value {
+        let mut set = json!({"type": "VARIABLE_SET", "guid": {"sessionID": 1, "localID": local}, "name": name, "key": key,
+            "variableSetModes": [{"id": {"sessionID": 1, "localID": local + 100}, "name": "Mode 1"}]});
+        if let Some(lib) = source_library {
+            set["sourceLibraryKey"] = lib.into();
+        }
+        set
+    }
+
+    #[test]
+    fn subscribed_library_sets_are_marked_and_keep_their_variables() {
+        let local = fig_set(5, "Theme", "K_LOCAL", None);
+        let library = fig_set(20, "Theme", "K_LIB", Some("lk-83c0"));
+        let local_var = json!({"type": "VARIABLE", "guid": {"sessionID": 1, "localID": 9}, "name": "bg", "variableResolvedType": "FLOAT",
+            "variableSetID": {"guid": {"sessionID": 1, "localID": 5}}});
+        let library_var = json!({"type": "VARIABLE", "guid": {"sessionID": 1, "localID": 30}, "name": "fg", "variableResolvedType": "FLOAT",
+            "variableSetID": {"assetRef": {"key": "K_LIB"}}});
+        let payload = from_fig_entries(&[&local, &library, &local_var, &library_var]).unwrap();
+        let mut doc = Document::new("d");
+        assert_eq!(import_variables_value(&mut doc, &json!({ "variables": payload })), 2);
+        let (l, lib) = (&doc.variable_collections["VariableCollectionId:1:5"], &doc.variable_collections["VariableCollectionId:1:20"]);
+        assert_eq!((l.source_library_key.as_deref(), l.is_library()), (None, false));
+        assert_eq!((lib.source_library_key.as_deref(), lib.is_library()), (Some("lk-83c0"), true));
+        assert_eq!((l.variables.len(), lib.variables.len()), (1, 1));
+        // the publish key stays what it was
+        assert_eq!((l.key.as_deref(), lib.key.as_deref()), (Some("K_LOCAL"), Some("K_LIB")));
+    }
+
+    #[test]
+    fn library_marker_survives_the_rest_shaped_export() {
+        let mut doc = Document::new("d");
+        let payload = from_fig_entries(&[&fig_set(5, "Theme", "K_LOCAL", None), &fig_set(20, "Theme", "K_LIB", Some("lk-83c0"))]).unwrap();
+        import_variables_value(&mut doc, &json!({ "variables": payload }));
+        let meta = export_variables_meta(&doc);
+        assert_eq!(meta["variableCollections"]["VariableCollectionId:1:20"]["sourceLibraryKey"], "lk-83c0");
+        assert!(meta["variableCollections"]["VariableCollectionId:1:5"].get("sourceLibraryKey").is_none());
+        let mut again = Document::new("d2");
+        import_variables_value(&mut again, &json!({ "variables": meta }));
+        assert_eq!(again.variable_collections, doc.variable_collections);
+    }
+
+    #[test]
+    fn export_variables_json_replaces_non_finite_numbers_and_roundtrips() {
+        let mut doc = Document::new("vars");
+        doc.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Light".into() }, VariableMode { id: "m2".into(), name: "Dark".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v_num".into(), "v_col".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "v_num".into(),
+            Variable {
+                id: "v_num".into(),
+                name: "spacing".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Number,
+                values: BTreeMap::from([("m1".into(), VariableValue::Number(f32::NAN)), ("m2".into(), VariableValue::Number(f32::INFINITY))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+            },
+        );
+        doc.variables.insert(
+            "v_col".into(),
+            Variable {
+                id: "v_col".into(),
+                name: "accent".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("m1".into(), VariableValue::Color(Color { r: f32::NAN, g: 0.5, b: f32::NEG_INFINITY, a: f32::NAN }))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+            },
+        );
+
+        let exported = export_variables_json(&doc);
+        let text = serde_json::to_string(&exported).unwrap();
+        assert!(!text.contains("null"), "variable export must not write null for non-finite numbers: {text}");
+
+        let mut reimported = Document::new("back");
+        assert_eq!(import_variables_json(&mut reimported, &text).unwrap(), 2);
+        assert_eq!(reimported.variables["v_num"].values.get("m1"), Some(&VariableValue::Number(0.0)));
+        assert_eq!(reimported.variables["v_num"].values.get("m2"), Some(&VariableValue::Number(0.0)));
+        assert_eq!(reimported.variables["v_col"].values.get("m1"), Some(&VariableValue::Color(Color { r: 0.0, g: 0.5, b: 0.0, a: 1.0 })));
     }
 }

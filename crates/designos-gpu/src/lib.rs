@@ -23,7 +23,7 @@ mod present;
 mod resources;
 
 pub use canvas::Canvas;
-pub use compile::{CompileOptions, SceneCompiler};
+pub use compile::{CompileOptions, SceneCompiler, DEFAULT_REFINE_MAX_PROGRAMS, DEFAULT_REFINE_VRAM_BUDGET_BYTES};
 pub use context::{GpuContext, GpuError};
 pub use exec::{ExecStats, Output, Renderer};
 pub use frame::{Frame, FrameStats};

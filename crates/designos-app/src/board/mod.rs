@@ -30,6 +30,92 @@ pub enum BarMenu {
     EndCap,
 }
 
+/// Local facilitator countdown timer for boards.
+#[derive(Clone, Debug)]
+pub struct FacilitatorTimer {
+    /// Configured countdown duration in seconds (default 300s = 05:00).
+    pub duration_secs: f64,
+    /// Remaining countdown seconds.
+    pub remaining_secs: f64,
+    /// Whether the timer is actively ticking down.
+    pub running: bool,
+    /// Whether the facilitator timer HUD bar is open.
+    pub open: bool,
+    /// Last frame timestamp (`ui.input(|i| i.time)`) observed while running.
+    pub last_tick_time: Option<f64>,
+}
+
+impl Default for FacilitatorTimer {
+    fn default() -> Self {
+        Self { duration_secs: 300.0, remaining_secs: 300.0, running: false, open: false, last_tick_time: None }
+    }
+}
+
+impl FacilitatorTimer {
+    /// Starts or resumes the countdown at timestamp `now`.
+    pub fn start(&mut self, now: f64) {
+        self.open = true;
+        if self.remaining_secs <= 0.0 {
+            self.remaining_secs = self.duration_secs.max(1.0);
+        }
+        self.running = true;
+        self.last_tick_time = Some(now);
+    }
+
+    /// Pauses the countdown.
+    pub fn pause(&mut self) {
+        self.running = false;
+        self.last_tick_time = None;
+    }
+
+    /// Toggles between running and paused states.
+    pub fn toggle(&mut self, now: f64) {
+        if self.running {
+            self.pause();
+        } else {
+            self.start(now);
+        }
+    }
+
+    /// Stops and resets the countdown back to `duration_secs`.
+    pub fn reset(&mut self) {
+        self.running = false;
+        self.remaining_secs = self.duration_secs;
+        self.last_tick_time = None;
+    }
+
+    /// Adds 60 seconds (+1 minute) to the active countdown. The configured duration, which Reset and a
+    /// restart after reaching zero go back to, stays as it is.
+    pub fn add_minute(&mut self) {
+        self.remaining_secs += 60.0;
+    }
+
+    ///Advances the timer by elapsed seconds since the previous frame; returns `true` while running.
+    pub fn tick(&mut self, now: f64) -> bool {
+        if !self.running {
+            self.last_tick_time = None;
+            return false;
+        }
+        if let Some(prev) = self.last_tick_time {
+            let dt = (now - prev).max(0.0);
+            self.remaining_secs = (self.remaining_secs - dt).max(0.0);
+            if self.remaining_secs <= 0.0 {
+                self.running = false;
+                self.last_tick_time = None;
+                return false;
+            }
+        }
+        self.last_tick_time = Some(now);
+        true
+    }
+
+    /// Formats remaining time as `MM:SS`.
+    pub fn format_mm_ss(&self) -> String {
+        let total = self.remaining_secs.ceil().max(0.0) as u64;
+        format!("{:02}:{:02}", total / 60, total % 60)
+    }
+}
+
 /// Editor state of board mode.
 pub struct BoardState {
     /// Colour of the next sticky note.
@@ -52,6 +138,8 @@ pub struct BoardState {
     pub target: Option<NodeId>,
     /// Rendered previews of shapes and stamps for the popovers.
     pub previews: preview::Previews,
+    /// Local facilitator timer state.
+    pub timer: FacilitatorTimer,
 }
 
 impl Default for BoardState {
@@ -67,6 +155,7 @@ impl Default for BoardState {
             dots: None,
             target: None,
             previews: Default::default(),
+            timer: FacilitatorTimer::default(),
         }
     }
 }

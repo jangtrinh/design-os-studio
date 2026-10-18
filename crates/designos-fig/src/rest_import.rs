@@ -112,43 +112,45 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let col = v.get("color").and_then(color).unwrap_or(Color::BLACK.with_alpha(0.25));
     let offset = v.get("offset").and_then(vec2).unwrap_or(Vec2::ZERO);
     let spread = fnum(v, "spread").unwrap_or(0.0);
+    let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
+    let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
         "DROP_SHADOW" => Effect::DropShadow { color: col, offset, radius, spread, visible, show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false) },
         "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible },
         "LAYER_BLUR" => Effect::LayerBlur { radius, visible },
         "BACKGROUND_BLUR" => Effect::BackgroundBlur { radius, visible },
         // Noise / texture / glass: every field is optional; missing ones fall back to the
-        // editor defaults. Names match what `export.rs` writes.
+        // editor defaults. Names match what `export.rs` and `fig.rs` write.
         "NOISE" => {
             let primary = v.get("color").and_then(color).unwrap_or(Color::BLACK);
             let mode = match fstr(v, "noiseType").map(str::to_ascii_uppercase).as_deref() {
-                Some("DUOTONE") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
-                Some("MULTITONE") => NoiseMode::Multi,
+                Some("DUOTONE" | "DUO") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
+                Some("MULTITONE" | "MULTI") => NoiseMode::Multi,
                 _ => NoiseMode::Mono { color: primary },
             };
             Effect::Noise(NoiseEffect {
                 mode,
-                size: fnum(v, "noiseSize").unwrap_or(1.0),
+                size: noise_size(v).unwrap_or(1.0),
                 density: fnum(v, "density").unwrap_or(0.5).clamp(0.0, 1.0),
                 opacity: fnum(v, "opacity").unwrap_or(0.25).clamp(0.0, 1.0),
                 blend: fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal),
-                seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+                seed: parse_seed(v),
                 visible,
             })
         }
-        "TEXTURE" => Effect::Texture(TextureEffect {
-            size: fnum(v, "noiseSize").unwrap_or(2.0),
+        "TEXTURE" | "GRAIN" => Effect::Texture(TextureEffect {
+            size: noise_size(v).unwrap_or(2.0),
             radius: fnum(v, "radius").unwrap_or(2.0),
             clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
-            seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+            seed: parse_seed(v),
             visible,
         }),
         "GLASS" => Effect::Glass(GlassEffect {
-            light_angle: fnum(v, "lightAngle").unwrap_or(315.0),
-            light_intensity: fnum(v, "lightIntensity").unwrap_or(0.5).clamp(0.0, 1.0),
-            refraction: fnum(v, "refraction").unwrap_or(0.5).clamp(0.0, 1.0),
-            depth: fnum(v, "depth").unwrap_or(10.0),
-            dispersion: fnum(v, "dispersion").unwrap_or(0.25).clamp(0.0, 1.0),
+            light_angle: fnum(v, "lightAngle").or_else(|| fnum(v, "specularAngle")).unwrap_or(315.0),
+            light_intensity: fnum(v, "lightIntensity").or_else(|| fnum(v, "specularIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            refraction: fnum(v, "refraction").or_else(|| fnum(v, "refractionIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            depth: fnum(v, "depth").or_else(|| fnum(v, "refractionRadius")).unwrap_or(10.0),
+            dispersion: fnum(v, "dispersion").or_else(|| fnum(v, "chromaticAberration")).unwrap_or(0.25).clamp(0.0, 1.0),
             frost: fnum(v, "radius").unwrap_or(4.0),
             visible,
         }),
@@ -1022,6 +1024,9 @@ impl<'a> Ctx<'a> {
         if let Some(lvl) = v.get("overrideLevel").and_then(Value::as_i64) {
             n.component.override_level = Some(lvl as i32);
         }
+        n.component.is_slot = fbool(v, "isSlot").unwrap_or(false);
+        n.component.is_slot_content = fbool(v, "isSlotContent").unwrap_or(false);
+        n.component.slot_content_id = fstr(v, "slotContentId").filter(|s| !s.is_empty()).map(String::from);
         if let Some(ds) = fstr(v, "detachedSymbolId").filter(|s| !s.is_empty()) {
             n.detached_symbol_id = Some(ds.to_string());
             n.component.detached_symbol_id = Some(ds.to_string());
@@ -1197,7 +1202,28 @@ impl<'a> Ctx<'a> {
                         }
                         (PropKind::InstanceSwap { preferred: Vec::new() }, PropValue::Instance(NodeId(0)))
                     }
-                    Some("SLOT") => (PropKind::Slot, PropValue::Slot(Vec::new())),
+                    Some("SLOT") => {
+                        if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object) {
+                            let opt_u32 = |k: &str| cfg.get(k).and_then(Value::as_u64).map(|x| x.min(u64::from(u32::MAX)) as u32);
+                            n.component.slot_configs.insert(
+                                name.clone(),
+                                SlotPropConfig {
+                                    stretch_child_on_insert: cfg.get("stretchChildOnInsert").and_then(Value::as_bool),
+                                    display_by_default: cfg.get("displayByDefault").and_then(Value::as_bool),
+                                    min_children: opt_u32("minChildren"),
+                                    max_children: opt_u32("maxChildren"),
+                                    allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
+                                    preferred: Vec::new(),
+                                },
+                            );
+                        }
+                        for p in farr(d, "preferredValues") {
+                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
+                                self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
+                            }
+                        }
+                        (PropKind::Slot, PropValue::Slot(Vec::new()))
+                    }
                     _ => continue,
                 };
                 n.component.props.push(ComponentPropDef { name, kind, default });
@@ -1509,6 +1535,16 @@ impl<'a> Ctx<'a> {
                             preferred.push(target);
                         }
                     }
+                }
+                continue;
+            }
+            if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
+                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(n) = self.doc.get_mut(node) else { continue };
+                // A slot may list preferred components without ever writing a `slotPropConfig`.
+                let cfg = n.component.slot_configs.entry(name).or_default();
+                if !cfg.preferred.contains(&target) {
+                    cfg.preferred.push(target);
                 }
                 continue;
             }
@@ -2755,13 +2791,14 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
                 return parse_one(max_part);
             }
         }
+        let finite = |s: &str| s.trim().parse::<f32>().ok().filter(|v| v.is_finite());
         if matches!(lower.as_str(), "auto" | "min-content" | "max-content" | "fit-content") {
             GridTrack::Hug
         } else if let Some(fr) = lower.strip_suffix("fr") {
-            GridTrack::Flex(fr.trim().parse::<f32>().unwrap_or(1.0).max(0.01))
+            GridTrack::Flex(finite(fr).unwrap_or(1.0).max(0.01))
         } else if let Some(px) = lower.strip_suffix("px") {
-            GridTrack::Fixed(px.trim().parse::<f32>().unwrap_or(0.0).max(0.0))
-        } else if let Ok(v) = lower.parse::<f32>() {
+            GridTrack::Fixed(finite(px).unwrap_or(0.0).max(0.0))
+        } else if let Some(v) = finite(&lower) {
             GridTrack::Fixed(v.max(0.0))
         } else {
             GridTrack::Flex(1.0)
@@ -3307,5 +3344,24 @@ mod grid_sizing_tests {
         let (n, _) = parse_grid_sizing(&s);
         assert_eq!(n, 0);
         assert!(started.elapsed().as_millis() < 250, "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn non_finite_track_tokens_fall_back_to_finite_defaults() {
+        let (n, t) = parse_grid_sizing("NaNfr inffr -inffr NaNpx infpx -infpx inf -inf");
+        assert_eq!(n, 8);
+        assert_eq!(
+            t,
+            [
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+            ]
+        );
     }
 }
