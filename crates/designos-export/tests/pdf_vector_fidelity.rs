@@ -704,7 +704,7 @@ fn non_latin_text_is_extractable_as_written() {
     // a real extractor agrees when one is installed (hosted runners do not ship poppler)
     let tmp = std::env::temp_dir().join(format!("designos-vector-pdf-text-{}.pdf", std::process::id()));
     std::fs::write(&tmp, &bytes).unwrap();
-    let extractor = std::process::Command::new("pdftotext").arg(&tmp).arg("-").output();
+    let extractor = std::process::Command::new("pdftotext").args(["-enc", "UTF-8"]).arg(&tmp).arg("-").output();
     let _ = std::fs::remove_file(&tmp);
     if let Ok(output) = extractor {
         let extracted = String::from_utf8_lossy(&output.stdout);

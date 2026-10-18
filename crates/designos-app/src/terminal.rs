@@ -4614,13 +4614,28 @@ Done!
         }
     }
 
+    fn pty_fixture_path(name: &str) -> String {
+        let dir = std::env::temp_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join(name).to_string_lossy().replace('\\', "/")
+    }
+
+    #[test]
+    fn pty_fixture_path_is_writable_on_host_temp_dir() {
+        let pid = std::process::id();
+        let probe = pty_fixture_path(&format!("dos-p0-probe-{pid}.txt"));
+        std::fs::write(&probe, "ok").expect("host temp_dir fixture path must be writable on all OSes");
+        assert_eq!(std::fs::read_to_string(&probe).unwrap(), "ok");
+        let _ = std::fs::remove_file(&probe);
+    }
+
     #[test]
     fn pty_injection_fixture_real_shell() {
         let pid = std::process::id();
-        let md = format!("/tmp/dos-p0-fixture-{pid}-md");
-        let mcp = format!("/tmp/dos-p0-fixture-{pid}-mcp");
-        let nl = format!("/tmp/dos-p0-fixture-{pid}-nl");
-        let trunc = format!("/tmp/dos-p0-fixture-{pid}-trunc.txt");
+        let md = pty_fixture_path(&format!("dos-p0-fixture-{pid}-md"));
+        let mcp = pty_fixture_path(&format!("dos-p0-fixture-{pid}-mcp"));
+        let nl = pty_fixture_path(&format!("dos-p0-fixture-{pid}-nl"));
+        let trunc = pty_fixture_path(&format!("dos-p0-fixture-{pid}-trunc.txt"));
 
         // md payload: copy-for-ai markdown with a trunc-file overwrite + touch.
         {
@@ -4941,7 +4956,7 @@ Done!
     #[test]
     fn dead_agent_tab_gets_no_input_and_shows_notice() {
         let pid = std::process::id();
-        let marker = format!("/tmp/dos-p0-r2-dead-{pid}");
+        let marker = pty_fixture_path(&format!("dos-p0-r2-dead-{pid}"));
         let _ = std::fs::remove_file(&marker);
 
         let mut st = TerminalState::default();
@@ -4975,8 +4990,8 @@ Done!
     #[test]
     fn chat_prompt_clears_pending_line_before_enter() {
         let pid = std::process::id();
-        let m_chat = format!("/tmp/dos-p0-r2-pending-{pid}-chat");
-        let m_ai = format!("/tmp/dos-p0-r2-pending-{pid}-ai");
+        let m_chat = pty_fixture_path(&format!("dos-p0-r2-pending-{pid}-chat"));
+        let m_ai = pty_fixture_path(&format!("dos-p0-r2-pending-{pid}-ai"));
         let _ = std::fs::remove_file(&m_chat);
         let _ = std::fs::remove_file(&m_ai);
 
