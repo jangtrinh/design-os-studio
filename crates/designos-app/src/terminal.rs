@@ -4463,11 +4463,18 @@ Done!
         assert_eq!(vt100_color_to_egui(vt100::Color::Idx(15), true), Color32::from_rgb(0xEA, 0xEA, 0xEA));
     }
 
-    struct RecordingWriter(Arc<Mutex<Vec<u8>>>);
+    /// Records every byte the app writes to the tab. `_pty_writer` is the real PTY writer this recorder replaced:
+    /// portable-pty's `UnixMasterWriter` sends a newline plus VEOF into the PTY when dropped, which makes the shell
+    /// child exit. Holding it here keeps the child alive until the tab itself is dropped, so `is_alive()` stays
+    /// deterministic for the whole test instead of racing the shell's exit.
+    struct RecordingWriter {
+        recorded: Arc<Mutex<Vec<u8>>>,
+        _pty_writer: Box<dyn Write + Send>,
+    }
 
     impl Write for RecordingWriter {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
+            self.recorded.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
@@ -4477,7 +4484,8 @@ Done!
 
     fn attach_recorder(tab: &mut TerminalTab) -> Arc<Mutex<Vec<u8>>> {
         let rec = Arc::new(Mutex::new(Vec::new()));
-        tab.writer = Box::new(RecordingWriter(Arc::clone(&rec)));
+        let pty_writer = std::mem::replace(&mut tab.writer, Box::new(std::io::sink()));
+        tab.writer = Box::new(RecordingWriter { recorded: Arc::clone(&rec), _pty_writer: pty_writer });
         rec
     }
 
