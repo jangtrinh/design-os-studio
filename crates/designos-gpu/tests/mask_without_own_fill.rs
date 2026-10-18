@@ -144,6 +144,55 @@ fn a_tiny_zoomed_out_mask_frame_keeps_cutting() {
 }
 
 #[test]
+fn a_deferred_child_does_not_paint_the_stand_in_box_over_alpha_already_drawn() {
+    let mut b = common::T::new();
+    let mask = b.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+        n.fills.clear();
+        n.is_mask = true;
+        n
+    });
+    let half = Color { a: 0.5, ..BLUE };
+    b.rect(Some(mask), Rect::new(0.0, 0.0, 80.0, 80.0), half);
+    b.add(Some(mask), |id| square_vector(id, 10.0));
+    b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+    let (doc, page) = (b.doc, b.page);
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    for (label, uncap) in [("capped", false), ("refined", true)] {
+        let Some(mut g) = common::gpu() else { return };
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        g.compiler.opts.uncap_programs = uncap;
+        let pm = g.render_page(&doc, page, &vp, SIZE);
+        let p = px(&pm, 70, 70);
+        assert!(
+            p[0] == 255 && (p[1] as i32 - 128).abs() <= 2 && (p[2] as i32 - 128).abs() <= 2,
+            "{label}: pixel (70,70) should keep the 0.5 alpha of the drawn child (~half red over white), got {p:?}"
+        );
+    }
+}
+
+#[test]
+fn a_subpixel_zoomed_out_mask_frame_keeps_its_stand_in() {
+    // 2 x 2 world units are 0.8 device pixels at zoom 0.4 (under the 1.25 px childless cull).
+    let (doc, page) = mask_frame_over_red(2.0, 0.0, |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 2.0, 2.0));
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 0.4, dpr: 1.0 };
+    let Some(mut g) = common::gpu() else { return };
+    g.compiler.geom.budget = None;
+    let headless = g.render_page(&doc, page, &vp, (40, 40));
+    assert_ne!(px(&headless, 0, 0), [255, 255, 255, 255], "headless: pixel (0,0) is red");
+
+    g.compiler.geom.budget = Some(Duration::from_millis(8));
+    let interactive = g.render_page(&doc, page, &vp, (40, 40));
+    assert_eq!(px(&interactive, 0, 0), px(&headless, 0, 0), "interactive: 2x2 mask frame at zoom 0.4 must keep its stand-in at pixel (0,0)");
+    assert_eq!(px(&interactive, 20, 20), [255, 255, 255, 255], "interactive: outside the 2x2 mask frame");
+}
+
+#[test]
 fn a_built_vector_child_still_cuts_by_its_shape() {
     let Some(mut g) = common::gpu() else { return };
     // the vector covers the top-left quarter of the mask frame

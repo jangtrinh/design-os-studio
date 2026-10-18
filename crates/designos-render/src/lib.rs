@@ -28,7 +28,7 @@ pub mod vectorops;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
-pub use mask::mask_stencil;
+pub use mask::{mask_frame_box, mask_stencil};
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
     StrokeClip, StrokePlan, TextOutline,
