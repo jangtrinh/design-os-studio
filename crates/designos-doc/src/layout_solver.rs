@@ -13,7 +13,7 @@
 
 use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
 
-pub use crate::layout_solver_grid::compute_grid;
+pub use crate::layout_solver_grid::{compute_grid, placed_grid_rows};
 pub use crate::layout_solver_types::{ChildIn, GridCell, LayoutOut, SizeLimits};
 
 struct Axes {

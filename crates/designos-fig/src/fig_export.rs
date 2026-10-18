@@ -784,9 +784,12 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("gridColumns", V::Uint(al.grid_columns)));
                 fields.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
             }
-            if al.grid_rows > 0 {
-                fields.push(("gridRows", V::Uint(al.grid_rows)));
-                fields.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
+            if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, &node, al) {
+                fields.push(("gridRows", V::Uint(rows)));
+                fields.push(("gridRowsSizing", V::String(sizing)));
+            }
+            if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
+                fields.push(("gridAutoTracks", V::String(gat)));
             }
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
@@ -1249,6 +1252,41 @@ pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
         .join(" ")
 }
 
+/// `gridRows` count and `gridRowsSizing` of grid `node`. A grid with no explicit rows still gives every
+/// Fixed row slot its height (a slot that is not Fixed takes the Fixed auto-track height), and the file
+/// has no other place for row tracks, so those slots are written as explicit rows up to the last Fixed one.
+/// Only slots inside the rows the children fill ([`placed_grid_rows`]) are written: a slot past them is unused,
+/// and as a real row it would add an empty row and a gap.
+pub(crate) fn grid_rows_for_export(doc: &Document, node: &Node, al: &AutoLayout) -> Option<(u32, String)> {
+    if al.grid_rows > 0 {
+        return Some((al.grid_rows, format_grid_tracks(al.grid_rows, &al.grid_row_tracks)));
+    }
+    if al.direction != LayoutDirection::Grid || !al.grid_row_tracks.iter().any(|t| matches!(t, GridTrack::Fixed(_))) {
+        return None;
+    }
+    let kids: Vec<_> = node.children.iter().filter_map(|c| doc.flow_child_input(*c, true)).collect();
+    let placed = designos_doc::layout_solver::placed_grid_rows(al, &kids);
+    let count = al.grid_row_tracks[..placed.min(al.grid_row_tracks.len())].iter().rposition(|t| matches!(t, GridTrack::Fixed(_)))? + 1;
+    let auto = match al.grid_auto_tracks {
+        GridAutoTracks::Track(t @ GridTrack::Fixed(_)) => Some(t),
+        _ => None,
+    };
+    let tracks: Vec<GridTrack> = al.grid_row_tracks[..count].iter().map(|&t| if matches!(t, GridTrack::Fixed(_)) { t } else { auto.unwrap_or(t) }).collect();
+    Some((count as u32, format_grid_tracks(count as u32, &tracks)))
+}
+
+pub(crate) fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
+    match gat {
+        GridAutoTracks::None => None,
+        GridAutoTracks::Rows => Some("ROWS".to_string()),
+        GridAutoTracks::Track(t) => {
+            let mut arr = [GridTrack::default(); 8];
+            arr[0] = t;
+            Some(format_grid_tracks(1, &arr))
+        }
+    }
+}
+
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     let mut var_entries = Vec::new();
     for (k, vid) in &vars.bindings {
@@ -1439,9 +1477,12 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                             ov.push(("gridColumns", V::Uint(al.grid_columns)));
                             ov.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
                         }
-                        if al.grid_rows > 0 {
-                            ov.push(("gridRows", V::Uint(al.grid_rows)));
-                            ov.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
+                        if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, n, al) {
+                            ov.push(("gridRows", V::Uint(rows)));
+                            ov.push(("gridRowsSizing", V::String(sizing)));
+                        }
+                        if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
+                            ov.push(("gridAutoTracks", V::String(gat)));
                         }
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));

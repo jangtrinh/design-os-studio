@@ -269,7 +269,7 @@ fn sizing_name(s: Sizing) -> &'static str {
     }
 }
 
-fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
+fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps, doc: &Document, node: &Node) {
     m.insert("clipsContent".into(), f.clips_content.into());
     if !f.grids.is_empty() {
         m.insert("layoutGrids".into(), Value::Array(f.grids.iter().map(grid).collect()));
@@ -288,9 +288,12 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
         m.insert("gridColumns".into(), al.grid_columns.into());
         m.insert("gridColumnsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_columns, &al.grid_col_tracks).into());
     }
-    if al.grid_rows > 0 {
-        m.insert("gridRows".into(), al.grid_rows.into());
-        m.insert("gridRowsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_rows, &al.grid_row_tracks).into());
+    if let Some((rows, sizing)) = crate::fig_export::grid_rows_for_export(doc, node, al) {
+        m.insert("gridRows".into(), rows.into());
+        m.insert("gridRowsSizing".into(), sizing.into());
+    }
+    if let Some(auto_tracks) = crate::fig_export::format_grid_auto_tracks(al.grid_auto_tracks) {
+        m.insert("gridAutoTracks".into(), auto_tracks.into());
     }
     m.insert("layoutWrap".into(), if al.wrap { "WRAP" } else { "NO_WRAP" }.into());
     m.insert("itemSpacing".into(), n(al.item_spacing));
@@ -546,10 +549,10 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
 
     match &node.kind {
         NodeKind::Frame(f) | NodeKind::Component(f) | NodeKind::ComponentSet(f) => {
-            frame_fields(&mut m, f);
+            frame_fields(&mut m, f, doc, node);
         }
         NodeKind::Instance { frame, component, component_key } => {
-            frame_fields(&mut m, frame);
+            frame_fields(&mut m, frame, doc, node);
             if let Some(c) = component {
                 m.insert("componentId".into(), figma_id(doc, *c).into());
             } else if let Some(k) = component_key {

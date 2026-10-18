@@ -698,6 +698,7 @@ pub fn figma_like_schema() -> Schema {
     f(&mut b, "gridRowGap", nat(Float), false);
     f(&mut b, "gridColumnsSizing", nat(String), false);
     f(&mut b, "gridRowsSizing", nat(String), false);
+    f(&mut b, "gridAutoTracks", nat(String), false);
     f(&mut b, "isSoftDeleted", nat(Bool), false);
     f(&mut b, "sectionStatusInfo", hst_info, false);
     f(&mut b, "authorVisible", nat(Bool), false);

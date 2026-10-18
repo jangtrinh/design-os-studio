@@ -2179,3 +2179,123 @@ fn counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_roun
     assert_eq!(find(&rt, "Row").size.y, 40.0, "the round trip must not change the cross size");
     assert_eq!(find(&rt, "FillChild").size.y, 40.0);
 }
+
+#[test]
+fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 120.0, "y": 60.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "GridAutoDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        nc(
+            (1, 10),
+            (0, 1),
+            "a",
+            "FRAME",
+            "AutoRowsEnumGrid",
+            json!({
+                "size": {"x": 300.0, "y": 200.0},
+                "stackMode": "GRID",
+                "gridRows": {
+                    "entries": [
+                        {"id": g(9, 1), "position": "!"},
+                        {"id": g(9, 2), "position": "\""}
+                    ]
+                },
+                "gridColumns": {
+                    "entries": [
+                        {"id": g(9, 3), "position": "!"},
+                        {"id": g(9, 4), "position": "\""}
+                    ]
+                },
+                "gridColumnsSizing": {
+                    "entries": [
+                        {"id": g(9, 3), "trackSize": {"minSizing": {"type": "FLEX", "value": 1.0}, "maxSizing": {"type": "FLEX", "value": 1.0}}},
+                        {"id": g(9, 4), "trackSize": {"minSizing": {"type": "FIXED", "value": 120.0}, "maxSizing": {"type": "FIXED", "value": 120.0}}}
+                    ]
+                },
+                "gridRowsSizing": {
+                    "entries": [
+                        {"id": g(9, 1), "trackSize": {"minSizing": {"type": "HUG", "value": 1.0}, "maxSizing": {"type": "HUG", "value": 1.0}}},
+                        {"id": g(9, 2), "trackSize": {"minSizing": {"type": "FIXED", "value": 48.0}, "maxSizing": {"type": "FIXED", "value": 48.0}}}
+                    ]
+                },
+                "gridAutoTracks": "ROWS"
+            })
+        ),
+        nc(
+            (1, 11),
+            (1, 10),
+            "a",
+            "RECTANGLE",
+            "PinnedCell",
+            json!({
+                "size": {"x": 40.0, "y": 20.0},
+                "gridRowAnchor": g(9, 2),
+                "gridColumnAnchor": g(9, 4)
+            })
+        ),
+        nc(
+            (1, 20),
+            (0, 1),
+            "b",
+            "FRAME",
+            "AutoRowsSizedGrid",
+            json!({
+                "size": {"x": 300.0, "y": 200.0},
+                "stackMode": "GRID",
+                "gridColumns": 3,
+                "gridRows": 1,
+                "gridColumnsSizing": "1fr 1fr 1fr",
+                "gridRowsSizing": "40px",
+                "gridAutoTracks": "64px"
+            })
+        )
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "GridAutoDoc").expect("import GridAutoDoc");
+
+    let g1 = find(&doc, "AutoRowsEnumGrid");
+    assert!(!g1.fig_metadata.contains_key("gridAutoTracks"), "gridAutoTracks must map to the model, not metadata");
+    let al1 = g1.kind.frame_props().unwrap().auto_layout.clone().unwrap();
+    assert_eq!(al1.grid_columns, 2);
+    assert_eq!(al1.grid_rows, 2);
+    assert_eq!(&al1.grid_col_tracks[..2], &[GridTrack::Flex(1.0), GridTrack::Fixed(120.0)]);
+    assert_eq!(&al1.grid_row_tracks[..2], &[GridTrack::Hug, GridTrack::Fixed(48.0)]);
+    assert_eq!(al1.grid_auto_tracks, GridAutoTracks::Rows);
+
+    let cell = find(&doc, "PinnedCell");
+    assert_eq!(cell.layout_child.grid_row, Some(1));
+    assert_eq!(cell.layout_child.grid_column, Some(1));
+
+    let g2 = find(&doc, "AutoRowsSizedGrid");
+    let al2 = g2.kind.frame_props().unwrap().auto_layout.clone().unwrap();
+    assert_eq!(al2.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Fixed(64.0)));
+
+    let bytes = export_fig(&doc).expect("export_fig GridAutoDoc");
+    let rt = import_fig(&bytes).expect("re-import GridAutoDoc");
+
+    let rt_al1 = find(&rt, "AutoRowsEnumGrid").kind.frame_props().unwrap().auto_layout.clone().unwrap();
+    assert_eq!(rt_al1.grid_auto_tracks, GridAutoTracks::Rows);
+    assert_eq!(&rt_al1.grid_col_tracks[..2], &[GridTrack::Flex(1.0), GridTrack::Fixed(120.0)]);
+    assert_eq!(&rt_al1.grid_row_tracks[..2], &[GridTrack::Hug, GridTrack::Fixed(48.0)]);
+
+    let rt_al2 = find(&rt, "AutoRowsSizedGrid").kind.frame_props().unwrap().auto_layout.clone().unwrap();
+    assert_eq!(rt_al2.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Fixed(64.0)));
+}

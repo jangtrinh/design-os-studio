@@ -276,6 +276,12 @@ struct Lk<'a> {
     /// Node guid (`s:l`) -> Dev Mode handoff status (`READY_FOR_DEV` / `COMPLETED`)
     /// from `CANVAS.handoffStatusMap`.
     handoff_status: HashMap<String, &'static str>,
+    /// Grid track id (`s:l`) from any `gridColumns` map -> 0-based column index, or `None` when two
+    /// maps place the id differently. Instance overrides name a cell by the track id of the
+    /// component's grid, so they resolve against this while the maps are still intact.
+    grid_column_index: HashMap<String, Option<usize>>,
+    /// Same for `gridRows`.
+    grid_row_index: HashMap<String, Option<usize>>,
 }
 
 impl<'a> Lk<'a> {
@@ -292,6 +298,8 @@ impl<'a> Lk<'a> {
             deleted_styles: std::collections::HashSet::new(),
             prop_defs: HashMap::new(),
             handoff_status: HashMap::new(),
+            grid_column_index: HashMap::new(),
+            grid_row_index: HashMap::new(),
         };
         let mut aliases: Vec<(String, String)> = Vec::new();
         for e in entries {
@@ -302,6 +310,17 @@ impl<'a> Lk<'a> {
                 lk.style_by_id.insert(e.id.clone(), j.clone());
             } else if fstr(j, "styleType").is_some() {
                 lk.deleted_styles.insert(e.id.clone());
+            }
+            // An instance restates tracks for its own overrides only (see `override_entries`).
+            if fstr(j, "type") != Some("INSTANCE") {
+                for (field, index) in [("gridColumns", &mut lk.grid_column_index), ("gridRows", &mut lk.grid_row_index)] {
+                    for (i, id) in grid_position_guids(j, field).into_iter().enumerate() {
+                        let seen = index.entry(id).or_insert(Some(i));
+                        if *seen != Some(i) {
+                            *seen = None;
+                        }
+                    }
+                }
             }
             for h in j.get("handoffStatusMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]) {
                 let Some(gid) = h.get("guid").and_then(guid_str) else { continue };
@@ -692,6 +711,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "gridRows",
     "gridColumnsSizing",
     "gridRowsSizing",
+    "gridAutoTracks",
     "gridColumnGap",
     "gridColumnsGap",
     "gridRowGap",
@@ -973,16 +993,110 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
     (!meta.is_empty()).then_some(Value::Object(meta))
 }
 
+fn grid_position_guids(nc: &Value, key: &str) -> Vec<String> {
+    let Some(entries) = nc.get(key).and_then(|v| v.get("entries")).and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut pairs: Vec<(&str, String)> = entries
+        .iter()
+        .filter_map(|e| {
+            let id = e.get("id").and_then(guid_str)?;
+            let pos = fstr(e, "position").unwrap_or("");
+            Some((pos, id))
+        })
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(b.0));
+    pairs.into_iter().map(|(_, id)| id).collect()
+}
+
+fn format_v106_track_size(ts: &Value) -> Option<String> {
+    let sizing = ts.get("minSizing").or_else(|| ts.get("maxSizing"))?;
+    match fstr(sizing, "type")? {
+        "FLEX" => {
+            let v = fnum(sizing, "value").unwrap_or(1.0);
+            if (v - v.round()).abs() < 1e-4 {
+                Some(format!("{}fr", v.round() as i32))
+            } else {
+                Some(format!("{v}fr"))
+            }
+        }
+        "FIXED" => {
+            let v = fnum(sizing, "value").unwrap_or(0.0);
+            if (v - v.round()).abs() < 1e-4 {
+                Some(format!("{}px", v.round() as i32))
+            } else {
+                Some(format!("{v}px"))
+            }
+        }
+        "HUG" => Some("auto".to_string()),
+        _ => None,
+    }
+}
+
+fn convert_grid_track_fields(m: &mut Map<String, Value>, nc: &Value) {
+    for (count_key, sizing_key) in [("gridColumns", "gridColumnsSizing"), ("gridRows", "gridRowsSizing")] {
+        let ordered_guids = grid_position_guids(nc, count_key);
+        if !ordered_guids.is_empty() {
+            m.insert(count_key.into(), json!(ordered_guids.len()));
+        } else {
+            copy(m, nc, count_key, count_key);
+        }
+        if let Some(sz) = nc.get(sizing_key) {
+            if sz.is_string() {
+                m.insert(sizing_key.into(), sz.clone());
+            } else if let Some(entries) = sz.get("entries").and_then(Value::as_array) {
+                let mut by_id: HashMap<String, String> = HashMap::new();
+                let mut in_order: Vec<String> = Vec::new();
+                for e in entries {
+                    if let Some(t) = e.get("trackSize").and_then(format_v106_track_size) {
+                        if let Some(id) = e.get("id").and_then(guid_str) {
+                            by_id.insert(id, t.clone());
+                        }
+                        in_order.push(t);
+                    }
+                }
+                let tracks: Vec<String> = if !ordered_guids.is_empty() {
+                    ordered_guids.iter().map(|id| by_id.get(id).cloned().unwrap_or_else(|| "1fr".to_string())).collect()
+                } else {
+                    in_order
+                };
+                if !tracks.is_empty() {
+                    m.insert(sizing_key.into(), Value::String(tracks.join(" ")));
+                }
+            }
+        }
+    }
+    copy(m, nc, "gridAutoTracks", "gridAutoTracks");
+}
+
 fn build(entries: &mut [Entry], children: &HashMap<usize, Vec<usize>>, lk: &Lk, i: usize, visited: &mut HashSet<usize>, depth: usize) -> Option<Value> {
     if depth > 250 || !visited.insert(i) {
         return None;
     }
     let node_json = std::mem::take(&mut entries[i].json);
     let is_container = matches!(fstr(&node_json, "type"), Some("CANVAS" | "FRAME" | "GROUP" | "SYMBOL" | "INSTANCE" | "SECTION" | "BOOLEAN_OPERATION"));
+    let col_guids = grid_position_guids(&node_json, "gridColumns");
+    let row_guids = grid_position_guids(&node_json, "gridRows");
     let mut m = convert_node(&node_json, &entries[i].id, lk)?;
     drop(node_json);
-    let kids: Vec<Value> =
+    let mut kids: Vec<Value> =
         children.get(&i).map(|c| c.iter().filter_map(|&k| build(entries, children, lk, k, visited, depth + 1)).collect()).unwrap_or_default();
+    if !col_guids.is_empty() || !row_guids.is_empty() {
+        for kid in &mut kids {
+            if let Some(km) = kid.as_object_mut() {
+                if let Some(cg) = km.get("gridColumnAnchorIndex").and_then(guid_str) {
+                    if let Some(idx) = col_guids.iter().position(|id| id == &cg) {
+                        km.insert("gridColumnAnchorIndex".into(), json!(idx));
+                    }
+                }
+                if let Some(rg) = km.get("gridRowAnchorIndex").and_then(guid_str) {
+                    if let Some(idx) = row_guids.iter().position(|id| id == &rg) {
+                        km.insert("gridRowAnchorIndex".into(), json!(idx));
+                    }
+                }
+            }
+        }
+    }
     if !kids.is_empty() || is_container {
         m.insert("children".into(), Value::Array(kids));
     }
@@ -1321,11 +1435,11 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if let Some(s) = sd.and_then(|s| s.get("uniformScaleFactor")) {
                 m.insert("_uniformScale".into(), s.clone());
             }
-            let ov = override_entries(sd.and_then(|s| s.get("symbolOverrides")), lk, false);
+            let ov = override_entries(nc, sd.and_then(|s| s.get("symbolOverrides")), lk, false);
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
-            let derived = override_entries(nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
+            let derived = override_entries(nc, nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
             if !derived.is_empty() {
                 m.insert("_derived".into(), Value::Array(derived));
             }
@@ -1806,6 +1920,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridRows"
             | "gridColumnsSizing"
             | "gridRowsSizing"
+            | "gridAutoTracks"
             | "gridColumnSpan"
             | "gridRowSpan"
             | "gridColumnAnchor"
@@ -1953,7 +2068,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         copy(&mut m, o, "layoutSizingHorizontal", "layoutSizingHorizontal");
         copy(&mut m, o, "layoutSizingVertical", "layoutSizingVertical");
-        for k in ["gridColumns", "gridRows", "gridColumnsSizing", "gridRowsSizing", "gridColumnSpan", "gridRowSpan"] {
+        convert_grid_track_fields(&mut m, o);
+        for k in ["gridColumnSpan", "gridRowSpan"] {
             copy(&mut m, o, k, k);
         }
         if let Some(c) = obj.get("gridColumnAnchor").or_else(|| obj.get("gridColumnAnchorIndex")) {
@@ -2010,15 +2126,48 @@ fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     m
 }
 
-fn override_entries(list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
+/// Track ids of the grid maps an override entry restates, by the entry's path: (columns, rows).
+type RestatedTracks = HashMap<Vec<String>, (Vec<String>, Vec<String>)>;
+
+/// Turns a cell anchor that an override names by track id into the 0-based track index. The tracks
+/// the instance restates for the parent grid (`restated`) win over the file-wide map, since an
+/// instance that restates the tracks can shift them. An anchor that matches no track, or an id that
+/// two grids place differently, is left as it is: a wrong cell is worse than the component's cell.
+fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restated: Option<&[String]>, file_wide: &HashMap<String, Option<usize>>) {
+    let Some(id) = set.get(key).and_then(guid_str) else { return };
+    let index = restated.and_then(|ids| ids.iter().position(|t| *t == id)).or_else(|| file_wide.get(&id).copied().flatten());
+    if let Some(i) = index {
+        set.insert(key.into(), json!(i));
+    }
+}
+
+/// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a
+/// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
+/// an entry restates for the parent.
+fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
     let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
+    let mut restated = RestatedTracks::new();
+    if !derived {
+        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|o| (guid_path(o), o))) {
+            let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
+            if !cols.is_empty() || !rows.is_empty() {
+                restated.insert(path, (cols, rows));
+            }
+        }
+    }
     a.iter()
         .filter_map(|o| {
-            let set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
+            let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
             if set.is_empty() {
                 return None;
             }
-            Some(json!({"path": guid_path(o), "set": Value::Object(set)}))
+            let path = guid_path(o);
+            if !derived {
+                let parent = path.split_last().and_then(|(_, up)| restated.get(up));
+                resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
+                resolve_override_grid_anchor(&mut set, "gridRowAnchorIndex", parent.map(|p| p.1.as_slice()), &lk.grid_row_index);
+            }
+            Some(json!({"path": path, "set": Value::Object(set)}))
         })
         .collect()
 }
@@ -2031,9 +2180,7 @@ fn convert_stack(m: &mut Map<String, Value>, nc: &Value) {
         _ => return,
     };
     m.insert("layoutMode".into(), mode.into());
-    for k in ["gridColumns", "gridRows", "gridColumnsSizing", "gridRowsSizing"] {
-        copy(m, nc, k, k);
-    }
+    convert_grid_track_fields(m, nc);
     if let Some(x) = fnum(nc, "gridColumnGap").or_else(|| fnum(nc, "gridColumnsGap")).or_else(|| fnum(nc, "stackSpacing")) {
         m.insert("itemSpacing".into(), x.into());
     }
