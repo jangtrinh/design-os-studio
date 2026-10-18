@@ -59,12 +59,21 @@ fn audited(f: Fx) -> (usize, usize) {
 }
 
 #[test]
-fn what_an_earlier_card_paints_below_an_opaque_card_does_not_hide_the_text_on_it() {
-    let decorations: [(&str, fn(&mut Node)); 3] = [("shadow", shadow), ("outside stroke", outside_stroke), ("blur", blur)];
-    for (what, decorate) in decorations {
-        let (f, _) = card_list(decorate, Some(Color::WHITE));
-        assert_eq!(audited(f), (1, 1), "{what} of Card A is below Card B's white fill");
-    }
+fn the_shadow_of_an_earlier_card_below_an_opaque_card_does_not_hide_the_text_on_it() {
+    let (f, _) = card_list(shadow, Some(Color::WHITE));
+    assert_eq!(audited(f), (1, 1));
+}
+
+#[test]
+fn the_stroke_of_an_earlier_card_below_an_opaque_card_does_not_hide_the_text_on_it() {
+    let (f, _) = card_list(outside_stroke, Some(Color::WHITE));
+    assert_eq!(audited(f), (1, 1));
+}
+
+#[test]
+fn the_blur_of_an_earlier_card_below_an_opaque_card_does_not_hide_the_text_on_it() {
+    let (f, _) = card_list(blur, Some(Color::WHITE));
+    assert_eq!(audited(f), (1, 1));
 }
 
 #[test]
