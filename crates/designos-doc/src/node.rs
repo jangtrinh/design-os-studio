@@ -738,6 +738,30 @@ pub struct AutoLayout {
 }
 
 impl AutoLayout {
+    /// Default auto-layout for new frames created in Studio (version 1: CSS-aligned, borders inside the box).
+    pub fn v1() -> Self {
+        Self { layout_version: 1, ..Self::default() }
+    }
+
+    /// Effective `[top, right, bottom, left]` inset used by the layout solver.
+    ///
+    /// In version 0 (`layout_version == 0`), when `stroke_included` (`bordersTakeSpace`) is true,
+    /// the frame's inward stroke widths add to padding. In version 1 and up (`layout_version >= 1`),
+    /// strokes never add inset space (borders sit inside the box without pushing children).
+    pub fn effective_padding(&self, stroke: &Stroke) -> [f32; 4] {
+        if self.layout_version == 0 && self.stroke_included {
+            let s = stroke.layout_inset();
+            [self.padding[0] + s[0], self.padding[1] + s[1], self.padding[2] + s[2], self.padding[3] + s[3]]
+        } else {
+            self.padding
+        }
+    }
+
+    /// Returns a copy of `self` with `padding` replaced by [`Self::effective_padding`].
+    pub fn with_stroke(&self, stroke: &Stroke) -> Self {
+        Self { padding: self.effective_padding(stroke), ..*self }
+    }
+
     /// Whether the primary axis (and `primary_sizing`) runs along the width. Figma's convention: a
     /// `Horizontal` frame and a `Grid` frame (columns) do, a `Vertical` frame runs along the height.
     pub fn primary_is_horizontal(&self) -> bool {

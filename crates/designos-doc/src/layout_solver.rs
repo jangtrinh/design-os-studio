@@ -58,6 +58,14 @@ impl Axes {
     }
 }
 
+/// Solves an auto-layout frame accounting for its [`crate::Stroke`]: in version 0
+/// (`layout_version == 0`) with `stroke_included == true` (`bordersTakeSpace`), inward stroke
+/// widths add to padding; in version 1 and up (`layout_version >= 1`), stroke inset is ignored
+/// (border inside the box).
+pub fn compute_with_stroke(al: &AutoLayout, frame: Vec2, own: SizeLimits, stroke: &crate::Stroke, kids: &[ChildIn]) -> LayoutOut {
+    compute(&al.with_stroke(stroke), frame, own, kids)
+}
+
 /// The axes of an auto-layout frame that [`compute`] sizes from its content, as `(width, height)`.
 /// A wrapping flow frame keeps its primary axis: the content is cut into lines to fit it.
 pub fn hugged_axes(al: &AutoLayout) -> (bool, bool) {

@@ -48,6 +48,24 @@ pub fn non_finite_notice_once(path: &Path, count: usize) -> Option<String> {
     Some(notice)
 }
 
+pub fn same_repair_key(a: &Path, b: &Path) -> bool {
+    repair_key(a) == repair_key(b)
+}
+
+/// Drops any cached pre-repair original bytes for `path` when its tab closes without saving.
+pub fn drop_repaired_original(path: &Path) {
+    let key = repair_key(path);
+    if let Ok(mut map) = repaired_originals().lock() {
+        map.remove(&key);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn has_repaired_original(path: &Path) -> bool {
+    let key = repair_key(path);
+    repaired_originals().lock().ok().is_some_and(|map| map.contains_key(&key))
+}
+
 fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Document, Option<String>)> {
     let (mut doc, report) = Document::from_json_with_report(text)?;
     if !report.is_clean() {
