@@ -211,7 +211,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     padding: [24.0, 24.0, 24.0, 24.0],
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -227,7 +227,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     padding: [16.0, 16.0, 16.0, 16.0],
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -251,7 +251,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     padding: [20.0, 20.0, 20.0, 20.0],
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -267,7 +267,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     counter_align: LayoutAlign::Center,
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -285,7 +285,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     counter_align: LayoutAlign::Center,
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -303,7 +303,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     counter_align: LayoutAlign::Center,
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -321,7 +321,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     counter_align: LayoutAlign::Center,
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -334,7 +334,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     counter_align: LayoutAlign::Center,
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -346,7 +346,7 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
                     item_spacing: 12.0,
                     primary_sizing: Sizing::Hug,
                     counter_sizing: Sizing::Hug,
-                    ..Default::default()
+                    ..AutoLayout::v1()
                 });
             }
         }
@@ -426,7 +426,7 @@ impl Document {
         // LayoutSpec on frame (applied BEFORE width/height sizing so al.direction is final)
         if let Some(ls) = &spec.layout {
             if let Some(f) = node.kind.frame_props_mut() {
-                let mut al = f.auto_layout.unwrap_or_default();
+                let mut al = f.auto_layout.unwrap_or_else(AutoLayout::v1);
                 if !ls.direction.is_empty() {
                     al.direction = parse_direction(&ls.direction);
                 }
