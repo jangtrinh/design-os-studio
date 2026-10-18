@@ -51,11 +51,11 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut flex_done = false;
     let mut stretch = false;
     if in_flow && grid_parent {
-        if n.layout_child.col_span > 1 {
-            push("grid-column", format!("span {}", n.layout_child.col_span));
+        if let Some(col) = crate::codegen::grid_placement_css(n.layout_child.grid_column, n.layout_child.col_span) {
+            push("grid-column", col);
         }
-        if n.layout_child.row_span > 1 {
-            push("grid-row", format!("span {}", n.layout_child.row_span));
+        if let Some(row) = crate::codegen::grid_placement_css(n.layout_child.grid_row, n.layout_child.row_span) {
+            push("grid-row", row);
         }
         // An item sized by its own content keeps that size instead of stretching across its cell.
         if sz.w == Dim::Hug {
@@ -101,10 +101,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1);
-            push("grid-template-columns", format!("repeat({cols}, minmax(0, 1fr))"));
+            let cols = crate::codegen::grid_column_count(al);
+            push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
             if al.grid_rows > 0 {
-                push("grid-template-rows", format!("repeat({}, minmax(0, 1fr))", al.grid_rows));
+                push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
             }
             let col = al.item_spacing;
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -674,6 +674,58 @@ mod tests {
     }
 
     #[test]
+    fn grid_tracks_placement_and_gaps_css() {
+        let mut pinned_id = NodeId(0);
+        let mut span_only_id = NodeId(0);
+        let (d, grid_id) = doc_with(|d, page| {
+            let gid = d.alloc_id();
+            let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 480.0, 200.0));
+            g.fills.clear();
+            let mut al = AutoLayout {
+                direction: LayoutDirection::Grid,
+                item_spacing: 16.0,
+                counter_spacing: 24.0,
+                padding: [12.0, 16.0, 12.0, 16.0],
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Fixed,
+                grid_columns: 3,
+                grid_rows: 2,
+                ..Default::default()
+            };
+            al.grid_col_tracks[0] = GridTrack::Flex(1.0);
+            al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+            al.grid_col_tracks[2] = GridTrack::Hug;
+            al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+            al.grid_row_tracks[1] = GridTrack::Hug;
+            g.kind = NodeKind::Frame(FrameProps { clips_content: true, auto_layout: Some(al), ..Default::default() });
+            let g = d.insert(page, g).unwrap();
+
+            let c1 = d.alloc_id();
+            let mut n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 200.0, 80.0));
+            n1.fills.clear();
+            n1.layout_child.grid_column = Some(1);
+            n1.layout_child.grid_row = Some(0);
+            n1.layout_child.col_span = 2;
+            n1.layout_child.row_span = 1;
+            pinned_id = d.insert(g, n1).unwrap();
+
+            let c2 = d.alloc_id();
+            let mut n2 = Node::rectangle(c2, Rect::new(0.0, 0.0, 180.0, 60.0));
+            n2.fills.clear();
+            n2.layout_child.col_span = 2;
+            n2.layout_child.row_span = 1;
+            span_only_id = d.insert(g, n2).unwrap();
+        });
+
+        assert_eq!(
+            css_for(&d, grid_id),
+            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\noverflow: hidden;"
+        );
+        assert_eq!(css_for(&d, pinned_id), "grid-column: 2 / span 2;\ngrid-row: 1 / span 1;\nwidth: 200px;\nheight: 80px;");
+        assert_eq!(css_for(&d, span_only_id), "grid-column: span 2;\nwidth: 180px;\nheight: 60px;");
+    }
+
+    #[test]
     fn grid_frame_and_children_sizing_in_css_and_codegen() {
         let (d, grid_id) = doc_with(|d, page| {
             let gid = d.alloc_id();
@@ -741,13 +793,19 @@ mod tests {
     /// The grid's exported width and height must be the frame the solver computed, and its tracks
     /// stay fractions of that size.
     fn solved_grid_css(d: &Document, grid: NodeId, cols: u32, rows: u32) -> String {
+        let uniform = |n: u32| format!("repeat({n}, minmax(0, 1fr))");
+        solved_grid_template(d, grid, &uniform(cols), (rows > 0).then(|| uniform(rows)).as_deref())
+    }
+
+    /// [`solved_grid_css`] for a grid whose column and row templates are the given CSS.
+    fn solved_grid_template(d: &Document, grid: NodeId, columns: &str, rows: Option<&str>) -> String {
         let size = d.get(grid).unwrap().size;
         let css = css_for(d, grid);
         assert!(css.contains(&format!("width: {}px;", num(size.x))), "the exported width must be the solver's {}: {css}", size.x);
         assert!(css.contains(&format!("height: {}px;", num(size.y))), "the exported height must be the solver's {}: {css}", size.y);
-        assert!(css.contains(&format!("grid-template-columns: repeat({cols}, minmax(0, 1fr));")), "{css}");
-        if rows > 0 {
-            assert!(css.contains(&format!("grid-template-rows: repeat({rows}, minmax(0, 1fr));")), "{css}");
+        assert!(css.contains(&format!("grid-template-columns: {columns};")), "{css}");
+        if let Some(rows) = rows {
+            assert!(css.contains(&format!("grid-template-rows: {rows};")), "{css}");
         }
         assert!(
             !css.contains("max-content") && !css.contains("minmax(40px") && !css.contains(", auto)"),
@@ -801,7 +859,7 @@ mod tests {
         fixture::add_rect(&mut d, grid, Vec2::new(60.0, 10.0));
         d.relayout_subtree(grid);
         assert_eq!(d.get(grid).unwrap().size.x, 260.0, "a fixed 200px column plus a 60px hugging one");
-        solved_grid_css(&d, grid, 2, 0);
+        solved_grid_template(&d, grid, "200px minmax(0, 1fr)", None);
     }
 
     #[test]
