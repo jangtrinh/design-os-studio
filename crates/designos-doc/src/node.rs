@@ -658,7 +658,6 @@ pub enum LayoutDirection {
     Grid,
 }
 
-/// Most columns (and spanned rows) one grid solves; `grid_columns` past it is solved as this many.
 pub const MAX_GRID_TRACKS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

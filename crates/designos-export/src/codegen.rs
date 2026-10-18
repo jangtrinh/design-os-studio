@@ -606,16 +606,17 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
         let item_v = b("itemSpacing", Fallback::Px);
         let counter_v = b("counterAxisSpacing", Fallback::Px);
         if item_v.is_some() || counter_v.is_some() {
-            if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+            if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
                 if al.direction == LayoutDirection::Grid {
                     let col_fb = format!("{}px", num(al.item_spacing));
                     let row_px = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
                     let row_fb = format!("{}px", num(row_px));
                     // The column gap is `itemSpacing`, the row gap `counterAxisSpacing`. An unbound row keeps
-                    // its own pixel gap; it follows the item variable only when both axes hold one gap.
-                    let same_gap = (row_px - al.item_spacing).abs() < 1e-4;
+                    // its own pixel gap; only a row with no spacing of its own (`counterAxisSpacing` unset,
+                    // so the solver reuses `itemSpacing`) follows the item variable.
+                    let row_follows_item = al.counter_spacing <= 0.0;
                     let col_s = item_v.clone().unwrap_or(col_fb);
-                    let row_s = counter_v.or(item_v.filter(|_| same_gap)).unwrap_or(row_fb);
+                    let row_s = counter_v.or(item_v.filter(|_| row_follows_item)).unwrap_or(row_fb);
                     set_decl(lines, "gap", if row_s == col_s { row_s } else { format!("{row_s} {col_s}") });
                 } else if let Some(v) = item_v {
                     set_decl(lines, "gap", v);

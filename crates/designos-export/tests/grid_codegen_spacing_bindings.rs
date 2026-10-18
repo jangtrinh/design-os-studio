@@ -9,6 +9,12 @@ use designos_export::{css_for, react_for, react_with, tailwind_for, ReactOptions
 /// (24) are bound to the axes picked by `item` / `counter`; `bare_tokens` gives both a WEB code
 /// syntax, which CSS prints verbatim.
 fn grid(item: bool, counter: bool, bare_tokens: bool) -> (Document, NodeId) {
+    grid_with_row_gap(24.0, item, counter, bare_tokens)
+}
+
+/// [`grid`] with the row gap (`counterAxisSpacing`) set to `row_px`; 0 leaves it unset, so the row
+/// takes the column gap.
+fn grid_with_row_gap(row_px: f32, item: bool, counter: bool, bare_tokens: bool) -> (Document, NodeId) {
     let mut d = Document::new("t");
     let page = d.add_page("p");
     d.variable_collections.insert(
@@ -48,7 +54,7 @@ fn grid(item: bool, counter: bool, bare_tokens: bool) -> (Document, NodeId) {
     let al = AutoLayout {
         direction: LayoutDirection::Grid,
         item_spacing: 16.0,
-        counter_spacing: 24.0,
+        counter_spacing: row_px,
         primary_sizing: Sizing::Fixed,
         counter_sizing: Sizing::Fixed,
         grid_columns: 3,
@@ -116,13 +122,37 @@ fn css_both_bindings_replace_both_gaps() {
 }
 
 #[test]
-fn css_row_follows_the_item_variable_when_the_solver_gives_both_axes_one_gap() {
-    // `counter_spacing == 0` means the row gap is the item spacing, so one variable drives both.
-    let (mut d, g) = grid(true, false, false);
-    if let NodeKind::Frame(fp) = &mut d.get_mut(g).unwrap().kind {
-        fp.auto_layout.as_mut().unwrap().counter_spacing = 0.0;
-    }
+fn css_row_follows_the_item_variable_only_when_it_has_no_spacing_of_its_own() {
+    // `counter_spacing == 0` is "unset": the solver reuses the item spacing for the row, so one variable drives both.
+    let (d, g) = grid_with_row_gap(0.0, true, false, false);
     assert_eq!(decl(&css_for(&d, g), "gap"), "var(--Spacing-Md, 16px)");
+    // A row spacing of 16 that happens to equal the column gap is still the row's own value.
+    let (d, g) = grid_with_row_gap(16.0, true, false, false);
+    assert_eq!(decl(&css_for(&d, g), "gap"), "16px var(--Spacing-Md, 16px)");
+    let (d, g) = grid_with_row_gap(16.0, true, false, true);
+    assert_eq!(decl(&css_for(&d, g), "gap"), "16px tokens.space.md");
+}
+
+#[test]
+fn react_inline_row_gap_with_the_same_pixels_as_the_column_gap_stays_its_own() {
+    let (d, g) = grid_with_row_gap(16.0, true, false, false);
+    assert_eq!(react_gap(&react_for(&d, g)), "'16px var(--Spacing-Md, 16px)'");
+    let (d, g) = grid_with_row_gap(0.0, true, false, false);
+    assert_eq!(react_gap(&react_for(&d, g)), "'var(--Spacing-Md, 16px)'");
+}
+
+#[test]
+fn tailwind_splits_the_axes_for_an_equal_row_gap_of_its_own_and_joins_them_for_an_unset_one() {
+    let gap_classes = |row_px: f32| {
+        let (d, g) = grid_with_row_gap(row_px, true, false, false);
+        let from_tailwind: Vec<String> = classes(&tailwind_for(&d, g)).into_iter().filter(|c| c.starts_with("gap")).collect();
+        let from_react: Vec<String> =
+            classes(&react_with(&d, g, &ReactOptions { tailwind: true })).into_iter().filter(|c| c.starts_with("gap")).collect();
+        assert_eq!(from_tailwind, from_react);
+        from_tailwind
+    };
+    assert_eq!(gap_classes(16.0), ["gap-x-[var(--Spacing-Md)]", "gap-y-4"]);
+    assert_eq!(gap_classes(0.0), ["gap-[var(--Spacing-Md)]"]);
 }
 
 #[test]
