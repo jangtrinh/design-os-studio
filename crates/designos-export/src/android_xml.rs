@@ -285,14 +285,14 @@ impl Cx<'_> {
         }
     }
 
-    fn emit(&mut self, id: NodeId, parent: Parent, depth: usize, slot: Option<Slot>) {
+    fn emit(&mut self, id: NodeId, parent: Parent<'_>, depth: usize, slot: Option<Slot>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
         if !n.visible {
             return;
         }
         let sz = sizes(n, parent);
-        let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+        let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
         let kids = visible_children(doc, n);
         let mut attrs: Attrs = Vec::new();
         if depth == 0 {
@@ -347,7 +347,7 @@ impl Cx<'_> {
             } else if !gravity.is_empty() {
                 attr(&mut attrs, "gravity", gravity.join("|"));
             }
-            self.padding(n, &al, &mut attrs);
+            self.padding(n, al, &mut attrs);
             self.style(n, &mut attrs);
             if al.wrap {
                 self.out.line(depth, "<!-- auto layout wraps: use a FlexboxLayout -->");

@@ -364,7 +364,7 @@ impl Document {
         }
         let root_id = self.build_spec_node(parent, spec)?;
         // Run Auto-Layout 5.0 reflow from parent (if parent has auto-layout) or root_id
-        let relayout_root = if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout).is_some() { parent } else { root_id };
+        let relayout_root = if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
         self.relayout_subtree(relayout_root);
         Ok(root_id)
     }
@@ -426,7 +426,7 @@ impl Document {
         // LayoutSpec on frame (applied BEFORE width/height sizing so al.direction is final)
         if let Some(ls) = &spec.layout {
             if let Some(f) = node.kind.frame_props_mut() {
-                let mut al = f.auto_layout.unwrap_or_else(AutoLayout::v1);
+                let mut al = f.auto_layout.take().unwrap_or_else(AutoLayout::v1);
                 if !ls.direction.is_empty() {
                     al.direction = parse_direction(&ls.direction);
                 }
@@ -641,7 +641,7 @@ impl Document {
             ),
             _ => (None, None, None, None),
         };
-        let layout = n.kind.frame_props().and_then(|f| f.auto_layout).map(|al| LayoutSpec {
+        let layout = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|al| LayoutSpec {
             direction: match al.direction {
                 LayoutDirection::Horizontal => "row".into(),
                 LayoutDirection::Vertical => "column".into(),
@@ -903,7 +903,7 @@ mod tests {
         }))
         .unwrap();
         let hug_w_id = doc.apply_spec(page, &hug_w_spec).unwrap();
-        let al_w = doc.get(hug_w_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al_w = doc.get(hug_w_id).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(
             (al_w.primary_sizing, al_w.counter_sizing),
             (Sizing::Hug, Sizing::Fixed),
@@ -924,7 +924,7 @@ mod tests {
         }))
         .unwrap();
         let hug_h_id = doc.apply_spec(page, &hug_h_spec).unwrap();
-        let al_h = doc.get(hug_h_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al_h = doc.get(hug_h_id).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(
             (al_h.primary_sizing, al_h.counter_sizing),
             (Sizing::Fixed, Sizing::Hug),
@@ -953,7 +953,7 @@ mod tests {
         }))
         .unwrap();
         let preset_id = doc.apply_spec(page, &preset_spec).unwrap();
-        let al_p = doc.get(preset_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al_p = doc.get(preset_id).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(
             (al_p.primary_sizing, al_p.counter_sizing),
             (Sizing::Fixed, Sizing::Hug),
@@ -979,7 +979,7 @@ mod tests {
         }))
         .unwrap();
         let hug_both_id = doc.apply_spec(page, &hug_both_spec).unwrap();
-        let al_b = doc.get(hug_both_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+        let al_b = doc.get(hug_both_id).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!(
             (al_b.primary_sizing, al_b.counter_sizing),
             (Sizing::Hug, Sizing::Hug),

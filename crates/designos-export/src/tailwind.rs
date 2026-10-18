@@ -324,10 +324,10 @@ fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
     }
 }
 
-fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
+fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     let mut c: Vec<String> = Vec::new();
     let sz = web_sizes(n, parent);
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let has_children = !visible_children(doc, n).is_empty();
     let abs_children = visible_children(doc, n).iter().any(|k| own_al.is_none() || k.layout_child.absolute);
 
@@ -345,7 +345,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
             c.push("grid".into());
-            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(&al), STOCK_GRID_COLS));
+            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(al), STOCK_GRID_COLS));
             if al.grid_rows > 0 {
                 c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
             }
@@ -368,7 +368,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
                     c.push(spaced("gap-y", row_gap, row_var));
                 }
             }
-            c.extend(pad_classes(doc, n, &al));
+            c.extend(pad_classes(doc, n, al));
         } else {
             c.push("flex".into());
             if al.direction == LayoutDirection::Vertical {
@@ -392,7 +392,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
             if al.item_spacing > 0.0 && al.primary_align != LayoutAlign::SpaceBetween {
                 c.push(spaced("gap", al.item_spacing, bound(doc, n, "itemSpacing")));
             }
-            c.extend(pad_classes(doc, n, &al));
+            c.extend(pad_classes(doc, n, al));
         }
     }
     if sz.in_flow && parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid) {

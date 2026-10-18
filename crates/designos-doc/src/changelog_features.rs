@@ -68,6 +68,14 @@ fn node_parent_rect(n: &Node) -> Rect {
     Rect::new(t.x, t.y, n.size.x.max(0.0), n.size.y.max(0.0))
 }
 
+/// The box auto layout spaces and pads: the border box grown by the child's margins `[top, right, bottom, left]`.
+/// Gaps and padding are inferred between these, so the margins the child keeps are not counted into them a second time.
+fn node_margin_box(n: &Node) -> Rect {
+    let b = node_parent_rect(n);
+    let [mt, mr, mb, ml] = n.layout_child.margin;
+    Rect::new(b.x - ml, b.y - mt, b.w + ml + mr, b.h + mt + mb)
+}
+
 fn union_rects(rects: &[Rect]) -> Rect {
     let Some(first) = rects.first().copied() else {
         return Rect::default();
@@ -200,7 +208,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
         let node = doc.get(only).ok_or(DocError::NotFound(only))?;
         if node.kind.frame_props().is_some() && !node.children.is_empty() {
             let kids: Vec<NodeId> = node.children.iter().copied().filter(|&cid| doc.get(cid).is_some_and(|c| c.visible)).collect();
-            let kid_rects: Vec<Rect> = kids.iter().filter_map(|&cid| doc.get(cid).map(node_parent_rect)).collect();
+            let kid_rects: Vec<Rect> = kids.iter().filter_map(|&cid| doc.get(cid).map(node_margin_box)).collect();
             let u = union_rects(&kid_rects);
             let pad_top = u.y.max(0.0).round();
             let pad_left = u.x.max(0.0).round();
@@ -221,7 +229,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
         (first_parent, None, selected_ids.to_vec(), [0.0; 4])
     };
 
-    let items: Vec<ItemBox> = child_ids.iter().filter_map(|&id| doc.get(id).map(|n| ItemBox { id, rect: node_parent_rect(n) })).collect();
+    let items: Vec<ItemBox> = child_ids.iter().filter_map(|&id| doc.get(id).map(|n| ItemBox { id, rect: node_margin_box(n) })).collect();
     if items.is_empty() {
         return Err(DocError::NotFound(selected_ids[0]));
     }
@@ -1141,7 +1149,7 @@ impl PrototypeRuntime {
             return Rect::new(0.0, 0.0, container.size.x, container.size.y);
         }
         let mut u = union_rects(&rects);
-        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let [_, pad_right, pad_bottom, _] = al.padding;
             u.w += pad_right;
             u.h += pad_bottom;
@@ -1476,5 +1484,43 @@ impl Document {
     /// Pillar 3 (`FP-03`): Switches variable mode on `root_id` and re-evaluates all bound properties in its subtree.
     pub fn apply_variable_mode_to_subtree(&mut self, root_id: NodeId, collection_id: &str, mode_id: &str) -> Result<usize, DocError> {
         apply_variable_mode_to_subtree(self, root_id, collection_id, mode_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suggesting_auto_layout_on_a_row_with_child_margins_infers_the_gap_and_padding_outside_the_margins() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let frame_id = doc.alloc_id();
+        let mut frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 100.0, 40.0));
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, item_spacing: 10.0, ..AutoLayout::v1() }),
+            ..Default::default()
+        });
+        doc.insert(page, frame).unwrap();
+        let mut kids = vec![];
+        for _ in 0..2 {
+            let id = doc.alloc_id();
+            let mut kid = Node::rectangle(id, Rect::new(0.0, 0.0, 20.0, 20.0));
+            kid.layout_child.margin = [0.0, 4.0, 0.0, 8.0];
+            kids.push(doc.insert(frame_id, kid).unwrap());
+        }
+        let xs = |doc: &Document| kids.iter().map(|id| doc.get(*id).unwrap().transform.tx).collect::<Vec<_>>();
+
+        doc.relayout_subtree(frame_id);
+        // 8 left margin, 20 wide, 4 right margin + 10 spacing + 8 left margin = 22 between the two border boxes
+        assert_eq!(xs(&doc), vec![8.0, 50.0]);
+
+        // the margins are the children's own: the suggestion keeps the 10 spacing and 0 padding, and a second pass changes nothing
+        for _ in 0..2 {
+            let res = suggest_auto_layout(&mut doc, &[frame_id]).unwrap();
+            assert_eq!(res.primary_spacing, 10.0);
+            assert_eq!(res.padding, [0.0, 26.0, 20.0, 0.0], "left 0 and right 26 = 100 - the 74 the two margin boxes span");
+            assert_eq!(xs(&doc), vec![8.0, 50.0]);
+        }
     }
 }

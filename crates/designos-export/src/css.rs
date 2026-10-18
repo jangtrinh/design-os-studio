@@ -13,10 +13,10 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 
     let parent = n.parent.and_then(|p| doc.get(p));
-    let parent_al = parent.and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout);
+    let parent_al = parent.and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref());
     let in_flow = parent_al.is_some() && !n.layout_child.absolute;
     let is_text = matches!(n.kind, NodeKind::Text(_));
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
 
     // position
     if let Some(p) = parent {
@@ -101,7 +101,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            let cols = crate::codegen::grid_column_count(&al);
+            let cols = crate::codegen::grid_column_count(al);
             push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
             if al.grid_rows > 0 {
                 push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));

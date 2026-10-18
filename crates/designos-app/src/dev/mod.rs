@@ -196,6 +196,7 @@ impl App {
     /// Saves a named version of the open library file to diff against later.
     fn save_marking_version(&mut self, ids: &[NodeId]) -> Option<u32> {
         let (lib, lf) = (self.lib.clone()?, self.lib_file.clone()?);
+        self.settle_pending_relayout();
         let names: Vec<String> = ids.iter().filter_map(|i| self.doc.get(*i)).map(|n| n.name.clone()).take(3).collect();
         let label = format!("Ready for dev: {}", names.join(", "));
         let v = lib.save_version_described(&lf.id, &self.doc, Some(label), None, false).ok()?;

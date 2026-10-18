@@ -1037,6 +1037,9 @@ impl Shell {
             self.app.flush_autosave();
         }
         self.app.scrub_sync(&ctx);
+        if self.app.step_pending_relayout() {
+            ctx.request_repaint();
+        }
         let window_full = ui.max_rect();
         let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
@@ -1654,8 +1657,8 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()
@@ -2330,8 +2333,8 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()

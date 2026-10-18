@@ -81,7 +81,7 @@ impl Command {
             Command::Insert { parent, index, nodes } => {
                 let root = nodes.first().map(|n| n.id).ok_or(DocError::NotFound(parent))?;
                 let p = doc.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
-                if !p.kind.is_container() {
+                if !p.kind.can_hold_children() {
                     return Err(DocError::NotAContainer(parent));
                 }
                 let index = index.min(p.children.len());
@@ -215,13 +215,25 @@ impl History {
         self.redo.clear();
         Ok(())
     }
+    /// Reverts the latest step. Auto-layout subtrees a relayout deferred are finished first: the
+    /// queue describes the state this step is about to leave, and a lazy pass after the inverse
+    /// would solve them against the reverted frame and write layout nothing can undo. Finishing
+    /// them makes the layout below the edit one whole state, which a redo restores unchanged;
+    /// dropping them would leave it half old and half new.
+    ///
+    /// This does not lay the document out again for the reverted state: what a relayout wrote to
+    /// children is not a step on this stack, so after the undo they still hold the edited layout.
+    /// Callers that need the pre-edit layout back lay the container out again themselves.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.undo.pop() else { return Ok(false) };
+        doc.flush_pending_relayout();
         self.redo.push(c.apply(doc)?);
         Ok(true)
     }
+    /// Re-applies the latest undone step; settles deferred layout first, like [`Self::undo`].
     pub fn redo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.redo.pop() else { return Ok(false) };
+        doc.flush_pending_relayout();
         self.undo.push(c.apply(doc)?);
         Ok(true)
     }
@@ -283,6 +295,60 @@ mod tests {
         assert_eq!(d.get(page).unwrap().children, vec![id]);
         h.redo(&mut d).unwrap();
         assert!(d.get(id).is_none());
+    }
+
+    /// 70 nested Fill frames under a page, 200 wide; the outermost is the only one that is not Fill.
+    fn nested_fill_frames() -> (Document, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut frames = Vec::new();
+        let mut cur = page;
+        for i in 0..70 {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 200.0, 40.0));
+            if let NodeKind::Frame(fp) = &mut f.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    ..AutoLayout::default()
+                });
+            }
+            if i > 0 {
+                f.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+            }
+            d.insert(cur, f).unwrap();
+            frames.push(id);
+            cur = id;
+        }
+        (d, frames)
+    }
+
+    fn widths(d: &Document, frames: &[NodeId]) -> Vec<f32> {
+        frames.iter().map(|f| d.get(*f).unwrap().size.x).collect()
+    }
+
+    #[test]
+    fn undo_and_redo_never_leave_a_stale_layout_queue_to_write_later() {
+        let (mut d, frames) = nested_fill_frames();
+        let mut h = History::default();
+        let mut wide = d.get(frames[0]).unwrap().clone();
+        wide.size.x = 600.0;
+        h.exec(&mut d, Command::Update { node: Box::new(wide) }).unwrap();
+        d.relayout_subtree(frames[0]);
+        assert!(d.relayout_skipped_count() > 0, "precondition: the nest is deeper than one relayout reaches");
+
+        h.undo(&mut d).unwrap();
+        assert_eq!(d.get(frames[0]).unwrap().size.x, 200.0, "the command was undone");
+        assert_eq!(d.relayout_skipped_count(), 0, "the queue was built for the state the undo just left");
+        let after_undo = widths(&d, &frames);
+        d.flush_pending_relayout();
+        assert_eq!(widths(&d, &frames), after_undo, "nothing may write layout behind the undo stack after the undo");
+        assert!(after_undo[1..].iter().all(|w| *w == after_undo[1]), "the nest below the outermost frame is one layout, not two: {after_undo:?}");
+
+        h.redo(&mut d).unwrap();
+        assert_eq!(d.relayout_skipped_count(), 0);
+        assert!(widths(&d, &frames).iter().all(|w| *w == 600.0), "redo brings back the whole edited layout: {:?}", widths(&d, &frames));
     }
 
     #[test]
