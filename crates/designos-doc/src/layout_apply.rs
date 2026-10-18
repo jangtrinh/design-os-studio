@@ -155,7 +155,9 @@ impl Document {
     /// how many steps a nest needs grows with its depth: the loop runs until the queue is empty
     /// instead of for a fixed number of steps. Every step solves at least the first queued root, so
     /// the queue keeps changing; a step that leaves it untouched would spin forever, so that
-    /// stops the loop (and leaves the subtrees counted) rather than hang the caller.
+    /// stops the loop rather than hang the caller. The subtrees stay queued and counted by
+    /// [`Self::relayout_skipped_count`], which a caller that must not go on with a stale layout
+    /// checks after the flush; debug builds treat the stalled step as a bug.
     pub fn flush_pending_relayout(&mut self) -> usize {
         let mut steps = 0;
         while !self.pending_relayout.is_empty() {
@@ -163,6 +165,7 @@ impl Document {
             self.flush_pending_relayout_step();
             steps += 1;
             if self.pending_relayout == before {
+                debug_assert!(false, "a relayout step left the queued subtrees untouched");
                 break;
             }
         }
