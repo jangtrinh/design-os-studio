@@ -139,8 +139,10 @@ fn text_truncation_and_max_lines() {
 fn grids_and_invisible_grids() {
     let doc = import_rest_json(FILE).unwrap();
     let f = find(&doc, "Frame").kind.frame_props().unwrap();
-    assert!(matches!(f.grids[0], LayoutGrid::Columns { count: 4, gutter, offset, .. } if gutter == 8.0 && offset == 2.0));
+    assert!(matches!(f.grids[0], LayoutGrid::Columns { count: 4, gutter, offset, visible: true, .. } if gutter == 8.0 && offset == 2.0));
     let hidden = r#"{"document":{"type":"DOCUMENT","children":[{"type":"CANVAS","children":[{"type":"FRAME","layoutGrids":[{"pattern":"GRID","sectionSize":8,"visible":false}]}]}]}}"#;
     let d = import_rest_json(hidden).unwrap();
-    assert!(d.nodes.values().find_map(|n| n.kind.frame_props()).unwrap().grids.is_empty());
+    let grids = &d.nodes.values().find_map(|n| n.kind.frame_props()).unwrap().grids;
+    assert_eq!(grids.len(), 1);
+    assert!(matches!(grids[0], LayoutGrid::Grid { size, visible: false, .. } if size == 8.0));
 }

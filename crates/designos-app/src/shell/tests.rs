@@ -944,10 +944,25 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
         designos_doc::LayoutGrid::Columns { count, .. } => assert_eq!(*count, 5, "undo restores"),
         g => panic!("{g:?}"),
     }
+    let w_rect = s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{:?}", ("lg-sec-size", 0usize)))))).expect("width field is shown");
+    s.click(Pos2::new(w_rect.left() + 40.0, w_rect.center().y));
+    s.type_text("60");
+    s.key(Key::Enter);
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text("0");
+    s.key(Key::Enter);
+    match &s.app().doc.get(id).unwrap().kind.frame_props().unwrap().grids[0] {
+        designos_doc::LayoutGrid::Columns { count, section_size, .. } => {
+            assert_eq!(*count, 0);
+            assert_eq!(*section_size, 60.0);
+        }
+        g => panic!("{g:?}"),
+    }
 }
 
 mod board;
 mod board_home;
+mod check_designs;
 mod comments;
 mod components;
 mod decks;
@@ -956,6 +971,7 @@ mod effect_grid_styles;
 mod figma_paste;
 mod find;
 mod gpu_screenshot_wait;
+mod grid_track_editing;
 mod history;
 mod home;
 mod live_agent_edits;
@@ -1061,4 +1077,111 @@ fn launch_e2e_proves_100_figma_micro_interactions_end_to_end() {
     s.shell.app.align_selection_as_group(crate::ops::Align::Left);
     let gap_after = s.app().doc.get(sel[1]).unwrap().transform.tx - s.app().doc.get(sel[0]).unwrap().transform.tx;
     assert!((gap_before - gap_after).abs() < 1e-3, "Shift+Align preserves relative offset within group");
+}
+
+#[test]
+fn grid_track_editing_insert_delete_resize_and_reorder() {
+    use crate::canvas::grids::{delete_grid_track, insert_grid_track, move_grid_track, resize_grid_track};
+    use crate::edit::Edit;
+    use designos_doc::{AutoLayout, GridTrack, LayoutDirection, Node, Rect as DRect};
+    use grid_track_editing::track_labels;
+
+    let mut s = Sim::new();
+    let page = s.app().page;
+
+    // 1. Build a 4-column grid with literal tracks [80px, 120px, 1fr, Hug] and 4 children,
+    // where child 1 is anchored to track 2 (0-based index 1) and child 3 is anchored to track 4 (index 3).
+    let fid = s.shell.app.doc.alloc_id();
+    let mut grid = Node::frame(fid, DRect::new(0.0, 0.0, 480.0, 240.0));
+    let mut col_tracks = [GridTrack::Flex(1.0); 8];
+    col_tracks[0] = GridTrack::Fixed(80.0);
+    col_tracks[1] = GridTrack::Fixed(120.0);
+    col_tracks[2] = GridTrack::Flex(1.0);
+    col_tracks[3] = GridTrack::Hug;
+    grid.kind.frame_props_mut().unwrap().auto_layout =
+        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 4, grid_rows: 1, grid_col_tracks: col_tracks.into(), ..AutoLayout::default() });
+    let grid_id = s.shell.app.doc.insert(page, grid).unwrap();
+    let mut kids = Vec::new();
+    for (i, w) in [60.0f32, 90.0, 70.0, 60.0].into_iter().enumerate() {
+        let cid = s.shell.app.doc.alloc_id();
+        let mut child = Node::rectangle(cid, DRect::new(0.0, 0.0, w, 40.0));
+        if i == 1 {
+            child.layout_child.grid_column = Some(1);
+        } else if i == 3 {
+            child.layout_child.grid_column = Some(3);
+        }
+        kids.push(s.shell.app.doc.insert(grid_id, child).unwrap());
+    }
+    {
+        let mut ed = Edit::new();
+        crate::layout::relayout_around(&mut s.shell.app.doc, &mut ed, grid_id);
+    }
+    s.shell.app.selection = vec![grid_id];
+    s.frame(vec![]);
+
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "1fr", "Hug"]);
+
+    // 2. Insert a 5th column track (2fr) and resize column index 2 from 1fr -> 100px.
+    assert!(insert_grid_track(&mut s.shell.app, grid_id, true, 4, GridTrack::Flex(2.0)));
+    assert!(resize_grid_track(&mut s.shell.app, grid_id, true, 2, GridTrack::Fixed(100.0)));
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
+
+    // 3. Move track 2 (index 1, 120px) to track 4 (index 3): moves anchored item kids[1] in one undo step.
+    assert!(move_grid_track(&mut s.shell.app, grid_id, true, 1, 3));
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(3));
+    // Columns 0..3 have widths 80, 100, 60 (Hug of kids[3]) -> column 3 starts at x = 240.0.
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 240.0);
+    assert_eq!(s.app().doc.get(kids[3]).unwrap().layout_child.grid_column, Some(2));
+
+    // Single undo step restores both the track order and the anchored items' positions.
+    s.shell.app.undo();
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(1));
+    assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
+
+    // 4. Deleting a track re-flows auto-placed items.
+    let fid2 = s.shell.app.doc.alloc_id();
+    let mut grid2 = Node::frame(fid2, DRect::new(0.0, 0.0, 300.0, 200.0));
+    let mut tracks2 = [GridTrack::Flex(1.0); 8];
+    tracks2[0] = GridTrack::Fixed(100.0);
+    tracks2[1] = GridTrack::Fixed(100.0);
+    tracks2[2] = GridTrack::Fixed(100.0);
+    grid2.kind.frame_props_mut().unwrap().auto_layout =
+        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 3, grid_rows: 0, grid_col_tracks: tracks2.into(), ..AutoLayout::default() });
+    let grid2_id = s.shell.app.doc.insert(page, grid2).unwrap();
+    let mut auto_kids = Vec::new();
+    for _ in 0..4 {
+        let cid = s.shell.app.doc.alloc_id();
+        let child = Node::rectangle(cid, DRect::new(0.0, 0.0, 50.0, 40.0));
+        auto_kids.push(s.shell.app.doc.insert(grid2_id, child).unwrap());
+    }
+    {
+        let mut ed = Edit::new();
+        crate::layout::relayout_around(&mut s.shell.app.doc, &mut ed, grid2_id);
+    }
+    // Before delete: 3 columns -> item 2 is at (200, 0), item 3 is at (0, 40).
+    let p2_before = (s.app().doc.get(auto_kids[2]).unwrap().transform.tx, s.app().doc.get(auto_kids[2]).unwrap().transform.ty);
+    let p3_before = (s.app().doc.get(auto_kids[3]).unwrap().transform.tx, s.app().doc.get(auto_kids[3]).unwrap().transform.ty);
+    assert_eq!(p2_before, (200.0, 0.0));
+    assert_eq!(p3_before, (0.0, 40.0));
+
+    assert!(delete_grid_track(&mut s.shell.app, grid2_id, true, 1));
+    assert_eq!(track_labels(&s.app().doc, grid2_id, true), vec!["100px", "100px"]);
+    // After deleting column 1: 2 columns -> item 2 re-flows to (0, 40), item 3 re-flows to (100, 40).
+    let p2_after = (s.app().doc.get(auto_kids[2]).unwrap().transform.tx, s.app().doc.get(auto_kids[2]).unwrap().transform.ty);
+    let p3_after = (s.app().doc.get(auto_kids[3]).unwrap().transform.tx, s.app().doc.get(auto_kids[3]).unwrap().transform.ty);
+    assert_eq!(p2_after, (0.0, 40.0));
+    assert_eq!(p3_after, (100.0, 40.0));
+
+    // 5. On-canvas '+' add-track button and drag-reorder between track header pills.
+    s.shell.app.selection = vec![grid_id];
+    s.frame(vec![]);
+    let crect = s.app().canvas_rect;
+    let pills = crate::canvas::draw::grid_track_pill_rects(s.app(), crect);
+    let col_pills: Vec<_> = pills.iter().filter(|&&(gid, is_col, _, _)| gid == grid_id && is_col).copied().collect();
+    assert_eq!(col_pills.len(), 5);
+    assert!(crate::canvas::interact::try_drag_grid_track_pill(&mut s.shell.app, crect, col_pills[1].3.center(), col_pills[3].3.center()));
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
 }

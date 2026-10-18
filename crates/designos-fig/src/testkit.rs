@@ -148,7 +148,8 @@ pub fn figma_like_schema() -> Schema {
     );
     enum_def(&mut b, "TextTruncation", &["DISABLED", "ENDING"]);
     enum_def(&mut b, "StyleType", &["NONE", "FILL", "TEXT", "EFFECT", "EXPORT", "GRID", "STROKE"]);
-    enum_def(&mut b, "GridPattern", &["GRID", "COLUMNS", "ROWS"]);
+    enum_def(&mut b, "GridPattern", &["GRID", "COLUMNS", "ROWS", "STRIPES"]);
+    enum_def(&mut b, "LayoutGridType", &["MIN", "CENTER", "STRETCH", "MAX"]);
     enum_def(&mut b, "ImageScaleMode", &["STRETCH", "FIT", "FILL", "TILE"]);
     enum_def(&mut b, "WindingRule", &["NONZERO", "ODD", "EVENODD"]);
     enum_def(&mut b, "ConstraintType", &["MIN", "CENTER", "MAX", "STRETCH", "SCALE"]);
@@ -332,6 +333,9 @@ pub fn figma_like_schema() -> Schema {
     let ct = def(&b, "Color");
     b.field(lg, "color", ct, false, 6);
     b.field(lg, "visible", nat(Bool), false, 7);
+    let lgt = def(&b, "LayoutGridType");
+    b.field(lg, "type", lgt, false, 8);
+    b.field(lg, "numSections", nat(Int), false, 9);
     let gp = b.define("GuidPath", DefKind::Message);
     let gt = def(&b, "GUID");
     b.field(gp, "guids", gt, true, 1);

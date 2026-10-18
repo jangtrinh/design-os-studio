@@ -2306,6 +2306,139 @@ fn grid_auto_tracks_and_v106_track_maps_roundtrip() {
     assert_eq!(rt_al2.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Fixed(64.0)));
 }
 
+#[test]
+fn layout_guide_alignment_fixed_width_auto_count_and_visibility_roundtrip() {
+    use designos_doc::{Color, Document, LayoutGrid, LayoutGridAlign, Node, NodeKind, Rect, Style};
+
+    // Old serialized LayoutGrid JSON without alignment/section_size/visible must load with Stretch, 0.0, true.
+    let legacy_grid: LayoutGrid =
+        serde_json::from_str(r#"{"Columns":{"count":12,"gutter":20.0,"offset":16.0,"color":{"r":1.0,"g":0.0,"b":0.0,"a":0.1}}}"#).unwrap();
+    assert_eq!(
+        legacy_grid,
+        LayoutGrid::Columns {
+            count: 12,
+            gutter: 20.0,
+            offset: 16.0,
+            section_size: 0.0,
+            alignment: LayoutGridAlign::Stretch,
+            color: Color { r: 1.0, g: 0.0, b: 0.0, a: 0.1 },
+            visible: true,
+        }
+    );
+
+    let mut doc = Document::new("GuideParity");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 1440.0, 900.0));
+    frame.name = "DesktopFrame".into();
+    let g_cols = LayoutGrid::Columns {
+        count: 12,
+        gutter: 20.0,
+        offset: 0.0,
+        section_size: 60.0,
+        alignment: LayoutGridAlign::Center,
+        color: Color::rgba(255, 0, 0, 26),
+        visible: true,
+    };
+    let g_rows = LayoutGrid::Rows {
+        count: 0,
+        gutter: 16.0,
+        offset: 24.0,
+        section_size: 48.0,
+        alignment: LayoutGridAlign::Min,
+        color: Color::rgba(0, 128, 255, 26),
+        visible: true,
+    };
+    let g_hidden = LayoutGrid::Grid { size: 8.0, color: Color::rgba(0, 255, 0, 26), visible: false };
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.grids = vec![g_cols.clone(), g_rows.clone(), g_hidden.clone()];
+    }
+    doc.insert(page, frame).unwrap();
+
+    let style_grid = LayoutGrid::Columns {
+        count: 0,
+        gutter: 12.0,
+        offset: 32.0,
+        section_size: 72.0,
+        alignment: LayoutGridAlign::Max,
+        color: Color::rgba(255, 128, 0, 26),
+        visible: false,
+    };
+    doc.styles.insert("S:grid-auto-max".into(), Style::Grid(vec![style_grid.clone()]));
+
+    let bytes = export_fig(&doc).unwrap();
+    let rt = import_fig(&bytes).unwrap();
+    let rt_frame = find(&rt, "DesktopFrame");
+    let rt_grids = &rt_frame.kind.frame_props().unwrap().grids;
+    assert_eq!(rt_grids.len(), 3);
+    assert!(matches!(
+        &rt_grids[0],
+        LayoutGrid::Columns { count: 12, gutter, offset, section_size, alignment: LayoutGridAlign::Center, visible: true, .. }
+        if (*gutter - 20.0).abs() < 1e-4 && (*offset - 0.0).abs() < 1e-4 && (*section_size - 60.0).abs() < 1e-4
+    ));
+    assert!(matches!(
+        &rt_grids[1],
+        LayoutGrid::Rows { count: 0, gutter, offset, section_size, alignment: LayoutGridAlign::Min, visible: true, .. }
+        if (*gutter - 16.0).abs() < 1e-4 && (*offset - 24.0).abs() < 1e-4 && (*section_size - 48.0).abs() < 1e-4
+    ));
+    assert!(matches!(
+        &rt_grids[2],
+        LayoutGrid::Grid { size, visible: false, .. } if (*size - 8.0).abs() < 1e-4
+    ));
+
+    let has_grid_style = rt.styles.values().any(|s| {
+        matches!(
+            s,
+            Style::Grid(gs)
+            if matches!(
+                gs.as_slice(),
+                [LayoutGrid::Columns { count: 0, gutter, offset, section_size, alignment: LayoutGridAlign::Max, visible: false, .. }]
+                if (*gutter - 12.0).abs() < 1e-4 && (*offset - 32.0).abs() < 1e-4 && (*section_size - 72.0).abs() < 1e-4
+            )
+        )
+    });
+    assert!(has_grid_style, "grid style must round-trip alignment, section_size, auto count, and visible=false");
+}
+
+/// Equal-width columns: aligned but with no fixed width (paint width is (400 - 80) / 5).
+fn equal_width_columns_doc() -> (Document, LayoutGrid) {
+    use designos_doc::{Color, LayoutGridAlign, Node, NodeKind, Rect};
+    let equal = LayoutGrid::Columns {
+        count: 5,
+        gutter: 20.0,
+        offset: 0.0,
+        section_size: 0.0,
+        alignment: LayoutGridAlign::Min,
+        color: Color::rgba(255, 0, 0, 26),
+        visible: true,
+    };
+    let mut doc = Document::new("GuideZero");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0));
+    frame.name = "EqualColumns".into();
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.grids = vec![equal.clone()];
+    }
+    doc.insert(page, frame).unwrap();
+    (doc, equal)
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_fig() {
+    let (doc, equal) = equal_width_columns_doc();
+    let back = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_rest() {
+    let (doc, equal) = equal_width_columns_doc();
+    let json = designos_fig::export_rest_json(&doc);
+    let back = designos_fig::import_rest_json(&json.to_string()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
+}
+
 /// Node name -> (`gridChildHorizontalAlign`, `gridChildVerticalAlign`) as written to the `.fig` message; a key that
 /// was not written reads `<absent>`. Only nodes that carry at least one of the keys are listed.
 fn wire_grid_child_aligns(bytes: &[u8]) -> BTreeMap<String, (String, String)> {
