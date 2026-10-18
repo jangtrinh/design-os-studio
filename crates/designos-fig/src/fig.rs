@@ -1934,9 +1934,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "gridRowAnchor"
             | "gridRowAnchorIndex"
             | "gridChildHorizontalAlign"
-            | "gridChildVerticalAlign"
-            | "stackCounterAlignContent"
-            | "stackLayoutVersion" => {
+            | "gridChildVerticalAlign" => {
                 has_layout = true;
             }
             "fontName"
