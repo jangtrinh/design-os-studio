@@ -1486,10 +1486,20 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if lc.row_span > 1 {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
                 }
-                // An override that resets an alignment to Start must say MIN: the rebuilt copy of the main component
-                // would otherwise keep the main's alignment.
-                for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-                    ov.push((k, en(grid_child_align_name(a))));
+                // An alignment key is written only for an axis that differs from the main component's child: a reader
+                // keeps the main's value for any key the override does not name, so naming one that still matches
+                // would freeze it (a margin, span or sizing override takes this same Layout flag). A reset to Start
+                // differs from a Center or End main and is written as MIN. With no main child to compare against,
+                // both axes are written.
+                let main_lc = n.component.source.and_then(|s| cx.doc.get(s)).map(|s| s.layout_child);
+                let axes = [
+                    ("gridChildHorizontalAlign", lc.grid_align_h, main_lc.map(|m| m.grid_align_h)),
+                    ("gridChildVerticalAlign", lc.grid_align_v, main_lc.map(|m| m.grid_align_v)),
+                ];
+                for (k, a, main) in axes {
+                    if main != Some(a) {
+                        ov.push((k, en(grid_child_align_name(a))));
+                    }
                 }
                 // Every side is written, zero included: a reader rebuilds the instance from its master and keeps the
                 // master's margin for any side the override does not name, so a cleared margin has to be explicit.

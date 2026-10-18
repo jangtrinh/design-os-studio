@@ -2430,20 +2430,118 @@ fn instance_override_that_resets_a_grid_child_alignment_to_start_survives_a_roun
 
     let bytes = export_fig(&doc).expect("export_fig OverrideAlignDoc");
 
-    // The override entry for the child carries both keys: the MIN reset is an explicit value, not an omitted key.
-    let (_, overrides) = wire_instance_override(&bytes, "AlignInst");
-    assert_eq!(overrides, ("MIN".to_string(), "MAX".to_string()), "the reset to MIN was dropped from the symbolOverrides");
+    // The override entry names only the axis that changed, and names the reset to Start as MIN: an omitted key keeps
+    // the main component's value, so the vertical axis (still the main's MAX) must not be written.
+    let (_, overrides) = wire_instance_override(&bytes, "AlignInst", None);
+    assert_eq!(overrides, ("MIN".to_string(), "<absent>".to_string()), "the symbolOverrides must carry the MIN reset and nothing for the unchanged axis");
 
     // A real .fig instance stores no children, so the copy is rebuilt from the component plus the written overrides.
-    let (stripped, _) = wire_instance_override(&bytes, "AlignInst");
+    let (stripped, _) = wire_instance_override(&bytes, "AlignInst", None);
     let rt = import_fig(&stripped).expect("re-import OverrideAlignDoc");
     assert_eq!(instance_child(&rt), (GridChildAlign::Start, GridChildAlign::End), "the rebuilt copy kept the component's alignment");
+
+    // The untouched axis keeps following the main component: after the main changes to CENTER/MIN the rebuilt copy is
+    // still reset horizontally (Start) and now follows the main vertically (Start, no longer End).
+    let (stripped, _) = wire_instance_override(&bytes, "AlignInst", Some(("AlignedChild", "CENTER", "MIN")));
+    let rt = import_fig(&stripped).expect("re-import OverrideAlignDoc after the main changed");
+    assert_eq!(instance_child(&rt), (GridChildAlign::Start, GridChildAlign::Start), "the unchanged axis froze the main's old value");
+}
+
+#[test]
+fn instance_override_of_a_margin_leaves_the_grid_child_alignment_following_the_main_component() {
+    use designos_doc::GridChildAlign;
+
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 40.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    // The main child is centred horizontally and ends vertically; the instance only sets a left margin. A margin takes
+    // the same Layout override flag as an alignment, but it names no alignment, so the alignment stays the main's.
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "MarginOverrideDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        node(
+            (1, 10),
+            (0, 1),
+            "a",
+            "SYMBOL",
+            "AlignComp",
+            json!({
+                "size": {"x": 100.0, "y": 100.0},
+                "stackMode": "GRID",
+                "gridColumns": 1,
+                "gridRows": 1,
+                "gridColumnsSizing": "100px",
+                "gridRowsSizing": "100px"
+            })
+        ),
+        node(
+            (1, 11),
+            (1, 10),
+            "a",
+            "RECTANGLE",
+            "AlignedChild",
+            json!({
+                "overrideKey": g(9, 11),
+                "gridChildHorizontalAlign": "CENTER",
+                "gridChildVerticalAlign": "MAX"
+            })
+        ),
+        node(
+            (1, 12),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "AlignInst",
+            json!({
+                "size": {"x": 100.0, "y": 100.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [
+                        {"guidPath": {"guids": [g(9, 11)]}, "stackChildMarginLeft": 8.0}
+                    ]
+                }
+            })
+        )
+    ]);
+    let instance_child = |doc: &Document| {
+        let inst = find(doc, "AlignInst");
+        let child = doc.get(*inst.children.first().expect("instance child")).expect("instance child node");
+        (child.layout_child.grid_align_h, child.layout_child.grid_align_v, child.layout_child.margin[3])
+    };
+
+    let doc = import_fig_node_changes(&changes, "MarginOverrideDoc").expect("import MarginOverrideDoc");
+    assert_eq!(instance_child(&doc), (GridChildAlign::Center, GridChildAlign::End, 8.0), "the margin applies on import, the alignment is the main's");
+
+    let bytes = export_fig(&doc).expect("export_fig MarginOverrideDoc");
+    let (_, overrides) = wire_instance_override(&bytes, "AlignInst", None);
+    assert_eq!(overrides, ("<absent>".to_string(), "<absent>".to_string()), "a margin override must not write the alignment");
+
+    // The main child changes to MIN/MIN and the instance is rebuilt: it follows, and keeps its own margin.
+    let (stripped, _) = wire_instance_override(&bytes, "AlignInst", Some(("AlignedChild", "MIN", "MIN")));
+    let rt = import_fig(&stripped).expect("re-import MarginOverrideDoc after the main changed");
+    assert_eq!(instance_child(&rt), (GridChildAlign::Start, GridChildAlign::Start, 8.0), "the alignment froze at the main's old CENTER/MAX");
 }
 
 /// The `.fig` bytes with the children stored under instance `instance_name` removed, and the
 /// (`gridChildHorizontalAlign`, `gridChildVerticalAlign`) of the first `symbolOverrides` entry that carries either key
-/// (`<absent>` for a key it does not carry).
-fn wire_instance_override(bytes: &[u8], instance_name: &str) -> (Vec<u8>, (String, String)) {
+/// (`<absent>` for a key it does not carry). `main_edit` rewrites both alignment keys of the remaining node of that
+/// name (the main component's child) to the given `(name, horizontal, vertical)`, as if the main had changed.
+fn wire_instance_override(bytes: &[u8], instance_name: &str, main_edit: Option<(&str, &str, &str)>) -> (Vec<u8>, (String, String)) {
     use designos_fig::container::{self, Compression};
     use designos_fig::kiwi::{KiwiValue, Schema};
     let archive = container::open(bytes).expect("open fig archive");
@@ -2476,7 +2574,18 @@ fn wire_instance_override(bytes: &[u8], instance_name: &str) -> (Vec<u8>, (Strin
             }
         }
     }
-    let kept: Vec<KiwiValue> = nodes.into_iter().filter(|n| guid_of(n.get("parentIndex").and_then(|p| p.get("guid"))) != Some(instance)).collect();
+    let mut kept: Vec<KiwiValue> = nodes.into_iter().filter(|n| guid_of(n.get("parentIndex").and_then(|p| p.get("guid"))) != Some(instance)).collect();
+    if let Some((name, h, v)) = main_edit {
+        let main = kept.iter_mut().find(|n| matches!(n.get("name"), Some(KiwiValue::String(s)) if s == name)).expect("main component child");
+        let KiwiValue::Message(main_fields) = main else { panic!("node is not a message") };
+        for (key, value) in [("gridChildHorizontalAlign", h), ("gridChildVerticalAlign", v)] {
+            let value = KiwiValue::Enum(value.into());
+            match main_fields.iter_mut().find(|(k, _)| &**k == key) {
+                Some(slot) => slot.1 = value,
+                None => main_fields.push((key.into(), value)),
+            }
+        }
+    }
     let KiwiValue::Message(fields) = &mut msg else { panic!("root is not a message") };
     fields.push(("nodeChanges".into(), KiwiValue::Array(kept)));
     let encoded = schema.encode_message(root, &msg).expect("encode fig message");
