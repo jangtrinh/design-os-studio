@@ -773,10 +773,11 @@ impl TerminalState {
         self.doc_name = if doc.name.trim().is_empty() { "Untitled".into() } else { doc.name.clone() };
 
         // The canvas the agent reads must keep holding every edit the agent made. While one of its
-        // edits waits for the user to finish, or the user is mid-edit, the editor's document does
-        // not have it yet, so publishing now would make the agent's next call lose its own edit.
-        // `last_synced_key` stays as it was, so the first idle frame publishes.
-        if self.edit_in_progress || self.live_patch.has_held() {
+        // edits waits for the user to finish, or the user is mid-edit, or deferred auto-layout
+        // subtrees are still draining, the editor's document is not settled yet, so publishing now
+        // would make the agent's next call lose its own edit or read a half-solved tree.
+        // `last_synced_key` stays as it was, so the first fully drained idle frame publishes.
+        if self.edit_in_progress || self.live_patch.has_held() || doc.relayout_skipped_count() > 0 {
             return;
         }
 

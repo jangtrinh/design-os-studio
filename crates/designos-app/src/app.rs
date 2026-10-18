@@ -316,7 +316,7 @@ impl App {
     /// The deferred layout moved nodes behind the canvas's back: bump the revision (the CPU scene
     /// index and the autosave watch it), drop the cached tiles and GPU geometry, and tell the
     /// user how much is still unfinished, or retire that notice once nothing is.
-    fn relayout_moved_geometry(&mut self) {
+    pub(crate) fn relayout_moved_geometry(&mut self) {
         self.changed();
         self.canvas.tiles.invalidate_all();
         match self.doc.relayout_notice() {

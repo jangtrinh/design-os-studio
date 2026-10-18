@@ -382,6 +382,8 @@ impl Engine {
                     None => Vec::new(),
                 };
                 let changed = if undo { self.history.undo(&mut self.doc) } else { self.history.redo(&mut self.doc) }.map_err(|e| e.to_string())?;
+                // Undo and redo defer a deep layout tail to later frames; this engine has no frames.
+                self.settle_layout();
                 self.record(ops);
                 Ok(json!({"changed":changed,"can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }

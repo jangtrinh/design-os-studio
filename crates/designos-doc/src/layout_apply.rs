@@ -14,6 +14,55 @@ impl Document {
         self.relayout_bottom_up(root, &mut budget);
     }
 
+    /// Re-solves only the auto-layout frames in `seeds`, each once, deepest first, and then climbs:
+    /// after a frame is solved, its auto-layout parent is solved too only when the frame's own size
+    /// changed (a hugging frame bubbling a new size up). The climb stops at the first frame whose
+    /// size held, or at the first ancestor that is not auto layout. Unlike [`Self::relayout_subtree`]
+    /// this never walks the containers below a seed, so untouched siblings keep the positions they
+    /// have. One [`MAX_RELAYOUT_RESOLVES`] budget covers the whole call; a subtree past it is
+    /// queued in `pending_relayout` exactly as for [`Self::relayout_subtree`].
+    pub(crate) fn relayout_seeds_upward(&mut self, seeds: &[NodeId]) {
+        let depth = |doc: &Document, id: NodeId| {
+            let mut d = 0usize;
+            let mut cur = doc.get(id).and_then(|n| n.parent);
+            while let Some(p) = cur {
+                d += 1;
+                cur = doc.get(p).and_then(|n| n.parent);
+            }
+            d
+        };
+        let mut order: Vec<(usize, NodeId)> = Vec::with_capacity(seeds.len());
+        for &id in seeds {
+            if self.is_auto_layout_frame(id) && !order.iter().any(|(_, o)| *o == id) {
+                order.push((depth(self, id), id));
+            }
+        }
+        // Deepest first, so a container is solved after the children whose new sizes it reads.
+        order.sort_by_key(|(d, _)| std::cmp::Reverse(*d));
+
+        let mut budget = MAX_RELAYOUT_RESOLVES;
+        for (_, seed) in order {
+            let mut cur = seed;
+            loop {
+                let before = self.get(cur).map(|n| n.size);
+                self.solve_auto_layout_node(cur, 0, &mut budget);
+                let moved = match (before, self.get(cur).map(|n| n.size)) {
+                    (Some(b), Some(a)) => (b.x - a.x).abs() > 1e-3 || (b.y - a.y).abs() > 1e-3,
+                    _ => false,
+                };
+                let parent = self.get(cur).and_then(|n| n.parent);
+                match parent.filter(|p| moved && self.is_auto_layout_frame(*p)) {
+                    Some(p) => cur = p,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    fn is_auto_layout_frame(&self, id: NodeId) -> bool {
+        self.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some())
+    }
+
     /// What a flow frame's solver reads of child `id`: `None` when the child sits outside the flow
     /// (hidden by its visibility or variable, or absolutely positioned), otherwise its box with
     /// variable bindings applied for the mode in effect. The editor and the headless relayout both
@@ -65,6 +114,8 @@ impl Document {
     }
 
     fn solve_auto_layout_node(&mut self, root: NodeId, hops: usize, budget: &mut usize) {
+        #[cfg(test)]
+        SOLVE_CALLS.with(|c| c.set(c.get() + 1));
         if !self.pending_relayout.is_empty() {
             self.pending_relayout.retain(|&id| id != root);
         }
@@ -197,6 +248,20 @@ pub const MAX_RELAYOUT_RESOLVES: usize = 4_096;
 #[cfg(test)]
 thread_local! {
     static RESOLVE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Every `solve_auto_layout_node` entry: bottom-up, top-down and the undo climb alike.
+    static SOLVE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Resets the per-thread count of auto-layout frames solved.
+#[cfg(test)]
+pub(crate) fn reset_solve_calls() {
+    SOLVE_CALLS.with(|c| c.set(0));
+}
+
+/// Auto-layout frames solved on this thread since [`reset_solve_calls`].
+#[cfg(test)]
+pub(crate) fn solve_calls() -> usize {
+    SOLVE_CALLS.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]

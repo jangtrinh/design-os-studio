@@ -252,14 +252,73 @@ fn undo_and_redo_finish_the_queue_and_retire_the_notice() {
     assert!(toast_text(&s).is_some_and(|t| t.starts_with(NOTICE)), "precondition: the user was told");
 
     s.shell.app.undo();
-    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "undo must not leave a queue built for the edit it reverted");
-    assert!(toast_text(&s).is_none_or(|t| !t.starts_with(NOTICE)), "the notice reported work that no longer exists: {:?}", toast_text(&s));
-    s.frame(vec![]);
-    assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 200.0);
+    assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 200.0, "the undo itself restores the edited frame");
+    assert!(s.app().doc.relayout_skipped_count() > 0, "the undo solves within its hop budget and leaves the deep tail to the next frames");
+    assert!(toast_text(&s).is_some_and(|t| t.starts_with(NOTICE)), "the user is told while the tail is unfinished");
+    for _ in 0..4 {
+        s.frame(vec![]);
+    }
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "the lazy steps finish the tail");
+    assert!(toast_text(&s).is_none_or(|t| !t.starts_with(NOTICE)), "the notice goes away with the work it reported: {:?}", toast_text(&s));
+    assert!(
+        frames.iter().all(|f| s.app().doc.get(*f).unwrap().size.x == 200.0),
+        "undo restores every frame in the chain to 200 px: {:?}",
+        frames.iter().map(|f| s.app().doc.get(*f).unwrap().size.x).collect::<Vec<_>>()
+    );
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 190.0, "undo restores the leaf position to 190 px");
 
     s.shell.app.redo();
+    for _ in 0..4 {
+        s.frame(vec![]);
+    }
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0);
+    assert!(frames.iter().all(|f| s.app().doc.get(*f).unwrap().size.x == 600.0), "redo restores every frame in the chain to 600 px");
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
+}
+
+#[test]
+fn sync_live_file_context_waits_for_pending_relayout_to_drain() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (frames, leaf) = add_chain(&mut s.shell.app.doc, page, 200.0);
+    s.shell.app.doc.relayout_subtree(page);
+    s.shell.app.changed();
+    s.frame(vec![]);
     s.frame(vec![]);
     assert_eq!(s.app().doc.relayout_skipped_count(), 0);
-    assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 600.0);
-    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 190.0);
+
+    let session_dir = s.app().terminal.session_dir.clone();
+    let canvas_path = s.app().terminal.live_canvas_path.clone();
+    let initial = Document::from_json(&std::fs::read_to_string(&canvas_path).unwrap()).unwrap();
+    assert_eq!(initial.get(frames[0]).unwrap().size.x, 200.0);
+    assert_eq!(initial.get(leaf).unwrap().transform.tx, 190.0);
+
+    // Widen the outermost frame: `relayout_subtree` defers the deeper half of the chain.
+    s.shell.app.doc.get_mut(frames[0]).unwrap().size.x = 600.0;
+    s.shell.app.doc.relayout_subtree(page);
+    s.shell.app.changed();
+    assert!(s.app().doc.relayout_skipped_count() > 0, "precondition: relayout is still pending");
+
+    // Calling publish while the queue is non-empty must NOT write the half-solved document.
+    crate::live_patch_apply::publish_live_context(&mut s.shell.app);
+    let while_queued = Document::from_json(&std::fs::read_to_string(&canvas_path).unwrap()).unwrap();
+    assert_eq!(while_queued.get(frames[0]).unwrap().size.x, 200.0, "live canvas must not publish while relayout is incomplete");
+    assert_eq!(while_queued.get(leaf).unwrap().transform.tx, 190.0);
+
+    // Frame 1 advances one lazy step; the innermost frames are still queued, so publish stays held.
+    s.frame(vec![]);
+    assert!(s.app().doc.relayout_skipped_count() > 0, "precondition: first lazy step leaves tail queued");
+    let after_step_1 = Document::from_json(&std::fs::read_to_string(&canvas_path).unwrap()).unwrap();
+    assert_eq!(after_step_1.get(frames[0]).unwrap().size.x, 200.0, "live canvas must stay held until the queue finishes");
+
+    // Frame 2 drains the queue and publishes the fully solved document once.
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "second lazy step drains the queue");
+    let after_drain = Document::from_json(&std::fs::read_to_string(&canvas_path).unwrap()).unwrap();
+    assert!(frames.iter().all(|f| after_drain.get(*f).unwrap().size.x == 600.0), "live canvas publishes once all 70 frames are solved");
+    assert_eq!(after_drain.get(leaf).unwrap().transform.tx, 590.0);
+
+    s.shell.app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
 }

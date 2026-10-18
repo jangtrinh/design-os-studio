@@ -274,10 +274,9 @@ impl App {
         if self.try_undo_restore() {
             return;
         }
-        self.settle_pending_relayout();
         match self.hist.undo(&mut self.doc) {
             Ok(true) => {
-                self.changed();
+                self.relayout_moved_geometry();
                 self.sanitize();
             }
             Ok(false) => {}
@@ -289,10 +288,9 @@ impl App {
         if self.try_redo_restore() {
             return;
         }
-        self.settle_pending_relayout();
         match self.hist.redo(&mut self.doc) {
             Ok(true) => {
-                self.changed();
+                self.relayout_moved_geometry();
                 self.sanitize();
             }
             Ok(false) => {}
