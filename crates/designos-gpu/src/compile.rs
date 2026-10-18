@@ -45,6 +45,12 @@ pub const DEFAULT_REFINE_VRAM_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 /// programs (~1.28 KB each) inside the 512 MiB byte budget and stall CPU/GPU
 /// pass encoding. 4,096 is >3x the largest real-document refine while bounding
 /// pathological tiny-node pass explosions (`CLAUDE.md` §4.4).
+///
+/// This is a CPU/GPU work bound, not the Metal device limit. What the Metal
+/// backend cannot run is a submission with more than 2,047 render passes (4,096
+/// command buffers, two per pass), and a few hundred programs reach that: a
+/// blurred layer alone is 4 passes. The executor splits such frames into
+/// several submissions (`submit.rs`), so no program count can lose the device.
 pub const DEFAULT_REFINE_MAX_PROGRAMS: usize = 4_096;
 
 /// Compile-time knobs.

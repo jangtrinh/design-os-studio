@@ -318,6 +318,7 @@ pub struct ImageUpload<'a> {
     pub ring: &'a mut Ring,
     pub max_dim: u32,
     pub frame: u64,
+    pub split: &'a mut crate::submit::Splitter,
 }
 
 impl ImageUpload<'_> {
@@ -360,6 +361,7 @@ impl ImageUpload<'_> {
                     wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(self.sampler) },
                 ],
             );
+            self.split.reserve(self.enc, crate::submit::HAL_BUFFERS_PER_PASS);
             let mut pass = self.enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("mip"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
