@@ -587,18 +587,30 @@ impl TabsState {
         }
     }
 
-    /// The library file of tab `idx` as `(id, disk path)`; the disk path keys its cached pre-repair bytes.
-    fn library_file_of_tab(&self, idx: usize, app: &App) -> Option<(String, PathBuf)> {
-        let live = app.home.is_none() && idx == self.active_idx;
-        let lf = if live { app.lib_file.clone() } else { self.entries.get(idx)?.lib_file.clone() }?;
-        Some((lf.id.clone(), app.lib_file_disk_path(&lf)?))
+    /// Disk path of tab `idx` (its external `file_path` or its library file's disk path), reading
+    /// live `app` fields when `idx` is the active unparked tab.
+    pub(crate) fn disk_path_of_tab(&self, idx: usize, app: &App) -> Option<PathBuf> {
+        let live = app.home.is_none() && !self.parked_in_home && idx == self.active_idx;
+        if live {
+            if let Some(p) = app.file_path.clone().or_else(|| app.lib_file.as_ref().and_then(|lf| app.lib_file_disk_path(lf))) {
+                return Some(p);
+            }
+        }
+        let tab = self.entries.get(idx)?;
+        tab.file_path.clone().or_else(|| tab.lib_file.as_ref().and_then(|lf| app.lib_file_disk_path(lf)))
     }
 
-    /// Drops the cached pre-repair bytes of closed library files no remaining tab holds. Runs after the
-    /// closed file's last save, which is what consumes them to write the backup.
-    fn release_closed_library_files(&self, closed: &[(String, PathBuf)]) {
-        for (id, path) in closed {
-            if !self.entries.iter().any(|t| t.lib_file.as_ref().is_some_and(|lf| lf.id == *id)) {
+    /// True when any tab in `self.entries` (other than `skip_idx`, if given) holds a file with the
+    /// same [`crate::io::same_repair_key`] as `path`.
+    pub(crate) fn has_open_repair_key(&self, app: &App, path: &Path, skip_idx: Option<usize>) -> bool {
+        (0..self.entries.len()).filter(|i| Some(*i) != skip_idx).filter_map(|i| self.disk_path_of_tab(i, app)).any(|tp| crate::io::same_repair_key(&tp, path))
+    }
+
+    /// Drops the cached pre-repair bytes of closed tabs no remaining tab holds (by repair key).
+    /// Runs after the closed file's last save, which is what consumes them to write the backup.
+    fn release_closed_paths(&self, app: &App, closed: &[PathBuf]) {
+        for path in closed {
+            if !self.has_open_repair_key(app, path, None) {
                 crate::io::drop_repaired_original(path);
             }
         }
@@ -607,10 +619,10 @@ impl TabsState {
     /// Closes `entries[idx]` unless it is `pinned`. If `entries` becomes empty, opens `Home`;
     /// otherwise activates the nearest remaining tab.
     pub fn close_tab(&mut self, idx: usize, app: &mut App) -> bool {
-        let closed_lib: Vec<_> = self.library_file_of_tab(idx, app).into_iter().collect();
+        let closed_paths: Vec<_> = self.disk_path_of_tab(idx, app).into_iter().collect();
         let closed = self.close_tab_entry(idx, app);
         if closed {
-            self.release_closed_library_files(&closed_lib);
+            self.release_closed_paths(app, &closed_paths);
         }
         closed
     }
@@ -626,13 +638,6 @@ impl TabsState {
         }
         let mut removed = self.entries.remove(idx);
         removed.terminal.shutdown();
-        let closed_path = removed.file_path.clone().or_else(|| (!was_home && idx == old_active).then(|| app.file_path.clone()).flatten());
-        if let Some(p) = closed_path.as_deref() {
-            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
-            if !still_open {
-                crate::io::drop_repaired_original(p);
-            }
-        }
         if self.entries.is_empty() {
             self.active_idx = 0;
             self.hist_in_app = false;
@@ -687,23 +692,19 @@ impl TabsState {
         }
         let keep_id = self.entries[keep_idx].id;
         let mut closed_paths = Vec::new();
-        let mut closed_lib = Vec::new();
+        for idx in 0..self.entries.len() {
+            if self.entries[idx].id != keep_id && !self.entries[idx].pinned {
+                if let Some(p) = self.disk_path_of_tab(idx, app) {
+                    closed_paths.push(p);
+                }
+            }
+        }
         for t in &mut self.entries {
             if t.id != keep_id && !t.pinned {
                 t.terminal.shutdown();
-                if let Some(p) = t.file_path.clone() {
-                    closed_paths.push(p);
-                }
-                closed_lib.extend(t.lib_file.as_ref().and_then(|lf| Some((lf.id.clone(), app.lib_file_disk_path(lf)?))));
             }
         }
         self.entries.retain(|t| t.id == keep_id || t.pinned);
-        for p in &closed_paths {
-            let still_open = self.entries.iter().any(|t| t.file_path.as_deref().is_some_and(|tp| crate::io::same_repair_key(tp, p)));
-            if !still_open {
-                crate::io::drop_repaired_original(p);
-            }
-        }
         if let Some(new_idx) = self.entries.iter().position(|t| t.id == keep_id) {
             let tab_id = self.entries[new_idx].id;
             let sid = self.session_id_for_tab(tab_id);
@@ -716,7 +717,7 @@ impl TabsState {
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             self.hist_in_app = true;
         }
-        self.release_closed_library_files(&closed_lib);
+        self.release_closed_paths(app, &closed_paths);
     }
 
     /// Clones `entries[idx]` as `"<title> (Copy)"` in a new tab right after `idx` and activates it.
@@ -1645,7 +1646,9 @@ mod tests {
         tabs.sync_from_app(&app);
         let id = tabs.alloc_id();
         tabs.entries.push(ProjectTab::from_app(id, &app, None));
+        app.tabs = tabs;
         app.open_library_file(&other_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
         tabs.sync_from_app(&app);
         app.tabs = tabs;
         assert_eq!(app.tabs.entries.len(), 2);
@@ -1786,5 +1789,106 @@ mod tests {
         let second = app.tabs.entries[app.tabs.active_idx].id;
         assert_ne!(first, second);
         assert_eq!(app.tabs.active_session_id(), app.tabs.session_id_for_tab(second));
+    }
+
+    #[test]
+    fn replacing_a_repaired_library_file_in_place_drops_its_repaired_original_bytes() {
+        let (lib, dir, file_id, _rect) = library_with_one_file("replace_in_place");
+        let project = lib.file(&file_id).unwrap().project;
+        let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        std::fs::write(&disk_path, damaged.to_json().unwrap()).unwrap();
+
+        let ext_path = dir.join("external_other.designos");
+        let mut ext_doc = Document::new("External Other");
+        ext_doc.add_page("P");
+        std::fs::write(&ext_path, ext_doc.to_json().unwrap()).unwrap();
+
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib);
+
+        // 1. Open damaged library file without editing, then replace in-place via `new_file_here`.
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&disk_path), "opening damaged library file caches pre-repair bytes");
+        app.new_file_here();
+        assert!(!crate::io::has_repaired_original(&disk_path), "new_file_here must drop the replaced library file's cached pre-repair bytes");
+
+        // 2. Re-open damaged library file without editing, then replace in-place via `open_path`.
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert!(crate::io::has_repaired_original(&disk_path), "re-opening damaged library file caches pre-repair bytes");
+        app.open_path(ext_path);
+        assert!(!crate::io::has_repaired_original(&disk_path), "open_path must drop the replaced library file's cached pre-repair bytes");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn library_tab_and_external_tab_on_same_disk_path_share_still_open_check() {
+        let (lib, dir, file_id, _rect) = library_with_one_file("shared_repair_key");
+        let project = lib.file(&file_id).unwrap().project;
+        let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
+        let mut damaged = Document::new("Damaged");
+        let page = damaged.add_page("P");
+        damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
+        let damaged_bytes = damaged.to_json().unwrap().into_bytes();
+        let backup = crate::io::backup_path(&disk_path);
+
+        // Case A: close the library tab (tab 0), then save from the external tab (tab 1).
+        std::fs::write(&disk_path, &damaged_bytes).unwrap();
+        let _ = std::fs::remove_file(&backup);
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib.clone());
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        app.open_path(disk_path.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 2);
+        assert!(crate::io::has_repaired_original(&disk_path));
+
+        assert!(app.close_tab(0), "closing library tab 0 while external tab 1 holds the same file");
+        assert!(crate::io::has_repaired_original(&disk_path), "external tab still holds the file, so pre-repair bytes must stay cached");
+        let page = app.page;
+        app.rename(page, "Edited from external tab");
+        app.save(false);
+        assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "saving the remaining external tab writes the pre-repair .bak");
+
+        // Case B: close the external tab (tab 1), then save from the library tab (tab 0).
+        std::fs::write(&disk_path, &damaged_bytes).unwrap();
+        let _ = std::fs::remove_file(&backup);
+        let mut app = App::new(Document::new("Scratch"));
+        app.lib = Some(lib);
+        app.open_library_file(&file_id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_design_tab(&mut app);
+        app.tabs = tabs;
+        app.open_path(disk_path.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        app.tabs = tabs;
+        assert_eq!(app.tabs.entries.len(), 2);
+        assert!(crate::io::has_repaired_original(&disk_path));
+
+        assert!(app.close_tab(1), "closing external tab 1 while library tab 0 holds the same file");
+        assert!(crate::io::has_repaired_original(&disk_path), "library tab still holds the file, so pre-repair bytes must stay cached");
+        let page = app.page;
+        app.rename(page, "Edited from library tab");
+        app.save(false);
+        assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "saving the remaining library tab writes the pre-repair .bak");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

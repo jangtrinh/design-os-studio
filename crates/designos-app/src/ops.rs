@@ -1605,14 +1605,28 @@ impl App {
     /// unless it moves to the same file (`now_at`) or another tab still holds `old`.
     pub(crate) fn release_repaired_original(&self, old: &std::path::Path, now_at: Option<&std::path::Path>) {
         let same_as_new = now_at.is_some_and(|np| io::same_repair_key(old, np));
-        let held_by_other_tab = self
-            .tabs
-            .entries
-            .iter()
-            .enumerate()
-            .any(|(i, t)| i != self.tabs.active_idx && t.file_path.as_deref().is_some_and(|tp| io::same_repair_key(tp, old)));
+        let skip = (!self.tabs.parked_in_home).then_some(self.tabs.active_idx);
+        let held_by_other_tab = self.tabs.has_open_repair_key(self, old, skip);
         if !same_as_new && !held_by_other_tab {
             io::drop_repaired_original(old);
+        }
+    }
+
+    /// Releases the active document's cached pre-repair bytes (from either `file_path` or
+    /// `lib_file`) when replacing it in-place with `now_at`.
+    pub(crate) fn release_active_repaired_original(&mut self, now_at: Option<&std::path::Path>) {
+        if !self.tabs.parked_in_home {
+            if let Some(old_path) = self.file_path.take() {
+                self.release_repaired_original(&old_path, now_at);
+            }
+            if let Some(old_lf) = self.lib_file.take() {
+                if let Some(old_lib_path) = self.lib_file_disk_path(&old_lf) {
+                    self.release_repaired_original(&old_lib_path, now_at);
+                }
+            }
+        } else {
+            self.file_path = None;
+            self.lib_file = None;
         }
     }
 
@@ -1622,12 +1636,7 @@ impl App {
         // Pending edits of the library file being left are saved first (from the live state, not an old version).
         self.exit_version_view();
         self.flush_autosave();
-        if !self.tabs.parked_in_home {
-            if let Some(old_path) = self.file_path.take() {
-                self.release_repaired_original(&old_path, path.as_deref());
-            }
-        }
-        self.lib_file = None;
+        self.release_active_repaired_original(path.as_deref());
         self.renaming_file = false;
         let mut doc = doc;
         io::ensure_page(&mut doc);
