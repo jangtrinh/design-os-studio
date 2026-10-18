@@ -586,7 +586,7 @@ impl SceneIndex {
                 return false;
             };
             let an = &*designos_doc::resolve_node(doc, an);
-            let drawn = an.visible && !matches!(an.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+            let drawn = an.visible && (!matches!(an.kind, NodeKind::Unknown { .. }) || !an.children.is_empty()) && !matches!(an.kind, NodeKind::Page { .. });
             if !drawn {
                 // Under a hidden ancestor nothing of this subtree is drawn, whatever its own flags say.
                 self.forget_grid_nodes_under(doc, dirty_id);
@@ -603,7 +603,8 @@ impl SceneIndex {
         let mut fast_done = false;
         if let Some(raw_n) = doc.get(dirty_id) {
             let n = &*designos_doc::resolve_node(doc, raw_n);
-            let drawn = n.visible && !matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+            let unknown = matches!(n.kind, NodeKind::Unknown { .. });
+            let drawn = n.visible && (!unknown || !n.children.is_empty()) && !matches!(n.kind, NodeKind::Page { .. });
             let boolean = matches!(n.kind, NodeKind::BooleanOp(_));
             if drawn && !boolean {
                 if let Some(old_e) = self.entries.get(&dirty_id).cloned() {
@@ -640,8 +641,12 @@ impl SceneIndex {
                                     }
                                     n.children.as_slice().into()
                                 };
-                                let m = node_margin(n);
-                                let mut sub = transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m);
+                                let mut sub = if unknown {
+                                    EMPTY
+                                } else {
+                                    let m = node_margin(n);
+                                    transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m)
+                                };
                                 if !n.children.is_empty() {
                                     let mut kids = EMPTY;
                                     for c in &n.children {
@@ -657,7 +662,8 @@ impl SceneIndex {
                                         }
                                     }
                                 }
-                                let layer_blur = n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
+                                let layer_blur =
+                                    !unknown && n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
                                 let chrome = is_chrome_node(doc, n, dirty_id);
                                 if chrome {
                                     if !self.chrome_nodes.contains(&dirty_id) {
@@ -709,9 +715,14 @@ impl SceneIndex {
                 break;
             };
             let an = &*designos_doc::resolve_node(doc, an);
+            let unknown = matches!(an.kind, NodeKind::Unknown { .. });
             let boolean = matches!(an.kind, NodeKind::BooleanOp(_));
-            let m = node_margin(an);
-            let mut sub = transformed_bounds(&ts, -m, -m, an.size.x + 2.0 * m, an.size.y + 2.0 * m);
+            let mut sub = if unknown {
+                EMPTY
+            } else {
+                let m = node_margin(an);
+                transformed_bounds(&ts, -m, -m, an.size.x + 2.0 * m, an.size.y + 2.0 * m)
+            };
             let draws_kids = !an.children.is_empty() && !boolean;
             let mut kids = EMPTY;
             if draws_kids {
@@ -769,7 +780,8 @@ impl SceneIndex {
     fn build(&mut self, doc: &Document, id: NodeId, parent_ts: sk::Transform, parent: Option<NodeId>) -> B {
         let Some(n) = doc.get(id) else { return EMPTY };
         let n = &*designos_doc::resolve_node(doc, n);
-        let drawn = n.visible && !matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. });
+        let unknown = matches!(n.kind, NodeKind::Unknown { .. });
+        let drawn = n.visible && (!unknown || !n.children.is_empty()) && !matches!(n.kind, NodeKind::Page { .. });
         let chrome = n.visible && is_chrome_node(doc, n, id);
         if chrome {
             if !self.chrome_nodes.contains(&id) {
@@ -814,8 +826,12 @@ impl SceneIndex {
             );
             return EMPTY;
         }
-        let m = node_margin(n);
-        let mut sub = transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m);
+        let mut sub = if unknown {
+            EMPTY
+        } else {
+            let m = node_margin(n);
+            transformed_bounds(&ts, -m, -m, n.size.x + 2.0 * m, n.size.y + 2.0 * m)
+        };
         let draws_kids = !n.children.is_empty() && !boolean;
         let mut kids = EMPTY;
         for c in &n.children {
@@ -832,8 +848,8 @@ impl SceneIndex {
                 sub = union(sub, kids);
             }
         }
-        let layer_blur = n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
-        if !is_empty(sub) {
+        let layer_blur = !unknown && n.effects.iter().any(|e| matches!(e, Effect::LayerBlur { visible: true, radius } if *radius > 0.0));
+        if !unknown && !is_empty(sub) {
             let reach = blur_reach(n);
             if reach > 0.0 {
                 // `ts` is a pure scale/rotation here; take its uniform scale

@@ -317,6 +317,36 @@ fn text_drop_shadow_uses_the_bound_colour_alpha_like_cpu() {
 }
 
 #[test]
+fn unknown_layer_children_match_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let blue = Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 };
+    let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    let table = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE".into() });
+        n.transform = Affine::translate(10.0, 20.0);
+        n.size = Vec2::new(60.0, 60.0);
+        n.fills = vec![Paint::solid(blue)];
+        n
+    });
+    let cell = t.add(Some(table), |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE_CELL".into() });
+        n.transform = Affine::translate(5.0, 6.0);
+        n.size = Vec2::new(40.0, 30.0);
+        n.fills = vec![Paint::solid(blue)];
+        n
+    });
+    t.rect(Some(cell), Rect::new(2.0, 4.0, 20.0, 10.0), red);
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "unknown_table_children", &t.doc, t.page, vp, (80, 80), 2);
+    assert_eq!(c.report.mismatched, 0);
+    let p_in = c.gpu.pixel(25, 35).unwrap();
+    assert_eq!([p_in.red(), p_in.green(), p_in.blue(), p_in.alpha()], [255, 0, 0, 255]);
+    let p_out = c.gpu.pixel(12, 22).unwrap();
+    assert_eq!([p_out.red(), p_out.green(), p_out.blue(), p_out.alpha()], [255, 255, 255, 255]);
+}
+
+#[test]
 fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
     let Some(mut g) = gpu() else { return };
     let mut t = T::new();

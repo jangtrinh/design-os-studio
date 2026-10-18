@@ -293,7 +293,10 @@ impl Renderer<'_> {
         if !n.visible {
             return false;
         }
-        n.effects.iter().any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible))
+        (!matches!(n.kind, NodeKind::Unknown { .. })
+            && n.effects
+                .iter()
+                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
             || (Self::draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -312,7 +315,13 @@ impl Renderer<'_> {
     }
 
     fn draw_node(&self, n: &Node, ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, back: Back) {
-        if !n.visible || matches!(n.kind, NodeKind::Unknown { .. } | NodeKind::Page { .. }) {
+        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
+            return;
+        }
+        if matches!(n.kind, NodeKind::Unknown { .. }) {
+            if !n.children.is_empty() {
+                self.draw_children(&n.children, ts, target, clip, back);
+            }
             return;
         }
         if n.kind.is_board_item() {

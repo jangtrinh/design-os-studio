@@ -702,12 +702,7 @@ impl Schema {
         if !f.is_array {
             match f.ty {
                 FieldType::Native(Native::String) => {
-                    let s = if raw_str.starts_with('"') && raw_str.ends_with('"') {
-                        serde_json::from_str::<String>(raw_str).unwrap_or_else(|_| raw_str.to_string())
-                    } else {
-                        raw_str.to_string()
-                    };
-                    return Some(KiwiValue::String(s));
+                    return Some(KiwiValue::String(raw_str.to_string()));
                 }
                 FieldType::Native(Native::Bool) => {
                     return match raw_str.trim() {
@@ -802,7 +797,12 @@ impl Schema {
         let arr = v.as_array()?;
         let mut out = Vec::with_capacity(arr.len());
         for item in arr {
-            out.push(self.type_from_json(f.ty, item, depth + 1)?);
+            if let Some(elem) = self.type_from_json(f.ty, item, depth + 1) {
+                out.push(elem);
+            }
+        }
+        if out.is_empty() && !arr.is_empty() {
+            return None;
         }
         Some(KiwiValue::Array(out))
     }
@@ -860,7 +860,7 @@ impl Schema {
                 for sf in &def.fields {
                     let kv = match obj.get(&*sf.name) {
                         Some(fv) if !fv.is_null() => self.field_from_json(sf, fv, depth + 1)?,
-                        _ => self.default_field_value(sf, depth + 1)?,
+                        _ => self.struct_field_default(&def.name, sf, depth + 1)?,
                     };
                     fs.push((sf.name.clone(), kv));
                 }
@@ -885,9 +885,19 @@ impl Schema {
                         }
                     }
                 }
+                if fs.is_empty() && !obj.is_empty() {
+                    return None;
+                }
                 Some(KiwiValue::Message(fs))
             }
         }
+    }
+
+    fn struct_field_default(&self, struct_name: &str, f: &Field, depth: usize) -> Option<KiwiValue> {
+        if struct_name == "Color" && &*f.name == "a" && !f.is_array && f.ty == FieldType::Native(Native::Float) {
+            return Some(KiwiValue::Float(1.0));
+        }
+        self.default_field_value(f, depth)
     }
 
     fn default_field_value(&self, f: &Field, depth: usize) -> Option<KiwiValue> {
@@ -913,7 +923,7 @@ impl Schema {
                     DefKind::Struct => {
                         let mut fs = Vec::with_capacity(def.fields.len());
                         for sf in &def.fields {
-                            fs.push((sf.name.clone(), self.default_field_value(sf, depth + 1)?));
+                            fs.push((sf.name.clone(), self.struct_field_default(&def.name, sf, depth + 1)?));
                         }
                         Some(KiwiValue::Struct(fs))
                     }

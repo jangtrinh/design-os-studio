@@ -2948,6 +2948,57 @@ fn wire_instance_override(bytes: &[u8], instance_name: &str, main_edit: Option<(
 }
 
 #[test]
+fn passthrough_color_struct_array_and_quoted_string_roundtrip() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "PassthroughHardeningDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "a"},
+            "type": "SLIDE",
+            "name": "SlideNode",
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 200.0, "y": 100.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0},
+            "slideSpeakerNotes": "\"quoted\"",
+            "keyframeValue": {
+                "colorValue": {"r": 1.0, "g": 0.0, "b": 0.0}
+            },
+            "variableWidthPoints": [
+                {"asymmetricStroke": false, "position": 0.25, "leadingWidth": 2.0, "trailingWidth": 4.0},
+                {"position": "nope"}
+            ]
+        }
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "PassthroughHardeningDoc").expect("import PassthroughHardeningDoc");
+    let bytes = export_fig(&doc).expect("export_fig PassthroughHardeningDoc");
+    let rt = import_fig(&bytes).expect("re-import PassthroughHardeningDoc");
+    let slide = find(&rt, "SlideNode");
+
+    // 1. A speaker note stored as `"quoted"` must keep its leading and trailing quotes.
+    assert_eq!(slide.fig_metadata.get("slideSpeakerNotes").map(String::as_str), Some("\"quoted\""));
+
+    // 2. A passthrough Color struct without `a` defaults `a` to 1.0 (opaque), not 0.0.
+    let kf_raw = slide.fig_metadata.get("keyframeValue").expect("keyframeValue in fig_metadata");
+    let kf_json: Value = serde_json::from_str(kf_raw).expect("parse keyframeValue JSON");
+    assert_eq!(kf_json["colorValue"]["r"].as_f64(), Some(1.0));
+    assert_eq!(kf_json["colorValue"]["a"].as_f64(), Some(1.0), "Color.a must default to 1.0 when omitted: {kf_json}");
+
+    // 3. One malformed element in an array must be skipped without dropping the valid elements.
+    let vwp_raw = slide.fig_metadata.get("variableWidthPoints").expect("variableWidthPoints kept in fig_metadata");
+    let vwp_json: Value = serde_json::from_str(vwp_raw).expect("parse variableWidthPoints JSON");
+    let arr = vwp_json.as_array().expect("variableWidthPoints array");
+    assert_eq!(arr.len(), 1, "valid element must survive when a sibling element is malformed: {arr:?}");
+    assert_eq!(arr[0]["position"].as_f64(), Some(0.25));
+    assert_eq!(arr[0]["leadingWidth"].as_f64(), Some(2.0));
+    assert_eq!(arr[0]["trailingWidth"].as_f64(), Some(4.0));
+}
+
+#[test]
 fn per_side_stroke_weights_ignore_stale_borders_and_merge_partial_overrides() {
     let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
     let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {

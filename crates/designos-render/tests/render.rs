@@ -551,3 +551,55 @@ fn culling_offscreen_nodes_is_harmless() {
     assert_eq!(px(&pm, 5, 5), [0, 0, 255, 255]);
     assert_eq!(px(&pm, 5, 15), WHITE);
 }
+
+#[test]
+fn unknown_table_and_cell_paint_and_index_children() {
+    let mut t = T::new();
+    let table = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE".into() });
+        n.transform = Affine::translate(10.0, 20.0);
+        n.size = Vec2::new(60.0, 60.0);
+        // An Unknown node's own fills and effects remain undrawn; only its children draw.
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    assert!(!t.node(table).kind.is_container());
+    let cell = t.add(Some(table), |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "TABLE_CELL".into() });
+        n.transform = Affine::translate(5.0, 6.0);
+        n.size = Vec2::new(40.0, 30.0);
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+    let rect = t.rect(Some(cell), Rect::new(2.0, 4.0, 20.0, 10.0), RED);
+    let childless_unknown = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Unknown { type_name: "SLICE".into() });
+        n.transform = Affine::translate(60.0, 60.0);
+        n.size = Vec2::new(10.0, 10.0);
+        n.fills = vec![Paint::solid(BLUE)];
+        n
+    });
+
+    let mut idx = designos_render::SceneIndex::new();
+    idx.ensure(&t.doc, t.page, 1);
+    assert_eq!(idx.bounds_of(rect), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(cell), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(table), Some((17.0, 30.0, 37.0, 40.0)));
+    assert_eq!(idx.bounds_of(childless_unknown), None);
+    let mut hits = Vec::new();
+    idx.query_top_level((17.0, 30.0, 37.0, 40.0), &mut hits);
+    assert_eq!(hits, vec![table]);
+
+    let pm = t.render(80, 80);
+    assert_eq!(px(&pm, 25, 35), [255, 0, 0, 255], "child rectangle inside TABLE -> TABLE_CELL paints opaque red");
+    assert_eq!(px(&pm, 12, 22), WHITE, "TABLE and TABLE_CELL boxes themselves remain undrawn");
+
+    // Incremental subtree update on the child under Unknown ancestors matches a full rebuild.
+    t.node(rect).transform.tx += 10.0;
+    assert!(idx.update_subtree(&t.doc, rect, 2));
+    let mut full = designos_render::SceneIndex::new();
+    full.ensure(&t.doc, t.page, 2);
+    for id in [table, cell, rect] {
+        assert_eq!(idx.bounds_of(id), full.bounds_of(id));
+    }
+}
