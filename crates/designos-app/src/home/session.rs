@@ -467,6 +467,11 @@ impl App {
         self.ui.ctx_menu = None;
     }
 
+    /// Disk path of a library file; also the key of its cached pre-repair bytes.
+    pub(crate) fn lib_file_disk_path(&self, lf: &LibFile) -> Option<PathBuf> {
+        self.lib.as_ref().map(|lib| lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+    }
+
     /// Disk path of the currently open document (library file or external path) for live hot-reload polling.
     fn watched_disk_path(&self) -> Option<PathBuf> {
         if let (Some(lib), Some(lf)) = (&self.lib, &self.lib_file) {
