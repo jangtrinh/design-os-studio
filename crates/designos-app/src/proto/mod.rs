@@ -242,6 +242,7 @@ impl App {
         let id = self.doc.alloc_id();
         let mut frame = Node::frame(id, Rect::new(at.x, at.y, preset.width, preset.height));
         frame.name = preset.name.to_string();
+        frame.corner_radii = [preset.corner_radius; 4];
         let index = self.doc.get(self.page).map(|p| p.children.len()).unwrap_or(0);
         self.hist.exec(&mut self.doc, Command::Insert { parent: self.page, index, nodes: vec![frame] }).ok()?;
         self.selection = vec![id];
@@ -1134,6 +1135,9 @@ mod tests {
         let node = app.doc.get(fid).unwrap();
         assert_eq!(node.name, "iPhone 17 Pro Max");
         assert_eq!((node.size.x, node.size.y), (440.0, 956.0));
+        assert_eq!(node.corner_radii, [55.0; 4]);
+        let sharp = app.create_preset_frame("Wireframes").expect("created sharp frame");
+        assert_eq!(app.doc.get(sharp).unwrap().corner_radii, [0.0; 4]);
     }
 
     #[test]

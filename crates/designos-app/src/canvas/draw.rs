@@ -328,6 +328,18 @@ pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<
     Some((r, status))
 }
 
+/// The grid frames whose header pills and `+` buttons a click can reach: the selected ones and the hovered one.
+/// What is painted and what is hit-tested both come from this list.
+fn grid_track_candidates(app: &App) -> Vec<NodeId> {
+    let mut candidates = app.selection.clone();
+    if let Some(h) = app.hover {
+        if !candidates.contains(&h) {
+            candidates.push(h);
+        }
+    }
+    candidates
+}
+
 /// Paints the Figma UI3 2D CSS Grid Overlay (`LayoutDirection::Grid`) for selected/hovered grid containers.
 fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
     let mut grid_ids: Vec<NodeId> = Vec::new();
@@ -346,6 +358,7 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
         push_unique(h);
     }
 
+    let reachable = grid_track_candidates(app);
     let cell_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 140));
     let gap_fill = Color32::from_rgba_unmultiplied(0xFF, 0x38, 0x8C, 36);
     let pill_bg = Color32::from_rgba_unmultiplied(0x1E, 0x1E, 0x1E, 230);
@@ -387,26 +400,21 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
             dashed_quad(p, &c_pts, 3.0, 3.0, cell_stroke);
         }
 
-        // 3. Compact Column & Row Track Header Pills outside top and left edges when zoom >= 0.4.
-        if app.view.zoom >= 0.4 {
+        // 3. Compact Column & Row Track Header Pills outside top/left edges when zoom >= 0.4.
+        // Only the grids a click can reach get pills and `+` buttons, so a drawn control always works.
+        if app.view.zoom >= 0.4 && reachable.contains(&grid_id) {
             let font = theme::font_small_strong();
-            for c in 0..ov.cols {
-                let label = super::grids::format_grid_track(ov.col_tracks[c]);
-                let top_mid = to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0);
-                let tw = crate::widgets::text_width(p, &label, &font) + 8.0;
-                let pill = ERect::from_center_size(Pos2::new(top_mid.x, top_mid.y - 11.0), EV::new(tw, 15.0));
+            for (is_col, idx, _hit, pill) in grid_pill_rects_of(&ov, to_s) {
+                let label = super::grids::format_grid_track(if is_col { ov.col_tracks[idx] } else { ov.row_tracks[idx] });
                 p.rect_filled(pill, theme::cr(3), pill_bg);
                 p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
-                p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
+                // a pill squeezed by its neighbours clips its label instead of spilling over them
+                p.with_clip_rect(pill).text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
             }
-            for r in 0..ov.rows {
-                let label = super::grids::format_grid_track(ov.row_tracks[r]);
-                let left_mid = to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5);
-                let tw = crate::widgets::text_width(p, &label, &font) + 8.0;
-                let pill = ERect::from_min_size(Pos2::new(left_mid.x - tw - 5.0, left_mid.y - 7.5), EV::new(tw, 15.0));
-                p.rect_filled(pill, theme::cr(3), pill_bg);
-                p.rect_stroke(pill, theme::cr(3), pill_border, StrokeKind::Inside);
-                p.text(pill.center(), Align2::CENTER_CENTER, label, font.clone(), FIGMA_BLUE);
+            for (_, add) in grid_add_buttons(&ov, n.size, to_s) {
+                p.rect_filled(add, theme::cr(3), pill_bg);
+                p.rect_stroke(add, theme::cr(3), pill_border, StrokeKind::Inside);
+                p.text(add.center(), Align2::CENTER_CENTER, "+", font.clone(), FIGMA_BLUE);
             }
         }
     }
@@ -438,6 +446,47 @@ fn draw_css_grid_overlays(app: &App, p: &Painter, rect: ERect) {
     }
 }
 
+/// Painted height (screen px) of a track header pill.
+const GRID_PILL_HEIGHT: f32 = 15.0;
+
+/// Minimum hit-target dimension (screen px) for interactive track header pills (`P3` 24x24 floor).
+const GRID_PILL_HIT_FLOOR: f32 = 24.0;
+
+/// Screen rects `(is_col, track, hit_rect, paint_rect)` of the header pills of one grid: column pills sit above
+/// the frame, row pills left of it, each centred on its track. Every `hit_rect` stays at least 24x24 px (`nearest_pill`
+/// picks the nearest centre when narrow tracks overlap), while `paint_rect` clips the painted pill and label to the
+/// track pitch so painted pills on the same axis never spill over each other.
+fn grid_pill_rects_of(ov: &super::grids::CssGridOverlay, to_s: impl Fn(f32, f32) -> Pos2) -> Vec<(bool, usize, ERect, ERect)> {
+    let label_w = |t: designos_doc::GridTrack| (super::grids::format_grid_track(t).chars().count() as f32 * 6.0 + 10.0).max(GRID_PILL_HIT_FLOOR);
+    // room a pill has along its axis: the distance to the nearest neighbour centre
+    let room = |centres: &[Pos2], i: usize| {
+        let before = i.checked_sub(1).map_or(f32::INFINITY, |j| centres[i].distance(centres[j]));
+        let after = centres.get(i + 1).map_or(f32::INFINITY, |next| centres[i].distance(*next));
+        before.min(after)
+    };
+    let col_centres: Vec<Pos2> = (0..ov.cols).map(|c| to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0)).collect();
+    let row_centres: Vec<Pos2> = (0..ov.rows).map(|r| to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5)).collect();
+    let mut out = Vec::with_capacity(ov.cols + ov.rows);
+    for (c, &centre) in col_centres.iter().enumerate() {
+        let paint_w = label_w(ov.col_tracks[c]).min(room(&col_centres, c));
+        let hit_w = paint_w.max(GRID_PILL_HIT_FLOOR);
+        let center = Pos2::new(centre.x, centre.y - 12.0);
+        let hit = ERect::from_center_size(center, EV::new(hit_w, GRID_PILL_HIT_FLOOR));
+        let paint = ERect::from_center_size(center, EV::new(paint_w, GRID_PILL_HEIGHT));
+        out.push((true, c, hit, paint));
+    }
+    for (r, &centre) in row_centres.iter().enumerate() {
+        let w = label_w(ov.row_tracks[r]);
+        let paint_h = GRID_PILL_HEIGHT.min(room(&row_centres, r));
+        let hit_h = paint_h.max(GRID_PILL_HIT_FLOOR);
+        let center = Pos2::new(centre.x - w * 0.5 - 5.0, centre.y);
+        let hit = ERect::from_center_size(center, EV::new(w.max(GRID_PILL_HIT_FLOOR), hit_h));
+        let paint = ERect::from_center_size(center, EV::new(w, paint_h));
+        out.push((false, r, hit, paint));
+    }
+    out
+}
+
 /// Returns `(grid_frame_id, is_col, track_index, screen_rect)` for every visible 2D CSS Grid
 /// column/row track header pill on selected/hovered grid frames (`#18`).
 pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize, ERect)> {
@@ -445,30 +494,61 @@ pub fn grid_track_pill_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, usize
     if app.view.zoom < 0.4 {
         return out;
     }
-    let mut candidates = app.selection.clone();
-    if let Some(h) = app.hover {
-        if !candidates.contains(&h) {
-            candidates.push(h);
-        }
-    }
-    for id in candidates {
+    for id in grid_track_candidates(app) {
         let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
         let w_xform = super::fast_world_transform(&app.doc, id);
         let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
-        for c in 0..ov.cols {
-            let label = super::grids::format_grid_track(ov.col_tracks[c]);
-            let top_mid = to_s(ov.col_x[c] + ov.col_widths[c] * 0.5, 0.0);
-            let tw = (label.chars().count() as f32 * 6.0 + 10.0).max(24.0);
-            let pill = ERect::from_center_size(Pos2::new(top_mid.x, top_mid.y - 11.0), EV::new(tw, 15.0));
-            out.push((id, true, c, pill));
-        }
-        for r in 0..ov.rows {
-            let label = super::grids::format_grid_track(ov.row_tracks[r]);
-            let left_mid = to_s(0.0, ov.row_y[r] + ov.row_heights[r] * 0.5);
-            let tw = (label.chars().count() as f32 * 6.0 + 10.0).max(24.0);
-            let pill = ERect::from_min_size(Pos2::new(left_mid.x - tw - 5.0, left_mid.y - 7.5), EV::new(tw, 15.0));
-            out.push((id, false, r, pill));
-        }
+        out.extend(grid_pill_rects_of(&ov, to_s).into_iter().map(|(is_col, idx, hit, _)| (id, is_col, idx, hit)));
+    }
+    out
+}
+
+/// The header pill under `pos`. Of the pills that contain it, the one whose centre is nearest wins, so the answer
+/// never depends on list order.
+pub fn grid_track_pill_at(app: &App, rect: ERect, pos: Pos2) -> Option<(NodeId, bool, usize, ERect)> {
+    nearest_pill(grid_track_pill_rects(app, rect), pos)
+}
+
+/// Of `pills`, the one that contains `pos` and has its centre nearest to it.
+pub fn nearest_pill(pills: impl IntoIterator<Item = (NodeId, bool, usize, ERect)>, pos: Pos2) -> Option<(NodeId, bool, usize, ERect)> {
+    pills.into_iter().filter(|(_, _, _, r)| r.contains(pos)).min_by(|a, b| a.3.center().distance_sq(pos).total_cmp(&b.3.center().distance_sq(pos)))
+}
+
+/// Side (screen px) of the `+` add-track buttons: the pointer-target floor of the design system.
+const GRID_ADD_BUTTON_SIZE: f32 = 24.0;
+
+/// The `+` add-column / add-row buttons of one grid frame as `(is_col, screen_rect)`. An axis that already
+/// has the most tracks the solver lays out has no button.
+fn grid_add_buttons(ov: &super::grids::CssGridOverlay, frame: designos_doc::Vec2, to_s: impl Fn(f32, f32) -> Pos2) -> Vec<(bool, ERect)> {
+    let [pt, pr, pb, pl] = ov.padding;
+    let size = EV::splat(GRID_ADD_BUTTON_SIZE);
+    let mut out = Vec::with_capacity(2);
+    if ov.cols < designos_doc::MAX_GRID_TRACKS {
+        // right of the column pills, level with them
+        let top_right = to_s((frame.x - pr).max(pl), 0.0);
+        out.push((true, ERect::from_min_size(Pos2::new(top_right.x + 4.0, top_right.y - 12.0 - GRID_ADD_BUTTON_SIZE * 0.5), size)));
+    }
+    if ov.rows < designos_doc::MAX_GRID_TRACKS {
+        // under the row pills, ending where they end
+        let bot_left = to_s(0.0, (frame.y - pb).max(pt));
+        out.push((false, ERect::from_min_size(Pos2::new(bot_left.x - 5.0 - GRID_ADD_BUTTON_SIZE, bot_left.y + 4.0), size)));
+    }
+    out
+}
+
+/// Returns `(grid_frame_id, is_col, screen_rect)` for the on-canvas `+` add-column / add-row buttons (`#144`)
+/// of the selected and hovered grid frames.
+pub fn grid_track_add_button_rects(app: &App, rect: ERect) -> Vec<(NodeId, bool, ERect)> {
+    let mut out = Vec::new();
+    if app.view.zoom < 0.4 {
+        return out;
+    }
+    for id in grid_track_candidates(app) {
+        let Some(n) = app.doc.get(id) else { continue };
+        let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, id) else { continue };
+        let w_xform = super::fast_world_transform(&app.doc, id);
+        let to_s = |x: f32, y: f32| app.view.to_screen(rect.min, w_xform.apply(v2(x, y)));
+        out.extend(grid_add_buttons(&ov, n.size, to_s).into_iter().map(|(is_col, r)| (id, is_col, r)));
     }
     out
 }
@@ -1320,5 +1400,73 @@ mod tests {
         assert!(hit_ms < 10.0, "hit_test_with_index took {:.4}ms", hit_ms);
         assert!(with_sync_ms < 10.0, "comp_ops::with_sync took {:.4}ms", with_sync_ms);
         assert!(layout_ms < 30.0, "layout_node took {:.3}ms", layout_ms);
+    }
+
+    /// The overlay of an empty grid with the given tracks (columns/rows as set on `al`).
+    fn bare_overlay(al: &designos_doc::AutoLayout) -> super::super::grids::CssGridOverlay {
+        super::super::grids::compute_css_grid_overlay(al, DV::new(2000.0, 2000.0), &[])
+    }
+
+    fn disjoint_per_axis(pills: &[(bool, usize, ERect, ERect)]) -> bool {
+        pills.iter().enumerate().all(|(i, (a_col, _, _, a))| {
+            pills[i + 1..].iter().all(|(b_col, _, _, b)| a_col != b_col || !(a.min.x < b.max.x && b.min.x < a.max.x && a.min.y < b.max.y && b.min.y < a.max.y))
+        })
+    }
+
+    #[test]
+    fn header_pills_keep_a_24x24_hit_floor_while_painted_pills_shrink_to_the_track_pitch() {
+        let mut al = designos_doc::AutoLayout { grid_columns: 8, grid_rows: 8, ..Default::default() };
+        for i in 0..8 {
+            al.grid_col_tracks[i] = designos_doc::GridTrack::Fixed(24.0);
+            al.grid_row_tracks[i] = designos_doc::GridTrack::Fixed(10.0);
+        }
+        let ov = bare_overlay(&al);
+        let zoomed_out = |x: f32, y: f32| Pos2::new(x * 0.4, y * 0.4);
+        let pills = grid_pill_rects_of(&ov, zoomed_out);
+        assert_eq!(pills.len(), 16);
+        assert!(disjoint_per_axis(&pills), "painted pills overlap: {pills:?}");
+        for (is_col, i, hit, paint) in &pills {
+            assert!(
+                hit.width() >= GRID_PILL_HIT_FLOOR && hit.height() >= GRID_PILL_HIT_FLOOR,
+                "pill {i} (is_col={is_col}) hit rect is {}x{}, below 24x24 floor",
+                hit.width(),
+                hit.height()
+            );
+            assert!((hit.center() - paint.center()).length() < 1e-4, "hit and paint rects share the same centre");
+            if *is_col {
+                assert!(paint.width() <= 9.6 + 1e-3, "column pill {i} paint is {} px wide at a 9.6 px pitch", paint.width());
+            } else {
+                assert!(paint.height() <= 4.0 + 1e-3, "row pill {i} paint is {} px tall at a 4 px pitch", paint.height());
+            }
+        }
+    }
+
+    #[test]
+    fn header_pills_keep_their_label_size_when_the_tracks_have_room() {
+        let mut al = designos_doc::AutoLayout { grid_columns: 3, grid_rows: 2, ..Default::default() };
+        al.grid_col_tracks[0] = designos_doc::GridTrack::Fixed(100.0);
+        al.grid_col_tracks[1] = designos_doc::GridTrack::Hug;
+        al.grid_row_tracks[0] = designos_doc::GridTrack::Fixed(60.0);
+        let ov = bare_overlay(&al);
+        let pills = grid_pill_rects_of(&ov, Pos2::new);
+        let (_, _, col0_hit, col0_paint) = *pills.iter().find(|(c, i, _, _)| *c && *i == 0).unwrap();
+        assert_eq!((col0_hit.width(), col0_hit.height()), (40.0, GRID_PILL_HIT_FLOOR));
+        assert_eq!((col0_paint.width(), col0_paint.height()), (40.0, GRID_PILL_HEIGHT), "`100px` is 5 characters: 5 * 6 + 10");
+        let (_, _, col1_hit, col1_paint) = *pills.iter().find(|(c, i, _, _)| *c && *i == 1).unwrap();
+        assert_eq!((col1_hit.width(), col1_hit.height()), (28.0, GRID_PILL_HIT_FLOOR));
+        assert_eq!(col1_paint.width(), 28.0, "`Hug` is 3 characters: 3 * 6 + 10");
+        let (_, _, row0_hit, row0_paint) = *pills.iter().find(|(c, i, _, _)| !*c && *i == 0).unwrap();
+        assert_eq!(row0_hit.height(), GRID_PILL_HIT_FLOOR);
+        assert_eq!(row0_paint.height(), GRID_PILL_HEIGHT);
+    }
+
+    #[test]
+    fn the_nearest_centre_wins_when_pills_overlap() {
+        let near = (NodeId(1), true, 1, ERect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(30.0, 15.0)));
+        let far = (NodeId(1), true, 0, ERect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(20.0, 15.0)));
+        let at = Pos2::new(18.0, 7.0);
+        assert_eq!(nearest_pill([far, near], at).map(|p| p.2), Some(1));
+        assert_eq!(nearest_pill([near, far], at).map(|p| p.2), Some(1), "list order does not matter");
+        assert!(nearest_pill([far, near], Pos2::new(50.0, 7.0)).is_none(), "outside every pill is nothing");
     }
 }

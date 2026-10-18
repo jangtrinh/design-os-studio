@@ -300,12 +300,19 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         builder::hover(app, app.canvas.pointer_page);
     }
 
+    if inp.pressed {
+        // a release that never reached us must not complete a later gesture
+        ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id()));
+    }
     if (inp.pressed || inp.mid_pressed) && hovered {
         app.terminal.viewport_focused = false;
         if let Some(focused_id) = ctx.memory(|m| m.focused()) {
             ctx.memory_mut(|m| m.surrender_focus(focused_id));
         }
-        on_press(app, rect, &inp);
+        on_press(app, &ctx, rect, &inp);
+    }
+    if inp.released {
+        finish_grid_track_pill(app, &ctx, rect, inp.pos);
     }
     if !matches!(app.canvas.inter, Interaction::None) {
         if inp.down || inp.mid_down {
@@ -386,7 +393,8 @@ pub fn try_click_dev_status_badge(app: &mut App, rect: ERect, pos: Pos2) -> bool
     false
 }
 
-/// Checks if the click hits the on-canvas `"Tidy up"` pill (`#16`) or a 2D CSS Grid track header pill (`#18`).
+/// Checks if the click hits the on-canvas `"Tidy up"` pill (`#16`), a 2D CSS Grid track header pill (`#18`)
+/// or a grid `+` add-track button (`#144`).
 pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bool {
     if let Some(tidy_r) = super::draw::tidy_up_pill_rect(app, rect) {
         if tidy_r.contains(pos) {
@@ -394,45 +402,106 @@ pub fn try_click_canvas_action_pill(app: &mut App, rect: ERect, pos: Pos2) -> bo
             return true;
         }
     }
-    for (grid_id, is_col, idx, pill_r) in super::draw::grid_track_pill_rects(app, rect) {
-        if pill_r.contains(pos) {
-            let mut tx = Tx::new();
-            let mut label = String::new();
-            if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
-                if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
-                    if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
-                        if is_col {
-                            if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
-                                *tr = match *tr {
-                                    designos_doc::GridTrack::Flex(_) => {
-                                        designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
-                                    }
-                                    designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                    designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                                };
-                                label = super::grids::format_grid_track(*tr);
-                            }
-                        } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
-                            *tr = match *tr {
-                                designos_doc::GridTrack::Flex(_) => {
-                                    designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0))
-                                }
-                                designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
-                                designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
-                            };
-                            label = super::grids::format_grid_track(*tr);
-                        }
-                    }
-                }
-                layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
-            }
-            if app.run_tx(tx) && !label.is_empty() {
-                app.show_toast(format!("Grid track → {label}"), false);
+    if try_cycle_grid_track_pill(app, rect, pos) {
+        return true;
+    }
+    for (grid_id, is_col, add_r) in super::draw::grid_track_add_button_rects(app, rect) {
+        if add_r.contains(pos) {
+            let at = super::grids::grid_track_count(&app.doc, grid_id, is_col);
+            if super::grids::insert_grid_track(app, grid_id, is_col, at, designos_doc::GridTrack::Flex(1.0)) {
+                app.show_toast(if is_col { "Added column track" } else { "Added row track" }, false);
             }
             return true;
         }
     }
     false
+}
+
+/// Cycles the sizing (`1fr` -> `Npx` -> `Hug` -> `1fr`) of the grid track whose header pill is at `pos`, in one undo step.
+pub fn try_cycle_grid_track_pill(app: &mut App, rect: ERect, pos: Pos2) -> bool {
+    let Some((grid_id, is_col, idx, _)) = super::draw::grid_track_pill_at(app, rect, pos) else {
+        return false;
+    };
+    let mut tx = Tx::new();
+    let mut label = String::new();
+    if let Some(ov) = super::grids::node_css_grid_overlay(&app.doc, grid_id) {
+        if let Some(n) = tx.ed.node(&mut app.doc, grid_id) {
+            if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
+                if is_col {
+                    if let Some(tr) = al.grid_col_tracks.get_mut(idx) {
+                        *tr = match *tr {
+                            designos_doc::GridTrack::Flex(_) => {
+                                designos_doc::GridTrack::Fixed(ov.col_widths.get(idx).copied().unwrap_or(120.0).round().max(24.0))
+                            }
+                            designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                            designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                        };
+                        label = super::grids::format_grid_track(*tr);
+                    }
+                } else if let Some(tr) = al.grid_row_tracks.get_mut(idx) {
+                    *tr = match *tr {
+                        designos_doc::GridTrack::Flex(_) => designos_doc::GridTrack::Fixed(ov.row_heights.get(idx).copied().unwrap_or(80.0).round().max(24.0)),
+                        designos_doc::GridTrack::Fixed(_) => designos_doc::GridTrack::Hug,
+                        designos_doc::GridTrack::Hug => designos_doc::GridTrack::Flex(1.0),
+                    };
+                    label = super::grids::format_grid_track(*tr);
+                }
+            }
+        }
+        layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
+    }
+    if app.run_tx(tx) && !label.is_empty() {
+        app.show_toast(format!("Grid track → {label}"), false);
+    }
+    true
+}
+
+/// Pointer travel (screen px) past which a press on a grid track pill is a drag instead of a click.
+const GRID_PILL_DRAG_SLOP: f32 = 4.0;
+
+fn grid_pill_press_id() -> egui::Id {
+    egui::Id::new("grid-track-pill-press")
+}
+
+/// Holds back a press on a grid track header pill until the button is released, so one gesture is one edit:
+/// a drag onto another pill of the same grid and axis reorders the tracks, a click cycles the sizing.
+fn arm_grid_track_pill(app: &App, ctx: &egui::Context, rect: ERect, pos: Pos2) -> bool {
+    if super::draw::tidy_up_pill_rect(app, rect).is_some_and(|r| r.contains(pos)) {
+        return false;
+    }
+    if super::draw::grid_track_pill_at(app, rect, pos).is_none() {
+        return false;
+    }
+    ctx.data_mut(|d| d.insert_temp(grid_pill_press_id(), pos));
+    true
+}
+
+/// Completes a press that [`arm_grid_track_pill`] held back. A release still on the source pill cycles its sizing;
+/// a drag onto another pill of the same grid and axis reorders the tracks; a release off every pill changes nothing.
+fn finish_grid_track_pill(app: &mut App, ctx: &egui::Context, rect: ERect, release: Option<Pos2>) {
+    let Some(press) = ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id())) else { return };
+    let Some(release) = release else { return };
+    let same_pill = match (super::draw::grid_track_pill_at(app, rect, press), super::draw::grid_track_pill_at(app, rect, release)) {
+        (Some((g0, c0, i0, _)), Some((g1, c1, i1, _))) => g0 == g1 && c0 == c1 && i0 == i1,
+        _ => false,
+    };
+    if (release - press).length() > GRID_PILL_DRAG_SLOP && !same_pill {
+        try_drag_grid_track_pill(app, rect, press, release);
+    } else {
+        try_cycle_grid_track_pill(app, rect, press);
+    }
+}
+
+/// Reorders a grid column/row track when dragging from one on-canvas track header pill to another (`#144`).
+pub fn try_drag_grid_track_pill(app: &mut App, rect: ERect, from_pos: Pos2, to_pos: Pos2) -> bool {
+    let Some((grid_id, is_col, from_idx, _)) = super::draw::grid_track_pill_at(app, rect, from_pos) else {
+        return false;
+    };
+    let same_axis = super::draw::grid_track_pill_rects(app, rect).into_iter().filter(|&(gid, col, idx, _)| gid == grid_id && col == is_col && idx != from_idx);
+    let Some((_, _, to_idx, _)) = super::draw::nearest_pill(same_axis, to_pos) else {
+        return false;
+    };
+    super::grids::move_grid_track(app, grid_id, is_col, from_idx, to_idx)
 }
 
 /// Returns `(shared_parent_id, items_with_world_aabb)` when 2 or more selected nodes
@@ -548,7 +617,7 @@ pub fn update_smart_selection_drag(app: &mut App, sd: &mut SmartSelectionDragSta
     app.changed();
 }
 
-fn on_press(app: &mut App, rect: ERect, inp: &Inp) {
+fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
     let Some(pos) = inp.pos else { return };
     if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
         return;
@@ -572,7 +641,10 @@ fn on_press(app: &mut App, rect: ERect, inp: &Inp) {
         finish_text(app, true);
     }
     let mid = inp.mid_pressed && !inp.pressed;
-    if !mid && !inp.space && (try_click_dev_status_badge(app, rect, pos) || try_click_canvas_action_pill(app, rect, pos)) {
+    if !mid
+        && !inp.space
+        && (try_click_dev_status_badge(app, rect, pos) || arm_grid_track_pill(app, ctx, rect, pos) || try_click_canvas_action_pill(app, rect, pos))
+    {
         return;
     }
     if app.canvas.vedit.is_some() && !mid && !inp.space && vector::press(app, rect, pos, inp.mods) {

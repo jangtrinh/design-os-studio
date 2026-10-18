@@ -224,7 +224,7 @@ mod tests {
     }
 
     fn cols(count: u32) -> LayoutGrid {
-        LayoutGrid::Columns { count, gutter: 20.0, offset: 0.0, color: Color::rgba(255, 0, 0, 26) }
+        LayoutGrid::columns(count, 20.0, 0.0, Color::rgba(255, 0, 0, 26))
     }
 
     /// A page with a shadowed rectangle `a`, a plain rectangle `b`, a frame `f` with a 12 column grid and a plain frame `g`.

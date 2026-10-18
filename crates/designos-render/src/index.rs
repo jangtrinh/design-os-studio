@@ -1206,7 +1206,7 @@ mod tests {
         let mut doc = Document::new("grid-index-test");
         let page = doc.add_page("page-1");
 
-        let sample_grid = designos_doc::LayoutGrid::Grid { size: 8.0, color: designos_doc::Color::rgba(255, 0, 0, 26) };
+        let sample_grid = designos_doc::LayoutGrid::grid(8.0, designos_doc::Color::rgba(255, 0, 0, 26));
 
         let plain_id = doc.alloc_id();
         doc.insert(page, Node::frame(plain_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
@@ -1237,7 +1237,7 @@ mod tests {
     }
 
     fn column_grid() -> designos_doc::LayoutGrid {
-        designos_doc::LayoutGrid::Columns { count: 4, gutter: 8.0, offset: 0.0, color: designos_doc::Color::rgba(255, 0, 0, 26) }
+        designos_doc::LayoutGrid::columns(4, 8.0, 0.0, designos_doc::Color::rgba(255, 0, 0, 26))
     }
 
     fn insert_frame(doc: &mut Document, parent: NodeId, rect: Rect, grid: bool) -> NodeId {

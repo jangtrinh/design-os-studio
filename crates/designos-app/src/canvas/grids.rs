@@ -4,7 +4,8 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing};
+use designos_doc::layout_solver::{place_children, ChildIn};
+use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing, MAX_GRID_TRACKS};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
 /// One resolved `(row, col)` cell in a `LayoutDirection::Grid` container (frame-local coordinates).
@@ -48,59 +49,220 @@ pub fn format_grid_track(track: GridTrack) -> String {
     }
 }
 
+/// How many tracks the canvas shows on one axis of `grid_id`; 0 when it is not a grid. The children are placed exactly
+/// as the layout solver places them (explicit rows and columns included), so the rows are the ones it lays out
+/// (`grid_rows`, or more when children fill more rows) and a pill, a `+` button, an inspector row and a track edit
+/// all name the same index.
+pub fn grid_track_count(doc: &Document, grid_id: NodeId, is_col: bool) -> usize {
+    node_css_grid_overlay(doc, grid_id).map_or(0, |ov| if is_col { ov.cols } else { ov.rows })
+}
+
+/// One edit of the tracks on one axis of a grid.
+#[derive(Clone, Copy, Debug)]
+enum TrackEdit {
+    Insert { at: usize, track: GridTrack },
+    Delete { at: usize },
+    Move { from: usize, to: usize },
+    Resize { at: usize, track: GridTrack },
+}
+
+/// Track slots of one axis. A list is never shorter than `MAX_GRID_TRACKS`, so every laid-out track has a slot.
+fn slots_of(al: &mut AutoLayout, is_col: bool) -> &mut Vec<GridTrack> {
+    let tracks = if is_col { &mut al.grid_col_tracks } else { &mut al.grid_row_tracks };
+    tracks.resize_with_default(MAX_GRID_TRACKS);
+    &mut tracks.0
+}
+
+/// Drops the default slots an insert pushed past `MAX_GRID_TRACKS` and pads a delete back up to it.
+fn trim_slots(slots: &mut Vec<GridTrack>) {
+    let used = slots.iter().rposition(|&t| t != GridTrack::default()).map_or(0, |i| i + 1);
+    slots.truncate(used.max(MAX_GRID_TRACKS));
+    if slots.len() < MAX_GRID_TRACKS {
+        slots.resize(MAX_GRID_TRACKS, GridTrack::default());
+    }
+}
+
+fn remap_reordered_track(idx: usize, from: usize, to: usize) -> usize {
+    if idx == from {
+        to
+    } else if from < to && (from + 1..=to).contains(&idx) {
+        idx - 1
+    } else if to < from && (to..from).contains(&idx) {
+        idx + 1
+    } else {
+        idx
+    }
+}
+
+impl TrackEdit {
+    /// Whether the edit fits a `count`-track axis; `is_col` axes keep at least one track.
+    fn fits(self, count: usize, is_col: bool) -> bool {
+        match self {
+            TrackEdit::Insert { .. } => count < MAX_GRID_TRACKS,
+            TrackEdit::Delete { at } => at < count && !(is_col && count <= 1),
+            TrackEdit::Move { from, to } => from < count && to < count && from != to,
+            TrackEdit::Resize { at, .. } => at < count,
+        }
+    }
+
+    /// Writes this edit into the layout. Only the slots it changes are touched: a resize sets one slot, a
+    /// move turns the slots between its ends, an insert or delete shifts the slots after it. The track
+    /// counts change only when a track is added or removed.
+    fn write(self, al: &mut AutoLayout, is_col: bool, count: usize) {
+        let slots = slots_of(al, is_col);
+        match self {
+            TrackEdit::Insert { at, track } => {
+                slots.insert(at, track);
+                trim_slots(slots);
+            }
+            TrackEdit::Delete { at } => {
+                slots.remove(at);
+                trim_slots(slots);
+            }
+            TrackEdit::Move { from, to } if from < to => slots[from..=to].rotate_left(1),
+            TrackEdit::Move { from, to } => slots[to..=from].rotate_right(1),
+            TrackEdit::Resize { at, track } => slots[at] = track,
+        }
+        match (self, is_col) {
+            (TrackEdit::Insert { .. }, true) => al.grid_columns = count as u32 + 1,
+            (TrackEdit::Insert { .. }, false) => al.grid_rows = count as u32 + 1,
+            (TrackEdit::Delete { .. }, true) => al.grid_columns = count as u32 - 1,
+            // rows past `grid_rows` come from children, so removing one does not shrink the explicit count
+            (TrackEdit::Delete { at }, false) if (at as u32) < al.grid_rows => al.grid_rows -= 1,
+            _ => {}
+        }
+    }
+
+    /// Where a child pinned to track `pin` goes (`None`: the pin is dropped). Pins are not limited to the
+    /// tracks that exist, so every pin at or after the edit moves, whatever its value.
+    fn remap_pin(self, pin: u16) -> Option<u16> {
+        match self {
+            TrackEdit::Insert { at, .. } if pin as usize >= at => Some(pin.saturating_add(1)),
+            TrackEdit::Delete { at } => match (pin as usize).cmp(&at) {
+                std::cmp::Ordering::Less => Some(pin),
+                std::cmp::Ordering::Equal => None,
+                std::cmp::Ordering::Greater => Some(pin - 1),
+            },
+            TrackEdit::Move { from, to } => Some(remap_reordered_track(pin as usize, from, to) as u16),
+            _ => Some(pin),
+        }
+    }
+}
+
+/// Applies `edit` to one axis of the grid frame `grid_id` and re-flows its children in one undo step.
+fn edit_grid_tracks(app: &mut App, grid_id: NodeId, is_col: bool, edit: TrackEdit) -> bool {
+    let Some(ov) = node_css_grid_overlay(&app.doc, grid_id) else { return false };
+    let count = if is_col { ov.cols } else { ov.rows };
+    let edit = match edit {
+        TrackEdit::Insert { at, track } => TrackEdit::Insert { at: at.min(count), track },
+        other => other,
+    };
+    if !edit.fits(count, is_col) {
+        return false;
+    }
+    let Some(children) = app.doc.get(grid_id).map(|n| n.children.clone()) else { return false };
+
+    let new_count = match edit {
+        TrackEdit::Insert { .. } => count + 1,
+        TrackEdit::Delete { .. } => count - 1,
+        TrackEdit::Move { .. } | TrackEdit::Resize { .. } => count,
+    };
+    let mut tx = crate::edit::Tx::new();
+    if let Some(gn) = tx.ed.node(&mut app.doc, grid_id) {
+        if let Some(gal) = gn.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
+            edit.write(gal, is_col, count);
+        }
+    }
+    for cid in children {
+        let Some(c) = app.doc.get(cid) else { continue };
+        let Some(pin) = (if is_col { c.layout_child.grid_column } else { c.layout_child.grid_row }) else { continue };
+        let next = edit.remap_pin(pin);
+        let old_span = c.layout_child.col_span;
+        let mut next_span = old_span;
+        if is_col && old_span > 1 {
+            let mut span = old_span as usize;
+            if let TrackEdit::Delete { at } = edit {
+                let start = pin as usize;
+                if (start..start.saturating_add(span)).contains(&at) {
+                    span = span.saturating_sub(1).max(1);
+                }
+            }
+            if let Some(p) = next {
+                let p = p as usize;
+                if p < new_count && p.saturating_add(span) > new_count {
+                    span = (new_count - p).max(1);
+                }
+            }
+            next_span = span as u16;
+        }
+        if next != Some(pin) || next_span != old_span {
+            if let Some(cn) = tx.ed.node(&mut app.doc, cid) {
+                *(if is_col { &mut cn.layout_child.grid_column } else { &mut cn.layout_child.grid_row }) = next;
+                if is_col {
+                    cn.layout_child.col_span = next_span;
+                }
+            }
+        }
+    }
+    crate::layout::relayout_around(&mut app.doc, &mut tx.ed, grid_id);
+    app.run_tx(tx)
+}
+
+/// Whether deleting track `at` of one axis of `grid_id` (which has `count` tracks there) would change the document.
+/// A row only the children make (past `grid_rows`, with default sizing, no child pinned at or after it) is rebuilt
+/// by the same children, so deleting it does nothing and the inspector must not offer a button for it.
+pub fn grid_track_delete_changes_document(doc: &Document, grid_id: NodeId, is_col: bool, at: usize, count: usize) -> bool {
+    let edit = TrackEdit::Delete { at };
+    if !edit.fits(count, is_col) {
+        return false;
+    }
+    let Some(node) = doc.get(grid_id) else { return false };
+    let Some(al) = node.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()) else { return false };
+    let mut after = al.clone();
+    edit.write(&mut after, is_col, count);
+    if after != *al {
+        return true;
+    }
+    node.children.iter().filter_map(|&cid| doc.get(cid)).any(|c| {
+        let pin = if is_col { c.layout_child.grid_column } else { c.layout_child.grid_row };
+        pin.is_some_and(|p| edit.remap_pin(p) != Some(p))
+    })
+}
+
+/// Inserts a column (`is_col = true`) or row (`is_col = false`) track at `at` in one undo step, moving
+/// the children pinned at or after it. `at` counts tracks as [`grid_track_count`] does.
+pub fn insert_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize, track: GridTrack) -> bool {
+    edit_grid_tracks(app, grid_id, is_col, TrackEdit::Insert { at, track })
+}
+
+/// Deletes column (`is_col = true`) or row (`is_col = false`) track `at` and re-flows children in one undo step.
+pub fn delete_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize) -> bool {
+    edit_grid_tracks(app, grid_id, is_col, TrackEdit::Delete { at })
+}
+
+/// Resizes/updates column (`is_col = true`) or row (`is_col = false`) track `idx` in one undo step.
+pub fn resize_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, idx: usize, track: GridTrack) -> bool {
+    edit_grid_tracks(app, grid_id, is_col, TrackEdit::Resize { at: idx, track })
+}
+
+/// Moves column (`is_col = true`) or row (`is_col = false`) track `from` to `to`, carrying anchored items in one undo step.
+pub fn move_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, from: usize, to: usize) -> bool {
+    edit_grid_tracks(app, grid_id, is_col, TrackEdit::Move { from, to })
+}
+
 /// Computes the 2D CSS Grid cell rects, column/row tracks, padding, and gaps for `LayoutDirection::Grid`.
-pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, child_sizes: &[DV], spans: &[(u16, u16)]) -> CssGridOverlay {
+/// `kids` are the flow children as the solver sees them.
+pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, kids: &[ChildIn]) -> CssGridOverlay {
     let [pt, pr, pb, pl] = al.padding;
     let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, designos_doc::MAX_GRID_TRACKS);
     let col_gap = al.item_spacing.max(0.0);
     let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
 
-    // Place children into a 2D occupancy grid respecting col_span and row_span.
-    let mut occupied: Vec<Vec<bool>> = Vec::new();
-    let mut placements: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(child_sizes.len());
-    let mut max_row = 0usize;
-
-    for idx in 0..child_sizes.len() {
-        let (cs, rs) = spans.get(idx).copied().unwrap_or((1, 1));
-        let c_span = (cs.max(1) as usize).min(cols);
-        let r_span = (rs.max(1) as usize).min(designos_doc::MAX_GRID_TRACKS);
-        let mut r = 0usize;
-        let placed = loop {
-            while occupied.len() < r + r_span {
-                occupied.push(vec![false; cols]);
-            }
-            let mut found_c = None;
-            for c in 0..=(cols - c_span) {
-                let mut fits = true;
-                for dr in 0..r_span {
-                    for dc in 0..c_span {
-                        if occupied[r + dr][c + dc] {
-                            fits = false;
-                            break;
-                        }
-                    }
-                    if !fits {
-                        break;
-                    }
-                }
-                if fits {
-                    found_c = Some(c);
-                    break;
-                }
-            }
-            if let Some(c) = found_c {
-                for dr in 0..r_span {
-                    for dc in 0..c_span {
-                        occupied[r + dr][c + dc] = true;
-                    }
-                }
-                break (r, c, r_span, c_span);
-            }
-            r += 1;
-        };
-        max_row = max_row.max(placed.0 + placed.2);
-        placements.push(placed);
-    }
+    // Place the children exactly as the solver does (explicit rows and columns, spans, then auto flow), so the
+    // rows and cells drawn here are the ones the layout lays out.
+    let child_sizes: Vec<DV> = kids.iter().map(|k| k.size).collect();
+    let placements: Vec<(usize, usize, usize, usize)> = place_children(kids, cols).iter().map(|p| (p.row, p.col, p.row_span, p.col_span)).collect();
+    let max_row = placements.iter().map(|&(r, _, rs, _)| r + rs).max().unwrap_or(0);
 
     let default_rows = if child_sizes.is_empty() { 2 } else { 1 };
     let rows = max_row.max(al.grid_rows as usize).max(default_rows).clamp(1, designos_doc::MAX_GRID_TRACKS);
@@ -229,23 +391,16 @@ pub fn node_css_grid_overlay(doc: &Document, id: NodeId) -> Option<CssGridOverla
     if al.direction != LayoutDirection::Grid {
         return None;
     }
-    let mut child_sizes = Vec::new();
-    let mut spans = Vec::new();
-    for &cid in &n.children {
-        let Some(c) = doc.get(cid) else { continue };
-        if !c.visible || c.layout_child.absolute {
-            continue;
-        }
-        child_sizes.push(c.size);
-        spans.push((c.layout_child.col_span.max(1), c.layout_child.row_span.max(1)));
-    }
-    Some(compute_css_grid_overlay(al, n.size, &child_sizes, &spans))
+    let kids: Vec<ChildIn> = n.children.iter().filter_map(|&cid| doc.flow_child_input(cid, true)).collect();
+    Some(compute_css_grid_overlay(al, n.size, &kids))
 }
 
 /// Start and length of each stripe of a columns / rows grid along an extent.
-/// `count` stripes separated by `gutter`, inset by `offset` on both ends.
+/// `count` stripes separated by `gutter`, inset by `offset` on both ends. A negative `gutter`
+/// overlaps neighbouring stripes and a negative `offset` pushes them past the extent: imported
+/// files carry both, so only non-finite numbers and a non-positive stripe width draw nothing.
 pub fn stripes(count: u32, gutter: f32, offset: f32, extent: f32) -> Vec<(f32, f32)> {
-    if count == 0 {
+    if count == 0 || !extent.is_finite() || extent <= 0.0 || !gutter.is_finite() || !offset.is_finite() {
         return vec![];
     }
     let avail = extent - 2.0 * offset;
@@ -254,6 +409,76 @@ pub fn stripes(count: u32, gutter: f32, offset: f32, extent: f32) -> Vec<(f32, f
         return vec![];
     }
     (0..count).map(|i| (offset + i as f32 * (w + gutter), w)).collect()
+}
+
+use designos_doc::LayoutGridAlign;
+
+/// Most stripes an auto-count guide builds; beyond this a stripe is thinner than a pixel at any
+/// useful zoom and the overlay is rebuilt every frame.
+const MAX_AUTO_STRIPES: u32 = 4096;
+
+/// Start and length of each stripe of a columns / rows guide with `alignment`, fixed `section_size`,
+/// and `count == 0` meaning auto-count (`(avail + gutter) / (section_size + gutter)`). Stripes are
+/// clipped to `0..extent`: a guide never paints outside its frame.
+pub fn stripes_aligned(count: u32, gutter: f32, offset: f32, section_size: f32, alignment: LayoutGridAlign, extent: f32) -> Vec<(f32, f32)> {
+    if !extent.is_finite() || extent <= 0.0 || !gutter.is_finite() || !offset.is_finite() {
+        return vec![];
+    }
+    let n = if count > 0 {
+        count
+    } else {
+        if !section_size.is_finite() || section_size <= 0.0 {
+            return vec![];
+        }
+        let avail = (extent - 2.0 * offset).max(0.0);
+        let step = section_size + gutter;
+        if step <= 0.0 {
+            return vec![];
+        }
+        // capped as a float: a tiny width would saturate the cast to u32::MAX
+        ((avail + gutter) / step).floor().clamp(0.0, MAX_AUTO_STRIPES as f32) as u32
+    };
+    if n == 0 {
+        return vec![];
+    }
+    let all = match alignment {
+        LayoutGridAlign::Stretch => stripes(n, gutter, offset, extent),
+        LayoutGridAlign::Min | LayoutGridAlign::Center | LayoutGridAlign::Max => {
+            let w = if section_size.is_finite() && section_size > 0.0 {
+                section_size
+            } else {
+                // equal widths that fill the extent; gutters or margins past it leave no width
+                let avail = extent - 2.0 * offset;
+                (avail - gutter * (n - 1) as f32) / n as f32
+            };
+            if w.is_nan() || w <= 0.0 || !w.is_finite() {
+                return vec![];
+            }
+            let total = n as f32 * w + (n - 1) as f32 * gutter;
+            let start0 = match alignment {
+                LayoutGridAlign::Min => offset,
+                LayoutGridAlign::Center => (extent - total) * 0.5,
+                LayoutGridAlign::Max => extent - offset - total,
+                LayoutGridAlign::Stretch => offset,
+            };
+            (0..n).map(|i| (start0 + i as f32 * (w + gutter), w)).collect()
+        }
+    };
+    clip_to_extent(all, extent)
+}
+
+/// The part of each `(start, length)` stripe inside `0..extent`; stripes outside it are dropped.
+fn clip_to_extent(stripes: Vec<(f32, f32)>, extent: f32) -> Vec<(f32, f32)> {
+    stripes
+        .into_iter()
+        .filter_map(|(start, len)| {
+            if start >= 0.0 && start + len <= extent {
+                return Some((start, len));
+            }
+            let (s, e) = (start.max(0.0), (start + len).min(extent));
+            (e > s).then_some((s, e - s))
+        })
+        .collect()
 }
 
 /// Positions of the lines of a square grid with cells of `size` inside `extent`.
@@ -362,8 +587,11 @@ fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_re
             p.add(Shape::convex_polygon(vec![to_s(x0, y0), to_s(x1, y0), to_s(x1, y1), to_s(x0, y1)], col, Stroke::NONE));
         };
         for g in &fp.grids {
+            if !g.is_visible() {
+                continue;
+            }
             match g {
-                LayoutGrid::Grid { size, color } => {
+                LayoutGrid::Grid { size, color, .. } => {
                     // too dense to read: skip below 4 screen px per cell
                     if *size * z < 4.0 {
                         continue;
@@ -376,13 +604,13 @@ fn layout_grids_in(app: &App, p: &Painter, rect: ERect, idx: Option<&designos_re
                         p.line_segment([to_s(0.0, y), to_s(n.size.x, y)], stroke);
                     }
                 }
-                LayoutGrid::Columns { count, gutter, offset, color } => {
-                    for (x, cw) in stripes(*count, *gutter, *offset, n.size.x) {
+                LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color, .. } => {
+                    for (x, cw) in stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, n.size.x) {
                         quad(x, 0.0, x + cw, n.size.y, c32(color));
                     }
                 }
-                LayoutGrid::Rows { count, gutter, offset, color } => {
-                    for (y, rh) in stripes(*count, *gutter, *offset, n.size.y) {
+                LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color, .. } => {
+                    for (y, rh) in stripes_aligned(*count, *gutter, *offset, *section_size, *alignment, n.size.y) {
                         quad(0.0, y, n.size.x, y + rh, c32(color));
                     }
                 }
@@ -412,6 +640,67 @@ mod tests {
     }
 
     #[test]
+    fn negative_gutter_overlaps_columns_and_negative_margin_extends_them() {
+        use designos_doc::LayoutGridAlign::Stretch;
+        // imported files keep the raw numbers: a negative gutter overlaps neighbouring columns
+        assert_eq!(stripes(2, -10.0, 0.0, 100.0), vec![(0.0, 55.0), (45.0, 55.0)]);
+        assert_eq!(stripes_aligned(2, -10.0, 0.0, 0.0, Stretch, 100.0), vec![(0.0, 55.0), (45.0, 55.0)]);
+        // a negative margin grows the columns past the frame edges; the part outside the frame is clipped
+        assert_eq!(stripes(2, 0.0, -10.0, 100.0), vec![(-10.0, 60.0), (50.0, 60.0)]);
+        assert_eq!(stripes_aligned(2, 0.0, -10.0, 0.0, Stretch, 100.0), vec![(0.0, 50.0), (50.0, 50.0)]);
+        // a stretch guide whose computed width is not positive still draws nothing
+        assert!(stripes_aligned(3, 100.0, 0.0, 0.0, Stretch, 100.0).is_empty());
+        // non-finite numbers never draw
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(stripes(2, bad, 0.0, 100.0).is_empty(), "gutter {bad}");
+            assert!(stripes(2, 0.0, bad, 100.0).is_empty(), "offset {bad}");
+            assert!(stripes_aligned(2, bad, 0.0, 0.0, Stretch, 100.0).is_empty(), "aligned gutter {bad}");
+            assert!(stripes_aligned(2, 0.0, bad, 0.0, Stretch, 100.0).is_empty(), "aligned offset {bad}");
+        }
+    }
+
+    #[test]
+    fn aligned_stripes_are_clipped_to_the_frame() {
+        use designos_doc::LayoutGridAlign::{Center, Max, Min};
+        // a 300px column on a 100px frame shows the 100px that overlap it, whichever side it is aligned to
+        for a in [Min, Center, Max] {
+            assert_eq!(stripes_aligned(1, 0.0, 0.0, 300.0, a, 100.0), vec![(0.0, 100.0)], "{a:?}");
+        }
+        // the second column is cut by the frame edge, the third lies outside and is dropped
+        assert_eq!(stripes_aligned(3, 20.0, 0.0, 60.0, Min, 100.0), vec![(0.0, 60.0), (80.0, 20.0)]);
+        assert_eq!(stripes_aligned(3, 20.0, 0.0, 60.0, Max, 100.0), vec![(0.0, 20.0), (40.0, 60.0)]);
+        // inside the frame nothing changes
+        assert_eq!(stripes_aligned(2, 10.0, 5.0, 20.0, Min, 100.0), vec![(5.0, 20.0), (35.0, 20.0)]);
+    }
+
+    #[test]
+    fn aligned_stripes_without_a_fixed_width_need_room_for_the_gutters() {
+        use designos_doc::LayoutGridAlign::{Center, Max, Min};
+        for a in [Min, Center, Max] {
+            // gutters wider than the frame leave no width, so there is nothing to draw (not 1px slivers)
+            assert!(stripes_aligned(3, 200.0, 0.0, 0.0, a, 100.0).is_empty(), "{a:?}");
+            assert!(stripes_aligned(2, 0.0, 60.0, 0.0, a, 100.0).is_empty(), "margins eat everything {a:?}");
+        }
+        // equal widths when there is room: (400 - 80) / 5
+        assert_eq!(stripes_aligned(5, 20.0, 0.0, 0.0, Min, 400.0)[0], (0.0, 64.0));
+    }
+
+    #[test]
+    fn auto_count_is_capped() {
+        // a tiny width would otherwise build ten million stripes on every frame
+        let s = stripes_aligned(0, 0.0, 0.0, 0.001, designos_doc::LayoutGridAlign::Min, 10000.0);
+        assert!(!s.is_empty() && s.len() <= MAX_AUTO_STRIPES as usize, "{} stripes", s.len());
+        // a width so small that the count overflows u32 is capped too, and stretches to the full extent
+        let s = stripes_aligned(0, 0.0, 0.0, 1e-30, designos_doc::LayoutGridAlign::Min, 10000.0);
+        assert!(s.len() <= MAX_AUTO_STRIPES as usize, "{} stripes", s.len());
+        let s = stripes_aligned(0, 0.0, 0.0, 1e-30, designos_doc::LayoutGridAlign::Stretch, 10000.0);
+        assert_eq!(s.len(), MAX_AUTO_STRIPES as usize);
+        assert!((s[0].1 * MAX_AUTO_STRIPES as f32 - 10000.0).abs() < 1.0);
+        // ordinary auto counts are untouched
+        assert_eq!(stripes_aligned(0, 20.0, 20.0, 60.0, designos_doc::LayoutGridAlign::Center, 400.0).len(), 4);
+    }
+
+    #[test]
     fn square_grid_lines() {
         assert_eq!(grid_lines(10.0, 35.0), vec![10.0, 20.0, 30.0]);
         assert!(grid_lines(0.0, 100.0).is_empty());
@@ -437,7 +726,16 @@ mod tests {
         // Frame width = 24 + 120 + 16 + 100 + 16 + 200 + 24 = 500
         let child_sizes = [v2(120.0, 80.0), v2(100.0, 80.0), v2(200.0, 80.0), v2(200.0, 100.0)];
         let spans = [(1, 1), (1, 1), (1, 1), (2, 1)];
-        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), &child_sizes, &spans);
+        let kids: Vec<ChildIn> = child_sizes
+            .iter()
+            .zip(spans)
+            .map(|(&size, (col_span, row_span))| ChildIn {
+                size,
+                cell: designos_doc::layout_solver::GridCell { col_span, row_span, ..Default::default() },
+                ..Default::default()
+            })
+            .collect();
+        let ov = compute_css_grid_overlay(&al, v2(500.0, 232.0), &kids);
         assert_eq!(ov.cols, 3);
         assert_eq!(ov.rows, 2);
         assert_eq!(ov.cells.len(), 6);
@@ -457,7 +755,7 @@ mod tests {
         let id = app.doc.alloc_id();
         let mut frame = designos_doc::Node::frame(id, rect);
         if let NodeKind::Frame(fp) = &mut frame.kind {
-            fp.grids.push(LayoutGrid::Columns { count: 1, gutter: 0.0, offset: 0.0, color });
+            fp.grids.push(LayoutGrid::columns(1, 0.0, 0.0, color));
         }
         app.doc.insert(parent, frame).unwrap()
     }
@@ -478,6 +776,57 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Screen-space bounds of every stripe painted for the layout grids, in paint order.
+    fn painted_stripe_bounds(app: &App) -> Vec<(Color32, ERect)> {
+        let ctx = egui::Context::default();
+        let rect = ERect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 600.0));
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.painter().clone();
+            layout_grids_in(app, &painter, rect, None);
+        });
+        out.shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Path(path) => Some((path.fill, ERect::from_points(&path.points))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_column_wider_than_its_frame_does_not_paint_over_the_next_frame() {
+        use designos_doc::LayoutGridAlign;
+        let mut doc = Document::new("grid-clip");
+        doc.add_page("page-1");
+        let mut app = App::new(doc);
+        let page = app.page;
+        let wide = Color::rgba(255, 0, 0, 40);
+        let id = app.doc.alloc_id();
+        let mut frame = designos_doc::Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        if let NodeKind::Frame(fp) = &mut frame.kind {
+            fp.grids.push(LayoutGrid::Columns {
+                count: 1,
+                gutter: 0.0,
+                offset: 0.0,
+                section_size: 300.0,
+                alignment: LayoutGridAlign::Min,
+                color: wide,
+                visible: true,
+            });
+        }
+        app.doc.insert(page, frame).unwrap();
+        // a sibling frame the 300px column would reach
+        gridded_frame(&mut app, page, Rect::new(150.0, 0.0, 100.0, 100.0), Color::rgba(0, 0, 255, 40));
+
+        let right_edge = app.view.to_screen(Pos2::ZERO, v2(100.0, 0.0)).x;
+        let boxes = painted_stripe_bounds(&app);
+        assert_eq!(boxes.len(), 2);
+        let (fill, bounds) = boxes[0];
+        assert_eq!(fill, c32(&wide));
+        assert!(bounds.max.x <= right_edge + 0.01, "the wide column paints to x = {} but its frame ends at {}", bounds.max.x, right_edge);
     }
 
     #[test]
@@ -501,5 +850,49 @@ mod tests {
         idx.ensure(&app.doc, app.page, 1);
         assert_eq!(painted_stripe_fills(&app, Some(&idx)), expected, "with a scene index");
         assert_eq!(painted_stripe_fills(&app, None), expected, "without a scene index");
+    }
+
+    #[test]
+    fn centred_12x60_columns_draw_at_literal_x_and_hidden_guides_do_not_draw() {
+        use designos_doc::LayoutGridAlign;
+        let cols = stripes_aligned(12, 20.0, 0.0, 60.0, LayoutGridAlign::Center, 1440.0);
+        let expected_cols: Vec<(f32, f32)> = (0..12).map(|i| (250.0 + i as f32 * 80.0, 60.0)).collect();
+        assert_eq!(cols, expected_cols);
+
+        let auto_cols = stripes_aligned(0, 20.0, 20.0, 60.0, LayoutGridAlign::Center, 400.0);
+        assert_eq!(auto_cols, vec![(50.0, 60.0), (130.0, 60.0), (210.0, 60.0), (290.0, 60.0)]);
+
+        let mut doc = Document::new("grid-parity");
+        doc.add_page("page-1");
+        let mut app = App::new(doc);
+        let page = app.page;
+        let id = app.doc.alloc_id();
+        let mut frame = designos_doc::Node::frame(id, Rect::new(0.0, 0.0, 1440.0, 400.0));
+        let vis_col = Color::rgba(255, 0, 0, 40);
+        let hid_col = Color::rgba(0, 255, 0, 40);
+        if let NodeKind::Frame(fp) = &mut frame.kind {
+            fp.grids.push(LayoutGrid::Columns {
+                count: 12,
+                gutter: 20.0,
+                offset: 0.0,
+                section_size: 60.0,
+                alignment: LayoutGridAlign::Center,
+                color: vis_col,
+                visible: true,
+            });
+            fp.grids.push(LayoutGrid::Rows {
+                count: 4,
+                gutter: 16.0,
+                offset: 0.0,
+                section_size: 40.0,
+                alignment: LayoutGridAlign::Min,
+                color: hid_col,
+                visible: false,
+            });
+        }
+        app.doc.insert(page, frame).unwrap();
+        let fills = painted_stripe_fills(&app, None);
+        assert_eq!(fills.len(), 12, "only the 12 visible column stripes should paint");
+        assert!(fills.iter().all(|c| *c == c32(&vis_col)));
     }
 }
