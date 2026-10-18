@@ -4,16 +4,20 @@ use crate::layout_solver_grid_placement::{place_children, Placed, MAX_GRID_TRACK
 use crate::layout_solver_types::{ChildIn, LayoutOut, SizeLimits};
 use crate::{AutoLayout, GridTrack, Rect, Sizing, Vec2};
 
-/// The width `k` asks of an auto column: its clamped width and margins. A child that fills the width stretches to its
-/// column, so its stored width is the one it was stretched to last pass and counting it would pin the column; it asks for
-/// its minimum width and margins only, like a counter-axis Fill child in a flow line.
+/// The width `k` asks of an auto column: its clamped width and margins. A child that fills the width and has margins on it
+/// is stretched to its column minus those margins, so its stored width is that stretched one and counting it would pin the
+/// column to `(column - margin) + margin` for good; it asks for its minimum width and margins only, like a counter-axis
+/// Fill child in a flow line. Without margins the stored width still counts, so a hugging grid keeps the width of its
+/// Fill child.
 fn column_need(k: &ChildIn) -> f32 {
-    k.limits.clamp_w(if k.main_fill { 0.0 } else { k.size.x }) + k.margin[1] + k.margin[3]
+    let margins = k.margin[1] + k.margin[3];
+    k.limits.clamp_w(if k.main_fill && margins > 0.0 { 0.0 } else { k.size.x }) + margins
 }
 
 /// The height `k` asks of an auto row (see [`column_need`]).
 fn row_need(k: &ChildIn) -> f32 {
-    k.limits.clamp_h(if k.cross_fill { 0.0 } else { k.size.y }) + k.margin[0] + k.margin[2]
+    let margins = k.margin[0] + k.margin[2];
+    k.limits.clamp_h(if k.cross_fill && margins > 0.0 { 0.0 } else { k.size.y }) + margins
 }
 
 /// Widest child (single-column ones only) in column `c`.
@@ -232,6 +236,15 @@ mod tests {
         assert_eq!(second.frame.y, 60.0);
         assert_eq!(second.rects[0], Rect::new(0.0, 0.0, 30.0, 40.0));
         assert_eq!(second.rects[1], Rect::new(100.0, 30.0, 20.0, 0.0));
+    }
+
+    #[test]
+    fn a_fill_child_without_margins_still_counts_at_its_own_size() {
+        let al = grid(1, Sizing::Hug, Sizing::Hug);
+        let kids = [ChildIn { cross_fill: true, main_fill: true, ..child(100.0, 20.0) }];
+        let out = compute_grid(&al, Vec2::new(1.0, 1.0), SizeLimits::default(), &kids);
+        assert_eq!(out.frame, Vec2::new(100.0, 20.0));
+        assert_eq!(out.rects[0], Rect::new(0.0, 0.0, 100.0, 20.0));
     }
 
     #[test]
