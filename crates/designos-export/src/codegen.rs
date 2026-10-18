@@ -336,16 +336,64 @@ pub(crate) struct Sizes {
     pub row_parent: bool,
 }
 
+/// Columns the layout solver lays out for `al`: the stored count (3 when unset) kept within
+/// `1..=MAX_GRID_TRACKS`. The export writes this count, never the raw stored one.
+pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
+    let stored = if al.grid_columns > 0 { al.grid_columns as usize } else { 3 };
+    stored.clamp(1, MAX_GRID_TRACKS)
+}
+
+/// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
+/// width and lets it shrink to a pixel, while a bare `{n}fr` is `minmax(auto, {n}fr)` and cannot
+/// shrink under its content.
 pub(crate) fn grid_track_token(t: GridTrack) -> String {
     match t {
-        GridTrack::Flex(f) => format!("{}fr", num(if f.is_finite() && f > 0.0 { f } else { 1.0 })),
+        GridTrack::Flex(f) => format!("minmax(0, {}fr)", num(if f.is_finite() && f > 0.0 { f } else { 1.0 })),
         GridTrack::Fixed(px) => format!("{}px", num(if px.is_finite() && px >= 0.0 { px } else { 0.0 })),
         GridTrack::Hug => "auto".into(),
     }
 }
 
+/// Whether the first `count` tracks are all the default `1fr` (a track the document does not store
+/// is the default, so only the stored ones are looked at).
+pub(crate) fn grid_tracks_are_default(tracks: &[GridTrack], count: usize) -> bool {
+    tracks.iter().take(count).all(|t| *t == GridTrack::default())
+}
+
+/// The value of `grid-template-columns` / `-rows` for `count` tracks. All `1fr` tracks are one
+/// `repeat()`. Otherwise every other track is listed and a run of two or more default tracks (the
+/// ones past the stored list included) folds into a `repeat()`, so the text depends on the tracks
+/// alone and the work on the stored tracks, never on `count`.
 pub(crate) fn grid_tracks_css(tracks: &[GridTrack], count: usize) -> String {
-    (0..count).map(|i| grid_track_token(tracks.get(i).copied().unwrap_or_default())).collect::<Vec<_>>().join(" ")
+    let default_track = grid_track_token(GridTrack::default());
+    if grid_tracks_are_default(tracks, count) {
+        return format!("repeat({count}, {default_track})");
+    }
+    fn flush(parts: &mut Vec<String>, run: &mut usize, default_track: &str) {
+        match std::mem::take(run) {
+            0 => {}
+            1 => parts.push(default_track.to_string()),
+            n => parts.push(format!("repeat({n}, {default_track})")),
+        }
+    }
+    let stored = count.min(tracks.len());
+    let (mut parts, mut run) = (Vec::new(), 0usize);
+    for t in &tracks[..stored] {
+        if *t == GridTrack::default() {
+            run += 1;
+        } else {
+            flush(&mut parts, &mut run, &default_track);
+            parts.push(grid_track_token(*t));
+        }
+    }
+    run += count - stored;
+    flush(&mut parts, &mut run, &default_track);
+    parts.join(" ")
+}
+
+/// A track list as one Tailwind arbitrary value: no spaces, `_` between tracks.
+pub(crate) fn tailwind_tracks_value(tracks_css: &str) -> String {
+    tracks_css.replace(", ", ",").replace(' ', "_")
 }
 
 pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {

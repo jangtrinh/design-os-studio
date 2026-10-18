@@ -101,7 +101,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1) as usize;
+            let cols = crate::codegen::grid_column_count(&al);
             push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
             if al.grid_rows > 0 {
                 push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
@@ -719,7 +719,7 @@ mod tests {
 
         assert_eq!(
             css_for(&d, grid_id),
-            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: 1fr 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\noverflow: hidden;"
+            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\noverflow: hidden;"
         );
         assert_eq!(css_for(&d, pinned_id), "grid-column: 2 / span 2;\ngrid-row: 1 / span 1;\nwidth: 200px;\nheight: 80px;");
         assert_eq!(css_for(&d, span_only_id), "grid-column: span 2;\nwidth: 180px;\nheight: 60px;");
@@ -793,13 +793,19 @@ mod tests {
     /// The grid's exported width and height must be the frame the solver computed, and its tracks
     /// stay fractions of that size.
     fn solved_grid_css(d: &Document, grid: NodeId, cols: u32, rows: u32) -> String {
+        let uniform = |n: u32| format!("repeat({n}, minmax(0, 1fr))");
+        solved_grid_template(d, grid, &uniform(cols), (rows > 0).then(|| uniform(rows)).as_deref())
+    }
+
+    /// [`solved_grid_css`] for a grid whose column and row templates are the given CSS.
+    fn solved_grid_template(d: &Document, grid: NodeId, columns: &str, rows: Option<&str>) -> String {
         let size = d.get(grid).unwrap().size;
         let css = css_for(d, grid);
         assert!(css.contains(&format!("width: {}px;", num(size.x))), "the exported width must be the solver's {}: {css}", size.x);
         assert!(css.contains(&format!("height: {}px;", num(size.y))), "the exported height must be the solver's {}: {css}", size.y);
-        assert!(css.contains(&format!("grid-template-columns: repeat({cols}, minmax(0, 1fr));")), "{css}");
-        if rows > 0 {
-            assert!(css.contains(&format!("grid-template-rows: repeat({rows}, minmax(0, 1fr));")), "{css}");
+        assert!(css.contains(&format!("grid-template-columns: {columns};")), "{css}");
+        if let Some(rows) = rows {
+            assert!(css.contains(&format!("grid-template-rows: {rows};")), "{css}");
         }
         assert!(
             !css.contains("max-content") && !css.contains("minmax(40px") && !css.contains(", auto)"),
@@ -853,7 +859,7 @@ mod tests {
         fixture::add_rect(&mut d, grid, Vec2::new(60.0, 10.0));
         d.relayout_subtree(grid);
         assert_eq!(d.get(grid).unwrap().size.x, 260.0, "a fixed 200px column plus a 60px hugging one");
-        solved_grid_css(&d, grid, 2, 0);
+        solved_grid_template(&d, grid, "200px minmax(0, 1fr)", None);
     }
 
     #[test]

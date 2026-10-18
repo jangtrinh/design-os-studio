@@ -297,13 +297,13 @@ const STOCK_ROW_START: u32 = 7;
 const STOCK_COL_SPAN: u16 = 12;
 const STOCK_ROW_SPAN: u16 = 6;
 
-/// `grid-cols-3` for `n` equal tracks while the stock class exists, else the arbitrary value it stands for.
-fn uniform_tracks_class(prefix: &str, n: usize, stock_max: usize) -> String {
-    if n <= stock_max {
-        format!("{prefix}-{n}")
-    } else {
-        format!("{prefix}-[repeat({n},minmax(0,1fr))]")
+/// `grid-cols-3` for `count` tracks that are all `1fr`, while the stock class exists. Anything else,
+/// including a count past the stock scale, is an arbitrary value of the same CSS track list.
+fn template_class(prefix: &str, tracks: &[GridTrack], count: usize, stock_max: usize) -> String {
+    if grid_tracks_are_default(tracks, count) && count <= stock_max {
+        return format!("{prefix}-{count}");
     }
+    format!("{prefix}-[{}]", tailwind_tracks_value(&grid_tracks_css(tracks, count)))
 }
 
 /// `col-start-3` for grid line `line` while the stock class exists, else `col-start-[14]`.
@@ -344,26 +344,10 @@ fn classes(doc: &Document, n: &Node, parent: Parent) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
-            let cols = (if al.grid_columns == 0 { 3 } else { al.grid_columns }).max(1) as usize;
             c.push("grid".into());
-            if (0..cols).all(|i| al.grid_col_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
-                c.push(uniform_tracks_class("grid-cols", cols, STOCK_GRID_COLS));
-            } else {
-                let spec =
-                    (0..cols).map(|i| crate::codegen::grid_track_token(al.grid_col_tracks.get(i).copied().unwrap_or_default())).collect::<Vec<_>>().join("_");
-                c.push(format!("grid-cols-[{spec}]"));
-            }
+            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(&al), STOCK_GRID_COLS));
             if al.grid_rows > 0 {
-                let rows = al.grid_rows as usize;
-                if (0..rows).all(|i| al.grid_row_tracks.get(i).copied().unwrap_or_default() == GridTrack::Flex(1.0)) {
-                    c.push(uniform_tracks_class("grid-rows", rows, STOCK_GRID_ROWS));
-                } else {
-                    let spec = (0..rows)
-                        .map(|i| crate::codegen::grid_track_token(al.grid_row_tracks.get(i).copied().unwrap_or_default()))
-                        .collect::<Vec<_>>()
-                        .join("_");
-                    c.push(format!("grid-rows-[{spec}]"));
-                }
+                c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
             }
             let col_gap = al.item_spacing;
             let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -655,7 +639,7 @@ mod tests {
         n1.layout_child.row_span = 1;
         d.insert(g, n1).unwrap();
 
-        let expected = "<div class=\"grid grid-cols-[1fr_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
+        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
         assert_eq!(tailwind_for(&d, g), expected);
     }
 
