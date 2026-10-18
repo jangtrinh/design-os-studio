@@ -39,7 +39,24 @@ fn track_map(ids: &[(u64, u64)]) -> Value {
 /// first column and row, and two instances of it: `MovedInst` carries `overrides` for `Cell`,
 /// `PlainInst` carries none.
 fn grid_component_doc(overrides: Vec<Value>, extra_inst: Value) -> Document {
-    let changes = json!([
+    grid_component_doc_with(overrides, extra_inst, vec![])
+}
+
+/// The same file plus a second grid `OtherGrid` that lists the column ids in another order.
+fn grid_component_doc_with_other_grid(overrides: Vec<Value>) -> Document {
+    let other = node(
+        (1, 40),
+        (0, 1),
+        "d",
+        "FRAME",
+        "OtherGrid",
+        json!({"size": {"x": 300.0, "y": 200.0}, "stackMode": "GRID", "gridColumns": track_map(&[(9, 4), (9, 3), (9, 5)])}),
+    );
+    grid_component_doc_with(overrides, json!({}), vec![other])
+}
+
+fn grid_component_doc_with(overrides: Vec<Value>, extra_inst: Value, extra_nodes: Vec<Value>) -> Document {
+    let mut changes = json!([
         {"guid": g(0, 0), "type": "DOCUMENT", "name": "GridOverrideDoc"},
         {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "a"}, "type": "CANVAS", "name": "Page 1"},
         node(
@@ -94,6 +111,7 @@ fn grid_component_doc(overrides: Vec<Value>, extra_inst: Value) -> Document {
             json!({"size": {"x": 300.0, "y": 200.0}, "symbolData": {"symbolID": g(1, 10), "symbolOverrides": []}})
         )
     ]);
+    changes.as_array_mut().unwrap().extend(extra_nodes);
     import_fig_node_changes(&changes, "grid-override-anchors").expect("import_fig_node_changes")
 }
 
@@ -155,6 +173,45 @@ fn tracks_restated_by_the_instance_decide_the_index() {
     ];
     let doc = grid_component_doc(overrides, json!({}));
     assert_eq!(cell_of(&doc, "MovedInst").layout_child.grid_column, Some(2));
+}
+
+#[test]
+fn tracks_on_the_instance_node_decide_the_index_of_a_one_step_path() {
+    // The instance carries its own column map that lists 9:4 first: for a child one step below the
+    // instance, that map is the grid the anchor names, not the component's order (9:4 second).
+    let overrides = vec![json!({"guidPath": {"guids": [g(9, 11)]}, "gridColumnAnchor": g(9, 4), "gridRowAnchor": g(9, 2)})];
+    let doc = grid_component_doc(overrides, json!({"gridColumns": track_map(&[(9, 4), (9, 3), (9, 5)])}));
+    let moved = cell_of(&doc, "MovedInst");
+    assert_eq!(moved.layout_child.grid_column, Some(0));
+    assert_eq!(moved.layout_child.grid_row, Some(1), "the instance restates no rows: the component's rows decide");
+}
+
+#[test]
+fn a_track_id_two_grids_place_differently_is_not_guessed() {
+    // 9:4 is the second column of the component's grid and the first of another grid in the file:
+    // without the grid that owns the anchor, the component's cell is kept rather than a guessed one.
+    let overrides = vec![json!({"guidPath": {"guids": [g(9, 11)]}, "gridColumnAnchor": g(9, 4)})];
+    let doc = grid_component_doc_with_other_grid(overrides);
+    assert_eq!(cell_of(&doc, "MovedInst").layout_child.grid_column, Some(0));
+}
+
+#[test]
+fn an_instance_restating_the_tracks_does_not_disturb_the_others() {
+    let restating = node(
+        (1, 50),
+        (0, 1),
+        "e",
+        "INSTANCE",
+        "RestatingInst",
+        json!({
+            "size": {"x": 300.0, "y": 200.0},
+            "gridColumns": track_map(&[(9, 5), (9, 3), (9, 4)]),
+            "symbolData": {"symbolID": g(1, 10), "symbolOverrides": []}
+        }),
+    );
+    let overrides = vec![json!({"guidPath": {"guids": [g(9, 11)]}, "gridColumnAnchor": g(9, 4)})];
+    let doc = grid_component_doc_with(overrides, json!({}), vec![restating]);
+    assert_eq!(cell_of(&doc, "MovedInst").layout_child.grid_column, Some(1), "the component's order decides for an instance that restates nothing");
 }
 
 #[test]

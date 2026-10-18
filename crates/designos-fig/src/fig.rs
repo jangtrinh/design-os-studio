@@ -276,12 +276,12 @@ struct Lk<'a> {
     /// Node guid (`s:l`) -> Dev Mode handoff status (`READY_FOR_DEV` / `COMPLETED`)
     /// from `CANVAS.handoffStatusMap`.
     handoff_status: HashMap<String, &'static str>,
-    /// Grid track id (`s:l`) from any `gridColumns` map -> 0-based column index. Instance overrides
-    /// name a cell by the track id of the component's grid, so they resolve against this while
-    /// the maps are still intact.
-    grid_column_index: HashMap<String, usize>,
+    /// Grid track id (`s:l`) from any `gridColumns` map -> 0-based column index, or `None` when two
+    /// maps place the id differently. Instance overrides name a cell by the track id of the
+    /// component's grid, so they resolve against this while the maps are still intact.
+    grid_column_index: HashMap<String, Option<usize>>,
     /// Same for `gridRows`.
-    grid_row_index: HashMap<String, usize>,
+    grid_row_index: HashMap<String, Option<usize>>,
 }
 
 impl<'a> Lk<'a> {
@@ -311,9 +311,15 @@ impl<'a> Lk<'a> {
             } else if fstr(j, "styleType").is_some() {
                 lk.deleted_styles.insert(e.id.clone());
             }
-            for (key, index) in [("gridColumns", &mut lk.grid_column_index), ("gridRows", &mut lk.grid_row_index)] {
-                for (i, id) in grid_position_guids(j, key).into_iter().enumerate() {
-                    index.entry(id).or_insert(i);
+            // An instance restates tracks for its own overrides only (see `override_entries`).
+            if fstr(j, "type") != Some("INSTANCE") {
+                for (field, index) in [("gridColumns", &mut lk.grid_column_index), ("gridRows", &mut lk.grid_row_index)] {
+                    for (i, id) in grid_position_guids(j, field).into_iter().enumerate() {
+                        let seen = index.entry(id).or_insert(Some(i));
+                        if *seen != Some(i) {
+                            *seen = None;
+                        }
+                    }
                 }
             }
             for h in j.get("handoffStatusMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]) {
@@ -1424,11 +1430,11 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             if let Some(s) = sd.and_then(|s| s.get("uniformScaleFactor")) {
                 m.insert("_uniformScale".into(), s.clone());
             }
-            let ov = override_entries(sd.and_then(|s| s.get("symbolOverrides")), lk, false);
+            let ov = override_entries(nc, sd.and_then(|s| s.get("symbolOverrides")), lk, false);
             if !ov.is_empty() {
                 m.insert("_overrides".into(), Value::Array(ov));
             }
-            let derived = override_entries(nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
+            let derived = override_entries(nc, nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData"))), lk, true);
             if !derived.is_empty() {
                 m.insert("_derived".into(), Value::Array(derived));
             }
@@ -2109,29 +2115,32 @@ fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
 /// Track ids of the grid maps an override entry restates, by the entry's path: (columns, rows).
 type RestatedTracks = HashMap<Vec<String>, (Vec<String>, Vec<String>)>;
 
-/// Turns a cell anchor that an override names by track id into the 0-based track index. The
-/// override entry of the parent grid (`restated`) wins over the file-wide map, since an instance
-/// that restates the tracks can shift them; an anchor that matches no track is left as it is.
-fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restated: Option<&[String]>, file_wide: &HashMap<String, usize>) {
+/// Turns a cell anchor that an override names by track id into the 0-based track index. The tracks
+/// the instance restates for the parent grid (`restated`) win over the file-wide map, since an
+/// instance that restates the tracks can shift them. An anchor that matches no track, or an id that
+/// two grids place differently, is left as it is: a wrong cell is worse than the component's cell.
+fn resolve_override_grid_anchor(set: &mut Map<String, Value>, key: &str, restated: Option<&[String]>, file_wide: &HashMap<String, Option<usize>>) {
     let Some(id) = set.get(key).and_then(guid_str) else { return };
-    let index = restated.and_then(|ids| ids.iter().position(|t| *t == id)).or_else(|| file_wide.get(&id).copied());
+    let index = restated.and_then(|ids| ids.iter().position(|t| *t == id)).or_else(|| file_wide.get(&id).copied().flatten());
     if let Some(i) = index {
         set.insert(key.into(), json!(i));
     }
 }
 
-fn override_entries(list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
+/// Override entries of `instance`. Cell anchors in them resolve against the grid they sit in: for a
+/// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
+/// an entry restates for the parent.
+fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
     let Some(a) = list.and_then(Value::as_array) else { return Vec::new() };
-    let restated: RestatedTracks = if derived {
-        RestatedTracks::new()
-    } else {
-        a.iter()
-            .filter_map(|o| {
-                let (cols, rows) = (grid_position_guids(o, "gridColumns"), grid_position_guids(o, "gridRows"));
-                (!cols.is_empty() || !rows.is_empty()).then(|| (guid_path(o), (cols, rows)))
-            })
-            .collect()
-    };
+    let mut restated = RestatedTracks::new();
+    if !derived {
+        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|o| (guid_path(o), o))) {
+            let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
+            if !cols.is_empty() || !rows.is_empty() {
+                restated.insert(path, (cols, rows));
+            }
+        }
+    }
     a.iter()
         .filter_map(|o| {
             let mut set = if derived { convert_derived_override(o, lk) } else { convert_override(o, lk) };
