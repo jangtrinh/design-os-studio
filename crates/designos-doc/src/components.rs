@@ -105,6 +105,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
         n.component.source = Some(src);
         n.component.overrides.clear();
         n.component.props.clear();
+        n.component.slot_configs.clear();
     }
     let idx = out.len();
     out.push(n);
@@ -749,6 +750,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     n.is_mask = r.is_mask;
     if !top {
         n.component.bindings = r.component.bindings.clone();
+        n.component.is_slot = r.component.is_slot;
     }
     match (&r.kind, &n.kind) {
         (NodeKind::Text(_), NodeKind::Text(_)) => {}
@@ -1005,7 +1007,7 @@ fn subtree_ids(d: &Document, root: NodeId) -> Vec<NodeId> {
     v
 }
 
-/// Renames a property definition everywhere it is referenced.
+/// Renames a property definition everywhere it is referenced: bindings, instance values and slot settings.
 pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> Command {
     if old == new || new.is_empty() {
         return nothing();
@@ -1019,6 +1021,9 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
         if p.name == old {
             p.name = new.to_string();
         }
+    }
+    if let Some(cfg) = o.component.slot_configs.remove(old) {
+        o.component.slot_configs.insert(new.to_string(), cfg);
     }
     c.update(o);
     for id in subtree_ids(c.s, owner) {
@@ -1041,11 +1046,12 @@ pub fn rename_prop(doc: &mut Document, owner: NodeId, old: &str, new: &str) -> C
     c.finish()
 }
 
-/// Deletes a property definition, its bindings and instance values.
+/// Deletes a property definition, its bindings, instance values and slot settings.
 pub fn delete_prop(doc: &mut Document, owner: NodeId, name: &str) -> Command {
     let mut c = Ctx::new(doc);
     let Some(mut o) = c.s.get(owner).cloned() else { return nothing() };
     o.component.props.retain(|p| p.name != name);
+    o.component.slot_configs.remove(name);
     c.update(o);
     for id in subtree_ids(c.s, owner) {
         let Some(mut n) = c.s.get(id).cloned() else { continue };

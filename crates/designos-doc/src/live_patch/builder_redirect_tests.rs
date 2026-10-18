@@ -135,3 +135,35 @@ fn a_comment_on_a_replaced_layer_is_anchored_on_its_replacement() {
     assert_eq!(doc.comments.len(), 1);
     assert_eq!(doc.comments[0].anchor.node, Some(fresh));
 }
+
+#[test]
+fn reparenting_a_replaced_layer_or_inserting_into_a_replaced_parent_is_refused_and_reported() {
+    let mut doc = Document::new("builder");
+    let page = doc.add_page("Page");
+    let old_frame = doc.alloc_id();
+    doc.insert(page, Node::frame(old_frame, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+    let fresh_frame = doc.alloc_id();
+    doc.insert(page, Node::frame(fresh_frame, Rect::new(30.0, 40.0, 60.0, 60.0))).unwrap();
+    let container = doc.alloc_id();
+    doc.insert(page, Node::frame(container, Rect::new(200.0, 0.0, 100.0, 100.0))).unwrap();
+    doc.remove(old_frame).unwrap();
+    let mut state = LivePatchState::default();
+    state.record_replacement(old_frame, fresh_frame);
+
+    let re = apply(&mut doc, &mut state, LiveOp::Reparent { id: old_frame, parent: container, at: SiblingHint::default() });
+    assert_eq!(doc.get(fresh_frame).unwrap().parent, Some(page), "replaced layer must not be reparented into another coordinate frame");
+    assert_eq!(re.applied, 0);
+    assert_eq!(re.skipped.len(), 1, "{:?}", re.skipped);
+    assert!(re.skipped[0].contains(&format!("layer {}", old_frame.0)) && re.skipped[0].contains(REFUSAL), "{:?}", re.skipped);
+
+    let child_id = doc.alloc_id();
+    let ins = apply(
+        &mut doc,
+        &mut state,
+        LiveOp::Insert { parent: old_frame, at: SiblingHint::default(), nodes: vec![Node::rectangle(child_id, Rect::new(5.0, 5.0, 10.0, 10.0))] },
+    );
+    assert!(doc.get(fresh_frame).unwrap().children.is_empty(), "insert into replaced parent must be refused");
+    assert_eq!(ins.applied, 0);
+    assert_eq!(ins.skipped.len(), 1, "{:?}", ins.skipped);
+    assert!(ins.skipped[0].contains(&format!("layer {}", old_frame.0)) && ins.skipped[0].contains(REFUSAL), "{:?}", ins.skipped);
+}
