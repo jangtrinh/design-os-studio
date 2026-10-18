@@ -244,3 +244,19 @@ fn radial_gradient_non_square_matches_cpu() {
         assert!(p.blue() > 245 && p.red() < 10, "edge ({x}, {y}): {p:?}");
     }
 }
+
+#[test]
+fn soft_line_break_u2028_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let mut st = TextStyle { font_size: 20.0, line_height: LineHeight::Pixels(24.0), paragraph_spacing: 40.0, ..Default::default() };
+    st.fills = vec![Paint::solid(Color::BLACK)];
+    t.add(None, |id| Node::text(id, Rect::new(10.0, 10.0, 300.0, 120.0), "Still thinking\u{2028}about it?", st));
+
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "soft_line_break_u2028", &t.doc, t.page, vp, (320, 140), 8);
+    assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
+    // Second line should have ink in y=34..58 (line 2 at top=34..58), not y=74..98 (which would include 40px paragraph spacing)
+    let has_ink_line2 = (10..150).any(|x| (34..58).any(|y| c.gpu.pixel(x, y).unwrap().red() < 200));
+    assert!(has_ink_line2, "expected ink on second line after U+2028 without paragraph spacing");
+}

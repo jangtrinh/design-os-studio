@@ -688,4 +688,23 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert!((r[0].0 - alef.x).abs() < 0.01 && (r[0].2 - alef.w).abs() < 0.01);
     }
+
+    #[test]
+    fn caret_stays_on_text_line_before_a_trailing_soft_break() {
+        const LS: usize = '\u{2028}'.len_utf8();
+        for content in ["Hello\u{2028}", "Hello\u{2028}\u{2028}World"] {
+            let p = props(content, 16.0);
+            let g = geometry(&p, Z);
+            for at in 0..=5 {
+                assert_eq!(line_of(&g, at), 0, "{content:?}: offset {at} is on the Hello line");
+            }
+            assert_eq!(line_of(&g, 5 + LS), 1, "{content:?}: after the separator is the next line");
+            let top = |at: usize| caret_rect(&p, Z, at).1;
+            assert!((top(5) - top(0)).abs() < 0.01, "{content:?}: caret at end of Hello is on the first line");
+            assert!(top(5 + LS) > top(5), "{content:?}: caret after the separator drops a line");
+            // clicking the first line lands inside Hello, not at the paragraph start
+            let (hit, _) = hit_in(&g, content, 1000.0, g.lines[0].top + 1.0);
+            assert_eq!(hit, 5, "{content:?}: click right of Hello puts the caret after Hello");
+        }
+    }
 }

@@ -227,7 +227,33 @@ struct RawLine {
     cut: usize,
 }
 
-fn shape_block(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, segs: &[Segment], width: Option<f32>, wrap: Wrap) -> Vec<RawLine> {
+fn split_soft_breaks(segs: &[Segment]) -> Vec<(Vec<Segment>, usize)> {
+    let mut out: Vec<(Vec<Segment>, usize)> = Vec::new();
+    let mut cur: Vec<Segment> = Vec::new();
+    let mut cur_start = 0usize;
+    let mut pos = 0usize;
+    for s in segs {
+        let mut rem = s.text.as_str();
+        while let Some(idx) = rem.find('\u{2028}') {
+            let before = &rem[..idx];
+            if !before.is_empty() {
+                cur.push(Segment { text: before.to_string(), style: s.style, small: s.small });
+            }
+            pos += idx + '\u{2028}'.len_utf8();
+            out.push((std::mem::take(&mut cur), cur_start));
+            cur_start = pos;
+            rem = &rem[idx + '\u{2028}'.len_utf8()..];
+        }
+        if !rem.is_empty() {
+            cur.push(Segment { text: rem.to_string(), style: s.style, small: s.small });
+            pos += rem.len();
+        }
+    }
+    out.push((cur, cur_start));
+    out
+}
+
+fn shape_single_block(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, segs: &[Segment], width: Option<f32>, wrap: Wrap) -> Vec<RawLine> {
     let buffer = shaper.buffer(&mut fonts.fs, props, width, wrap, segs);
     let nstyles = shaper.styles.len();
     let mut out = Vec::new();
@@ -278,6 +304,48 @@ fn shape_block(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, segs: &[Se
     if out.is_empty() {
         let lh = shaper.line_height_for(0, props.style.font_size.max(0.1));
         out.push(RawLine { top: 0.0, height: lh, baseline: lh * 0.8, width: 0.0, rtl: false, glyphs: vec![], decos: vec![], cut: 0 });
+    }
+    out
+}
+
+fn shape_block(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, segs: &[Segment], width: Option<f32>, wrap: Wrap) -> Vec<RawLine> {
+    if !segs.iter().any(|s| s.text.contains('\u{2028}')) {
+        return shape_single_block(fonts, shaper, props, segs, width, wrap);
+    }
+    let mark = match props.direction {
+        TextDirection::Auto => None,
+        TextDirection::Ltr => Some('\u{200E}'),
+        TextDirection::Rtl => Some('\u{200F}'),
+    };
+    let mut out = Vec::new();
+    let mut y_off = 0.0f32;
+    for (piece_idx, (mut piece_segs, piece_off)) in split_soft_breaks(segs).into_iter().enumerate() {
+        let mut extra_mark = 0usize;
+        if piece_idx > 0 {
+            if let (Some(m), Some(first)) = (mark, piece_segs.first_mut()) {
+                first.text.insert(0, m);
+                extra_mark = m.len_utf8();
+            }
+        }
+        for mut rl in shape_single_block(fonts, shaper, props, &piece_segs, width, wrap) {
+            rl.top += y_off;
+            rl.baseline += y_off;
+            if extra_mark > 0 {
+                rl.glyphs.retain(|g| g.end > extra_mark);
+                for g in &mut rl.glyphs {
+                    g.start = g.start.saturating_sub(extra_mark);
+                    g.end = g.end.saturating_sub(extra_mark);
+                }
+                rl.cut = rl.cut.saturating_sub(extra_mark);
+            }
+            for g in &mut rl.glyphs {
+                g.start += piece_off;
+                g.end += piece_off;
+            }
+            rl.cut += piece_off;
+            out.push(rl);
+        }
+        y_off = out.last().map(|l| l.top + l.height).unwrap_or(y_off);
     }
     out
 }
@@ -389,16 +457,28 @@ fn flow_pass(fonts: &mut Fonts, shaper: &Shaper, props: &TextProps, paras: &[Par
         if fi > 0.0 && first.len() > 1 && avail.is_some() && wrap != Wrap::None {
             let cut = first[0].cut.min(para.text.len());
             let (_, mut rest) = split_segments(&para.segs, cut);
-            // the break swallowed the space at the wrap
+            // the break swallowed a soft break or the space at the wrap
             let mut skipped = 0;
-            while let Some(s) = rest.first_mut() {
-                let trimmed = s.text.trim_start_matches(' ').len();
-                skipped += s.text.len() - trimmed;
-                if trimmed == 0 {
-                    rest.remove(0);
-                } else {
-                    s.text = s.text[s.text.len() - trimmed..].to_string();
-                    break;
+            if let Some(s) = rest.first_mut() {
+                if let Some(after) = s.text.strip_prefix('\u{2028}') {
+                    skipped += '\u{2028}'.len_utf8();
+                    if after.is_empty() {
+                        rest.remove(0);
+                    } else {
+                        s.text = after.to_string();
+                    }
+                }
+            }
+            if skipped == 0 {
+                while let Some(s) = rest.first_mut() {
+                    let trimmed = s.text.trim_start_matches(' ').len();
+                    skipped += s.text.len() - trimmed;
+                    if trimmed == 0 {
+                        rest.remove(0);
+                    } else {
+                        s.text = s.text[s.text.len() - trimmed..].to_string();
+                        break;
+                    }
                 }
             }
             let rest_lines = shape_block(fonts, shaper, props, &rest, avail, wrap);

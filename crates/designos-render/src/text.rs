@@ -737,7 +737,11 @@ fn compute_geometry(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGeo
         glyphs.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
         let (start, end) = match (glyphs.iter().map(|g| g.start).min(), glyphs.iter().map(|g| g.end).max()) {
             (Some(a), Some(b)) => (a, b),
-            _ => (para.start, para.start),
+            // a line without glyphs (empty paragraph, blank line after a soft break) sits where its text would start
+            _ => {
+                let a = at(pl.cut).max(para.start);
+                (a, a)
+            }
         };
         lines.push(LineGeom {
             para: pl.para,
@@ -860,5 +864,37 @@ mod tests {
         let a = ink(&layout(&props("short", TextAutoResize::Truncate, Some(3)), size));
         let b = ink(&layout(&props("short", TextAutoResize::Height, None), size));
         assert_eq!(a.points(), b.points(), "no ellipsis when everything fits");
+    }
+
+    #[test]
+    fn soft_line_break_u2028_breaks_line_without_paragraph_spacing() {
+        let mut p = props("Still thinking\u{2028}about it?", TextAutoResize::WidthAndHeight, None);
+        p.style.paragraph_spacing = 30.0;
+        let g = text_geometry(&p, Vec2::ZERO);
+        assert_eq!(g.lines.len(), 2, "U+2028 must break into two lines");
+        assert_eq!(g.lines[0].para, 0);
+        assert_eq!(g.lines[1].para, 0);
+        assert_eq!(&p.content[g.lines[0].start..g.lines[0].end], "Still thinking");
+        assert_eq!(&p.content[g.lines[1].start..g.lines[1].end], "about it?");
+        assert!((g.lines[1].top - g.lines[0].top - 20.0).abs() < 0.5, "no paragraph spacing added at U+2028: {}", g.lines[1].top - g.lines[0].top);
+        let bounds = ink(&layout(&p, Vec2::ZERO)).bounds();
+        assert!(bounds.bottom() > 25.0 && bounds.bottom() <= 40.5, "two 20px lines without 30px paragraph gap: {:?}", bounds);
+    }
+
+    #[test]
+    fn empty_soft_break_lines_start_after_their_separator() {
+        const LS: usize = '\u{2028}'.len_utf8();
+        // trailing soft break, and a blank line between two breaks
+        for (content, starts) in [("Hello\u{2028}", vec![0, 5 + LS]), ("Hello\u{2028}\u{2028}World", vec![0, 5 + LS, 5 + 2 * LS])] {
+            let p = props(content, TextAutoResize::WidthAndHeight, None);
+            let g = text_geometry(&p, Vec2::ZERO);
+            assert_eq!(g.lines.len(), starts.len(), "{content:?}: one visual line per piece");
+            let got: Vec<usize> = g.lines.iter().map(|l| l.start).collect();
+            assert_eq!(got, starts, "{content:?}: line starts follow the separators");
+            assert_eq!((g.lines[0].start, g.lines[0].end), (0, 5), "{content:?}: first line owns Hello");
+            let blank = &g.lines[1];
+            assert!(blank.glyphs.is_empty() && blank.start == blank.end, "{content:?}: blank line has no extent");
+            assert!(g.lines.windows(2).all(|w| w[0].start < w[1].start), "{content:?}: starts strictly increase");
+        }
     }
 }
