@@ -161,7 +161,7 @@ fn uniform_scale_scales_the_copied_children_margins_with_their_padding() {
     assert_eq!(master_child.layout_child.margin, [10.0, 0.0, 0.0, 0.0]);
 
     let scaled = child_named(&doc, find(&doc, "Doubled"), "Padded");
-    let al = scaled.kind.frame_props().and_then(|f| f.auto_layout).expect("scaled child keeps its auto layout");
+    let al = scaled.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).expect("scaled child keeps its auto layout");
     assert_eq!(al.padding[0], 20.0, "padding scales");
     assert_eq!(scaled.layout_child.margin, [20.0, 0.0, 0.0, 0.0], "the margin scales with the padding");
 

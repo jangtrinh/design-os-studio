@@ -37,7 +37,7 @@ fn assert_close(actual: &[f32], expected: &[f32]) {
 fn a_grid_that_hugs_its_width_reads_primary_as_horizontal_and_survives_relayout() {
     let mut doc = import_rest_json(&file(vec![grid("AUTO", "FIXED")])).unwrap();
     let id = find(&doc, "Grid").id;
-    let al = find(&doc, "Grid").kind.frame_props().unwrap().auto_layout.unwrap();
+    let al = find(&doc, "Grid").kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!((al.primary_sizing, al.counter_sizing), (Sizing::Hug, Sizing::Fixed));
     let lc = find(&doc, "Grid").layout_child;
     assert_eq!((lc.horizontal, lc.vertical), (Sizing::Hug, Sizing::Fixed), "primary on a grid is the width");

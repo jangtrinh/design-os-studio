@@ -60,7 +60,7 @@ fn frame_properties() {
 
     let f = card.kind.frame_props().unwrap();
     assert!(f.clips_content);
-    let al = f.auto_layout.unwrap();
+    let al = f.auto_layout.as_ref().unwrap();
     assert_eq!(al.direction, LayoutDirection::Vertical);
     assert_eq!(al.primary_align, LayoutAlign::SpaceBetween);
     assert_eq!(al.counter_align, LayoutAlign::Center);
@@ -202,7 +202,7 @@ fn components_instances_and_auto_layout_children() {
     let label = find(&doc, "Label");
     assert_eq!(label.layout_child.grow, 1.0);
     assert_eq!(label.layout_child.horizontal, Sizing::Fill);
-    let al = comp.kind.frame_props().unwrap().auto_layout.unwrap();
+    let al = comp.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
     assert_eq!((al.primary_sizing, al.counter_sizing), (Sizing::Hug, Sizing::Hug));
 }
 

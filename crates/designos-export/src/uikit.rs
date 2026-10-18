@@ -126,14 +126,14 @@ impl Cx<'_> {
         id
     }
 
-    fn emit(&mut self, id: NodeId, parent: Parent, host: Option<Host>) {
+    fn emit(&mut self, id: NodeId, parent: Parent<'_>, host: Option<Host>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
         if !n.visible {
             return;
         }
         let sz = sizes(n, parent);
-        let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+        let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
         let kids = visible_children(doc, n);
         let v = self.ident(&n.name);
         let mut spacers = (false, false, false);

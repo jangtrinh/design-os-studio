@@ -2201,6 +2201,7 @@ impl App {
 
     /// Exports the selected frame (or first screen on the active page) to `examples/specs/<slug>.spec.json`.
     pub fn export_active_frame_to_spec(&mut self) {
+        self.settle_pending_relayout();
         let target_id = self.selection.first().copied().or_else(|| self.doc.get(self.page).and_then(|p| p.children.first().copied())).unwrap_or(self.page);
         let node_name = self.doc.get(target_id).map(|n| n.name.clone()).unwrap_or_else(|| "screen".to_string());
         let slug: String = node_name
@@ -2239,6 +2240,7 @@ impl App {
             .as_ref()
             .and_then(|p| p.parent().map(|d| d.join(format!("{stem}.fig"))))
             .unwrap_or_else(|| std::env::temp_dir().join(format!("{stem}.fig")));
+        self.settle_pending_relayout();
         match crate::io::save_path(&self.doc, &default_path) {
             Ok(saved) => self.show_toast(format!("Saved .fig binary to {}", saved.display()), false),
             Err(e) => self.show_toast(e, true),

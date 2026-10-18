@@ -18,7 +18,7 @@ pub struct BoxModel {
 
 pub fn box_model(doc: &Document, id: NodeId) -> Option<BoxModel> {
     let n = doc.get(id)?;
-    let padding = n.kind.frame_props().and_then(|f| f.auto_layout).map(|a| a.padding).unwrap_or([0.0; 4]);
+    let padding = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.padding).unwrap_or([0.0; 4]);
     let mut margin = [0.0f32; 4];
     if let Some(parent) = n.parent.and_then(|p| doc.get(p)).filter(|p| !matches!(p.kind, NodeKind::Page { .. })) {
         let rect = |m: &Node| (m.transform.tx, m.transform.ty, m.transform.tx + m.size.x, m.transform.ty + m.size.y);
@@ -214,7 +214,7 @@ pub fn applicable_properties(n: &Node) -> Vec<&'static str> {
 pub fn property_value(doc: &Document, n: &Node, label: &str) -> Option<String> {
     let px = |v: f32| format!("{}px", fmt_num(v));
     let lc = &n.layout_child;
-    let al = n.kind.frame_props().and_then(|f| f.auto_layout);
+    let al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
     let ts = match &n.kind {
         NodeKind::Text(t) => Some(&t.style),
         _ => None,

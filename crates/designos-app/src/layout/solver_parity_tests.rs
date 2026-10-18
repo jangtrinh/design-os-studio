@@ -206,9 +206,9 @@ fn solve_everywhere_with_frame_limits(al: AutoLayout, frame: Vec2, frame_lc: Lay
 }
 
 fn solve_everywhere_resizing(al: AutoLayout, frame: Vec2, frame_lc: LayoutChild, kids: &[Kid], resize: Option<(usize, (f32, f32))>) -> Solved {
-    let editor = solve_through_resizing(Entry::Editor, al, frame, frame_lc, kids, resize);
+    let editor = solve_through_resizing(Entry::Editor, al.clone(), frame, frame_lc, kids, resize);
     for entry in ENTRIES {
-        assert_eq!(solve_through_resizing(entry, al, frame, frame_lc, kids, resize), editor, "{entry:?} drifted from the editor solver");
+        assert_eq!(solve_through_resizing(entry, al.clone(), frame, frame_lc, kids, resize), editor, "{entry:?} drifted from the editor solver");
     }
     editor
 }
@@ -451,7 +451,7 @@ fn grid_row_span_does_not_inflate_rows_that_already_hold_it() {
     al.counter_sizing = Sizing::Hug;
     // Row 0 is 40 high, row 1 is 15 high; with the 10 gap they already provide 65 >= 50.
     let spanning_fits = kid_with(40.0, 50.0, |lc| lc.row_span = 2);
-    let solved = solve_everywhere(al, v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
+    let solved = solve_everywhere(al.clone(), v2(300.0, 300.0), &[spanning_fits, kid(40.0, 40.0), kid(40.0, 15.0)]);
     assert_eq!(solved.frame, (300.0, 65.0));
     assert_eq!(solved.kids[2], [155.0, 50.0, 40.0, 15.0]);
 
@@ -795,7 +795,7 @@ fn a_flow_line_shrinks_back_around_a_cross_fill_child_with_margins() {
             let frame = frame_for(direction, 200.0, 1.0);
             let kids = [kid(a.0, a.1), fill];
 
-            let first = solve_everywhere(al, frame, &kids);
+            let first = solve_everywhere(al.clone(), frame, &kids);
             assert_eq!(first.frame, if row { (200.0, 100.0) } else { (100.0, 200.0) }, "{direction:?} wrap {wrap}");
 
             let solved = solve_everywhere_resizing(al, frame, LayoutChild::default(), &kids, Some((0, size(30.0, 40.0))));
@@ -883,7 +883,7 @@ fn a_grid_auto_row_shrinks_back_around_a_cross_fill_child_with_margins() {
     });
     let kids = [kid(30.0, 100.0), fill];
 
-    let first = solve_everywhere(al, v2(200.0, 1.0), &kids);
+    let first = solve_everywhere(al.clone(), v2(200.0, 1.0), &kids);
     assert_eq!((first.frame, first.kids[1]), ((200.0, 100.0), [100.0, 30.0, 20.0, 40.0]));
 
     // A shrinks to 40: the row follows down to what B's margins need
@@ -902,12 +902,90 @@ fn a_grid_hug_column_shrinks_back_around_a_main_fill_child_with_margins() {
     });
     let kids = [kid(100.0, 30.0), fill];
 
-    let first = solve_everywhere(al, v2(1.0, 200.0), &kids);
+    let first = solve_everywhere(al.clone(), v2(1.0, 200.0), &kids);
     assert_eq!((first.frame, first.kids[1]), ((100.0, 200.0), [30.0, 30.0, 40.0, 20.0]));
 
     // A shrinks to 40 wide: the column follows down to what B's margins need
     let solved = solve_everywhere_resizing(al, v2(1.0, 200.0), LayoutChild::default(), &kids, Some((0, (40.0, 30.0))));
     assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((60.0, 200.0), [0.0, 0.0, 40.0, 30.0], [30.0, 30.0, 0.0, 20.0]));
+}
+
+#[test]
+fn twelve_column_grid_lays_out_correctly_and_old_eight_track_json_loads() {
+    let mut al = grid(12);
+    al.item_spacing = 10.0;
+    // Set explicit track kinds across all 12 columns (including tracks 8..12):
+    // 0..8: Fixed(50) each (8 * 50 = 400)
+    // 8: Fixed(80)
+    // 9: Hug (child width 60)
+    // 10: Flex(1.0)
+    // 11: Flex(2.0)
+    for c in 0..8 {
+        if let Some(t) = al.grid_col_tracks.get_mut(c) {
+            *t = GridTrack::Fixed(50.0);
+        }
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(8) {
+        *t = GridTrack::Fixed(80.0);
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(9) {
+        *t = GridTrack::Hug;
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(10) {
+        *t = GridTrack::Flex(1.0);
+    }
+    if let Some(t) = al.grid_col_tracks.get_mut(11) {
+        *t = GridTrack::Flex(2.0);
+    }
+
+    // Frame width = 950:
+    // 11 gaps * 10 = 110 -> inner_w = 840
+    // Fixed + Hug used = 400 + 80 + 60 = 540 -> rem_w = 300
+    // col 10 (1fr) = 100, col 11 (2fr) = 200
+    let mut kids = Vec::new();
+    for c in 0..12 {
+        let w = if c == 9 { 60.0 } else { 30.0 };
+        let h_sizing = if c >= 10 { Sizing::Fill } else { Sizing::Fixed };
+        kids.push(kid_with(w, 20.0, |lc| lc.horizontal = h_sizing));
+    }
+    let solved = solve_everywhere(al, v2(950.0, 100.0), &kids);
+    assert_eq!(solved.kids[8], [480.0, 0.0, 30.0, 20.0]);
+    assert_eq!(solved.kids[9], [570.0, 0.0, 60.0, 20.0]);
+    assert_eq!(solved.kids[10], [640.0, 0.0, 100.0, 20.0]);
+    assert_eq!(solved.kids[11], [750.0, 0.0, 200.0, 20.0]);
+
+    // Backward-compatible serde: an old file with an 8-element array loads unchanged.
+    let legacy_json = r#"{
+        "direction": "Grid",
+        "wrap": false,
+        "item_spacing": 8.0,
+        "counter_spacing": 8.0,
+        "padding": [0.0, 0.0, 0.0, 0.0],
+        "primary_align": "Start",
+        "counter_align": "Start",
+        "primary_sizing": "Fixed",
+        "counter_sizing": "Fixed",
+        "stroke_included": false,
+        "reverse_z": false,
+        "grid_columns": 8,
+        "grid_rows": 2,
+        "grid_col_tracks": [
+            {"Fixed": 100.0},
+            {"Flex": 1.0},
+            "Hug",
+            {"Flex": 2.0},
+            {"Fixed": 80.0},
+            {"Flex": 1.0},
+            {"Flex": 1.0},
+            "Hug"
+        ]
+    }"#;
+    let loaded: AutoLayout = serde_json::from_str(legacy_json).expect("legacy 8-track JSON loads");
+    assert_eq!(loaded.grid_columns, 8);
+    assert_eq!(loaded.grid_col_tracks.first(), Some(&GridTrack::Fixed(100.0)));
+    assert_eq!(loaded.grid_col_tracks.get(2), Some(&GridTrack::Hug));
+    assert_eq!(loaded.grid_col_tracks.get(7), Some(&GridTrack::Hug));
+    assert_eq!(loaded.grid_col_tracks.get(8), Some(&GridTrack::Flex(1.0)));
 }
 
 #[test]
@@ -1207,7 +1285,7 @@ fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_do
         let page = d.add_page("p");
         let fid = d.alloc_id();
         let mut f = Node::frame(fid, Rect::new(0.0, 0.0, frame.x, frame.y));
-        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al.clone()), ..Default::default() });
         f.stroke = stroke.clone();
         let f = d.insert(page, f).unwrap();
         let mut ids: Vec<NodeId> = vec![];
@@ -1257,7 +1335,7 @@ fn version_0_with_stroke_included_adds_stroke_inset_while_version_1_keeps_border
     let kids = [kid(50.0, 20.0), kid(30.0, 20.0)];
 
     // Version 0 + stroke_included: 4px inside stroke adds to all 4 padding sides -> [14, 16, 18, 20]
-    let v0 = solve_everywhere_with_stroke(base, v2(100.0, 100.0), stroke.clone(), &kids);
+    let v0 = solve_everywhere_with_stroke(base.clone(), v2(100.0, 100.0), stroke.clone(), &kids);
     assert_eq!(v0.frame, (124.0, 52.0));
     assert_eq!(v0.kids[0], [20.0, 14.0, 50.0, 20.0]);
     assert_eq!(v0.kids[1], [78.0, 14.0, 30.0, 20.0]);

@@ -57,8 +57,8 @@ fn is_zero_u32(v: &u32) -> bool {
 fn is_zero_or_one_u16(v: &u16) -> bool {
     *v <= 1
 }
-fn is_default_grid_tracks(t: &[GridTrack; 8]) -> bool {
-    *t == [GridTrack::default(); 8]
+fn is_default_grid_tracks(t: &GridTracks) -> bool {
+    t.is_default()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -669,6 +669,9 @@ pub enum LayoutDirection {
     Grid,
 }
 
+/// Most columns and spanned rows one grid auto layout solves; also the minimum length of a [`GridTracks`] list.
+pub const MAX_GRID_TRACKS: usize = 64;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GridTrack {
     Flex(f32),
@@ -679,6 +682,124 @@ pub enum GridTrack {
 impl Default for GridTrack {
     fn default() -> Self {
         GridTrack::Flex(1.0)
+    }
+}
+
+/// Growable list of CSS Grid column or row tracks (at least [`MAX_GRID_TRACKS`] = 64 tracks
+/// available by default, and growable beyond that) with backward-compatible array serde.
+#[derive(Clone, Debug)]
+pub struct GridTracks(pub Vec<GridTrack>);
+
+impl GridTracks {
+    pub fn is_default(&self) -> bool {
+        let def = GridTrack::default();
+        self.0.iter().all(|&t| t == def)
+    }
+
+    pub fn as_slice(&self) -> &[GridTrack] {
+        &self.0
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [GridTrack] {
+        &mut self.0
+    }
+
+    pub fn push(&mut self, track: GridTrack) {
+        self.0.push(track);
+    }
+
+    pub fn resize_with_default(&mut self, new_len: usize) {
+        if self.0.len() < new_len {
+            self.0.resize(new_len, GridTrack::default());
+        }
+    }
+}
+
+impl PartialEq for GridTracks {
+    fn eq(&self, other: &Self) -> bool {
+        let max_len = self.0.len().max(other.0.len());
+        let def = GridTrack::default();
+        (0..max_len).all(|i| self.0.get(i).copied().unwrap_or(def) == other.0.get(i).copied().unwrap_or(def))
+    }
+}
+
+impl Default for GridTracks {
+    fn default() -> Self {
+        Self(vec![GridTrack::default(); MAX_GRID_TRACKS])
+    }
+}
+
+impl std::ops::Deref for GridTracks {
+    type Target = [GridTrack];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for GridTracks {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const N: usize> From<[GridTrack; N]> for GridTracks {
+    fn from(arr: [GridTrack; N]) -> Self {
+        Self::from(arr.as_slice())
+    }
+}
+
+impl From<&[GridTrack]> for GridTracks {
+    fn from(slice: &[GridTrack]) -> Self {
+        let len = slice.len().max(MAX_GRID_TRACKS);
+        let mut vec = vec![GridTrack::default(); len];
+        vec[..slice.len()].copy_from_slice(slice);
+        Self(vec)
+    }
+}
+
+impl From<Vec<GridTrack>> for GridTracks {
+    fn from(mut vec: Vec<GridTrack>) -> Self {
+        if vec.len() < MAX_GRID_TRACKS {
+            vec.resize(MAX_GRID_TRACKS, GridTrack::default());
+        }
+        Self(vec)
+    }
+}
+
+impl<const N: usize> PartialEq<[GridTrack; N]> for GridTracks {
+    fn eq(&self, other: &[GridTrack; N]) -> bool {
+        let def = GridTrack::default();
+        other.iter().enumerate().all(|(i, &t)| self.0.get(i).copied().unwrap_or(def) == t)
+    }
+}
+
+impl PartialEq<[GridTrack]> for GridTracks {
+    fn eq(&self, other: &[GridTrack]) -> bool {
+        let def = GridTrack::default();
+        other.iter().enumerate().all(|(i, &t)| self.0.get(i).copied().unwrap_or(def) == t)
+    }
+}
+
+impl PartialEq<&[GridTrack]> for GridTracks {
+    fn eq(&self, other: &&[GridTrack]) -> bool {
+        self == *other
+    }
+}
+
+impl Serialize for GridTracks {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let def = GridTrack::default();
+        let last_non_default = self.0.iter().rposition(|&t| t != def).map(|i| i + 1).unwrap_or(0);
+        let len = last_non_default.max(8).min(self.0.len());
+        self.0[..len].serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for GridTracks {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec = Vec::<GridTrack>::deserialize(deserializer)?;
+        Ok(Self::from(vec))
     }
 }
 
@@ -718,7 +839,7 @@ pub enum Sizing {
     Fill,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AutoLayout {
     pub direction: LayoutDirection,
     pub wrap: bool,
@@ -743,9 +864,9 @@ pub struct AutoLayout {
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub grid_rows: u32,
     #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
-    pub grid_col_tracks: [GridTrack; 8],
+    pub grid_col_tracks: GridTracks,
     #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
-    pub grid_row_tracks: [GridTrack; 8],
+    pub grid_row_tracks: GridTracks,
 }
 
 impl AutoLayout {
@@ -770,7 +891,7 @@ impl AutoLayout {
 
     /// Returns a copy of `self` with `padding` replaced by [`Self::effective_padding`].
     pub fn with_stroke(&self, stroke: &Stroke) -> Self {
-        Self { padding: self.effective_padding(stroke), ..*self }
+        Self { padding: self.effective_padding(stroke), ..self.clone() }
     }
 
     /// Whether the primary axis (and `primary_sizing`) runs along the width. Figma's convention: a
