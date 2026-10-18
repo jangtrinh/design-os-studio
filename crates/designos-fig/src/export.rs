@@ -138,21 +138,17 @@ fn grid(g: &LayoutGrid) -> Value {
                 LayoutGridAlign::Max => "MAX",
             };
             let cnt: i64 = if *count == 0 { -1 } else { i64::from(*count) };
-            let mut m = json!({
+            json!({
                 "pattern": pat,
                 "count": cnt,
                 "gutterSize": n(*gutter),
                 "offset": n(*offset),
                 "visible": *visible,
                 "color": col(*color),
-                "alignment": align
-            });
-            if *section_size > 0.0 {
-                if let Some(obj) = m.as_object_mut() {
-                    obj.insert("sectionSize".into(), n(*section_size));
-                }
-            }
-            m
+                "alignment": align,
+                // 0 is a real mode (equal-width stripes), so it is written like any other width
+                "sectionSize": n(*section_size)
+            })
         }
     }
 }

@@ -215,8 +215,9 @@ fn parse_grid(v: &Value) -> Option<LayoutGrid> {
         Some("MAX") | Some("RIGHT") | Some("BOTTOM") => LayoutGridAlign::Max,
         _ => LayoutGridAlign::Stretch,
     };
-    let default_sec = if alignment == LayoutGridAlign::Stretch && count > 0 { 0.0 } else { 60.0 };
-    let section_size = fnum(v, "sectionSize").unwrap_or(default_sec);
+    // a missing width is 0 (equal-width stripes), as the exporters write it; only the inspector
+    // gives a new non-stretch guide a starting width
+    let section_size = fnum(v, "sectionSize").unwrap_or(0.0);
     match fstr(v, "pattern")? {
         "GRID" => Some(LayoutGrid::Grid { size: fnum(v, "sectionSize").unwrap_or(10.0), color: col, visible }),
         "COLUMNS" => Some(LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color: col, visible }),

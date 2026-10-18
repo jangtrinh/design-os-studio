@@ -2394,3 +2394,42 @@ fn layout_guide_alignment_fixed_width_auto_count_and_visibility_roundtrip() {
     });
     assert!(has_grid_style, "grid style must round-trip alignment, section_size, auto count, and visible=false");
 }
+
+/// Equal-width columns: aligned but with no fixed width (paint width is (400 - 80) / 5).
+fn equal_width_columns_doc() -> (Document, LayoutGrid) {
+    use designos_doc::{Color, LayoutGridAlign, Node, NodeKind, Rect};
+    let equal = LayoutGrid::Columns {
+        count: 5,
+        gutter: 20.0,
+        offset: 0.0,
+        section_size: 0.0,
+        alignment: LayoutGridAlign::Min,
+        color: Color::rgba(255, 0, 0, 26),
+        visible: true,
+    };
+    let mut doc = Document::new("GuideZero");
+    let page = doc.add_page("Page 1");
+    let fid = doc.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0));
+    frame.name = "EqualColumns".into();
+    if let NodeKind::Frame(fp) = &mut frame.kind {
+        fp.grids = vec![equal.clone()];
+    }
+    doc.insert(page, frame).unwrap();
+    (doc, equal)
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_fig() {
+    let (doc, equal) = equal_width_columns_doc();
+    let back = import_fig(&export_fig(&doc).unwrap()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
+}
+
+#[test]
+fn layout_guide_with_no_fixed_width_keeps_section_size_zero_through_rest() {
+    let (doc, equal) = equal_width_columns_doc();
+    let json = designos_fig::export_rest_json(&doc);
+    let back = designos_fig::import_rest_json(&json.to_string()).unwrap();
+    assert_eq!(find(&back, "EqualColumns").kind.frame_props().unwrap().grids, vec![equal]);
+}

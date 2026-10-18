@@ -1822,7 +1822,7 @@ fn encode_grid(g: &LayoutGrid) -> V {
                 LayoutGridAlign::Max => "MAX",
             };
             let (cnt_u, num_sec) = if *count == 0 { (i32::MAX as u32, -1i32) } else { (*count, *count as i32) };
-            let mut fields = vec![
+            msg(vec![
                 ("pattern", en(pat)),
                 ("type", en(align)),
                 ("count", V::Uint(cnt_u)),
@@ -1831,11 +1831,9 @@ fn encode_grid(g: &LayoutGrid) -> V {
                 ("offset", fl(*offset)),
                 ("color", color(c.r, c.g, c.b, c.a)),
                 ("visible", V::Bool(*visible)),
-            ];
-            if *section_size > 0.0 {
-                fields.push(("sectionSize", fl(*section_size)));
-            }
-            msg(fields)
+                // 0 is a real mode (equal-width stripes), so it is written like any other width
+                ("sectionSize", fl(*section_size)),
+            ])
         }
     }
 }
