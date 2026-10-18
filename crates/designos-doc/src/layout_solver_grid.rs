@@ -476,9 +476,9 @@ mod tests {
                 assert_eq!(out.rects[0].h, 40.0, "top margin {top}, relayout {pass}: child");
             }
         }
-}
+    }
 
-#[test]
+    #[test]
     fn flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid() {
         let mut al = grid(1, Sizing::Fixed, Sizing::Fixed);
         al.grid_rows = 1;

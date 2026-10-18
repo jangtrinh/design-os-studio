@@ -2568,9 +2568,9 @@ mod tests {
         for key in ["margin-l", "margin-r", "margin-t", "margin-b"] {
             assert!(field_rect(&ctx, key).is_some(), "expected {key} field to render in properties panel");
         }
-}
+    }
 
-#[test]
+    #[test]
     fn sizing_of_reports_fill_for_a_stretch_plus_fixed_child_on_the_counter_axis() {
         let mut n = Node::rectangle(NodeId(99), designos_doc::Rect::new(0.0, 0.0, 30.0, 20.0));
         n.layout_child.align_self = AlignSelf::Stretch;
