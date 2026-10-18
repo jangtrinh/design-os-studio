@@ -2223,11 +2223,10 @@ fn instance_multi_paragraph_and_mixed_style_text_override_resolves_with_null_ove
     let overridden_text = format!("{para1}{para2_prefix}{para2_link}{para2_suffix}");
 
     // Build characterStyleIDs: para1 = 0, para2_prefix = 13 (semibold), para2_link = 12 (semibold + underline + purple), para2_suffix = 13 (semibold).
-    let mut char_ids: Vec<u64> = Vec::new();
-    char_ids.extend(std::iter::repeat(0).take(para1.encode_utf16().count()));
-    char_ids.extend(std::iter::repeat(13).take(para2_prefix.encode_utf16().count()));
-    char_ids.extend(std::iter::repeat(12).take(para2_link.encode_utf16().count()));
-    char_ids.extend(std::iter::repeat(13).take(para2_suffix.encode_utf16().count()));
+    let mut char_ids: Vec<u64> = vec![0; para1.encode_utf16().count()];
+    char_ids.extend(std::iter::repeat_n(13, para2_prefix.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat_n(12, para2_link.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat_n(13, para2_suffix.encode_utf16().count()));
 
     let mut raw_nodes = vec![
         node((0, 0), (0, 0), "", "DOCUMENT", "NoteDoc", json!({})),
