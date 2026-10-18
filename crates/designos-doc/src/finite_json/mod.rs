@@ -128,3 +128,232 @@ pub fn from_str_repairing<'a, T: Deserialize<'a>>(s: &'a str) -> serde_json::Res
         Err(strict) => Err(strict),
     }
 }
+
+#[derive(Debug)]
+struct NonFiniteFound;
+
+impl std::fmt::Display for NonFiniteFound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("non-finite float")
+    }
+}
+
+impl std::error::Error for NonFiniteFound {}
+
+impl serde::ser::Error for NonFiniteFound {
+    fn custom<T: std::fmt::Display>(_: T) -> Self {
+        Self
+    }
+}
+
+/// Zero-allocation `Serializer` probe that aborts with `Err(NonFiniteFound)` on the first
+/// non-finite `f32` or `f64` it visits.
+struct NonFiniteProbe;
+
+impl serde::Serializer for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    type SerializeSeq = Self;
+    type SerializeTuple = Self;
+    type SerializeTupleStruct = Self;
+    type SerializeTupleVariant = Self;
+    type SerializeMap = Self;
+    type SerializeStruct = Self;
+    type SerializeStructVariant = Self;
+
+    fn serialize_bool(self, _: bool) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i8(self, _: i8) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i16(self, _: i16) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i32(self, _: i32) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i64(self, _: i64) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_i128(self, _: i128) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u8(self, _: u8) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u16(self, _: u16) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u32(self, _: u32) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u64(self, _: u64) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_u128(self, _: u128) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_f32(self, v: f32) -> Result<(), Self::Error> {
+        if v.is_finite() {
+            Ok(())
+        } else {
+            Err(NonFiniteFound)
+        }
+    }
+    fn serialize_f64(self, v: f64) -> Result<(), Self::Error> {
+        if v.is_finite() {
+            Ok(())
+        } else {
+            Err(NonFiniteFound)
+        }
+    }
+    fn serialize_char(self, _: char) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_str(self, _: &str) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_bytes(self, _: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_none(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_some<T: Serialize + ?Sized>(self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_unit(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_unit_struct(self, _: &'static str) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_unit_variant(self, _: &'static str, _: u32, _: &'static str) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn serialize_newtype_struct<T: Serialize + ?Sized>(self, _: &'static str, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_newtype_variant<T: Serialize + ?Sized>(self, _: &'static str, _: u32, _: &'static str, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_tuple_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct, Self::Error> {
+        Ok(Self)
+    }
+    fn serialize_struct_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeStructVariant, Self::Error> {
+        Ok(Self)
+    }
+}
+
+impl serde::ser::SerializeSeq for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_element<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTuple for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_element<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTupleStruct for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeTupleVariant for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeMap for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_key<T: Serialize + ?Sized>(&mut self, key: &T) -> Result<(), Self::Error> {
+        key.serialize(Self)
+    }
+    fn serialize_value<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeStruct for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, _: &'static str, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl serde::ser::SerializeStructVariant for NonFiniteProbe {
+    type Ok = ();
+    type Error = NonFiniteFound;
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, _: &'static str, value: &T) -> Result<(), Self::Error> {
+        value.serialize(Self)
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// Replaces any non-finite numbers in `value` with the neutral value of their field in place,
+/// returning how many numbers were replaced. When `value` is already finite, no allocation or
+/// serialization occurs.
+pub fn neutralize_in_place<T: Serialize + for<'de> Deserialize<'de>>(value: &mut T) -> usize {
+    if value.serialize(NonFiniteProbe).is_ok() {
+        return 0;
+    }
+    let replaced = Cell::new(0);
+    let mut out = Vec::with_capacity(128);
+    if value.serialize(ser::Finite::new(&mut serde_json::Serializer::new(&mut out), &replaced)).is_ok() {
+        if let Ok(clean) = serde_json::from_slice(&out) {
+            *value = clean;
+        }
+    }
+    replaced.get()
+}

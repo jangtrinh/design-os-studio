@@ -1710,8 +1710,14 @@ impl App {
         };
         let Some(path) = target else { return };
         self.settle_pending_relayout();
-        match io::save_path_with_notice(&self.doc, &path) {
-            Ok((p, notice)) => {
+        match io::save_path_counted(&self.doc, &path) {
+            Ok((p, replaced)) => {
+                if replaced > 0 {
+                    self.doc.neutralize_non_finite();
+                    self.hist.neutralize_non_finite();
+                    self.changed();
+                }
+                let notice = io::non_finite_notice_once(&p, replaced);
                 match notice {
                     Some(w) => self.show_toast(format!("Saved {} ({w})", p.display()), true),
                     None => self.show_toast(format!("Saved {}", p.display()), false),
@@ -1720,6 +1726,9 @@ impl App {
                     if let Some(old) = self.file_path.replace(p.clone()) {
                         self.release_repaired_original(&old, Some(&p));
                     }
+                    self.autosave.saved_hash = crate::home::doc_hash(&self.doc);
+                    self.autosave.seen_rev = self.canvas.tiles.rev();
+                    self.autosave.disk_mtime = std::fs::metadata(&p).ok().and_then(|m| m.modified().ok());
                 }
             }
             Err(e) => self.show_toast(e, true),

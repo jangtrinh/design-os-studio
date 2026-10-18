@@ -720,6 +720,43 @@ impl Document {
         finite_json::count_non_finite(self)
     }
 
+    /// Replaces any non-finite numbers in the document with their neutral values (`0` or `1`) in
+    /// place without touching unaffected entries, embedded image blobs, `page_hydrator`, or
+    /// running [`Document::migrate_text`]. Returns how many numbers were replaced.
+    pub fn neutralize_non_finite(&mut self) -> usize {
+        let mut replaced = 0;
+        for node in self.nodes.values_mut() {
+            replaced += finite_json::neutralize_in_place(node);
+        }
+        for style in self.styles.values_mut() {
+            replaced += finite_json::neutralize_in_place(style);
+        }
+        for meta in self.style_meta.values_mut() {
+            replaced += finite_json::neutralize_in_place(meta);
+        }
+        for flow in &mut self.flows {
+            replaced += finite_json::neutralize_in_place(flow);
+        }
+        for var in self.variables.values_mut() {
+            replaced += finite_json::neutralize_in_place(var);
+        }
+        for col in self.variable_collections.values_mut() {
+            replaced += finite_json::neutralize_in_place(col);
+        }
+        for guides in self.guides.values_mut() {
+            replaced += finite_json::neutralize_in_place(guides);
+        }
+        replaced += finite_json::neutralize_in_place(&mut self.prototype_device);
+        for comment in &mut self.comments {
+            replaced += finite_json::neutralize_in_place(comment);
+        }
+        replaced += finite_json::neutralize_in_place(&mut self.library);
+        if replaced > 0 {
+            self.mark_full_dirty();
+        }
+        replaced
+    }
+
     /// Parses a native document. Text written by older versions that emulated lists with
     /// literal bullet and "1. " prefixes is converted to real lists. A malformed node graph is
     /// repaired in place (see [`Document::validate_and_repair`]) and noted on stderr, and a `null`

@@ -66,7 +66,7 @@ pub(crate) fn has_repaired_original(path: &Path) -> bool {
     repaired_originals().lock().ok().is_some_and(|map| map.contains_key(&key))
 }
 
-fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Document, Option<String>)> {
+fn parse_native_with_warning(path: &Path, text: &str, record_once: bool) -> serde_json::Result<(Document, Option<String>)> {
     let (mut doc, report) = Document::from_json_with_report(text)?;
     if !report.is_clean() {
         eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
@@ -90,7 +90,7 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
             None
         }
     };
-    let nf_notice = non_finite_notice_once(path, report.non_finite_numbers);
+    let nf_notice = if record_once { non_finite_notice_once(path, report.non_finite_numbers) } else { non_finite_notice(report.non_finite_numbers) };
     let warning = match (structural_warning, nf_notice) {
         (Some(s), Some(n)) => Some(format!("{s}; {n}")),
         (Some(s), None) => Some(s),
@@ -103,7 +103,7 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
 /// Loads a document from disk, dispatching on the file extension. Import warnings go to stderr;
 /// use [`load_path_with_warning`] where the user should see them.
 pub fn load_path(path: &Path) -> Result<Document, String> {
-    let (doc, warning) = load_path_with_warning(path)?;
+    let (doc, warning) = load_path_importing_pen_with_mode(path, designos_fig::import_pen_json_with_warnings, false)?;
     if let Some(w) = warning {
         eprintln!("designos: {}: {w}", path.display());
     }
@@ -122,6 +122,14 @@ pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>),
 fn load_path_importing_pen_with(
     path: &Path,
     import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+) -> Result<(Document, Option<String>), String> {
+    load_path_importing_pen_with_mode(path, import_pen, true)
+}
+
+fn load_path_importing_pen_with_mode(
+    path: &Path,
+    import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+    record_once: bool,
 ) -> Result<(Document, Option<String>), String> {
     let mut warning = None;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
@@ -145,15 +153,12 @@ fn load_path_importing_pen_with(
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
             match designos_fig::import_rest_json(&text) {
                 Ok(mut d) => {
-                    // A number that overflowed `f32` on import is infinity here. Counting walks the
-                    // document without building any text; only a file that has such numbers pays for
-                    // the serialization that replaces them.
-                    let replaced = d.count_non_finite().unwrap_or(0);
+                    // A number that overflowed `f32` on import is infinity here. Neutralize only the
+                    // affected entries in place without re-parsing the whole document or running
+                    // `migrate_text`.
+                    let replaced = d.neutralize_non_finite();
                     if replaced > 0 {
-                        if let Some(reloaded) = d.to_json_counted().ok().and_then(|(clean, _)| Document::from_json(&clean).ok()) {
-                            d = reloaded;
-                        }
-                        warning = non_finite_notice_once(path, replaced);
+                        warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
                     }
                     d
                 }
@@ -163,8 +168,8 @@ fn load_path_importing_pen_with(
                         d
                     }
                     Err(_) => {
-                        let (d, w) =
-                            parse_native_with_warning(path, &text).map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?;
+                        let (d, w) = parse_native_with_warning(path, &text, record_once)
+                            .map_err(|e| format!("Not a Figma REST file ({fig_err}) nor a designos file ({e})"))?;
                         warning = w;
                         d
                     }
@@ -181,7 +186,7 @@ fn load_path_importing_pen_with(
         }
         _ => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            let (d, w) = parse_native_with_warning(path, &text).map_err(|e| format!("Invalid designos file: {e}"))?;
+            let (d, w) = parse_native_with_warning(path, &text, record_once).map_err(|e| format!("Invalid designos file: {e}"))?;
             warning = w;
             d
         }
@@ -321,6 +326,8 @@ pub fn pick_export(default_name: &str) -> Option<PathBuf> {
 }
 
 /// Like [`save_path`], also returning the once-per-file notice when non-finite numbers were replaced.
+/// The app saves through [`save_path_counted`] so it can repair the open document; tests use this wrapper.
+#[cfg(test)]
 pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
     let (p, replaced) = save_path_counted(doc, path)?;
     let notice = non_finite_notice_once(&p, replaced);
@@ -797,5 +804,161 @@ mod tests {
         }
         assert!(!toast.text.contains("import_all_finite.json"), "a clean file is not mentioned: {}", toast.text);
         assert_eq!(toast.text.matches("replaced by 0 or 1").count(), 2, "one notice per affected file: {}", toast.text);
+    }
+
+    #[test]
+    fn counted_save_neutralizes_open_document_and_saved_hash_matches_disk() {
+        let lib_dir = tmp("counted_save_neutral_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+        let entry = lib.create_file(&proj.id, None, "PoisonedSave", &Document::new("PoisonedSave")).unwrap();
+        app.open_library_file(&entry.id);
+
+        let page = app.page;
+        let rid = app.doc.alloc_id();
+        app.doc.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+        app.doc.get_mut(rid).unwrap().opacity = f32::NAN;
+
+        app.save_library_file_with_toast();
+        let n = app.doc.get(rid).unwrap();
+        assert_eq!((n.size.x, n.opacity), (0.0, 1.0), "open document must hold the neutral values written to disk");
+        assert_eq!(app.export_doc().get(rid).unwrap().size.x, 0.0);
+
+        // External save (`App::save`) and `save_to_library_as` must also neutralize the open document.
+        let ext_path = tmp("counted_ext_save.designos");
+        app.lib_file = None;
+        app.file_path = Some(ext_path.clone());
+        app.doc.get_mut(rid).unwrap().size.y = f32::INFINITY;
+        app.save(false);
+        assert_eq!(app.doc.get(rid).unwrap().size.y, 0.0, "App::save must neutralize non-finite numbers in self.doc");
+        std::fs::remove_file(&ext_path).ok();
+
+        app.doc.get_mut(rid).unwrap().transform.tx = f32::NEG_INFINITY;
+        app.save_to_library_as(&proj.id, None, "SavedAsCopy");
+        assert_eq!(app.doc.get(rid).unwrap().transform.tx, 0.0, "save_to_library_as must neutralize non-finite numbers in self.doc");
+
+        let _ = std::fs::remove_dir_all(&lib_dir);
+    }
+
+    #[test]
+    fn hot_reload_surfaces_non_finite_warning_even_when_repaired_hash_matches_saved_hash() {
+        let ext_path = tmp("hot_reload_null_opacity.designos");
+        let mut doc = Document::new("HotReloadDoc");
+        let page = doc.add_page("Page 1");
+        let rid = doc.alloc_id();
+        doc.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 40.0, 30.0))).unwrap();
+        std::fs::write(&ext_path, doc.to_json().unwrap()).unwrap();
+
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(ext_path.clone());
+        app.toast = None;
+
+        // First frame seeds `autosave.disk_mtime` and `saved_hash`.
+        let ctx = egui::Context::default();
+        app.now = 1.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+
+        // External tool rewrites `opacity: 1.0` to `opacity: null`, which repairs back to `1.0` (same doc_hash!).
+        let mut poisoned = app.doc.clone();
+        poisoned.get_mut(rid).unwrap().opacity = f32::NAN;
+        let legacy_null = serde_json::to_string(&poisoned).unwrap();
+        assert!(legacy_null.contains("\"opacity\":null"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&ext_path, &legacy_null).unwrap();
+
+        app.now = 2.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            app.autosave_tick(ui.ctx());
+        });
+
+        std::fs::remove_file(&ext_path).ok();
+        let toast = app.toast.as_ref().expect("hot reload must show the non-finite warning even when repaired doc_hash matches");
+        assert!(toast.error, "hot reload warning toast must be error-styled: {}", toast.text);
+        assert!(toast.text.contains("1 number in this file was not valid and was replaced by 0 or 1"), "unexpected hot reload toast: {}", toast.text);
+    }
+
+    #[test]
+    fn switching_documents_preserves_flush_autosave_non_finite_notice() {
+        let lib_dir = tmp("switch_preserves_notice_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+        let entry = lib.create_file(&proj.id, None, "FirstLibFile", &Document::new("FirstLibFile")).unwrap();
+        app.open_library_file(&entry.id);
+
+        let page = app.page;
+        let rid = app.doc.alloc_id();
+        app.doc.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+
+        let other_path = tmp("other_clean_switch.designos");
+        let mut other_doc = Document::new("Other");
+        other_doc.add_page("Page 1");
+        std::fs::write(&other_path, other_doc.to_json().unwrap()).unwrap();
+
+        app.toast = None;
+        app.open_path(other_path.clone());
+        std::fs::remove_file(&other_path).ok();
+        let _ = std::fs::remove_dir_all(&lib_dir);
+
+        let toast = app.toast.as_ref().expect("open_path must show a toast");
+        assert!(toast.error, "flush notice from previous library file must keep error styling: {}", toast.text);
+        assert!(toast.text.contains("Opened Other"), "toast must still mention Opened Other: {}", toast.text);
+        assert!(
+            toast.text.contains("1 number in this file was not valid and was replaced by 0 or 1"),
+            "toast must retain the flushed non-finite notice: {}",
+            toast.text
+        );
+    }
+
+    #[test]
+    fn opening_rest_json_with_overflow_neutralizes_in_place_without_running_migrate_text() {
+        let rest_with_bullets = |stroke: &str| {
+            format!(
+                r#"{{"name": "RestBullets", "version": "1", "schemaVersion": 0,
+                  "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+                    {{"id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+                      {{"id": "1:1", "name": "Bullets", "type": "TEXT", "characters": "\u2022 one\n\u2022 two",
+                       "size": {{"x": 100, "y": 40}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "strokeWeight": {stroke}}}]}}]}}}}"#
+            )
+        };
+        let p_clean = tmp("rest_bullets_clean.json");
+        let p_overflow = tmp("rest_bullets_overflow.json");
+        std::fs::write(&p_clean, rest_with_bullets("2")).unwrap();
+        std::fs::write(&p_overflow, rest_with_bullets("1e39")).unwrap();
+
+        let (doc_clean, warn_clean) = load_path_with_warning(&p_clean).unwrap();
+        let (doc_overflow, warn_overflow) = load_path_with_warning(&p_overflow).unwrap();
+        std::fs::remove_file(&p_clean).ok();
+        std::fs::remove_file(&p_overflow).ok();
+
+        assert!(warn_clean.is_none());
+        assert!(warn_overflow.is_some());
+        let text_clean = doc_clean
+            .nodes
+            .values()
+            .find_map(|n| match &n.kind {
+                designos_doc::NodeKind::Text(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        let text_overflow = doc_overflow
+            .nodes
+            .values()
+            .find_map(|n| match &n.kind {
+                designos_doc::NodeKind::Text(t) => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(text_overflow.content, text_clean.content, "overflow neutralization must not strip literal bullets via migrate_text");
+        assert_eq!(text_overflow.lists, text_clean.lists);
     }
 }

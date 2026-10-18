@@ -268,6 +268,39 @@ impl History {
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
+    /// Replaces any non-finite numbers stored inside undo and redo commands with their neutral values.
+    pub fn neutralize_non_finite(&mut self) -> usize {
+        let mut replaced = 0;
+        for cmd in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            replaced += cmd.neutralize_non_finite();
+        }
+        replaced
+    }
+}
+
+impl Command {
+    /// Replaces any non-finite numbers carried by this command with their neutral values.
+    pub fn neutralize_non_finite(&mut self) -> usize {
+        match self {
+            Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => nodes.iter_mut().map(finite_json::neutralize_in_place).sum(),
+            Command::Update { node } => finite_json::neutralize_in_place(node.as_mut()),
+            Command::SetFlows { flows } => flows.iter_mut().map(finite_json::neutralize_in_place).sum(),
+            Command::SetStyles { styles, style_meta } => {
+                styles.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
+                    + style_meta.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
+            }
+            Command::SetComments { comments } => comments.iter_mut().map(finite_json::neutralize_in_place).sum(),
+            Command::SetLibraryState { state, .. } => finite_json::neutralize_in_place(state),
+            Command::SetGuides { guides, .. } => guides.iter_mut().map(finite_json::neutralize_in_place).sum(),
+            Command::SetPrototypeDevice { device } => finite_json::neutralize_in_place(device),
+            Command::SetVariables { variables, collections } => {
+                variables.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
+                    + collections.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
+            }
+            Command::Batch(cmds) => cmds.iter_mut().map(Self::neutralize_non_finite).sum(),
+            Command::Remove { .. } | Command::Reparent { .. } | Command::RemovePage { .. } | Command::SetImages { .. } => 0,
+        }
+    }
 }
 
 #[cfg(test)]
