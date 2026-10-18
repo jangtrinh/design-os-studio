@@ -858,7 +858,7 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
                 "isSoftDeleted": true
             })
         ),
-        // GAP-01 & GAP-02 & GAP-03: Frame with per-side border weights WITHOUT borderStrokeWeightsIndependent
+        // GAP-01 & GAP-02 & GAP-03: Frame with independent per-side border weights
         // and per-corner radii WITHOUT rectangleCornerRadiiIndependent, plus variableConsumptionMap
         node(
             (1, 10),
@@ -868,10 +868,8 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
             "HeaderBar",
             json!({
                 "strokeWeight": 1.0,
-                "borderTopWeight": 0.0,
-                "borderRightWeight": 0.0,
+                "borderStrokeWeightsIndependent": true,
                 "borderBottomWeight": 2.0,
-                "borderLeftWeight": 0.0,
                 "rectangleTopLeftCornerRadius": 10.0,
                 "rectangleTopRightCornerRadius": 10.0,
                 "rectangleBottomRightCornerRadius": 0.0,
@@ -2814,4 +2812,118 @@ fn wire_instance_override(bytes: &[u8], instance_name: &str, main_edit: Option<(
     let encoded = schema.encode_message(root, &msg).expect("encode fig message");
     let version = container::container_version(&archive.canvas).unwrap_or(106);
     (container::write_container(&schema_bytes, &encoded, Compression::Deflate, version), carried)
+}
+
+#[test]
+fn per_side_stroke_weights_ignore_stale_borders_and_merge_partial_overrides() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 100.0, "y": 50.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Doc", json!({})),
+        node((1, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        // 1. strokeWeight 1, border*Weight 12, no flag -> side_weights is None.
+        node(
+            (1, 10),
+            (1, 1),
+            "!",
+            "FRAME",
+            "UniformPill",
+            json!({
+                "strokeWeight": 1.0,
+                "borderTopWeight": 12.0,
+                "borderRightWeight": 12.0,
+                "borderBottomWeight": 12.0,
+                "borderLeftWeight": 12.0
+            })
+        ),
+        // 2. flag on, only borderRightWeight 1 -> [0, 1, 0, 0] even if strokeWeight is 1.
+        node(
+            (1, 20),
+            (1, 1),
+            "\"",
+            "FRAME",
+            "RightOnlyDivider",
+            json!({
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0
+            })
+        ),
+        // 3. Component with borderStrokeWeightsIndependent: true, borderRightWeight: 1, borderBottomWeight: 1,
+        // and an instance whose override sets only borderBottomWeight: 0 on that node -> [0, 1, 0, 0].
+        node(
+            (1, 30),
+            (1, 1),
+            "#",
+            "SYMBOL",
+            "CalendarHeader",
+            json!({
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0,
+                "borderBottomWeight": 1.0
+            })
+        ),
+        node(
+            (1, 31),
+            (1, 30),
+            "!",
+            "FRAME",
+            "CellDivider",
+            json!({
+                "overrideKey": g(9, 31),
+                "strokeWeight": 1.0,
+                "borderStrokeWeightsIndependent": true,
+                "borderRightWeight": 1.0,
+                "borderBottomWeight": 1.0
+            })
+        ),
+        node(
+            (1, 40),
+            (1, 1),
+            "$",
+            "INSTANCE",
+            "CalendarHeaderInst",
+            json!({
+                "symbolData": {
+                    "symbolID": g(1, 30),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(9, 31)]},
+                            "borderBottomWeight": 0.0
+                        }
+                    ]
+                }
+            })
+        )
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "SideWeights515").expect("import_fig_node_changes");
+
+    let pill = find(&doc, "UniformPill");
+    assert_eq!(pill.stroke.weight, 1.0);
+    assert_eq!(pill.stroke.side_weights, None, "stale border*Weight without borderStrokeWeightsIndependent must not set side_weights");
+
+    let right_only = find(&doc, "RightOnlyDivider");
+    assert_eq!(right_only.stroke.side_weights, Some([0.0, 1.0, 0.0, 0.0]), "missing side with flag on must default to 0");
+
+    let inst = find(&doc, "CalendarHeaderInst");
+    let cell = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "CellDivider").expect("CellDivider in CalendarHeaderInst");
+    assert_eq!(cell.stroke.side_weights, Some([0.0, 1.0, 0.0, 0.0]), "partial borderBottomWeight override must preserve borderRightWeight");
 }

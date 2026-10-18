@@ -2217,9 +2217,34 @@ impl<'a> Ctx<'a> {
             }
         }
         if let Some(iw) = set.get("individualStrokeWeights") {
-            let g = |k: &str| fnum(iw, k).unwrap_or(0.0);
-            n.stroke.side_weights = Some([g("top"), g("right"), g("bottom"), g("left")]);
-            if !has("strokeGeometry") {
+            let prev = n.stroke.side_weights;
+            let from_fig = fbool(iw, "fromFig") == Some(true);
+            match fbool(iw, "independent") {
+                Some(false) => {
+                    n.stroke.side_weights = None;
+                }
+                Some(true) => {
+                    let sw = n.stroke.side_weights.get_or_insert([0.0; 4]);
+                    for (i, k) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                        if let Some(v) = fnum(iw, k) {
+                            sw[i] = v;
+                        }
+                    }
+                }
+                None => {
+                    if !from_fig {
+                        n.stroke.side_weights.get_or_insert([0.0; 4]);
+                    }
+                    if let Some(sw) = n.stroke.side_weights.as_mut() {
+                        for (i, k) in ["top", "right", "bottom", "left"].iter().enumerate() {
+                            if let Some(v) = fnum(iw, k) {
+                                sw[i] = v;
+                            }
+                        }
+                    }
+                }
+            }
+            if n.stroke.side_weights != prev && !has("strokeGeometry") {
                 n.stroke_geometry = None;
             }
         }
