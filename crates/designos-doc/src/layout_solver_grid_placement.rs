@@ -13,7 +13,7 @@
 use crate::layout_solver_types::ChildIn;
 
 /// Most columns and spanned rows one grid solves.
-pub(crate) const MAX_GRID_TRACKS: usize = 16;
+pub(crate) use crate::MAX_GRID_TRACKS;
 
 /// A child's resolved cell.
 #[derive(Clone, Copy)]

@@ -556,3 +556,107 @@ pub fn resolve_builder(originals: &[Shapes], cells: &[Cell], group: &[Option<usi
 pub fn flattened_area(paths: &[d::Path]) -> f32 {
     paths.iter().flat_map(|p| flatten_path(p, 0.01)).filter(|(_, c)| *c).map(|(pts, _)| polygon_area(&pts)).sum()
 }
+
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// using Figma's default round join semantics. Open sub-paths pass through unchanged.
+pub fn offset_path(paths: &[d::Path], delta: f32) -> Vec<d::Path> {
+    offset_paths(paths, delta, d::StrokeJoin::Round, 4.0)
+}
+
+/// `(closed, open)` sub-path counts of `paths`.
+pub fn count_subpaths(paths: &[d::Path]) -> (usize, usize) {
+    paths.iter().flat_map(subpaths).fold((0, 0), |(closed, open), (_, is_closed)| if is_closed { (closed + 1, open) } else { (closed, open + 1) })
+}
+
+/// Offsets the closed contours of `paths` outward (`delta > 0.0`) or inward (`delta < 0.0`)
+/// with explicit corner join (`Round`, `Miter`, `Bevel`) and miter limit.
+///
+/// An open sub-path has no inside to grow or shrink, and a parallel curve of it is not
+/// what a centred stroke gives (that is a ribbon around it), so open sub-paths are carried
+/// into the result exactly as they were. [`count_subpaths`] tells a caller whether there are any.
+///
+/// Each path is its own region and is taken as it paints: the closed contours inside one path
+/// merge into one silhouette and only its outer boundary and its holes move, while separate paths
+/// stay separate regions. When an inset removes all of the closed part the result is empty, open
+/// sub-paths included, so a caller can leave the original as it was.
+pub fn offset_paths(paths: &[d::Path], delta: f32, join: d::StrokeJoin, miter_limit: f32) -> Vec<d::Path> {
+    if paths.is_empty() || !delta.is_finite() {
+        return Vec::new();
+    }
+    if delta.abs() < 1e-5 {
+        return paths.to_vec();
+    }
+    let stroke = d::Stroke {
+        weight: delta.abs() * 2.0,
+        align: d::StrokeAlign::Center,
+        cap: d::StrokeCap::Round,
+        join,
+        miter_limit: miter_limit.max(1.0),
+        ..Default::default()
+    };
+    let st = sk_stroke(&stroke, delta.abs() * 2.0, d::StrokeCap::Round);
+
+    let mut open: Vec<d::Path> = Vec::new();
+    let mut closed_paths: Vec<d::Path> = Vec::new();
+    for p in paths {
+        let mut closed_cmds: Vec<d::PathCmd> = Vec::new();
+        for (sub, closed) in subpaths(p) {
+            if closed {
+                closed_cmds.extend(sub.cmds);
+            } else {
+                open.push(sub);
+            }
+        }
+        if !closed_cmds.is_empty() {
+            closed_paths.push(d::Path { cmds: closed_cmds, fill_rule: p.fill_rule });
+        }
+    }
+    if closed_paths.is_empty() {
+        return open;
+    }
+
+    // each path is a region of its own: its fill as it paints (overlaps inside the path merged,
+    // holes kept), moved by a band along its boundary only, so an edge inside the fill is never
+    // carved out of it
+    let mut moved: Shapes = Vec::new();
+    for path in &closed_paths {
+        let fill = paths_to_shapes(std::slice::from_ref(path), 0.02);
+        let band = boundary_band(&fill, &st);
+        let region = match (delta > 0.0, band.is_empty()) {
+            (true, true) => fill,
+            (true, false) => fill.overlay(&band, OverlayRule::Union, FillRule::NonZero),
+            (false, true) => Vec::new(),
+            (false, false) => fill.overlay(&band, OverlayRule::Difference, FillRule::NonZero),
+        };
+        if !region.is_empty() && shapes_area(&region) > 1e-3 {
+            moved = if moved.is_empty() { region } else { moved.overlay(&region, OverlayRule::Union, FillRule::NonZero) };
+        }
+    }
+    if moved.is_empty() {
+        // every closed part is gone: the caller keeps the original, with its open sub-paths
+        return Vec::new();
+    }
+    open.extend(shapes_to_paths(&moved, 0.05));
+    open
+}
+
+/// The stroke band `st` laid along every contour (outer boundaries and holes) of `shapes`.
+fn boundary_band(shapes: &Shapes, st: &sk::Stroke) -> Shapes {
+    let mut band: Shapes = Vec::new();
+    for contour in shapes.iter().flatten() {
+        let mut pb = sk::PathBuilder::new();
+        for (i, p) in contour.iter().enumerate() {
+            let (x, y) = (p[0] as f32, p[1] as f32);
+            if i == 0 {
+                pb.move_to(x, y);
+            } else {
+                pb.line_to(x, y);
+            }
+        }
+        pb.close();
+        let Some(outline) = pb.finish().and_then(|path| expand(&path, st)) else { continue };
+        let polys = flatten(&outline, 0.02).simplify_shape(FillRule::NonZero);
+        band = if band.is_empty() { polys } else { band.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
+    }
+    band
+}

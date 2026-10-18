@@ -75,7 +75,7 @@ fn overrides_show_in_the_instances() {
 fn auto_layout_content_fits_inside_fixed_frames() {
     let d = document();
     for n in d.nodes.values() {
-        if n.kind.frame_props().and_then(|f| f.auto_layout).is_none() {
+        if n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_none() {
             continue;
         }
         for c in n.children.iter().filter_map(|c| d.get(*c)).filter(|c| !c.layout_child.absolute && c.visible) {

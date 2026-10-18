@@ -98,7 +98,7 @@ fn pillar1_suggest_auto_layout_2d_column_of_rows() {
     assert_eq!(row2.transform.translation(), Vec2::new(0.0, 84.0));
     assert_eq!(row1.size, Vec2::new(220.0, 60.0));
     assert_eq!(row2.size, Vec2::new(220.0, 60.0));
-    assert_eq!(row1.kind.frame_props().unwrap().auto_layout.unwrap().item_spacing, 20.0);
+    assert_eq!(row1.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().item_spacing, 20.0);
 }
 
 #[test]
@@ -186,6 +186,7 @@ fn pillar3_variable_bindings_and_subtree_mode_switching() {
                 "v_bg".into(),
             ],
             key: None,
+            source_library_key: None,
         },
     );
 
@@ -364,6 +365,7 @@ fn pillar4_interactive_prototype_runtime() {
             default_mode: "m1".into(),
             variables: vec!["v_count".into(), "v_label".into()],
             key: None,
+            source_library_key: None,
         },
     );
     let mut make_proto_var = |id: &str, kind: VariableKind, val: VariableValue| {

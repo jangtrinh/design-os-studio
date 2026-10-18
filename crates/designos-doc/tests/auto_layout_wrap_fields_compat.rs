@@ -35,9 +35,9 @@ fn set_values_roundtrip() {
         layout_version: 1,
         ..Default::default()
     };
-    let back = Document::from_json(&doc(al, TextWrap::Balance).to_json().unwrap()).unwrap();
+    let back = Document::from_json(&doc(al.clone(), TextWrap::Balance).to_json().unwrap()).unwrap();
     let frame = back.nodes.values().find(|n| n.kind.frame_props().is_some_and(|f| f.auto_layout.is_some())).unwrap();
-    assert_eq!(frame.kind.frame_props().unwrap().auto_layout.unwrap(), al);
+    assert_eq!(frame.kind.frame_props().unwrap().auto_layout.as_ref().unwrap(), &al);
     let text = back.nodes.values().find_map(|n| if let NodeKind::Text(t) = &n.kind { Some(t) } else { None }).unwrap();
     assert_eq!(text.text_wrap, TextWrap::Balance);
 }
@@ -46,7 +46,7 @@ fn set_values_roundtrip() {
 fn files_written_before_the_fields_existed_load_with_defaults() {
     let json = doc(AutoLayout { primary_align: LayoutAlign::SpaceBetween, wrap: true, ..Default::default() }, TextWrap::Auto).to_json().unwrap();
     let back = Document::from_json(&json).unwrap();
-    let al = back.nodes.values().find_map(|n| n.kind.frame_props().and_then(|f| f.auto_layout)).unwrap();
+    let al = back.nodes.values().find_map(|n| n.kind.frame_props().and_then(|f| f.auto_layout.as_ref())).unwrap();
     assert_eq!((al.primary_align, al.wrap), (LayoutAlign::SpaceBetween, true));
     assert_eq!((al.counter_align_content, al.layout_version), (CounterAlignContent::Auto, 0));
     let text = back.nodes.values().find_map(|n| if let NodeKind::Text(t) = &n.kind { Some(t) } else { None }).unwrap();

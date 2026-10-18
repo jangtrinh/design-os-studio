@@ -743,7 +743,8 @@ impl<'a> Trial<'a> {
         }
         let Some(c) = self.snap.variable_collections.get(raw).cloned() else { return };
         let local = self.ns(raw);
-        let copy = VariableCollection { id: local.clone(), variables: Vec::new(), key: None, ..c };
+        // the copy is a subscribed one: read-only here, edited in its library file
+        let copy = VariableCollection { id: local.clone(), variables: Vec::new(), key: None, source_library_key: Some(self.snap.library_id.clone()), ..c };
         self.edit_vars(|_, colls| {
             colls.insert(local.clone(), copy);
         });
@@ -1295,6 +1296,7 @@ mod tests {
             default_mode: "m".into(),
             variables: vec!["v1".into()],
             key: None,
+            source_library_key: None,
         };
         let coll2 = VariableCollection { id: "c2".into(), name: "Alias".into(), variables: vec!["v2".into()], ..coll.clone() };
         d.variable_collections.insert("c1".into(), coll);
@@ -1379,6 +1381,8 @@ mod tests {
         assert!(matches!(&d.variables["L1/v2"].values["m"], VariableValue::Alias(a) if a == "L1/v1"));
         assert_eq!(d.variables["L1/v2"].collection, "L1/c2");
         assert!(d.variable_collections.contains_key("L1/c1") && d.variable_collections.contains_key("L1/c2"));
+        // a collection copied from a library is marked as one, so it is read-only like a library style
+        assert!(d.variable_collections.values().all(|c| c.source_library_key.as_deref() == Some("L1")));
         assert_eq!(d.get(comp).unwrap().variables.bindings["itemSpacing"], "L1/v2");
         let info = library_instance_info(&d, inst).unwrap();
         assert_eq!((info.library_name.as_str(), info.asset_name.as_str(), info.remote), ("Lib", "Button", false));

@@ -29,6 +29,10 @@ SIDEBAR_GUARD = (
     "pub fn show_sidebar_card_in_rect(ui: &mut Ui, rect: Rect, state: &mut UpdaterState) {\n"
     "    if !UPDATER_UI_ENABLED {\n        return;\n    }\n"
 )
+MODAL_GUARD = (
+    "pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {\n"
+    "    if !UPDATER_UI_ENABLED {\n        return;\n    }\n"
+)
 
 # (case label, invariant that must fail, file, anchor in the real source, replacement)
 REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
@@ -57,8 +61,8 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "4. updater modal guard removed",
         "Z14",
         "updater.rs",
-        "if !UPDATER_UI_ENABLED || !state.modal_open {",
-        "if !state.modal_open {",
+        MODAL_GUARD,
+        MODAL_GUARD.split("\n", 1)[0] + "\n",
     ),
     # Extra coverage of the same hardening rules.
     ("5. updater sidebar card guard removed", "Z14", "updater.rs", SIDEBAR_GUARD, SIDEBAR_GUARD.split("\n", 1)[0] + "\n"),
@@ -84,6 +88,157 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "panels/menus.rs",
         ZOOM_IN_ROW,
         ZOOM_IN_ROW.replace("Action::ZoomIn", "Action::ZoomOut"),
+    ),
+    (
+        '11. concat!("Remove ", "background") evasion in cmdk.rs',
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat!("Remove ", "background"),',
+    ),
+    (
+        r'12. "Remove \u{62}ackground" unicode-escape evasion in cmdk.rs',
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        r'title: "Remove \u{62}ackground",',
+    ),
+    (
+        "13. retired label const defined in another module (panels/mod.rs)",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove background";',
+    ),
+    (
+        '14. concat!("ctx-", "crop") evasion in panels/toolbar.rs',
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, concat!("ctx-", "crop"), "Select area"),',
+    ),
+    (
+        "15. updater guard rewritten with `&& false`",
+        "Z14",
+        "updater.rs",
+        "if !UPDATER_UI_ENABLED {",
+        "if !UPDATER_UI_ENABLED && false {",
+    ),
+    (
+        "16. aliased module path (`use crate::home::updater as upd`) bypassing tabs.rs guard",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "use crate::home::updater as upd;\n    let _ = upd::UpdaterState::new();\n    if crate::home::updater::UPDATER_UI_ENABLED {",
+    ),
+    (
+        "17. adjacent literals joined by a macro in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        "pub mod toolbar;\n"
+        "macro_rules! join_label { ($a:literal $b:literal) => { concat!($a, $b) }; }\n"
+        'pub const RETIRED_LABEL: &str = join_label!("Remove " "background");',
+    ),
+    (
+        '18. concat!(r"Remove ", r"background") with raw-string pieces in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = concat!(r"Remove ", r"background");',
+    ),
+    (
+        "19. concat! with a char piece spelling ctx-crop in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        "pub mod toolbar;\npub const RETIRED_ACTION: &str = concat!(\"ctx-cro\", 'p');",
+    ),
+    (
+        "20. retired label split by a backslash line continuation in panels/mod.rs",
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove\\\n    background";',
+    ),
+    (
+        r'21. retired label with a \t escape between the words in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = "Remove\\tbackground";',
+    ),
+    (
+        "22. updater modal guard reads a different UPDATER_UI_ENABLED (mod allow, = true)",
+        "Z14",
+        "updater.rs",
+        MODAL_GUARD,
+        "mod allow {\n    pub const UPDATER_UI_ENABLED: bool = true;\n}\n\n"
+        "pub fn show_update_modal(ctx: &Context, state: &mut UpdaterState) {\n"
+        "    if !allow::UPDATER_UI_ENABLED {\n        return;\n    }\n",
+    ),
+    (
+        "23. tabs.rs button guard names a path other than crate::home::updater",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "if crate::elsewhere::UPDATER_UI_ENABLED {",
+    ),
+    (
+        "24. updater modal guard shadowed by a local const UPDATER_UI_ENABLED = true",
+        "Z14",
+        "updater.rs",
+        MODAL_GUARD,
+        MODAL_GUARD + "    const UPDATER_UI_ENABLED: bool = true;\n",
+    ),
+    (
+        "25. tabs.rs button guard reads a local `let UPDATER_UI_ENABLED = true` instead of the real constant",
+        "Z14",
+        "tabs.rs",
+        "if crate::home::updater::UPDATER_UI_ENABLED {",
+        "#[allow(non_snake_case)]\n    let UPDATER_UI_ENABLED = true;\n    if UPDATER_UI_ENABLED {",
+    ),
+    (
+        '26. concat!["Remove ", "background"] with square brackets in panels/mod.rs',
+        "Z08",
+        "panels/mod.rs",
+        "pub mod toolbar;",
+        'pub mod toolbar;\npub const RETIRED_LABEL: &str = concat!["Remove ", "background"];',
+    ),
+    (
+        '27. concat!{"ctx-", "crop"} with braces as a new toolbar entry',
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),\n        (Icon::Rectangle, concat!{"ctx-", "crop"}, "Crop"),',
+    ),
+    (
+        "28. bracketed concat! with a piece that cannot be folded in cmdk.rs",
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat!["Boost ", stringify!(resolution)],',
+    ),
+    (
+        "29. braced concat! with a piece that cannot be folded in panels/toolbar.rs",
+        "Z08",
+        "panels/toolbar.rs",
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),',
+        '(Icon::Rectangle, "ctx-select-area", "Select area"),\n        (Icon::Rectangle, concat!{"x-", stringify!(y)}, "Extra"),',
+    ),
+    (
+        "30. zoom row label written as concat!{...} of allow-listed text",
+        "Z13",
+        "panels/menus.rs",
+        ZOOM_IN_ROW,
+        ZOOM_IN_ROW.replace('label: "Zoom in"', 'label: concat!{"Zoom ", "in"}'),
+    ),
+    (
+        "31. concat !(...) with whitespace before the bang in cmdk.rs",
+        "Z08",
+        "cmdk.rs",
+        'title: "Boost resolution",',
+        'title: concat !("Boost ", stringify!(resolution)),',
     ),
 ]
 
@@ -135,6 +290,34 @@ def main() -> int:
             "cmdk.rs",
             "#[cfg(test)]\nmod tests {",
             '#[cfg(test)]\nmod tests {\n    const RETIRED: &str = "ctx-crop";',
+        ),
+        (
+            "raw string holding escape-looking text is not decoded into a retired name",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const NOTE: &str = r"ctx-\\u{63}rop is not decoded in a raw string";',
+        ),
+        (
+            "escaped-backslash and raw u{_} text is left alone, not a crash",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const NOTE: &str = "\\\\u{_}";\npub const RAW_NOTE: &str = r"\\u{_}";',
+        ),
+        (
+            "two separate literals in an array do not form a retired label",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            'pub mod toolbar;\npub const WORDS: [&str; 2] = ["Remove ", "background"];',
+        ),
+        (
+            "a quote char literal does not desynchronise literal scanning",
+            "Z08",
+            "panels/mod.rs",
+            "pub mod toolbar;",
+            "pub mod toolbar;\npub const QUOTE: char = '\"';\npub const NEXT: &str = \"Boost resolution\";",
         ),
     ]
     for label, check_id, rel, anchor, replacement in controls:
