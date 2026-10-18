@@ -1,3 +1,4 @@
+mod agent_start_failure;
 mod app;
 mod board;
 mod canvas;

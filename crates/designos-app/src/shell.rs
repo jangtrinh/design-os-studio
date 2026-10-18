@@ -282,6 +282,12 @@ impl Shell {
                     std::thread::sleep(std::time::Duration::from_millis(30));
                 }
             }
+            Some("agents-start-failure") => {
+                // Real failure: the installed `agy` rejects the `--mcp-config` flag it never had (#642).
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.open_failed_start_fixture(app.file_path.as_deref());
+            }
             Some("specs") => {
                 app.ui.rail = Some(crate::app::RailItem::Specs);
                 app.specs.open = true;

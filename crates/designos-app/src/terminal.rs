@@ -10,6 +10,7 @@
 
 #![allow(dead_code)]
 
+use crate::agent_start_failure::{self, FixAction, StartFailure};
 use crate::icons::{self, Icon};
 use crate::panels::clipped;
 use crate::theme;
@@ -56,6 +57,20 @@ pub const STATUS_INFO_BORDER: Color32 = Color32::from_rgb(0x2F, 0x45, 0x77);
 const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
 const MAX_RAW_LOG_BYTES: usize = 128 * 1024;
+
+/// The `-c` overrides that register `designos-mcp` with Codex (leading space included), shared by the
+/// interactive tab and the Agent Chat one-shot so both start the same server.
+macro_rules! codex_mcp_overrides {
+    () => {
+        concat!(
+            " -c 'mcp_servers.designos.command=\"'\"$DESIGNOS_MCP_BIN\"'\"'",
+            " -c 'mcp_servers.designos.args=[\"--workspace\",\"'\"$DESIGNOS_WORKSPACE\"'\"]'",
+            " -c 'mcp_servers.designos.env_vars=[\"DESIGNOS_SESSION_DIR\",\"DESIGNOS_LIVE_CANVAS\",\"DESIGNOS_LIVE_DOC_SYNC\",",
+            "\"DESIGNOS_LIVE_DOC_PATCH\",\"DESIGNOS_LIVE_SPEC\",\"DESIGNOS_CONTEXT_JSON\",\"DESIGNOS_TARGET_PAGE_ID\",",
+            "\"DESIGNOS_TARGET_PAGE_NAME\",\"DESIGNOS_DOC_NAME\",\"DESIGNOS_FILE\"]'"
+        )
+    };
+}
 
 /// Presets for launching an interactive PTY session inside DESIGN:OS Studio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,15 +155,26 @@ impl AgentCliPreset {
     pub fn cli_launch_command(self) -> &'static str {
         match self {
             AgentCliPreset::Claude => {
-                "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+                "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
-            AgentCliPreset::Codex => {
-                "codex --dangerously-bypass-approvals-and-sandbox -c 'mcp_servers.designos.command=\"'\"$DESIGNOS_MCP_BIN\"'\"'"
-            }
-            AgentCliPreset::Grok => "grok --always-approve --mcp-config \"$DESIGNOS_MCP_CONFIG\"",
-            AgentCliPreset::Antigravity => {
-                "agy --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" || antigravity --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\""
-            }
+            // Codex hands an MCP child only the `env` / `env_vars` entries of its config, never the parent
+            // env, so the session variables `designos-mcp` reads are listed in `env_vars` and the
+            // workspace goes in as an argument (same server config as the other tabs' mcp-config.json).
+            //
+            // Status: Codex tabs keep the OSC / PTY-heuristic status path (`parse_osc_agent_status_and_strip`,
+            // `agent_status`); no session hooks are loaded here. Codex runs only hooks the user has reviewed
+            // (`hooks.state.*.trusted_hash` in `~/.codex/config.toml`), and Studio must not write or forge that
+            // trust, so hooks passed through `-c` were not run (checked on codex 0.163). `notify` is not used
+            // either: it would replace the user's own `notify` program in this tab, and it fires only when a
+            // turn ends, so it could never report `working`.
+            AgentCliPreset::Codex => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
+            // `grok` has no `--mcp-config` either. It reads the project config `<cwd>/.grok/config.toml`
+            // (see `write_grok_session_config`), so it is started inside the per-file session dir.
+            AgentCliPreset::Grok => "grok --always-approve --cwd \"$DESIGNOS_SESSION_DIR\"",
+            // `agy` has no `--mcp-config`. It discovers `<dir>/.agents/plugins/<name>/mcp_config.json` in every
+            // `--add-dir`, so the per-file session dir carries the `designos` server (see
+            // `write_agy_session_plugin`) without touching the user's global `~/.gemini/config/mcp_config.json`.
+            AgentCliPreset::Antigravity => "agy --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"",
             AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "",
         }
     }
@@ -167,7 +193,6 @@ impl AgentCliPreset {
     pub fn is_installed(self) -> bool {
         match self {
             AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => true,
-            AgentCliPreset::Antigravity => runtime_binary_available("agy") || runtime_binary_available("antigravity"),
             other => runtime_binary_available(other.binary_name()),
         }
     }
@@ -280,19 +305,21 @@ pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &
     let sys_prompt = "You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.";
     match preset {
         AgentCliPreset::Claude => format!(
-            "{env_prefix} claude --dangerously-skip-permissions -p '{escaped}' --mcp-config \"{}\" --append-system-prompt \"{sys_prompt}\"",
-            mcp_config.display()
+            "{env_prefix} claude --dangerously-skip-permissions -p '{escaped}' --mcp-config \"{}\" --settings '{}' --append-system-prompt \"{sys_prompt}\"",
+            mcp_config.display(),
+            session_dir.join("hooks.json").display()
         ),
         AgentCliPreset::Codex => format!(
-            "{env_prefix} codex --dangerously-bypass-approvals-and-sandbox exec '{escaped} (Deliver onto current file/page in $DESIGNOS_CONTEXT_JSON via designos-mcp or write NodeSpec JSON to $DESIGNOS_LIVE_SPEC)'"
+            "{env_prefix} codex --dangerously-bypass-approvals-and-sandbox exec{} '{escaped} (Deliver onto current file/page in $DESIGNOS_CONTEXT_JSON via designos-mcp or write NodeSpec JSON to $DESIGNOS_LIVE_SPEC)'",
+            codex_mcp_overrides!()
         ),
         AgentCliPreset::Antigravity => format!(
-            "{env_prefix} agy --dangerously-skip-permissions -p '{escaped}' --mcp-config \"{}\"",
-            mcp_config.display()
+            "{env_prefix} agy --dangerously-skip-permissions -p '{escaped}' --add-dir '{}'",
+            session_dir.display()
         ),
         AgentCliPreset::Grok => format!(
-            "{env_prefix} grok --always-approve -p '{escaped}' --mcp-config \"{}\"",
-            mcp_config.display()
+            "{env_prefix} GROK_FOLDER_TRUST='0' grok --always-approve -p '{escaped}' --cwd '{}'",
+            session_dir.display()
         ),
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => clean,
     }
@@ -358,6 +385,10 @@ pub struct TerminalTab {
     pub last_output_at: Arc<Mutex<Option<std::time::Instant>>>,
     /// Set after the agent-exit notice is written into the vt100 parser. Never respawn a shell.
     pub exited_notice_shown: bool,
+    /// When the PTY child was started; an agent that exits within `START_FAILURE_WINDOW` failed to start.
+    pub spawned_at: std::time::Instant,
+    /// Why the agent CLI exited right after it was opened; shown instead of the dead terminal.
+    pub start_failure: Option<StartFailure>,
 }
 
 impl TerminalTab {
@@ -503,6 +534,8 @@ impl TerminalTab {
             agent_status,
             last_output_at,
             exited_notice_shown: false,
+            spawned_at: std::time::Instant::now(),
+            start_failure: None,
         })
     }
 
@@ -510,12 +543,7 @@ impl TerminalTab {
     #[cfg(test)]
     fn spawn_exiting_stub_agent(id: usize, rows: u16, cols: u16, file_path: Option<&Path>, session: Option<&SessionEnv>) -> Result<Self, String> {
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo STUB-AGENT-EXIT; exit 1'");
-        // Isolate zsh from the real HOME: `zsh -l -i -c ...` in a PTY otherwise starts
-        // zsh-newuser-install when ~/.zshrc is missing and the stub never runs.
-        let zdotdir = std::env::temp_dir().join(format!("dos-p0-zdotdir-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&zdotdir);
-        let _ = std::fs::write(zdotdir.join(".zshrc"), b"");
-        cmd.env("ZDOTDIR", &zdotdir);
+        isolate_zsh_from_home(&mut cmd);
         Self::spawn_with_session_cmd(id, AgentCliPreset::Claude, rows, cols, file_path, session, Some(cmd))
     }
 
@@ -633,6 +661,8 @@ pub struct TerminalState {
     pub chat_mode: bool,
     /// Whether the top `+` runtime selector dropdown menu (`claude`, `codex`, `grok`, `antigravity`, `shell`) is open (`DIR-29`).
     pub runtime_dropdown_open: bool,
+    /// Fix clicked on a tab's "failed to start" panel, applied by the surface that knows the open file.
+    pub pending_start_fix: Option<FixAction>,
     /// Which of the Figma Agent categories (`0..3`) is expanded when in legacy chat mode.
     pub expanded_agent_cat: Option<usize>,
     /// Active CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`, `Shell`).
@@ -713,6 +743,7 @@ impl TerminalState {
             side_panel_pty_open: true,
             chat_mode: false,
             runtime_dropdown_open: false,
+            pending_start_fix: None,
             expanded_agent_cat: None,
             active_runtime: AgentCliPreset::Shell,
             chat_turns: Vec::new(),
@@ -824,17 +855,8 @@ impl TerminalState {
     }
 
     fn provision_session_agent_files(&self, file_path: Option<&Path>) {
-        let mcp_bin = std::env::current_exe()
-            .ok()
-            .map(|exe| exe.with_file_name(if cfg!(windows) { "designos-mcp.exe" } else { "designos-mcp" }))
-            .filter(|p| p.exists())
-            .unwrap_or_else(|| PathBuf::from("designos-mcp"));
-        let workspace_dir = file_path
-            .and_then(|p| p.parent())
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(|p| p.to_path_buf())
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
+        let mcp_bin = designos_mcp_binary();
+        let workspace_dir = session_workspace_dir(file_path);
 
         let mcp_config = serde_json::json!({
             "mcpServers": {
@@ -859,79 +881,37 @@ impl TerminalState {
         let mcp_config_path = self.session_dir.join("mcp-config.json");
         if let Ok(bytes) = serde_json::to_vec_pretty(&mcp_config) {
             let _ = atomic_write_session_file(&mcp_config_path, &bytes);
+            write_agy_session_plugin(&self.session_dir, &bytes);
         }
+        write_grok_session_config(&self.session_dir, &mcp_config);
 
-        let agent_status_path = self.session_dir.join("agent-status.json");
-        let hooks_json = serde_json::json!({
+        let page_context = serde_json::json!({
             "session_id": self.session_id,
             "doc_name": self.doc_name,
+            "file_path": file_path.map(|p| p.display().to_string()),
             "current_page_id": self.current_page_id,
             "current_page_name": self.current_page_name,
-            "hooks": {
-                "UserPromptSubmit": [
-                    {
-                        "matcher": "*",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!(
-                                    "printf '{{\"state\":\"working\"}}\\n' > '{}' && cat '{}'",
-                                    agent_status_path.display(),
-                                    self.context_json_path.display()
-                                )
-                            }
-                        ]
-                    }
-                ],
-                "PreToolUse": [
-                    {
-                        "matcher": "*",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!("printf '{{\"state\":\"working\"}}\\n' > '{}'", agent_status_path.display())
-                            }
-                        ]
-                    }
-                ],
-                "PostToolUse": [
-                    {
-                        "matcher": "*",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!("printf '{{\"state\":\"working\"}}\\n' > '{}'", agent_status_path.display())
-                            }
-                        ]
-                    }
-                ],
-                "PermissionRequest": [
-                    {
-                        "matcher": "*",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!("printf '{{\"state\":\"waiting\"}}\\n' > '{}'", agent_status_path.display())
-                            }
-                        ]
-                    }
-                ],
-                "Stop": [
-                    {
-                        "matcher": "*",
-                        "hooks": [
-                            {
-                                "type": "command",
-                                "command": format!("printf '{{\"state\":\"done\"}}\\n' > '{}'", agent_status_path.display())
-                            }
-                        ]
-                    }
-                ]
+        });
+        // Claude's reply to a prompt hook: the page as `additionalContext`, nothing that could block the prompt.
+        let context_reply_path = self.session_dir.join("page-context-reply.json");
+        let context_reply = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": format!("DESIGN:OS Studio page context: {page_context}"),
             }
         });
-        let hooks_path = self.session_dir.join("hooks.json");
-        if let Ok(bytes) = serde_json::to_vec_pretty(&hooks_json) {
-            let _ = atomic_write_session_file(&hooks_path, &bytes);
+        if let Ok(bytes) = serde_json::to_vec_pretty(&context_reply) {
+            let _ = atomic_write_session_file(&context_reply_path, &bytes);
+        }
+        let status_path = self.session_dir.join("agent-status.json");
+        if let Ok(bytes) = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, Some(&context_reply_path))) {
+            let _ = atomic_write_session_file(&self.session_dir.join("hooks.json"), &bytes);
+        }
+        if let Ok(bytes) = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None)) {
+            let _ = atomic_write_session_file(&self.session_dir.join(".grok").join("hooks").join("designos-status.json"), &bytes);
+        }
+        if let Ok(bytes) = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)) {
+            let _ = atomic_write_session_file(&self.session_dir.join(".agents").join("hooks.json"), &bytes);
         }
 
         let skill_md = format!(
@@ -963,6 +943,48 @@ impl TerminalState {
         let _ = atomic_write_session_file(&self.session_dir.join("SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".agents/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
+        // Codex, Grok and Antigravity read `AGENTS.md` from their cwd (the session dir).
+        let _ = atomic_write_session_file(&self.session_dir.join("AGENTS.md"), skill_md.as_bytes());
+    }
+
+    /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
+    /// `agy` invocation that exits at once with a usage error, then waits for the failure panel.
+    pub fn open_failed_start_fixture(&mut self, file_path: Option<&Path>) {
+        let command = "agy --dangerously-skip-permissions --mcp-config /nonexistent/mcp.json";
+        if self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(command)).is_err() {
+            return;
+        }
+        let deadline = std::time::Instant::now() + agent_start_failure::START_FAILURE_WINDOW;
+        while std::time::Instant::now() < deadline {
+            let _ = self.poll_live_agent_bridge();
+            if self.active_tab().is_some_and(|t| t.start_failure.is_some()) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+    }
+
+    /// Runs the fix the user clicked on a tab's "failed to start" panel.
+    pub fn apply_start_fix(&mut self, fix: FixAction, file_path: Option<&Path>) {
+        match fix {
+            FixAction::OpenInstallPage(url) => {
+                if let Err(e) = crate::home::open_link(url) {
+                    self.status_msg = Some(e);
+                }
+            }
+            FixAction::RunLogin(command) => {
+                // A login runs as a plain command tab: it is not an agent tab, so a quick
+                // "already signed in" exit is not reported as a failed start.
+                if let Ok(idx) = self.spawn_tab_running(AgentCliPreset::Shell, file_path, Some(command)) {
+                    if let Some(tab) = self.tabs.get_mut(idx) {
+                        tab.title = format!("{command} (login)");
+                    }
+                }
+            }
+            FixAction::OpenShell => {
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+            }
+        }
     }
 
     /// Terminates all child PTY processes owned by this file's terminal state.
@@ -1191,12 +1213,28 @@ impl TerminalState {
 
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        self.spawn_tab_running(preset, file_path, None)
+    }
+
+    /// Like [`Self::spawn_tab`]; with `command` the tab runs that one shell command (an agent CLI's own
+    /// `login`) instead of the preset's launch command.
+    fn spawn_tab_running(&mut self, preset: AgentCliPreset, file_path: Option<&Path>, command: Option<&str>) -> Result<usize, String> {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let _ = std::fs::create_dir_all(&self.session_dir);
         self.provision_session_agent_files(file_path);
         let env = self.session_env();
-        match TerminalTab::spawn_with_session(id, preset, 28, 100, file_path, Some(&env)) {
+        let cmd_override = command.map(|c| {
+            let cmd = build_agent_shell_cmd(&default_shell_program(), c);
+            #[cfg(test)]
+            let cmd = {
+                let mut cmd = cmd;
+                isolate_zsh_from_home(&mut cmd);
+                cmd
+            };
+            cmd
+        });
+        match TerminalTab::spawn_with_session_cmd(id, preset, 28, 100, file_path, Some(&env), cmd_override) {
             Ok(tab) => {
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
@@ -1305,6 +1343,11 @@ impl TerminalState {
                 continue;
             }
             if !tab.is_alive() {
+                let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
+                if agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code) {
+                    let output = tab.raw_log.lock().map(|log| log.clone()).unwrap_or_default();
+                    tab.start_failure = Some(agent_start_failure::diagnose(tab.spawn_preset, tab.spawn_preset.is_installed(), exit_code, &output));
+                }
                 if let Ok(mut parser) = tab.parser.lock() {
                     parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
                 }
@@ -2056,6 +2099,16 @@ fn default_shell_program() -> String {
     }
 }
 
+/// Test-only: starts zsh with an empty `ZDOTDIR` instead of the real HOME. `zsh -l -i -c ...` in a PTY
+/// otherwise runs zsh-newuser-install when `~/.zshrc` is missing (a CI runner) and the command never runs.
+#[cfg(test)]
+fn isolate_zsh_from_home(cmd: &mut CommandBuilder) {
+    let zdotdir = std::env::temp_dir().join(format!("dos-p0-zdotdir-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&zdotdir);
+    let _ = std::fs::write(zdotdir.join(".zshrc"), b"");
+    cmd.env("ZDOTDIR", &zdotdir);
+}
+
 fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
     let mut c = CommandBuilder::new(shell_bin);
     if cfg!(windows) && !shell_bin.ends_with("bash.exe") && !shell_bin.ends_with("sh.exe") {
@@ -2066,12 +2119,66 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
         c.arg("-i");
         c.arg("-c");
         // Single command: `exec` so the agent is the PTY child; when it exits the child exits.
-        // Compound commands (Antigravity's `agy ... || antigravity ...`) keep their own fallback,
-        // with no `|| exec $SHELL`.
+        // Compound commands keep their own fallback, with no `|| exec $SHELL`.
         let inner = if agent_cli.contains("||") { agent_cli.to_string() } else { format!("exec {agent_cli}") };
         c.arg(inner);
     }
     c
+}
+
+/// Publishes the session's MCP server config as an `agy` workspace plugin at
+/// `<session_dir>/.agents/plugins/designos/` (`plugin.json` + `mcp_config.json`, same bytes as
+/// `mcp-config.json`). `agy` 1.4.2 has no per-session MCP flag; launching with `--add-dir <session_dir>`
+/// makes it discover this plugin for that session only, leaving the user's global agy config untouched.
+fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) {
+    let plugin_dir = session_dir.join(".agents").join("plugins").join("designos");
+    let manifest = br#"{"name":"designos"}"#;
+    let _ = atomic_write_session_file(&plugin_dir.join("plugin.json"), manifest);
+    let _ = atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes);
+}
+
+/// Renders `s` as a TOML basic string. JSON string escapes are a valid subset of TOML's.
+fn toml_string(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+/// Renders a TOML key, quoting it unless it is a valid bare key.
+fn toml_key(k: &str) -> String {
+    if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        k.to_string()
+    } else {
+        toml_string(k)
+    }
+}
+
+/// Publishes the session's `mcpServers` as Grok's project config `<session_dir>/.grok/config.toml`.
+/// Grok 1.0.62 has no per-session MCP flag; it merges the project layer of its cwd, so the tab is
+/// started with `--cwd <session_dir>` and the user's `~/.grok/config.toml` is never written.
+fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
+    let Some(servers) = mcp_config.get("mcpServers").and_then(|v| v.as_object()) else { return };
+    let mut toml = String::new();
+    for (name, server) in servers {
+        let key = toml_key(name);
+        toml.push_str(&format!("[mcp_servers.{key}]\n"));
+        if let Some(command) = server.get("command").and_then(|v| v.as_str()) {
+            toml.push_str(&format!("command = {}\n", toml_string(command)));
+        }
+        if let Some(args) = server.get("args").and_then(|v| v.as_array()) {
+            let items: Vec<String> = args.iter().filter_map(|a| a.as_str()).map(toml_string).collect();
+            toml.push_str(&format!("args = [{}]\n", items.join(", ")));
+        }
+        toml.push_str("enabled = true\n");
+        if let Some(env) = server.get("env").and_then(|v| v.as_object()) {
+            toml.push_str(&format!("\n[mcp_servers.{key}.env]\n"));
+            for (k, v) in env {
+                if let Some(v) = v.as_str() {
+                    toml.push_str(&format!("{} = {}\n", toml_key(k), toml_string(v)));
+                }
+            }
+        }
+        toml.push('\n');
+    }
+    let _ = atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes());
 }
 
 fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -2081,6 +2188,80 @@ fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
+}
+
+/// Shell command that records `state` for the Agents panel (`agent-status.json`, read by `poll_agent_status`).
+fn status_hook_command(status_path: &Path, state: &str) -> String {
+    format!("printf '{{\"state\":\"{state}\"}}\\n' > '{}'", status_path.display())
+}
+
+fn command_handler_group(command: String) -> serde_json::Value {
+    serde_json::json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": command }] }])
+}
+
+/// Session hooks in Claude's settings shape (`{"hooks": {Event: [{matcher, hooks: [...]}]}}`) for the
+/// status channel. With `context_reply` the prompt hook also prints that file, a Claude
+/// `additionalContext` reply carrying the page (never the selection). Without it the prompt hook prints
+/// nothing: Grok reads any stdout that starts with `{` as a decision (a context reply shows as a
+/// failed hook) and discards an allowing hook's context anyway.
+fn session_hooks_settings(status_path: &Path, context_reply: Option<&Path>) -> serde_json::Value {
+    let prompt = match context_reply {
+        Some(reply) => format!("{} && cat '{}'", status_hook_command(status_path, "working"), reply.display()),
+        None => status_hook_command(status_path, "working"),
+    };
+    serde_json::json!({
+        "hooks": {
+            "UserPromptSubmit": command_handler_group(prompt),
+            "PreToolUse": command_handler_group(status_hook_command(status_path, "working")),
+            "PostToolUse": command_handler_group(status_hook_command(status_path, "working")),
+            "PermissionRequest": command_handler_group(status_hook_command(status_path, "waiting")),
+            "Stop": command_handler_group(status_hook_command(status_path, "done")),
+        }
+    })
+}
+
+/// Antigravity's `<workspace>/.agents/hooks.json`: named hook, flat handlers for the invocation and
+/// stop events. Handlers must answer with a JSON object on stdout.
+fn agy_session_hooks(status_path: &Path) -> serde_json::Value {
+    let handler = |state: &str| serde_json::json!([{ "type": "command", "command": format!("{}; printf '{{}}'", status_hook_command(status_path, state)) }]);
+    serde_json::json!({
+        "designos-status": {
+            "PreInvocation": handler("working"),
+            "Stop": handler("done"),
+        }
+    })
+}
+
+/// `designos-mcp` next to the running Studio binary, or the bare name (resolved through `PATH`) when it is not built there.
+fn designos_mcp_binary() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| exe.with_file_name(if cfg!(windows) { "designos-mcp.exe" } else { "designos-mcp" }))
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| PathBuf::from("designos-mcp"))
+}
+
+/// Folder `designos-mcp --workspace` serves: the open file's folder, else Studio's working directory.
+fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
+    file_path
+        .and_then(|p| p.parent())
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.to_path_buf())
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Working directory of a spawned tab, never `/` (an app opened from Finder has no useful cwd).
+/// Agent CLIs start in the per-file session dir because that is where they discover the project
+/// config, skills and `AGENTS.md` Studio provisions; a shell tab opens in the file's folder.
+fn resolve_pty_cwd(preset: AgentCliPreset, session_dir: Option<&Path>, workspace: PathBuf) -> PathBuf {
+    let is_agent = !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
+    match session_dir {
+        Some(dir) if is_agent => dir.to_path_buf(),
+        _ if workspace.parent().is_some() => workspace,
+        Some(dir) => dir.to_path_buf(),
+        None => std::env::temp_dir(),
+    }
 }
 
 /// Auto-injects `TERM`, `COLORTERM`, `DESIGNOS_AGENT_RUNTIME` (the spawned `preset`), `DESIGNOS_BIN`, `DESIGNOS_MCP_BIN`, `DESIGNOS_LIVE_SPEC`,
@@ -2098,6 +2279,12 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());
+    if preset == AgentCliPreset::Grok {
+        // Grok starts repo-local MCP servers, hooks and skills only in a trusted folder. The tab's
+        // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
+        // `~/.grok/trusted_folders.toml`.
+        cmd.env("GROK_FOLDER_TRUST", "0");
+    }
 
     if let Some(sess) = session {
         cmd.env("DESIGNOS_SESSION_DIR", sess.session_dir.as_os_str());
@@ -2118,18 +2305,13 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
 
     if let Ok(exe) = std::env::current_exe() {
         cmd.env("DESIGNOS_BIN", exe.as_os_str());
-        let mcp_bin = exe.with_file_name(if cfg!(windows) { "designos-mcp.exe" } else { "designos-mcp" });
-        cmd.env("DESIGNOS_MCP_BIN", mcp_bin.as_os_str());
-    } else {
-        cmd.env("DESIGNOS_MCP_BIN", "designos-mcp");
     }
+    cmd.env("DESIGNOS_MCP_BIN", designos_mcp_binary().as_os_str());
     if let Some(fp) = file_path {
         cmd.env("DESIGNOS_FILE", fp.as_os_str());
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        cmd.env("DESIGNOS_WORKSPACE", cwd.as_os_str());
-        cmd.cwd(cwd);
-    }
+    cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
+    cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
 
     let home = std::env::var("HOME").unwrap_or_default();
     let mut extra_paths: Vec<String> = Vec::new();
@@ -2431,6 +2613,9 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), rect.max);
 
         render_vt100_viewport(state, ui, vp_r, "agents-left-pty");
+        if let Some(fix) = state.pending_start_fix.take() {
+            state.apply_start_fix(fix, file_path);
+        }
 
         // Floating `+` Runtime Selector Dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell` — all skipping dangerous permissions)
         if state.runtime_dropdown_open {
@@ -3390,6 +3575,9 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
     // 2. VT100 Screen Grid Renderer + Raw Keyboard Capture (full height)
     let viewport_rect = Rect::from_min_max(Pos2::new(rect.left(), tab_bar_rect.bottom()), rect.max);
     render_vt100_viewport(state, ui, viewport_rect, surface_id);
+    if let Some(fix) = state.pending_start_fix.take() {
+        state.apply_start_fix(fix, file_path);
+    }
 
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
 
@@ -3424,6 +3612,12 @@ fn extract_selected_terminal_text(screen: &vt100::Screen, sel: ((u16, u16), (u16
 }
 
 fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: Rect, surface_id: &'static str) {
+    if let Some(failure) = state.active_tab().and_then(|t| t.start_failure.clone()) {
+        if let Some(fix) = agent_start_failure::paint(ui, viewport_rect, &failure, surface_id) {
+            state.pending_start_fix = Some(fix);
+        }
+        return;
+    }
     let p = ui.painter().clone();
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
 
@@ -4945,10 +5139,11 @@ Done!
         let agy = build_agent_shell_cmd("/bin/bash", AgentCliPreset::Antigravity.cli_launch_command());
         let agy_args: Vec<String> = agy.get_argv().iter().map(|a| a.to_string_lossy().into_owned()).collect();
         let agy_joined = agy_args.join(" ");
-        assert!(
-            agy_joined.contains("agy") && agy_joined.contains("||") && agy_joined.contains("antigravity"),
-            "Antigravity keeps agy||antigravity: {agy_joined}"
-        );
+        assert!(agy_joined.contains("agy --dangerously-skip-permissions"), "Antigravity runs agy: {agy_joined}");
+        if !cfg!(windows) {
+            assert!(agy_joined.contains("exec agy"), "Antigravity execs agy so the tab ends with it: {agy_joined}");
+        }
+        assert!(!agy_joined.contains("antigravity"), "no antigravity IDE fallback: {agy_joined}");
         assert!(!agy_joined.contains("|| exec"), "Antigravity must not exec a login shell: {agy_joined}");
         assert!(!agy_joined.contains("exec \"/bin/bash\""));
     }
@@ -5028,6 +5223,507 @@ Done!
         assert!(!bytes.contains(&0x07), "BEL must not reach the PTY: {bytes:?}");
         let cr_positions: Vec<usize> = bytes.iter().enumerate().filter(|(_, b)| **b == b'\r').map(|(i, _)| i).collect();
         assert_eq!(cr_positions, vec![bytes.len().saturating_sub(1)], "no '\\r' except the final Enter: {bytes:?}");
+        kill_tabs(&mut st);
+    }
+
+    /// Every flag `agy --help` lists in Antigravity CLI 1.4.2 (`agy mcp` is a subcommand, not a flag).
+    const AGY_1_4_2_FLAGS: &[&str] = &[
+        "--add-dir",
+        "--agent",
+        "-c",
+        "--continue",
+        "--conversation",
+        "--dangerously-skip-permissions",
+        "--disable-slash-commands",
+        "--effort",
+        "-i",
+        "--input-format",
+        "--json-schema",
+        "--log-file",
+        "--mode",
+        "--model",
+        "--new-project",
+        "--output-format",
+        "-p",
+        "--print",
+        "--print-timeout",
+        "--project",
+        "--prompt",
+        "--prompt-interactive",
+        "--remote-control",
+        "--sandbox",
+    ];
+
+    /// Every option `grok --help` lists in Grok Build 1.0.62.
+    const GROK_1_0_62_FLAGS: &[&str] = &[
+        "--agent",
+        "--agents",
+        "--allow",
+        "--always-approve",
+        "-c",
+        "--continue",
+        "--cwd",
+        "--debug",
+        "--debug-file",
+        "--deny",
+        "--disable-web-search",
+        "--disallowed-tools",
+        "--fork-session",
+        "--fullscreen",
+        "-h",
+        "--help",
+        "--include-partial-messages",
+        "--json-schema",
+        "--leader-socket",
+        "-m",
+        "--model",
+        "--max-turns",
+        "--minimal",
+        "--no-alt-screen",
+        "--no-plan",
+        "--no-subagents",
+        "--oauth",
+        "--output-format",
+        "-p",
+        "--single",
+        "--permission-mode",
+        "--prompt-file",
+        "--prompt-json",
+        "-r",
+        "--resume",
+        "--reasoning-effort",
+        "--restore-code",
+        "--rules",
+        "-s",
+        "--session-id",
+        "--sandbox",
+        "--system-prompt-override",
+        "--tools",
+        "-v",
+        "--version",
+        "--verbatim",
+        "-w",
+        "--worktree",
+        "--worktree-ref",
+    ];
+
+    fn unknown_flags(command: &str, allowed: &[&str]) -> Vec<String> {
+        command
+            .split_whitespace()
+            .map(|t| t.trim_matches(|c| c == '"' || c == '\''))
+            .filter(|t| t.starts_with('-'))
+            .filter(|t| !allowed.contains(t))
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn unknown_agy_flags(command: &str) -> Vec<String> {
+        unknown_flags(command, AGY_1_4_2_FLAGS)
+    }
+
+    #[test]
+    fn antigravity_launch_uses_only_flags_agy_1_4_2_accepts() {
+        let interactive = AgentCliPreset::Antigravity.cli_launch_command();
+        assert_eq!(unknown_agy_flags(interactive), Vec::<String>::new(), "tab launch: {interactive}");
+        assert!(!interactive.contains("--mcp-config"), "agy has no --mcp-config: {interactive}");
+        assert!(interactive.contains("--add-dir \"$DESIGNOS_SESSION_DIR\""), "session plugin dir must be added: {interactive}");
+
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let one_shot = build_real_cli_command(AgentCliPreset::Antigravity, "Check parity", live_spec, sel_json);
+        assert_eq!(unknown_agy_flags(&one_shot), Vec::<String>::new(), "one-shot launch: {one_shot}");
+        assert!(!one_shot.contains("--mcp-config"), "agy has no --mcp-config: {one_shot}");
+        assert!(one_shot.contains("--add-dir '/tmp/designos-session-x'"), "session plugin dir must be added: {one_shot}");
+    }
+
+    #[test]
+    fn antigravity_session_gets_a_workspace_plugin_carrying_the_designos_mcp_server() {
+        let mut st = TerminalState::for_tab(731);
+        let mut doc = Document::new("Agy Plugin File");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/agy-plugin-file.designos")));
+
+        let plugin_dir = st.session_dir.join(".agents").join("plugins").join("designos");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(plugin_dir.join("plugin.json")).expect("plugin.json")).expect("parse plugin.json");
+        assert_eq!(manifest["name"].as_str(), Some("designos"));
+
+        let plugin_mcp = std::fs::read_to_string(plugin_dir.join("mcp_config.json")).expect("plugin mcp_config.json");
+        let shared_mcp = std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json");
+        assert_eq!(plugin_mcp, shared_mcp, "plugin and --mcp-config consumers must see the same server");
+        let parsed: serde_json::Value = serde_json::from_str(&plugin_mcp).expect("parse");
+        assert!(parsed["mcpServers"]["designos"]["command"].as_str().is_some());
+        assert_eq!(parsed["mcpServers"]["designos"]["env"]["DESIGNOS_FILE"].as_str(), Some("/tmp/agy-plugin-file.designos"));
+    }
+
+    #[test]
+    fn grok_launch_uses_only_flags_grok_1_0_62_accepts() {
+        let interactive = AgentCliPreset::Grok.cli_launch_command();
+        assert_eq!(unknown_flags(interactive, GROK_1_0_62_FLAGS), Vec::<String>::new(), "tab launch: {interactive}");
+        assert!(!interactive.contains("--mcp-config"), "grok has no --mcp-config: {interactive}");
+        assert!(interactive.contains("--cwd \"$DESIGNOS_SESSION_DIR\""), "grok reads the session project config from its cwd: {interactive}");
+
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let one_shot = build_real_cli_command(AgentCliPreset::Grok, "Build card", live_spec, sel_json);
+        assert_eq!(unknown_flags(&one_shot, GROK_1_0_62_FLAGS), Vec::<String>::new(), "one-shot launch: {one_shot}");
+        assert!(!one_shot.contains("--mcp-config"), "grok has no --mcp-config: {one_shot}");
+        assert!(one_shot.contains("--cwd '/tmp/designos-session-x'"), "{one_shot}");
+        assert!(one_shot.contains("GROK_FOLDER_TRUST='0'"), "{one_shot}");
+    }
+
+    #[test]
+    fn grok_session_gets_a_project_config_with_the_designos_mcp_server() {
+        let mut st = TerminalState::for_tab(732);
+        let mut doc = Document::new("Grok Project Config File");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/grok \"quoted\" file.designos")));
+
+        let toml = std::fs::read_to_string(st.session_dir.join(".grok").join("config.toml")).expect(".grok/config.toml");
+        assert!(toml.contains("[mcp_servers.designos]\n"), "{toml}");
+        assert!(toml.contains("[mcp_servers.designos.env]\n"), "{toml}");
+        assert!(toml.contains("command = \""), "{toml}");
+        assert!(toml.contains("args = [\"--workspace\", \""), "{toml}");
+        assert!(toml.contains(&format!("DESIGNOS_SESSION_DIR = {}", serde_json::to_string(&st.session_dir.display().to_string()).unwrap())), "{toml}");
+        assert!(toml.contains(r#"DESIGNOS_FILE = "/tmp/grok \"quoted\" file.designos""#), "{toml}");
+    }
+
+    #[test]
+    fn grok_pty_env_disables_folder_trust_only_for_grok() {
+        let st = TerminalState::for_tab(733);
+        let env = st.session_env();
+        let grok_env = |preset| {
+            let mut cmd = CommandBuilder::new("true");
+            configure_pty_env_with_session(&mut cmd, preset, None, Some(&env));
+            cmd.get_env("GROK_FOLDER_TRUST").map(|v| v.to_string_lossy().into_owned())
+        };
+        assert_eq!(grok_env(AgentCliPreset::Grok).as_deref(), Some("0"));
+        assert_eq!(grok_env(AgentCliPreset::Claude), None);
+        assert_eq!(grok_env(AgentCliPreset::Antigravity), None);
+    }
+
+    /// Quoted items of the TOML list that follows `key=[` in a Codex `-c` override.
+    fn codex_list_override(launch: &str, key: &str) -> Vec<String> {
+        let start = launch.find(&format!("{key}=[")).unwrap_or_else(|| panic!("no {key} override in: {launch}")) + key.len() + 2;
+        let end = start + launch[start..].find(']').expect("closing bracket");
+        launch[start..end].split(',').map(|item| item.trim().trim_matches(|c| c == '"' || c == '\'').to_string()).filter(|item| !item.is_empty()).collect()
+    }
+
+    #[test]
+    fn codex_tab_forwards_the_session_env_and_workspace_to_designos_mcp() {
+        // Codex starts an MCP child with a scrubbed env: only `env` / `env_vars` entries reach it.
+        // Verified against codex 0.163.0 with a stub server that dumps its environment.
+        let launch = AgentCliPreset::Codex.cli_launch_command();
+        let forwarded = codex_list_override(launch, "mcp_servers.designos.env_vars");
+        let args = codex_list_override(launch, "mcp_servers.designos.args");
+        assert_eq!(args.first().map(String::as_str), Some("--workspace"), "{launch}");
+        assert!(launch.contains("$DESIGNOS_WORKSPACE"), "workspace arg must come from the session env: {launch}");
+
+        let mut st = TerminalState::for_tab(734);
+        let mut doc = Document::new("Codex Env File");
+        let page = doc.add_page("Page 1");
+        let file = std::env::temp_dir().join("codex-env-file.designos");
+        st.sync_live_file_context(&doc, page, &[], Some(&file));
+        let env = st.session_env();
+        let mut cmd = CommandBuilder::new("true");
+        configure_pty_env_with_session(&mut cmd, AgentCliPreset::Codex, Some(&file), Some(&env));
+        let pty_env: std::collections::HashMap<String, String> = cmd.iter_extra_env_as_str().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+
+        // Every variable designos-mcp reads to find the live session must be forwarded.
+        for needed in [
+            "DESIGNOS_SESSION_DIR",
+            "DESIGNOS_LIVE_CANVAS",
+            "DESIGNOS_LIVE_DOC_SYNC",
+            "DESIGNOS_LIVE_DOC_PATCH",
+            "DESIGNOS_LIVE_SPEC",
+            "DESIGNOS_CONTEXT_JSON",
+            "DESIGNOS_TARGET_PAGE_ID",
+        ] {
+            assert!(forwarded.iter().any(|f| f == needed), "{needed} not forwarded: {forwarded:?}");
+            assert!(pty_env.contains_key(needed), "{needed} missing from the PTY env");
+        }
+        assert_eq!(pty_env.get("DESIGNOS_WORKSPACE").map(String::as_str), file.parent().and_then(|p| p.to_str()), "workspace is the file's folder");
+
+        // Stub Codex: starts the MCP child with only the forwarded vars, as the real one does.
+        let patch = std::path::PathBuf::from(&pty_env["DESIGNOS_LIVE_DOC_PATCH"]);
+        let _ = std::fs::remove_file(&patch);
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(r#"printf '{"edit":1}\n' >> "$DESIGNOS_LIVE_DOC_PATCH""#)
+            .env_clear()
+            .envs(forwarded.iter().filter_map(|k| pty_env.get(k).map(|v| (k.clone(), v.clone()))))
+            .status()
+            .expect("run stub mcp child");
+        assert!(status.success());
+        assert_eq!(std::fs::read_to_string(&patch).expect("doc-patch.jsonl written"), "{\"edit\":1}\n");
+    }
+
+    #[test]
+    fn pty_cwd_is_never_root_and_agent_clis_start_in_the_session_dir() {
+        let session = std::path::Path::new("/tmp/designos-sessions/cwd-case");
+        let files_folder = std::path::PathBuf::from("/Users/someone/designs");
+        // Agent CLIs discover project config, skills and AGENTS.md from their cwd: the session dir.
+        for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok] {
+            assert_eq!(resolve_pty_cwd(preset, Some(session), files_folder.clone()), session, "{preset:?}");
+        }
+        // A shell tab opens in the file's folder.
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), files_folder.clone()), files_folder);
+        // A bundle launched from Finder has cwd `/`: never use it.
+        let root = std::path::PathBuf::from("/");
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, Some(session), root.clone()), session);
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Claude, None, root.clone()), std::env::temp_dir());
+        assert_eq!(resolve_pty_cwd(AgentCliPreset::Shell, None, root), std::env::temp_dir());
+    }
+
+    #[test]
+    fn spawned_agent_env_sets_cwd_to_the_session_dir() {
+        let st = TerminalState::for_tab(735);
+        let env = st.session_env();
+        let mut agent = CommandBuilder::new("true");
+        configure_pty_env_with_session(&mut agent, AgentCliPreset::Claude, None, Some(&env));
+        assert_eq!(agent.get_cwd().map(std::path::PathBuf::from), Some(st.session_dir.clone()));
+        let file = std::env::temp_dir().join("cwd-case-file.designos");
+        let mut shell = CommandBuilder::new("true");
+        configure_pty_env_with_session(&mut shell, AgentCliPreset::Shell, Some(&file), Some(&env));
+        assert_eq!(shell.get_cwd().map(std::path::PathBuf::from), Some(std::env::temp_dir()));
+    }
+
+    #[test]
+    fn session_skill_and_instructions_are_laid_out_where_every_cli_discovers_them() {
+        let mut st = TerminalState::for_tab(736);
+        let mut doc = Document::new("Skill Layout File");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], None);
+        for rel in [".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md", "AGENTS.md"] {
+            let text = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
+            assert!(text.contains("designos-studio") && text.contains("Skill Layout File"), "{rel}: {text}");
+        }
+    }
+
+    fn read_json(path: &std::path::Path) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))).expect("valid json")
+    }
+
+    /// Runs one hook command through `sh -c`, as every CLI does, and returns its stdout.
+    fn run_hook_command(command: &str) -> String {
+        let out = std::process::Command::new("sh").arg("-c").arg(command).output().expect("run hook");
+        assert!(out.status.success(), "hook failed: {command}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn status_state(session_dir: &std::path::Path) -> Option<String> {
+        let raw = std::fs::read_to_string(session_dir.join("agent-status.json")).ok()?;
+        serde_json::from_str::<serde_json::Value>(&raw).ok()?.get("state")?.as_str().map(str::to_string)
+    }
+
+    fn provisioned_session(tab: u64) -> TerminalState {
+        let mut st = TerminalState::for_tab(tab);
+        let mut doc = Document::new("Hooks File");
+        let page = doc.add_page("Page 1");
+        let a = doc.add_page("Page 2");
+        st.sync_live_file_context(&doc, page, &[a], None);
+        let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+        st
+    }
+
+    #[test]
+    fn claude_hooks_file_is_a_valid_settings_file_and_the_launch_loads_it() {
+        assert!(
+            AgentCliPreset::Claude.cli_launch_command().contains("--settings \"$DESIGNOS_SESSION_DIR/hooks.json\""),
+            "{}",
+            AgentCliPreset::Claude.cli_launch_command()
+        );
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let one_shot = build_real_cli_command(AgentCliPreset::Claude, "hi", live_spec, sel_json);
+        let hooks_file = live_spec.parent().unwrap().join("hooks.json");
+        assert!(one_shot.contains(&format!("--settings '{}'", hooks_file.display())), "{one_shot}");
+
+        let st = provisioned_session(741);
+        let settings = read_json(&st.session_dir.join("hooks.json"));
+        let top: Vec<&String> = settings.as_object().unwrap().keys().collect();
+        assert_eq!(top, vec!["hooks"], "a --settings file takes Claude's settings keys only");
+        let hooks = settings["hooks"].as_object().unwrap();
+        for event in ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop"] {
+            let groups = hooks.get(event).unwrap_or_else(|| panic!("{event} missing")).as_array().unwrap();
+            let handler = &groups[0]["hooks"][0];
+            assert_eq!(handler["type"].as_str(), Some("command"), "{event}");
+            assert!(handler["command"].as_str().is_some(), "{event}");
+        }
+    }
+
+    #[test]
+    fn session_hooks_drive_agent_status_from_working_to_done_in_every_supported_cli() {
+        let st = provisioned_session(742);
+        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let grok = read_json(&st.session_dir.join(".grok").join("hooks").join("designos-status.json"));
+        assert_eq!(
+            claude["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
+            grok["hooks"].as_object().unwrap().keys().collect::<Vec<_>>(),
+            "Grok loads the same events as Claude"
+        );
+        let agy = read_json(&st.session_dir.join(".agents").join("hooks.json"));
+
+        let cmd = |v: &serde_json::Value, event: &str| v["hooks"][event][0]["hooks"][0]["command"].as_str().unwrap().to_string();
+        let agy_flat = |event: &str| agy["designos-status"][event][0]["command"].as_str().unwrap_or_else(|| panic!("agy {event}")).to_string();
+
+        // Claude and Grok: prompt submitted -> working, turn over -> done.
+        for (name, prompt, stop) in
+            [("claude", cmd(&claude, "UserPromptSubmit"), cmd(&claude, "Stop")), ("grok", cmd(&grok, "UserPromptSubmit"), cmd(&grok, "Stop"))]
+        {
+            let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+            run_hook_command(&prompt);
+            assert_eq!(status_state(&st.session_dir).as_deref(), Some("working"), "{name}");
+            run_hook_command(&stop);
+            assert_eq!(status_state(&st.session_dir).as_deref(), Some("done"), "{name}");
+        }
+        // Antigravity: model call -> working, execution loop end -> done; handlers answer with a JSON object.
+        let _ = std::fs::remove_file(st.session_dir.join("agent-status.json"));
+        let reply = run_hook_command(&agy_flat("PreInvocation"));
+        assert!(serde_json::from_str::<serde_json::Value>(reply.trim()).map(|v| v.is_object()).unwrap_or(false), "agy hook reply: {reply:?}");
+        assert_eq!(status_state(&st.session_dir).as_deref(), Some("working"), "agy");
+        run_hook_command(&agy_flat("Stop"));
+        assert_eq!(status_state(&st.session_dir).as_deref(), Some("done"), "agy");
+    }
+
+    #[test]
+    fn prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection() {
+        let st = provisioned_session(743);
+        let prompt_command = |v: &serde_json::Value| v["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap().to_string();
+
+        // Grok parses any stdout starting with `{` as a hook decision and discards an allowing
+        // hook's context, so its prompt hook must print nothing.
+        let grok = read_json(&st.session_dir.join(".grok").join("hooks").join("designos-status.json"));
+        assert_eq!(run_hook_command(&prompt_command(&grok)), "", "a Grok prompt hook must not print");
+
+        // Claude reads `hookSpecificOutput.additionalContext`: the page, never the selection.
+        let claude = read_json(&st.session_dir.join("hooks.json"));
+        let printed = run_hook_command(&prompt_command(&claude));
+        let reply: serde_json::Value = serde_json::from_str(printed.trim()).expect("Claude hook prints decision json");
+        let out = &reply["hookSpecificOutput"];
+        assert_eq!(out["hookEventName"].as_str(), Some("UserPromptSubmit"));
+        let context = out["additionalContext"].as_str().expect("additionalContext");
+        assert!(context.contains("Hooks File") && context.contains("Page 1"), "{context}");
+        assert!(!context.contains("selected_node_ids"), "owner ruling: the selection is never auto-injected: {context}");
+        assert_eq!(reply.as_object().unwrap().len(), 1, "no decision keys that could block the prompt: {printed}");
+        // context.json (with the selection) stays on disk for the agent to read when asked.
+        assert!(read_json(&st.context_json_path).get("selected_node_ids").is_some());
+    }
+
+    #[test]
+    fn agent_chat_codex_command_carries_the_same_mcp_overrides_as_the_tab() {
+        let tab = AgentCliPreset::Codex.cli_launch_command();
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let chat = build_real_cli_command(AgentCliPreset::Codex, "Audit layout", live_spec, sel_json);
+        assert!(chat.contains("codex --dangerously-bypass-approvals-and-sandbox exec"), "{chat}");
+        for key in ["mcp_servers.designos.args", "mcp_servers.designos.env_vars"] {
+            assert_eq!(codex_list_override(&chat, key), codex_list_override(tab, key), "{key} differs between tab and chat: {chat}");
+        }
+        assert!(chat.contains("mcp_servers.designos.command=\"'\"$DESIGNOS_MCP_BIN\"'\""), "{chat}");
+        assert!(chat.contains("--workspace") && chat.contains("$DESIGNOS_WORKSPACE"), "{chat}");
+    }
+
+    /// A state whose stub agent has exited but whose exit the terminal has not yet observed: the
+    /// bridge is not polled here, so each test decides the spawn time the exit is judged against.
+    fn exited_stub_state() -> TerminalState {
+        let mut st = TerminalState::default();
+        spawn_stub_exiting_agent_into(&mut st);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while st.active_tab_mut().unwrap().is_alive() {
+            assert!(std::time::Instant::now() < deadline, "stub agent must exit");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        st
+    }
+
+    #[test]
+    fn agent_that_exits_within_the_window_reports_a_start_failure_with_its_last_output() {
+        let mut st = exited_stub_state();
+        // A loaded CI runner can take longer than the window to start the shell; the window itself
+        // is covered by the next test and by `counts_as_failed_start`.
+        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
+        let _ = st.poll_live_agent_bridge();
+        let failure = st.active_tab().and_then(|t| t.start_failure.clone()).expect("start failure recorded");
+        assert_eq!(failure.preset, AgentCliPreset::Claude);
+        assert_eq!(failure.exit_code, Some(1));
+        assert!(failure.output_tail.iter().any(|l| l.contains("STUB-AGENT-EXIT")), "{:?}", failure.output_tail);
+        // The stub stands in for `claude`: whether the real binary is on this machine's PATH decides the cause.
+        if AgentCliPreset::Claude.is_installed() {
+            assert_eq!(failure.cause, agent_start_failure::StartFailureCause::ExitedEarly);
+            assert_eq!(failure.fix, FixAction::OpenShell);
+        } else {
+            assert_eq!(failure.cause, agent_start_failure::StartFailureCause::NotInstalled);
+            assert!(matches!(failure.fix, FixAction::OpenInstallPage(_)));
+        }
+    }
+
+    #[test]
+    fn agent_that_exits_after_the_window_is_not_a_start_failure() {
+        let mut st = exited_stub_state();
+        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().unwrap().start_failure.is_none());
+        assert!(st.active_tab().unwrap().exited_notice_shown, "the ordinary exit notice still shows");
+    }
+
+    #[test]
+    fn start_fixes_open_a_shell_or_run_the_login_command() {
+        let mut st = TerminalState::default();
+        st.apply_start_fix(FixAction::OpenShell, None);
+        assert_eq!(st.tabs.last().map(|t| t.spawn_preset), Some(AgentCliPreset::Shell));
+
+        st.apply_start_fix(FixAction::RunLogin("echo LOGIN-RAN-HERE"), None);
+        let tab = st.tabs.last().expect("login tab");
+        assert_eq!(tab.title, "echo LOGIN-RAN-HERE (login)");
+        assert_eq!(tab.spawn_preset, AgentCliPreset::Shell, "a login is not an agent tab");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+        let mut shown = false;
+        while std::time::Instant::now() < deadline && !shown {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            shown = st.tabs.last().and_then(|t| t.raw_log.lock().ok().map(|l| l.contains("LOGIN-RAN-HERE"))).unwrap_or(false);
+        }
+        assert!(shown, "login command output never reached the tab");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = exited_stub_state();
+        // A fixed diagnosis whose fix is `Open a shell`; the install-page fix would open a browser.
+        let tab = st.active_tab_mut().unwrap();
+        tab.start_failure = Some(agent_start_failure::diagnose(AgentCliPreset::Claude, true, Some(1), "error: unexpected argument '--x' found\n"));
+        // The exit is already handled, so the next poll keeps this diagnosis instead of making its own.
+        tab.exited_notice_shown = true;
+        let tabs_before = st.tabs.len();
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 800.0));
+        let frame = |st: &mut TerminalState, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                let _ = show_left(st, ui, panel_rect, None);
+            });
+        };
+        // The button's rectangle is read again before every event so the click follows the layout.
+        let button_center = |ctx: &egui::Context| -> Pos2 {
+            let btn: Rect = ctx
+                .data(|d| d.get_temp(Id::new(("test-rect", "agents-start-failure-fix-agents-left-pty".to_string()))))
+                .expect("fix button painted in the Agents panel");
+            btn.center()
+        };
+        frame(&mut st, vec![]);
+        frame(&mut st, vec![]);
+        let at = button_center(&ctx);
+        frame(&mut st, vec![egui::Event::PointerMoved(at)]);
+        let at = button_center(&ctx);
+        frame(&mut st, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let at = button_center(&ctx);
+        frame(&mut st, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        frame(&mut st, vec![]);
+        assert_eq!(st.tabs.len(), tabs_before + 1, "the fix must open a tab (status: {:?}, pending: {:?})", st.status_msg, st.pending_start_fix);
+        assert_eq!(st.tabs.last().map(|t| t.spawn_preset), Some(AgentCliPreset::Shell));
         kill_tabs(&mut st);
     }
 }
