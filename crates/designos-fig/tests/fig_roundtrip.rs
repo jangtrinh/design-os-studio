@@ -1838,3 +1838,133 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
     let large_doc = import_fig_node_changes(&large_changes, "PassthroughLarge").expect("import large");
     verify_doc(&large_doc, "large_file_5000_plus");
 }
+
+/// `objectAnimations[].transitionType` and `symbolLinks[].displayText` are matched by exact schema
+/// name on export; a stray space in either name drops the field on the way out.
+#[test]
+fn typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_text() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 120.0, "y": 60.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = Value::Array(vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "TransitionDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node(
+            (1, 1),
+            (0, 1),
+            "!",
+            "SLIDE",
+            "ExitSlide",
+            json!({
+                "objectAnimations": [
+                    {
+                        "target": g(1, 2),
+                        "transitionType": "SLIDE_OUT_TO_LEFT",
+                        "transitionDuration": 0.4,
+                        "phase": "OUT"
+                    }
+                ]
+            }),
+        ),
+        node((1, 2), (1, 1), "!", "INTERACTIVE_SLIDE_ELEMENT", "ExitingWidget", json!({})),
+        node(
+            (1, 3),
+            (0, 1),
+            "\"",
+            "SYMBOL",
+            "LinkedComponent",
+            json!({
+                "symbolLinks": [
+                    {"uri": "https://example.com/docs", "displayName": "Docs", "displayText": "Read"}
+                ]
+            }),
+        ),
+    ]);
+
+    let doc = import_fig_node_changes(&changes, "TransitionDoc").expect("import node changes");
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+
+    let metadata_json = |d: &Document, name: &str, key: &str| -> Value {
+        let raw = find(d, name).fig_metadata.get(key).unwrap_or_else(|| panic!("{name} lost fig_metadata[{key}]"));
+        serde_json::from_str(raw).unwrap_or_else(|e| panic!("{name} fig_metadata[{key}] is not JSON: {e}"))
+    };
+
+    assert_eq!(metadata_json(&doc, "ExitSlide", "objectAnimations")[0]["transitionType"], "SLIDE_OUT_TO_LEFT", "fixture sanity");
+    assert_eq!(metadata_json(&doc, "LinkedComponent", "symbolLinks")[0]["displayText"], "Read", "fixture sanity");
+
+    assert_eq!(
+        metadata_json(&rt, "ExitSlide", "objectAnimations")[0]["transitionType"],
+        "SLIDE_OUT_TO_LEFT",
+        "objectAnimations transitionType after round-trip"
+    );
+    assert_eq!(metadata_json(&rt, "LinkedComponent", "symbolLinks")[0]["displayText"], "Read", "symbolLinks displayText after round-trip");
+    for (name, key) in [("ExitSlide", "objectAnimations"), ("LinkedComponent", "symbolLinks")] {
+        assert_eq!(metadata_json(&rt, name, key), metadata_json(&doc, name, key), "{name} fig_metadata[{key}] changed across export + import");
+    }
+}
+
+/// The slot flags and the slot content guid have typed document fields, so the passthrough bag must not
+/// hold a second copy: a stale copy would bring a cleared flag back on the next export.
+#[test]
+fn slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_metadata() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 120.0, "y": 60.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = Value::Array(vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "SlotDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        node((1, 1), (0, 1), "!", "FRAME", "SlotHost", json!({"isSlot": true})),
+        node((1, 2), (0, 1), "\"", "FRAME", "SlotCard", json!({"isSlotContent": true, "jsonSerialized": {"slot-content-id": {"guid": g(9, 9)}}})),
+    ]);
+    let mut doc = import_fig_node_changes(&changes, "SlotDoc").expect("import node changes");
+
+    assert!(find(&doc, "SlotHost").component.is_slot);
+    assert!(find(&doc, "SlotCard").component.is_slot_content);
+    assert_eq!(find(&doc, "SlotCard").component.slot_content_id.as_deref(), Some("9:9"));
+    for name in ["SlotHost", "SlotCard"] {
+        for key in ["isSlot", "isSlotContent", "jsonSerialized"] {
+            assert!(!find(&doc, name).fig_metadata.contains_key(key), "{name}: {key} is typed, it must not also sit in fig_metadata");
+        }
+    }
+
+    let (host, card) = (find(&doc, "SlotHost").id, find(&doc, "SlotCard").id);
+    doc.get_mut(host).expect("host node").component.is_slot = false;
+    let card_component = &mut doc.get_mut(card).expect("card node").component;
+    card_component.is_slot_content = false;
+    card_component.slot_content_id = None;
+
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    assert!(!find(&rt, "SlotHost").component.is_slot, "cleared isSlot came back");
+    assert!(!find(&rt, "SlotCard").component.is_slot_content, "cleared isSlotContent came back");
+    assert!(find(&rt, "SlotCard").component.slot_content_id.is_none(), "cleared slot content id came back");
+}

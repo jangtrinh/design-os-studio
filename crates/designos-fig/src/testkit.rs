@@ -892,7 +892,7 @@ pub fn figma_like_schema() -> Schema {
             "MOVE_OUT_TO_BOTTOM",
             "SMART_ANIMATE",
             "SCROLL_ANIMATE",
-            " SLIDE_OUT_TO_LEFT",
+            "SLIDE_OUT_TO_LEFT",
             "SLIDE_OUT_TO_RIGHT",
             "SLIDE_OUT_TO_TOP",
             "SLIDE_OUT_TO_BOTTOM",
@@ -1055,7 +1055,7 @@ pub fn figma_like_schema() -> Schema {
     let slink = b.define("SymbolLink", DefKind::Message);
     b.field(slink, "uri", nat(String), false, 1);
     b.field(slink, "displayName", nat(String), false, 2);
-    b.field(slink, " displayText", nat(String), false, 3);
+    b.field(slink, "displayText", nat(String), false, 3);
 
     let wevt = b.define("WidgetEvent", DefKind::Message);
     b.field(wevt, "eventId", nat(String), false, 1);
