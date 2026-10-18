@@ -198,3 +198,30 @@ fn board_kinds_through_the_cpu_fallback_match_cpu() {
     let c = compare(&mut g, "board_fallback", &doc, page, vp, (1000, 800), 8);
     assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
 }
+
+#[test]
+fn outside_stroke_with_imported_outer_disc_keeps_fill_in_centre() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.get_mut(t.page).unwrap().kind = NodeKind::Page { background: Color::rgb(0x20, 0x20, 0x20) };
+    let e = t.add(None, |id| Node::ellipse(id, Rect::new(6.0, 6.0, 8.0, 8.0)));
+    let n = t.node(e);
+    n.fills = vec![Paint::solid(Color::rgb(0xD9, 0x3B, 0x2A))];
+    n.stroke.paints = vec![Paint::solid(Color::WHITE)];
+    n.stroke.weight = 1.5;
+    n.stroke.align = StrokeAlign::Outside;
+    let v = Vec2::new;
+    n.stroke_geometry = Some(vec![Path {
+        cmds: vec![PathCmd::MoveTo(v(-1.5, -1.5)), PathCmd::LineTo(v(9.5, -1.5)), PathCmd::LineTo(v(9.5, 9.5)), PathCmd::LineTo(v(-1.5, 9.5)), PathCmd::Close],
+        fill_rule: FillRule::NonZero,
+    }]);
+    let c = compare(&mut g, "outside_stroke_imported_disc", &t.doc, t.page, Viewport::default(), (20, 20), 8);
+    let center_cpu = c.cpu.pixel(10, 10).unwrap();
+    let center_gpu = c.gpu.pixel(10, 10).unwrap();
+    assert_eq!([center_cpu.red(), center_cpu.green(), center_cpu.blue()], [0xD9, 0x3B, 0x2A], "CPU centre must keep red fill");
+    assert!(center_gpu.red() > 200 && center_gpu.green() < 80 && center_gpu.blue() < 60, "GPU centre must keep red fill, got {center_gpu:?}");
+    let ring_gpu = c.gpu.pixel(5, 10).unwrap();
+    assert!(ring_gpu.red() > 240 && ring_gpu.green() > 240 && ring_gpu.blue() > 240, "GPU outside ring must be white, got {ring_gpu:?}");
+    assert_eq!(c.report_aa.mismatched, 0, "{:?}", c.report_aa);
+    assert!(c.report.ssim > 0.99, "{:?}", c.report);
+}

@@ -634,15 +634,27 @@ impl Renderer<'_> {
         if paints.is_empty() {
             return;
         }
+        let (tw, th) = (target.width(), target.height());
+        let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
         // precomputed outline: already expanded by weight and alignment
         if let Some(sp) = &sh.stroke_paths {
+            let mask = if align == designos_doc::StrokeAlign::Outside {
+                shape_mask(tw, th, sh.fill_paths(), ts).map(|mut m| {
+                    m.invert();
+                    if let Some(c) = clip {
+                        mask_mul(&mut m, c);
+                    }
+                    m
+                })
+            } else {
+                None
+            };
+            let cl = mask.as_ref().or(clip);
             for p in paints {
-                fill_paths(&self.env, target, sp, ts, n.size, p, alpha, clip);
+                fill_paths(&self.env, target, sp, ts, n.size, p, alpha, cl);
             }
             return;
         }
-        let (tw, th) = (target.width(), target.height());
-        let align = if sh.closed { n.stroke.align } else { designos_doc::StrokeAlign::Center };
 
         // per-side weights on rectangles
         if let (Some(sw), true) = (n.stroke.side_weights, sh.is_rect) {
