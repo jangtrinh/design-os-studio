@@ -63,6 +63,7 @@ pub use components::*;
 pub use dev::*;
 pub use geom::*;
 pub use history::*;
+pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
 pub use library::*;
 pub use library_ops::*;
 pub use load_repair::*;

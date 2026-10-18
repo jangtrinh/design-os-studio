@@ -77,6 +77,7 @@ impl App {
         };
         old.name = lf.name.clone();
         self.exit_version_view();
+        self.settle_pending_relayout();
         if let Err(e) = lib.save_version(&lf.id, &self.doc, None, true) {
             self.show_toast(format!("Cannot keep the current version, restore cancelled: {e}"), true);
             return;

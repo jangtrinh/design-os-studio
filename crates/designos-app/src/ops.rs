@@ -1624,6 +1624,7 @@ impl App {
             _ => io::pick_save(&self.doc.name),
         };
         let Some(path) = target else { return };
+        self.settle_pending_relayout();
         match io::save_path(&self.doc, &path) {
             Ok(p) => {
                 self.show_toast(format!("Saved {}", p.display()), false);

@@ -115,15 +115,16 @@ impl Document {
         &self.pending_relayout
     }
 
-    /// User-facing status/toast summary when [`Self::relayout_skipped_count`] is non-zero.
+    /// User-facing status/toast summary when [`Self::relayout_skipped_count`] is non-zero; it
+    /// always starts with [`RELAYOUT_NOTICE_PREFIX`].
     pub fn relayout_notice(&self) -> Option<String> {
         let n = self.pending_relayout.len();
         if n == 0 {
             None
         } else if n == 1 {
-            Some("Layout incomplete: 1 subtree skipped past budget".to_string())
+            Some(format!("{RELAYOUT_NOTICE_PREFIX}: 1 subtree skipped past budget"))
         } else {
-            Some(format!("Layout incomplete: {n} subtrees skipped past budget"))
+            Some(format!("{RELAYOUT_NOTICE_PREFIX}: {n} subtrees skipped past budget"))
         }
     }
 
@@ -148,13 +149,22 @@ impl Document {
         self.pending_relayout.len()
     }
 
-    /// Finishes all queued subtrees in bounded passes (up to 64 steps) and returns the number of
-    /// steps executed.
+    /// Finishes every queued subtree in bounded passes and returns the number of steps executed.
+    ///
+    /// A step advances a chain of nested frames by at most [`MAX_RELAYOUT_RESOLVE_DEPTH`] hops, so
+    /// how many steps a nest needs grows with its depth: the loop runs until the queue is empty
+    /// instead of for a fixed number of steps. Every step solves at least the first queued root, so
+    /// the queue keeps changing; a step that leaves it untouched would spin forever, so that
+    /// stops the loop (and leaves the subtrees counted) rather than hang the caller.
     pub fn flush_pending_relayout(&mut self) -> usize {
         let mut steps = 0;
-        while !self.pending_relayout.is_empty() && steps < 64 {
+        while !self.pending_relayout.is_empty() {
+            let before = self.pending_relayout.clone();
             self.flush_pending_relayout_step();
             steps += 1;
+            if self.pending_relayout == before {
+                break;
+            }
         }
         steps
     }
@@ -167,6 +177,10 @@ fn content_sized_axes(node: &Node) -> (bool, bool) {
     }
     node.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map_or((false, false), hugged_axes)
 }
+
+/// What every [`Document::relayout_notice`] starts with, so a caller can recognise (and retire) a
+/// toast that reported the notice.
+pub const RELAYOUT_NOTICE_PREFIX: &str = "Layout incomplete";
 
 /// Maximum number of top-down hops from the node whose size changed before deferring deeper
 /// child re-solves to [`Document::pending_relayout`].
@@ -473,5 +487,45 @@ mod tests {
         doc.flush_pending_relayout();
         assert_eq!(doc.get(deep_leaf).unwrap().transform.tx, 490.0);
         assert_eq!(doc.relayout_skipped_count(), 0);
+    }
+
+    #[test]
+    fn flush_pending_relayout_finishes_a_nest_deeper_than_sixty_four_steps() {
+        // Every lazy step advances a chain by at most MAX_RELAYOUT_RESOLVE_DEPTH hops, so 2,200
+        // nested Fill frames need 69 steps: more than the 64 the old flush allowed.
+        let depth = 2_200;
+        let mut doc = Document::new("deep-nest");
+        let page = doc.add_page("Page 1");
+        let mut frames = Vec::with_capacity(depth);
+        let mut cur = page;
+        for i in 0..depth {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 200.0, 40.0));
+            if let NodeKind::Frame(fp) = &mut f.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    ..AutoLayout::default()
+                });
+            }
+            if i > 0 {
+                f.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+            }
+            doc.insert(cur, f).unwrap();
+            frames.push(id);
+            cur = id;
+        }
+        doc.relayout_subtree(frames[0]);
+        assert_eq!(doc.relayout_skipped_count(), 0, "a consistent nest has nothing to defer");
+
+        doc.get_mut(frames[0]).unwrap().size.x = 600.0;
+        doc.relayout_subtree(frames[0]);
+        assert!(doc.relayout_skipped_count() > 0, "the nest is deeper than one relayout reaches");
+
+        doc.flush_pending_relayout();
+        assert_eq!(doc.relayout_skipped_count(), 0, "a flush that returns must leave nothing queued");
+        assert!(doc.relayout_notice().is_none());
+        assert_eq!(doc.get(*frames.last().unwrap()).unwrap().size.x, 600.0, "the innermost frame follows the outermost");
     }
 }
