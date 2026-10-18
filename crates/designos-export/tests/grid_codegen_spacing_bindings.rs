@@ -146,8 +146,7 @@ fn tailwind_splits_the_axes_for_an_equal_row_gap_of_its_own_and_joins_them_for_a
     let gap_classes = |row_px: f32| {
         let (d, g) = grid_with_row_gap(row_px, true, false, false);
         let from_tailwind: Vec<String> = classes(&tailwind_for(&d, g)).into_iter().filter(|c| c.starts_with("gap")).collect();
-        let from_react: Vec<String> =
-            classes(&react_with(&d, g, &ReactOptions { tailwind: true })).into_iter().filter(|c| c.starts_with("gap")).collect();
+        let from_react: Vec<String> = classes(&react_with(&d, g, &ReactOptions { tailwind: true })).into_iter().filter(|c| c.starts_with("gap")).collect();
         assert_eq!(from_tailwind, from_react);
         from_tailwind
     };

@@ -73,6 +73,41 @@ fn spaced(prefix: &str, px: f32, var: Option<&Variable>) -> String {
     }
 }
 
+// Largest value each stock grid utility ships with (Tailwind's default theme).
+const STOCK_GRID_COLS: usize = 12;
+const STOCK_GRID_ROWS: usize = 6;
+const STOCK_COL_START: u32 = 13;
+const STOCK_ROW_START: u32 = 7;
+const STOCK_COL_SPAN: u16 = 12;
+const STOCK_ROW_SPAN: u16 = 6;
+
+/// `grid-cols-3` for `count` tracks that are all `1fr`, while the stock class exists. Anything else,
+/// including a count past the stock scale, is an arbitrary value of the same CSS track list.
+fn template_class(prefix: &str, tracks: &[GridTrack], count: usize, stock_max: usize) -> String {
+    if grid_tracks_are_default(tracks, count) && count <= stock_max {
+        return format!("{prefix}-{count}");
+    }
+    format!("{prefix}-[{}]", tailwind_tracks_value(&grid_tracks_css(tracks, count)))
+}
+
+/// `col-start-3` for grid line `line` while the stock class exists, else `col-start-[14]`.
+fn line_class(prefix: &str, line: u32, stock_max: u32) -> String {
+    if line <= stock_max {
+        format!("{prefix}-{line}")
+    } else {
+        format!("{prefix}-[{line}]")
+    }
+}
+
+/// `col-span-2` for a span while the stock class exists, else `col-[span_14_/_span_14]`.
+fn span_class(prefix: &str, span: u16, stock_max: u16) -> String {
+    if span <= stock_max {
+        format!("{prefix}-span-{span}")
+    } else {
+        format!("{prefix}-[span_{span}_/_span_{span}]")
+    }
+}
+
 fn hex8(c: &Color, opacity: f32) -> String {
     let a = (c.a * opacity).clamp(0.0, 1.0);
     let base = format!("#{}", c.to_hex());
@@ -286,41 +321,6 @@ fn text_classes(doc: &Document, n: &Node, t: &TextProps, c: &mut Vec<String>) {
     }
     if let Some(p) = first_paint(&s.fills) {
         c.push(color_class(doc, n, "fills/0", "text", p, true));
-    }
-}
-
-// Largest value each stock grid utility ships with (Tailwind's default theme).
-const STOCK_GRID_COLS: usize = 12;
-const STOCK_GRID_ROWS: usize = 6;
-const STOCK_COL_START: u32 = 13;
-const STOCK_ROW_START: u32 = 7;
-const STOCK_COL_SPAN: u16 = 12;
-const STOCK_ROW_SPAN: u16 = 6;
-
-/// `grid-cols-3` for `count` tracks that are all `1fr`, while the stock class exists. Anything else,
-/// including a count past the stock scale, is an arbitrary value of the same CSS track list.
-fn template_class(prefix: &str, tracks: &[GridTrack], count: usize, stock_max: usize) -> String {
-    if grid_tracks_are_default(tracks, count) && count <= stock_max {
-        return format!("{prefix}-{count}");
-    }
-    format!("{prefix}-[{}]", tailwind_tracks_value(&grid_tracks_css(tracks, count)))
-}
-
-/// `col-start-3` for grid line `line` while the stock class exists, else `col-start-[14]`.
-fn line_class(prefix: &str, line: u32, stock_max: u32) -> String {
-    if line <= stock_max {
-        format!("{prefix}-{line}")
-    } else {
-        format!("{prefix}-[{line}]")
-    }
-}
-
-/// `col-span-2` for a span while the stock class exists, else `col-[span_14_/_span_14]`.
-fn span_class(prefix: &str, span: u16, stock_max: u16) -> String {
-    if span <= stock_max {
-        format!("{prefix}-span-{span}")
-    } else {
-        format!("{prefix}-[span_{span}_/_span_{span}]")
     }
 }
 
