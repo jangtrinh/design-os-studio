@@ -3,7 +3,7 @@
 //! between the two boxes. Such text is neither reported nor fixed.
 
 use super::*;
-use designos_doc::{Effect, StrokeAlign, TextRun, Vec2};
+use designos_doc::{Effect, StrokeAlign, StrokeJoin, TextRun, Vec2};
 
 /// White page; an earlier 100 x 40 rectangle at (0, 40) with no fill and a 20 px black stroke of the
 /// given alignment (the band runs x = 80..100 inside, 90..110 centred, 100..120 outside); later
@@ -93,6 +93,45 @@ fn a_stroked_line_has_no_height_but_its_stroke_still_reaches_the_text_next_to_it
     n.stroke.weight = 10.0;
     later_text(&mut f, 20.0);
     assert_eq!(audited(f), (0, 0));
+}
+
+#[test]
+fn a_stroke_given_only_by_per_side_weights_still_counts() {
+    // The renderer draws a box stroke whose `weight` is 0 when per-side weights are set.
+    let mut f = stroked_rectangle_and_text(StrokeAlign::Outside, 105.0);
+    let r = f.doc.get(f.page).unwrap().children[0];
+    let n = f.doc.get_mut(r).unwrap();
+    n.stroke.weight = 0.0;
+    n.stroke.side_weights = Some([0.0, 20.0, 0.0, 0.0]);
+    assert_eq!(audited(f), (0, 0));
+}
+
+#[test]
+fn a_mitred_corner_can_stick_out_far_but_the_corners_of_a_box_do_not() {
+    // An earlier 100 x 40 shape at (0, 40) with a 4 px outside stroke, mitre limit 10; grey text starts
+    // at x = 120, 20 px from the shape and 16 px beyond the stroke band itself.
+    let cases = [
+        (NodeKind::Star { count: 5, inner_ratio: 0.4 }, StrokeJoin::Miter, (0, 0), "a star's mitred tips can reach the text"),
+        (NodeKind::Star { count: 5, inner_ratio: 0.4 }, StrokeJoin::Round, (1, 1), "round joins stay within the band"),
+        (NodeKind::Rectangle, StrokeJoin::Miter, (1, 1), "the corners of a box reach no further than the band"),
+    ];
+    for (kind, join, expected, what) in cases {
+        let mut f = fx();
+        white_page(&mut f);
+        let r = f.rect(f.page, "Earlier", Color::WHITE);
+        resize(&mut f, r, 100.0, 40.0);
+        place(&mut f, r, 0.0, 40.0);
+        let n = f.doc.get_mut(r).unwrap();
+        n.kind = kind;
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 4.0;
+        n.stroke.align = StrokeAlign::Outside;
+        n.stroke.join = join;
+        n.stroke.miter_limit = 10.0;
+        later_text(&mut f, 120.0);
+        assert_eq!(audited(f), expected, "{what}");
+    }
 }
 
 /// White page; an earlier 4 x 4 frame that does not clip holds a text of 100 x 20 at (100, 100)
