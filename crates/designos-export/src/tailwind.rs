@@ -433,6 +433,9 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             _ => {}
         }
     }
+    if sz.cross_stretch {
+        c.push("self-stretch".into());
+    }
     if let Some(w) = size_class("w", sz.w, bound(doc, n, "width")) {
         c.push(w);
     }
@@ -733,5 +736,29 @@ mod tests {
         let t = tokens(&html, 1);
         assert!(t.iter().any(|c| c == "h-10"), "the height stays: {html}");
         assert!(!t.iter().any(|c| c.starts_with("w-")), "the grid stretches the item across its cell: {html}");
+    }
+
+    #[test]
+    fn stretch_child_keeps_its_cross_size_when_the_parent_hugs() {
+        use crate::codegen::fixture::row_with_stretch_children;
+        let (d, row, _) = row_with_stretch_children(Sizing::Hug, &[40.0]);
+        let out = tailwind_for(&d, row);
+        let child = out.lines().find(|l| l.contains("w-[30px]") || l.contains("w-7")).unwrap_or_else(|| panic!("no child line in {out}"));
+        assert!(child.contains("h-10") && child.contains("self-stretch"), "{child}");
+
+        let (d, row, _) = row_with_stretch_children(Sizing::Hug, &[20.0, 100.0]);
+        let out = tailwind_for(&d, row);
+        let children: Vec<&str> = out.lines().filter(|l| l.contains("self-stretch")).collect();
+        assert_eq!(children.len(), 2, "{out}");
+        assert!(children.iter().all(|l| l.contains("h-[100px]")), "all-stretch row must not collapse: {out}");
+    }
+
+    #[test]
+    fn stretch_child_leaves_the_cross_size_to_a_fixed_parent() {
+        use crate::codegen::fixture::row_with_stretch_children;
+        let (d, row, _) = row_with_stretch_children(Sizing::Fixed, &[40.0]);
+        let out = tailwind_for(&d, row);
+        let child = out.lines().find(|l| l.contains("self-stretch")).unwrap_or_else(|| panic!("no stretch child in {out}"));
+        assert!(!child.contains(" h-"), "{child}");
     }
 }

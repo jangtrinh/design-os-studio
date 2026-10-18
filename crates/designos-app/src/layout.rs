@@ -69,6 +69,13 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
         return false;
     };
     let horiz = al.direction != LayoutDirection::Vertical;
+    for cid in &children {
+        if let Some(old_horiz) = doc.get(*cid).and_then(|n| n.layout_child.stretched.last_parent_horiz).filter(|&old| old != horiz) {
+            if let Some(cnode) = ed.node(doc, *cid) {
+                cnode.layout_child.apply_parent_direction_change(old_horiz, horiz);
+            }
+        }
+    }
     // the one reading of a flow child (variable-bound sizes, content-sized axes) shared with the headless relayout
     let (ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
     let frame_size = doc.get(id).unwrap().size;
@@ -81,16 +88,20 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
             n.size = new_frame;
         }
     }
-    for (cid, r) in ids.iter().zip(out.rects.iter()) {
+    for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
         let n = doc.get(*cid).unwrap();
         let new_size = v2(r.w, r.h);
         let size_changed = (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3;
         let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
-        if size_changed || pos_changed {
+        let mut new_lc = n.layout_child;
+        new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
+        let lc_changed = n.layout_child != new_lc;
+        if size_changed || pos_changed || lc_changed {
             if let Some(n) = ed.node(doc, *cid) {
                 n.transform.tx = r.x;
                 n.transform.ty = r.y;
                 n.size = new_size;
+                n.layout_child = new_lc;
             }
         }
         if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) {

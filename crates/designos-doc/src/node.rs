@@ -1031,6 +1031,24 @@ fn is_default_align_self(a: &AlignSelf) -> bool {
     *a == AlignSelf::default()
 }
 
+/// Persisted record of `(natural_size, solved_size)` along an axis that was last stretched by the
+/// auto-layout solver, plus the last parent primary axis when duplicate stretch signals exist.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StretchedAxes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<(f32, f32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<(f32, f32)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_parent_horiz: Option<bool>,
+}
+
+impl StretchedAxes {
+    pub fn is_empty(&self) -> bool {
+        self.w.is_none() && self.h.is_none() && self.last_parent_horiz.is_none()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChild {
     pub absolute: bool,
@@ -1058,6 +1076,10 @@ pub struct LayoutChild {
     /// Per-child margins `[top, right, bottom, left]` in an auto-layout parent (`stackChildMarginTop/Right/Bottom/Left`, Kiwi 606..609).
     #[serde(default, skip_serializing_if = "is_zero_radii")]
     pub margin: [f32; 4],
+    /// Pre-stretch and solved dimensions so all-stretching lines can shrink back when a
+    /// sibling shrinks or is edited, including across save/reopen and direction flips.
+    #[serde(default, skip_serializing_if = "StretchedAxes::is_empty")]
+    pub stretched: StretchedAxes,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

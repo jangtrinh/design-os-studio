@@ -484,4 +484,29 @@ mod tests {
     .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 4)"####;
         assert_eq!(swiftui_for(&d, id), expected);
     }
+
+    #[test]
+    fn stretch_child_keeps_its_cross_size_when_the_parent_hugs() {
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Hug, &[40.0]);
+        let out = swiftui_for(&d, row);
+        assert!(out.contains("height: 40") && !out.contains("maxHeight"), "{out}");
+
+        let (d, row, _) = fixture::row_with_stretch_children(Sizing::Fixed, &[40.0]);
+        let out = swiftui_for(&d, row);
+        assert!(out.contains("maxHeight"), "a fixed parent still stretches the child: {out}");
+    }
+
+    #[test]
+    fn grid_stretch_child_exports_its_solved_size() {
+        // (row track, solved height): an auto row is sized by the child, a taller row is filled.
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            // Export the grid: a node exported on its own has no flow parent.
+            let (d, grid, _) = fixture::grid_stretch_child(track, false);
+            let out = swiftui_for(&d, grid);
+            assert!(out.contains(&format!("width: 30, height: {height}")), "{track:?}: {out}");
+            for banned in ["maxWidth", "maxHeight"] {
+                assert!(!out.contains(banned), "{track:?} has {banned}: {out}");
+            }
+        }
+    }
 }

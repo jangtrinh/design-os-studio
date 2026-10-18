@@ -334,6 +334,10 @@ pub(crate) struct Sizes {
     pub in_flow: bool,
     /// Whether the parent lays out in a row (main axis horizontal).
     pub row_parent: bool,
+    /// A child that stretches across a parent hugging its counter axis (`AlignSelf::Stretch` on a
+    /// non-Fill child). The parent has nothing to stretch against, so the cross axis keeps the child's
+    /// own size (`w`/`h` are never `Fill` there); web output also keeps the stretch declaration.
+    pub cross_stretch: bool,
 }
 
 /// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
@@ -370,8 +374,24 @@ fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;
-    let fill_w = in_flow && (n.layout_child.horizontal == Sizing::Fill || (grows && row_parent));
-    let fill_h = in_flow && (n.layout_child.vertical == Sizing::Fill || (grows && !row_parent));
+    // A flow parent stretches its children along its counter axis; `AlignSelf::Stretch` and counter
+    // `Sizing::Fill` are the same stretch there. A grid is different: its auto row sizes from the
+    // child, so a stretch child only fills that row and solves to its own size. Codegen therefore never
+    // turns `AlignSelf::Stretch` into a fill for a grid child and exports the solved pixels, as it does
+    // for a hug flex parent (`keeps_h`). `row_parent` only picks `grow` and the emitted stack kind.
+    let grid_parent = parent.al.is_some_and(|a| a.direction == LayoutDirection::Grid);
+    let counter_horiz = parent.al.filter(|_| in_flow && !grid_parent).map(|a| !a.primary_is_horizontal());
+    let lc = &n.layout_child;
+    // The solver sizes a stretch child to the line, and a hugging counter axis derives that line from
+    // the children, so the child's own size is what keeps the frame from collapsing.
+    let cross_stretch = in_flow
+        && lc.align_self == AlignSelf::Stretch
+        && parent.al.is_some_and(|a| a.direction != LayoutDirection::Grid && a.counter_sizing == Sizing::Hug)
+        && (if row_parent { lc.vertical } else { lc.horizontal }) != Sizing::Fill;
+    let keeps_w = cross_stretch && !row_parent;
+    let keeps_h = cross_stretch && row_parent;
+    let fill_w = in_flow && ((lc.effective_sizing(true, counter_horiz) == Sizing::Fill && !keeps_w) || (grows && row_parent));
+    let fill_h = in_flow && ((lc.effective_sizing(false, counter_horiz) == Sizing::Fill && !keeps_h) || (grows && !row_parent));
     let w = if fill_w {
         Dim::Fill
     } else if hug_w || text_w {
@@ -388,7 +408,7 @@ fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
     } else {
         Dim::Fixed(n.size.y)
     };
-    Sizes { w, h, in_flow, row_parent }
+    Sizes { w, h, in_flow, row_parent, cross_stretch }
 }
 
 /// Position offset for children that are not placed by auto layout.
@@ -709,9 +729,60 @@ pub(crate) mod fixture {
         (d, id)
     }
 
+    /// A fixed 400x300 two-column grid holding one 30x20 `AlignSelf::Stretch` rectangle, already solved.
+    /// `row_tracks` is the stored row track (`None` keeps the default auto row, which the child sizes).
+    /// `imported_fill` also stores `Sizing::Fill` on the height, as an imported `.fig` STRETCH child does.
+    /// Returns `(document, grid, child)`.
+    pub fn grid_stretch_child(row_track: Option<GridTrack>, imported_fill: bool) -> (Document, NodeId, NodeId) {
+        let mut al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+        if let Some(track) = row_track {
+            al.grid_rows = 1;
+            al.grid_row_tracks.0[0] = track;
+        }
+        let (mut d, grid) = grid_frame(al, Vec2::new(400.0, 300.0));
+        let rect = add_rect(&mut d, grid, Vec2::new(30.0, 20.0));
+        let lc = &mut d.get_mut(rect).unwrap().layout_child;
+        lc.align_self = AlignSelf::Stretch;
+        if imported_fill {
+            lc.vertical = Sizing::Fill;
+        }
+        d.relayout_subtree(grid);
+        (d, grid, rect)
+    }
+
     pub fn add_rect(d: &mut Document, parent: NodeId, size: Vec2) -> NodeId {
         let id = d.alloc_id();
         d.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, size.x, size.y))).unwrap()
+    }
+
+    /// A horizontal 200x100 auto-layout row whose counter axis is `counter_sizing`, holding one
+    /// `AlignSelf::Stretch` rectangle per entry of `heights` (each 30 wide, fixed height), already solved.
+    pub fn row_with_stretch_children(counter_sizing: Sizing, heights: &[f32]) -> (Document, NodeId, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut row = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0));
+        row.fills.clear();
+        if let NodeKind::Frame(fp) = &mut row.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                counter_align: LayoutAlign::Start,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing,
+                ..Default::default()
+            });
+        }
+        let fid = d.insert(page, row).unwrap();
+        let kids = heights
+            .iter()
+            .map(|h| {
+                let id = add_rect(&mut d, fid, Vec2::new(30.0, *h));
+                d.get_mut(id).unwrap().layout_child.align_self = AlignSelf::Stretch;
+                id
+            })
+            .collect();
+        d.relayout_subtree(fid);
+        (d, fid, kids)
     }
 
     pub fn card() -> (Document, NodeId) {
@@ -1026,5 +1097,15 @@ mod tests {
         }
         assert_eq!((sizes(&grid, Parent::root()).w, sizes(&grid, Parent::root()).h), (Dim::Hug, Dim::Hug));
         assert_eq!((web_sizes(&grid, Parent::root()).w, web_sizes(&grid, Parent::root()).h), (Dim::Fixed(120.0), Dim::Fixed(30.0)));
+    }
+
+    #[test]
+    fn grid_stretch_child_solved_sizes() {
+        // The auto row sizes from the child, so stretching fills only that row.
+        let (d, _, rect) = fixture::grid_stretch_child(None, false);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(30.0, 20.0));
+        // A row taller than the child is where a stretch changes the height.
+        let (d, _, rect) = fixture::grid_stretch_child(Some(GridTrack::Fixed(100.0)), false);
+        assert_eq!(d.get(rect).unwrap().size, Vec2::new(30.0, 100.0));
     }
 }

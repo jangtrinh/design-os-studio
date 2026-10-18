@@ -970,7 +970,12 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     pane.y += super::export::section(app, ui, pane.x0, pane.oy + pane.y, sel);
 }
 
+#[cfg(test)]
 fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
+    sizing_of_with_parent(n, horizontal, Some(false))
+}
+
+fn sizing_of_with_parent(n: &Node, horizontal: bool, counter_horizontal: Option<bool>) -> Sizing {
     if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         if al.sizing_along(horizontal) == Sizing::Hug {
             return Sizing::Hug;
@@ -981,11 +986,7 @@ fn sizing_of(n: &Node, horizontal: bool) -> Sizing {
             return Sizing::Hug;
         }
     }
-    if horizontal {
-        n.layout_child.horizontal
-    } else {
-        n.layout_child.vertical
-    }
+    n.layout_child.effective_sizing(horizontal, counter_horizontal)
 }
 
 fn set_sizing(app: &mut App, sel: &[NodeId], horizontal: bool, s: Sizing) {
@@ -1040,7 +1041,8 @@ fn resizing_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], n0: 
     sublabel(ui, pane, "Resizing");
     let opts = ["Fixed", "Hug", "Fill"].map(String::from);
     let order = [Sizing::Fixed, Sizing::Hug, Sizing::Fill];
-    let (hs, vs) = (sizing_of(n0, true), sizing_of(n0, false));
+    let counter_horiz = n0.parent.and_then(|p| app.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
+    let (hs, vs) = (sizing_of_with_parent(n0, true, counter_horiz), sizing_of_with_parent(n0, false, counter_horiz));
     if let Some(i) = dropdown(ui, pane.col(0, 0.0), "rs-h", &format!("W: {}", opts[order.iter().position(|s| *s == hs).unwrap_or(0)]), &opts) {
         set_sizing(app, sel, true, order[i]);
     }
@@ -2566,5 +2568,47 @@ mod tests {
         for key in ["margin-l", "margin-r", "margin-t", "margin-b"] {
             assert!(field_rect(&ctx, key).is_some(), "expected {key} field to render in properties panel");
         }
+}
+
+#[test]
+    fn sizing_of_reports_fill_for_a_stretch_plus_fixed_child_on_the_counter_axis() {
+        let mut n = Node::rectangle(NodeId(99), designos_doc::Rect::new(0.0, 0.0, 30.0, 20.0));
+        n.layout_child.align_self = AlignSelf::Stretch;
+        assert_eq!(sizing_of(&n, true), Sizing::Fixed);
+        assert_eq!(sizing_of(&n, false), Sizing::Fill);
+    }
+
+    #[test]
+    fn typing_dimensions_or_apply_resize_on_a_fill_or_stretch_child_ends_the_stretch() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid = app.doc.get(cid).unwrap().parent.unwrap();
+        app.doc.relayout_subtree(fid);
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(30.0, 100.0));
+
+        resize_selection(&mut app, &[cid], None, Some(45.0));
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.vertical, Sizing::Fixed);
+        assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
+        assert_eq!(n.size, v2(30.0, 45.0), "typed height must stick instead of snapping back to 100");
+    }
+
+    #[test]
+    fn setting_primary_axis_to_fill_on_stretch_plus_fixed_child_keeps_stretch_and_stretches_height() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        app.doc.get_mut(cid).unwrap().layout_child.vertical = Sizing::Fixed;
+        set_sizing(&mut app, &[cid], true, Sizing::Fill);
+        let n = app.doc.get(cid).unwrap();
+        assert_eq!(n.layout_child.horizontal, Sizing::Fill);
+        assert_eq!(n.layout_child.vertical, Sizing::Fixed);
+        assert_eq!(n.layout_child.align_self, AlignSelf::Stretch);
+        assert_eq!(n.size, v2(200.0, 100.0));
+
+        // Flipping the parent direction via update_al does not double-stretch an imported Stretch+Fill child
+        let (mut app2, cid2) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid2 = app2.doc.get(cid2).unwrap().parent.unwrap();
+        update_al(&mut app2, &[fid2], |al| al.direction = LayoutDirection::Vertical);
+        let n2 = app2.doc.get(cid2).unwrap();
+        assert_eq!(n2.size, v2(30.0, 100.0));
+        assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
     }
 }

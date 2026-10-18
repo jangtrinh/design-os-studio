@@ -79,7 +79,25 @@ impl Document {
             return None;
         }
         let (fit_w, fit_h) = content_sized_axes(raw);
-        let size = Vec2::new(if fit_w { raw.size.x } else { bound.size.x }, if fit_h { raw.size.y } else { bound.size.y });
+        let natural = raw.layout_child.natural_size(raw.size, horiz);
+        let has_w_bind = raw.variables.bindings.contains_key("width");
+        let has_h_bind = raw.variables.bindings.contains_key("height");
+        let size = Vec2::new(
+            if fit_w {
+                raw.size.x
+            } else if has_w_bind {
+                bound.size.x
+            } else {
+                natural.x
+            },
+            if fit_h {
+                raw.size.y
+            } else if has_h_bind {
+                bound.size.y
+            } else {
+                natural.y
+            },
+        );
         Some(ChildIn::from_layout_child(size, &bound.layout_child, horiz))
     }
 
@@ -129,13 +147,20 @@ impl Document {
         let own_limits = SizeLimits::from(&root_node.layout_child);
         let stroke = resolved.stroke.clone();
         let horiz = al.direction != LayoutDirection::Vertical;
+        for cid in &children {
+            if let Some(cnode) = self.get_mut(*cid) {
+                if let Some(old_horiz) = cnode.layout_child.stretched.last_parent_horiz {
+                    cnode.layout_child.apply_parent_direction_change(old_horiz, horiz);
+                }
+            }
+        }
         let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
         let out = compute_with_stroke(&al, frame, own_limits, &stroke, &kids);
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
         }
-        for (cid, r) in flow_ids.iter().zip(&out.rects) {
+        for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
             let new_size = Vec2::new(r.w, r.h);
             let (size_changed, is_auto_layout) = self
                 .get(*cid)
@@ -149,6 +174,7 @@ impl Document {
                 cnode.transform.tx = r.x;
                 cnode.transform.ty = r.y;
                 cnode.size = new_size;
+                cnode.layout_child.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
             }
             if size_changed && is_auto_layout {
                 self.relayout_top_down(*cid, hops + 1, budget);
