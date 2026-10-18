@@ -4,7 +4,7 @@
 use super::*;
 use crate::theme;
 use crate::util::*;
-use designos_doc::{AutoLayout, Color, Document, GridTrack, LayoutDirection, LayoutGrid, NodeKind, Sizing};
+use designos_doc::{AutoLayout, Color, Document, GridTrack, GridTracks, LayoutDirection, LayoutGrid, NodeKind, Sizing};
 use egui::{Color32, Painter, Pos2, Shape, Stroke};
 
 /// One resolved `(row, col)` cell in a `LayoutDirection::Grid` container (frame-local coordinates).
@@ -67,23 +67,17 @@ pub fn format_grid_track_list(al: &AutoLayout, is_col: bool) -> Vec<String> {
 fn write_grid_tracks(al: &mut AutoLayout, is_col: bool, tracks: &[GridTrack]) {
     if is_col {
         al.grid_columns = tracks.len() as u32;
-        al.grid_col_tracks = [GridTrack::default(); 8];
-        for (i, &t) in tracks.iter().take(al.grid_col_tracks.len()).enumerate() {
-            al.grid_col_tracks[i] = t;
-        }
+        al.grid_col_tracks = GridTracks::from(tracks);
     } else {
         al.grid_rows = tracks.len() as u32;
-        al.grid_row_tracks = [GridTrack::default(); 8];
-        for (i, &t) in tracks.iter().take(al.grid_row_tracks.len()).enumerate() {
-            al.grid_row_tracks[i] = t;
-        }
+        al.grid_row_tracks = GridTracks::from(tracks);
     }
 }
 
 /// Inserts a column (`is_col = true`) or row (`is_col = false`) track at `at` in one undo step.
 pub fn insert_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize, track: GridTrack) -> bool {
     let Some(n) = app.doc.get(grid_id) else { return false };
-    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) else { return false };
+    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout.clone()) else { return false };
     if al.direction != LayoutDirection::Grid {
         return false;
     }
@@ -126,7 +120,7 @@ pub fn insert_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize
 /// Deletes column (`is_col = true`) or row (`is_col = false`) track `at` and re-flows children in one undo step.
 pub fn delete_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize) -> bool {
     let Some(n) = app.doc.get(grid_id) else { return false };
-    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) else { return false };
+    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout.clone()) else { return false };
     if al.direction != LayoutDirection::Grid {
         return false;
     }
@@ -167,7 +161,7 @@ pub fn delete_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize
 /// Resizes/updates column (`is_col = true`) or row (`is_col = false`) track `idx` in one undo step.
 pub fn resize_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, idx: usize, track: GridTrack) -> bool {
     let Some(n) = app.doc.get(grid_id) else { return false };
-    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) else { return false };
+    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout.clone()) else { return false };
     if al.direction != LayoutDirection::Grid {
         return false;
     }
@@ -202,7 +196,7 @@ fn remap_reordered_track(idx: usize, from: usize, to: usize) -> usize {
 /// Moves column (`is_col = true`) or row (`is_col = false`) track `from` to `to`, carrying anchored items in one undo step.
 pub fn move_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, from: usize, to: usize) -> bool {
     let Some(n) = app.doc.get(grid_id) else { return false };
-    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) else { return false };
+    let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout.clone()) else { return false };
     if al.direction != LayoutDirection::Grid {
         return false;
     }

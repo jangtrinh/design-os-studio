@@ -1082,7 +1082,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     col_tracks[2] = GridTrack::Flex(1.0);
     col_tracks[3] = GridTrack::Hug;
     grid.kind.frame_props_mut().unwrap().auto_layout =
-        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 4, grid_rows: 1, grid_col_tracks: col_tracks, ..AutoLayout::default() });
+        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 4, grid_rows: 1, grid_col_tracks: col_tracks.into(), ..AutoLayout::default() });
     let grid_id = s.shell.app.doc.insert(page, grid).unwrap();
     let mut kids = Vec::new();
     for (i, w) in [60.0f32, 90.0, 70.0, 60.0].into_iter().enumerate() {
@@ -1102,19 +1102,19 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     s.shell.app.selection = vec![grid_id];
     s.frame(vec![]);
 
-    let al0 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al0 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al0, true), vec!["80px", "120px", "1fr", "Hug"]);
 
     // 2. Insert a 5th column track (2fr) and resize column index 2 from 1fr -> 100px.
     assert!(insert_grid_track(&mut s.shell.app, grid_id, true, 4, GridTrack::Flex(2.0)));
     assert!(resize_grid_track(&mut s.shell.app, grid_id, true, 2, GridTrack::Fixed(100.0)));
-    let al1 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al1 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al1, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
 
     // 3. Move track 2 (index 1, 120px) to track 4 (index 3): moves anchored item kids[1] in one undo step.
     assert!(move_grid_track(&mut s.shell.app, grid_id, true, 1, 3));
-    let al2 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al2 = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al2, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(3));
     // Columns 0..3 have widths 80, 100, 60 (Hug of kids[3]) -> column 3 starts at x = 240.0.
@@ -1123,7 +1123,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
 
     // Single undo step restores both the track order and the anchored items' positions.
     s.shell.app.undo();
-    let al_undo = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al_undo = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al_undo, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(1));
     assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
@@ -1136,7 +1136,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     tracks2[1] = GridTrack::Fixed(100.0);
     tracks2[2] = GridTrack::Fixed(100.0);
     grid2.kind.frame_props_mut().unwrap().auto_layout =
-        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 3, grid_rows: 0, grid_col_tracks: tracks2, ..AutoLayout::default() });
+        Some(AutoLayout { direction: LayoutDirection::Grid, grid_columns: 3, grid_rows: 0, grid_col_tracks: tracks2.into(), ..AutoLayout::default() });
     let grid2_id = s.shell.app.doc.insert(page, grid2).unwrap();
     let mut auto_kids = Vec::new();
     for _ in 0..4 {
@@ -1155,7 +1155,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     assert_eq!(p3_before, (0.0, 40.0));
 
     assert!(delete_grid_track(&mut s.shell.app, grid2_id, true, 1));
-    let al_del = s.app().doc.get(grid2_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al_del = s.app().doc.get(grid2_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al_del, true), vec!["100px", "100px"]);
     // After deleting column 1: 2 columns -> item 2 re-flows to (0, 40), item 3 re-flows to (100, 40).
     let p2_after = (s.app().doc.get(auto_kids[2]).unwrap().transform.tx, s.app().doc.get(auto_kids[2]).unwrap().transform.ty);
@@ -1171,6 +1171,6 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     let col_pills: Vec<_> = pills.iter().filter(|&&(gid, is_col, _, _)| gid == grid_id && is_col).copied().collect();
     assert_eq!(col_pills.len(), 5);
     assert!(crate::canvas::interact::try_drag_grid_track_pill(&mut s.shell.app, crect, col_pills[1].3.center(), col_pills[3].3.center()));
-    let al_drag = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.unwrap();
+    let al_drag = s.app().doc.get(grid_id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap();
     assert_eq!(format_grid_track_list(&al_drag, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
 }

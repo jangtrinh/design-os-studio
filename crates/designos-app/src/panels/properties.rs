@@ -1231,15 +1231,15 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     row_end(pane);
 }
 
-fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId, a: AutoLayout) {
+fn grid_tracks_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, grid_id: NodeId, a: &AutoLayout) {
     use crate::canvas::grids::{delete_grid_track, format_grid_track_list, grid_tracks_of, insert_grid_track, move_grid_track, resize_grid_track};
     use designos_doc::GridTrack;
 
     let right_x = theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W;
     let options = ["1fr", "Fixed", "Hug"].map(String::from);
     for (is_col, heading, tag) in [(true, "Columns", "col"), (false, "Rows", "row")] {
-        let tracks = grid_tracks_of(&a, is_col);
-        let labels = format_grid_track_list(&a, is_col);
+        let tracks = grid_tracks_of(a, is_col);
+        let labels = format_grid_track_list(a, is_col);
         sublabel(ui, pane, heading);
         let add_r = pane.rect(right_x - 20.0, -20.0, 20.0, 20.0);
         if widgets::icon_button(ui, add_r, format!("grid-{tag}-add"), Icon::Plus, false, &format!("Add {tag} track")).clicked() {
