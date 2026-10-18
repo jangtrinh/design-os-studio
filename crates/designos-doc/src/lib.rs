@@ -45,6 +45,8 @@ mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
 mod settings;
+#[cfg(test)]
+mod slot_model_tests;
 pub mod spec;
 mod styles_ops;
 mod textmodel;
@@ -61,6 +63,7 @@ pub use components::*;
 pub use dev::*;
 pub use geom::*;
 pub use history::*;
+pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
 pub use library::*;
 pub use library_ops::*;
 pub use load_repair::*;
@@ -180,6 +183,10 @@ pub struct Document {
     gap_cursor: u64,
     #[serde(skip)]
     dirty: DirtyLog,
+    /// Subtrees whose size was changed by an auto-layout parent during [`Self::relayout_subtree`]
+    /// after [`MAX_RELAYOUT_RESOLVES`] or [`MAX_RELAYOUT_RESOLVE_DEPTH`] was reached.
+    #[serde(skip)]
+    pub(crate) pending_relayout: Vec<NodeId>,
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
@@ -387,6 +394,11 @@ impl Document {
     }
 
     #[inline]
+    pub fn bump_mutation_epoch(&mut self) {
+        self.dirty.epoch += 1;
+    }
+
+    #[inline]
     pub fn mark_full_dirty(&mut self) {
         self.dirty.epoch += 1;
         self.dirty.geom_full_epoch = self.dirty.epoch;
@@ -502,7 +514,7 @@ impl Document {
     /// Inserts `node` as the last (topmost) child of `parent`.
     pub fn insert(&mut self, parent: NodeId, mut node: Node) -> Result<NodeId, DocError> {
         let p = self.nodes.get_mut(&parent).ok_or(DocError::NotFound(parent))?;
-        if !p.kind.is_container() {
+        if !p.kind.can_hold_children() {
             return Err(DocError::NotAContainer(parent));
         }
         let id = node.id;
@@ -559,7 +571,7 @@ impl Document {
         if self.is_ancestor(id, new_parent) || id == new_parent {
             return Err(DocError::Cycle(id));
         }
-        if !self.nodes.get(&new_parent).ok_or(DocError::NotFound(new_parent))?.kind.is_container() {
+        if !self.nodes.get(&new_parent).ok_or(DocError::NotFound(new_parent))?.kind.can_hold_children() {
             return Err(DocError::NotAContainer(new_parent));
         }
         let old = self.nodes.get(&id).ok_or(DocError::NotFound(id))?.parent;
@@ -669,6 +681,9 @@ impl Document {
                         stack.push(*cid);
                     }
                 }
+                for cfg in n.component.slot_configs.values() {
+                    stack.extend(cfg.preferred.iter().copied());
+                }
             }
         }
         let before = self.nodes.len();
@@ -695,6 +710,12 @@ impl Document {
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
         finite_json::to_string_finite(self)
+    }
+
+    /// How many non-finite numbers [`Document::to_json_counted`] would replace, counted without
+    /// building the JSON text.
+    pub fn count_non_finite(&self) -> serde_json::Result<usize> {
+        finite_json::count_non_finite(self)
     }
 
     /// Parses a native document. Text written by older versions that emulated lists with
@@ -782,6 +803,38 @@ mod tests {
         let removed = d.remove(frame).unwrap();
         assert_eq!(removed.len(), 2);
         assert!(d.get(rect).is_none());
+    }
+
+    #[test]
+    fn unknown_layer_holds_children_for_tree_edits_without_becoming_a_container() {
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let uid = d.alloc_id();
+        let unknown = d.insert(page, Node::new(uid, NodeKind::Unknown { type_name: "SLIDE".into() })).unwrap();
+        let kind = &d.get(unknown).unwrap().kind;
+        assert!(kind.can_hold_children());
+        assert!(!kind.is_container(), "an unmapped layer must not pick up clipping, layout or hit-testing as a container");
+        assert!(kind.frame_props().is_none());
+
+        let rid = d.alloc_id();
+        let rect = d.insert(unknown, Node::rectangle(rid, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        d.reparent(rect, frame, 0).unwrap();
+        d.reparent(rect, unknown, 0).unwrap();
+        assert_eq!(d.get(unknown).unwrap().children, vec![rect]);
+
+        let mut h = History::default();
+        h.exec(&mut d, Command::Remove { id: rect }).unwrap();
+        assert!(d.get(unknown).unwrap().children.is_empty());
+        assert!(h.undo(&mut d).unwrap());
+        assert_eq!(d.get(unknown).unwrap().children, vec![rect]);
+        assert_eq!(d.get(rect).unwrap().parent, Some(unknown));
+
+        // Leaves still refuse children.
+        let lid = d.alloc_id();
+        assert!(matches!(d.insert(rect, Node::rectangle(lid, Rect::new(0.0, 0.0, 1.0, 1.0))), Err(DocError::NotAContainer(p)) if p == rect));
+        assert!(matches!(d.reparent(frame, rect, 0), Err(DocError::NotAContainer(p)) if p == rect));
     }
 
     #[test]

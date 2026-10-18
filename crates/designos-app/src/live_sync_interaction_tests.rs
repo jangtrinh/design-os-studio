@@ -211,3 +211,19 @@ fn probe_agent_move_survives_an_open_shape_builder() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn comment_only_edit_in_studio_republishes_canvas_to_agent() {
+    let mut l = live();
+    let anchor = designos_doc::CommentAnchor { page: l.app.page, node: Some(l.dragged), offset: Vec2::new(10.0, 10.0) };
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(l.app.post_comment(anchor, "Please tighten padding here").is_some());
+    crate::live_patch_apply::publish_live_context(&mut l.app);
+    let raw = std::fs::read_to_string(&l.app.terminal.live_canvas_path).unwrap();
+    let published = Document::from_json(&raw).unwrap();
+    assert_eq!(published.comments.len(), 1, "comment-only edit in Studio must be republished to live-canvas.designos");
+    assert_eq!(published.comments[0].messages[0].text, "Please tighten padding here");
+    let listed = l.session.call("designos_list_comments", json!({})).expect("list_comments");
+    assert_eq!(listed["total"].as_u64(), Some(1), "agent must see the newly posted comment without waiting for a layer edit: {listed}");
+    l.finish();
+}

@@ -49,10 +49,23 @@ struct Shot {
     scale: f32,
     frames: u32,
     requested: bool,
+    /// The screenshot is due this frame: decided before the frame is drawn, sent once it has
+    /// been, so the request sees the canvas as this frame left it (`Shell::request_screenshot`).
+    due: bool,
+    /// Every frame drawn since the request showed the canvas at rest, so the one the window
+    /// captured did too. A font or an agent edit that lands between the request and the capture
+    /// is drawn with the capped compile first.
+    captured_at_rest: bool,
+    /// The request came after `SHOT_GPU_SETTLE_FRAMES`: its image is kept whatever it shows.
+    last_try: bool,
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
 }
+
+/// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
+/// keeps whatever is on screen (the run closes after 240).
+const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
@@ -110,6 +123,7 @@ impl Shell {
         let mut app = App::new(match opts.fixture.as_deref() {
             Some("no-selection") => demo::reference_document(),
             Some("variables") => demo::variables_document(),
+            Some("variables-library" | "variables-library-open") => demo::variables_library_document(),
             Some(crate::showcase::FIXTURE) => crate::showcase::document(),
             Some(crate::protovars::FIXTURE) => crate::protovars::document(),
             Some("deck") => crate::decks::demo::document(),
@@ -119,7 +133,11 @@ impl Shell {
             None if opts.file.is_some() || opts.open_id.is_some() || opts.home => designos_doc::Document::new("Untitled"),
             _ => demo::demo_document(),
         });
-        if !matches!(opts.fixture.as_deref(), Some("variables" | "deck" | crate::showcase::FIXTURE)) {
+        // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
+        // session directory once; bind the terminal to the id the tab bar keeps before any can start.
+        let session_id = app.tabs.active_session_id();
+        app.terminal.bind_session(&session_id);
+        if !matches!(opts.fixture.as_deref(), Some("variables" | "variables-library" | "variables-library-open" | "deck" | crate::showcase::FIXTURE)) {
             app.doc.name = "Untitled".into();
         }
         if opts.fixture.as_deref() == Some("deck") {
@@ -294,6 +312,10 @@ impl Shell {
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
                 app.open_variables();
+                if opts.fixture.as_deref() == Some("variables-library-open") {
+                    // the capture of a library collection: start on it rather than on the file's own
+                    app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
+                }
             }
             Some(p) if p.starts_with("micro-") => {
                 if !p.contains(":seq:") {
@@ -328,6 +350,9 @@ impl Shell {
             scale: opts.scale.unwrap_or(1.0),
             frames: 0,
             requested: false,
+            due: false,
+            captured_at_rest: true,
+            last_try: false,
             seq: seq_capture,
             no_toast: opts.no_toast,
         });
@@ -348,6 +373,14 @@ impl Shell {
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
             if let Event::Screenshot { image, .. } = ev {
+                if !shot.captured_at_rest {
+                    if !shot.last_try {
+                        // Captured from a capped frame: ask again for the at-rest one.
+                        shot.requested = false;
+                        return;
+                    }
+                    eprintln!("designos: the GPU view did not settle in {SHOT_GPU_SETTLE_FRAMES} frames, saving the interactive frame");
+                }
                 let (w, h) = (image.width() as u32, image.height() as u32);
                 let raw: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
                 if let Some(buf) = image::RgbaImage::from_raw(w, h, raw) {
@@ -399,13 +432,32 @@ impl Shell {
             let r = ctx.content_rect();
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
-        if !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60) {
-            shot.requested = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
-        }
+        shot.due = !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60);
         if shot.frames > 240 && shot.seq.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+    }
+
+    /// Sends the screenshot request that `drive_screenshot` found due, once this frame has drawn.
+    /// A GPU canvas first shows the capped interactive frame; the full-quality frame of the at-rest
+    /// view follows once the idle refine has run. Ask for that one, but never wait past the point
+    /// where the run would give up (`shot.frames > 240` in `drive_screenshot`).
+    fn request_screenshot(&mut self, ctx: &Context) {
+        let Some(shot) = &mut self.shot else { return };
+        let at_rest = self.app.canvas.gpu.at_rest();
+        if shot.requested {
+            // The window captures a later frame than the one that asked: if any of the frames
+            // until the image arrives was capped, so may be the image.
+            shot.captured_at_rest &= at_rest;
+            return;
+        }
+        if !std::mem::take(&mut shot.due) || (!at_rest && shot.frames < SHOT_GPU_SETTLE_FRAMES) {
+            return;
+        }
+        shot.requested = true;
+        shot.captured_at_rest = at_rest;
+        shot.last_try = shot.frames >= SHOT_GPU_SETTLE_FRAMES;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
@@ -967,8 +1019,14 @@ impl Shell {
         self.sync_title(ctx);
     }
 
-    /// One full UI pass over the window.
+    /// One full UI pass over the window, then the screenshot request it may owe.
     pub fn draw(&mut self, ui: &mut egui::Ui) {
+        self.draw_window(ui);
+        let ctx = ui.ctx().clone();
+        self.request_screenshot(&ctx);
+    }
+
+    fn draw_window(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
@@ -979,6 +1037,9 @@ impl Shell {
             self.app.flush_autosave();
         }
         self.app.scrub_sync(&ctx);
+        if self.app.step_pending_relayout() {
+            ctx.request_repaint();
+        }
         let window_full = ui.max_rect();
         let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
@@ -1596,8 +1657,8 @@ pub fn apply_micro_interaction_showcase_preset(app: &mut App, preset: &str) {
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()
@@ -2272,8 +2333,8 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                     item_spacing: gap,
                     counter_spacing: gap,
                     padding: [pad, pad, pad, pad],
-                    grid_col_tracks: col_tracks,
-                    grid_row_tracks: row_tracks,
+                    grid_col_tracks: col_tracks.into(),
+                    grid_row_tracks: row_tracks.into(),
                     primary_sizing: Sizing::Fixed,
                     counter_sizing: Sizing::Fixed,
                     ..Default::default()

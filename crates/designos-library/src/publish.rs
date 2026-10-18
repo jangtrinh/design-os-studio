@@ -93,12 +93,7 @@ pub fn now_rfc3339() -> String {
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
-}
+use crate::store::write_atomic;
 
 fn read_or_not_found(p: &Path, what: impl FnOnce() -> String) -> Result<String> {
     std::fs::read_to_string(p).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { LibraryError::NotFound(what()) } else { e.into() })

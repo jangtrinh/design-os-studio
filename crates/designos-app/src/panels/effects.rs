@@ -330,22 +330,22 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     };
     if let Some((color, offset, radius, spread, behind)) = shadow {
         popover::row(ui, body, next(), "X", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-x", i), Prefix::Text("X"), offset.x, "") {
+            if let Some(v) = num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
             }
         });
         popover::row(ui, body, next(), "Y", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-y", i), Prefix::Text("Y"), offset.y, "") {
+            if let Some(v) = num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
             }
         });
         popover::row(ui, body, next(), "Blur", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-b", i), Prefix::Text("B"), radius, "") {
+            if let Some(v) = num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
             }
         });
         popover::row(ui, body, next(), "Spread", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-s", i), Prefix::Text("S"), spread, "") {
+            if let Some(v) = num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, "") {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
             }
         });
@@ -370,7 +370,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     match e {
         Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } => {
             popover::row(ui, body, next(), "Blur", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-blur", i), Prefix::Text("B"), *radius, "") {
+                if let Some(v) = num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } = e {
                             *radius = v.max(0.0);
@@ -424,7 +424,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 });
             }
             popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-nsize", i), Prefix::Text("S"), n.size, "") {
+                if let Some(v) = num(ui, rc, ("fxp-nsize", i), Prefix::Icon(Icon::Scale), n.size, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.size = v.max(0.1);
@@ -433,7 +433,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             });
             popover::row(ui, body, next(), "Density", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-dens", i), Prefix::Text("D"), pct(n.density), "%") {
+                if let Some(v) = num(ui, rc, ("fxp-dens", i), Prefix::Icon(Icon::Noise), pct(n.density), "%") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Noise(n) = e {
                             n.density = (v / 100.0).clamp(0.0, 1.0);
@@ -453,7 +453,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         }
         Effect::Texture(t) => {
             popover::row(ui, body, next(), "Size", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-tsize", i), Prefix::Text("S"), t.size, "") {
+                if let Some(v) = num(ui, rc, ("fxp-tsize", i), Prefix::Icon(Icon::Scale), t.size, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.size = v.max(0.1);
@@ -462,7 +462,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             });
             popover::row(ui, body, next(), "Radius", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-trad", i), Prefix::Text("R"), t.radius, "") {
+                if let Some(v) = num(ui, rc, ("fxp-trad", i), Prefix::Icon(Icon::Radius), t.radius, "") {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::Texture(t) = e {
                             t.radius = v.max(0.0);
@@ -496,16 +496,16 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     });
                 }
             });
-            let sliders: [(&str, &'static str, f32, &str, u8); 5] = [
-                ("Intensity", "I", pct(g.light_intensity), "%", 0),
-                ("Refraction", "R", pct(g.refraction), "%", 1),
-                ("Depth", "D", g.depth, "", 2),
-                ("Dispersion", "D", pct(g.dispersion), "%", 3),
-                ("Frost", "F", g.frost, "", 4),
+            let sliders: [(&str, Icon, f32, &str, u8); 5] = [
+                ("Intensity", Icon::Sparkle, pct(g.light_intensity), "%", 0),
+                ("Refraction", Icon::Glass, pct(g.refraction), "%", 1),
+                ("Depth", Icon::DropShadow, g.depth, "", 2),
+                ("Dispersion", Icon::PaintLinear, pct(g.dispersion), "%", 3),
+                ("Frost", Icon::BackgroundBlur, g.frost, "", 4),
             ];
-            for (label, prefix, val, suffix, which) in sliders {
+            for (label, icon, val, suffix, which) in sliders {
                 popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Text(prefix), val, suffix) {
+                    if let Some(v) = num(ui, rc, ("fxp-glass", i, which), Prefix::Icon(icon), val, suffix) {
                         edit_effect(app, tgt, i, |e| {
                             if let Effect::Glass(g) = e {
                                 let unit = (v / 100.0).clamp(0.0, 1.0);

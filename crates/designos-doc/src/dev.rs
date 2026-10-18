@@ -356,7 +356,7 @@ pub fn diff_node(old: &Node, new: &Node) -> Vec<PropChange> {
     add("Mask", old.is_mask.to_string(), new.is_mask.to_string());
     if let (Some(a), Some(b)) = (old.kind.frame_props(), new.kind.frame_props()) {
         add("Clip content", a.clips_content.to_string(), b.clips_content.to_string());
-        match (a.auto_layout, b.auto_layout) {
+        match (&a.auto_layout, &b.auto_layout) {
             (Some(x), Some(y)) => {
                 add("Direction", format!("{:?}", x.direction), format!("{:?}", y.direction));
                 add("Gap", n2(x.item_spacing), n2(y.item_spacing));

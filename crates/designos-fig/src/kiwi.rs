@@ -22,8 +22,10 @@ const MAX_DEPTH: usize = 96;
 ///
 /// It is independent of the input length on purpose: zero-byte elements and zero padding inflate to far more
 /// values than the input holds, so any length-scaled allowance is attacker-controlled.
-/// Sizing: a measured real file (723k-node page, 1,058,895 nodes in total) decodes 54,870,017 values, i.e. ~52 per
-/// node (the figure in `KIWI_VALUES_PER_NODE`). 1.06M nodes therefore need ~55M; the cap is 2^28 = 268M, about 4.9x that.
+/// Sizing: a measured real file (`VSF - PCP.fig`: 1,058,895 Kiwi `nodeChanges` records across 31 pages -> 1,082,324
+/// expanded scene nodes, or 723,136 Kiwi records -> 112,474 scene nodes on the 7-page subset) decodes 54,870,017
+/// values, i.e. ~52 per record (the figure in `KIWI_VALUES_PER_NODE`). 1.06M records therefore need ~55M; the cap is
+/// 2^28 = 268M, about 4.9x that.
 const MAX_DECODED_VALUES: usize = 1 << 28;
 /// Absolute cap on decoded instances of zero-wire-size definitions (see `Schema::zero_wire_defs`) per message.
 ///
@@ -676,6 +678,266 @@ impl Schema {
         }
         Ok(())
     }
+
+    /// Returns `true` if enum definition `enum_name` contains `variant`.
+    pub fn has_enum_variant(&self, enum_name: &str, variant: &str) -> bool {
+        let Some(idx) = self.find(enum_name) else { return false };
+        let def = &self.defs[idx];
+        def.kind == DefKind::Enum && def.fields.iter().any(|f| &*f.name == variant)
+    }
+
+    /// Reconstructs a typed `(field_name, KiwiValue)` pair for field `field_name` of
+    /// definition `def_idx` from a string value stored in `Node::fig_metadata`.
+    pub fn def_field_from_metadata(&self, def_idx: usize, field_name: &str, raw_str: &str) -> Option<(Arc<str>, KiwiValue)> {
+        let def = self.defs.get(def_idx)?;
+        let f = def.fields.iter().find(|f| &*f.name == field_name)?;
+        let kv = self.field_from_metadata(f, raw_str, 0)?;
+        Some((f.name.clone(), kv))
+    }
+
+    fn field_from_metadata(&self, f: &Field, raw_str: &str, depth: usize) -> Option<KiwiValue> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        if !f.is_array {
+            match f.ty {
+                FieldType::Native(Native::String) => {
+                    let s = if raw_str.starts_with('"') && raw_str.ends_with('"') {
+                        serde_json::from_str::<String>(raw_str).unwrap_or_else(|_| raw_str.to_string())
+                    } else {
+                        raw_str.to_string()
+                    };
+                    return Some(KiwiValue::String(s));
+                }
+                FieldType::Native(Native::Bool) => {
+                    return match raw_str.trim() {
+                        "true" => Some(KiwiValue::Bool(true)),
+                        "false" => Some(KiwiValue::Bool(false)),
+                        other => serde_json::from_str::<bool>(other).ok().map(KiwiValue::Bool),
+                    };
+                }
+                FieldType::Native(Native::Byte) => {
+                    let s = raw_str.trim();
+                    return s.parse::<u8>().ok().or_else(|| s.parse::<f64>().ok().map(|x| x as u8)).map(KiwiValue::Byte);
+                }
+                FieldType::Native(Native::Int) => {
+                    let s = raw_str.trim();
+                    return s.parse::<i32>().ok().or_else(|| s.parse::<f64>().ok().map(|x| x as i32)).map(KiwiValue::Int);
+                }
+                FieldType::Native(Native::Uint) => {
+                    let s = raw_str.trim();
+                    return s.parse::<u32>().ok().or_else(|| s.parse::<f64>().ok().map(|x| x.max(0.0) as u32)).map(KiwiValue::Uint);
+                }
+                FieldType::Native(Native::Float) => {
+                    let x = raw_str.trim().parse::<f32>().ok()?;
+                    return x.is_finite().then_some(KiwiValue::Float(x));
+                }
+                FieldType::Native(Native::Int64) => {
+                    let s = raw_str.trim().trim_matches('"');
+                    return s.parse::<i64>().ok().or_else(|| s.parse::<f64>().ok().map(|x| x as i64)).map(KiwiValue::Int64);
+                }
+                FieldType::Native(Native::Uint64) => {
+                    let s = raw_str.trim().trim_matches('"');
+                    return s.parse::<u64>().ok().or_else(|| s.parse::<f64>().ok().map(|x| x.max(0.0) as u64)).map(KiwiValue::Uint64);
+                }
+                FieldType::Def(d) => {
+                    let def = self.defs.get(d)?;
+                    if def.kind == DefKind::Enum {
+                        let s = raw_str.trim().trim_matches('"');
+                        if let Some(ef) = def.fields.iter().find(|ef| &*ef.name == s) {
+                            return Some(KiwiValue::Enum(ef.name.clone()));
+                        }
+                        if let Ok(u) = s.parse::<u32>() {
+                            return Some(KiwiValue::EnumRaw(u));
+                        }
+                        return None;
+                    }
+                    let trimmed = raw_str.trim();
+                    if !trimmed.starts_with('{') {
+                        let unquoted = trimmed.trim_matches('"');
+                        if &*def.name == "GUID" {
+                            if let Some((s, l)) = parse_guid_colon(unquoted) {
+                                return Some(guid_struct_kv(s, l));
+                            }
+                        } else if &*def.name == "WidgetPointer" {
+                            if let Some((s, l)) = parse_guid_colon(unquoted) {
+                                return Some(KiwiValue::Message(vec![("nodeId".into(), guid_struct_kv(s, l))]));
+                            }
+                        }
+                    }
+                    let v: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+                    return self.def_from_json(d, &v, depth + 1);
+                }
+            }
+        }
+
+        if f.ty == FieldType::Native(Native::Byte) {
+            let trimmed = raw_str.trim().trim_matches('"');
+            if let Some(bytes) = decode_hex_bytes(trimmed) {
+                return Some(KiwiValue::Bytes(bytes));
+            }
+        }
+        let v: serde_json::Value = serde_json::from_str(raw_str.trim()).ok()?;
+        self.field_from_json(f, &v, depth + 1)
+    }
+
+    /// Reconstructs a `KiwiValue` for field `f` from a `serde_json::Value`.
+    pub fn field_from_json(&self, f: &Field, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        if !f.is_array {
+            return self.type_from_json(f.ty, v, depth + 1);
+        }
+        if f.ty == FieldType::Native(Native::Byte) {
+            if let Some(s) = v.as_str() {
+                return decode_hex_bytes(s).map(KiwiValue::Bytes);
+            }
+            if let Some(arr) = v.as_array() {
+                let bytes: Option<Vec<u8>> = arr.iter().map(|x| x.as_u64().and_then(|n| u8::try_from(n).ok())).collect();
+                return bytes.map(KiwiValue::Bytes);
+            }
+            return None;
+        }
+        let arr = v.as_array()?;
+        let mut out = Vec::with_capacity(arr.len());
+        for item in arr {
+            out.push(self.type_from_json(f.ty, item, depth + 1)?);
+        }
+        Some(KiwiValue::Array(out))
+    }
+
+    fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        match ty {
+            FieldType::Native(Native::Bool) => v.as_bool().map(KiwiValue::Bool),
+            FieldType::Native(Native::Byte) => v.as_u64().and_then(|n| u8::try_from(n).ok()).map(KiwiValue::Byte),
+            FieldType::Native(Native::Int) => v.as_i64().and_then(|n| i32::try_from(n).ok()).or_else(|| v.as_f64().map(|x| x as i32)).map(KiwiValue::Int),
+            FieldType::Native(Native::Uint) => {
+                v.as_u64().and_then(|n| u32::try_from(n).ok()).or_else(|| v.as_f64().map(|x| x.max(0.0) as u32)).map(KiwiValue::Uint)
+            }
+            FieldType::Native(Native::Float) => {
+                let x = v.as_f64()? as f32;
+                x.is_finite().then_some(KiwiValue::Float(x))
+            }
+            FieldType::Native(Native::String) => v.as_str().map(|s| KiwiValue::String(s.to_string())),
+            FieldType::Native(Native::Int64) => v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok())).map(KiwiValue::Int64),
+            FieldType::Native(Native::Uint64) => v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())).map(KiwiValue::Uint64),
+            FieldType::Def(idx) => self.def_from_json(idx, v, depth + 1),
+        }
+    }
+
+    fn def_from_json(&self, idx: usize, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let def = self.defs.get(idx)?;
+        match def.kind {
+            DefKind::Enum => {
+                if let Some(s) = v.as_str() {
+                    if let Some(ef) = def.fields.iter().find(|ef| &*ef.name == s) {
+                        return Some(KiwiValue::Enum(ef.name.clone()));
+                    }
+                    if let Ok(u) = s.parse::<u32>() {
+                        return Some(KiwiValue::EnumRaw(u));
+                    }
+                    return None;
+                }
+                v.as_u64().and_then(|n| u32::try_from(n).ok()).map(KiwiValue::EnumRaw)
+            }
+            DefKind::Struct => {
+                if &*def.name == "GUID" {
+                    if let Some(s) = v.as_str() {
+                        if let Some((sess, loc)) = parse_guid_colon(s) {
+                            return Some(guid_struct_kv(sess, loc));
+                        }
+                    }
+                }
+                let obj = v.as_object()?;
+                let mut fs = Vec::with_capacity(def.fields.len());
+                for sf in &def.fields {
+                    let kv = match obj.get(&*sf.name) {
+                        Some(fv) if !fv.is_null() => self.field_from_json(sf, fv, depth + 1)?,
+                        _ => self.default_field_value(sf, depth + 1)?,
+                    };
+                    fs.push((sf.name.clone(), kv));
+                }
+                Some(KiwiValue::Struct(fs))
+            }
+            DefKind::Message => {
+                if &*def.name == "WidgetPointer" {
+                    if let Some(s) = v.as_str() {
+                        if let Some((sess, loc)) = parse_guid_colon(s) {
+                            return Some(KiwiValue::Message(vec![("nodeId".into(), guid_struct_kv(sess, loc))]));
+                        }
+                    }
+                }
+                let obj = v.as_object()?;
+                let mut fs = Vec::new();
+                for sf in &def.fields {
+                    if let Some(fv) = obj.get(&*sf.name) {
+                        if !fv.is_null() {
+                            if let Some(kv) = self.field_from_json(sf, fv, depth + 1) {
+                                fs.push((sf.name.clone(), kv));
+                            }
+                        }
+                    }
+                }
+                Some(KiwiValue::Message(fs))
+            }
+        }
+    }
+
+    fn default_field_value(&self, f: &Field, depth: usize) -> Option<KiwiValue> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        if f.is_array {
+            return Some(if f.ty == FieldType::Native(Native::Byte) { KiwiValue::Bytes(Vec::new()) } else { KiwiValue::Array(Vec::new()) });
+        }
+        match f.ty {
+            FieldType::Native(Native::Bool) => Some(KiwiValue::Bool(false)),
+            FieldType::Native(Native::Byte) => Some(KiwiValue::Byte(0)),
+            FieldType::Native(Native::Int) => Some(KiwiValue::Int(0)),
+            FieldType::Native(Native::Uint) => Some(KiwiValue::Uint(0)),
+            FieldType::Native(Native::Float) => Some(KiwiValue::Float(0.0)),
+            FieldType::Native(Native::String) => Some(KiwiValue::String(String::new())),
+            FieldType::Native(Native::Int64) => Some(KiwiValue::Int64(0)),
+            FieldType::Native(Native::Uint64) => Some(KiwiValue::Uint64(0)),
+            FieldType::Def(idx) => {
+                let def = self.defs.get(idx)?;
+                match def.kind {
+                    DefKind::Enum => Some(def.fields.first().map(|ef| KiwiValue::Enum(ef.name.clone())).unwrap_or(KiwiValue::EnumRaw(0))),
+                    DefKind::Struct => {
+                        let mut fs = Vec::with_capacity(def.fields.len());
+                        for sf in &def.fields {
+                            fs.push((sf.name.clone(), self.default_field_value(sf, depth + 1)?));
+                        }
+                        Some(KiwiValue::Struct(fs))
+                    }
+                    DefKind::Message => Some(KiwiValue::Message(Vec::new())),
+                }
+            }
+        }
+    }
+}
+
+fn parse_guid_colon(s: &str) -> Option<(u32, u32)> {
+    let (a, b) = s.split_once(':')?;
+    Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?))
+}
+
+fn guid_struct_kv(session: u32, local: u32) -> KiwiValue {
+    KiwiValue::Struct(vec![("sessionID".into(), KiwiValue::Uint(session)), ("localID".into(), KiwiValue::Uint(local))])
+}
+
+fn decode_hex_bytes(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
 }
 
 // ---------------------------------------------------------------- writer

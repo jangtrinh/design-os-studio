@@ -342,6 +342,7 @@ mod tests {
                 default_mode: "light".into(),
                 variables: vec![],
                 key: None,
+                source_library_key: None,
             },
         );
         let n = |x: f32| VariableValue::Number(x);
@@ -385,7 +386,7 @@ mod tests {
         assert_eq!(f.opacity, 0.5);
         assert_eq!(f.corner_radii[0], 8.0);
         assert_eq!(f.stroke.weight, 8.0);
-        let al = f.kind.frame_props().unwrap().auto_layout.unwrap();
+        let al = f.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
         assert_eq!((al.item_spacing, al.padding[3]), (8.0, 8.0));
         let t = resolved_node(&d, text).unwrap();
         let NodeKind::Text(tp) = &t.kind else { panic!() };

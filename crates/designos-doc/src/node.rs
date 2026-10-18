@@ -57,8 +57,8 @@ fn is_zero_u32(v: &u32) -> bool {
 fn is_zero_or_one_u16(v: &u16) -> bool {
     *v <= 1
 }
-fn is_default_grid_tracks(t: &[GridTrack; 8]) -> bool {
-    *t == [GridTrack::default(); 8]
+fn is_default_grid_tracks(t: &GridTracks) -> bool {
+    t.is_default()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -218,6 +218,31 @@ pub struct ComponentPropDef {
     pub default: PropValue,
 }
 
+/// Settings of a [`PropKind::Slot`] property (`SlotPropConfig` plus the slot's
+/// `preferredValues`). Every scalar is optional: `None` means the file did not
+/// write the field, which is not the same as writing its default, and is kept so.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotPropConfig {
+    /// `stretchChildOnInsert`: inserted content stretches to the slot's width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stretch_child_on_insert: Option<bool>,
+    /// `displayByDefault`: the slot shows its content before anything is inserted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_by_default: Option<bool>,
+    /// `minChildren`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_children: Option<u32>,
+    /// `maxChildren`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_children: Option<u32>,
+    /// `allowPreferredValuesOnly`: only [`SlotPropConfig::preferred`] may be inserted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_preferred_values_only: Option<bool>,
+    /// Components offered for this slot (`preferredValues`), as local node ids.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preferred: Vec<NodeId>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ComponentLink {
     /// For a node inside an instance: the node of the main component it mirrors.
@@ -233,6 +258,19 @@ pub struct ComponentLink {
     /// Property values chosen on an instance root, by property name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub values: BTreeMap<String, PropValue>,
+    /// Slot settings by property name, for the [`PropKind::Slot`] definitions in `props`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slot_configs: BTreeMap<String, SlotPropConfig>,
+    /// The frame is a slot (`isSlot`, tag=463).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_slot: bool,
+    /// The node is content placed in a slot (`isSlotContent`, tag=495).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_slot_content: bool,
+    /// Guid (`session:local`) a node carries as `slot-content-id`. Kept opaque: it names
+    /// slot content that need not be a node of this document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_content_id: Option<String>,
     /// Binds a node property to a component property, e.g.
     /// `Visible -> "Show icon"`, `Characters -> "Label"`, `MainComponent -> "Icon"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -260,6 +298,10 @@ impl ComponentLink {
             && self.overrides.is_empty()
             && self.props.is_empty()
             && self.values.is_empty()
+            && self.slot_configs.is_empty()
+            && !self.is_slot
+            && !self.is_slot_content
+            && self.slot_content_id.is_none()
             && self.bindings.is_empty()
             && self.description.is_empty()
             && !self.expose_nested_instances
@@ -402,7 +444,8 @@ pub enum NodeKind {
     Stamp {
         kind: String,
     },
-    /// Anything the importer could not map, kept so nothing is silently lost.
+    /// Anything the importer could not map, kept so nothing is silently lost. It keeps its children
+    /// (see [`NodeKind::can_hold_children`]) but is not a [`NodeKind::is_container`] and is not drawn.
     Unknown {
         type_name: String,
     },
@@ -421,6 +464,16 @@ impl NodeKind {
                 | NodeKind::ComponentSet(_)
                 | NodeKind::Instance { .. }
         )
+    }
+
+    /// Whether the tree edits (insert, reparent, and the undo of a delete) accept this kind as a parent:
+    /// every [`Self::is_container`] kind, plus `Unknown`. The importer keeps the children of a layer it
+    /// cannot map (a table, a slide, a keyframe track, ...) under that `Unknown` node, and the undo of
+    /// deleting one of them has to put it back. This is only about tree membership. An `Unknown` layer
+    /// stays a non-container for clipping, auto layout, hit testing and painting, like a group without
+    /// frame properties.
+    pub fn can_hold_children(&self) -> bool {
+        self.is_container() || matches!(self, NodeKind::Unknown { .. })
     }
 
     /// Board items that are drawn by lowering to ordinary shapes and text.
@@ -616,6 +669,9 @@ pub enum LayoutDirection {
     Grid,
 }
 
+/// Most columns and spanned rows one grid auto layout solves; also the minimum length of a [`GridTracks`] list.
+pub const MAX_GRID_TRACKS: usize = 64;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GridTrack {
     Flex(f32),
@@ -626,6 +682,124 @@ pub enum GridTrack {
 impl Default for GridTrack {
     fn default() -> Self {
         GridTrack::Flex(1.0)
+    }
+}
+
+/// Growable list of CSS Grid column or row tracks (at least [`MAX_GRID_TRACKS`] = 64 tracks
+/// available by default, and growable beyond that) with backward-compatible array serde.
+#[derive(Clone, Debug)]
+pub struct GridTracks(pub Vec<GridTrack>);
+
+impl GridTracks {
+    pub fn is_default(&self) -> bool {
+        let def = GridTrack::default();
+        self.0.iter().all(|&t| t == def)
+    }
+
+    pub fn as_slice(&self) -> &[GridTrack] {
+        &self.0
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [GridTrack] {
+        &mut self.0
+    }
+
+    pub fn push(&mut self, track: GridTrack) {
+        self.0.push(track);
+    }
+
+    pub fn resize_with_default(&mut self, new_len: usize) {
+        if self.0.len() < new_len {
+            self.0.resize(new_len, GridTrack::default());
+        }
+    }
+}
+
+impl PartialEq for GridTracks {
+    fn eq(&self, other: &Self) -> bool {
+        let max_len = self.0.len().max(other.0.len());
+        let def = GridTrack::default();
+        (0..max_len).all(|i| self.0.get(i).copied().unwrap_or(def) == other.0.get(i).copied().unwrap_or(def))
+    }
+}
+
+impl Default for GridTracks {
+    fn default() -> Self {
+        Self(vec![GridTrack::default(); MAX_GRID_TRACKS])
+    }
+}
+
+impl std::ops::Deref for GridTracks {
+    type Target = [GridTrack];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for GridTracks {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const N: usize> From<[GridTrack; N]> for GridTracks {
+    fn from(arr: [GridTrack; N]) -> Self {
+        Self::from(arr.as_slice())
+    }
+}
+
+impl From<&[GridTrack]> for GridTracks {
+    fn from(slice: &[GridTrack]) -> Self {
+        let len = slice.len().max(MAX_GRID_TRACKS);
+        let mut vec = vec![GridTrack::default(); len];
+        vec[..slice.len()].copy_from_slice(slice);
+        Self(vec)
+    }
+}
+
+impl From<Vec<GridTrack>> for GridTracks {
+    fn from(mut vec: Vec<GridTrack>) -> Self {
+        if vec.len() < MAX_GRID_TRACKS {
+            vec.resize(MAX_GRID_TRACKS, GridTrack::default());
+        }
+        Self(vec)
+    }
+}
+
+impl<const N: usize> PartialEq<[GridTrack; N]> for GridTracks {
+    fn eq(&self, other: &[GridTrack; N]) -> bool {
+        let def = GridTrack::default();
+        other.iter().enumerate().all(|(i, &t)| self.0.get(i).copied().unwrap_or(def) == t)
+    }
+}
+
+impl PartialEq<[GridTrack]> for GridTracks {
+    fn eq(&self, other: &[GridTrack]) -> bool {
+        let def = GridTrack::default();
+        other.iter().enumerate().all(|(i, &t)| self.0.get(i).copied().unwrap_or(def) == t)
+    }
+}
+
+impl PartialEq<&[GridTrack]> for GridTracks {
+    fn eq(&self, other: &&[GridTrack]) -> bool {
+        self == *other
+    }
+}
+
+impl Serialize for GridTracks {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let def = GridTrack::default();
+        let last_non_default = self.0.iter().rposition(|&t| t != def).map(|i| i + 1).unwrap_or(0);
+        let len = last_non_default.max(8).min(self.0.len());
+        self.0[..len].serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for GridTracks {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec = Vec::<GridTrack>::deserialize(deserializer)?;
+        Ok(Self::from(vec))
     }
 }
 
@@ -665,7 +839,7 @@ pub enum Sizing {
     Fill,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AutoLayout {
     pub direction: LayoutDirection,
     pub wrap: bool,
@@ -690,12 +864,36 @@ pub struct AutoLayout {
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub grid_rows: u32,
     #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
-    pub grid_col_tracks: [GridTrack; 8],
+    pub grid_col_tracks: GridTracks,
     #[serde(default, skip_serializing_if = "is_default_grid_tracks")]
-    pub grid_row_tracks: [GridTrack; 8],
+    pub grid_row_tracks: GridTracks,
 }
 
 impl AutoLayout {
+    /// Default auto-layout for new frames created in Studio (version 1: CSS-aligned, borders inside the box).
+    pub fn v1() -> Self {
+        Self { layout_version: 1, ..Self::default() }
+    }
+
+    /// Effective `[top, right, bottom, left]` inset used by the layout solver.
+    ///
+    /// In version 0 (`layout_version == 0`), when `stroke_included` (`bordersTakeSpace`) is true,
+    /// the frame's inward stroke widths add to padding. In version 1 and up (`layout_version >= 1`),
+    /// strokes never add inset space (borders sit inside the box without pushing children).
+    pub fn effective_padding(&self, stroke: &Stroke) -> [f32; 4] {
+        if self.layout_version == 0 && self.stroke_included {
+            let s = stroke.layout_inset();
+            [self.padding[0] + s[0], self.padding[1] + s[1], self.padding[2] + s[2], self.padding[3] + s[3]]
+        } else {
+            self.padding
+        }
+    }
+
+    /// Returns a copy of `self` with `padding` replaced by [`Self::effective_padding`].
+    pub fn with_stroke(&self, stroke: &Stroke) -> Self {
+        Self { padding: self.effective_padding(stroke), ..self.clone() }
+    }
+
     /// Whether the primary axis (and `primary_sizing`) runs along the width. Figma's convention: a
     /// `Horizontal` frame and a `Grid` frame (columns) do, a `Vertical` frame runs along the height.
     pub fn primary_is_horizontal(&self) -> bool {

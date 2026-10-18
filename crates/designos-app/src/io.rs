@@ -1,7 +1,7 @@
 //! Opening and saving documents.
 
 use designos_doc::{Document, Vec2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -13,12 +13,57 @@ fn repaired_originals() -> &'static Mutex<HashMap<PathBuf, Vec<u8>>> {
     ORIGINALS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn non_finite_notified() -> &'static Mutex<HashSet<PathBuf>> {
+    static NOTIFIED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    NOTIFIED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
 fn repair_key(path: &Path) -> PathBuf {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
     }
     std::fs::canonicalize(&p).unwrap_or(p)
+}
+
+/// Formats the user-facing notice when `count` non-finite (`NaN`, `Infinity`, or `null`) numbers
+/// were replaced by their neutral value (`0` or `1`).
+pub fn non_finite_notice(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("1 number in this file was not valid and was replaced by 0 or 1".to_string()),
+        n => Some(format!("{n} numbers in this file were not valid and were replaced by 0 or 1")),
+    }
+}
+
+/// Returns [`non_finite_notice`] at most once per file and per run.
+pub fn non_finite_notice_once(path: &Path, count: usize) -> Option<String> {
+    let notice = non_finite_notice(count)?;
+    let key = repair_key(path);
+    if let Ok(mut set) = non_finite_notified().lock() {
+        if !set.insert(key) {
+            return None;
+        }
+    }
+    Some(notice)
+}
+
+pub fn same_repair_key(a: &Path, b: &Path) -> bool {
+    repair_key(a) == repair_key(b)
+}
+
+/// Drops any cached pre-repair original bytes for `path` when its tab closes without saving.
+pub fn drop_repaired_original(path: &Path) {
+    let key = repair_key(path);
+    if let Ok(mut map) = repaired_originals().lock() {
+        map.remove(&key);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn has_repaired_original(path: &Path) -> bool {
+    let key = repair_key(path);
+    repaired_originals().lock().ok().is_some_and(|map| map.contains_key(&key))
 }
 
 fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Document, Option<String>)> {
@@ -30,7 +75,7 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
         doc.renumber_ids_for_headroom();
     }
     let key = repair_key(path);
-    let warning = match report.structural_summary() {
+    let structural_warning = match report.structural_summary() {
         Some(what) => {
             if let Ok(mut map) = repaired_originals().lock() {
                 map.insert(key, text.as_bytes().to_vec());
@@ -44,6 +89,13 @@ fn parse_native_with_warning(path: &Path, text: &str) -> serde_json::Result<(Doc
             }
             None
         }
+    };
+    let nf_notice = non_finite_notice_once(path, report.non_finite_numbers);
+    let warning = match (structural_warning, nf_notice) {
+        (Some(s), Some(n)) => Some(format!("{s}; {n}")),
+        (Some(s), None) => Some(s),
+        (None, Some(n)) => Some(n),
+        (None, None) => None,
     };
     Ok((doc, warning))
 }
@@ -92,7 +144,19 @@ fn load_path_importing_pen_with(
         "json" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
             match designos_fig::import_rest_json(&text) {
-                Ok(d) => d,
+                Ok(mut d) => {
+                    // A number that overflowed `f32` on import is infinity here. Counting walks the
+                    // document without building any text; only a file that has such numbers pays for
+                    // the serialization that replaces them.
+                    let replaced = d.count_non_finite().unwrap_or(0);
+                    if replaced > 0 {
+                        if let Some(reloaded) = d.to_json_counted().ok().and_then(|(clean, _)| Document::from_json(&clean).ok()) {
+                            d = reloaded;
+                        }
+                        warning = non_finite_notice_once(path, replaced);
+                    }
+                    d
+                }
                 Err(fig_err) => match import_pen(&text) {
                     Ok((d, w)) => {
                         warning = w;
@@ -149,40 +213,87 @@ pub fn ensure_page(doc: &mut Document) {
     }
 }
 
-/// Path of the `<file>.bak` backup written before saving a document that was repaired on load.
+/// Path of the `<file>.bak` (or `<file>.bak.1`, `<file>.bak.2`, … when `<file>.bak` already exists)
+/// backup written before saving a document that was repaired on load.
 pub fn backup_path(path: &Path) -> PathBuf {
-    let mut os = path.as_os_str().to_os_string();
-    os.push(".bak");
-    PathBuf::from(os)
+    let mut base = path.as_os_str().to_os_string();
+    base.push(".bak");
+    let first = PathBuf::from(&base);
+    if first.symlink_metadata().is_err() {
+        return first;
+    }
+    for n in 1u64.. {
+        let mut numbered = base.clone();
+        numbered.push(format!(".{n}"));
+        let candidate = PathBuf::from(numbered);
+        if candidate.symlink_metadata().is_err() {
+            return candidate;
+        }
+    }
+    unreachable!("u64 backup index exhausted")
 }
 
-/// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
-pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+/// If `path` was structurally repaired when loaded, writes its pre-repair bytes to `<path>.bak`.
+pub fn write_pending_repair_backup(path: &Path) -> Result<bool, String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
     }
-    let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
-        designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?
-    } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
-        designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
-    } else {
-        doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?.into_bytes()
-    };
-
     let key = repair_key(&p);
     let pending_backup = repaired_originals().lock().ok().and_then(|map| map.get(&key).cloned());
     if let Some(original_bytes) = &pending_backup {
         let bak = backup_path(&p);
         designos_library::write_atomic(&bak, original_bytes).map_err(|e| format!("Cannot write {}: {e}", bak.display()))?;
+        return Ok(true);
     }
-    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
-    if pending_backup.is_some() {
-        if let Ok(mut map) = repaired_originals().lock() {
-            map.remove(&key);
-        }
+    Ok(false)
+}
+
+/// Drops the pending pre-repair backup bytes for `path` after a save has succeeded.
+pub fn clear_pending_repair_backup(path: &Path) {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let key = repair_key(&p);
+    if let Ok(mut map) = repaired_originals().lock() {
+        map.remove(&key);
+    }
+}
+
+/// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
+pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+    let (p, replaced) = save_path_counted(doc, path)?;
+    if replaced > 0 {
+        eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
     }
     Ok(p)
+}
+
+/// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
+/// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
+pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), String> {
+    let mut p = path.to_path_buf();
+    if p.extension().is_none() {
+        p.set_extension(NATIVE_EXT);
+    }
+    let mut replaced = 0;
+    let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
+        designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?
+    } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
+        designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
+    } else {
+        let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
+        replaced = n;
+        json.into_bytes()
+    };
+
+    let wrote_backup = write_pending_repair_backup(&p)?;
+    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
+    if wrote_backup {
+        clear_pending_repair_backup(&p);
+    }
+    Ok((p, replaced))
 }
 
 pub fn pick_open() -> Option<PathBuf> {
@@ -207,6 +318,13 @@ pub fn pick_save(default_name: &str) -> Option<PathBuf> {
 
 pub fn pick_export(default_name: &str) -> Option<PathBuf> {
     rfd::FileDialog::new().add_filter("PNG", &["png"]).set_file_name(format!("{default_name}.png")).save_file()
+}
+
+/// Like [`save_path`], also returning the once-per-file notice when non-finite numbers were replaced.
+pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
+    let (p, replaced) = save_path_counted(doc, path)?;
+    let notice = non_finite_notice_once(&p, replaced);
+    Ok((p, notice))
 }
 
 #[cfg(test)]
@@ -467,5 +585,217 @@ mod tests {
         assert!(!bak.exists(), "clean file must not write a .bak file on save");
 
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn non_finite_numbers_notice_shown_once_per_file_on_open_import_and_save() {
+        let mut poisoned = Document::new("Poisoned");
+        let page = poisoned.add_page("Page 1");
+        let id = poisoned.alloc_id();
+        poisoned.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        {
+            let n = poisoned.get_mut(id).unwrap();
+            n.size.x = f32::NAN;
+            n.opacity = f32::NAN;
+            n.transform.tx = f32::INFINITY;
+        }
+
+        // 1. Open: a legacy file containing 3 `null` numbers shows the notice on first open, and not on second open.
+        let legacy_json = serde_json::to_string(&poisoned).unwrap();
+        let open_file = tmp("legacy_null_numbers.designos");
+        std::fs::write(&open_file, &legacy_json).unwrap();
+
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(open_file.clone());
+        let toast1 = app.toast.as_ref().expect("first open must show a toast");
+        assert!(toast1.error, "non-finite replacement toast should use warning styling");
+        assert!(toast1.text.contains("3 numbers in this file were not valid and were replaced by 0 or 1"), "unexpected open toast: {}", toast1.text);
+        assert!(!backup_path(&open_file).exists(), "non-finite numbers alone must not trigger a .bak backup");
+
+        // Second open of the same file in the same run must not repeat the notice.
+        app.open_path(open_file.clone());
+        let toast2 = app.toast.as_ref().expect("second open must still show opened toast");
+        assert!(!toast2.error, "second open of the same file must not repeat warning: {}", toast2.text);
+        assert_eq!(toast2.text, "Opened Poisoned");
+        std::fs::remove_file(&open_file).ok();
+
+        // 2. Import into library & library open/save:
+        let lib_dir = tmp("non_finite_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        let overflow_rest = r#"{
+          "name": "Overflow", "version": "1", "schemaVersion": 0,
+          "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+            {"id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+              {"id": "1:1", "name": "Huge", "type": "RECTANGLE", "size": {"x": 1e39, "y": 20},
+               "relativeTransform": [[1, 0, -1e39], [0, 1, 4]], "strokeWeight": 1e39, "cornerRadius": 1e39}]}]}
+        }"#;
+        let import_src = tmp("overflow_import.json");
+        std::fs::write(&import_src, overflow_rest).unwrap();
+
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&import_src), &proj.id, None), 1);
+        let import_toast = app.toast.as_ref().expect("import must show a toast");
+        assert!(import_toast.error, "import with replaced numbers must surface warning styling");
+        assert!(
+            import_toast.text.contains("numbers in this file were not valid and were replaced by 0 or 1"),
+            "unexpected import toast: {}",
+            import_toast.text
+        );
+
+        // Importing the same source file again in the same run does not repeat the notice for that source path.
+        app.toast = None;
+        assert_eq!(app.import_into_library(std::slice::from_ref(&import_src), &proj.id, None), 1);
+        let import_toast2 = app.toast.as_ref().expect("second import must show a toast");
+        assert!(!import_toast2.error, "second import of same file in same run must not repeat warning: {}", import_toast2.text);
+        std::fs::remove_file(&import_src).ok();
+
+        // 3. Save: saving a library file (or external path) that acquired a NaN in memory warns once per file.
+        let clean_entry = lib.create_file(&proj.id, None, "Editable", &Document::new("Editable")).unwrap();
+        app.open_library_file(&clean_entry.id);
+        let page = app.page;
+        let rid = app.doc.alloc_id();
+        app.doc.insert(page, Node::rectangle(rid, Rect::new(0.0, 0.0, 20.0, 20.0))).unwrap();
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+
+        app.toast = None;
+        app.save_library_file_with_toast();
+        let save_toast = app.toast.as_ref().expect("save must show a toast");
+        assert!(save_toast.error, "save that replaced a NaN must warn");
+        assert!(save_toast.text.contains("1 number in this file was not valid and was replaced by 0 or 1"), "unexpected save toast: {}", save_toast.text);
+
+        // Saving the same file a second time in the same run (even with another NaN) must not repeat the notice.
+        app.doc.get_mut(rid).unwrap().size.x = f32::NAN;
+        app.toast = None;
+        app.save_library_file_with_toast();
+        let save_toast2 = app.toast.as_ref().expect("second save must show a toast");
+        assert!(!save_toast2.error, "second save of the same file must not repeat the notice: {}", save_toast2.text);
+
+        let _ = std::fs::remove_dir_all(&lib_dir);
+    }
+
+    #[test]
+    fn saving_repaired_document_never_overwrites_existing_bak_files() {
+        let mut d = Document::new("Damaged");
+        let page = d.add_page("P");
+        let a = d.alloc_id();
+        d.insert(page, Node::rectangle(a, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        d.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(999));
+
+        let p = tmp("damaged_existing_bak.designos");
+        let bak0 = PathBuf::from(format!("{}.bak", p.display()));
+        let bak1 = PathBuf::from(format!("{}.bak.1", p.display()));
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(&bak0).ok();
+        std::fs::remove_file(&bak1).ok();
+
+        let pre_existing_bak = b"earlier-user-backup-bytes";
+        std::fs::write(&bak0, pre_existing_bak).unwrap();
+        let damaged_bytes = d.to_json().unwrap().into_bytes();
+        std::fs::write(&p, &damaged_bytes).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        let warning = warning.expect("malformed native open must return a repair warning");
+        assert!(warning.contains("damaged_existing_bak.designos.bak.1"), "warning must name the numbered backup slot when .bak already exists: {warning}");
+
+        save_path(&doc, &p).unwrap();
+        assert_eq!(std::fs::read(&bak0).unwrap(), pre_existing_bak, "existing .bak must never be overwritten");
+        assert_eq!(std::fs::read(&bak1).unwrap(), damaged_bytes, "new backup must be written to .bak.1");
+
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_file(&bak0).ok();
+        std::fs::remove_file(&bak1).ok();
+    }
+
+    /// A Figma REST file with one rectangle; `stroke` and `radius` are raw JSON numbers, so `1e39`
+    /// overflows to infinity when the importer reads it as an `f32`.
+    fn rest_json_with(stroke: &str, radius: &str) -> String {
+        format!(
+            r#"{{"name": "Shapes", "version": "1", "schemaVersion": 0,
+              "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+                {{"id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+                  {{"id": "1:1", "name": "Box", "type": "RECTANGLE", "size": {{"x": 10, "y": 20}},
+                   "relativeTransform": [[1, 0, 0], [0, 1, 4]], "strokeWeight": {stroke}, "cornerRadius": {radius}}}]}}]}}}}"#
+        )
+    }
+
+    fn json_texts_built_by(f: impl FnOnce()) -> usize {
+        let before = designos_doc::finite_json::serialize_calls_on_this_thread();
+        f();
+        designos_doc::finite_json::serialize_calls_on_this_thread() - before
+    }
+
+    #[test]
+    fn opening_a_finite_rest_json_builds_no_native_json_text() {
+        let p = tmp("finite_rest_open.json");
+        std::fs::write(&p, rest_json_with("2", "3")).unwrap();
+        let mut warning = Some("unset".to_string());
+        let built = json_texts_built_by(|| warning = load_path_with_warning(&p).unwrap().1);
+        std::fs::remove_file(&p).ok();
+        assert_eq!(warning, None, "nothing was replaced, so nothing to tell");
+        assert_eq!(built, 0, "a clean REST open must not serialize the document just to count");
+    }
+
+    #[test]
+    fn opening_a_rest_json_with_overflowing_numbers_replaces_them_and_tells_the_user_once() {
+        let p = tmp("overflow_rest_open.json");
+        std::fs::write(&p, rest_json_with("1e39", "1e39")).unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        let again = load_path_with_warning(&p).unwrap().1;
+        std::fs::remove_file(&p).ok();
+        assert!(warning.as_deref().is_some_and(|w| w.contains("replaced by 0 or 1")), "{warning:?}");
+        assert_eq!(doc.count_non_finite().unwrap(), 0, "the opened document holds only finite numbers");
+        assert_eq!(again, None, "the second open in the same run stays quiet");
+    }
+
+    #[test]
+    fn saving_to_a_path_builds_one_json_text_and_reports_the_replaced_numbers() {
+        let mut doc = Document::new("Nan");
+        let page = doc.add_page("P");
+        let id = doc.alloc_id();
+        doc.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        doc.get_mut(id).unwrap().size.x = f32::NAN;
+        let p = tmp("one_text_per_save.designos");
+        let mut notice = None;
+        let built = json_texts_built_by(|| notice = save_path_with_notice(&doc, &p).unwrap().1);
+        std::fs::remove_file(&p).ok();
+        assert!(notice.as_deref().is_some_and(|w| w.starts_with("1 number in this file")), "{notice:?}");
+        assert_eq!(built, 1, "counting the replaced numbers and writing the file must share one serialization");
+    }
+
+    #[test]
+    fn importing_several_files_names_each_one_that_had_numbers_replaced() {
+        let lib_dir = tmp("import_many_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        let files = [
+            (tmp("import_stroke_overflow.json"), rest_json_with("1e39", "3")),
+            (tmp("import_radius_overflow.json"), rest_json_with("2", "1e39")),
+            (tmp("import_all_finite.json"), rest_json_with("2", "3")),
+        ];
+        for (path, text) in &files {
+            std::fs::write(path, text).unwrap();
+        }
+        let paths: Vec<PathBuf> = files.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(app.import_into_library(&paths, &proj.id, None), 3);
+
+        let toast = app.toast.as_ref().expect("import must show a toast");
+        for (path, _) in &files {
+            std::fs::remove_file(path).ok();
+        }
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        assert!(toast.error, "{}", toast.text);
+        for named in ["import_stroke_overflow.json", "import_radius_overflow.json"] {
+            assert!(toast.text.contains(named), "the toast must name {named}: {}", toast.text);
+        }
+        assert!(!toast.text.contains("import_all_finite.json"), "a clean file is not mentioned: {}", toast.text);
+        assert_eq!(toast.text.matches("replaced by 0 or 1").count(), 2, "one notice per affected file: {}", toast.text);
     }
 }

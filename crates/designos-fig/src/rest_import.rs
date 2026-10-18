@@ -112,43 +112,45 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let col = v.get("color").and_then(color).unwrap_or(Color::BLACK.with_alpha(0.25));
     let offset = v.get("offset").and_then(vec2).unwrap_or(Vec2::ZERO);
     let spread = fnum(v, "spread").unwrap_or(0.0);
+    let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
+    let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
         "DROP_SHADOW" => Effect::DropShadow { color: col, offset, radius, spread, visible, show_behind: fbool(v, "showShadowBehindNode").unwrap_or(false) },
         "INNER_SHADOW" => Effect::InnerShadow { color: col, offset, radius, spread, visible },
         "LAYER_BLUR" => Effect::LayerBlur { radius, visible },
         "BACKGROUND_BLUR" => Effect::BackgroundBlur { radius, visible },
         // Noise / texture / glass: every field is optional; missing ones fall back to the
-        // editor defaults. Names match what `export.rs` writes.
+        // editor defaults. Names match what `export.rs` and `fig.rs` write.
         "NOISE" => {
             let primary = v.get("color").and_then(color).unwrap_or(Color::BLACK);
             let mode = match fstr(v, "noiseType").map(str::to_ascii_uppercase).as_deref() {
-                Some("DUOTONE") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
-                Some("MULTITONE") => NoiseMode::Multi,
+                Some("DUOTONE" | "DUO") => NoiseMode::Duo { color: primary, secondary: v.get("secondaryColor").and_then(color).unwrap_or(Color::WHITE) },
+                Some("MULTITONE" | "MULTI") => NoiseMode::Multi,
                 _ => NoiseMode::Mono { color: primary },
             };
             Effect::Noise(NoiseEffect {
                 mode,
-                size: fnum(v, "noiseSize").unwrap_or(1.0),
+                size: noise_size(v).unwrap_or(1.0),
                 density: fnum(v, "density").unwrap_or(0.5).clamp(0.0, 1.0),
                 opacity: fnum(v, "opacity").unwrap_or(0.25).clamp(0.0, 1.0),
                 blend: fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal),
-                seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+                seed: parse_seed(v),
                 visible,
             })
         }
-        "TEXTURE" => Effect::Texture(TextureEffect {
-            size: fnum(v, "noiseSize").unwrap_or(2.0),
+        "TEXTURE" | "GRAIN" => Effect::Texture(TextureEffect {
+            size: noise_size(v).unwrap_or(2.0),
             radius: fnum(v, "radius").unwrap_or(2.0),
             clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
-            seed: fnum(v, "seed").unwrap_or(1.0).max(0.0) as u32,
+            seed: parse_seed(v),
             visible,
         }),
         "GLASS" => Effect::Glass(GlassEffect {
-            light_angle: fnum(v, "lightAngle").unwrap_or(315.0),
-            light_intensity: fnum(v, "lightIntensity").unwrap_or(0.5).clamp(0.0, 1.0),
-            refraction: fnum(v, "refraction").unwrap_or(0.5).clamp(0.0, 1.0),
-            depth: fnum(v, "depth").unwrap_or(10.0),
-            dispersion: fnum(v, "dispersion").unwrap_or(0.25).clamp(0.0, 1.0),
+            light_angle: fnum(v, "lightAngle").or_else(|| fnum(v, "specularAngle")).unwrap_or(315.0),
+            light_intensity: fnum(v, "lightIntensity").or_else(|| fnum(v, "specularIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            refraction: fnum(v, "refraction").or_else(|| fnum(v, "refractionIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
+            depth: fnum(v, "depth").or_else(|| fnum(v, "refractionRadius")).unwrap_or(10.0),
+            dispersion: fnum(v, "dispersion").or_else(|| fnum(v, "chromaticAberration")).unwrap_or(0.25).clamp(0.0, 1.0),
             frost: fnum(v, "radius").unwrap_or(4.0),
             visible,
         }),
@@ -748,7 +750,7 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(&v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container();
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
             return;
@@ -846,7 +848,7 @@ impl<'a> Ctx<'a> {
         }
         let is_instance = matches!(node.kind, NodeKind::Instance { .. });
         let origin = abs_origin(v).unwrap_or(pinfo.origin);
-        let container = node.kind.is_container();
+        let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
             return;
@@ -964,7 +966,7 @@ impl<'a> Ctx<'a> {
             other => NodeKind::Unknown { type_name: other.to_string() },
         };
         let is_text = matches!(kind, NodeKind::Text(_));
-        let my_layout = kind.frame_props().and_then(|f| f.auto_layout).map(|a| a.direction);
+        let my_layout = kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
         let default_blend = if matches!(kind, NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Line | NodeKind::Vector { .. } | NodeKind::Text(_)) {
             BlendMode::Normal
         } else {
@@ -1000,6 +1002,9 @@ impl<'a> Ctx<'a> {
         if let Some(lvl) = v.get("overrideLevel").and_then(Value::as_i64) {
             n.component.override_level = Some(lvl as i32);
         }
+        n.component.is_slot = fbool(v, "isSlot").unwrap_or(false);
+        n.component.is_slot_content = fbool(v, "isSlotContent").unwrap_or(false);
+        n.component.slot_content_id = fstr(v, "slotContentId").filter(|s| !s.is_empty()).map(String::from);
         if let Some(ds) = fstr(v, "detachedSymbolId").filter(|s| !s.is_empty()) {
             n.detached_symbol_id = Some(ds.to_string());
             n.component.detached_symbol_id = Some(ds.to_string());
@@ -1175,7 +1180,28 @@ impl<'a> Ctx<'a> {
                         }
                         (PropKind::InstanceSwap { preferred: Vec::new() }, PropValue::Instance(NodeId(0)))
                     }
-                    Some("SLOT") => (PropKind::Slot, PropValue::Slot(Vec::new())),
+                    Some("SLOT") => {
+                        if let Some(cfg) = d.get("slotPropConfig").and_then(Value::as_object) {
+                            let opt_u32 = |k: &str| cfg.get(k).and_then(Value::as_u64).map(|x| x.min(u64::from(u32::MAX)) as u32);
+                            n.component.slot_configs.insert(
+                                name.clone(),
+                                SlotPropConfig {
+                                    stretch_child_on_insert: cfg.get("stretchChildOnInsert").and_then(Value::as_bool),
+                                    display_by_default: cfg.get("displayByDefault").and_then(Value::as_bool),
+                                    min_children: opt_u32("minChildren"),
+                                    max_children: opt_u32("maxChildren"),
+                                    allow_preferred_values_only: cfg.get("allowPreferredValuesOnly").and_then(Value::as_bool),
+                                    preferred: Vec::new(),
+                                },
+                            );
+                        }
+                        for p in farr(d, "preferredValues") {
+                            if let Some(ps) = p.as_str().or_else(|| fstr(p, "key")) {
+                                self.pending_swaps.push((id, name.clone(), format!("SLOTPREF:{ps}"), true));
+                            }
+                        }
+                        (PropKind::Slot, PropValue::Slot(Vec::new()))
+                    }
                     _ => continue,
                 };
                 n.component.props.push(ComponentPropDef { name, kind, default });
@@ -1487,6 +1513,16 @@ impl<'a> Ctx<'a> {
                             preferred.push(target);
                         }
                     }
+                }
+                continue;
+            }
+            if let Some(pref_key) = rest_id.strip_prefix("SLOTPREF:") {
+                let Some(&target) = self.ids.get(pref_key) else { continue };
+                let Some(n) = self.doc.get_mut(node) else { continue };
+                // A slot may list preferred components without ever writing a `slotPropConfig`.
+                let cfg = n.component.slot_configs.entry(name).or_default();
+                if !cfg.preferred.contains(&target) {
+                    cfg.preferred.push(target);
                 }
                 continue;
             }
@@ -2064,7 +2100,7 @@ impl<'a> Ctx<'a> {
             .and_then(|n| n.parent)
             .and_then(|p| self.doc.get(p))
             .and_then(|p| p.kind.frame_props())
-            .and_then(|f| f.auto_layout)
+            .and_then(|f| f.auto_layout.as_ref())
             .map(|a| a.direction);
         let Some(n) = self.doc.get_mut(id) else { return swapped };
         let keep = |k: &str| !derived_only || matches!(k, "size" | "relativeTransform" | "fillGeometry" | "strokeGeometry");
@@ -2288,21 +2324,22 @@ impl<'a> Ctx<'a> {
                     TextAutoResize::Height if !dir_h => Sizing::Hug,
                     _ => Sizing::Fixed,
                 },
-                k => k.frame_props().and_then(|f| f.auto_layout).map_or(Sizing::Fixed, |al| al.sizing_along(dir_h)),
+                k => k.frame_props().and_then(|f| f.auto_layout.as_ref()).map_or(Sizing::Fixed, |al| al.sizing_along(dir_h)),
             }
         };
-        if let Some(al) = n.kind.frame_props().and_then(|fp| fp.auto_layout) {
-            let prim_h = al.primary_is_horizontal();
+        if let Some((prim_h, prim_sz, counter_sz)) =
+            n.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()).map(|al| (al.primary_is_horizontal(), al.primary_sizing, al.counter_sizing))
+        {
             if set.get("primaryAxisSizingMode").is_some() {
                 let slot = if prim_h { &mut n.layout_child.horizontal } else { &mut n.layout_child.vertical };
                 if *slot != Sizing::Fill {
-                    *slot = al.primary_sizing;
+                    *slot = prim_sz;
                 }
             }
             if set.get("counterAxisSizingMode").is_some() {
                 let slot = if prim_h { &mut n.layout_child.vertical } else { &mut n.layout_child.horizontal };
                 if *slot != Sizing::Fill {
-                    *slot = al.counter_sizing;
+                    *slot = counter_sz;
                 }
             }
         }
@@ -2731,8 +2768,8 @@ fn parse_geometry_cached(items: &[Value], cache: &mut HashMap<String, Path>, blo
 }
 
 /// Parses `.fig` v106 CSS-grid track strings (e.g. `"1fr 2fr 120px auto"`,
-/// `"repeat(3, 1fr)"`, `"minmax(0, 1fr)"`) into track count + up to 8 [`GridTrack`]s.
-fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
+/// `"repeat(3, 1fr)"`, `"minmax(0, 1fr)"`) into track count + up to [`MAX_GRID_TRACKS`] [`GridTrack`]s.
+fn parse_grid_sizing(s: &str) -> (u32, GridTracks) {
     fn parse_one(tok: &str) -> GridTrack {
         let t = tok.trim();
         let lower = t.to_ascii_lowercase();
@@ -2741,13 +2778,14 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
                 return parse_one(max_part);
             }
         }
+        let finite = |s: &str| s.trim().parse::<f32>().ok().filter(|v| v.is_finite());
         if matches!(lower.as_str(), "auto" | "min-content" | "max-content" | "fit-content") {
             GridTrack::Hug
         } else if let Some(fr) = lower.strip_suffix("fr") {
-            GridTrack::Flex(fr.trim().parse::<f32>().unwrap_or(1.0).max(0.01))
+            GridTrack::Flex(finite(fr).unwrap_or(1.0).max(0.01))
         } else if let Some(px) = lower.strip_suffix("px") {
-            GridTrack::Fixed(px.trim().parse::<f32>().unwrap_or(0.0).max(0.0))
-        } else if let Ok(v) = lower.parse::<f32>() {
+            GridTrack::Fixed(finite(px).unwrap_or(0.0).max(0.0))
+        } else if let Some(v) = finite(&lower) {
             GridTrack::Fixed(v.max(0.0))
         } else {
             GridTrack::Flex(1.0)
@@ -2785,7 +2823,7 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
         }
     }
 
-    const KEPT_TRACKS: usize = 8;
+    const KEPT_TRACKS: usize = MAX_GRID_TRACKS;
     const MAX_TRACK_COUNT: u32 = 1024;
     const MAX_REPEAT_DEPTH: usize = 8;
 
@@ -2846,11 +2884,7 @@ fn parse_grid_sizing(s: &str) -> (u32, [GridTrack; 8]) {
 
     let mut list = Tracks::default();
     collect_tokens(s, &mut list, 0);
-    let mut tracks = [GridTrack::default(); KEPT_TRACKS];
-    for (slot, t) in tracks.iter_mut().zip(list.kept.iter().copied()) {
-        *slot = t;
-    }
-    (list.count, tracks)
+    (list.count, GridTracks::from(list.kept))
 }
 
 fn frame_props(v: &Value) -> FrameProps {
@@ -3010,7 +3044,7 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
                 TextAutoResize::Height => !dir_h,
                 _ => false,
             },
-            k => k.frame_props().and_then(|f| f.auto_layout).is_some_and(|al| al.sizing_along(dir_h) == Sizing::Hug),
+            k => k.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|al| al.sizing_along(dir_h) == Sizing::Hug),
         }
     };
     if own_hug(true) {
@@ -3304,5 +3338,24 @@ mod grid_sizing_tests {
         let (n, _) = parse_grid_sizing(&s);
         assert_eq!(n, 0);
         assert!(started.elapsed().as_millis() < 250, "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn non_finite_track_tokens_fall_back_to_finite_defaults() {
+        let (n, t) = parse_grid_sizing("NaNfr inffr -inffr NaNpx infpx -infpx inf -inf");
+        assert_eq!(n, 8);
+        assert_eq!(
+            t,
+            [
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Fixed(0.0),
+                GridTrack::Flex(1.0),
+                GridTrack::Flex(1.0),
+            ]
+        );
     }
 }

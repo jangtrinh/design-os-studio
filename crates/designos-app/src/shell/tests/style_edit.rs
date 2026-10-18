@@ -265,6 +265,7 @@ fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
     for (prop, _) in props {
         let row = style_picker::rename_style_row(s.app(), &sel, prop);
         assert!(row.disabled, "{prop:?}: the Rename style row is disabled for a library style");
+        assert_eq!(row.label, "Edit in the library file", "{prop:?}: the Rename style row names where to edit");
     }
     // Double-clicking the linked row does not open the inline rename field for a library style.
     let linked = s.rect_of("effect-style-row");
@@ -274,4 +275,77 @@ fn a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row() {
     assert!(s.app().props.style_rename.is_none(), "double-clicking a library style's linked row does not start a rename");
     assert!(!s.shell.app.rename_style_to("Effect style 1", "Renamed"));
     assert_eq!(s.app().doc.style_name("Effect style 1"), "Effect style 1");
+}
+
+fn raw_field_prefix(s: &Sim, key_debug: &str) -> crate::widgets::field::Prefix {
+    s.ctx
+        .data(|d| d.get_temp::<crate::widgets::field::Prefix>(egui::Id::new(("field-prefix", key_debug.to_string()))))
+        .unwrap_or_else(|| panic!("no field prefix {key_debug}"))
+}
+
+#[test]
+fn popover_number_fields_use_distinct_non_duplicate_prefixes() {
+    use crate::panels::effects::{default_effect, PopKind, PopState};
+    use crate::widgets::field::Prefix;
+    use std::collections::HashSet;
+
+    let assert_distinct_icons = |s: &Sim, keys: &[&str], context: &str| {
+        let mut seen = HashSet::new();
+        for &k in keys {
+            let p = raw_field_prefix(s, k);
+            assert!(
+                matches!(p, Prefix::Icon(_)),
+                "{context}: field {k} should use a distinct icon prefix rather than repeating a row-label initial, got {p:?}"
+            );
+            assert!(seen.insert(p), "{context}: duplicate prefix {p:?} on field {k}");
+        }
+    };
+
+    // 1. Layer Effects popover (`effects.rs:popover_ui` -> `effect_body`) across shadow, blur, noise, texture, and glass.
+    let mut s = Sim::with(Options { select: Some("Welcome".into()), ..Default::default() });
+    let welcome = s.by_name("Welcome");
+    let anchor = egui::Rect::from_min_size(Pos2::new(1200.0, 300.0), Vec2::new(24.0, 24.0));
+
+    let effect_cases: &[(Effect, &[&str], &str)] = &[
+        (shadow(8.0), &["(\"fxp-x\", 0)", "(\"fxp-y\", 0)", "(\"fxp-b\", 0)", "(\"fxp-s\", 0)"], "layer DropShadow popover"),
+        (default_effect(2, 1), &["(\"fxp-blur\", 0)"], "layer LayerBlur popover"),
+        (default_effect(4, 1), &["(\"fxp-nsize\", 0)", "(\"fxp-dens\", 0)", "(\"fxp-nop\", 0)"], "layer Noise popover"),
+        (default_effect(5, 1), &["(\"fxp-tsize\", 0)", "(\"fxp-trad\", 0)"], "layer Texture popover"),
+        (
+            default_effect(6, 1),
+            &[
+                "(\"fxp-angle\", 0)",
+                "(\"fxp-glass\", 0, 0)",
+                "(\"fxp-glass\", 0, 1)",
+                "(\"fxp-glass\", 0, 2)",
+                "(\"fxp-glass\", 0, 3)",
+                "(\"fxp-glass\", 0, 4)",
+            ],
+            "layer Glass popover",
+        ),
+    ];
+
+    for (fx, keys, label) in effect_cases {
+        s.shell.app.edit_nodes(&[welcome], |n| n.effects = vec![fx.clone()]);
+        s.shell.app.props.pop = Some(PopState { kind: PopKind::Effect(0), anchor, ids: vec![welcome] });
+        s.frame(vec![]);
+        assert_distinct_icons(&s, keys, label);
+    }
+    s.shell.app.props.pop = None;
+
+    // 2. Edit style popover for Text style (`style_edit.rs:text_rows`).
+    let mut s = Sim::with(Options { select: Some("Welcome back".into()), ..Default::default() });
+    let t = s.by_name("Welcome back");
+    s.shell.app.apply_style(&[t], "Body/Regular");
+    edit_from_list(&mut s, "Body/Regular");
+    assert_distinct_icons(&s, &["\"se-size\"", "\"se-line-height\"", "\"se-letter-spacing\""], "Text style edit popover");
+
+    // 3. Edit style popover for Grid style (`style_edit_grid_rows.rs:grid_rows`).
+    let (mut s, ..) = welcome_with_styles();
+    let r = s.rect_of("grid-style-button");
+    s.click(r.center());
+    let top = r.bottom() + 4.0 + theme::MENU_PADDING + 4.0 * theme::MENU_ITEM_HEIGHT + crate::widgets::menu::SEP_H;
+    s.click(Pos2::new(r.right() - 60.0, top + theme::MENU_ITEM_HEIGHT / 2.0));
+    s.frame(vec![]);
+    assert_distinct_icons(&s, &["\"se-grid-count\"", "\"se-grid-gutter\"", "\"se-grid-offset\"", "\"se-grid-opacity\""], "Grid style edit popover (Columns)");
 }

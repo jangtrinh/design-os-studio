@@ -293,7 +293,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
                         counter_align: row_align,
                         primary_sizing: Sizing::Hug,
                         counter_sizing: Sizing::Hug,
-                        ..Default::default()
+                        ..AutoLayout::v1()
                     });
                 }
                 doc.insert(root_frame, row_node)?;
@@ -324,7 +324,7 @@ pub fn suggest_auto_layout(doc: &mut Document, selected_ids: &[NodeId]) -> Resul
                 counter_align,
                 primary_sizing: sizing,
                 counter_sizing: sizing,
-                ..Default::default()
+                ..AutoLayout::v1()
             });
         }
     }
@@ -1141,7 +1141,7 @@ impl PrototypeRuntime {
             return Rect::new(0.0, 0.0, container.size.x, container.size.y);
         }
         let mut u = union_rects(&rects);
-        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = container.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let [_, pad_right, pad_bottom, _] = al.padding;
             u.w += pad_right;
             u.h += pad_bottom;

@@ -144,3 +144,66 @@ fn a_native_file_with_null_numbers_opens_and_the_result_reports_the_repair() {
     let opened = s.call("designos_open_file", json!({"path":"clean.designos"})).unwrap();
     assert!(opened.get("repaired_non_finite_numbers").is_none(), "{opened}");
 }
+
+/// 40 nested Fill frames, 200 wide, with a 10 px leaf hugging the right edge of the innermost
+/// one. Widening the outermost frame to 600 moves the leaf to x = 590, but one relayout stops 32
+/// hops down and queues the rest for the lazy pass.
+fn queued_chain(s: &mut Session) -> designos_doc::NodeId {
+    use designos_doc::{AutoLayout, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeKind, Rect, Sizing};
+    let doc = &mut s.engine.doc;
+    let mut cur = doc.pages[0];
+    let mut outermost = None;
+    for i in 0..40 {
+        let id = doc.alloc_id();
+        let mut f = Node::frame(id, Rect::new(0.0, 0.0, 200.0, 40.0));
+        if let NodeKind::Frame(fp) = &mut f.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                primary_align: LayoutAlign::End,
+                ..AutoLayout::default()
+            });
+        }
+        if i > 0 {
+            f.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fill, ..LayoutChild::default() };
+        }
+        doc.insert(cur, f).unwrap();
+        outermost.get_or_insert(id);
+        cur = id;
+    }
+    let leaf = doc.alloc_id();
+    doc.insert(cur, Node::rectangle(leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+    let outermost = outermost.unwrap();
+    doc.relayout_subtree(outermost);
+    assert_eq!(doc.get(leaf).unwrap().transform.tx, 190.0, "precondition: the leaf hugs the 200 px frame");
+    doc.get_mut(outermost).unwrap().size.x = 600.0;
+    doc.relayout_subtree(outermost);
+    assert!(doc.relayout_skipped_count() > 0, "precondition: the nest is deeper than one relayout reaches");
+    assert_ne!(doc.get(leaf).unwrap().transform.tx, 590.0, "precondition: the leaf is not moved yet");
+    leaf
+}
+
+#[test]
+fn session_writes_and_exports_only_a_finished_layout() {
+    let dir = Workspace::new();
+    for (tool, args) in [
+        ("designos_save_file", json!({"path":"queued.designos"})),
+        ("designos_export_fig_file", json!({"output_path":"queued.fig"})),
+        ("designos_render_png", json!({"path":"queued.png"})),
+    ] {
+        let mut s = Session::new(&dir.0).unwrap();
+        let leaf = queued_chain(&mut s);
+        let mut args = args;
+        if tool == "designos_render_png" {
+            args["node_id"] = json!(leaf.0);
+        }
+        s.call(tool, args).unwrap();
+        assert_eq!(s.engine.doc.relayout_skipped_count(), 0, "{tool} must finish the queued layout first");
+        assert_eq!(s.engine.doc.get(leaf).unwrap().transform.tx, 590.0, "{tool}");
+        if tool == "designos_save_file" {
+            let saved = designos_doc::Document::from_json(&fs::read_to_string(dir.0.join("queued.designos")).unwrap()).unwrap();
+            assert_eq!(saved.get(leaf).unwrap().transform.tx, 590.0, "the saved file holds the finished layout, not the queued one");
+        }
+    }
+}

@@ -274,7 +274,7 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
     if !f.grids.is_empty() {
         m.insert("layoutGrids".into(), Value::Array(f.grids.iter().map(grid).collect()));
     }
-    let Some(al) = f.auto_layout else {
+    let Some(al) = &f.auto_layout else {
         m.insert("layoutMode".into(), "NONE".into());
         return;
     };
@@ -286,9 +286,11 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
     m.insert("layoutMode".into(), mode.into());
     if al.grid_columns > 0 {
         m.insert("gridColumns".into(), al.grid_columns.into());
+        m.insert("gridColumnsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_columns, &al.grid_col_tracks).into());
     }
     if al.grid_rows > 0 {
         m.insert("gridRows".into(), al.grid_rows.into());
+        m.insert("gridRowsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_rows, &al.grid_row_tracks).into());
     }
     m.insert("layoutWrap".into(), if al.wrap { "WRAP" } else { "NO_WRAP" }.into());
     m.insert("itemSpacing".into(), n(al.item_spacing));

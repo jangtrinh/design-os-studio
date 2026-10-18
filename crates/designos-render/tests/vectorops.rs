@@ -277,3 +277,158 @@ fn circles_arrange_into_a_lens_and_two_crescents_and_fit_back_to_curves() {
     assert!(anchors <= 10, "{anchors} segments for a lens");
     close(area(&paths), lens.area, lens.area * 0.01);
 }
+
+#[test]
+fn offset_path_expands_100px_square_and_shrinks_on_negative_offset() {
+    let sq = [rect(0.0, 0.0, 100.0, 100.0)];
+
+    // AC 1: +10 on a 100 px square gives about 120^2 minus the corners
+    let plus_round = offset_path(&sq, 10.0);
+    let expected_round = 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0);
+    close(area(&plus_round), expected_round, 2.0);
+
+    let plus_bevel = offset_paths(&sq, 10.0, StrokeJoin::Bevel, 4.0);
+    let expected_bevel = 120.0 * 120.0 - 4.0 * 50.0;
+    close(area(&plus_bevel), expected_bevel, 1.5);
+
+    let plus_miter = offset_paths(&sq, 10.0, StrokeJoin::Miter, 4.0);
+    close(area(&plus_miter), 120.0 * 120.0, 1.5);
+
+    // AC 2: A negative offset shrinks the shape
+    let minus_10 = offset_path(&sq, -10.0);
+    close(area(&minus_10), 80.0 * 80.0, 1.5);
+
+    // Negative offset exceeding half the side length collapses the shape cleanly
+    let collapsed = offset_path(&sq, -60.0);
+    assert!(collapsed.is_empty());
+}
+
+/// The sub-paths of `paths` that are not closed, each as its command list.
+fn open_subpaths(paths: &[Path]) -> Vec<Vec<PathCmd>> {
+    let mut open = Vec::new();
+    for p in paths {
+        let mut cur: Vec<PathCmd> = Vec::new();
+        for c in &p.cmds {
+            if matches!(c, PathCmd::MoveTo(_)) {
+                if cur.len() > 1 && !matches!(cur.last(), Some(PathCmd::Close)) {
+                    open.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+            }
+            cur.push(*c);
+        }
+        if cur.len() > 1 && !matches!(cur.last(), Some(PathCmd::Close)) {
+            open.push(cur);
+        }
+    }
+    open
+}
+
+#[test]
+fn offset_passes_an_open_segment_through_next_to_a_closed_square() {
+    let seg = line(v(200.0, 0.0), v(300.0, 0.0));
+    let input = [rect(0.0, 0.0, 100.0, 100.0), seg.clone()];
+
+    let inset = offset_path(&input, -10.0);
+    assert_eq!(open_subpaths(&inset), vec![seg.cmds.clone()], "an inset must keep the open segment as it was");
+    close(area(&inset), 80.0 * 80.0, 1.5);
+
+    let outset = offset_path(&input, 10.0);
+    assert_eq!(open_subpaths(&outset), vec![seg.cmds.clone()], "an outset must keep the open segment as it was, not turn it into a ribbon");
+    close(area(&outset), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0), 2.0);
+}
+
+#[test]
+fn offset_of_an_open_path_alone_returns_it_unchanged() {
+    let l = [line(v(0.0, 0.0), v(100.0, 0.0))];
+    for delta in [10.0, -10.0] {
+        assert_eq!(offset_path(&l, delta), l.to_vec(), "delta {delta}");
+    }
+}
+
+/// One path holding both squares as separate closed sub-paths (same winding, so they union).
+fn two_overlapping_squares_in_one_path() -> Path {
+    let (a, b) = (rect(0.0, 0.0, 100.0, 100.0), rect(50.0, 0.0, 100.0, 100.0));
+    Path { cmds: a.cmds.into_iter().chain(b.cmds).collect(), fill_rule: FillRule::NonZero }
+}
+
+#[test]
+fn inset_erodes_the_outline_of_overlapping_squares_not_their_inner_edges() {
+    // the union is 150 x 100, so the inset is one 130 x 80 rectangle
+    let one_path = [two_overlapping_squares_in_one_path()];
+    let out = offset_path(&one_path, -10.0);
+    close(area(&out), 130.0 * 80.0, 2.0);
+    assert_eq!(count_subpaths(&out), (1, 0), "one region, not islands cut apart along the inner edges");
+
+    let two_paths = [rect(0.0, 0.0, 100.0, 100.0), rect(50.0, 0.0, 100.0, 100.0)];
+    let out = offset_path(&two_paths, -10.0);
+    close(area(&out), 130.0 * 80.0, 2.0);
+    assert_eq!(count_subpaths(&out), (1, 0));
+}
+
+#[test]
+fn separate_paths_stay_separate_regions() {
+    // two 100 x 100 squares in two paths, 10 px overlapping: each shrinks on its own
+    let out = offset_path(&[rect(0.0, 0.0, 100.0, 100.0), rect(90.0, 0.0, 100.0, 100.0)], -10.0);
+    assert_eq!(count_subpaths(&out), (2, 0), "two islands, not one merged silhouette");
+    close(area(&out), 2.0 * 80.0 * 80.0, 2.0);
+    // one path holding both subpaths is one filled region and shrinks as a whole
+    let both = Path { cmds: rect(0.0, 0.0, 100.0, 100.0).cmds.into_iter().chain(rect(90.0, 0.0, 100.0, 100.0).cmds).collect(), fill_rule: FillRule::NonZero };
+    let out = offset_path(&[both], -10.0);
+    assert_eq!(count_subpaths(&out), (1, 0));
+    close(area(&out), 170.0 * 80.0, 2.0);
+}
+
+#[test]
+fn inset_ignores_a_path_that_lies_inside_another() {
+    let nested = [rect(0.0, 0.0, 100.0, 100.0), rect(40.0, 40.0, 20.0, 20.0)];
+    close(area(&offset_path(&nested, -10.0)), 80.0 * 80.0, 1.5);
+    close(area(&offset_path(&nested, 10.0)), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0), 2.0);
+}
+
+#[test]
+fn offset_moves_the_boundary_of_a_hole_the_other_way() {
+    let hole = Path {
+        cmds: vec![
+            PathCmd::MoveTo(v(30.0, 30.0)),
+            PathCmd::LineTo(v(30.0, 70.0)),
+            PathCmd::LineTo(v(70.0, 70.0)),
+            PathCmd::LineTo(v(70.0, 30.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let outer = rect(0.0, 0.0, 100.0, 100.0);
+    let holed = [Path { cmds: outer.cmds.into_iter().chain(hole.cmds).collect(), fill_rule: FillRule::NonZero }];
+    close(area(&holed), 10000.0 - 1600.0, 1.0);
+    // the ring around the hole is 30 wide: eroding 10 leaves 80 x 80 minus the hole grown to 60 x 60
+    // with round corners (the region is pushed away from the hole by a disc)
+    close(area(&offset_path(&holed, -10.0)), 6400.0 - (3600.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0)), 2.0);
+    // growing 10 closes the hole down to 20 x 20
+    close(area(&offset_path(&holed, 10.0)), 120.0 * 120.0 - 4.0 * (100.0 - std::f64::consts::PI * 25.0) - 400.0, 2.5);
+}
+
+#[test]
+fn offset_of_a_circle_keeps_its_curve() {
+    let (c, r, k) = (50.0, 50.0, 0.552_284_8 * 50.0);
+    let circle = Path {
+        cmds: vec![
+            PathCmd::MoveTo(v(c + r, c)),
+            PathCmd::CubicTo(v(c + r, c + k), v(c + k, c + r), v(c, c + r)),
+            PathCmd::CubicTo(v(c - k, c + r), v(c - r, c + k), v(c - r, c)),
+            PathCmd::CubicTo(v(c - r, c - k), v(c - k, c - r), v(c, c - r)),
+            PathCmd::CubicTo(v(c + k, c - r), v(c + r, c - k), v(c + r, c)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let disc = |radius: f64| std::f64::consts::PI * radius * radius;
+    close(area(&offset_path(std::slice::from_ref(&circle), 10.0)), disc(60.0), disc(60.0) * 0.005);
+    close(area(&offset_path(std::slice::from_ref(&circle), -10.0)), disc(40.0), disc(40.0) * 0.005);
+}
+
+#[test]
+fn a_fully_eroded_closed_part_returns_nothing_even_next_to_an_open_segment() {
+    let input = [rect(0.0, 0.0, 100.0, 100.0), line(v(200.0, 0.0), v(300.0, 0.0))];
+    assert!(offset_path(&input, -60.0).is_empty(), "a vanished fill must not leave only the open segment behind");
+}

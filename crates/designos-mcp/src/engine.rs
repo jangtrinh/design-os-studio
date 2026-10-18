@@ -35,6 +35,9 @@ impl Engine {
     }
 
     pub fn call(&mut self, name: &str, args: Value) -> Result<Value, String> {
+        // Nothing here drains the lazy layout queue between calls, so no tool may start from, read,
+        // or serialize a document with deferred layout still in it.
+        self.settle_layout();
         match name {
             "designos_get_document" => {
                 let _: Empty = parse(args)?;
@@ -189,6 +192,8 @@ impl Engine {
                     messages: vec![Comment {
                         id: msg_id,
                         author: a.author.unwrap_or_else(|| "Agent".into()),
+                        author_id: None,
+                        author_color: None,
                         text: a.text.trim().into(),
                         created: "2026-10-14T23:30:00Z".into(),
                         edited: None,
@@ -219,6 +224,8 @@ impl Engine {
                 t.messages.push(Comment {
                     id: msg_id,
                     author: a.author.unwrap_or_else(|| "Agent".into()),
+                    author_id: None,
+                    author_color: None,
                     text: a.text.trim().into(),
                     created: "2026-10-14T23:30:00Z".into(),
                     edited: None,
@@ -258,7 +265,7 @@ impl Engine {
                 trial.walk(root_id, |n, _| nodes.push(n.clone()));
                 let index = self.doc.get(parent).ok_or("parent not found")?.children.len();
                 self.exec(Command::Insert { parent, index, nodes })?;
-                self.doc.relayout_subtree(parent);
+                self.relayout(parent);
                 Ok(json!({"root_node_id": root_id, "parent_id": parent.0, "node": self.doc.get(root_id), "changed": true}))
             }
             "designos_export_spec" => {
@@ -382,6 +389,20 @@ impl Engine {
         }
     }
 
+    /// Re-solves auto layout under `root` and finishes what the pass had to defer. The editor
+    /// drains deferred layout a step per frame; this engine has no window, and its document is
+    /// read, saved and exported as is.
+    fn relayout(&mut self, root: NodeId) {
+        self.doc.relayout_subtree(root);
+        self.doc.flush_pending_relayout();
+    }
+
+    /// Finishes any auto-layout the document still has deferred. Callers that serialize or
+    /// export the document directly call this first.
+    pub fn settle_layout(&mut self) {
+        self.doc.flush_pending_relayout();
+    }
+
     fn node(&self, id: u64) -> Result<&Node, String> {
         if id == 0 {
             return Err("node IDs must be positive integers".into());
@@ -459,7 +480,7 @@ impl Engine {
         }
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
-            self.doc.relayout_subtree(page_id);
+            self.relayout(page_id);
         }
         Ok(json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true}))
     }
@@ -511,7 +532,7 @@ impl Engine {
         if changed {
             self.exec(Command::Update { node: Box::new(node) })?;
             if let Some(page_id) = self.doc.page_of(id) {
-                self.doc.relayout_subtree(page_id);
+                self.relayout(page_id);
             }
         }
         Ok(json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed}))
@@ -826,6 +847,7 @@ mod tests {
                     default_mode: "light".into(),
                     variables: vec![],
                     key: None,
+                    source_library_key: None,
                 },
             );
         }
@@ -1070,5 +1092,105 @@ mod tests {
         }
         assert!(e.doc.get(NodeId(screen_id)).is_none());
         assert!(e.doc.comments.is_empty());
+    }
+
+    /// A vertical frame of 4,097 centred rows on the first page, each holding one 20 px rectangle
+    /// at x = 40. Widening the frame to 500 moves every rectangle to x = 240, but one relayout
+    /// spends its 4,096 re-solves on the first rows and queues the last one for the lazy pass.
+    fn rows_frame(e: &mut Engine) -> (NodeId, NodeId) {
+        use designos_doc::{AutoLayout, LayoutAlign, LayoutChild, LayoutDirection, Sizing};
+        let page = e.resolve_default_page().unwrap();
+        let frame = e.doc.alloc_id();
+        let mut f = Node::frame(frame, Rect::new(0.0, 0.0, 100.0, 2000.0));
+        if let NodeKind::Frame(fp) = &mut f.kind {
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            });
+        }
+        e.doc.insert(page, f).unwrap();
+        let mut last = NodeId(0);
+        for _ in 0..4_097 {
+            let row = e.doc.alloc_id();
+            let mut r = Node::frame(row, Rect::new(0.0, 0.0, 100.0, 20.0));
+            if let NodeKind::Frame(fp) = &mut r.kind {
+                fp.auto_layout = Some(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    primary_sizing: Sizing::Fixed,
+                    counter_sizing: Sizing::Fixed,
+                    primary_align: LayoutAlign::Center,
+                    ..AutoLayout::default()
+                });
+            }
+            r.layout_child = LayoutChild { horizontal: Sizing::Fill, vertical: Sizing::Fixed, ..LayoutChild::default() };
+            e.doc.insert(frame, r).unwrap();
+            last = e.doc.alloc_id();
+            e.doc.insert(row, Node::rectangle(last, Rect::new(40.0, 0.0, 20.0, 20.0))).unwrap();
+        }
+        (frame, last)
+    }
+
+    fn assert_settled(e: &Engine, last: NodeId, what: &str) {
+        assert_eq!(e.doc.relayout_skipped_count(), 0, "{what}: the lazy layout queue must be empty when the call returns");
+        assert_eq!(e.doc.get(last).unwrap().transform.tx, 240.0, "{what}: the last row is centred in the widened frame");
+    }
+
+    /// Widens the frame behind the engine's back and leaves the last row queued, as an earlier
+    /// relayout would have.
+    fn queue_the_last_row(e: &mut Engine, frame: NodeId, last: NodeId) {
+        e.doc.get_mut(frame).unwrap().size.x = 500.0;
+        e.doc.relayout_subtree(frame);
+        assert_eq!(e.doc.relayout_skipped_count(), 1, "precondition: the last row is queued");
+        assert_eq!(e.doc.get(last).unwrap().transform.tx, 40.0, "precondition: its rectangle is not centred yet");
+    }
+
+    #[test]
+    fn update_node_finishes_the_layout_it_started() {
+        let mut e = Engine::default();
+        let (frame, last) = rows_frame(&mut e);
+        e.call("designos_update_node", json!({"node_id":frame.0,"width":500})).unwrap();
+        assert_settled(&e, last, "update_node");
+        let node = e.call("designos_get_node", json!({"node_id":last.0})).unwrap();
+        assert_eq!(node["node"]["transform"]["tx"], 240.0, "a reader sees the finished position");
+    }
+
+    #[test]
+    fn create_node_finishes_the_layout_it_started() {
+        let mut e = Engine::default();
+        let (frame, last) = rows_frame(&mut e);
+        e.doc.get_mut(frame).unwrap().size.x = 500.0;
+        e.call("designos_create_node", json!({"parent_id":frame.0,"kind":"rectangle","name":"Extra"})).unwrap();
+        assert_settled(&e, last, "create_node");
+    }
+
+    #[test]
+    fn apply_spec_finishes_the_layout_it_started() {
+        let mut e = Engine::default();
+        let (frame, last) = rows_frame(&mut e);
+        e.doc.get_mut(frame).unwrap().size.x = 500.0;
+        e.call("designos_apply_spec", json!({"parent_id":frame.0,"spec":{"kind":"rectangle","name":"Extra","width":10,"height":10}})).unwrap();
+        assert_settled(&e, last, "apply_spec");
+    }
+
+    #[test]
+    fn readers_that_serialize_or_generate_finish_a_queue_they_find() {
+        let dir = std::env::temp_dir().join(format!("designos_engine_settle_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for tool in ["designos_generate_code", "designos_export_fig_file", "designos_export_spec"] {
+            let mut e = Engine::default();
+            let (frame, last) = rows_frame(&mut e);
+            queue_the_last_row(&mut e, frame, last);
+            let out = dir.join("out.fig");
+            let args = match tool {
+                "designos_generate_code" => json!({"node_id":frame.0,"language":"css"}),
+                "designos_export_fig_file" => json!({"output_path":out.to_str().unwrap()}),
+                _ => json!({"node_id":frame.0}),
+            };
+            e.call(tool, args).unwrap();
+            assert_settled(&e, last, tool);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
