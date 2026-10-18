@@ -1,0 +1,106 @@
+# v0.6 AI design: task specs, part 2 (E15-18 … E15-48)
+
+Pack goal: **agents that design well through the user's own agent CLI, and a harness that proves it.**
+- Styles are data: archetypes with typed parameters compile straight into variables, modes and styles.
+- Surfaces are data: one file per surface feeds both the agent guide and the linter, plus verified templates.
+- `designos-eval` measures quality offline, deterministic metrics first, and gates CI on them.
+- Critique is structured and never done by the generator; repairs are scoped and guarded.
+- Variants run in parallel, locked to their frames or branches, and are ranked and merged.
+- Assets (images, stock, SVG) come from the user's agent CLI. No model is bundled.
+- Tokens round-trip between code and design; generated code is verified by rendering it.
+- Skills: the MIT `jakubkrehel/skills` set (attributed) plus our own pack built from the ease-design knowledge.
+
+Milestone: v0.6 AI design. Epic: #585 (E15 AI design). Part 1 (E15-1 … E15-17 and the pulled-forward tasks) is written separately; the two indexes are merged later.
+
+These specs were written against `main` at `767acf9` on 2026-10-18. Before coding, re-anchor the spec against the current `main` and report any drift, especially against the part 1 tasks that land first.
+
+## Index
+
+| Task | Issue | Title | Spec | Size |
+|---|---|---|---|---|
+| E15-18 | #604 | Style archetypes with typed parameters and our own catalogue | [E15-18](E15-18-style-archetype-catalogue.md) | L |
+| E15-19 | #606 | Compile an archetype into variables, modes and styles (`designos_apply_style`) | [E15-19](E15-19-apply-style-compiler.md) | L |
+| E15-20 | #608 | Style preset gallery rendered by our own renderer | [E15-20](E15-20-style-preset-gallery.md) | M |
+| E15-21 | #609 | Surface guides as data and lint profiles | [E15-21](E15-21-surface-guides-and-lint-profiles.md) | M |
+| E15-22 | #610 | Surface templates and slide layout contracts | [E15-22](E15-22-surface-templates-and-slide-contracts.md) | L |
+| E15-23 | not filed yet | Licence register for eval data, model weights and skills | [E15-23](E15-23-eval-and-skills-licence-register.md) | S |
+| E15-24 | not filed yet | Large deterministic test documents from open kits | [E15-24](E15-24-deterministic-large-document-generator.md) | M |
+| E15-25 | not filed yet | `designos-eval` harness | [E15-25](E15-25-designos-eval-harness.md) | L |
+| E15-26 | not filed yet | Deterministic eval metrics | [E15-26](E15-26-deterministic-eval-metrics.md) | M |
+| E15-27 | not filed yet | Suite S1 recreate, fidelity metrics | [E15-27](E15-27-suite-s1-recreate-fidelity.md) | L |
+| E15-28 | not filed yet | Suite S2 brief-to-screen on two open design systems | [E15-28](E15-28-suite-s2-brief-to-screen.md) | M |
+| E15-29 | not filed yet | Suite S3 edits on large generated files, drift metric | [E15-29](E15-29-suite-s3-large-file-edits-drift.md) | M |
+| E15-30 | not filed yet | Suite S4 multi-screen flows, consistency metric | [E15-30](E15-30-suite-s4-flow-consistency.md) | M |
+| E15-31 | not filed yet | Checklist and pairwise judge, local aesthetic score | [E15-31](E15-31-checklist-pairwise-judge.md) | L |
+| E15-32 | not filed yet | Suite S5 judge calibration | [E15-32](E15-32-suite-s5-judge-calibration.md) | M |
+| E15-33 | not filed yet | CI gate on deterministic eval metrics | [E15-33](E15-33-ci-eval-regression-gate.md) | M |
+| E15-34 | not filed yet | Rubric critique with boxes, never by the generator | [E15-34](E15-34-rubric-critique.md) | L |
+| E15-35 | not filed yet | Region-scoped repair with a regression guard | [E15-35](E15-35-scoped-repair-regression-guard.md) | L |
+| E15-36 | not filed yet | Variant explorer in frames or branches | [E15-36](E15-36-variant-explorer.md) | L |
+| E15-37 | not filed yet | Rank variants and merge the winner | [E15-37](E15-37-rank-and-merge-variants.md) | M |
+| E15-38 | not filed yet | Variant explorer UI | [E15-38](E15-38-variant-explorer-ui.md) | M |
+| E15-39 | not filed yet | Generate images through the agent CLI | [E15-39](E15-39-generate-image-assets.md) | L |
+| E15-40 | not filed yet | Stock images with attribution | [E15-40](E15-40-stock-images-attribution.md) | M |
+| E15-41 | not filed yet | Stream generated SVG into frames | [E15-41](E15-41-stream-generated-svg.md) | L |
+| E15-42 | not filed yet | Import globals.css and Tailwind themes as variables | [E15-42](E15-42-import-css-tailwind-tokens.md) | L |
+| E15-43 | not filed yet | CSS custom properties to tokens on web capture | [E15-43](E15-43-web-capture-css-tokens.md) | M |
+| E15-44 | not filed yet | Repeated subtrees to components on web import | [E15-44](E15-44-web-import-component-detection.md) | L |
+| E15-45 | not filed yet | Verify generated code by rendering and pixel diff | [E15-45](E15-45-verify-generated-code.md) | L |
+| E15-46 | not filed yet | Adopt MIT `jakubkrehel/skills` as canvas-checkable rules | [E15-46](E15-46-adopt-mit-ui-skills.md) | M |
+| E15-47 | not filed yet | Our own design:os skills pack | [E15-47](E15-47-designos-skills-pack.md) | L |
+| E15-48 | not filed yet | Image fills and effects in `apply_spec` | [E15-48](E15-48-apply-spec-image-fills-effects.md) | M |
+
+Issue numbers for E15-23 … E15-48 did not exist on 2026-10-18 (the filing script had reached E15-22, #610). Add them here when filed.
+
+## Shared contracts used by these specs
+
+Each is owned by one task. Others reference it and never redefine it.
+
+- **SC-1 Error envelope** (owner: E15-5, #590). Every named error in these specs is returned as an MCP tool result with `isError: true` and `structuredContent` of the shape `{"name", "message", "safe_to_retry", "corrected_example", "details"}`. Error names are `snake_case`. If E15-5 lands different field spellings, E15-5 wins and these specs follow by rename only.
+- **SC-2 Variable references** (owner: E15-3, #588). `"var:<variable name>"`, for example `"var:color/primary"`.
+- **SC-3 Lint findings** (owner: E15-9, #594; per-call block E15-12, #597). Rule ids come from the unified rule registry. These specs add the `surface.*` family (E15-21) and consume rule ids by registry lookup, never by string literal outside a mapping table that a test checks against the registry.
+- **SC-4 Agent identity and node agent metadata** (owner: E15-34 for the struct; RD-3, #572, for run identity). `Node.agent: AgentMeta` and `Document.agent_runs`. Whichever of E15-21, E15-34, E15-39 lands first creates the struct with only its own fields; later tasks add theirs. If E15-7 (#592) already created an equivalent struct for the in-progress flag, extend that one instead.
+- **SC-5 Agent jobs** (owner: E15-39 for the job contract, code in `designos-eval/src/agent_job.rs`; E5-10, #177, for the Studio runtime bridge). One `AgentJob` model (prompt file in, artefact out, timeout, cancel) used by assets (E15-39/40/41), the judge (E15-31), critique helpers and variants (E15-36).
+- **SC-6 Colour space.** Owner rule: colour is Display P3 per document. Today `Color { r, g, b, a }` carries no profile (`crates/designos-doc/src/paint.rs:6-11`) and `designos-doc` has no colour-space field. Every data file in these specs declares `"space": "srgb" | "display-p3"` for its colours. Values are converted into the document's profile on write. Contrast always uses the E15-10 (#595) math.
+- **SC-7 Determinism helpers** (owner: E15-25). `designos-eval` owns a seeded xoshiro256** PRNG (SplitMix64 seeding, no `rand` dependency; none is in `Cargo.lock` today) and SHA-1 content hashes via `sha1_smol` (BSD-3-Clause, no dependencies). SHA-1 is also Figma's image hash, so E15-39/E15-48 use the same helper for image keys.
+
+## `designos-eval` crate map (new; E15-25 creates it)
+
+```
+crates/designos-eval/
+  Cargo.toml              features: default = [], "aesthetic" (CLIP/UIClip inference; never enabled by designos-mcp)
+  src/main.rs             bin `designos-eval` (CLI, E15-25)
+  src/lib.rs              task, runner, stats, jsonl, split, rng, hash, agent_job (SC-5, shared with designos-mcp and designos-app)
+  src/gen/                large-document generator and kit definitions (E15-24)
+  src/metrics/            deterministic.rs (E15-26), fidelity.rs (E15-27), drift.rs (E15-29), consistency.rs (E15-30)
+  src/judge/              checklist.rs, pairwise.rs, bradley_terry.rs, aesthetic.rs (E15-31; shared with E15-37)
+  suites/s1 … s5/         task files, split.lock, checklists (E15-27 … E15-32)
+  baselines/              release baseline JSONL (E15-33)
+```
+
+`designos-mcp` depends on `designos-eval` with `default-features = false` (judge and metrics only). `cargo tree -p designos-app` and `cargo tree -p designos-mcp` must never list an ML inference crate.
+
+## Build order
+
+1. **Foundations, no part 1 dependency:** E15-23 → E15-25. E15-46 can start right after E15-23.
+2. **Styles:** E15-18 (needs E15-10, #248) → E15-19 (needs #131, #138, E15-4) → E15-20.
+3. **Spec grounding:** E15-48 right after E15-1 (templates and assets use image fills).
+4. **Surfaces:** E15-21 (needs E15-9, E15-11, #248) → E15-22 (needs E15-1/2/3, E15-19).
+5. **Eval layers:** E15-26 (needs E15-9/10/11) → E15-24 (needs E15-1/3) → E15-27, E15-28, E15-31 in parallel → E15-29 (needs E15-17) → E15-30 → E15-32 → E15-33.
+6. **Quality loop:** E15-34 (needs #572, #238, E15-7, E15-9, E15-21, E15-31) → E15-35 → E15-36 (needs #343, #345, E15-16, E15-19) → E15-37 → E15-38.
+7. **Assets:** E15-39 (needs #177, E15-7, E15-18) → E15-40 and E15-41 in parallel.
+8. **Code and design:** E15-42 (needs #138) → E15-43 (needs #276, #277, E15-11); E15-44 (needs #277, E15-1); E15-45 (needs #250, #276).
+9. **Skills:** E15-47 last (needs #573, E15-15, E15-34).
+
+Shared files, merge one at a time in this order: `crates/designos-doc/src/spec.rs` (E15-48 → E15-21 `surface` key), `crates/designos-mcp/src/engine.rs` tool list (E15-19 → E15-21 → E15-34 → E15-35 → E15-36 → E15-37 → E15-39 → E15-42 → E15-45), `crates/designos-doc/src/node.rs` `AgentMeta` (SC-4 rule above).
+
+## Owner rulings that apply to every spec here
+
+- Full scope, never an MVP. Packs only order the work.
+- All AI goes through the user's agent CLI (R4.13). No model is bundled in the app.
+- Auto-fix makes safe fixes with a diff report and is configurable (E15-13/E15-14).
+- Skills: adopt the MIT `jakubkrehel/skills` with attribution, plus the design:os CLI skill and the ease-design knowledge set (`/Users/jang/Products/ease-design`: `knowledge/`, `prompts/`, its scoring scripts); write our own where needed; skip anything without a licence.
+- The eval never uses client files (no VSF-PCP). Open kits and self-generated large files only.
+- Parallel agents are hard-locked to their frames (RD-3, #572).
+- Colour is Display P3 per document.
+- Variables JSON is Figma-native plus DTCG (#138).
