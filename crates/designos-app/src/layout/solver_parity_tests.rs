@@ -773,33 +773,101 @@ fn a_lone_cross_fill_child_still_reserves_its_margins_in_a_hugging_counter_axis(
 
 #[test]
 fn a_flow_line_shrinks_back_around_a_cross_fill_child_with_margins() {
-    // A is 100 across and B stretches to 40 between its margins; A then shrinks to 40: the line follows down to B's margins
+    // A is 100 across and B stretches to 40 between its margins; A then shrinks to 40: the line follows down to B's margins,
+    // wrapped or not (a wrapped line used to keep B's stretched size as its high-water mark)
+    for direction in DIRECTIONS {
+        for wrap in [false, true] {
+            let row = direction == LayoutDirection::Horizontal;
+            let size = |main: f32, cross: f32| if row { (main, cross) } else { (cross, main) };
+            let fill = kid_with(size(20.0, 10.0).0, size(20.0, 10.0).1, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                    lc.margin = [30.0, 0.0, 30.0, 0.0];
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                    lc.margin = [0.0, 30.0, 0.0, 30.0];
+                }
+            });
+            let a = size(30.0, 100.0);
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let frame = frame_for(direction, 200.0, 1.0);
+            let kids = [kid(a.0, a.1), fill];
+
+            let first = solve_everywhere(al, frame, &kids);
+            assert_eq!(first.frame, if row { (200.0, 100.0) } else { (100.0, 200.0) }, "{direction:?} wrap {wrap}");
+
+            let solved = solve_everywhere_resizing(al, frame, LayoutChild::default(), &kids, Some((0, size(30.0, 40.0))));
+            if row {
+                assert_eq!(
+                    (solved.frame, solved.kids[0], solved.kids[1]),
+                    ((200.0, 60.0), [0.0, 0.0, 30.0, 40.0], [30.0, 30.0, 20.0, 0.0]),
+                    "{direction:?} wrap {wrap}"
+                );
+            } else {
+                assert_eq!(
+                    (solved.frame, solved.kids[0], solved.kids[1]),
+                    ((60.0, 200.0), [0.0, 0.0, 40.0, 30.0], [30.0, 30.0, 0.0, 20.0]),
+                    "{direction:?} wrap {wrap}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_hugging_flow_line_grows_to_the_minimum_size_of_a_cross_fill_child_with_margins() {
+    // a lone Fill child with a 40 minimum and 10 + 10 of margin: the frame holds the whole margin box (60), wrapped or not
+    for direction in DIRECTIONS {
+        for wrap in [false, true] {
+            let row = direction == LayoutDirection::Horizontal;
+            let fill = kid_with(if row { 20.0 } else { 10.0 }, if row { 10.0 } else { 20.0 }, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                    lc.min_h = Some(40.0);
+                    lc.margin = [10.0, 0.0, 10.0, 0.0];
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                    lc.min_w = Some(40.0);
+                    lc.margin = [0.0, 10.0, 0.0, 10.0];
+                }
+            });
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let solved = solve_everywhere(al, frame_for(direction, 100.0, 1.0), &[fill]);
+            if row {
+                assert_eq!((solved.frame, solved.kids[0]), ((100.0, 60.0), [0.0, 10.0, 20.0, 40.0]), "{direction:?} wrap {wrap}");
+            } else {
+                assert_eq!((solved.frame, solved.kids[0]), ((60.0, 100.0), [10.0, 0.0, 40.0, 20.0]), "{direction:?} wrap {wrap}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_cross_fill_child_without_margins_keeps_the_line_measure_it_always_had() {
+    // not wrapped, a lone Fill child holds nothing open (0); a wrapped line still counts its stored size (10)
     for direction in DIRECTIONS {
         let row = direction == LayoutDirection::Horizontal;
-        let size = |main: f32, cross: f32| if row { (main, cross) } else { (cross, main) };
-        let fill = kid_with(size(20.0, 10.0).0, size(20.0, 10.0).1, |lc| {
+        for (wrap, cross) in [(false, 0.0), (true, 10.0)] {
+            let fill = kid_with(if row { 20.0 } else { 10.0 }, if row { 10.0 } else { 20.0 }, |lc| {
+                if row {
+                    lc.vertical = Sizing::Fill;
+                } else {
+                    lc.horizontal = Sizing::Fill;
+                }
+            });
+            let mut al = auto(direction, LayoutAlign::Start);
+            al.counter_sizing = Sizing::Hug;
+            al.wrap = wrap;
+            let solved = solve_everywhere(al, frame_for(direction, 100.0, 1.0), &[fill]);
             if row {
-                lc.vertical = Sizing::Fill;
-                lc.margin = [30.0, 0.0, 30.0, 0.0];
+                assert_eq!((solved.frame, solved.kids[0]), ((100.0, cross), [0.0, 0.0, 20.0, cross]), "{direction:?} wrap {wrap}");
             } else {
-                lc.horizontal = Sizing::Fill;
-                lc.margin = [0.0, 30.0, 0.0, 30.0];
+                assert_eq!((solved.frame, solved.kids[0]), ((cross, 100.0), [0.0, 0.0, cross, 20.0]), "{direction:?} wrap {wrap}");
             }
-        });
-        let a = size(30.0, 100.0);
-        let mut al = auto(direction, LayoutAlign::Start);
-        al.counter_sizing = Sizing::Hug;
-        let frame = frame_for(direction, 200.0, 1.0);
-        let kids = [kid(a.0, a.1), fill];
-
-        let first = solve_everywhere(al, frame, &kids);
-        assert_eq!(first.frame, if row { (200.0, 100.0) } else { (100.0, 200.0) }, "{direction:?}");
-
-        let solved = solve_everywhere_resizing(al, frame, LayoutChild::default(), &kids, Some((0, size(30.0, 40.0))));
-        if row {
-            assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((200.0, 60.0), [0.0, 0.0, 30.0, 40.0], [30.0, 30.0, 20.0, 0.0]));
-        } else {
-            assert_eq!((solved.frame, solved.kids[0], solved.kids[1]), ((60.0, 200.0), [0.0, 0.0, 40.0, 30.0], [30.0, 30.0, 0.0, 20.0]));
         }
     }
 }

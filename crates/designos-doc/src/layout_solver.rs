@@ -177,10 +177,18 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     }
     let main_avail = (frame_main - pm).max(0.0);
 
-    // Cross extent of each line. A counter-axis Fill child stretches to its line, so it holds the line open by its margins
-    // alone: its stored size is the stretched one, and counting it would stop the line from ever shrinking again. A wrapped
-    // line counts it in full.
-    let cross_need = |k: &ChildIn| if k.cross_fill && !al.wrap { ax.margin_cross(&k.margin) } else { outer_cross(k) };
+    // Cross extent of each line. A counter-axis Fill child with cross margins stretches to its line minus those margins, so
+    // its stored size is the stretched one and counting it would stop the line from ever shrinking again (wrapped or not): it
+    // holds the line open by its minimum size and margins. Without margins nothing changes: a flow line that does not wrap
+    // counts such a child for nothing, a wrapped line for its stored size.
+    let cross_need = |k: &ChildIn| {
+        let margins = ax.margin_cross(&k.margin);
+        match (k.cross_fill, margins > 0.0, al.wrap) {
+            (false, _, _) | (true, false, true) => outer_cross(k),
+            (true, false, false) => 0.0,
+            (true, true, _) => ax.clamp_cross(&k.limits, 0.0) + margins,
+        }
+    };
     let mut line_cross: Vec<f32> = lines.iter().map(|l| l.iter().map(|i| cross_need(&kids[*i])).fold(0.0, f32::max)).collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
     let mut cross_has_slack = !hug_cross;
@@ -330,15 +338,15 @@ mod tests {
     use super::*;
     use crate::{Document, FrameProps, LayoutChild, Node, NodeId, NodeKind};
 
-    /// A row hugging its height: `A` is a fixed 30 x `a_height` child, `B` a 20 x 10 child that fills the row's height
-    /// and carries 30 of margin above and below. Returns the document with the row's, `A`'s and `B`'s ids.
-    fn row_with_cross_fill_margins(a_height: f32) -> (Document, NodeId, NodeId, NodeId) {
+    /// A row (wrapping or not) hugging its height: `A` is a fixed 30 x `a_height` child, `B` a 20 x 10 child that fills the
+    /// row's height and carries 30 of margin above and below. Returns the document with the row's, `A`'s and `B`'s ids.
+    fn row_with_cross_fill_margins(a_height: f32, wrap: bool) -> (Document, NodeId, NodeId, NodeId) {
         let mut d = Document::new("t");
         let page = d.add_page("p");
         let row_id = d.alloc_id();
         let mut row = Node::frame(row_id, Rect::new(0.0, 0.0, 100.0, 1.0));
         row.kind = NodeKind::Frame(FrameProps {
-            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, counter_sizing: Sizing::Hug, ..Default::default() }),
+            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, counter_sizing: Sizing::Hug, wrap, ..Default::default() }),
             ..Default::default()
         });
         let row = d.insert(page, row).unwrap();
@@ -353,21 +361,37 @@ mod tests {
 
     #[test]
     fn a_hugging_row_shrinks_back_around_a_cross_fill_child_with_margins() {
-        let (mut d, row, a, b) = row_with_cross_fill_margins(40.0);
-        d.relayout_subtree(row);
-        assert_eq!(d.get(row).unwrap().size.y, 60.0, "B's margins need 60, more than A's 40");
-        assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0));
+        for wrap in [false, true] {
+            let (mut d, row, a, b) = row_with_cross_fill_margins(40.0, wrap);
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}: B's margins need 60, more than A's 40");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0), "wrap {wrap}");
 
-        // A grows to 100: the row follows and B stretches to what its margins leave
-        d.get_mut(a).unwrap().size.y = 100.0;
-        d.relayout_subtree(row);
-        assert_eq!(d.get(row).unwrap().size.y, 100.0);
-        assert_eq!(d.get(b).unwrap().size.y, 40.0);
+            // A grows to 100: the row follows and B stretches to what its margins leave
+            d.get_mut(a).unwrap().size.y = 100.0;
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 100.0, "wrap {wrap}");
+            assert_eq!(d.get(b).unwrap().size.y, 40.0, "wrap {wrap}");
 
-        // A shrinks back: the stretched B must not hold the row open at its stretched size
-        d.get_mut(a).unwrap().size.y = 40.0;
-        d.relayout_subtree(row);
-        assert_eq!(d.get(row).unwrap().size.y, 60.0);
-        assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0));
+            // A shrinks back: the stretched B must not hold the row open at its stretched size
+            d.get_mut(a).unwrap().size.y = 40.0;
+            d.relayout_subtree(row);
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (30.0, 0.0), "wrap {wrap}");
+        }
+    }
+
+    #[test]
+    fn a_hugging_row_grows_to_the_minimum_height_of_a_cross_fill_child_with_margins() {
+        for wrap in [false, true] {
+            let (mut d, row, a, b) = row_with_cross_fill_margins(5.0, wrap);
+            d.get_mut(b).unwrap().layout_child.min_h = Some(40.0);
+            d.get_mut(b).unwrap().layout_child.margin = [10.0, 0.0, 10.0, 0.0];
+            d.relayout_subtree(row);
+            // 40 minimum + 10 + 10 of margin; B sits at its minimum inside its margin box
+            assert_eq!(d.get(row).unwrap().size.y, 60.0, "wrap {wrap}");
+            assert_eq!((d.get(b).unwrap().transform.ty, d.get(b).unwrap().size.y), (10.0, 40.0), "wrap {wrap}");
+            assert_eq!(d.get(a).unwrap().transform.ty, 0.0, "wrap {wrap}");
+        }
     }
 }
