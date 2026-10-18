@@ -1176,12 +1176,12 @@ fn rea_v106_all_seven_gaps_fidelity_and_roundtrip() {
                 "connectorStartStrokeCap": "NONE",
                 "connectorEndStrokeCap": "ARROW_EQUILATERAL",
                 "connectorStart": {
-                    "endpointNodeId": g(1, 41),
+                    "endpointNodeID": g(1, 41),
                     "position": {"x": 100.0, "y": 25.0},
                     "magnet": "RIGHT"
                 },
                 "connectorEnd": {
-                    "endpointNodeId": g(1, 42),
+                    "endpointNodeID": g(1, 42),
                     "position": {"x": 200.0, "y": 25.0},
                     "magnet": "LEFT"
                 },
@@ -1476,8 +1476,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
                 "fillPaints": [{"type": "SOLID", "color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}, "opacity": 1.0, "visible": true}]
             })),
             // 1. BRUSH node with strokeGeometry (no fillGeometry) and brushType
-            node((1, 10), (0, 1), "!", "BRUSH", "CharcoalStroke", json!({
-                "brushType": "CHARCOAL",
+            node((1, 10), (0, 1), "!", "BRUSH", "ScatterBrush", json!({
+                "brushType": "SCATTER",
                 "strokeWeight": 4.0,
                 "strokePaints": [{"type": "SOLID", "color": {"r": 0.1, "g": 0.1, "b": 0.1, "a": 1.0}, "opacity": 1.0, "visible": true}],
                 "strokeGeometry": [{"windingRule": "NONZERO", "commandsBlob": 0}]
@@ -1554,8 +1554,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     assert!(doc.styles.is_empty());
 
     // 1. BRUSH node
-    let brush = find(&doc, "CharcoalStroke");
-    assert_eq!(brush.fig_metadata.get("brushType").map(String::as_str), Some("CHARCOAL"));
+    let brush = find(&doc, "ScatterBrush");
+    assert_eq!(brush.fig_metadata.get("brushType").map(String::as_str), Some("SCATTER"));
     match &brush.kind {
         NodeKind::Vector { paths, .. } => assert_eq!(paths.len(), 1, "BRUSH should populate paths from strokeGeometry fallback"),
         other => panic!("expected Vector for BRUSH, got {other:?}"),
@@ -1608,8 +1608,8 @@ fn fig_v106_wave5_schema_99pct_coverage_roundtrip() {
     let bytes = export_fig(&doc).expect("export_fig Wave5Doc");
     let rt = import_fig(&bytes).expect("re-import Wave5Doc");
 
-    let rt_brush = find(&rt, "CharcoalStroke");
-    assert_eq!(rt_brush.fig_metadata.get("brushType").map(String::as_str), Some("CHARCOAL"));
+    let rt_brush = find(&rt, "ScatterBrush");
+    assert_eq!(rt_brush.fig_metadata.get("brushType").map(String::as_str), Some("SCATTER"));
 
     let rt_db = find(&rt, "DbNode");
     assert_eq!(rt_db.fig_metadata.get("shapeWithTextType").map(String::as_str), Some("ENG_DATABASE"));
@@ -1794,7 +1794,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                     "strokeOffset": 2.5,
                     "strokeBrushGuid": g(10, 20),
                     "variableWidthPoints": [
-                        {"asymmetricStroke": true, "position": 0.25, "leadingWidth": 3.5, "trailingWidth": 4.25}
+                        {"position": 0.25, "ascent": 3.5, "descent": 4.25, "segmentId": 2}
                     ],
                     "dynamicStrokeSettings": {"frequency": 8.0, "wiggle": 1.5, "smoothen": 0.75},
                     "scatterStrokeSettings": {
@@ -1802,18 +1802,16 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                         "wiggle": 2.0,
                         "angularJitter": 15.0,
                         "sizeJitter": 0.5,
-                        "rotation": "DIRECTION"
+                        "rotation": 15.0
                     },
                     "stretchStrokeSettings": {"orientation": "FORWARD"},
                     "scatterBrushTransforms": [
                         {"m00": 1.0, "m01": 0.0, "m02": 5.0, "m10": 0.0, "m11": 1.0, "m12": 2.0}
                     ],
-                    "pathTrim": {"start": 0.1, "end": 0.9, "offset": 0.05},
+                    "pathTrim": {"value": {"x": 0.1, "y": 0.9}},
                     "strokeData": {
-                        "dynamicStrokeSeed": 77,
-                        "variableWidthPoints": [
-                            {"asymmetricStroke": false, "position": 0.5, "leadingWidth": 2.0, "trailingWidth": 2.0}
-                        ]
+                        "strokes": [{"strokeId": 1, "strokeWeight": 2.0}],
+                        "version": 77
                     }
                 }),
             ),
@@ -1829,8 +1827,9 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                         {
                             "type": "REPEAT",
                             "count": 4,
-                            "countType": "NUMBER",
-                            "unit": "PIXELS",
+                            "repeatType": "RADIAL",
+                            "axis": "X",
+                            "unitType": "PIXELS",
                             "offset": {"x": 16.0, "y": 8.0}
                         }
                     ]
@@ -1844,7 +1843,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "TEXT_PATH",
                 "CurvedBannerPath",
                 json!({
-                    "textPathStart": 12.5
+                    "textPathStart": {"tValue": 12.5, "forward": true}
                 }),
             ),
             // 2. Motion: FRAME with timelineDefinitions & timelineAssignments + KEYFRAME_TRACK + KEYFRAME + ANIMATION_PRESET_INSTANCE
@@ -1855,16 +1854,12 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "FRAME",
                 "MotionStage",
                 json!({
-                    "timelineDefinitions": [
-                        {"id": g(3, 10), "name": "HeroEnter"}
-                    ],
-                    "timelineAssignments": [
-                        {"timelineId": g(3, 10), "targetNodeId": g(1, 20)}
-                    ],
-                    "animationPresets": [
-                        {"presetGuid": g(3, 99), "delay": 0.25, "duration": 0.5}
-                    ],
-                    "textElementDelayBehaviour": "BY_WORD"
+                    "timelineDefinitions": {"entries": [{"id": g(3, 10), "data": {"durationUs": 1500000, "defaultTimeline": true}}]},
+                    "timelineAssignments": {
+                        "entries": [{"key": {"assignedTimelineId": g(3, 10), "containingTimelineId": g(1, 20)}, "value": {"offsetUs": 0, "disabled": false}}]
+                    },
+                    "animationPresets": {"presets": [{"animationPresetId": {"guid": g(3, 99)}, "timelineDefId": g(3, 10), "sortPosition": "!"}]},
+                    "textElementDelayBehaviour": {"enabled": true, "grouping": "WORD", "delayMs": 50.0}
                 }),
             ),
             node(
@@ -1874,13 +1869,13 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "KEYFRAME_TRACK",
                 "OpacityTrack",
                 json!({
-                    "keyframeOperation": "OPACITY",
-                    "trackLoopMode": "PING_PONG",
-                    "timelineDuration": 1.5,
-                    "timelineOffset": 0.25,
+                    "keyframeOperation": "SET",
+                    "trackLoopMode": "LOOP",
+                    "timelineDuration": 1500,
+                    "timelineOffset": 250,
                     "timelineDisabled": false,
                     "styleIdsForAnimation": [
-                        {"guid": g(4, 1)}
+                        {"id": g(4, 1), "timelineDefId": g(3, 10), "sortPosition": "!"}
                     ]
                 }),
             ),
@@ -1891,18 +1886,15 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "KEYFRAME",
                 "MidKeyframe",
                 json!({
-                    "timelinePosition": 0.5,
-                    "keyframeValue": {"floatValue": 0.75},
+                    "timelinePosition": 500,
+                    "keyframeValue": {"value": {"floatValue": 0.75}, "valueType": "FLOAT"},
                     "interpolationType": "BEZIER",
-                    "bezierHandles": {
-                        "inTangent": {"x": -0.25, "y": 0.0},
-                        "outTangent": {"x": 0.25, "y": 1.0}
-                    },
+                    "bezierHandles": {"p1x": -0.25, "p1y": 0.0, "p2x": 0.25, "p2y": 1.0},
                     "easingData": {
-                        "easingType": "CUSTOM_CUBIC_BEZIER",
-                        "easingFunctionCubicBezier": {"x1": 0.5, "y1": 0.0, "x2": 0.25, "y2": 1.0}
+                        "easingType": "CUSTOM_CUBIC",
+                        "easingValue": {"bezierEasing": {"p1x": 0.5, "p1y": 0.0, "p2x": 0.25, "p2y": 1.0}}
                     },
-                    "easingType": "OUT_BACK",
+                    "easingType": "OUT_BACK_CUBIC",
                     "interpolationColorSpace": "OKLCH"
                 }),
             ),
@@ -1913,7 +1905,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "ANIMATION_PRESET_INSTANCE",
                 "PresetBounce",
                 json!({
-                    "timelineDuration": 0.75
+                    "timelineDuration": 750
                 }),
             ),
             // 3. Table: TABLE and TABLE_CELL
@@ -1924,19 +1916,10 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 "TABLE",
                 "PricingTable",
                 json!({
-                    "tableRowPositions": [
-                        {"id": g(5, 1), "position": "!"},
-                        {"id": g(5, 2), "position": "\""}
-                    ],
-                    "tableColumnPositions": [
-                        {"id": g(5, 3), "position": "!"}
-                    ],
-                    "tableRowHeights": [
-                        {"id": g(5, 1), "size": 44.0}
-                    ],
-                    "tableColumnWidths": [
-                        {"id": g(5, 3), "size": 180.0}
-                    ],
+                    "tableRowPositions": {"entries": [{"id": g(5, 1), "position": "!"}, {"id": g(5, 2), "position": "\""}]},
+                    "tableColumnPositions": {"entries": [{"id": g(5, 3), "position": "!"}]},
+                    "tableRowHeights": {"entries": [{"id": g(5, 1), "size": 44.0}]},
+                    "tableColumnWidths": {"entries": [{"id": g(5, 3), "size": 180.0}]},
                     "tableMergedCells": {
                         "entries": [
                             {"rowId": g(5, 1), "colId": g(5, 3), "rowSpan": 2, "colSpan": 1}
@@ -1968,16 +1951,13 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
                 json!({
                     "slideSpeakerNotes": "Highlight typed Kiwi passthrough X1",
                     "isSkippedSlide": false,
-                    "slideNumber": "03",
+                    "slideNumber": "SLIDE",
                     "slideNumberSeparator": "/",
                     "objectAnimations": [
                         {
-                            "target": g(1, 43),
-                            "transitionType": "SMART_ANIMATE",
-                            "transitionDuration": 0.5,
-                            "easingType": "IN_OUT_CUBIC",
-                            "timing": {"type": "ON_CLICK", "delay": 0.0},
-                            "phase": "IN"
+                            "id": g(6, 1),
+                            "event": {"interactionType": "ON_CLICK"},
+                            "actions": [{"transitionNodeID": g(1, 43), "transitionType": "SMART_ANIMATE", "transitionDuration": 0.5, "easingType": "INOUT_CUBIC"}]
                         }
                     ]
                 }),
@@ -2042,11 +2022,12 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
 
         let tpath = find(&rt, "CurvedBannerPath");
         assert_eq!(tpath.kind, NodeKind::Unknown { type_name: "TEXT_PATH".into() });
-        assert_eq!(tpath.fig_metadata.get("textPathStart").map(String::as_str), Some("12.5"));
+        let start: Value = serde_json::from_str(tpath.fig_metadata.get("textPathStart").expect("textPathStart")).expect("textPathStart is JSON");
+        assert_eq!((start["tValue"].as_f64(), start["forward"].as_bool()), (Some(12.5), Some(true)));
 
         let kf = find(&rt, "MidKeyframe");
         assert_eq!(kf.kind, NodeKind::Unknown { type_name: "KEYFRAME".into() });
-        assert_eq!(kf.fig_metadata.get("timelinePosition").map(String::as_str), Some("0.5"));
+        assert_eq!(kf.fig_metadata.get("timelinePosition").map(String::as_str), Some("500"));
         assert_eq!(kf.fig_metadata.get("interpolationType").map(String::as_str), Some("BEZIER"));
         assert_eq!(kf.fig_metadata.get("interpolationColorSpace").map(String::as_str), Some("OKLCH"));
         assert!(kf.fig_metadata.contains_key("bezierHandles"));
@@ -2069,7 +2050,7 @@ fn typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip() {
         assert_eq!(slide.kind, NodeKind::Unknown { type_name: "SLIDE".into() });
         assert_eq!(slide.fig_metadata.get("slideSpeakerNotes").map(String::as_str), Some("Highlight typed Kiwi passthrough X1"));
         assert_eq!(slide.fig_metadata.get("isSkippedSlide").map(String::as_str), Some("false"));
-        assert_eq!(slide.fig_metadata.get("slideNumber").map(String::as_str), Some("03"));
+        assert_eq!(slide.fig_metadata.get("slideNumber").map(String::as_str), Some("SLIDE"));
         assert!(slide.fig_metadata.contains_key("objectAnimations"));
     };
 
@@ -2118,10 +2099,9 @@ fn typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_tex
             json!({
                 "objectAnimations": [
                     {
-                        "target": g(1, 2),
-                        "transitionType": "SLIDE_OUT_TO_LEFT",
-                        "transitionDuration": 0.4,
-                        "phase": "OUT"
+                        "id": g(6, 1),
+                        "event": {"interactionType": "ON_CLICK"},
+                        "actions": [{"transitionNodeID": g(1, 2), "transitionType": "SLIDE_OUT_TO_LEFT", "transitionDuration": 0.4}]
                     }
                 ]
             }),
@@ -2149,11 +2129,11 @@ fn typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_tex
         serde_json::from_str(raw).unwrap_or_else(|e| panic!("{name} fig_metadata[{key}] is not JSON: {e}"))
     };
 
-    assert_eq!(metadata_json(&doc, "ExitSlide", "objectAnimations")[0]["transitionType"], "SLIDE_OUT_TO_LEFT", "fixture sanity");
+    assert_eq!(metadata_json(&doc, "ExitSlide", "objectAnimations")[0]["actions"][0]["transitionType"], "SLIDE_OUT_TO_LEFT", "fixture sanity");
     assert_eq!(metadata_json(&doc, "LinkedComponent", "symbolLinks")[0]["displayText"], "Read", "fixture sanity");
 
     assert_eq!(
-        metadata_json(&rt, "ExitSlide", "objectAnimations")[0]["transitionType"],
+        metadata_json(&rt, "ExitSlide", "objectAnimations")[0]["actions"][0]["transitionType"],
         "SLIDE_OUT_TO_LEFT",
         "objectAnimations transitionType after round-trip"
     );

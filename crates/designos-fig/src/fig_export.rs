@@ -13,10 +13,31 @@ use designos_doc::*;
 use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 
+mod carrier;
+mod grid;
+pub(crate) use carrier::{CARRIED_FIELDS, CARRIER_KEY_PREFIX};
+
+/// Plugin id under which Studio keeps node data that has no field in Figma's NodeChange schema. It travels
+/// as ordinary `pluginData` entries, which Figma keeps for any plugin id and ignores when it does not know the
+/// plugin. [`crate::fig`] reads these entries back into typed node data and never into `Node::plugin_data`.
+pub(crate) const STUDIO_PLUGIN_ID: &str = "designos-studio";
+/// Carrier key: an instance's slot content id, as written (`"7:42"`).
+pub(crate) const STUDIO_SLOT_CONTENT_ID_KEY: &str = "slot-content-id";
+/// Carrier key: `"true"` for a sticky that shows its author; absent means hidden.
+pub(crate) const STUDIO_AUTHOR_VISIBLE_KEY: &str = "author-visible";
+
+fn is_studio_carrier_key(full_key: &str) -> bool {
+    full_key
+        .strip_prefix(STUDIO_PLUGIN_ID)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|key| key == STUDIO_SLOT_CONTENT_ID_KEY || key == STUDIO_AUTHOR_VISIBLE_KEY || key.starts_with(carrier::CARRIER_KEY_PREFIX))
+}
+
 // The kiwi encoder writes whatever float bits it is given, and a reader treats a NaN or an infinity
 // as an absent field, so a single bad number would drop a whole `size` or transform on the way back.
 // The exporter therefore never hands the encoder a non-finite float: it writes the neutral value of
 // the slot instead, one for opacity, alpha and the diagonal of a matrix, zero for every other number.
+// The one exception is the unset side of `maxSize`, which Figma's own files write as infinity (see `size_limit`).
 fn finite_or(x: f32, neutral: f32) -> f32 {
     if x.is_finite() {
         x
@@ -32,6 +53,12 @@ fn fl(x: f32) -> V {
 /// [`fl`] for a number whose neutral value is one: opacity, alpha, the diagonal of a matrix.
 fn fl_one(x: f32) -> V {
     testkit::fl(finite_or(x, 1.0))
+}
+
+/// `minSize` / `maxSize`: an `OptionalVector` whose unset side holds `unset`.
+fn size_limit(x: Option<f32>, y: Option<f32>, unset: f32) -> V {
+    let side = |v: Option<f32>| v.map_or_else(|| testkit::fl(unset), fl);
+    msg(vec![("value", st(vec![("x", side(x)), ("y", side(y))]))])
 }
 
 fn vec2(x: f32, y: f32) -> V {
@@ -117,6 +144,7 @@ struct ExportCtx<'a> {
     style_guids: BTreeMap<String, (u32, u32)>,
     prop_guids: BTreeMap<(NodeId, String), (u32, u32)>,
     comp_keys: BTreeMap<NodeId, String>,
+    grid_tracks: BTreeMap<NodeId, grid::GridTrackIds>,
     blobs: Vec<Vec<u8>>,
     changes: Vec<V>,
 }
@@ -154,6 +182,7 @@ impl<'a> ExportCtx<'a> {
             style_guids: BTreeMap::new(),
             prop_guids: BTreeMap::new(),
             comp_keys: BTreeMap::new(),
+            grid_tracks: BTreeMap::new(),
             blobs: Vec::new(),
             changes: Vec::new(),
         };
@@ -277,6 +306,7 @@ impl<'a> ExportCtx<'a> {
                 cx.comp_keys.insert(id, format!("comp:{}:{}", g.0, g.1));
             }
         }
+        grid::allocate(&mut cx);
         cx
     }
 
@@ -425,7 +455,7 @@ fn build_message(doc: &Document, schema: &crate::kiwi::Schema) -> V {
         }
     }
 
-    let blobs: Vec<V> = cx.blobs.into_iter().map(|b| msg(vec![("bytes", V::Bytes(b))])).collect();
+    let blobs: Vec<V> = cx.blobs.into_iter().map(|b| st(vec![("bytes", V::Bytes(b))])).collect();
     msg(vec![("type", en("NODE_CHANGES")), ("sessionID", V::Uint(0)), ("ackID", V::Uint(0)), ("nodeChanges", V::Array(cx.changes)), ("blobs", V::Array(blobs))])
 }
 
@@ -435,7 +465,7 @@ fn collect_page_handoff(cx: &ExportCtx, page: NodeId) -> Vec<V> {
     while let Some(id) = stack.pop() {
         let Some(n) = cx.doc.get(id) else { continue };
         let status = match n.dev.status {
-            Some(DevStatus::ReadyForDev | DevStatus::Changed) => Some("READY_FOR_DEV"),
+            Some(DevStatus::ReadyForDev | DevStatus::Changed) => Some("BUILD"),
             Some(DevStatus::Completed) => Some("COMPLETED"),
             None => None,
         };
@@ -511,7 +541,7 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
-        let scopes: Vec<V> = v.scopes.iter().map(|s| V::String(s.clone())).collect();
+        let scopes: Vec<V> = v.scopes.iter().filter(|s| cx.schema.has_enum_variant("VariableScope", s)).map(|s| en(s)).collect();
         let mut fields = vec![
             ("guid", guid(vguid.0, vguid.1)),
             ("phase", en("CREATED")),
@@ -656,25 +686,35 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         };
         fields.push(("hyperlink", hl_msg));
     }
-    if !node.plugin_data.is_empty() {
-        let pd_entries: Vec<V> = node
-            .plugin_data
-            .iter()
-            .map(|(full_key, val)| {
-                let mut m = Vec::with_capacity(3);
-                if let Some((pid, key)) = full_key.split_once(':') {
-                    if !pid.is_empty() {
-                        m.push(("pluginID", V::String(pid.to_string())));
-                    }
-                    m.push(("key", V::String(key.to_string())));
-                } else {
-                    m.push(("key", V::String(full_key.clone())));
+    // A node's own plugin data goes out unchanged; the reserved carrier keys are rebuilt below from typed
+    // data, so a stale copy of one in `plugin_data` is not written twice.
+    let mut carried: carrier::Carried = Vec::new();
+    let studio_entry =
+        |key: &str, value: String| msg(vec![("pluginID", V::String(STUDIO_PLUGIN_ID.into())), ("key", V::String(key.into())), ("value", V::String(value))]);
+    let mut pd_entries: Vec<V> = node
+        .plugin_data
+        .iter()
+        .filter(|(full_key, _)| !is_studio_carrier_key(full_key))
+        .map(|(full_key, val)| {
+            let mut m = Vec::with_capacity(3);
+            if let Some((pid, key)) = full_key.split_once(':') {
+                if !pid.is_empty() {
+                    m.push(("pluginID", V::String(pid.to_string())));
                 }
-                m.push(("value", V::String(val.clone())));
-                msg(m)
-            })
-            .collect();
-        fields.push(("pluginData", V::Array(pd_entries)));
+                m.push(("key", V::String(key.to_string())));
+            } else {
+                m.push(("key", V::String(full_key.clone())));
+            }
+            m.push(("value", V::String(val.clone())));
+            msg(m)
+        })
+        .collect();
+    // Figma's NodeChange has no field for either value, so they ride in plugin data under the reserved id.
+    if matches!(&node.kind, NodeKind::Sticky(sp) if sp.show_author) {
+        pd_entries.push(studio_entry(STUDIO_AUTHOR_VISIBLE_KEY, "true".into()));
+    }
+    if let Some(id) = node.component.slot_content_id.as_deref().filter(|s| !s.is_empty()) {
+        pd_entries.push(studio_entry(STUDIO_SLOT_CONTENT_ID_KEY, id.to_string()));
     }
     if !node.component.description.is_empty() {
         fields.push(("symbolDescription", V::String(node.component.description.clone())));
@@ -683,7 +723,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("propsAreBubbled", V::Bool(true)));
     }
     if let Some(lvl) = node.component.override_level {
-        fields.push(("overrideLevel", V::Uint(lvl.max(0) as u32)));
+        fields.push(("overrideLevel", V::Int(lvl)));
     }
     if let Some(ds) = node.detached_symbol_id.as_deref().or(node.component.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
         fields.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
@@ -694,9 +734,6 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.component.is_slot_content {
         fields.push(("isSlotContent", V::Bool(true)));
     }
-    if let Some(g) = node.component.slot_content_id.as_deref().and_then(parse_guid_pair) {
-        fields.push(("jsonSerialized", msg(vec![("slot-content-id", msg(vec![("guid", guid(g.0, g.1))]))])));
-    }
     if let Some(src) = node.component.source.and_then(|s| cx.node_guids.get(&s).copied()) {
         fields.push(("overrideKey", guid(src.0, src.1)));
     } else if in_component {
@@ -705,7 +742,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
 
     if let Some(ds) = node.dev.status {
         let st_name = match ds {
-            DevStatus::ReadyForDev | DevStatus::Changed => "READY_FOR_DEV",
+            DevStatus::ReadyForDev | DevStatus::Changed => "BUILD",
             DevStatus::Completed => "COMPLETED",
         };
         fields.push(("sectionStatusInfo", msg(vec![("status", en(st_name))])));
@@ -830,29 +867,18 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 LayoutDirection::Grid => "GRID",
             };
             fields.push(("stackMode", en(sm)));
-            if al.grid_columns > 0 {
-                fields.push(("gridColumns", V::Uint(al.grid_columns)));
-                fields.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
-            }
-            if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, &node, al) {
-                fields.push(("gridRows", V::Uint(rows)));
-                fields.push(("gridRowsSizing", V::String(sizing)));
-            }
-            if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
-                fields.push(("gridAutoTracks", V::String(gat)));
-            }
+            grid::push_frame_fields(cx, id, &node, al, &mut fields, &mut carried);
             if al.direction == LayoutDirection::Grid {
                 fields.push(("gridColumnGap", fl(al.item_spacing)));
                 fields.push(("gridRowGap", fl(al.counter_spacing)));
             }
             fields.push(("stackSpacing", fl(al.item_spacing)));
             fields.push(("stackCounterSpacing", fl(al.counter_spacing)));
-            fields.push(("stackPaddingTop", fl(al.padding[0])));
+            // Figma stores top and left padding on the vertical and horizontal padding fields.
+            fields.push(("stackVerticalPadding", fl(al.padding[0])));
             fields.push(("stackPaddingRight", fl(al.padding[1])));
             fields.push(("stackPaddingBottom", fl(al.padding[2])));
-            fields.push(("stackPaddingLeft", fl(al.padding[3])));
             fields.push(("stackHorizontalPadding", fl(al.padding[3])));
-            fields.push(("stackVerticalPadding", fl(al.padding[0])));
             let align_name = |a: LayoutAlign| match a {
                 LayoutAlign::Start => "MIN",
                 LayoutAlign::Center => "CENTER",
@@ -924,45 +950,19 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             fields.push((key, fl(val)));
         }
     }
-    if let Some(c) = lc.grid_column {
-        fields.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
-        fields.push(("gridColumnAnchor", V::Uint(u32::from(c))));
-    }
-    if let Some(r) = lc.grid_row {
-        fields.push(("gridRowAnchorIndex", V::Uint(u32::from(r))));
-        fields.push(("gridRowAnchor", V::Uint(u32::from(r))));
-    }
-    if lc.col_span > 1 {
-        fields.push(("gridColumnSpan", V::Uint(u32::from(lc.col_span))));
-    }
-    if lc.row_span > 1 {
-        fields.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
-    }
+    grid::push_child_fields(grid::parent_ids(cx, &node), lc, &mut fields, &mut carried);
     for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
         let eff = if a == GridChildAlign::Start { node.fig_metadata.get(k).and_then(|s| GridChildAlign::from_figma_name(s)).unwrap_or(a) } else { a };
         if writes_grid_child_align(eff, parent_dir) {
             fields.push((k, en(grid_child_align_name(eff))));
         }
     }
+    // Figma writes both components of a size limit: an unset minimum is 0 and an unset maximum is infinite.
     if lc.min_w.is_some() || lc.min_h.is_some() {
-        let mut s = Vec::new();
-        if let Some(x) = lc.min_w {
-            s.push(("x", fl(x)));
-        }
-        if let Some(y) = lc.min_h {
-            s.push(("y", fl(y)));
-        }
-        fields.push(("minSize", msg(s)));
+        fields.push(("minSize", size_limit(lc.min_w, lc.min_h, 0.0)));
     }
     if lc.max_w.is_some() || lc.max_h.is_some() {
-        let mut s = Vec::new();
-        if let Some(x) = lc.max_w {
-            s.push(("x", fl(x)));
-        }
-        if let Some(y) = lc.max_h {
-            s.push(("y", fl(y)));
-        }
-        fields.push(("maxSize", msg(s)));
+        fields.push(("maxSize", size_limit(lc.max_w, lc.max_h, f32::INFINITY)));
     }
 
     // Export settings & frame guides.
@@ -982,7 +982,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     ExportConstraint::Width(v) => ("CONTENT_WIDTH", v),
                     ExportConstraint::Height(v) => ("CONTENT_HEIGHT", v),
                 };
-                msg(vec![("suffix", V::String(e.suffix.clone())), ("imageType", en(img_ty)), ("constraint", msg(vec![("type", en(cty)), ("value", fl(cval))]))])
+                msg(vec![("suffix", V::String(e.suffix.clone())), ("imageType", en(img_ty)), ("constraint", st(vec![("type", en(cty)), ("value", fl(cval))]))])
             })
             .collect();
         fields.push(("exportSettings", V::Array(exs)));
@@ -1104,7 +1104,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     msg(vec![("guidValue", guid(tg.0, tg.1))])
                 }
                 PropValue::Slot(ids) => {
-                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
+                    let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("comp:{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
                     msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
                 }
             };
@@ -1158,15 +1158,24 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if !node.component.variant_props.is_empty() {
         let mut vspecs = Vec::new();
+        // Figma's spec holds the property's id and the value; the name is found through the id. A property with no
+        // definition in this file has no name to find, so the specs travel once more in the legacy shape with it.
+        let mut legacy = Vec::new();
+        let mut name_lost = false;
         for (prop_name, val) in &node.component.variant_props {
             let def_g = cx.resolve_prop_guid(id, prop_name);
             let bare_name =
                 prop_name.strip_prefix("propDefId:").map(|_| String::new()).unwrap_or_else(|| prop_name.split('#').next().unwrap_or(prop_name).to_string());
-            let mut vspec = vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))];
+            vspecs.push(msg(vec![("propDefId", guid(def_g.0, def_g.1)), ("value", V::String(val.clone()))]));
+            let mut spec = serde_json::json!({"propDefId": {"sessionID": def_g.0, "localID": def_g.1}, "value": val});
             if !bare_name.is_empty() {
-                vspec.push(("propertyName", V::String(bare_name)));
+                name_lost |= !cx.prop_guids.values().any(|g| *g == def_g);
+                spec["propertyName"] = bare_name.into();
             }
-            vspecs.push(msg(vspec));
+            legacy.push(spec);
+        }
+        if name_lost {
+            carried.push(("variantPropSpecs", serde_json::Value::Array(legacy)));
         }
         fields.push(("variantPropSpecs", V::Array(vspecs)));
     }
@@ -1194,7 +1203,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     // Kind-specific fields.
     match &node.kind {
         NodeKind::Ellipse(arc) => {
-            fields.push(("arcData", st(vec![("startingAngle", fl(arc.start)), ("endingAngle", fl(arc.end)), ("innerRadius", fl(arc.inner_radius))])));
+            fields.push(("arcData", msg(vec![("startingAngle", fl(arc.start)), ("endingAngle", fl(arc.end)), ("innerRadius", fl(arc.inner_radius))])));
         }
         NodeKind::Polygon { count } => {
             fields.push(("count", V::Uint(*count)));
@@ -1246,7 +1255,6 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             encode_text_node(&mut fields, tp);
         }
         NodeKind::Sticky(sp) => {
-            fields.push(("authorVisible", V::Bool(sp.show_author)));
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::ShapeWithText(sp) => {
@@ -1262,7 +1270,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ShapeKind::Hexagon => "HEXAGON",
                 ShapeKind::Pentagon => "PENTAGON",
             });
-            fields.push(("shapeWithTextType", V::String(st_name.into())));
+            let st_name = if cx.schema.has_enum_variant("ShapeWithTextType", st_name) { st_name } else { "SQUARE" };
+            fields.push(("shapeWithTextType", en(st_name)));
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::Connector(cp) => {
@@ -1271,16 +1280,16 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 ConnectorLine::Straight => "STRAIGHT",
                 ConnectorLine::Curved => "CURVED",
             };
-            fields.push(("connectorLineStyle", V::String(line_style.into())));
+            fields.push(("connectorLineStyle", en(line_style)));
             let cap_name = |c: ConnectorCap| match c {
                 ConnectorCap::None => "NONE",
                 ConnectorCap::Arrow => "ARROW_LINES",
                 ConnectorCap::Triangle => "ARROW_EQUILATERAL",
-                ConnectorCap::Circle => "ROUND",
-                ConnectorCap::Diamond => "SQUARE",
+                ConnectorCap::Circle => "CIRCLE_FILLED",
+                ConnectorCap::Diamond => "DIAMOND_FILLED",
             };
-            fields.push(("connectorStartStrokeCap", en(cap_name(cp.start_cap))));
-            fields.push(("connectorEndStrokeCap", en(cap_name(cp.end_cap))));
+            fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
+            fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
             let mag_name = |m: Magnet| match m {
                 Magnet::Auto => "AUTO",
                 Magnet::Top => "TOP",
@@ -1290,9 +1299,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 Magnet::Center => "CENTER",
             };
             let end_msg = |ep: &ConnectorEnd| {
-                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", V::String(mag_name(ep.magnet).into()))];
+                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag_name(ep.magnet)))];
                 if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
-                    ef.push(("endpointNodeId", guid(tg.0, tg.1)));
+                    ef.push(("endpointNodeID", guid(tg.0, tg.1)));
                 }
                 msg(ef)
             };
@@ -1305,6 +1314,10 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => {}
     }
 
+    pd_entries.extend(carrier::carrier_entries(&carried));
+    if !pd_entries.is_empty() {
+        fields.push(("pluginData", V::Array(pd_entries)));
+    }
     let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
     cx.changes.push(V::Message(msg_fields));
@@ -1346,8 +1359,13 @@ pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
 /// Only slots inside the rows the children fill ([`placed_grid_rows`]) are written: a slot past them is unused,
 /// and as a real row it would add an empty row and a gap.
 pub(crate) fn grid_rows_for_export(doc: &Document, node: &Node, al: &AutoLayout) -> Option<(u32, String)> {
+    grid_row_tracks_for_export(doc, node, al).map(|(count, tracks)| (count, format_grid_tracks(count, &tracks)))
+}
+
+/// The tracks behind [`grid_rows_for_export`]: the row count and the size of every row up to it.
+pub(crate) fn grid_row_tracks_for_export(doc: &Document, node: &Node, al: &AutoLayout) -> Option<(u32, Vec<GridTrack>)> {
     if al.grid_rows > 0 {
-        return Some((al.grid_rows, format_grid_tracks(al.grid_rows, &al.grid_row_tracks)));
+        return Some((al.grid_rows, al.grid_row_tracks.as_slice().to_vec()));
     }
     if al.direction != LayoutDirection::Grid || !al.grid_row_tracks.iter().any(|t| matches!(t, GridTrack::Fixed(_))) {
         return None;
@@ -1360,7 +1378,7 @@ pub(crate) fn grid_rows_for_export(doc: &Document, node: &Node, al: &AutoLayout)
         _ => None,
     };
     let tracks: Vec<GridTrack> = al.grid_row_tracks[..count].iter().map(|&t| if matches!(t, GridTrack::Fixed(_)) { t } else { auto.unwrap_or(t) }).collect();
-    Some((count as u32, format_grid_tracks(count as u32, &tracks)))
+    Some((count as u32, tracks))
 }
 
 pub(crate) fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
@@ -1417,14 +1435,14 @@ fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
             "strokeLeftWeight" => "BORDER_LEFT_WEIGHT",
             "fontSize" => "FONT_SIZE",
             "fontFamily" => "FONT_FAMILY",
-            "fontWeight" => "FONT_WEIGHT",
+            "fontWeight" => "FONT_STYLE",
             "lineHeight" => "LINE_HEIGHT",
             "letterSpacing" => "LETTER_SPACING",
             "paragraphSpacing" => "PARAGRAPH_SPACING",
             "paragraphIndent" => "PARAGRAPH_INDENT",
             _ => continue,
         };
-        var_entries.push(msg(vec![("variableField", V::String(vfield.into())), ("variableData", alias_var_data(vg))]));
+        var_entries.push(msg(vec![("variableField", en(vfield)), ("variableData", alias_var_data(vg))]));
     }
     var_entries
 }
@@ -1455,11 +1473,12 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             || n.component.override_level.is_some()
             || n.component.detached_symbol_id.is_some()
         {
-            let mut ov = Vec::new();
+            let mut ov: Vec<(&'static str, V)> = Vec::new();
+            let mut carried: carrier::Carried = Vec::new();
             let guids: Vec<V> = path.iter().map(|&(s, l)| guid(s, l)).collect();
             ov.push(("guidPath", msg(vec![("guids", V::Array(guids))])));
             if let Some(lvl) = n.component.override_level {
-                ov.push(("overrideLevel", V::Uint(lvl.max(0) as u32)));
+                ov.push(("overrideLevel", V::Int(lvl)));
             }
             if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
@@ -1568,29 +1587,17 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                             LayoutDirection::Grid => "GRID",
                         };
                         ov.push(("stackMode", en(sm)));
-                        if al.grid_columns > 0 {
-                            ov.push(("gridColumns", V::Uint(al.grid_columns)));
-                            ov.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
-                        }
-                        if let Some((rows, sizing)) = grid_rows_for_export(cx.doc, n, al) {
-                            ov.push(("gridRows", V::Uint(rows)));
-                            ov.push(("gridRowsSizing", V::String(sizing)));
-                        }
-                        if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
-                            ov.push(("gridAutoTracks", V::String(gat)));
-                        }
+                        grid::push_frame_fields(cx, cid, n, al, &mut ov, &mut carried);
                         if al.direction == LayoutDirection::Grid {
                             ov.push(("gridColumnGap", fl(al.item_spacing)));
                             ov.push(("gridRowGap", fl(al.counter_spacing)));
                         }
                         ov.push(("stackSpacing", fl(al.item_spacing)));
                         ov.push(("stackCounterSpacing", fl(al.counter_spacing)));
-                        ov.push(("stackPaddingTop", fl(al.padding[0])));
+                        ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         ov.push(("stackPaddingRight", fl(al.padding[1])));
                         ov.push(("stackPaddingBottom", fl(al.padding[2])));
-                        ov.push(("stackPaddingLeft", fl(al.padding[3])));
                         ov.push(("stackHorizontalPadding", fl(al.padding[3])));
-                        ov.push(("stackVerticalPadding", fl(al.padding[0])));
                         let align_name = |a: LayoutAlign| match a {
                             LayoutAlign::Start => "MIN",
                             LayoutAlign::Center => "CENTER",
@@ -1648,20 +1655,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if let Some(a) = align_self_ov {
                     ov.push(("stackChildAlignSelf", en(a)));
                 }
-                if let Some(c) = lc.grid_column {
-                    ov.push(("gridColumnAnchorIndex", V::Uint(u32::from(c))));
-                    ov.push(("gridColumnAnchor", V::Uint(u32::from(c))));
-                }
-                if let Some(r) = lc.grid_row {
-                    ov.push(("gridRowAnchorIndex", V::Uint(u32::from(r))));
-                    ov.push(("gridRowAnchor", V::Uint(u32::from(r))));
-                }
-                if lc.col_span > 1 {
-                    ov.push(("gridColumnSpan", V::Uint(u32::from(lc.col_span))));
-                }
-                if lc.row_span > 1 {
-                    ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
-                }
+                grid::push_child_fields(grid::override_parent_ids(cx, inst_id, n), lc, &mut ov, &mut carried);
                 // An alignment key is written only for an axis that differs from the main component's child: a reader
                 // keeps the main's value for any key the override does not name, so naming one that still matches
                 // would freeze it (a margin, span or sizing override takes this same Layout flag). A reset to Start
@@ -1699,6 +1693,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if !me.is_empty() {
                 ov.push(("variableModeBySetMap", msg(vec![("entries", V::Array(me))])));
             }
+            if !carried.is_empty() {
+                ov.push(("pluginData", V::Array(carrier::carrier_entries(&carried))));
+            }
             if ov.len() > 1 {
                 out.push(msg(ov));
             }
@@ -1711,6 +1708,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
     out
 }
 
+/// Preferred components of an instance-swap or slot property: Figma lists them as `COMPONENT` entries keyed by
+/// the component's library key. A component of this file has no library key, so its key is its GUID as `"s:l"`.
 fn alias_var_data(vg: (u32, u32)) -> V {
     msg(vec![("dataType", en("ALIAS")), ("value", msg(vec![("alias", msg(vec![("guid", guid(vg.0, vg.1))]))]))])
 }
@@ -1766,7 +1765,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
                     HandleMirror::Angle => "ANGLE",
                     HandleMirror::AngleAndLength => "ANGLE_AND_LENGTH",
                 };
-                so.push(("handleMirroring", V::String(m.into())));
+                so.push(("handleMirroring", en(m)));
             }
             style_table.push(msg(so));
             id
@@ -1861,7 +1860,8 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
             if let Some(raw) = unhex(image_ref) {
                 fields.push(("image", msg(vec![("hash", V::Bytes(raw))])));
             } else {
-                fields.push(("imageHash", V::String(image_ref.clone())));
+                // Not a hash: the reference rides in the image's name, with an empty hash.
+                fields.push(("image", msg(vec![("hash", V::Bytes(Vec::new())), ("name", V::String(image_ref.clone()))])));
             }
             let sm = match scale_mode {
                 ImageScaleMode::Fill => "FILL",
@@ -1959,32 +1959,39 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V 
     msg(fields)
 }
 
+/// A layout guide in Figma's own shape: a square grid is `pattern: GRID`, columns and rows are `pattern: STRIPES` on
+/// axis X or Y, with `type` as the alignment and `numSections` as the count (negative for an automatic count).
 fn encode_grid(g: &LayoutGrid) -> V {
     match g {
-        LayoutGrid::Grid { size, color: c, visible } => {
-            msg(vec![("pattern", en("GRID")), ("sectionSize", fl(*size)), ("color", color(c.r, c.g, c.b, c.a)), ("visible", V::Bool(*visible))])
-        }
+        LayoutGrid::Grid { size, color: c, visible } => msg(vec![
+            ("type", en("STRETCH")),
+            ("axis", en("X")),
+            ("visible", V::Bool(*visible)),
+            ("sectionSize", fl(*size)),
+            ("color", color(c.r, c.g, c.b, c.a)),
+            ("pattern", en("GRID")),
+        ]),
         LayoutGrid::Columns { count, gutter, offset, section_size, alignment, color: c, visible }
         | LayoutGrid::Rows { count, gutter, offset, section_size, alignment, color: c, visible } => {
-            let pat = if matches!(g, LayoutGrid::Columns { .. }) { "COLUMNS" } else { "ROWS" };
+            let axis = if matches!(g, LayoutGrid::Columns { .. }) { "X" } else { "Y" };
             let align = match alignment {
                 LayoutGridAlign::Min => "MIN",
                 LayoutGridAlign::Center => "CENTER",
                 LayoutGridAlign::Stretch => "STRETCH",
                 LayoutGridAlign::Max => "MAX",
             };
-            let (cnt_u, num_sec) = if *count == 0 { (i32::MAX as u32, -1i32) } else { (*count, *count as i32) };
+            let num_sections = if *count == 0 { -1 } else { i32::try_from(*count).unwrap_or(-1) };
             msg(vec![
-                ("pattern", en(pat)),
                 ("type", en(align)),
-                ("count", V::Uint(cnt_u)),
-                ("numSections", V::Int(num_sec)),
-                ("gutterSize", fl(*gutter)),
-                ("offset", fl(*offset)),
-                ("color", color(c.r, c.g, c.b, c.a)),
+                ("axis", en(axis)),
                 ("visible", V::Bool(*visible)),
+                ("numSections", V::Int(num_sections)),
+                ("offset", fl(*offset)),
                 // 0 is a real mode (equal-width stripes), so it is written like any other width
                 ("sectionSize", fl(*section_size)),
+                ("gutterSize", fl(*gutter)),
+                ("color", color(c.r, c.g, c.b, c.a)),
+                ("pattern", en("STRIPES")),
             ])
         }
     }
@@ -2013,9 +2020,12 @@ fn style_name_from_weight(weight: u16, italic: bool) -> String {
     }
 }
 
+/// OpenType features Figma lists in `toggledOnOTFeatures` / `toggledOffOTFeatures`. The others Studio knows (`tnum`,
+/// `onum`, `lnum`, `pnum`, `frac`, `smcp`, `c2sc`, `sups`, `subs`) are not features of that list in Figma: they ride
+/// in the `fontVariant*` fields written beside it.
 const KNOWN_OT_FEATURES: &[&str] = &[
-    "LIGA", "DLIG", "CLIG", "CALT", "KERN", "SS01", "SS02", "SS03", "SS04", "SS05", "SS06", "SS07", "SS08", "SS09", "SS10", "TNUM", "ONUM", "LNUM", "PNUM",
-    "FRAC", "AFRC", "ZERO", "SMCP", "C2SC", "PCAP", "C2PC", "UNIC", "TITL", "ORDN", "SWSH", "SALT", "SUPS", "SUBS", "CASE",
+    "LIGA", "DLIG", "CLIG", "CALT", "KERN", "SS01", "SS02", "SS03", "SS04", "SS05", "SS06", "SS07", "SS08", "SS09", "SS10", "AFRC", "ZERO", "PCAP", "C2PC",
+    "UNIC", "TITL", "ORDN", "SWSH", "SALT", "CASE",
 ];
 
 fn encode_detached_symbol_id(ds: &str) -> V {
@@ -2226,14 +2236,15 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
             TextAutoResize::None => "NONE",
             TextAutoResize::WidthAndHeight => "WIDTH_AND_HEIGHT",
             TextAutoResize::Height => "HEIGHT",
-            TextAutoResize::Truncate => "TRUNCATE",
+            // Figma has no `TRUNCATE` resize mode: a truncating text is fixed in size and says so in `textTruncation`.
+            TextAutoResize::Truncate => "NONE",
         }),
     ));
     if tp.auto_resize == TextAutoResize::Truncate {
         fields.push(("textTruncation", en("ENDING")));
     }
     if let Some(m) = tp.max_lines {
-        fields.push(("maxLines", V::Uint(m)));
+        fields.push(("maxLines", V::Int(i32::try_from(m).unwrap_or(i32::MAX))));
     }
     if tp.paragraph.indent != 0.0 {
         fields.push(("paragraphIndent", fl(tp.paragraph.indent)));
@@ -2320,7 +2331,7 @@ fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {
                     Some(ListItem { kind: ListKind::Numbered, level }) => ("ORDERED_LIST", *level as u32 + 1),
                     Some(ListItem { kind: ListKind::Bullet, level }) => ("UNORDERED_LIST", *level as u32 + 1),
                 };
-                msg(vec![("lineType", en(lty)), ("indentationLevel", V::Uint(indent)), ("sourceDirectionality", en(dir))])
+                msg(vec![("lineType", en(lty)), ("indentationLevel", V::Int(indent as i32)), ("sourceDirectionality", en(dir))])
             })
             .collect();
         if !lines.is_empty() {

@@ -26,7 +26,14 @@ fn blur(radius: f32) -> V {
 }
 
 fn columns(count: u32) -> V {
-    msg(vec![("pattern", en("COLUMNS")), ("count", V::Uint(count)), ("gutterSize", fl(20.0)), ("offset", fl(0.0)), ("visible", V::Bool(true))])
+    msg(vec![
+        ("pattern", en("STRIPES")),
+        ("axis", en("X")),
+        ("numSections", V::Int(count as i32)),
+        ("gutterSize", fl(20.0)),
+        ("offset", fl(0.0)),
+        ("visible", V::Bool(true)),
+    ])
 }
 
 fn square_grid(size: f32) -> V {

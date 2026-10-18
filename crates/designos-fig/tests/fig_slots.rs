@@ -978,3 +978,68 @@ fn a_fresh_instance_of_a_two_slot_component_adds_no_slot_assignments_through_fig
     let fresh = find(&rt, "Fresh");
     assert!(fresh.component.slot_content_ids.is_empty(), "{:?}", fresh.component.slot_content_ids);
 }
+
+#[test]
+fn exported_fig_uses_figmas_real_kiwi_numbering_for_component_prop_type_and_node_change_tags() {
+    let doc = slot_document();
+    let bytes = export_fig(&doc).unwrap();
+    let archive = designos_fig::container::open(&bytes).unwrap();
+    let (schema_bytes, _) = designos_fig::container::read_archive_chunks(&archive).unwrap();
+    let schema = designos_fig::kiwi::Schema::decode(&schema_bytes).unwrap();
+
+    let prop_type = schema.find("ComponentPropType").expect("ComponentPropType enum exists");
+    let variant_val = |def_idx: usize, name: &str| -> Option<u32> { schema.defs[def_idx].fields.iter().find(|f| f.name.as_ref() == name).map(|f| f.value) };
+    assert_eq!(variant_val(prop_type, "BOOL"), Some(0));
+    assert_eq!(variant_val(prop_type, "TEXT"), Some(1));
+    assert_eq!(variant_val(prop_type, "INSTANCE_SWAP"), Some(3));
+    assert_eq!(variant_val(prop_type, "VARIANT"), Some(4));
+    assert_eq!(variant_val(prop_type, "SLOT"), Some(7), "Figma ComponentPropType.SLOT must be 7");
+
+    let node_field = schema.find("ComponentPropNodeField").expect("ComponentPropNodeField enum exists");
+    assert_eq!(variant_val(node_field, "VISIBLE"), Some(0));
+    assert_eq!(variant_val(node_field, "TEXT_DATA"), Some(1));
+    assert_eq!(variant_val(node_field, "OVERRIDDEN_SYMBOL_ID"), Some(2));
+    assert_eq!(variant_val(node_field, "SLOT_CONTENT_ID"), Some(4), "Figma ComponentPropNodeField.SLOT_CONTENT_ID must be 4");
+
+    let nc_def = schema.find("NodeChange").expect("NodeChange message exists");
+    for (field_name, expected_tag) in [
+        ("guid", 1),
+        ("phase", 2),
+        ("parentIndex", 3),
+        ("type", 4),
+        ("name", 5),
+        ("visible", 6),
+        ("locked", 7),
+        ("opacity", 8),
+        ("blendMode", 9),
+        ("size", 11),
+        ("transform", 12),
+        ("fillPaints", 38),
+        ("strokePaints", 39),
+        ("effects", 43),
+        ("symbolData", 113),
+        ("derivedSymbolData", 125),
+        ("overriddenSymbolID", 143),
+        ("symbolDescription", 144),
+        ("overrideKey", 213),
+        ("stateGroupPropertyValueOrders", 238),
+        ("componentPropDefs", 266),
+        ("componentPropRefs", 267),
+        ("componentPropAssignments", 268),
+        ("propsAreBubbled", 305),
+        ("overrideLevel", 321),
+        ("detachedSymbolId", 342),
+        ("codeSyntax", 358),
+        ("isSlot", 463),
+        ("variantPropSpecs", 483),
+        ("isSlotContent", 495),
+    ] {
+        assert_eq!(variant_val(nc_def, field_name), Some(expected_tag), "NodeChange.{field_name} must use Figma's real Kiwi tag {expected_tag}");
+    }
+
+    // Re-importing the exported .fig encoded with real Kiwi numbering must round-trip all slot data.
+    let rt = import_fig(&bytes).unwrap();
+    assert!(find(&rt, "BodySlot").component.is_slot);
+    assert_eq!(find(&rt, "BodySlot").component.bindings.get(&OverrideField::SlotContent).map(String::as_str), Some("Body"));
+    assert!(find(&rt, "Banner").component.is_slot_content);
+}

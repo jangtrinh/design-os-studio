@@ -289,6 +289,14 @@ impl<'a> Reader<'a> {
 
 // ---------------------------------------------------------------- schema
 
+/// Names the field an encode error happened in, innermost first (`NodeChange.fillPaints: Paint.color: ...`).
+fn in_field(def: &str, field: &str, e: KiwiError) -> KiwiError {
+    match e {
+        KiwiError::Bad(m) => KiwiError::Bad(format!("{def}.{field}: {m}")),
+        other => other,
+    }
+}
+
 impl Schema {
     /// Decodes the binary schema (`encodeBinarySchema` in kiwi).
     pub fn decode(data: &[u8]) -> Result<Schema> {
@@ -627,14 +635,14 @@ impl Schema {
             (DefKind::Struct, KiwiValue::Struct(fs)) => {
                 for f in &def.fields {
                     let fv = fs.iter().find(|(n, _)| *n == f.name).map(|(_, v)| v).ok_or_else(|| KiwiError::Bad(format!("missing struct field {}", f.name)))?;
-                    self.encode_field(f, fv, w, depth)?;
+                    self.encode_field(f, fv, w, depth).map_err(|e| in_field(&def.name, &f.name, e))?;
                 }
             }
             (DefKind::Message, KiwiValue::Message(fs)) => {
                 for (n, fv) in fs {
-                    let f = def.fields.iter().find(|f| f.name == *n).ok_or_else(|| KiwiError::Bad(format!("unknown field {n}")))?;
+                    let f = def.fields.iter().find(|f| f.name == *n).ok_or_else(|| KiwiError::Bad(format!("unknown field {}.{n}", def.name)))?;
                     w.var_u64(f.value as u64);
-                    self.encode_field(f, fv, w, depth)?;
+                    self.encode_field(f, fv, w, depth).map_err(|e| in_field(&def.name, &f.name, e))?;
                 }
                 w.byte(0);
             }

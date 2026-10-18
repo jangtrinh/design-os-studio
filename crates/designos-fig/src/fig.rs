@@ -6,6 +6,7 @@
 //! fields are ignored.
 
 use crate::container::{self, Archive};
+use crate::fig_export::{CARRIED_FIELDS, CARRIER_KEY_PREFIX, STUDIO_AUTHOR_VISIBLE_KEY, STUDIO_PLUGIN_ID, STUDIO_SLOT_CONTENT_ID_KEY};
 use crate::kiwi::{self, KiwiValue, Schema};
 use crate::rest_import::{self, fnum, fstr};
 use crate::svgpath::write_path;
@@ -17,6 +18,31 @@ use std::collections::{HashMap, HashSet};
 struct Decoded {
     archive: Archive,
     message: KiwiValue,
+    /// Written by Studio's own old exporter: its schema numbers `Message.nodeChanges` 1 (Figma's id is 4) and its
+    /// `StrokeCap` has no `CIRCLE_FILLED`.
+    studio_connector_caps: bool,
+}
+
+/// Studio's own export used to write a circle cap as `ROUND` and a diamond cap as `SQUARE`. Figma's `ROUND` and
+/// `SQUARE` are plain stroke ends, so they are read as circle and diamond only in a file that carries Studio's own
+/// old schema.
+fn remap_studio_connector_caps(change: &mut KiwiValue) {
+    let KiwiValue::Message(fields) = change else { return };
+    if !fields.iter().any(|(k, v)| &**k == "type" && matches!(v, KiwiValue::Enum(t) if &**t == "CONNECTOR")) {
+        return;
+    }
+    for (name, value) in fields.iter_mut() {
+        if !matches!(&**name, "connectorStartCap" | "connectorEndCap" | "connectorStartStrokeCap" | "connectorEndStrokeCap") {
+            continue;
+        }
+        if let KiwiValue::Enum(cap) = value {
+            match &**cap {
+                "ROUND" => *cap = "CIRCLE_FILLED".into(),
+                "SQUARE" => *cap = "DIAMOND_FILLED".into(),
+                _ => {}
+            }
+        }
+    }
 }
 
 #[inline]
@@ -40,7 +66,9 @@ fn decode_inner(bytes: &[u8], for_import: bool) -> Result<Decoded, FigError> {
     let message = if for_import { schema.decode_message_for_import(root, &msg_bin) } else { schema.decode_message(root, &msg_bin) }
         .map_err(|e| FigError::Format(format!("kiwi message: {e}")))?;
     drop(msg_bin);
-    Ok(Decoded { archive, message })
+    let old_numbering = schema.defs[root].fields.iter().any(|f| &*f.name == "nodeChanges" && f.value == 1);
+    let studio_connector_caps = old_numbering && schema.find("StrokeCap").is_some() && !schema.has_enum_variant("StrokeCap", "CIRCLE_FILLED");
+    Ok(Decoded { archive, message, studio_connector_caps })
 }
 
 fn decode(bytes: &[u8]) -> Result<Decoded, FigError> {
@@ -196,7 +224,10 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     }
     let into_j: fn(KiwiValue) -> Value = if large { kiwi::into_json_fast } else { kiwi::into_json };
     let mut entries: Vec<Entry> = Vec::with_capacity(raw_changes.len());
-    for kc in raw_changes {
+    for mut kc in raw_changes {
+        if d.studio_connector_caps {
+            remap_studio_connector_caps(&mut kc);
+        }
         let j = into_j(kc);
         if let Some(entry) = entry_from_json(j) {
             entries.push(entry);
@@ -230,7 +261,42 @@ struct Entry {
     json: Value,
 }
 
+/// The legacy-typed fields a Studio export carried in `pluginData` as `field:<name>` entries (see
+/// `fig_export::grid`). Only the names in [`CARRIED_FIELDS`] are restored.
+fn field_carriers(nc: &Value) -> Vec<(&'static str, Value)> {
+    let Some(entries) = nc.get("pluginData").and_then(Value::as_array) else { return Vec::new() };
+    entries
+        .iter()
+        .filter(|e| fstr(e, "pluginID") == Some(STUDIO_PLUGIN_ID))
+        .filter_map(|e| {
+            let name = fstr(e, "key")?.strip_prefix(CARRIER_KEY_PREFIX)?;
+            let field = CARRIED_FIELDS.iter().copied().find(|f| *f == name)?;
+            Some((field, serde_json::from_str::<Value>(fstr(e, "value")?).ok()?))
+        })
+        .collect()
+}
+
+/// `nc` with its carried fields put back. The carried value replaces what the real field holds, so the legacy
+/// readers below take it as they take a file written before the real shapes.
+fn with_field_carriers(nc: &Value) -> std::borrow::Cow<'_, Value> {
+    let restored = field_carriers(nc);
+    if restored.is_empty() {
+        return std::borrow::Cow::Borrowed(nc);
+    }
+    let mut copy = nc.clone();
+    if let Some(obj) = copy.as_object_mut() {
+        for (field, value) in restored {
+            obj.insert(field.into(), value);
+        }
+    }
+    std::borrow::Cow::Owned(copy)
+}
+
 fn entry_from_json(j: Value) -> Option<Entry> {
+    let j = match with_field_carriers(&j) {
+        std::borrow::Cow::Borrowed(_) => j,
+        std::borrow::Cow::Owned(restored) => restored,
+    };
     if fstr(&j, "phase") == Some("REMOVED") || rest_import::fbool(&j, "isSoftDeleted") == Some(true) {
         return None;
     }
@@ -833,6 +899,8 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "connectorType",
     "connectorStartStrokeCap",
     "connectorEndStrokeCap",
+    "connectorStartCap",
+    "connectorEndCap",
     "prototypeInteractions",
     "overflowDirection",
     "scrollBehavior",
@@ -915,9 +983,7 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "lockMode"
             | "codeExportName"
             | "documentColorProfile"
-            | "codeObjectType"
-            | "connectorStartCap"
-            | "connectorEndCap" => {
+            | "codeObjectType" => {
                 if let Some(s) = val.as_str().filter(|s| !s.is_empty()) {
                     meta.insert(k.clone(), Value::String(s.to_string()));
                 }
@@ -1261,6 +1327,25 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
             let Some(k) = fstr(entry, "key") else { continue };
             let val = fstr(entry, "value").unwrap_or("");
             let pid = fstr(entry, "pluginID").unwrap_or("");
+            // Studio's reserved carrier entries become typed node data, not plugin data.
+            if pid == STUDIO_PLUGIN_ID {
+                if k.starts_with(CARRIER_KEY_PREFIX) {
+                    continue;
+                }
+                match k {
+                    STUDIO_SLOT_CONTENT_ID_KEY => {
+                        if !val.is_empty() {
+                            m.insert("slotContentId".into(), Value::String(val.to_string()));
+                        }
+                        continue;
+                    }
+                    STUDIO_AUTHOR_VISIBLE_KEY => {
+                        m.insert("authorVisible".into(), Value::Bool(val == "true"));
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
             let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
             pd_map.insert(full_key, Value::String(val.to_string()));
         }
@@ -1414,10 +1499,12 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     for (src, dst_x, dst_y) in [("minSize", "minWidth", "minHeight"), ("maxSize", "maxWidth", "maxHeight")] {
         if let Some(s) = nc.get(src) {
             let s = s.get("value").unwrap_or(s);
-            if let Some(x) = fnum(s, "x") {
+            // Figma writes 0 for a minimum that is not set and infinity (no number here) for a maximum that is not.
+            let unset = |v: f32| src == "minSize" && v == 0.0;
+            if let Some(x) = fnum(s, "x").filter(|v| !unset(*v)) {
                 m.insert(dst_x.into(), x.into());
             }
-            if let Some(y) = fnum(s, "y") {
+            if let Some(y) = fnum(s, "y").filter(|v| !unset(*v)) {
                 m.insert(dst_y.into(), y.into());
             }
         }
@@ -1497,7 +1584,8 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         "CONNECTOR" => {
             let conv_ep = |ep: &Value| -> Value {
                 let mut o = ep.as_object().cloned().unwrap_or_default();
-                if let Some(id_val) = ep.get("endpointNodeId") {
+                // Figma's field is `endpointNodeID`; files Studio wrote before that carry `endpointNodeId`.
+                if let Some(id_val) = ep.get("endpointNodeID").or_else(|| ep.get("endpointNodeId")) {
                     if let Some(gs) = guid_str(id_val) {
                         o.insert("endpointNodeId".into(), Value::String(gs));
                     }
@@ -2265,12 +2353,14 @@ fn resolve_override_grid_anchor(
 /// child one step below the instance that is the instance's own tracks, deeper down it is the tracks
 /// an entry restates for the parent.
 fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bool) -> Vec<Value> {
-    let a = list.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let Some(raw) = list.and_then(Value::as_array) else { return Vec::new() };
+    let carried: Vec<std::borrow::Cow<'_, Value>> = raw.iter().map(with_field_carriers).collect();
+    let a: Vec<&Value> = carried.iter().map(|c| &**c).collect();
     let mut restated = RestatedTracks::new();
     let mut out = Vec::new();
     if !derived {
         let sym_id = instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str);
-        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|o| (guid_path(o), o))) {
+        for (path, owner) in std::iter::once((Vec::new(), instance)).chain(a.iter().map(|&o| (guid_path(o), o))) {
             let (cols, rows) = (grid_position_guids(owner, "gridColumns"), grid_position_guids(owner, "gridRows"));
             if !cols.is_empty() || !rows.is_empty() {
                 let is_root_sym = path.len() == 1 && sym_id.as_deref() == Some(path[0].as_str());
@@ -2394,7 +2484,12 @@ fn convert_paint(p: &Value) -> Option<Value> {
             m.insert("gradientHandlePositions".into(), Value::Array(h.to_vec()));
         }
         "IMAGE" => {
-            let hash = p.get("image").and_then(|i| fstr(i, "hash")).or_else(|| fstr(p, "imageHash"))?;
+            let image = p.get("image");
+            let hash = image
+                .and_then(|i| fstr(i, "hash"))
+                .filter(|h| !h.is_empty())
+                .or_else(|| fstr(p, "imageHash"))
+                .or_else(|| image.and_then(|i| fstr(i, "name")))?;
             m.insert("imageRef".into(), hash.into());
             enum_map(&mut m, p, "imageScaleMode", "scaleMode", &[]);
         }
