@@ -707,6 +707,12 @@ impl Document {
         finite_json::to_string_finite(self)
     }
 
+    /// How many non-finite numbers [`Document::to_json_counted`] would replace, counted without
+    /// building the JSON text.
+    pub fn count_non_finite(&self) -> serde_json::Result<usize> {
+        finite_json::count_non_finite(self)
+    }
+
     /// Parses a native document. Text written by older versions that emulated lists with
     /// literal bullet and "1. " prefixes is converted to real lists. A malformed node graph is
     /// repaired in place (see [`Document::validate_and_repair`]) and noted on stderr, and a `null`

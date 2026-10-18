@@ -585,8 +585,18 @@ impl App {
         self.new_library_board(target);
     }
 
-    /// Writes the open library file (no toast); also refreshes its thumbnail.
+    /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
+    /// that replaced non-finite numbers says so, because no later open of the file would.
     pub fn save_library_file(&mut self) -> Result<(), String> {
+        if let Some(notice) = self.save_library_file_noticing()? {
+            self.show_toast(notice, true);
+        }
+        Ok(())
+    }
+
+    /// [`Self::save_library_file`] without any toast: returns the once-per-file notice for the
+    /// non-finite numbers this save replaced, for the caller to show.
+    fn save_library_file_noticing(&mut self) -> Result<Option<String>, String> {
         crate::decks::ui::flush_notes(self);
         let (Some(lib), Some(lf)) = (self.lib.clone(), self.lib_file.clone()) else { return Err("This file is not in the library".into()) };
         if self.history.viewing.is_some() {
@@ -595,7 +605,7 @@ impl App {
         }
         let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
-        lib.save_file(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
+        let replaced = lib.save_file_counted(&lf.id, &self.doc).map_err(|e| format!("Cannot save: {e}"))?;
         if wrote_backup {
             crate::io::clear_pending_repair_backup(&disk_path);
         }
@@ -607,15 +617,18 @@ impl App {
         if self.doc.nodes.len() <= 25_000 {
             thumb::refresh_in_background(lib, lf.id, self.export_doc().into_owned());
         }
-        Ok(())
+        Ok(crate::io::non_finite_notice_once(&disk_path, replaced))
     }
 
     /// Ctrl+S on a library file.
     pub fn save_library_file_with_toast(&mut self) {
-        match self.save_library_file() {
-            Ok(()) => {
+        match self.save_library_file_noticing() {
+            Ok(notice) => {
                 let project = self.lib_file.as_ref().map(|f| f.project.clone()).unwrap_or_default();
-                self.show_toast(format!("Saved to {project}"), false);
+                match notice {
+                    Some(w) => self.show_toast(format!("Saved to {project} ({w})"), true),
+                    None => self.show_toast(format!("Saved to {project}"), false),
+                }
             }
             Err(e) => self.show_toast(e, true),
         }
@@ -694,12 +707,8 @@ impl App {
         }
         self.autosave.disk_mtime = mtime;
         self.autosave.note_known_mtime(mtime);
-        let loaded_doc = if self.lib_file.is_some() {
-            self.lib.as_ref().zip(self.lib_file.as_ref()).and_then(|(l, lf)| l.load_file(&lf.id).ok())
-        } else {
-            crate::io::load_path(&path).ok()
-        };
-        let Some(mut new_doc) = loaded_doc else { return };
+        // The same load as an open, so a damaged file reports what was repaired or replaced the same way.
+        let Ok((mut new_doc, warning)) = crate::io::load_path_with_warning(&path) else { return };
         if let Some(lf) = &self.lib_file {
             new_doc.name = lf.name.clone();
         }
@@ -720,7 +729,10 @@ impl App {
         self.autosave.saved_hash = new_hash;
         self.autosave.seen_rev = self.canvas.tiles.rev();
         self.autosave.changed_at = None;
-        self.show_toast("Synced external agent changes", false);
+        match warning {
+            Some(w) => self.show_toast(format!("Synced external agent changes ({w})"), true),
+            None => self.show_toast("Synced external agent changes", false),
+        }
         ctx.request_repaint();
     }
 
@@ -793,19 +805,24 @@ impl App {
         let Some(lib) = self.lib.clone() else { return };
         let mut doc = self.doc.clone();
         doc.name = name.trim().to_string();
-        match lib.create_file(project, folder, name, &doc) {
-            Ok(e) => {
+        match lib.create_file_counted(project, folder, name, &doc) {
+            Ok((e, replaced)) => {
                 self.doc.name = e.name.clone();
                 let project_name = lib.project(project).map(|p| p.name).unwrap_or_default();
                 self.lib_file = Some(LibFile { id: e.id.clone(), project_id: project.to_string(), project: project_name.clone(), name: e.name });
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
-                self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+                let disk_path = self.watched_disk_path();
+                self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
                 self.history_open_file();
                 if let Some(old) = self.file_path.take() {
                     self.release_repaired_original(&old, None);
                 }
                 thumb::refresh_in_background(lib, e.id, self.export_doc().into_owned());
-                self.show_toast(format!("Saved to {project_name}"), false);
+                let notice = disk_path.as_deref().and_then(|p| crate::io::non_finite_notice_once(p, replaced));
+                match notice {
+                    Some(w) => self.show_toast(format!("Saved to {project_name} ({w})"), true),
+                    None => self.show_toast(format!("Saved to {project_name}"), false),
+                }
             }
             Err(e) => self.show_toast(format!("Cannot save to the library: {e}"), true),
         }
@@ -816,19 +833,27 @@ impl App {
         let Some(lib) = self.lib.clone() else { return 0 };
         let mut ok = 0;
         let mut last_err = None;
+        // One entry per imported file that had numbers replaced, so the toast can name every one of them.
+        let mut notices: Vec<String> = Vec::new();
         for p in paths {
-            match lib.import_file_with_doc(p, project, folder) {
-                Ok((e, doc)) => {
+            let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            match lib.import_file_with_doc_counted(p, project, folder) {
+                Ok((e, doc, replaced)) => {
                     ok += 1;
+                    if let Some(w) = crate::io::non_finite_notice_once(p, replaced) {
+                        notices.push(format!("{file_name}: {w}"));
+                    }
                     thumb::refresh_in_background(lib.clone(), e.id, doc);
                 }
-                Err(e) => last_err = Some(format!("{}: {e}", p.file_name().and_then(|n| n.to_str()).unwrap_or("file"))),
+                Err(e) => last_err = Some(format!("{file_name}: {e}")),
             }
         }
+        let notice_suffix = if notices.is_empty() { String::new() } else { format!(" ({})", notices.join("; ")) };
+        let has_notice = !notices.is_empty();
         match (ok, last_err) {
             (0, Some(e)) => self.show_toast(format!("Import failed. {e}"), true),
-            (n, Some(e)) => self.show_toast(format!("Imported {n}, but {e}"), true),
-            (n, None) if n > 0 => self.show_toast(format!("Imported {n} file{}", if n == 1 { "" } else { "s" }), false),
+            (n, Some(e)) => self.show_toast(format!("Imported {n}, but {e}{notice_suffix}"), true),
+            (n, None) if n > 0 => self.show_toast(format!("Imported {n} file{}{notice_suffix}", if n == 1 { "" } else { "s" }), has_notice),
             _ => {}
         }
         if let Some(h) = self.home.as_mut() {
@@ -1003,6 +1028,11 @@ mod tests {
 
         /// An agent adding a node to the file on disk. Waits until the watcher woke the editor.
         fn write_external_node(&mut self) -> designos_doc::NodeId {
+            self.write_external_node_as(|json| json)
+        }
+
+        /// [`Self::write_external_node`], with `rewrite` applied to the JSON text the agent writes.
+        fn write_external_node_as(&mut self, rewrite: impl FnOnce(String) -> String) -> designos_doc::NodeId {
             use std::time::{Duration, Instant};
             let path = self.app.watched_disk_path().expect("watched disk path");
             let mut ext_doc = Document::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -1019,7 +1049,7 @@ mod tests {
             }
             self.take_requests();
             std::thread::sleep(Duration::from_millis(20));
-            designos_library::write_atomic(&path, ext_doc.to_json().unwrap().as_bytes()).unwrap();
+            designos_library::write_atomic(&path, rewrite(ext_doc.to_json().unwrap()).as_bytes()).unwrap();
             let deadline = Instant::now() + Duration::from_secs(2);
             while self.requests.lock().unwrap().is_empty() && Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(25));
@@ -1178,5 +1208,139 @@ mod tests {
         let lib = ed.app.lib.clone().unwrap();
         let id = ed.app.lib_file.as_ref().unwrap().id.clone();
         assert!(lib.load_file(&id).unwrap().get(local_id).is_some(), "the retried save wrote the edit to disk");
+    }
+
+    const ONE_INVALID_NUMBER: &str = "1 number in this file was not valid and was replaced by 0 or 1";
+
+    fn json_texts_built_by(f: impl FnOnce()) -> usize {
+        let before = designos_doc::finite_json::serialize_calls_on_this_thread();
+        f();
+        designos_doc::finite_json::serialize_calls_on_this_thread() - before
+    }
+
+    #[test]
+    fn a_library_save_builds_one_json_text_whether_or_not_numbers_were_replaced() {
+        let mut ed = IdleEditor::open("one_text_per_save");
+        let id = ed.edit_locally();
+        let built = json_texts_built_by(|| ed.app.save_library_file_with_toast());
+        assert_eq!(built, 1, "a clean save serializes the document once");
+
+        ed.app.doc.get_mut(id).unwrap().size.x = f32::NAN;
+        let built = json_texts_built_by(|| ed.app.save_library_file_with_toast());
+        assert_eq!(built, 1, "a save that replaces a number serializes the document once too");
+        let toast = ed.app.toast.as_ref().expect("a save shows a toast");
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "{}", toast.text);
+    }
+
+    #[test]
+    fn leaving_the_editor_saves_invalid_numbers_and_says_so() {
+        let mut ed = IdleEditor::open("go_home_notice");
+        let id = ed.edit_locally();
+        ed.app.doc.get_mut(id).unwrap().size.x = f32::NAN;
+        ed.app.toast = None;
+        let file_id = ed.app.lib_file.as_ref().unwrap().id.clone();
+
+        ed.app.go_home();
+
+        let lib = ed.app.lib.clone().unwrap();
+        assert_eq!(lib.load_file(&file_id).unwrap().get(id).unwrap().size.x, 0.0, "the file holds the neutral value");
+        let toast = ed.app.toast.as_ref().expect("leaving the editor must say that a number was replaced");
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "{}", toast.text);
+    }
+
+    #[test]
+    fn autosave_says_so_when_it_replaced_an_invalid_number() {
+        let mut ed = IdleEditor::open("autosave_notice");
+        let id = ed.edit_locally();
+        ed.app.doc.get_mut(id).unwrap().size.x = f32::NAN;
+        ed.settle_edit();
+        ed.app.toast = None;
+        ed.app.now = 12.0;
+        let built = json_texts_built_by(|| ed.tick(vec![]));
+
+        assert_eq!(ed.app.autosave.saves, 1, "the autosave must have run for this test to mean anything");
+        assert_eq!(built, 1, "an autosave serializes the document once");
+        let toast = ed.app.toast.as_ref().expect("an autosave that replaced a number must say so");
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "{}", toast.text);
+    }
+
+    #[test]
+    fn a_synced_library_file_with_invalid_numbers_says_so() {
+        let mut ed = IdleEditor::open("sync_notice_library");
+        let ext_id = ed.write_external_node_as(|json| {
+            assert!(json.contains("\"opacity\":1.0"), "the fixture needs an opacity to damage");
+            json.replacen("\"opacity\":1.0", "\"opacity\":null", 1)
+        });
+        ed.app.now = 10.1;
+        ed.tick(vec![]);
+
+        assert!(ed.app.doc.get(ext_id).is_some(), "the external write must have been loaded for this test to mean anything");
+        let toast = ed.app.toast.as_ref().expect("a sync shows a toast");
+        assert!(toast.text.starts_with("Synced external agent changes"), "{}", toast.text);
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "the sync must carry the notice: {}", toast.text);
+        assert!(ed.app.doc.get(ext_id).unwrap().opacity.is_finite());
+    }
+
+    #[test]
+    fn a_synced_external_file_with_invalid_numbers_says_so() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_sync_notice_external_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.designos");
+        let mut doc = Document::new("Agent file");
+        doc.add_page("Page 1");
+        std::fs::write(&path, doc.to_json().unwrap()).unwrap();
+
+        let mut app = App::new(Document::new("Init"));
+        app.open_path(path.clone());
+        assert!(app.lib_file.is_none() && app.file_path.is_some());
+        app.now = 10.0;
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.autosave_tick(ui.ctx()));
+
+        let page = doc.pages[0];
+        let nid = doc.alloc_id();
+        doc.insert(page, designos_doc::Node::frame(nid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        let damaged = doc.to_json().unwrap().replacen("\"opacity\":1.0", "\"opacity\":null", 1);
+        assert!(damaged.contains("null"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&path, damaged).unwrap();
+        app.toast = None;
+        app.now = 11.0;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| app.autosave_tick(ui.ctx()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(app.doc.get(nid).is_some(), "the external write must have been loaded for this test to mean anything");
+        let toast = app.toast.as_ref().expect("a sync shows a toast");
+        assert!(toast.text.starts_with("Synced external agent changes"), "{}", toast.text);
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "the sync must carry the notice: {}", toast.text);
+    }
+
+    #[test]
+    fn opening_a_library_file_with_null_numbers_says_so_once() {
+        let mut ed = IdleEditor::open("open_null_numbers");
+        let lib = ed.app.lib.clone().unwrap();
+        let project = lib.list_projects().remove(0);
+        let mut poisoned = Document::new("Legacy");
+        let page = poisoned.add_page("Page 1");
+        let id = poisoned.alloc_id();
+        poisoned.insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        poisoned.get_mut(id).unwrap().size.x = f32::NAN;
+        let entry = lib.create_file(&project.id, None, "Legacy", &Document::new("Legacy")).unwrap();
+        // What a version before the fix left on disk: `null` where the NaN was.
+        let on_disk = lib.path("projects").join(&project.id).join("files").join(format!("{}.designos", entry.id));
+        std::fs::write(&on_disk, serde_json::to_string(&poisoned).unwrap()).unwrap();
+
+        ed.app.toast = None;
+        ed.app.open_library_file(&entry.id);
+        let toast = ed.app.toast.as_ref().expect("opening a damaged file must say so");
+        assert!(toast.error && toast.text.contains(ONE_INVALID_NUMBER), "{}", toast.text);
+        assert!(ed.app.doc.get(id).unwrap().size.x.is_finite());
+
+        ed.app.toast = None;
+        ed.app.open_library_file(&entry.id);
+        assert!(ed.app.toast.as_ref().is_none_or(|t| !t.error), "the second open in the same run stays quiet");
     }
 }
