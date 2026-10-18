@@ -288,9 +288,9 @@ fn frame_fields(m: &mut Map<String, Value>, f: &FrameProps) {
         m.insert("gridColumns".into(), al.grid_columns.into());
         m.insert("gridColumnsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_columns, &al.grid_col_tracks).into());
     }
-    if al.grid_rows > 0 {
-        m.insert("gridRows".into(), al.grid_rows.into());
-        m.insert("gridRowsSizing".into(), crate::fig_export::format_grid_tracks(al.grid_rows, &al.grid_row_tracks).into());
+    if let Some((rows, sizing)) = crate::fig_export::grid_rows_for_export(al) {
+        m.insert("gridRows".into(), rows.into());
+        m.insert("gridRowsSizing".into(), sizing.into());
     }
     m.insert("layoutWrap".into(), if al.wrap { "WRAP" } else { "NO_WRAP" }.into());
     m.insert("itemSpacing".into(), n(al.item_spacing));

@@ -784,9 +784,9 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                 fields.push(("gridColumns", V::Uint(al.grid_columns)));
                 fields.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
             }
-            if al.grid_rows > 0 {
-                fields.push(("gridRows", V::Uint(al.grid_rows)));
-                fields.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
+            if let Some((rows, sizing)) = grid_rows_for_export(al) {
+                fields.push(("gridRows", V::Uint(rows)));
+                fields.push(("gridRowsSizing", V::String(sizing)));
             }
             if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
                 fields.push(("gridAutoTracks", V::String(gat)));
@@ -1234,6 +1234,22 @@ pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
         .join(" ")
 }
 
+/// `gridRows` count and `gridRowsSizing` of a grid. A grid with no explicit rows still gives every
+/// Fixed row slot its height (a slot that is not Fixed takes the Fixed auto-track height), and the file
+/// has no other place for row tracks, so those slots are written as explicit rows up to the last Fixed one.
+pub(crate) fn grid_rows_for_export(al: &AutoLayout) -> Option<(u32, String)> {
+    if al.grid_rows > 0 {
+        return Some((al.grid_rows, format_grid_tracks(al.grid_rows, &al.grid_row_tracks)));
+    }
+    let count = al.grid_row_tracks.iter().rposition(|t| matches!(t, GridTrack::Fixed(_)))? + 1;
+    let auto = match al.grid_auto_tracks {
+        GridAutoTracks::Track(t @ GridTrack::Fixed(_)) => Some(t),
+        _ => None,
+    };
+    let tracks: Vec<GridTrack> = al.grid_row_tracks[..count].iter().map(|&t| if matches!(t, GridTrack::Fixed(_)) { t } else { auto.unwrap_or(t) }).collect();
+    Some((count as u32, format_grid_tracks(count as u32, &tracks)))
+}
+
 fn format_grid_auto_tracks(gat: GridAutoTracks) -> Option<String> {
     match gat {
         GridAutoTracks::None => None,
@@ -1436,9 +1452,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                             ov.push(("gridColumns", V::Uint(al.grid_columns)));
                             ov.push(("gridColumnsSizing", V::String(format_grid_tracks(al.grid_columns, &al.grid_col_tracks))));
                         }
-                        if al.grid_rows > 0 {
-                            ov.push(("gridRows", V::Uint(al.grid_rows)));
-                            ov.push(("gridRowsSizing", V::String(format_grid_tracks(al.grid_rows, &al.grid_row_tracks))));
+                        if let Some((rows, sizing)) = grid_rows_for_export(al) {
+                            ov.push(("gridRows", V::Uint(rows)));
+                            ov.push(("gridRowsSizing", V::String(sizing)));
                         }
                         if let Some(gat) = format_grid_auto_tracks(al.grid_auto_tracks) {
                             ov.push(("gridAutoTracks", V::String(gat)));
