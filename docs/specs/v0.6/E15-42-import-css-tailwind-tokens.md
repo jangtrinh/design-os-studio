@@ -130,6 +130,6 @@ Visual evidence: terminal capture of the round trip diff (empty) and the Variabl
 
 ## 13. Owner rulings that apply
 
-- Variables JSON is Figma-native plus DTCG; this task adds CSS as a third, code-side format without changing those.
+- Variables JSON is two separate formats (owner ruling 2026-10-19, #138): `figma-native` exactly as Figma writes it, and strict DTCG with `org.designos` metadata. This task adds CSS as a third, code-side format and reads tokens through those two importers without mixing them.
 - Colour is Display P3 per document: imported colours convert into the document profile.
 - Nothing dropped silently.

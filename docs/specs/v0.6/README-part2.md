@@ -103,7 +103,7 @@ Shared files, merge one at a time in this order: `crates/designos-doc/src/spec.r
 - The eval never uses client files (no VSF-PCP). Open kits and self-generated large files only.
 - Parallel agents are hard-locked to their frames (RD-3, #572).
 - Colour is Display P3 per document.
-- Variables JSON is Figma-native plus DTCG (#138).
+- Variables JSON is two separate formats (owner ruling 2026-10-19, #138): `figma-native` exactly as Figma writes it, and strict W3C DTCG 2025.10 with our metadata only under `org.designos`. Never a hybrid.
 
 ## Owner answers (2026-10-19)
 
