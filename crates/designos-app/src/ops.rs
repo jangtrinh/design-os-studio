@@ -274,6 +274,7 @@ impl App {
         if self.try_undo_restore() {
             return;
         }
+        self.settle_pending_relayout();
         match self.hist.undo(&mut self.doc) {
             Ok(true) => {
                 self.changed();
@@ -288,6 +289,7 @@ impl App {
         if self.try_redo_restore() {
             return;
         }
+        self.settle_pending_relayout();
         match self.hist.redo(&mut self.doc) {
             Ok(true) => {
                 self.changed();
@@ -1698,6 +1700,7 @@ impl App {
             _ => io::pick_save(&self.doc.name),
         };
         let Some(path) = target else { return };
+        self.settle_pending_relayout();
         match io::save_path_with_notice(&self.doc, &path) {
             Ok((p, notice)) => {
                 match notice {

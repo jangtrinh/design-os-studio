@@ -1037,6 +1037,9 @@ impl Shell {
             self.app.flush_autosave();
         }
         self.app.scrub_sync(&ctx);
+        if self.app.step_pending_relayout() {
+            ctx.request_repaint();
+        }
         let window_full = ui.max_rect();
         let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {

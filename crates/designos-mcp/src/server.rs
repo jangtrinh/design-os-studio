@@ -296,6 +296,7 @@ impl Session {
         }
         // Until the mark is in the log the editor does not know about this document.
         self.bridge.doc_unannounced = true;
+        self.engine.settle_layout();
         let json_str = self.engine.doc.to_json().map_err(|e| format!("serialize the document: {e}"))?;
         let bytes = json_str.as_bytes();
         if let Some(canvas_path) = &self.bridge.live_canvas_path {
@@ -444,6 +445,7 @@ impl Session {
             "designos_save_file" => {
                 let a: SaveArgs = parse(args)?;
                 let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
+                self.engine.settle_layout();
                 let bytes = self.engine.doc.to_json().map_err(|e| e.to_string())?;
                 if a.overwrite {
                     let mut file = fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path).map_err(|e| format!("Cannot save file: {e}"))?;
@@ -470,6 +472,7 @@ impl Session {
                     return Err("scale must be between 0.25 and 4.0".into());
                 }
                 let path = self.png_output_path(&a.path)?;
+                self.engine.settle_layout();
                 let doc = designos_doc::apply_bound_variables(&self.engine.doc);
                 let id = designos_doc::NodeId(a.node_id);
                 if doc.get(id).is_none() {
@@ -494,6 +497,7 @@ impl Session {
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: crate::engine::ExportFigArgs = parse(args)?;
                 let path = self.fig_output_path(&a.output_path)?;
+                self.engine.settle_layout();
                 let bytes = designos_fig::export_fig(&self.engine.doc).map_err(|e| format!("Failed to export .fig: {e}"))?;
                 let mut file =
                     fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path).map_err(|e| format!("Cannot write .fig file: {e}"))?;

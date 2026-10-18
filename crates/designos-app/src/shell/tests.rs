@@ -33,14 +33,24 @@ impl Sim {
         s
     }
     fn frame(&mut self, events: Vec<Event>) {
+        self.run_frame(events, false);
+    }
+    /// The frame in which the window's close button was pressed: the app exits right after it.
+    fn close_frame(&mut self) {
+        self.run_frame(vec![], true);
+    }
+    fn run_frame(&mut self, events: Vec<Event>, close: bool) {
         self.t += 0.05;
-        let raw = RawInput {
+        let mut raw = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
             time: Some(self.t),
             events,
             modifiers: self.mods,
             ..Default::default()
         };
+        if close {
+            raw.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        }
         let ctx = self.ctx.clone();
         let shell = &mut self.shell;
         // like the real window: Tab presses of a text session are taken out before egui sees them
@@ -952,6 +962,7 @@ mod live_agent_edits;
 mod menus;
 mod proto;
 mod proto_vars;
+mod relayout_budget;
 mod style_edit;
 mod svg;
 mod typography;
