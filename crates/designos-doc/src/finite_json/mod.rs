@@ -51,6 +51,17 @@ pub(crate) fn wrapped_str_visits_on_this_thread() -> usize {
     WRAPPED_STR_VISITS.with(Cell::get)
 }
 
+thread_local! {
+    static SERIALIZE_CALLS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// How many times [`to_string_finite`] built a JSON text on this thread. A save is expected to build
+/// exactly one, so a test reads it before and after to show that no path serializes a document twice.
+#[doc(hidden)]
+pub fn serialize_calls_on_this_thread() -> usize {
+    SERIALIZE_CALLS.with(Cell::get)
+}
+
 /// The value a non-finite number is replaced with, by the name of the field that holds it.
 pub(crate) fn neutral_for(field: &str) -> f64 {
     match field {
@@ -62,6 +73,7 @@ pub(crate) fn neutral_for(field: &str) -> f64 {
 /// Serialises `value` as compact JSON, replacing every non-finite `f32` / `f64` with the neutral
 /// value of its field. Returns the text and how many numbers were replaced.
 pub fn to_string_finite<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<(String, usize)> {
+    SERIALIZE_CALLS.with(|n| n.set(n.get() + 1));
     let replaced = Cell::new(0);
     let mut out = Vec::with_capacity(128);
     value.serialize(ser::Finite::new(&mut serde_json::Serializer::new(&mut out), &replaced))?;
@@ -69,6 +81,16 @@ pub fn to_string_finite<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<
     // numbers and punctuation as ASCII), which is why `serde_json::to_string` skips the check too.
     let text = unsafe { String::from_utf8_unchecked(out) };
     Ok((text, replaced.get()))
+}
+
+/// Counts the numbers [`to_string_finite`] would replace in `value`, without building the text.
+/// The walk formats into a sink, so it allocates no output (an embedded image is still hex encoded
+/// into a temporary buffer on the way), which makes it cheap enough to run on a document that is
+/// usually clean before deciding whether anything needs the full serialization.
+pub fn count_non_finite<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<usize> {
+    let replaced = Cell::new(0);
+    value.serialize(ser::Finite::new(&mut serde_json::Serializer::new(std::io::sink()), &replaced))?;
+    Ok(replaced.get())
 }
 
 /// Parses `s`, reading a `null` where an `f32` / `f64` is expected as the neutral value of that
