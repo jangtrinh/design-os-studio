@@ -144,7 +144,7 @@ pub fn demo_document() -> Document {
             padding: [20.0; 4],
             primary_sizing: Sizing::Hug,
             counter_sizing: Sizing::Fixed,
-            ..Default::default()
+            ..AutoLayout::v1()
         }),
         grids: vec![],
     });

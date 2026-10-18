@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::util::v2;
+use designos_doc::layout_solver::compute;
 use designos_doc::{
     AutoLayout, CounterAlignContent, FrameProps, GridTrack, LayoutAlign, LayoutChild, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2,
 };
@@ -943,4 +944,72 @@ fn a_group_ignores_width_and_height_variables_because_it_always_fits_its_childre
         let sibling = if parent_dir == LayoutDirection::Horizontal { [40.0, 0.0, 30.0, 10.0] } else { [0.0, 20.0, 30.0, 10.0] };
         assert_eq!(got, [[0.0, 0.0, 40.0, 20.0], sibling], "parent {parent_dir:?}");
     }
+}
+
+fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_doc::Stroke, kids: &[Kid]) -> Solved {
+    let solve_one = |entry: Entry| {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let fid = d.alloc_id();
+        let mut f = Node::frame(fid, Rect::new(0.0, 0.0, frame.x, frame.y));
+        f.kind = NodeKind::Frame(FrameProps { auto_layout: Some(al), ..Default::default() });
+        f.stroke = stroke.clone();
+        let f = d.insert(page, f).unwrap();
+        let mut ids: Vec<NodeId> = vec![];
+        for k in kids {
+            let id = d.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, k.size.0, k.size.1));
+            n.layout_child = k.lc;
+            ids.push(d.insert(f, n).unwrap());
+        }
+        match entry {
+            Entry::Editor => layout_node(&mut d, &mut Edit::new(), f),
+            Entry::Spec => d.relayout_subtree(f),
+            Entry::Changelog => designos_doc::relayout_subtree(&mut d, f),
+        }
+        let fs = d.get(f).unwrap().size;
+        let kids = ids
+            .iter()
+            .map(|id| {
+                let n = d.get(*id).unwrap();
+                [n.transform.tx, n.transform.ty, n.size.x, n.size.y]
+            })
+            .collect();
+        Solved { frame: (fs.x, fs.y), kids }
+    };
+    let editor = solve_one(Entry::Editor);
+    for entry in ENTRIES {
+        assert_eq!(solve_one(entry), editor, "{entry:?} drifted from the editor solver");
+    }
+    editor
+}
+
+#[test]
+fn version_0_with_stroke_included_adds_stroke_inset_while_version_1_keeps_borders_inside_the_box() {
+    use designos_doc::{Color, Paint, Stroke, StrokeAlign};
+
+    let stroke = Stroke { paints: vec![Paint::solid(Color::BLACK)], weight: 4.0, align: StrokeAlign::Inside, ..Default::default() };
+    let base = AutoLayout {
+        direction: LayoutDirection::Horizontal,
+        item_spacing: 8.0,
+        padding: [10.0, 12.0, 14.0, 16.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        stroke_included: true,
+        layout_version: 0,
+        ..Default::default()
+    };
+    let kids = [kid(50.0, 20.0), kid(30.0, 20.0)];
+
+    // Version 0 + stroke_included: 4px inside stroke adds to all 4 padding sides -> [14, 16, 18, 20]
+    let v0 = solve_everywhere_with_stroke(base, v2(100.0, 100.0), stroke.clone(), &kids);
+    assert_eq!(v0.frame, (124.0, 52.0));
+    assert_eq!(v0.kids[0], [20.0, 14.0, 50.0, 20.0]);
+    assert_eq!(v0.kids[1], [78.0, 14.0, 30.0, 20.0]);
+
+    // Version 1 + stroke_included: border stays inside the box without adding inset space -> [10, 12, 14, 16]
+    let v1 = solve_everywhere_with_stroke(AutoLayout { layout_version: 1, ..base }, v2(100.0, 100.0), stroke, &kids);
+    assert_eq!(v1.frame, (116.0, 44.0));
+    assert_eq!(v1.kids[0], [16.0, 10.0, 50.0, 20.0]);
+    assert_eq!(v1.kids[1], [74.0, 10.0, 30.0, 20.0]);
 }
