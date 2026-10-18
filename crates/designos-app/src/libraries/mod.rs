@@ -181,7 +181,7 @@ pub fn default_root() -> Option<PathBuf> {
     Some(Library::default_root())
 }
 
-fn is_noop(c: &Command) -> bool {
+pub(crate) fn is_noop(c: &Command) -> bool {
     matches!(c, Command::Batch(v) if v.is_empty())
 }
 

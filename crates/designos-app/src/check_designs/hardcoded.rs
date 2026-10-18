@@ -1,15 +1,16 @@
 //! Hard-coded values rule: a raw fill, stroke, number property, text style or effect list that
-//! equals an existing variable or shared style but is not linked to it.
+//! equals an existing variable or shared style (in this file or an enabled library) but is not
+//! linked to it.
 //!
 //! A variable wins over a style for paints and text (one finding per property). Styles are matched
 //! on the whole list: a layer whose paints, text properties or effects equal a style's values
 //! exactly.
 
-use super::{Finding, Fix, Rule};
+use super::{Finding, Fix, LibrarySources, Rule};
 use crate::styles::rgb_key;
 use designos_doc::{
-    scope_allows, style_property, Color, Document, LayoutAlign, LineHeight, Node, NodeId, NodeKind, Paint, PaintKind, Style, StyleProperty, TextStyle,
-    Variable, VariableKind, VariableStore, VariableValue,
+    local_key, scope_allows, style_property, Color, Document, LayoutAlign, LibraryAssetKind, LibrarySnapshot, LineHeight, Node, NodeId, NodeKind, Paint,
+    PaintKind, Style, StyleProperty, TextStyle, Variable, VariableKind, VariableStore, VariableValue, REMOTE_LIBRARY_PREFIX,
 };
 use std::collections::HashMap;
 
@@ -21,124 +22,302 @@ const NUM_EPS: f32 = 0.0005;
 const PADDING_KEYS: [&str; 4] = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
 const RADIUS_KEYS: [&str; 4] = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
 
+#[derive(Clone, Copy)]
+enum VarSource<'a> {
+    Local,
+    Library { snap: &'a LibrarySnapshot, store_idx: usize },
+}
+
 /// A variable and whether it resolves to one and the same value in every mode.
-struct Entry<'a> {
-    var: &'a Variable,
+pub(super) struct Entry<'a> {
+    pub var: &'a Variable,
+    /// Variable id to write on fix (`v.id` when local/imported, `<lib_id>/<v.id>` when in a snapshot).
+    pub fix_id: String,
+    /// Library display name when the variable comes from an enabled library (not yet imported).
+    pub library_name: Option<&'a str>,
     constant: bool,
+    source: VarSource<'a>,
+}
+
+struct StyleEntry<'a> {
+    fix_key: String,
+    name: &'a str,
+    property: StyleProperty,
+    style: &'a Style,
+    library_name: Option<&'a str>,
 }
 
 /// What [`Index::find`] or [`Index::find_number`] concluded for one property.
-pub(super) enum Match<'a> {
+pub(super) enum Match<'a, 'b> {
     None,
     /// Exactly one variable is the right one.
-    One(&'a Variable),
+    One(&'b Entry<'a>),
     /// Several variables fit equally well, so none may be picked for the user.
-    Ambiguous(Vec<&'a Variable>),
+    Ambiguous(Vec<&'b Entry<'a>>),
 }
 
-/// Colour and number variables by the value they resolve to in any mode of their collection.
+/// Colour and number variables (plus styles) from the document and enabled libraries.
 pub(super) struct Index<'a> {
+    lib_stores: Vec<VariableStore>,
     by_rgb: HashMap<u32, Vec<Entry<'a>>>,
     by_num: HashMap<i64, Vec<Entry<'a>>>,
+    styles: Vec<StyleEntry<'a>>,
+}
+
+/// The Studio library a variable came from, when it is a library asset. An imported variable is
+/// named by its `library.external` entry; its collection's `source_library_key` counts only when it
+/// equals a Studio library id (enabled now or recorded by an earlier import). Figma's own
+/// `sourceLibraryKey`, which `.fig` and REST import store in the same field, names no Studio
+/// library, so such a variable stays a local candidate.
+fn variable_library_id<'a>(doc: &'a Document, v: &Variable) -> Option<&'a str> {
+    let imported = doc
+        .library
+        .external
+        .values()
+        .find(|e| e.kind == LibraryAssetKind::Variable && e.local_key.as_deref() == Some(v.id.as_str()))
+        .map(|e| e.library_id.as_str());
+    imported.or_else(|| {
+        let key = doc.variable_collections.get(&v.collection)?.source_library_key.as_deref()?;
+        let known = doc.library.enabled.iter().any(|r| r.id == key) || doc.library.external.values().any(|e| e.library_id == key);
+        known.then_some(key)
+    })
+}
+
+fn style_library_id<'a>(doc: &'a Document, key: &str) -> Option<&'a str> {
+    doc.library.external.values().find(|e| e.kind == LibraryAssetKind::Style && e.local_key.as_deref() == Some(key)).map(|e| e.library_id.as_str())
+}
+
+fn enabled_library_name<'a>(doc: &'a Document, lib_id: &str) -> Option<&'a str> {
+    doc.library.enabled.iter().find(|r| r.id == lib_id && !r.id.starts_with(REMOTE_LIBRARY_PREFIX)).map(|r| r.name.as_str())
+}
+
+fn default_style_property(style: &Style) -> StyleProperty {
+    match style {
+        Style::Fill(_) => StyleProperty::Fill,
+        Style::Text(_) => StyleProperty::Text,
+        Style::Effect(_) => StyleProperty::Effect,
+        Style::Grid(_) => StyleProperty::Grid,
+    }
 }
 
 impl<'a> Index<'a> {
-    pub(super) fn new(doc: &'a Document) -> Self {
+    pub(super) fn with_libraries(doc: &'a Document, libraries: &'a LibrarySources) -> Self {
         let store = VariableStore::from_doc(doc);
-        let mut by_rgb: HashMap<u32, Vec<Entry>> = HashMap::new();
-        let mut by_num: HashMap<i64, Vec<Entry>> = HashMap::new();
+        let mut lib_stores = Vec::new();
+        let mut by_rgb: HashMap<u32, Vec<Entry<'a>>> = HashMap::new();
+        let mut by_num: HashMap<i64, Vec<Entry<'a>>> = HashMap::new();
+        let mut styles: Vec<StyleEntry<'a>> = Vec::new();
+
         for v in doc.variables.values() {
+            if let Some(lib_id) = variable_library_id(doc, v) {
+                if enabled_library_name(doc, lib_id).is_none() {
+                    continue; // Disabled library: never suggest even if previously imported.
+                }
+            }
             let Some(coll) = doc.variable_collections.get(&v.collection) else { continue };
-            match v.kind {
-                VariableKind::Color => {
-                    let values: Vec<Option<Color>> = coll
-                        .modes
-                        .iter()
-                        .map(|mode| match store.resolve(&v.id, &mode.id) {
-                            Some(VariableValue::Color(c)) => Some(c),
-                            _ => None,
-                        })
-                        .collect();
-                    let constant = !values.is_empty() && values.iter().all(|c| matches!((c, &values[0]), (Some(a), Some(b)) if same_colour(a, b)));
-                    let mut seen = Vec::new();
-                    for c in values.iter().flatten() {
-                        let key = rgb_key(c);
-                        if !seen.contains(&key) {
-                            seen.push(key);
-                            by_rgb.entry(key).or_default().push(Entry { var: v, constant });
-                        }
-                    }
+            // Per §3.2: a library asset that already has a local copy counts as a local candidate.
+            Self::insert_variable(&store, v, coll, v.id.clone(), None, VarSource::Local, &mut by_rgb, &mut by_num);
+        }
+
+        for (k, s) in &doc.styles {
+            if let Some(lib_id) = style_library_id(doc, k) {
+                if enabled_library_name(doc, lib_id).is_none() {
+                    continue; // Disabled library: never suggest.
                 }
-                VariableKind::Number => {
-                    let values: Vec<Option<f32>> = coll
-                        .modes
-                        .iter()
-                        .map(|mode| match store.resolve(&v.id, &mode.id) {
-                            Some(VariableValue::Number(x)) if x.is_finite() => Some(x),
-                            _ => None,
-                        })
-                        .collect();
-                    let constant = !values.is_empty() && values.iter().all(|x| matches!((x, &values[0]), (Some(a), Some(b)) if same_number(*a, *b)));
-                    let mut seen = Vec::new();
-                    for x in values.iter().flatten() {
-                        let key = num_key(*x);
-                        if !seen.contains(&key) {
-                            seen.push(key);
-                            by_num.entry(key).or_default().push(Entry { var: v, constant });
-                        }
-                    }
+            }
+            styles.push(StyleEntry { fix_key: k.clone(), name: doc.style_name(k), property: style_property(doc, k), style: s, library_name: None });
+        }
+
+        for (lib_ref, snap) in &libraries.libs {
+            let lib_name = lib_ref.name.as_str();
+            let store_idx = lib_stores.len();
+            lib_stores.push(VariableStore { variables: snap.variables.clone(), collections: snap.variable_collections.clone() });
+            let snap_store = &lib_stores[store_idx];
+
+            for asset in &snap.assets {
+                let ext_key = local_key(&lib_ref.id, &asset.key);
+                if doc.library.external.contains_key(&ext_key) {
+                    continue;
                 }
-                _ => {}
+                match asset.kind {
+                    LibraryAssetKind::Variable => {
+                        let Some(raw) = asset.key.strip_prefix("var:") else { continue };
+                        let fix_id = local_key(&lib_ref.id, raw);
+                        if doc.variables.contains_key(&fix_id) {
+                            continue;
+                        }
+                        let Some(v) = snap.variables.get(raw) else { continue };
+                        let Some(coll) = snap.variable_collections.get(&v.collection) else { continue };
+                        Self::insert_variable(
+                            snap_store,
+                            v,
+                            coll,
+                            fix_id,
+                            Some(lib_name),
+                            VarSource::Library { snap: snap.as_ref(), store_idx },
+                            &mut by_rgb,
+                            &mut by_num,
+                        );
+                    }
+                    LibraryAssetKind::Style => {
+                        let Some(raw) = asset.key.strip_prefix("style:") else { continue };
+                        let fix_key = local_key(&lib_ref.id, raw);
+                        if doc.styles.contains_key(&fix_key) {
+                            continue;
+                        }
+                        let Some(s) = snap.styles.get(raw) else { continue };
+                        let meta = snap.style_meta.get(raw);
+                        let name = meta.map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(asset.name.as_str());
+                        let property = meta.map(|m| m.property).unwrap_or_else(|| default_style_property(s));
+                        styles.push(StyleEntry { fix_key, name, property, style: s, library_name: Some(lib_name) });
+                    }
+                    _ => {}
+                }
             }
         }
+
         for list in by_rgb.values_mut() {
-            list.sort_by(|a, b| (&a.var.name, &a.var.id).cmp(&(&b.var.name, &b.var.id)));
+            list.sort_by(|a, b| (&a.var.name, a.library_name, &a.fix_id).cmp(&(&b.var.name, b.library_name, &b.fix_id)));
         }
         for list in by_num.values_mut() {
-            list.sort_by(|a, b| (&a.var.name, &a.var.id).cmp(&(&b.var.name, &b.var.id)));
+            list.sort_by(|a, b| (&a.var.name, a.library_name, &a.fix_id).cmp(&(&b.var.name, b.library_name, &b.fix_id)));
         }
-        Index { by_rgb, by_num }
+
+        Index { lib_stores, by_rgb, by_num, styles }
     }
 
-    /// The variable that holds `c` at `node` for property `key`. A variable with the same value in
-    /// every mode is preferred over one that only matches in the mode in effect here, since the
-    /// latter would change colour when the mode switches. Several equally good ones are ambiguous.
-    fn find(&self, doc: &Document, node: &Node, key: &str, c: &Color) -> Match<'a> {
+    #[allow(clippy::too_many_arguments)]
+    fn insert_variable(
+        store: &VariableStore,
+        v: &'a Variable,
+        coll: &designos_doc::VariableCollection,
+        fix_id: String,
+        library_name: Option<&'a str>,
+        source: VarSource<'a>,
+        by_rgb: &mut HashMap<u32, Vec<Entry<'a>>>,
+        by_num: &mut HashMap<i64, Vec<Entry<'a>>>,
+    ) {
+        match v.kind {
+            VariableKind::Color => {
+                let values: Vec<Option<Color>> = coll
+                    .modes
+                    .iter()
+                    .map(|mode| match store.resolve(&v.id, &mode.id) {
+                        Some(VariableValue::Color(c)) => Some(c),
+                        _ => None,
+                    })
+                    .collect();
+                let constant = !values.is_empty() && values.iter().all(|c| matches!((c, &values[0]), (Some(a), Some(b)) if same_colour(a, b)));
+                let mut seen = Vec::new();
+                for c in values.iter().flatten() {
+                    let key = rgb_key(c);
+                    if !seen.contains(&key) {
+                        seen.push(key);
+                        by_rgb.entry(key).or_default().push(Entry { var: v, fix_id: fix_id.clone(), library_name, constant, source });
+                    }
+                }
+            }
+            VariableKind::Number => {
+                let values: Vec<Option<f32>> = coll
+                    .modes
+                    .iter()
+                    .map(|mode| match store.resolve(&v.id, &mode.id) {
+                        Some(VariableValue::Number(x)) if x.is_finite() => Some(x),
+                        _ => None,
+                    })
+                    .collect();
+                let constant = !values.is_empty() && values.iter().all(|x| matches!((x, &values[0]), (Some(a), Some(b)) if same_number(*a, *b)));
+                let mut seen = Vec::new();
+                for x in values.iter().flatten() {
+                    let key = num_key(*x);
+                    if !seen.contains(&key) {
+                        seen.push(key);
+                        by_num.entry(key).or_default().push(Entry { var: v, fix_id: fix_id.clone(), library_name, constant, source });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_entry(&self, doc: &Document, node: NodeId, e: &Entry<'a>) -> Option<VariableValue> {
+        match e.source {
+            VarSource::Local => doc.resolve_variable(node, &e.var.id),
+            VarSource::Library { snap, store_idx } => resolve_in_snapshot(doc, snap, &self.lib_stores[store_idx], node, e.var),
+        }
+    }
+
+    /// The variable that holds `c` at `node` for property `key`. Local candidates take priority
+    /// over library candidates (§3.4). A variable with the same value in every mode is preferred
+    /// over one that only matches in the mode in effect here.
+    fn find<'b>(&'b self, doc: &Document, node: &Node, key: &str, c: &Color) -> Match<'a, 'b> {
         let Some(list) = self.by_rgb.get(&rgb_key(c)) else { return Match::None };
-        let holding: Vec<&Entry> = list.iter().filter(|e| variable_holds(doc, node, key, e.var, c)).collect();
-        let steady: Vec<&Entry> = holding.iter().copied().filter(|e| e.constant).collect();
-        let pool = if steady.is_empty() { holding } else { steady };
+        let holding: Vec<&'b Entry<'a>> = list
+            .iter()
+            .filter(|e| {
+                scope_allows(&e.var.scopes, key, &node.kind)
+                    && matches!(self.resolve_entry(doc, node.id, e), Some(VariableValue::Color(vc)) if same_colour(&vc, c))
+            })
+            .collect();
+        let locals: Vec<&'b Entry<'a>> = holding.iter().copied().filter(|e| e.library_name.is_none()).collect();
+        let candidates = if locals.is_empty() { holding } else { locals };
+        let steady: Vec<&'b Entry<'a>> = candidates.iter().copied().filter(|e| e.constant).collect();
+        let pool = if steady.is_empty() { candidates } else { steady };
         match pool.as_slice() {
             [] => Match::None,
-            [only] => Match::One(only.var),
-            many => Match::Ambiguous(many.iter().map(|e| e.var).collect()),
+            [only] => Match::One(only),
+            many => Match::Ambiguous(many.to_vec()),
         }
     }
 
-    /// The number variable that holds `x` at `node` for property `key`.
-    fn find_number(&self, doc: &Document, node: &Node, key: &str, x: f32) -> Match<'a> {
+    /// The number variable that holds `x` at `node` for property `key`. Local candidates take
+    /// priority over library candidates (§3.4).
+    fn find_number<'b>(&'b self, doc: &Document, node: &Node, key: &str, x: f32) -> Match<'a, 'b> {
         let base = num_key(x);
+        let scope_key = scope_key_for_number(key);
         let mut seen_ids: Vec<&str> = Vec::new();
-        let mut holding: Vec<&Entry> = Vec::new();
+        let mut holding: Vec<&'b Entry<'a>> = Vec::new();
         for bucket in [base - 1, base, base + 1] {
             if let Some(list) = self.by_num.get(&bucket) {
                 for e in list {
-                    if !seen_ids.contains(&e.var.id.as_str()) && number_variable_holds(doc, node, key, e.var, x) {
-                        seen_ids.push(e.var.id.as_str());
+                    if !seen_ids.contains(&e.fix_id.as_str())
+                        && scope_allows(&e.var.scopes, scope_key, &node.kind)
+                        && matches!(self.resolve_entry(doc, node.id, e), Some(VariableValue::Number(vx)) if same_number(vx, x))
+                    {
+                        seen_ids.push(e.fix_id.as_str());
                         holding.push(e);
                     }
                 }
             }
         }
-        holding.sort_by(|a, b| (&a.var.name, &a.var.id).cmp(&(&b.var.name, &b.var.id)));
-        let steady: Vec<&Entry> = holding.iter().copied().filter(|e| e.constant).collect();
-        let pool = if steady.is_empty() { holding } else { steady };
+        holding.sort_by(|a, b| (&a.var.name, a.library_name, &a.fix_id).cmp(&(&b.var.name, b.library_name, &b.fix_id)));
+        let locals: Vec<&'b Entry<'a>> = holding.iter().copied().filter(|e| e.library_name.is_none()).collect();
+        let candidates = if locals.is_empty() { holding } else { locals };
+        let steady: Vec<&'b Entry<'a>> = candidates.iter().copied().filter(|e| e.constant).collect();
+        let pool = if steady.is_empty() { candidates } else { steady };
         match pool.as_slice() {
             [] => Match::None,
-            [only] => Match::One(only.var),
-            many => Match::Ambiguous(many.iter().map(|e| e.var).collect()),
+            [only] => Match::One(only),
+            many => Match::Ambiguous(many.to_vec()),
         }
     }
+}
+
+fn scope_key_for_number(key: &str) -> &str {
+    match key {
+        "padding" => "paddingTop",
+        "cornerRadius" => "topLeftRadius",
+        other => other,
+    }
+}
+
+fn resolve_in_snapshot(doc: &Document, snap: &LibrarySnapshot, store: &VariableStore, node: NodeId, v: &Variable) -> Option<VariableValue> {
+    let coll = snap.variable_collections.get(&v.collection)?;
+    let imported_coll = local_key(&snap.library_id, &v.collection);
+    // The collection's own default mode, as `Document::resolve_variable` uses once it is imported.
+    let default_mode = if coll.default_mode.is_empty() { coll.modes.first().map(|m| m.id.as_str()).unwrap_or_default() } else { coll.default_mode.as_str() };
+    let mode = doc.variable_mode(node, &imported_coll).unwrap_or_else(|| default_mode.to_string());
+    store.resolve(&v.id, &mode).or_else(|| store.resolve(&v.id, default_mode))
 }
 
 /// Same colour to the 8-bit step, and the same alpha within [`ALPHA_EPS`].
@@ -168,12 +347,8 @@ fn variable_holds(doc: &Document, node: &Node, key: &str, v: &Variable, c: &Colo
 }
 
 fn number_variable_holds(doc: &Document, node: &Node, key: &str, v: &Variable, x: f32) -> bool {
-    let scope_key = match key {
-        "padding" => "paddingTop",
-        "cornerRadius" => "topLeftRadius",
-        other => other,
-    };
-    scope_allows(&v.scopes, scope_key, &node.kind) && matches!(doc.resolve_variable(node.id, &v.id), Some(VariableValue::Number(vx)) if same_number(vx, x))
+    scope_allows(&v.scopes, scope_key_for_number(key), &node.kind)
+        && matches!(doc.resolve_variable(node.id, &v.id), Some(VariableValue::Number(vx)) if same_number(vx, x))
 }
 
 /// The paint list a slot reads from.
@@ -230,9 +405,37 @@ fn report_only(n: &Node, message: String) -> Finding {
     Finding { node: n.id, node_name: n.name.clone(), rule: Rule::HardCodedValue, message, fix: None, fix_label: String::new() }
 }
 
+fn fmt_var_quoted(e: &Entry) -> String {
+    match e.library_name {
+        Some(lib) => format!("\"{}\" from library \"{lib}\"", e.var.name),
+        None => format!("\"{}\"", e.var.name),
+    }
+}
+
+fn fmt_var_bind_label(e: &Entry) -> String {
+    match e.library_name {
+        Some(lib) => format!("Bind to variable {} from library {}", e.var.name, lib),
+        None => format!("Bind to variable {}", e.var.name),
+    }
+}
+
+fn fmt_style_quoted(s: &StyleEntry) -> String {
+    match s.library_name {
+        Some(lib) => format!("\"{}\" from library \"{lib}\"", s.name),
+        None => format!("\"{}\"", s.name),
+    }
+}
+
+fn fmt_style_apply_label(s: &StyleEntry) -> String {
+    match s.library_name {
+        Some(lib) => format!("Apply style {} from library {}", s.name, lib),
+        None => format!("Apply style {}", s.name),
+    }
+}
+
 /// `"A", "B"` for up to three variable names, then an ellipsis.
-fn name_list(vars: &[&Variable]) -> String {
-    let mut names: Vec<String> = vars.iter().take(3).map(|v| format!("\"{}\"", v.name)).collect();
+fn name_list(vars: &[&Entry]) -> String {
+    let mut names: Vec<String> = vars.iter().take(3).map(|e| fmt_var_quoted(e)).collect();
     if vars.len() > 3 {
         names.push("…".to_string());
     }
@@ -249,21 +452,21 @@ pub(super) fn check(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Findi
     }
     numbers_rule(doc, index, n, out);
     text_rule(doc, index, n, out);
-    effects_rule(doc, n, out);
+    effects_rule(index, n, out);
 }
 
 fn check_number_prop(doc: &Document, index: &Index, n: &Node, keys: &[&str], label: &str, val: f32, out: &mut Vec<Finding>) -> bool {
     let Some(&first_key) = keys.first() else { return false };
     match index.find_number(doc, n, first_key, val) {
         Match::None => false,
-        Match::One(v) => {
-            let message = format!("{label} {} matches variable \"{}\"", fmt_num(val), v.name);
+        Match::One(e) => {
+            let message = format!("{label} {} matches variable {}", fmt_num(val), fmt_var_quoted(e));
             let fix = if keys.len() == 1 {
-                Fix::BindVariable { key: first_key.into(), variable: v.id.clone() }
+                Fix::BindVariable { key: first_key.into(), variable: e.fix_id.clone() }
             } else {
-                Fix::BindVariables { keys: keys.iter().map(|k| (*k).to_string()).collect(), variable: v.id.clone() }
+                Fix::BindVariables { keys: keys.iter().map(|k| (*k).to_string()).collect(), variable: e.fix_id.clone() }
             };
-            out.push(finding(n, message, fix, format!("Bind to variable {}", v.name)));
+            out.push(finding(n, message, fix, fmt_var_bind_label(e)));
             true
         }
         Match::Ambiguous(vars) => {
@@ -361,7 +564,8 @@ fn check_quad(doc: &Document, index: &Index, n: &Node, uniform_label: &str, side
     let all_unbound = sides.iter().all(|(k, _)| !n.variables.bindings.contains_key(*k));
     if all_unbound {
         if let Some(v0) = number_value_at(n, sides[0].0) {
-            if sides[1..].iter().all(|(k, _)| number_value_at(n, k).is_some_and(|v| same_number(v, v0))) {
+            let all_equal = sides[1..].iter().all(|(k, _)| number_value_at(n, k).is_some_and(|v| same_number(v, v0)));
+            if all_equal {
                 let keys = [sides[0].0, sides[1].0, sides[2].0, sides[3].0];
                 check_number_prop(doc, index, n, &keys, uniform_label, v0, out);
                 return;
@@ -425,10 +629,10 @@ fn paints_rule(doc: &Document, index: &Index, n: &Node, slot: Slot, out: &mut Ve
         }
         match index.find(doc, n, &key, c) {
             Match::None => {}
-            Match::One(v) => {
+            Match::One(e) => {
                 matched_variable = true;
-                let message = format!("{} #{} matches variable \"{}\"", slot.label(), c.to_hex(), v.name);
-                out.push(finding(n, message, Fix::BindVariable { key, variable: v.id.clone() }, format!("Bind to variable {}", v.name)));
+                let message = format!("{} #{} matches variable {}", slot.label(), c.to_hex(), fmt_var_quoted(e));
+                out.push(finding(n, message, Fix::BindVariable { key, variable: e.fix_id.clone() }, fmt_var_bind_label(e)));
             }
             Match::Ambiguous(vars) => {
                 matched_variable = true;
@@ -442,10 +646,14 @@ fn paints_rule(doc: &Document, index: &Index, n: &Node, slot: Slot, out: &mut Ve
     if matched_variable || any_bound {
         return;
     }
-    let style = doc.styles.iter().find(|(k, s)| matches!(s, Style::Fill(ps) if ps == paints) && style_property(doc, k) == slot.property());
-    if let Some((key, _)) = style {
-        let name = doc.style_name(key);
-        out.push(finding(n, format!("{} matches style \"{name}\"", slot.label()), Fix::ApplyStyle { style: key.clone() }, format!("Apply style {name}")));
+    let style = index.styles.iter().find(|s| matches!(s.style, Style::Fill(ps) if ps == paints) && s.property == slot.property());
+    if let Some(s) = style {
+        out.push(finding(
+            n,
+            format!("{} matches style {}", slot.label(), fmt_style_quoted(s)),
+            Fix::ApplyStyle { style: s.fix_key.clone() },
+            fmt_style_apply_label(s),
+        ));
     }
 }
 
@@ -471,22 +679,22 @@ fn text_rule(doc: &Document, index: &Index, n: &Node, out: &mut Vec<Finding>) {
     if matched_variable || has_bound_text_number(n) {
         return;
     }
-    let style =
-        doc.styles.iter().find(|(_, s)| matches!(s, Style::Text(ts) if same_text_style(&t.style, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts))));
-    if let Some((key, _)) = style {
-        let name = doc.style_name(key);
-        out.push(finding(n, format!("Text matches style \"{name}\""), Fix::ApplyStyle { style: key.clone() }, format!("Apply style {name}")));
+    let style = index
+        .styles
+        .iter()
+        .find(|s| matches!(s.style, Style::Text(ts) if same_text_style(&t.style, ts) && t.runs.iter().all(|r| same_text_style(&r.style, ts))));
+    if let Some(s) = style {
+        out.push(finding(n, format!("Text matches style {}", fmt_style_quoted(s)), Fix::ApplyStyle { style: s.fix_key.clone() }, fmt_style_apply_label(s)));
     }
 }
 
-fn effects_rule(doc: &Document, n: &Node, out: &mut Vec<Finding>) {
+fn effects_rule(index: &Index, n: &Node, out: &mut Vec<Finding>) {
     if n.effects.is_empty() || n.style_refs.contains_key("effect") {
         return;
     }
-    let style = doc.styles.iter().find(|(_, s)| matches!(s, Style::Effect(fx) if *fx == n.effects));
-    if let Some((key, _)) = style {
-        let name = doc.style_name(key);
-        out.push(finding(n, format!("Effects match style \"{name}\""), Fix::ApplyStyle { style: key.clone() }, format!("Apply style {name}")));
+    let style = index.styles.iter().find(|s| matches!(s.style, Style::Effect(fx) if *fx == n.effects));
+    if let Some(s) = style {
+        out.push(finding(n, format!("Effects match style {}", fmt_style_quoted(s)), Fix::ApplyStyle { style: s.fix_key.clone() }, fmt_style_apply_label(s)));
     }
 }
 
@@ -528,6 +736,9 @@ pub(super) fn bind_is_current(doc: &Document, id: NodeId, key: &str, variable: &
         return RADIUS_KEYS.iter().all(|k| bind_is_current(doc, id, k, variable));
     }
     let (Some(n), Some(v)) = (doc.get(id), doc.variables.get(variable)) else { return false };
+    if variable_library_id(doc, v).is_some_and(|lib_id| enabled_library_name(doc, lib_id).is_none()) {
+        return false;
+    }
     if let Some((slot_name, rest)) = key.split_once('/') {
         let slot = match slot_name {
             "fills" => Slot::Fill,
@@ -542,13 +753,44 @@ pub(super) fn bind_is_current(doc: &Document, id: NodeId, key: &str, variable: &
     !n.variables.bindings.contains_key(key) && number_variable_holds(doc, n, key, v, val)
 }
 
-/// Whether applying `style` to `id` is still a pure re-link: the layer is not linked yet and its
-/// own values already equal the style's.
-pub(super) fn style_is_current(doc: &Document, id: NodeId, style: &str) -> bool {
-    let (Some(n), Some(s)) = (doc.get(id), doc.styles.get(style)) else { return false };
+/// Whether binding an unimported library variable `raw_var` in `snap` to `key` on `id` is current.
+pub(super) fn library_bind_is_current(doc: &Document, snap: &LibrarySnapshot, id: NodeId, key: &str, raw_var: &str) -> bool {
+    if key == "padding" {
+        return PADDING_KEYS.iter().all(|k| library_bind_is_current(doc, snap, id, k, raw_var));
+    }
+    if key == "cornerRadius" {
+        return RADIUS_KEYS.iter().all(|k| library_bind_is_current(doc, snap, id, k, raw_var));
+    }
+    if enabled_library_name(doc, &snap.library_id).is_none() || snap.asset(&format!("var:{raw_var}")).is_none() {
+        return false;
+    }
+    let (Some(n), Some(v)) = (doc.get(id), snap.variables.get(raw_var)) else { return false };
+    let store = VariableStore { variables: snap.variables.clone(), collections: snap.variable_collections.clone() };
+    let resolved = resolve_in_snapshot(doc, snap, &store, id, v);
+    if let Some((slot_name, rest)) = key.split_once('/') {
+        let slot = match slot_name {
+            "fills" => Slot::Fill,
+            "strokes" => Slot::Stroke,
+            _ => return false,
+        };
+        let Some(p) = rest.parse::<usize>().ok().and_then(|i| slot.paints(n).get(i)) else { return false };
+        let PaintKind::Solid(c) = &p.kind else { return false };
+        return p.visible
+            && !n.variables.bindings.contains_key(key)
+            && !n.style_refs.contains_key(slot.ref_key())
+            && scope_allows(&v.scopes, key, &n.kind)
+            && matches!(resolved, Some(VariableValue::Color(vc)) if same_colour(&vc, c));
+    }
+    let Some(val) = number_value_at(n, key) else { return false };
+    !n.variables.bindings.contains_key(key)
+        && scope_allows(&v.scopes, scope_key_for_number(key), &n.kind)
+        && matches!(resolved, Some(VariableValue::Number(vx)) if same_number(vx, val))
+}
+
+fn style_matches_node(n: &Node, s: &Style, property: StyleProperty) -> bool {
     match s {
         Style::Fill(ps) => {
-            let slot = if style_property(doc, style) == StyleProperty::Stroke { Slot::Stroke } else { Slot::Fill };
+            let slot = if property == StyleProperty::Stroke { Slot::Stroke } else { Slot::Fill };
             let any_bound = n.variables.bindings.keys().any(|k| k.starts_with(slot.prefix()));
             !n.style_refs.contains_key(slot.ref_key()) && !any_bound && slot.paints(n) == ps.as_slice()
         }
@@ -564,4 +806,24 @@ pub(super) fn style_is_current(doc: &Document, id: NodeId, style: &str) -> bool 
         Style::Effect(fx) => !n.style_refs.contains_key("effect") && !n.effects.is_empty() && n.effects == *fx,
         Style::Grid(_) => false,
     }
+}
+
+/// Whether applying `style` to `id` is still a pure re-link: the layer is not linked yet and its
+/// own values already equal the style's.
+pub(super) fn style_is_current(doc: &Document, id: NodeId, style: &str) -> bool {
+    let (Some(n), Some(s)) = (doc.get(id), doc.styles.get(style)) else { return false };
+    if style_library_id(doc, style).is_some_and(|lib_id| enabled_library_name(doc, lib_id).is_none()) {
+        return false;
+    }
+    style_matches_node(n, s, style_property(doc, style))
+}
+
+/// Whether applying an unimported library style `raw_style` in `snap` to `id` is current.
+pub(super) fn library_style_is_current(doc: &Document, snap: &LibrarySnapshot, id: NodeId, raw_style: &str) -> bool {
+    if enabled_library_name(doc, &snap.library_id).is_none() || snap.asset(&format!("style:{raw_style}")).is_none() {
+        return false;
+    }
+    let (Some(n), Some(s)) = (doc.get(id), snap.styles.get(raw_style)) else { return false };
+    let property = snap.style_meta.get(raw_style).map(|m| m.property).unwrap_or_else(|| default_style_property(s));
+    style_matches_node(n, s, property)
 }

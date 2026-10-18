@@ -96,26 +96,42 @@ impl Tx {
     /// already applied are undone and forgotten, so the transaction (and a "Fix all" built on it)
     /// never commits half of a multi-step edit such as an insert followed by a remove.
     pub fn cmds_all_or_none(&mut self, doc: &mut Document, cmds: Vec<Command>) -> Result<(), DocError> {
-        let mark = self.cmds.len();
+        let mark = self.mark();
         for c in cmds {
             if let Err(e) = self.cmd(doc, c) {
-                let mut rollback_failed = None;
-                while self.inverses.len() > mark {
-                    if let Some(inv) = self.inverses.pop() {
-                        if let Err(re) = inv.apply(doc) {
-                            rollback_failed.get_or_insert(re);
-                        }
-                    }
-                }
-                self.cmds.truncate(mark);
-                if let Some(re) = rollback_failed {
-                    self.poisoned = true;
-                    return Err(re);
-                }
-                return Err(e);
+                return Err(self.rollback_to(doc, mark).err().unwrap_or(e));
             }
         }
         Ok(())
+    }
+
+    /// Position in the structural command log, for [`Tx::rollback_to`].
+    pub fn mark(&self) -> usize {
+        self.cmds.len()
+    }
+
+    /// Undoes and forgets the structural commands applied since `mark`. Property edits in
+    /// [`Tx::ed`] are untouched, so callers use this for a multi-step edit that fails before it
+    /// writes any property. Returns the first error from undoing a command, after trying them all.
+    pub fn rollback_to(&mut self, doc: &mut Document, mark: usize) -> Result<(), DocError> {
+        let mut rollback_failed = None;
+        while self.inverses.len() > mark {
+            if let Some(inv) = self.inverses.pop() {
+                if let Err(re) = inv.apply(doc) {
+                    rollback_failed.get_or_insert(re);
+                }
+            }
+        }
+        self.cmds.truncate(mark);
+        match rollback_failed {
+            Some(re) => {
+                // A command that cannot be undone leaves the document half-edited: the transaction
+                // must not commit.
+                self.poisoned = true;
+                Err(re)
+            }
+            None => Ok(()),
+        }
     }
 
     /// Restores the document to its state before the transaction began.

@@ -54,11 +54,12 @@ fn message_job(f: &Finding, color: Color32) -> egui::text::LayoutJob {
 }
 
 fn list_height(report: &Report) -> f32 {
+    let notes_h = (report.unreadable_libraries.len() as f32) * 28.0 + if report.truncated { NOTE_H } else { 0.0 };
     if report.findings.is_empty() {
-        return EMPTY_H + if report.truncated { NOTE_H } else { 0.0 };
+        return EMPTY_H + notes_h;
     }
     let groups = Rule::ALL.iter().filter(|r| report.of(**r).next().is_some()).count() as f32;
-    groups * GROUP_H + report.findings.len() as f32 * ROW_H + if report.truncated { NOTE_H } else { 0.0 }
+    groups * GROUP_H + report.findings.len() as f32 * ROW_H + notes_h
 }
 
 pub fn show(app: &mut App, ctx: &Context) {
@@ -129,6 +130,9 @@ pub fn show(app: &mut App, ctx: &Context) {
             egui::ScrollArea::vertical().id_salt("check-designs-list").max_height(list_h).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_width(PANEL_W);
                 ui.spacing_mut().item_spacing = Vec2::ZERO;
+                for lib_name in &report.unreadable_libraries {
+                    unreadable_library_note(ui, lib_name);
+                }
                 if report.findings.is_empty() {
                     empty_state(ui, report.scanned);
                 }
@@ -206,8 +210,16 @@ fn row(ui: &mut Ui, idx: usize, f: &Finding) -> Option<Act> {
     icons::paint(&p, icon, Pos2::new(rect.left() + PAD + 8.0, rect.top() + 16.0), 14.0, tint);
     let text_x = rect.left() + PAD + ICON_COL;
     let has_fix = f.fix.is_some();
-    let name = widgets::elide(&p, &f.node_name, &theme::font_body_medium(), message_width(has_fix));
-    p.text(Pos2::new(text_x, rect.top() + 16.0), Align2::LEFT_CENTER, name, theme::font_body_medium(), theme::TEXT);
+    let from_lib = f.is_from_library();
+    let badge_w = if from_lib { 48.0 } else { 0.0 };
+    let name = widgets::elide(&p, &f.node_name, &theme::font_body_medium(), (message_width(has_fix) - badge_w).max(40.0));
+    p.text(Pos2::new(text_x, rect.top() + 16.0), Align2::LEFT_CENTER, &name, theme::font_body_medium(), theme::TEXT);
+    if from_lib {
+        let nw = widgets::text_width(&p, &name, &theme::font_body_medium());
+        let badge = Rect::from_min_size(Pos2::new(text_x + nw + 6.0, rect.top() + 8.0), Vec2::new(42.0, 16.0));
+        p.rect_filled(badge, theme::cr(theme::RADIUS_SMALL), theme::BG_TERTIARY);
+        p.text(badge.center(), Align2::CENTER_CENTER, "Library", theme::font_small(), theme::TEXT_SECONDARY);
+    }
     let galley = p.layout_job(message_job(f, theme::TEXT_SECONDARY));
     p.galley(Pos2::new(text_x, rect.top() + 26.0), galley, theme::TEXT_SECONDARY);
     widgets::hline(&p, rect.left() + PAD, rect.right() - PAD, rect.bottom() - 1.0, theme::BORDER_SUBTLE);
@@ -224,6 +236,16 @@ fn row(ui: &mut Ui, idx: usize, f: &Finding) -> Option<Act> {
         }
     }
     act
+}
+
+fn unreadable_library_note(ui: &mut Ui, name: &str) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(PANEL_W, 28.0), Sense::hover());
+    widgets::record(ui, "check-designs-unreadable-library", rect);
+    let p = ui.painter();
+    let note = format!("Library \"{name}\" couldn't be read; its suggestions are missing");
+    let txt = widgets::elide(p, &note, &theme::font_small(), PANEL_W - 2.0 * PAD);
+    p.text(Pos2::new(rect.left() + PAD, rect.center().y), Align2::LEFT_CENTER, txt, theme::font_small(), theme::TEXT_SECONDARY);
+    widgets::hline(p, rect.left() + PAD, rect.right() - PAD, rect.bottom() - 1.0, theme::BORDER_SUBTLE);
 }
 
 fn empty_state(ui: &mut Ui, scanned: usize) {
