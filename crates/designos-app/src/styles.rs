@@ -88,7 +88,14 @@ impl App {
             }
             Style::Fill(paints) => {
                 match &mut n.kind {
-                    NodeKind::Text(t) => t.style.fills = paints.clone(),
+                    NodeKind::Text(t) => {
+                        // Runs are what is painted: a run that had the old base fills follows the
+                        // style, a run coloured differently (a highlighted word) keeps its own.
+                        let old = std::mem::replace(&mut t.style.fills, paints.clone());
+                        for r in t.runs.iter_mut().filter(|r| r.style.fills == old) {
+                            r.style.fills = paints.clone();
+                        }
+                    }
                     _ => n.fills = paints.clone(),
                 }
                 n.style_refs.insert("fill".into(), key.into());
