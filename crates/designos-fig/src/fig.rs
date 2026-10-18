@@ -1285,9 +1285,21 @@ fn explicit_modes(nc: &Value, lk: &Lk) -> Option<Value> {
 /// `componentPropRefs`). Variants refer to their set's definitions through
 /// `parentPropDefId`; see [`Lk::prop_defs`].
 fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
-    let text_of = |v: &Value| -> Option<Value> { Some(Value::String(fstr(v.get("textValue")?, "characters")?.to_string())) };
+    // `textValue` is a message with `characters` in `value`, a plain string in `varValue.value`.
+    let text_of = |v: &Value| -> Option<Value> {
+        let t = v.get("textValue")?;
+        Some(Value::String(t.as_str().or_else(|| fstr(t, "characters"))?.to_string()))
+    };
     let value_of = |v: &Value| -> Option<Value> {
-        v.get("boolValue").cloned().or_else(|| text_of(v)).or_else(|| v.get("guidValue").and_then(guid_str).map(Value::String))
+        v.get("boolValue")
+            .cloned()
+            .or_else(|| text_of(v))
+            .or_else(|| v.get("guidValue").and_then(guid_str).map(Value::String))
+            .or_else(|| v.get("symbolIdValue").and_then(|s| s.get("guid")).and_then(guid_str).map(Value::String))
+    };
+    // Newer files leave `holder.<plain>` empty (`{}`) and keep the payload in `holder.varValue.value`.
+    let held = |holder: &Value, plain: &str| -> Option<Value> {
+        holder.get(plain).and_then(value_of).or_else(|| holder.get("varValue").and_then(|v| v.get("value")).and_then(value_of))
     };
     let mut defs = Map::new();
     for d in rest_import::farr(nc, "componentPropDefs") {
@@ -1295,7 +1307,7 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
         let Some((key, ty)) = lk.prop_defs.get(&id) else { continue };
         let mut def = Map::new();
         def.insert("type".into(), (*ty).into());
-        if let Some(v) = d.get("initialValue").and_then(value_of) {
+        if let Some(v) = held(d, "initialValue") {
             def.insert("defaultValue".into(), v);
         }
         if *ty == "VARIANT" {
@@ -1323,7 +1335,7 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let mut vals = Map::new();
     for a in rest_import::farr(nc, "componentPropAssignments") {
         let Some((key, ty)) = a.get("defID").and_then(guid_str).and_then(|id| lk.prop_defs.get(&id)) else { continue };
-        let Some(v) = a.get("value").and_then(value_of) else { continue };
+        let Some(v) = held(a, "value") else { continue };
         vals.insert(key.clone(), json!({"type": ty, "value": v}));
     }
     if !vals.is_empty() {

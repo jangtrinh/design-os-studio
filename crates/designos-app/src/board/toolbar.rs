@@ -139,7 +139,111 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             x += theme::TOOL_CHEVRON_W;
         }
     }
+    show_timer(app, ui, bar);
     popup(app, ui);
+}
+
+/// Gap between the toolbar and the timer pill, and between the pill and its controls.
+const TIMER_GAP: f32 = 8.0;
+/// Width of the timer pill; its height is the toolbar's.
+const TIMER_PILL_W: f32 = 84.0;
+/// Padding around the timer controls.
+const TIMER_HUD_PAD: f32 = 8.0;
+/// Gap between two timer controls.
+const TIMER_HUD_GAP: f32 = 8.0;
+/// Size of one timer control.
+const TIMER_BTN: Vec2 = Vec2::new(64.0, 28.0);
+
+fn show_timer(app: &mut App, ui: &mut Ui, bar: Rect) {
+    let now = ui.input(|i| i.time);
+    if app.board.timer.tick(now) {
+        ui.ctx().request_repaint();
+    }
+
+    let toggle_r = Rect::from_min_size(Pos2::new(bar.right() + TIMER_GAP, bar.top()), Vec2::new(TIMER_PILL_W, bar.height()));
+    widgets::record(ui, "board-timer-toggle", toggle_r);
+    let resp = ui.interact(toggle_r, ui.id().with("board-timer-toggle"), Sense::click());
+    let p = ui.painter().clone();
+    widgets::shadow(&p, toggle_r, theme::RADIUS_LARGE, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
+    let bg = if app.board.timer.running {
+        theme::BG_TOOLBAR_SELECTED
+    } else if app.board.timer.open || resp.hovered() {
+        theme::BG_TOOLBAR_HOVER
+    } else {
+        theme::BG_TOOLBAR
+    };
+    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_LARGE), bg);
+    p.rect_stroke(toggle_r.shrink(0.5), theme::cr(theme::RADIUS_LARGE), Stroke::new(1.0, theme::INNER_HIGHLIGHT), StrokeKind::Inside);
+    icons::paint(
+        &p,
+        Icon::Clock,
+        Pos2::new(toggle_r.left() + 18.0, toggle_r.center().y),
+        14.0,
+        if app.board.timer.running { Color32::WHITE } else { theme::ICON },
+    );
+    let label = app.board.timer.format_mm_ss();
+    p.text(
+        Pos2::new(toggle_r.left() + 32.0, toggle_r.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        theme::font_mono(),
+        if app.board.timer.running { Color32::WHITE } else { theme::TEXT },
+    );
+    if resp.on_hover_text("Facilitator timer").clicked() {
+        app.board.timer.open = !app.board.timer.open;
+    }
+
+    if app.board.timer.open {
+        timer_hud(app, ui, toggle_r, now);
+    }
+}
+
+/// The Start / Pause, +1 min and Reset controls above the timer pill. They live in a layer of their
+/// own, above the canvas chrome, so a contextual bar pinned over the toolbar row can neither cover
+/// them nor swallow their clicks; the tool popovers stay above them.
+fn timer_hud(app: &mut App, ui: &mut Ui, pill: Rect, now: f64) {
+    let ctx = ui.ctx().clone();
+    let size = Vec2::new(TIMER_HUD_PAD * 2.0 + TIMER_BTN.x * 3.0 + TIMER_HUD_GAP * 2.0, TIMER_HUD_PAD * 2.0 + TIMER_BTN.y);
+    let hud_r = Rect::from_min_size(Pos2::new(pill.right() - size.x, pill.top() - TIMER_GAP - size.y), size);
+    // `default_size` makes the very first frame already use the real size; the stock guess is far
+    // taller than the controls and would block the toolbar underneath for a few frames
+    egui::Area::new(egui::Id::new("board-timer-hud")).order(egui::Order::Middle).fixed_pos(hud_r.min).default_size(size).show(&ctx, |ui| {
+        ui.allocate_rect(hud_r, Sense::click_and_drag());
+        widgets::record(ui, "board-timer-hud", hud_r);
+        let p = ui.painter().clone();
+        widgets::menu_panel(&p, hud_r, theme::RADIUS_LARGE);
+        let button = |col: f32| {
+            Rect::from_min_size(Pos2::new(hud_r.left() + TIMER_HUD_PAD + col * (TIMER_BTN.x + TIMER_HUD_GAP), hud_r.top() + TIMER_HUD_PAD), TIMER_BTN)
+        };
+
+        let start_r = button(0.0);
+        widgets::record(ui, "board-timer-start-pause", start_r);
+        let sresp = ui.interact(start_r, ui.id().with("board-timer-start-pause"), Sense::click());
+        let running = app.board.timer.running;
+        p.rect_filled(start_r, theme::cr(theme::RADIUS_MEDIUM), if running { theme::BG_HOVER } else { theme::BG_BRAND });
+        p.text(start_r.center(), Align2::CENTER_CENTER, if running { "Pause" } else { "Start" }, theme::font_body_strong(), Color32::WHITE);
+        if sresp.clicked() {
+            app.board.timer.toggle(now);
+        }
+
+        let add_r = button(1.0);
+        widgets::record(ui, "board-timer-add-min", add_r);
+        let aresp = ui.interact(add_r, ui.id().with("board-timer-add-min"), Sense::click());
+        p.rect_filled(add_r, theme::cr(theme::RADIUS_MEDIUM), if aresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+        p.text(add_r.center(), Align2::CENTER_CENTER, "+1 min", theme::font_body(), theme::TEXT);
+        if aresp.clicked() {
+            app.board.timer.add_minute();
+        }
+
+        let reset_r = button(2.0);
+        widgets::record(ui, "board-timer-reset", reset_r);
+        let rresp = ui.interact(reset_r, ui.id().with("board-timer-reset"), Sense::click());
+        p.rect_filled(reset_r, theme::cr(theme::RADIUS_MEDIUM), if rresp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
+        p.text(reset_r.center(), Align2::CENTER_CENTER, "Reset", theme::font_body(), theme::TEXT_SECONDARY);
+        if rresp.clicked() {
+            app.board.timer.reset();
+        }
+    });
 }
 
 /// Cell size of the popover grids.

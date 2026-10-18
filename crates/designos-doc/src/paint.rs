@@ -263,6 +263,23 @@ pub struct Stroke {
     pub dashes: Vec<f32>,
 }
 
+impl Stroke {
+    /// Inward border widths `[top, right, bottom, left]` that sit inside the node's box.
+    /// Returns `[0.0; 4]` when the stroke has no visible paint or is aligned `Outside`.
+    pub fn layout_inset(&self) -> [f32; 4] {
+        if !self.paints.iter().any(|p| p.visible && p.opacity > 0.0) {
+            return [0.0; 4];
+        }
+        let factor = match self.align {
+            StrokeAlign::Inside => 1.0,
+            StrokeAlign::Center => 0.5,
+            StrokeAlign::Outside => return [0.0; 4],
+        };
+        let sides = self.side_weights.unwrap_or([self.weight; 4]);
+        sides.map(|w| (w * factor).max(0.0))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Effect {
     DropShadow {
