@@ -6,7 +6,7 @@
 
 use crate::container::{self, Compression};
 use crate::kiwi::KiwiValue as V;
-use crate::rest_import::utf16_to_byte_offsets;
+use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
 use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
 use crate::FigError;
 use designos_doc::*;
@@ -864,8 +864,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         fields.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
     }
     for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-        if let Some(s) = grid_child_align_name(a) {
-            fields.push((k, en(s)));
+        if writes_grid_child_align(a, parent_dir) {
+            fields.push((k, en(grid_child_align_name(a))));
         }
     }
     if lc.min_w.is_some() || lc.min_h.is_some() {
@@ -1236,15 +1236,6 @@ pub(crate) fn format_grid_tracks(count: u32, tracks: &[GridTrack]) -> String {
         .join(" ")
 }
 
-fn grid_child_align_name(a: GridChildAlign) -> Option<&'static str> {
-    match a {
-        GridChildAlign::Start => None,
-        GridChildAlign::Center => Some("CENTER"),
-        GridChildAlign::End => Some("MAX"),
-        GridChildAlign::Auto => Some("AUTO"),
-    }
-}
-
 fn encode_node_var_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     let mut var_entries = Vec::new();
     for (k, vid) in &vars.bindings {
@@ -1486,8 +1477,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     ov.push(("gridRowSpan", V::Uint(u32::from(lc.row_span))));
                 }
                 for (k, a) in [("gridChildHorizontalAlign", lc.grid_align_h), ("gridChildVerticalAlign", lc.grid_align_v)] {
-                    if let Some(s) = grid_child_align_name(a) {
-                        ov.push((k, en(s)));
+                    if a != GridChildAlign::Start {
+                        ov.push((k, en(grid_child_align_name(a))));
                     }
                 }
             }

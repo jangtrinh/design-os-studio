@@ -2397,11 +2397,11 @@ impl<'a> Ctx<'a> {
         if let Some(r) = set.get("gridRowSpan").and_then(Value::as_u64) {
             n.layout_child.row_span = (r as u16).max(1);
         }
-        if let Some(h) = fstr(set, "gridChildHorizontalAlign") {
-            n.layout_child.grid_align_h = parse_grid_child_align(Some(h));
+        if let Some(a) = fstr(set, "gridChildHorizontalAlign").and_then(parse_grid_child_align) {
+            n.layout_child.grid_align_h = a;
         }
-        if let Some(v) = fstr(set, "gridChildVerticalAlign") {
-            n.layout_child.grid_align_v = parse_grid_child_align(Some(v));
+        if let Some(a) = fstr(set, "gridChildVerticalAlign").and_then(parse_grid_child_align) {
+            n.layout_child.grid_align_v = a;
         }
         if let Some(h) = fstr(set, "layoutSizingHorizontal") {
             n.layout_child.horizontal = match h {
@@ -3000,13 +3000,32 @@ fn build_runs(content: &str, base: &TextStyle, overrides: &[u64], table: Option<
     runs
 }
 
-fn parse_grid_child_align(s: Option<&str>) -> GridChildAlign {
+/// A grid child's alignment key: `MIN` is Start. `None` for a value this model does not know.
+fn parse_grid_child_align(s: &str) -> Option<GridChildAlign> {
     match s {
-        Some("CENTER") => GridChildAlign::Center,
-        Some("MAX") | Some("END") => GridChildAlign::End,
-        Some("AUTO") => GridChildAlign::Auto,
-        _ => GridChildAlign::Start,
+        "MIN" => Some(GridChildAlign::Start),
+        "CENTER" => Some(GridChildAlign::Center),
+        "MAX" | "END" => Some(GridChildAlign::End),
+        "AUTO" => Some(GridChildAlign::Auto),
+        _ => None,
     }
+}
+
+/// The key value that reads back as `a`. Start is `MIN`, never an omitted key: `AUTO` is enum 0, the schema
+/// default, so a reader that skips an absent key turns an omitted Start into Auto.
+pub(crate) fn grid_child_align_name(a: GridChildAlign) -> &'static str {
+    match a {
+        GridChildAlign::Start => "MIN",
+        GridChildAlign::Center => "CENTER",
+        GridChildAlign::End => "MAX",
+        GridChildAlign::Auto => "AUTO",
+    }
+}
+
+/// Whether a child's alignment keys are written: always under a grid, elsewhere only when they are not the Start
+/// default (a flow child never reads them, so a Start there would only add two enum fields per node).
+pub(crate) fn writes_grid_child_align(a: GridChildAlign, parent: Option<LayoutDirection>) -> bool {
+    a != GridChildAlign::Start || parent == Some(LayoutDirection::Grid)
 }
 
 fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> LayoutChild {
@@ -3018,6 +3037,11 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
     };
     let grow = fnum(v, "layoutGrow").unwrap_or(0.0);
     let u = |k: &str| v.get(k).and_then(Value::as_u64).map(|x| x as u16);
+    // An omitted enum is its schema default and `GridChildAlign` defaults to AUTO, so a grid child that never set a
+    // key follows the frame's alignment instead of sitting at the cell origin. Only a grid reads the keys; a child
+    // anywhere else keeps the Start default, which is not saved.
+    let unset_align = if parent == Some(LayoutDirection::Grid) { GridChildAlign::Auto } else { GridChildAlign::Start };
+    let align = |k: &str| fstr(v, k).and_then(parse_grid_child_align).unwrap_or(unset_align);
     let mut lc = LayoutChild {
         absolute: fstr(v, "layoutPositioning") == Some("ABSOLUTE"),
         grow,
@@ -3029,8 +3053,8 @@ fn layout_child(v: &Value, parent: Option<LayoutDirection>, kind: &NodeKind) -> 
         grid_row: u("gridRowAnchorIndex"),
         col_span: u("gridColumnSpan").unwrap_or(1).max(1),
         row_span: u("gridRowSpan").unwrap_or(1).max(1),
-        grid_align_h: parse_grid_child_align(fstr(v, "gridChildHorizontalAlign")),
-        grid_align_v: parse_grid_child_align(fstr(v, "gridChildVerticalAlign")),
+        grid_align_h: align("gridChildHorizontalAlign"),
+        grid_align_v: align("gridChildVerticalAlign"),
         ..Default::default()
     };
     let (sh, sv) = (sizing(fstr(v, "layoutSizingHorizontal")), sizing(fstr(v, "layoutSizingVertical")));
