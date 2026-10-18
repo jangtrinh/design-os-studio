@@ -358,7 +358,7 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     let code_resp = ui.interact(code_r, ui.id().with("dev-inspect-code"), Sense::click());
     icons::paint(ui.painter(), Icon::Dev, code_r.center(), 13.0, if code_resp.hovered() { Color32::WHITE } else { theme::ICON_SECONDARY });
     if code_resp.on_hover_text("Copy active language snippet").clicked() {
-        let snippet = app.dev.lang.generate(&app.doc, id, app.dev.react_tailwind);
+        let snippet = app.dev_code_for(id, app.dev.lang, app.dev.react_tailwind);
         copy(app, ui, snippet, app.dev.lang.label());
     }
 
@@ -375,12 +375,12 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     if more_resp.on_hover_text("Copy full multi-language code bundle (CSS + React + SwiftUI + UIKit + Compose + Android XML)").clicked() {
         let bundle = format!(
             "/* === CSS === */\n{}\n\n// === React ===\n{}\n\n// === SwiftUI ===\n{}\n\n// === UIKit ===\n{}\n\n// === Compose ===\n{}\n\n<!-- === Android XML === -->\n{}",
-            crate::dev::Language::Css.generate(&app.doc, id, false),
-            crate::dev::Language::React.generate(&app.doc, id, app.dev.react_tailwind),
-            crate::dev::Language::SwiftUi.generate(&app.doc, id, false),
-            crate::dev::Language::UiKit.generate(&app.doc, id, false),
-            crate::dev::Language::Compose.generate(&app.doc, id, false),
-            crate::dev::Language::AndroidXml.generate(&app.doc, id, false),
+            app.dev_code_for(id, crate::dev::Language::Css, false),
+            app.dev_code_for(id, crate::dev::Language::React, app.dev.react_tailwind),
+            app.dev_code_for(id, crate::dev::Language::SwiftUi, false),
+            app.dev_code_for(id, crate::dev::Language::UiKit, false),
+            app.dev_code_for(id, crate::dev::Language::Compose, false),
+            app.dev_code_for(id, crate::dev::Language::AndroidXml, false),
         );
         copy(app, ui, bundle, "multi-language code bundle");
     }

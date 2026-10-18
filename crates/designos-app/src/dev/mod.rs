@@ -6,6 +6,7 @@ pub mod compare;
 pub mod data;
 pub mod highlight;
 pub mod list;
+pub mod playground;
 pub mod preset;
 pub mod sections;
 
@@ -92,6 +93,7 @@ pub struct DevState {
     pub annot: Option<AnnotEdit>,
     pub link: Option<LinkEdit>,
     pub compare: Option<compare::CompareView>,
+    pub playground: playground::PlaygroundState,
     pub show_redlines: bool,
     /// Time of the last status refresh (seconds), to throttle fingerprinting while dragging.
     pub last_refresh: f64,
@@ -142,6 +144,17 @@ pub fn markable(app: &App, id: NodeId) -> bool {
 }
 
 impl App {
+    /// Generates code for `id` in `lang`, reflecting any active scratch overrides in the Dev Mode Component Playground.
+    pub fn dev_code_for(&self, id: NodeId, lang: Language, react_tailwind: bool) -> String {
+        if self.dev.playground.has_overrides_for(id) {
+            if let Some((scratch_doc, code_id, _)) = playground::build_scratch_doc(&self.doc, id, &self.dev.playground) {
+                return lang.generate(&scratch_doc, code_id, react_tailwind);
+            }
+        }
+        let base_doc = if self.doc.nodes.len() <= 2_000 && !self.doc.variables.is_empty() { self.export_doc() } else { std::borrow::Cow::Borrowed(&self.doc) };
+        lang.generate(&base_doc, id, react_tailwind)
+    }
+
     /// Re-evaluates the Ready for dev / Changed statuses after edits (throttled to 4 per second
     /// unless `force`).
     pub fn dev_refresh(&mut self, force: bool) {

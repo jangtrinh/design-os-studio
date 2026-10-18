@@ -96,17 +96,17 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     c.y += 36.0;
 }
 
-/// Component properties of an instance.
+/// Component properties of an instance, followed by the read-only Component Playground.
 pub fn component_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let rows = data::component_rows(&app.doc, id);
-    if rows.is_empty() {
-        return;
+    if !rows.is_empty() {
+        section_title(ui, c, "Component properties");
+        for (label, value) in rows {
+            crate::panels::inspect::kv(ui, app, c, &label, &value);
+        }
+        c.y += 8.0;
     }
-    section_title(ui, c, "Component properties");
-    for (label, value) in rows {
-        crate::panels::inspect::kv(ui, app, c, &label, &value);
-    }
-    c.y += 8.0;
+    super::playground::playground_section(app, ui, c, id);
 }
 
 /// Wrapped chips toggling the pinned properties.
@@ -409,7 +409,7 @@ pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
     c.y += h + 8.0;
 }
 
-type DevCodeCacheKey = (u64, NodeId, u64, Language, bool);
+type DevCodeCacheKey = (u64, NodeId, u64, Language, bool, u64);
 type DevAssetsCacheKey = (u64, NodeId, u64, usize);
 type DevAssetsCacheEntry = (DevAssetsCacheKey, Vec<(String, NodeId, Asset)>);
 thread_local! {
@@ -430,18 +430,15 @@ pub fn code_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         app.dev.lang = Language::ALL[i];
     }
     let lang = app.dev.lang;
-    let key: DevCodeCacheKey = (app.doc.runtime_id(), id, app.doc.mutation_epoch(), lang, app.dev.react_tailwind);
+    let pg_rev = if app.dev.playground.has_overrides_for(id) { app.dev.playground.rev } else { 0 };
+    let key: DevCodeCacheKey = (app.doc.runtime_id(), id, app.doc.mutation_epoch(), lang, app.dev.react_tailwind, pg_rev);
     let code = DEV_CODE_CACHE.with(|cache| {
         if let Some((k, v)) = cache.borrow().as_ref() {
             if *k == key {
                 return v.clone();
             }
         }
-        let generated = if app.doc.nodes.len() <= 2_000 && !app.doc.variables.is_empty() {
-            lang.generate(&app.export_doc(), id, app.dev.react_tailwind)
-        } else {
-            lang.generate(&app.doc, id, app.dev.react_tailwind)
-        };
+        let generated = app.dev_code_for(id, lang, app.dev.react_tailwind);
         *cache.borrow_mut() = Some((key, generated.clone()));
         generated
     });
