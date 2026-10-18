@@ -130,6 +130,8 @@ client files).
 | `figma_export_reimports_in_figma` | manual check: export, import into Figma, screenshot attached to the PR (owner-manual leg, flagged) |
 | `dtcg_export_validates` | export of the tokens fixture → validator reports 0 errors; `$type`, colour objects and aliases correct |
 | `dtcg_round_trip_lossless` | export DTCG (manifest + per-mode files) → import into an empty doc → variables equal (ids via extensions) |
+| `dtcg_export_has_no_figma_keys` | DTCG export of a fixture imported from a `figma-native` file → no `com.figma.` key anywhere; booleans in `$extensions["org.designos"]` |
+| `figma_native_export_matches_figma_dialect` | `figma-native` export of a boolean and a string variable → `$type: "number"` 0/1 with `com.figma.type: "boolean"`, and `$type: "string"` |
 | `rest_round_trip_unchanged` | existing REST tests still pass |
 | `merge_not_replace` | import into a doc with extra variables → extras kept |
 
@@ -144,6 +146,10 @@ REA E1-f first. Independent of the E15 write protocol; before part-2 E15-19 and 
 ## 13. Owner rulings
 
 - R3.10 (D-E1-2): Figma-native and W3C DTCG design tokens.
+- Owner ruling 2026-10-19: **two separate formats**, never one hybrid file.
+  - `figma-native` follows Figma's own dialect exactly (booleans as `number` 0/1 with `com.figma.type`, `$type: "string"`, `com.figma.*` metadata, one `<mode>.tokens.json` per mode, zip per collection), so the export re-imports into Figma unchanged.
+  - `dtcg` is strict W3C DTCG 2025.10: only DTCG types, our metadata only under `$extensions["org.designos"]`, multi-mode as the manifest of §3.2. It must pass the DTCG validator with zero errors and must not carry `com.figma.*` keys.
+  - The import menu and CLI keep the two as separate choices; `auto` detection (§3.1) picks one, never mixes.
 - REA rule: Figma's schema via `rea` (morluto/rea).
 - Delivery law: owner-manual legs (re-import into Figma) are flagged, never claimed.
 
@@ -211,4 +217,4 @@ Method. Read-only. Sources:
    - metadata namespace: `org.designos` vs `com.figma.*`;
    - multi-mode packaging: manifest vs zip of per-mode files.
 
-   `figma-native` must follow Figma's choices exactly to re-import into Figma.
+   `figma-native` must follow Figma's choices exactly to re-import into Figma. Resolved by the owner ruling in §13: the two formats stay separate and each keeps its own choices.
