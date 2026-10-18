@@ -639,3 +639,89 @@ fn instance_slot_add_reorder_remove_keeps_instance_linked_enforces_max_with_toas
     assert!(s.rect_of("slot-add-child").width() > 0.0, "Slot content add-instance dropdown rendered");
     assert!(s.rect_of(&format!("slot-child-del:{}", c1.0)).width() > 0.0, "Slot child remove button rendered");
 }
+
+#[test]
+fn empty_slot_placeholder_preferred_picker_and_stretch_on_insert_ui() {
+    let mut s = Sim::with(Options { select: Some("Get started".into()), ..Default::default() });
+    let main = s.by_name("Primary button");
+    let inst = s.by_name("Get started");
+    let page = s.app().page;
+
+    let run_cmd = |app: &mut crate::app::App, cmd: designos_doc::Command| {
+        let mut tx = crate::edit::Tx::new();
+        let _ = tx.cmd(&mut app.doc, cmd);
+        app.run_tx(tx);
+    };
+
+    // Create two candidate components: PreferredBadge (20x20) and UnrelatedChip (30x20).
+    let badge = s.shell.app.doc.alloc_id();
+    let mut badge_node = designos_doc::Node::frame(badge, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+    badge_node.name = "PreferredBadge".into();
+    run_cmd(&mut s.shell.app, designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![badge_node] });
+    let cmd = designos_doc::create_component(&mut s.shell.app.doc, badge);
+    run_cmd(&mut s.shell.app, cmd);
+
+    let chip = s.shell.app.doc.alloc_id();
+    let mut chip_node = designos_doc::Node::frame(chip, designos_doc::Rect::new(0.0, 30.0, 30.0, 20.0));
+    chip_node.name = "UnrelatedChip".into();
+    run_cmd(&mut s.shell.app, designos_doc::Command::Insert { parent: page, index: 1, nodes: vec![chip_node] });
+    let cmd = designos_doc::create_component(&mut s.shell.app.doc, chip);
+    run_cmd(&mut s.shell.app, cmd);
+
+    // Create an empty Slot frame (width = 96) inside the main component.
+    let slot_id = s.shell.app.doc.alloc_id();
+    let mut slot_frame = designos_doc::Node::frame(slot_id, designos_doc::Rect::new(8.0, 8.0, 96.0, 32.0));
+    slot_frame.name = "SlotArea".into();
+    run_cmd(&mut s.shell.app, designos_doc::Command::Insert { parent: main, index: 1, nodes: vec![slot_frame] });
+    let cmd = designos_doc::convert_to_slot(&mut s.shell.app.doc, slot_id);
+    run_cmd(&mut s.shell.app, cmd);
+
+    // Configure preferred = [badge], stretch_child_on_insert = true, display_by_default = false first.
+    let cmd = designos_doc::set_slot_config(
+        &mut s.shell.app.doc,
+        main,
+        "SlotArea",
+        designos_doc::SlotPropConfig { display_by_default: Some(false), stretch_child_on_insert: Some(true), preferred: vec![badge], ..Default::default() },
+    );
+    run_cmd(&mut s.shell.app, cmd);
+
+    let inst_slot = child_of(&s.app().doc, inst, "SlotArea");
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    // 1. With display_by_default = false, main empty slot shows placeholder (+ button), instance empty slot hides it.
+    assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, slot_id).is_some());
+    assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, inst_slot).is_none());
+
+    // Enable display_by_default = true: both main and instance empty slots show placeholder (+ button).
+    let cmd = designos_doc::set_slot_config(
+        &mut s.shell.app.doc,
+        main,
+        "SlotArea",
+        designos_doc::SlotPropConfig { display_by_default: Some(true), stretch_child_on_insert: Some(true), preferred: vec![badge], ..Default::default() },
+    );
+    run_cmd(&mut s.shell.app, cmd);
+    s.shell.app.selection = vec![inst_slot];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, slot_id).is_some());
+    assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, inst_slot).is_some());
+    assert!(s.rect_of(&format!("canvas-slot-plus:{}", inst_slot.0)).width() > 0.0);
+
+    // 2. Preferred-instance picker lists only PreferredBadge (not UnrelatedChip) when preferred is set.
+    assert_eq!(designos_doc::preferred_slot_components(&s.app().doc, inst_slot), vec![badge]);
+
+    // Click the on-canvas `+` button on the empty instance slot to open the preferred-instances picker and pick PreferredBadge.
+    let plus_center = s.rect_of(&format!("canvas-slot-plus:{}", inst_slot.0)).center();
+    s.click(plus_center);
+    assert!(s.app().ui.slot_picker.is_some());
+    s.click(s.rect_of("menu-row-0-0").center());
+
+    // 3. The inserted child is inside inst_slot, stretched to width 96.0 with Sizing::Fill, and the empty-slot placeholder is now gone.
+    let children = s.app().doc.get(inst_slot).unwrap().children.clone();
+    assert_eq!(children.len(), 1);
+    let inserted = s.app().doc.get(children[0]).unwrap();
+    assert_eq!(inserted.layout_child.horizontal, designos_doc::Sizing::Fill);
+    assert_eq!(inserted.size.x, 96.0);
+    assert!(crate::canvas::draw::empty_slot_plus_button_rect(s.app(), s.app().canvas_rect, inst_slot).is_none());
+}

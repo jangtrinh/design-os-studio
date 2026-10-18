@@ -350,7 +350,7 @@ impl App {
         for attempt in 0..2 {
             let inv = self.doc.world_transform(parent).invert()?;
             let local = inv.apply(target);
-            let cmd = create_instance(&mut self.doc, comp, parent, local);
+            let mut cmd = create_instance(&mut self.doc, comp, parent, local);
             if is_noop(&cmd) {
                 // Inside the component itself (or its descendants): fall back to the page.
                 if attempt == 0 {
@@ -360,12 +360,13 @@ impl App {
                 return None;
             }
             if is_slot_container(&self.doc, parent) {
-                if let Command::Insert { nodes, .. } = &cmd {
-                    if let Some(root) = nodes.first() {
+                if let Command::Insert { nodes, .. } = &mut cmd {
+                    if let Some(root) = nodes.first_mut() {
                         if let Err(err) = check_slot_insert(&self.doc, parent, &[root]) {
                             self.show_toast(err.to_string(), true);
                             return None;
                         }
+                        apply_slot_stretch_on_insert(&self.doc, parent, root);
                     }
                 }
             }
@@ -391,6 +392,34 @@ impl App {
             return id;
         }
         None
+    }
+
+    /// Inserts an instance of `comp` at the end of `slot`, enforcing [`SlotPropConfig`]
+    /// constraints, stretching on insert when configured, and keeping the enclosing instance linked.
+    pub fn insert_instance_into_slot(&mut self, slot: NodeId, comp: NodeId) -> Option<NodeId> {
+        if !is_slot_container(&self.doc, slot) {
+            return None;
+        }
+        let cmd = create_instance(&mut self.doc, comp, slot, Vec2::ZERO);
+        let Command::Insert { index, nodes, .. } = cmd else {
+            return None;
+        };
+        let id = nodes.first().map(|n| n.id);
+        let slot_cmd = match insert_into_slot(&mut self.doc, slot, index, nodes) {
+            Ok(c) => c,
+            Err(err) => {
+                self.show_toast(err.to_string(), true);
+                return None;
+            }
+        };
+        let mut tx = Tx::new();
+        if !self.push_cmd(&mut tx, slot_cmd) {
+            return None;
+        }
+        layout::relayout_around(&mut self.doc, &mut tx.ed, slot);
+        self.run_tx(tx);
+        self.selection = vec![slot];
+        id
     }
 
     /// Sets (or with `None` resets) a component property on an instance.

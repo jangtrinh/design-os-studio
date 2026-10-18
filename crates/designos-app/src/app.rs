@@ -97,6 +97,8 @@ pub struct UiState {
     /// Anchor of the instance "more" menu and of the add-property menu in the inspector.
     pub inst_menu: Option<egui::Rect>,
     pub prop_menu: Option<egui::Rect>,
+    /// Active preferred-instance `+` picker for a slot container (`(slot_id, anchor_rect)`).
+    pub slot_picker: Option<(NodeId, egui::Rect)>,
     /// Command palette query and highlighted row.
     pub palette_query: String,
     pub palette_sel: usize,

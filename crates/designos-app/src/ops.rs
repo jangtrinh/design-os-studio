@@ -539,6 +539,7 @@ impl App {
                     root.transform.ty += theme::PASTE_OFFSET;
                 }
                 root.name = self.doc.get(id).map(|n| n.name.clone()).unwrap_or_default();
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
                 new_sel.push(root.id);
             }
             if tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
@@ -602,6 +603,7 @@ impl App {
             if let Some(root) = nodes.first_mut() {
                 root.transform.tx += off;
                 root.transform.ty += off;
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
                 new_sel.push(root.id);
             }
             let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
@@ -648,6 +650,7 @@ impl App {
             if let Some(root) = nodes.first_mut() {
                 root.transform.tx += delta.x;
                 root.transform.ty += delta.y;
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
                 new_sel.push(root.id);
             }
             let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
@@ -1482,6 +1485,14 @@ impl App {
             }
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 n.transform = npw * world;
+            }
+            if old_p != Some(new_parent) && is_slot_container(&self.doc, new_parent) {
+                if let Some(mut cloned) = self.doc.get(*id).cloned() {
+                    apply_slot_stretch_on_insert(&self.doc, new_parent, &mut cloned);
+                    if let Some(n) = tx.ed.node(&mut self.doc, *id) {
+                        *n = cloned;
+                    }
+                }
             }
         }
         for p in old_parents {

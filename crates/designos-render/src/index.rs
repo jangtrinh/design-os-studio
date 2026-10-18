@@ -124,9 +124,11 @@ fn is_chrome_node(doc: &Document, n: &Node, id: NodeId) -> bool {
     {
         return true;
     }
-    let has_own = n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
+    let has_own = n.component.is_slot || n.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !n.component.bindings.is_empty();
     let has_src = n.component.source.is_some_and(|s| {
-        doc.get(s).is_some_and(|sn| sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty())
+        doc.get(s).is_some_and(|sn| {
+            sn.component.is_slot || sn.component.overrides.contains(&designos_doc::OverrideField::SlotContent) || !sn.component.bindings.is_empty()
+        })
     });
     (has_own || has_src) && designos_doc::is_slot_container(doc, id)
 }

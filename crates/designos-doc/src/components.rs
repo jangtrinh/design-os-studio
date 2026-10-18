@@ -254,35 +254,105 @@ pub fn enclosing_instance_slot(doc: &Document, id: NodeId) -> Option<NodeId> {
     None
 }
 
-/// Resolves the [`SlotPropConfig`] governing `slot` (either a main-component slot or an instance copy).
+/// Follows `component.source` from `slot` to the slot node of the main component that defines it
+/// (the node itself for a main-component slot). A slot inside a nested instance therefore resolves
+/// to the nested component's slot, not to the component that merely contains the nested instance.
+fn slot_definition(doc: &Document, slot: NodeId) -> Option<NodeId> {
+    let mut cur = slot;
+    // The hop limit only guards against a corrupt `source` cycle.
+    for _ in 0..doc.nodes.len().max(1) {
+        match doc.get(cur)?.component.source.filter(|s| doc.get(*s).is_some()) {
+            Some(src) => cur = src,
+            None => return Some(cur),
+        }
+    }
+    None
+}
+
+/// Resolves the [`SlotPropConfig`] governing `slot` (a main-component slot, an instance copy, or a
+/// copy inside a nested instance). The settings live on the component that defines the slot and are
+/// found by the slot's `SlotContent` binding; a slot without a binding falls back to its own name.
 pub fn slot_config_of(doc: &Document, slot: NodeId) -> Option<SlotPropConfig> {
     if !is_slot_container(doc, slot) {
         return None;
     }
-    let n = doc.get(slot)?;
-    let src = n.component.source.and_then(|s| doc.get(s));
+    let def = slot_definition(doc, slot)?;
+    let dn = doc.get(def)?;
     let prop_name =
-        n.component.bindings.get(&OverrideField::SlotContent).or_else(|| src.and_then(|sn| sn.component.bindings.get(&OverrideField::SlotContent))).cloned();
-    let comp = enclosing_component(doc, slot)
-        .or_else(|| n.component.source.and_then(|s| enclosing_component(doc, s)))
-        .or_else(|| instance_root_of(doc, slot).and_then(|i| doc.get(i)).and_then(instance_component))?;
+        dn.component.bindings.get(&OverrideField::SlotContent).or_else(|| doc.get(slot)?.component.bindings.get(&OverrideField::SlotContent)).cloned();
+    let comp = enclosing_component(doc, def)?;
     let owner = doc.get(comp).and_then(|c| c.parent).filter(|p| matches!(doc.get(*p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp);
 
     for holder_id in [owner, comp] {
         let Some(holder) = doc.get(holder_id) else { continue };
-        if let Some(ref pname) = prop_name {
-            if let Some(cfg) = holder.component.slot_configs.get(pname) {
-                return Some(cfg.clone());
+        let configs = &holder.component.slot_configs;
+        match &prop_name {
+            Some(pname) => {
+                if let Some(cfg) = configs.get(pname) {
+                    return Some(cfg.clone());
+                }
             }
-        }
-        if let Some((_, cfg)) = holder.component.slot_configs.iter().find(|(k, _)| k.eq_ignore_ascii_case(&n.name)) {
-            return Some(cfg.clone());
-        }
-        if holder.component.slot_configs.len() == 1 {
-            return holder.component.slot_configs.values().next().cloned();
+            None => {
+                if let Some((_, cfg)) = configs.iter().find(|(k, _)| k.eq_ignore_ascii_case(&dn.name)) {
+                    return Some(cfg.clone());
+                }
+            }
         }
     }
     None
+}
+
+/// True when `slot` is a visible empty slot container that should display an empty-slot placeholder
+/// (always true in a main component; governed by `display_by_default` in an instance).
+pub fn should_show_empty_slot_placeholder(doc: &Document, slot: NodeId) -> bool {
+    if !is_slot_container(doc, slot) {
+        return false;
+    }
+    let Some(n) = doc.get(slot) else { return false };
+    if !n.visible || !n.children.is_empty() {
+        return false;
+    }
+    if is_linked(n) || instance_root_of(doc, slot).is_some() {
+        slot_config_of(doc, slot).and_then(|c| c.display_by_default).unwrap_or(true)
+    } else {
+        true
+    }
+}
+
+/// Returns the list of candidate `Component` node ids to offer in the `+` instance picker for `slot`:
+/// when `SlotPropConfig::preferred` is non-empty, returns only those preferred components (expanding
+/// any preferred `ComponentSet` to its variants); otherwise returns all other components in `doc`.
+pub fn preferred_slot_components(doc: &Document, slot: NodeId) -> Vec<NodeId> {
+    if !is_slot_container(doc, slot) {
+        return Vec::new();
+    }
+    // A component cannot hold itself: leave out the component the slot sits in and the one that defines it.
+    let own: Vec<NodeId> = [Some(slot), slot_definition(doc, slot)].into_iter().flatten().filter_map(|id| enclosing_component(doc, id)).collect();
+    if let Some(cfg) = slot_config_of(doc, slot).filter(|c| !c.preferred.is_empty()) {
+        let mut out = Vec::new();
+        for pid in cfg.preferred {
+            let Some(pn) = doc.get(pid) else { continue };
+            match &pn.kind {
+                NodeKind::Component(_) if !own.contains(&pid) && !out.contains(&pid) => out.push(pid),
+                NodeKind::ComponentSet(_) => {
+                    for &cid in &pn.children {
+                        if !own.contains(&cid) && matches!(doc.get(cid).map(|c| &c.kind), Some(NodeKind::Component(_))) && !out.contains(&cid) {
+                            out.push(cid);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        return out;
+    }
+    let mut all: Vec<NodeId> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_)) && !own.contains(&n.id)).map(|n| n.id).collect();
+    all.sort_by(|a, b| {
+        let na = doc.get(*a).map(|n| n.name.as_str()).unwrap_or("");
+        let nb = doc.get(*b).map(|n| n.name.as_str()).unwrap_or("");
+        na.cmp(nb).then_with(|| a.0.cmp(&b.0))
+    });
+    all
 }
 
 /// Property definitions that apply to `comp`: its own plus those of its set.
@@ -993,11 +1063,23 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
     let rkids = c.s.get(ref_id).map(|x| x.children.clone()).unwrap_or_default();
     let ikids = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
     let child_holder = if matches!(inode.kind, NodeKind::Instance { .. }) { i } else { holder };
-    let by_src: BTreeMap<NodeId, NodeId> = ikids.iter().filter_map(|k| c.s.get(*k).and_then(|x| x.component.source).map(|s| (s, *k))).collect();
+    let mut by_src: BTreeMap<NodeId, NodeId> = BTreeMap::new();
+    for k in &ikids {
+        if let Some(s) = c.s.get(*k).and_then(|x| x.component.source) {
+            // In a slot the first mirror of a main child is the one kept; elsewhere the last one wins.
+            if in_slot {
+                by_src.entry(s).or_insert(*k);
+            } else {
+                by_src.insert(s, *k);
+            }
+        }
+    }
     let rset: BTreeSet<NodeId> = rkids.iter().copied().collect();
     for k in &ikids {
         let stale = match c.s.get(*k).map(|x| x.component.source) {
-            Some(Some(s)) => !rset.contains(&s),
+            // A slot without its own content mirrors the main slot exactly: a second node for a source
+            // that is already represented (a duplicated child keeps its `source`) is extra.
+            Some(Some(s)) => !rset.contains(&s) || (in_slot && by_src.get(&s) != Some(k)),
             // Slot content the user created has no counterpart in the main component.
             Some(None) => in_slot,
             None => false,
@@ -1327,9 +1409,31 @@ pub fn check_slot_remove(doc: &Document, slot: NodeId, removing_count: usize) ->
     Ok(())
 }
 
+/// Applies `stretchChildOnInsert` to `child` when `slot` is a slot container
+/// whose [`SlotPropConfig`] has `stretch_child_on_insert == Some(true)`.
+pub fn apply_slot_stretch_on_insert(doc: &Document, slot: NodeId, child: &mut Node) {
+    if slot_config_of(doc, slot).and_then(|cfg| cfg.stretch_child_on_insert) != Some(true) {
+        return;
+    }
+    let Some(sn) = doc.get(slot) else { return };
+    let (pad_l, pad_r, has_al) =
+        sn.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref()).map(|al| (al.padding[3], al.padding[1], true)).unwrap_or((0.0, 0.0, false));
+    let target_w = (sn.size.x - pad_l - pad_r).max(1.0);
+    child.layout_child.horizontal = Sizing::Fill;
+    child.size.x = target_w;
+    if !has_al {
+        child.transform.tx = pad_l;
+    }
+    if is_linked(child) || matches!(child.kind, NodeKind::Instance { .. }) {
+        child.component.overrides.insert(OverrideField::Size);
+        child.component.overrides.insert(OverrideField::Layout);
+    }
+}
+
 /// Inserts a subtree `nodes` (root first) into `slot` at `index`, validating [`SlotPropConfig`]
-/// constraints and recording `OverrideField::SlotContent` so the instance stays linked.
-pub fn insert_into_slot(doc: &mut Document, slot: NodeId, index: usize, nodes: Vec<Node>) -> Result<Command, SlotConstraintError> {
+/// constraints, stretching the inserted root when `stretch_child_on_insert` is set, and recording
+/// `OverrideField::SlotContent` so the instance stays linked.
+pub fn insert_into_slot(doc: &mut Document, slot: NodeId, index: usize, mut nodes: Vec<Node>) -> Result<Command, SlotConstraintError> {
     let Some(root) = nodes.first() else {
         if !is_slot_container(doc, slot) {
             return Err(SlotConstraintError::NotASlot(slot));
@@ -1337,6 +1441,9 @@ pub fn insert_into_slot(doc: &mut Document, slot: NodeId, index: usize, nodes: V
         return Ok(nothing());
     };
     check_slot_insert(doc, slot, &[root])?;
+    if let Some(root_mut) = nodes.first_mut() {
+        apply_slot_stretch_on_insert(doc, slot, root_mut);
+    }
     let mut c = Ctx::new(doc);
     if let Some(mut sn) = c.s.get(slot).cloned() {
         if is_linked(&sn) || instance_root_of(c.s, slot).is_some() {

@@ -486,6 +486,64 @@ fn editing_instance_slot_adds_reorders_and_removes_without_detaching_and_enforce
     assert_eq!(crate::remove_from_slot(&mut d, c1_id).unwrap_err(), crate::SlotConstraintError::MinChildren(1));
 }
 
+#[test]
+fn empty_slot_placeholder_preferred_picker_and_stretch_on_insert() {
+    let (mut d, comp, body, icon) = component_with_slot();
+    let page = d.pages[0];
+    let other_id = d.alloc_id();
+    let mut other = Node::frame(other_id, Rect::new(0.0, 40.0, 24.0, 24.0));
+    other.name = "Other".into();
+    let other = d.insert(page, other).unwrap();
+    create_component(&mut d, other).apply(&mut d).unwrap();
+
+    d.get_mut(body).unwrap().component.is_slot = true;
+    d.get_mut(body).unwrap().component.bindings.insert(crate::OverrideField::SlotContent, "Body".into());
+    d.get_mut(comp).unwrap().component.slot_configs.insert(
+        "Body".into(),
+        SlotPropConfig { display_by_default: Some(true), stretch_child_on_insert: Some(true), preferred: vec![icon], ..Default::default() },
+    );
+
+    create_instance(&mut d, comp, page, Vec2::new(400.0, 0.0)).apply(&mut d).unwrap();
+    let inst = instances_of(&d, comp)[0];
+    let inst_body = d.get(inst).unwrap().children[0];
+
+    // 1. Empty slot shows placeholder in main component and in instance when display_by_default is true/None.
+    assert!(crate::should_show_empty_slot_placeholder(&d, body));
+    assert!(crate::should_show_empty_slot_placeholder(&d, inst_body));
+
+    // When display_by_default is Some(false), the instance hides the empty-slot placeholder by default while main keeps it.
+    d.get_mut(comp).unwrap().component.slot_configs.get_mut("Body").unwrap().display_by_default = Some(false);
+    assert!(crate::should_show_empty_slot_placeholder(&d, body));
+    assert!(!crate::should_show_empty_slot_placeholder(&d, inst_body));
+    d.get_mut(comp).unwrap().component.slot_configs.get_mut("Body").unwrap().display_by_default = Some(true);
+
+    // 2. Preferred-instance picker lists only preferred components when set, and all other components when empty.
+    assert_eq!(crate::preferred_slot_components(&d, inst_body), vec![icon]);
+    d.get_mut(comp).unwrap().component.slot_configs.get_mut("Body").unwrap().preferred.clear();
+    let all_candidates = crate::preferred_slot_components(&d, inst_body);
+    assert!(all_candidates.contains(&icon) && all_candidates.contains(&other) && !all_candidates.contains(&comp));
+    d.get_mut(comp).unwrap().component.slot_configs.get_mut("Body").unwrap().preferred = vec![icon];
+
+    // 3. Inserting a child when stretch_child_on_insert is true stretches the child to the slot's inner width and sets Sizing::Fill.
+    let cmd = create_instance(&mut d, icon, page, Vec2::ZERO);
+    let nodes = match cmd {
+        crate::Command::Insert { nodes, .. } => nodes,
+        _ => panic!("expected Insert"),
+    };
+    let child_id = nodes[0].id;
+    crate::insert_into_slot(&mut d, inst_body, 0, nodes).unwrap().apply(&mut d).unwrap();
+    let child = d.get(child_id).unwrap();
+    assert_eq!(child.layout_child.horizontal, crate::Sizing::Fill);
+    assert_eq!(child.size.x, 200.0);
+    assert!(!crate::should_show_empty_slot_placeholder(&d, inst_body), "non-empty slot hides placeholder");
+
+    // Syncing the main component preserves the stretched width and Fill sizing on the inserted instance.
+    sync_instances(&mut d, comp).apply(&mut d).unwrap();
+    let child = d.get(child_id).unwrap();
+    assert_eq!(child.layout_child.horizontal, crate::Sizing::Fill);
+    assert_eq!(child.size.x, 200.0);
+}
+
 /// An instance whose slot frame holds the main component's default child "Default".
 fn instance_with_default_slot_child() -> (Document, NodeId, NodeId, NodeId, NodeId, NodeId) {
     let (mut d, comp, body, _icon) = component_with_slot();
@@ -584,4 +642,118 @@ fn a_swap_is_judged_on_the_count_the_slot_ends_with() {
     assert_eq!(crate::check_slot_replace(&d, body, 2, &refs[..1]).unwrap_err(), crate::SlotConstraintError::MinChildren(2));
     // a plain insert keeps the old rule: 2 + 1 > max.
     assert_eq!(crate::check_slot_insert(&d, body, &refs[..1]).unwrap_err(), crate::SlotConstraintError::MaxChildren(2));
+}
+
+/// A Card component holding its own "Content" slot and a nested Button instance whose "Icon" slot
+/// has different settings. Returns (doc, card, button, button_icon_preferred, nested_icon_slot).
+fn card_with_nested_button_slot() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+    let mut d = Document::new("nested-slots");
+    let page = d.add_page("P");
+    let frame = |d: &mut Document, parent: NodeId, name: &str, r: Rect| {
+        let id = d.alloc_id();
+        let mut n = Node::frame(id, r);
+        n.name = name.into();
+        d.insert(parent, n).unwrap()
+    };
+
+    let preferred = frame(&mut d, page, "Glyph", Rect::new(0.0, 0.0, 8.0, 8.0));
+    create_component(&mut d, preferred).apply(&mut d).unwrap();
+
+    let button = frame(&mut d, page, "Button", Rect::new(0.0, 20.0, 120.0, 40.0));
+    let icon = frame(&mut d, button, "Icon", Rect::new(0.0, 0.0, 120.0, 40.0));
+    create_component(&mut d, button).apply(&mut d).unwrap();
+    crate::convert_to_slot(&mut d, icon).apply(&mut d).unwrap();
+    crate::set_slot_config(
+        &mut d,
+        button,
+        "Icon",
+        SlotPropConfig {
+            display_by_default: Some(false),
+            stretch_child_on_insert: Some(true),
+            max_children: Some(1),
+            preferred: vec![preferred],
+            ..Default::default()
+        },
+    )
+    .apply(&mut d)
+    .unwrap();
+
+    let card = frame(&mut d, page, "Card", Rect::new(0.0, 100.0, 300.0, 200.0));
+    let content = frame(&mut d, card, "Content", Rect::new(0.0, 0.0, 300.0, 100.0));
+    create_component(&mut d, card).apply(&mut d).unwrap();
+    crate::convert_to_slot(&mut d, content).apply(&mut d).unwrap();
+    crate::set_slot_config(&mut d, card, "Content", SlotPropConfig { max_children: Some(5), ..Default::default() }).apply(&mut d).unwrap();
+    create_instance(&mut d, button, card, Vec2::new(0.0, 120.0)).apply(&mut d).unwrap();
+    sync_instances(&mut d, card).apply(&mut d).unwrap();
+
+    let nested_button = *d.get(card).unwrap().children.iter().find(|c| d.get(**c).unwrap().name == "Button").unwrap();
+    let nested_icon = d.get(nested_button).unwrap().children[0];
+    (d, card, button, preferred, nested_icon)
+}
+
+#[test]
+fn a_slot_in_a_nested_instance_takes_its_settings_from_the_nested_component() {
+    let (mut d, card, button, preferred, nested_icon) = card_with_nested_button_slot();
+    let want = d.get(button).unwrap().component.slot_configs.get("Icon").cloned().unwrap();
+
+    // Inside the Card component, the nested Button's Icon slot is governed by Button's settings,
+    // not by the Card's single "Content" entry.
+    assert_eq!(crate::slot_config_of(&d, nested_icon), Some(want.clone()));
+    assert!(!crate::should_show_empty_slot_placeholder(&d, nested_icon), "Button hides the empty Icon slot in instances");
+    assert_eq!(crate::preferred_slot_components(&d, nested_icon), vec![preferred]);
+
+    // The same holds in an instance of the Card.
+    let page = d.pages[0];
+    create_instance(&mut d, card, page, Vec2::new(500.0, 0.0)).apply(&mut d).unwrap();
+    let card_inst = instances_of(&d, card)[0];
+    let inst_button = *d.get(card_inst).unwrap().children.iter().find(|c| d.get(**c).unwrap().name == "Button").unwrap();
+    let inst_icon = d.get(inst_button).unwrap().children[0];
+    assert_eq!(crate::slot_config_of(&d, inst_icon), Some(want));
+    assert!(!crate::should_show_empty_slot_placeholder(&d, inst_icon));
+    assert_eq!(crate::preferred_slot_components(&d, inst_icon), vec![preferred]);
+
+    // Card's own slot still resolves to Card's settings.
+    let card_content = *d.get(card).unwrap().children.iter().find(|c| d.get(**c).unwrap().name == "Content").unwrap();
+    assert_eq!(crate::slot_config_of(&d, card_content).and_then(|c| c.max_children), Some(5));
+}
+
+#[test]
+fn a_bound_slot_without_settings_resolves_to_none_instead_of_the_only_entry_of_another_slot() {
+    let (mut d, card, _, _, nested_icon) = card_with_nested_button_slot();
+    // Button keeps a single entry, but for another slot: it must not stand in for the bound "Icon" slot.
+    let button = crate::enclosing_component(&d, d.get(nested_icon).unwrap().component.source.unwrap()).unwrap();
+    let configs = &mut d.get_mut(button).unwrap().component.slot_configs;
+    let only = configs.remove("Icon").unwrap();
+    configs.insert("Other".into(), only);
+    assert_eq!(crate::slot_config_of(&d, nested_icon), None);
+    assert_eq!(d.get(card).unwrap().component.slot_configs.len(), 1);
+}
+
+#[test]
+fn reset_drops_a_duplicate_of_a_mirrored_slot_child_and_a_main_sync_keeps_it_gone() {
+    let (mut d, comp, inst, inst_body, inst_default, main_default) = instance_with_default_slot_child();
+
+    // Duplicating a mirrored child keeps its `source`, so the copy points at the same main child.
+    let copy = crate::duplicate_subtree(&mut d, inst_default);
+    let copy_id = copy[0].id;
+    assert_eq!(copy[0].component.source, Some(main_default));
+    crate::insert_into_slot(&mut d, inst_body, 1, copy).unwrap().apply(&mut d).unwrap();
+    assert_eq!(d.get(inst_body).unwrap().children, vec![inst_default, copy_id]);
+
+    // While the slot overrides its content, a main-component sync leaves both children alone.
+    sync_instances(&mut d, comp).apply(&mut d).unwrap();
+    assert_eq!(d.get(inst_body).unwrap().children, vec![inst_default, copy_id], "edited slot content is kept");
+
+    // Reset: the slot holds exactly the main slot's children, with no second node for the same source.
+    crate::reset_overrides(&mut d, inst, &[crate::OverrideField::SlotContent]).apply(&mut d).unwrap();
+    let kids = d.get(inst_body).unwrap().children.clone();
+    let sources: Vec<Option<NodeId>> = kids.iter().map(|k| d.get(*k).unwrap().component.source).collect();
+    assert_eq!(sources, vec![Some(main_default)], "one mirrored child per main child, nothing extra");
+    assert!(d.get(copy_id).is_none(), "the duplicate is removed");
+    assert!(!d.get(inst_body).unwrap().component.overrides.contains(&crate::OverrideField::SlotContent));
+
+    // A later main-component sync keeps it that way.
+    sync_instances(&mut d, comp).apply(&mut d).unwrap();
+    let sources: Vec<Option<NodeId>> = d.get(inst_body).unwrap().children.iter().map(|k| d.get(*k).unwrap().component.source).collect();
+    assert_eq!(sources, vec![Some(main_default)]);
 }
