@@ -591,6 +591,21 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
 
+fn white_page(f: &mut Fx) {
+    f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+}
+
+fn place(f: &mut Fx, id: NodeId, x: f32, y: f32) {
+    let n = f.doc.get_mut(id).unwrap();
+    n.transform.tx = x;
+    n.transform.ty = y;
+}
+
+fn resize(f: &mut Fx, id: NodeId, w: f32, h: f32) {
+    f.doc.get_mut(id).unwrap().size = Vec2::new(w, h);
+}
+
 mod backdrop;
 mod fix_all;
+mod painted_behind;
 mod safety;

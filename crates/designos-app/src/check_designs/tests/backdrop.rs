@@ -3,21 +3,7 @@
 //! screen is not the plain composite the rule computes, so nothing is reported.
 
 use super::*;
-use designos_doc::{Affine, BlendMode, Vec2};
-
-fn white_page(f: &mut Fx) {
-    f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
-}
-
-fn place(f: &mut Fx, id: NodeId, x: f32, y: f32) {
-    let n = f.doc.get_mut(id).unwrap();
-    n.transform.tx = x;
-    n.transform.ty = y;
-}
-
-fn resize(f: &mut Fx, id: NodeId, w: f32, h: f32) {
-    f.doc.get_mut(id).unwrap().size = Vec2::new(w, h);
-}
+use designos_doc::{Affine, BlendMode};
 
 // ---------------------------------------------------------------- painted bounds
 

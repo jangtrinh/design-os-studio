@@ -4,9 +4,11 @@
 //! colour (no gradient, image, or per-run colours); no layer from the text up to the page may use a
 //! blend mode other than normal or pass-through (the renderer blends such a layer as a whole group,
 //! so the colours inside it are not what reaches the screen); every ancestor fill under the text
-//! must be solid with normal blending; and no visible layer painted before the text (a sibling of
-//! the text or of one of its ancestors) may overlap it, because what that layer paints behind the
-//! text is not modelled.
+//! must be solid with normal blending; no visible layer painted before the text (a sibling of the
+//! text or of one of its ancestors) may overlap it, by its own box or by anything painted in its
+//! subtree (a frame that does not clip draws its children wherever they sit, one that clips cuts
+//! them to its box); and no stroke band of an ancestor may lie under it. What those paint behind
+//! the text is not modelled, so such text is neither reported nor fixed.
 //!
 //! An ancestor fill counts only where it is painted: the layer's own box. A frame that does not
 //! clip lets a child sit outside it, so a fill that does not reach the text is not its backdrop and
@@ -18,7 +20,7 @@
 //! is one isolated group, so its opacity scales everything inside it, the text included.
 
 use super::{Finding, Fix, Rule};
-use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, Vec2};
+use designos_doc::{resolved_node, BlendMode, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, StrokeAlign, Vec2};
 
 fn linear(v: f32) -> f64 {
     let v = f64::from(v.clamp(0.0, 1.0));
@@ -192,6 +194,11 @@ fn backdrop(doc: &Document, id: NodeId) -> Option<Backdrop> {
             how = Reach::Covers;
         }
         corners = up(&here);
+        // The renderer paints a layer's stroke over its fill and under its children: a stroke band
+        // under the text is a backdrop this chain does not describe.
+        if stroke_under(&n, &here) {
+            return None;
+        }
         let mut fills = Vec::new();
         if n.fills.iter().any(|p| p.visible) {
             match how {
@@ -220,22 +227,94 @@ fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
     Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
+/// Nodes one text check may look at in earlier siblings' subtrees. Past it the backdrop is unknown.
+const SUBTREE_BUDGET: usize = 4096;
+
+/// Whether `n` paints anything itself: a visible fill or stroke with some alpha, visible text, or a
+/// visible effect (which may reach beyond the box).
+fn paints_something(n: &Node) -> bool {
+    let seen = |p: &Paint| p.visible && p.opacity > 0.0 && !matches!(&p.kind, PaintKind::Solid(c) if c.a <= 0.0);
+    let text = matches!(&n.kind, NodeKind::Text(t) if !t.content.trim().is_empty() && t.style.fills.iter().any(seen));
+    n.fills.iter().any(seen) || (n.stroke.weight > 0.0 && n.stroke.paints.iter().any(seen)) || n.effects.iter().any(|e| e.visible()) || text
+}
+
+/// `b` cut down to `clip`; `None` when nothing is left.
+fn clipped(b: Rect, clip: Option<Rect>) -> Option<Rect> {
+    let Some(c) = clip else { return Some(b) };
+    let (x0, y0, x1, y1) = (b.x.max(c.x), b.y.max(c.y), (b.x + b.w).min(c.x + c.w), (b.y + b.h).min(c.y + c.h));
+    (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
+}
+
+/// Whether `id` or a descendant paints where `text_box` is. A frame that does not clip draws its
+/// children wherever they sit, so a small earlier sibling can still paint under the text; a frame
+/// that clips cuts its children to its own box.
+fn subtree_paints_over(doc: &Document, id: NodeId, text_box: &Rect, clip: Option<Rect>, budget: &mut usize) -> bool {
+    let Some(n) = doc.get(id) else { return false };
+    if !n.visible || n.opacity <= 0.0 {
+        return false;
+    }
+    if *budget == 0 {
+        return true;
+    }
+    *budget -= 1;
+    let Some(own) = page_box(doc, id) else { return true };
+    let Some(shown) = clipped(own, clip) else { return false };
+    if paints_something(n) && shown.intersects(text_box) {
+        return true;
+    }
+    let clips = n.kind.frame_props().is_some_and(|f| f.clips_content);
+    let below = if clips { Some(shown) } else { clip };
+    n.children.iter().any(|c| subtree_paints_over(doc, *c, text_box, below, budget))
+}
+
 /// Whether a visible layer painted before `id` (an earlier sibling of it or of any ancestor) covers
-/// part of it. Such a layer is behind the text and the ancestor chain does not describe it.
+/// part of it, by its own box or by anything in its subtree. Such a layer is behind the text and the
+/// ancestor chain does not describe it.
 fn has_layer_behind(doc: &Document, id: NodeId) -> bool {
     let Some(text_box) = page_box(doc, id) else { return true };
+    let mut budget = SUBTREE_BUDGET;
     let mut cur = id;
     while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
         let Some(p) = doc.get(parent) else { return true };
         for sibling in p.children.iter().take_while(|s| **s != cur) {
             let Some(s) = doc.get(*sibling) else { continue };
-            if s.visible && s.opacity > 0.0 && page_box(doc, *sibling).is_some_and(|b| b.intersects(&text_box)) {
+            if !s.visible || s.opacity <= 0.0 {
+                continue;
+            }
+            if page_box(doc, *sibling).is_some_and(|b| b.intersects(&text_box)) {
+                return true;
+            }
+            // A clipping sibling paints nothing outside its own box, which does not reach the text.
+            let clips = s.kind.frame_props().is_some_and(|f| f.clips_content);
+            if !clips && s.children.iter().any(|c| subtree_paints_over(doc, *c, &text_box, None, &mut budget)) {
                 return true;
             }
         }
         cur = parent;
     }
     false
+}
+
+/// Whether a painted stroke of layer `n` lies under `corners`, the text box in the layer's own
+/// space. The stroke is a band along the layer's edge: inside, centred on it, or outside it. Text
+/// is under the band when it reaches the band's outer edge without lying wholly within its inner
+/// edge, so text nowhere near the stroke is not.
+fn stroke_under(n: &Node, corners: &[Vec2; 4]) -> bool {
+    let painted = n.stroke.paints.iter().any(|p| p.visible && p.opacity > 0.0 && !matches!(&p.kind, PaintKind::Solid(c) if c.a <= 0.0));
+    if n.stroke.weight <= 0.0 || !painted {
+        return false;
+    }
+    let weight = n.stroke.side_weights.map_or(n.stroke.weight, |s| s.into_iter().fold(0.0, f32::max));
+    // How far the band reaches into the layer and beyond its edge.
+    let (inset, reach) = match n.stroke.align {
+        StrokeAlign::Inside => (weight, 0.0),
+        StrokeAlign::Center => (weight / 2.0, weight / 2.0),
+        StrokeAlign::Outside => (0.0, weight),
+    };
+    let (x0, x1, y0, y1) = bounds(corners);
+    let reaches_band = x1 > -reach && y1 > -reach && x0 < n.size.x + reach && y0 < n.size.y + reach;
+    let inside_band = x0 >= inset && y0 >= inset && x1 <= n.size.x - inset && y1 <= n.size.y - inset;
+    reaches_band && !inside_band
 }
 
 /// The text's single visible solid paint: its index and colour. `None` for anything mixed.
