@@ -1560,6 +1560,7 @@ fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
         node((1, 11), (1, 10), "!", "RECTANGLE", "ChildCenter", json!({"stackChildAlignSelf": "CENTER"})),
         node((1, 12), (1, 10), "\"", "RECTANGLE", "ChildMax", json!({"stackChildAlignSelf": "MAX"})),
         node((1, 13), (1, 10), "#", "RECTANGLE", "ChildMin", json!({"stackChildAlignSelf": "MIN"})),
+        node((1, 14), (1, 10), "$", "RECTANGLE", "ChildBaseline", json!({"stackChildAlignSelf": "BASELINE"})),
     ]);
     let mut doc = import_fig_node_changes(&changes, "AlignSelfDoc").expect("import AlignSelfDoc");
     let row_id = find(&doc, "Row").id;
@@ -1571,6 +1572,8 @@ fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
     assert_eq!(c_center.layout_child.align_self, AlignSelf::Center);
     assert_eq!(c_max.layout_child.align_self, AlignSelf::End);
     assert_eq!(c_min.layout_child.align_self, AlignSelf::Start);
+    // BASELINE is stored even though the solver does not align baselines yet
+    assert_eq!(find(&doc, "ChildBaseline").layout_child.align_self, AlignSelf::Baseline);
     assert_eq!((c_center.transform.tx, c_center.transform.ty), (0.0, 40.0));
     assert_eq!((c_max.transform.tx, c_max.transform.ty), (40.0, 80.0));
     assert_eq!((c_min.transform.tx, c_min.transform.ty), (80.0, 0.0));
@@ -1585,6 +1588,7 @@ fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
     assert_eq!(rt_center.layout_child.align_self, AlignSelf::Center);
     assert_eq!(rt_max.layout_child.align_self, AlignSelf::End);
     assert_eq!(rt_min.layout_child.align_self, AlignSelf::Start);
+    assert_eq!(find(&rt, "ChildBaseline").layout_child.align_self, AlignSelf::Baseline);
     assert_eq!((rt_center.transform.tx, rt_center.transform.ty), (0.0, 40.0));
     assert_eq!((rt_max.transform.tx, rt_max.transform.ty), (40.0, 80.0));
     assert_eq!((rt_min.transform.tx, rt_min.transform.ty), (80.0, 0.0));

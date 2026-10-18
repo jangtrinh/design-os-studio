@@ -141,14 +141,21 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
     }
     let main_avail = (frame_main - pm).max(0.0);
 
-    // Cross extent of each line.
+    // Cross extent of each line. Children that stretch to the line do not size it, except when nothing
+    // else does: an `align_self` stretch child then keeps its natural extent as the line size, so a
+    // hugging frame whose children all stretch does not fold to its padding.
     let mut line_cross: Vec<f32> = lines
         .iter()
         .map(|l| {
-            l.iter()
+            let plain = l
+                .iter()
                 .filter(|i| !(kids[**i].cross_fill || kids[**i].align_self == AlignSelf::Stretch) || al.wrap)
                 .map(|i| nat_cross(&kids[*i]))
-                .fold(0.0, f32::max)
+                .fold(0.0, f32::max);
+            if plain > 0.0 {
+                return plain;
+            }
+            l.iter().filter(|i| kids[**i].align_self == AlignSelf::Stretch).map(|i| nat_cross(&kids[*i])).fold(plain, f32::max)
         })
         .collect();
     // Does the frame's cross extent exceed what its lines need (a Fixed frame, or a hugging one raised by its minimum)?
@@ -269,6 +276,8 @@ pub fn compute(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) 
                 AlignSelf::Start | AlignSelf::Stretch => 0.0,
                 AlignSelf::Center => (line_cross[li] - c) / 2.0,
                 AlignSelf::End => line_cross[li] - c,
+                // Baseline is stored (and round-trips through .fig) but baselines are not aligned yet:
+                // it behaves like Auto and inherits the frame's counter_align.
                 AlignSelf::Auto | AlignSelf::Baseline => match al.counter_align {
                     LayoutAlign::Center => (line_cross[li] - c) / 2.0,
                     LayoutAlign::End => line_cross[li] - c,

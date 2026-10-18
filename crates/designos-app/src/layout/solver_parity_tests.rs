@@ -685,6 +685,89 @@ fn align_self_children_sit_at_literal_cross_axis_positions_in_flow_frames() {
     assert_eq!(v_solved.kids[2], [40.0, 30.0, 20.0, 15.0]);
 }
 
+fn stretch() -> impl FnOnce(&mut LayoutChild) {
+    |lc| lc.align_self = AlignSelf::Stretch
+}
+
+#[test]
+fn hugging_cross_axis_keeps_a_lone_stretch_childs_natural_size() {
+    // every in-flow child stretches: the line is as tall as the tallest natural size, not 0
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 20.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 20.0]);
+
+    // padding wraps the natural line
+    al.padding = [5.0, 0.0, 7.0, 0.0];
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 32.0));
+    assert_eq!(solved.kids[0], [0.0, 5.0, 30.0, 20.0]);
+
+    // the vertical mirror hugs the width
+    let mut al = auto(LayoutDirection::Vertical, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al, v2(1.0, 100.0), &[kid_with(20.0, 30.0, stretch())]);
+    assert_eq!(solved.frame, (20.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 20.0, 30.0]);
+}
+
+#[test]
+fn hugging_cross_axis_stretches_every_stretch_child_to_the_tallest_natural_size() {
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    al.item_spacing = 4.0;
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch()), kid_with(30.0, 100.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 100.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 100.0]);
+    assert_eq!(solved.kids[1], [34.0, 0.0, 30.0, 100.0]);
+
+    // a child's own cross maximum still caps the natural size that measures the line
+    let capped = kid_with(30.0, 20.0, |lc| {
+        lc.align_self = AlignSelf::Stretch;
+        lc.max_h = Some(15.0);
+    });
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[capped]);
+    assert_eq!(solved.frame, (100.0, 15.0));
+    assert_eq!(solved.kids[0], [0.0, 0.0, 30.0, 15.0]);
+}
+
+#[test]
+fn hugging_cross_axis_is_sized_by_a_non_stretch_sibling_when_there_is_one() {
+    // the plain 50-high sibling sizes the line; the 20-high stretch child grows to it
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 50.0), kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 50.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // a taller stretch child does not drive the frame while a plain sibling sizes the line
+    let solved = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 10.0), kid_with(30.0, 100.0, stretch())]);
+    assert_eq!(solved.frame, (100.0, 10.0));
+    assert_eq!(solved.kids[1], [30.0, 0.0, 30.0, 10.0]);
+}
+
+#[test]
+fn hugging_cross_axis_shrinks_back_when_the_tallest_plain_sibling_shrinks() {
+    // the stretch child's stored height is the previous solve's output; it must not hold the frame up
+    let mut al = auto(LayoutDirection::Horizontal, LayoutAlign::Start);
+    al.counter_sizing = Sizing::Hug;
+    let first = solve_everywhere(al, v2(100.0, 1.0), &[kid(30.0, 100.0), kid_with(30.0, 20.0, stretch())]);
+    assert_eq!(first.frame, (100.0, 100.0));
+    assert_eq!(first.kids[1][3], 100.0);
+
+    let stored = first.kids[1][3];
+    let again = solve_everywhere(al, v2(100.0, first.frame.1), &[kid(30.0, 50.0), kid_with(30.0, stored, stretch())]);
+    assert_eq!(again.frame, (100.0, 50.0));
+    assert_eq!(again.kids[1], [30.0, 0.0, 30.0, 50.0]);
+
+    // all-stretch children re-solve to the same frame instead of growing it
+    let all = solve_everywhere(al, v2(100.0, 1.0), &[kid_with(30.0, 20.0, stretch()), kid_with(30.0, 100.0, stretch())]);
+    let stored = |i: usize| all.kids[i][3];
+    let settled = solve_everywhere(al, v2(100.0, all.frame.1), &[kid_with(30.0, stored(0), stretch()), kid_with(30.0, stored(1), stretch())]);
+    assert_eq!(settled, all);
+}
+
 #[test]
 fn nested_container_resized_by_parent_fill_resolves_its_own_children() {
     // Parent Fixed 300x100 (padding 10, gap 20) holds a Fixed 40x30 child and a nested auto-layout
