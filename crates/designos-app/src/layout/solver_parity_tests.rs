@@ -1134,3 +1134,67 @@ fn grid_child_aligns_horizontally_and_vertically_within_its_cell() {
     assert_eq!(solved.kids[2], [60.0, 190.0, 40.0, 20.0]);
     assert_eq!(solved.kids[3], [110.0, 190.0, 100.0, 20.0]);
 }
+
+#[test]
+fn grid_child_larger_than_its_cell_overflows_like_the_flow_cross_axis() {
+    use designos_doc::GridChildAlign;
+
+    // One 100x100 cell holding a 160x40 child: the slack is negative on x (-60) and positive on y (60).
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+    let centered = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Center;
+        lc.grid_align_v = GridChildAlign::Center;
+    });
+    let ended = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::End;
+        lc.grid_align_v = GridChildAlign::End;
+    });
+    let started = kid(160.0, 40.0);
+    // Centre overflows evenly on both sides (x = -30), End overflows past the near edge only (x = -60), Start stays pinned.
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[centered]).kids[0], [-30.0, 30.0, 160.0, 40.0]);
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[ended]).kids[0], [-60.0, 60.0, 160.0, 40.0]);
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[started]).kids[0], [0.0, 0.0, 160.0, 40.0]);
+
+    // Auto follows the frame's alignment, so a Center frame overflows the same way.
+    al.primary_align = LayoutAlign::Center;
+    al.counter_align = LayoutAlign::Center;
+    let auto_child = kid_with(160.0, 40.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Auto;
+        lc.grid_align_v = GridChildAlign::Auto;
+    });
+    assert_eq!(solve_everywhere(al, v2(100.0, 100.0), &[auto_child]).kids[0], [-30.0, 30.0, 160.0, 40.0]);
+}
+
+#[test]
+fn grid_child_with_auto_alignment_inherits_the_frame_alignment_on_each_axis() {
+    use designos_doc::GridChildAlign;
+
+    let auto_kid = || {
+        kid_with(40.0, 20.0, |lc| {
+            lc.grid_align_h = GridChildAlign::Auto;
+            lc.grid_align_v = GridChildAlign::Auto;
+        })
+    };
+    let mut al = grid(1);
+    al.grid_rows = 1;
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(100.0);
+
+    // A Start frame leaves an Auto child at the cell origin.
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[auto_kid()]).kids[0], [0.0, 0.0, 40.0, 20.0]);
+
+    // Primary (columns, x) Center and counter (rows, y) End: the Auto child centres on x and ends on y.
+    al.primary_align = LayoutAlign::Center;
+    al.counter_align = LayoutAlign::End;
+    assert_eq!(solve_everywhere(al.clone(), v2(100.0, 100.0), &[auto_kid()]).kids[0], [30.0, 80.0, 40.0, 20.0]);
+
+    // An explicit Start on one axis overrides the frame; the other axis still inherits.
+    let start_h = kid_with(40.0, 20.0, |lc| {
+        lc.grid_align_h = GridChildAlign::Start;
+        lc.grid_align_v = GridChildAlign::Auto;
+    });
+    assert_eq!(solve_everywhere(al, v2(100.0, 100.0), &[start_h]).kids[0], [0.0, 80.0, 40.0, 20.0]);
+}

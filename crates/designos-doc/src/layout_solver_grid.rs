@@ -185,8 +185,11 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     LayoutOut { frame: Vec2::new(out_w, out_h), rects }
 }
 
+/// Offset of a child from its cell's near edge on one axis. `Auto` follows the frame's alignment on
+/// that axis. The slack is negative when the child is larger than its cell, so Center overflows both
+/// sides evenly and End overflows past the near edge, as the flow solver does across its lines.
 fn cell_offset(child_align: GridChildAlign, container_align: LayoutAlign, cell_extent: f32, child_extent: f32) -> f32 {
-    let slack = (cell_extent - child_extent).max(0.0);
+    let slack = cell_extent - child_extent;
     match child_align {
         GridChildAlign::Start => 0.0,
         GridChildAlign::Center => slack * 0.5,
