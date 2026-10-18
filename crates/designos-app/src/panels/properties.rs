@@ -2544,4 +2544,27 @@ mod tests {
         assert_eq!(n.layout_child.align_self, AlignSelf::Stretch);
         assert_eq!(n.size.y, 100.0);
     }
+
+    #[test]
+    fn margin_inspector_section_renders_in_running_frame_only_when_margins_are_set() {
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        app.selection = vec![cid];
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let raw = egui::RawInput { screen_rect: Some(region), ..Default::default() };
+
+        // With zero margins, the Margin fields are not drawn.
+        let _ = ctx.run_ui(raw.clone(), |ui| show(&mut app, ui, region));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        assert!(field_rect(&ctx, "margin-l").is_none());
+
+        // With non-zero margins on the child, all four margin fields render in the Layout section.
+        app.doc.get_mut(cid).unwrap().layout_child.margin = [4.0, 8.0, 12.0, 16.0];
+        let _ = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+        for key in ["margin-l", "margin-r", "margin-t", "margin-b"] {
+            assert!(field_rect(&ctx, key).is_some(), "expected {key} field to render in properties panel");
+        }
+    }
 }
