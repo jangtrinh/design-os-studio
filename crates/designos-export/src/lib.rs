@@ -8,8 +8,8 @@
 //!   other Dev Mode languages (Figma's native set is CSS, SwiftUI, UIKit, Compose and Android XML).
 //!
 //! [`export_pdf`] exports ordered frames (deck slides or selected design frames) as
-//! losslessly compressed raster PDF pages, one page per frame. Pages preserve frame
-//! dimensions and artwork; text is not selectable.
+//! vector PDF 1.4 pages, one page per frame. Pages preserve frame dimensions,
+//! vector paths, gradients, clipping masks, and selectable text runs.
 
 mod android_xml;
 mod bounds;

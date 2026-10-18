@@ -203,6 +203,8 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let spec: designos_doc::NodeSpec = serde_json::from_str(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
         let root_id = doc.apply_spec(parent, &spec)?;
+        // no window drains the deferred layout here, and the queue is not part of the file
+        doc.flush_pending_relayout();
         save_target.save(&doc)?;
         let out = serde_json::json!({ "root_node_id": root_id.0, "saved": true });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());

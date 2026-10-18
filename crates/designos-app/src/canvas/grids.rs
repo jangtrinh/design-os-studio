@@ -51,7 +51,7 @@ pub fn format_grid_track(track: GridTrack) -> String {
 /// Computes the 2D CSS Grid cell rects, column/row tracks, padding, and gaps for `LayoutDirection::Grid`.
 pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, child_sizes: &[DV], spans: &[(u16, u16)]) -> CssGridOverlay {
     let [pt, pr, pb, pl] = al.padding;
-    let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, 16);
+    let cols = (if al.grid_columns > 0 { al.grid_columns as usize } else { 3 }).clamp(1, designos_doc::MAX_GRID_TRACKS);
     let col_gap = al.item_spacing.max(0.0);
     let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
 
@@ -63,7 +63,7 @@ pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, child_sizes: &[
     for idx in 0..child_sizes.len() {
         let (cs, rs) = spans.get(idx).copied().unwrap_or((1, 1));
         let c_span = (cs.max(1) as usize).min(cols);
-        let r_span = (rs.max(1) as usize).min(16);
+        let r_span = (rs.max(1) as usize).min(designos_doc::MAX_GRID_TRACKS);
         let mut r = 0usize;
         let placed = loop {
             while occupied.len() < r + r_span {
@@ -103,7 +103,7 @@ pub fn compute_css_grid_overlay(al: &AutoLayout, frame_size: DV, child_sizes: &[
     }
 
     let default_rows = if child_sizes.is_empty() { 2 } else { 1 };
-    let rows = max_row.max(al.grid_rows as usize).max(default_rows).clamp(1, 16);
+    let rows = max_row.max(al.grid_rows as usize).max(default_rows).clamp(1, designos_doc::MAX_GRID_TRACKS);
 
     // Resolve column widths from `grid_col_tracks` + `frame_size.x`.
     let inner_w = (frame_size.x - pl - pr - col_gap * (cols.saturating_sub(1) as f32)).max(0.0);
@@ -431,7 +431,7 @@ mod tests {
             item_spacing: 16.0,
             counter_spacing: 12.0,
             padding: [20.0, 24.0, 20.0, 24.0],
-            grid_col_tracks: tracks,
+            grid_col_tracks: tracks.into(),
             ..AutoLayout::default()
         };
         // Frame width = 24 + 120 + 16 + 100 + 16 + 200 + 24 = 500
