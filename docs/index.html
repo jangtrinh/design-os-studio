@@ -20,12 +20,12 @@
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The words Own your design canvas over a frame of DESIGN:OS Studio with a large file open on its canvas.">
+<meta property="og:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="DESIGN:OS Studio: own your design canvas">
 <meta name="twitter:description" content="A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code or Codex edit your canvas. MIT or Apache-2.0.">
 <meta name="twitter:image" content="https://jangtrinh.github.io/design-os-studio/images/og-designos-studio.png">
-<meta name="twitter:image:alt" content="The words Own your design canvas over a frame of DESIGN:OS Studio with a large file open on its canvas.">
+<meta name="twitter:image:alt" content="The words Own your design canvas next to a pricing section that a coding agent added to a file open in DESIGN:OS Studio.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet">
@@ -36,13 +36,13 @@
     {
       "@type": "SoftwareSourceCode",
       "name": "DESIGN:OS Studio",
-      "description": "A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code, Codex, Gemini CLI or Antigravity edit the open canvas through a bundled MCP server.",
+      "description": "A native design editor in Rust. Open and save Figma .fig files, paste from Figma desktop, and let Claude Code, Codex or Antigravity edit the open canvas through a bundled MCP server.",
       "url": "https://jangtrinh.github.io/design-os-studio/",
       "codeRepository": "https://github.com/jangtrinh/design-os-studio",
       "programmingLanguage": "Rust",
       "license": "https://opensource.org/licenses/MIT",
       "author": { "@type": "Person", "name": "jangtrinh", "url": "https://github.com/jangtrinh" },
-      "keywords": "design editor, figma fig files, mcp server, claude code, codex, gemini cli, antigravity, wgpu, rust"
+      "keywords": "design editor, figma fig files, mcp server, claude code, codex, antigravity, wgpu, rust"
     },
     {
       "@type": "FAQPage",
@@ -60,7 +60,7 @@
         {
           "@type": "Question",
           "name": "How do coding agents work with it?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server with 22 tools. Claude Code, Codex, Gemini CLI and Antigravity can use it. Agent edits replay into your open document, wait while you drag, and count as one undo step per batch." }
+          "acceptedAnswer": { "@type": "Answer", "text": "Studio bundles designos-mcp, a local MCP server with 22 tools. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step." }
         },
         {
           "@type": "Question",
@@ -385,7 +385,7 @@ kbd{padding:2px 8px;border-radius:var(--r-sm);background:var(--surface);box-shad
            data-portrait-src, data-portrait-poster); the script reads them from that line. -->
       <figure id="film" class="film" data-playing="true">
         <div class="film-stage">
-          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-promo-16x9-poster.png" data-portrait-src="videos/designos-studio-promo-9x16.mp4" data-portrait-poster="videos/designos-studio-promo-9x16-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio promo film"><source src="videos/designos-studio-promo-16x9.mp4" type="video/mp4">
+          <video id="film-video" width="1920" height="1080" poster="videos/designos-studio-v030-16x9-poster.png" data-portrait-src="videos/designos-studio-v030-9x16.mp4" data-portrait-poster="videos/designos-studio-v030-9x16-poster.png" autoplay muted loop playsinline preload="metadata" controls aria-label="DESIGN:OS Studio 0.3.0 launch film"><source src="videos/designos-studio-v030-16x9.mp4" type="video/mp4">
             <p>This browser cannot play the film.</p>
           </video>
           <button type="button" class="film-play" id="film-play" hidden><span><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg>Play film</span></button>
@@ -399,7 +399,7 @@ kbd{padding:2px 8px;border-radius:var(--r-sm);background:var(--surface);box-shad
             <svg class="ico i-pause" aria-hidden="true"><use href="#i-pause"/></svg><svg class="ico i-play" aria-hidden="true"><use href="#i-play"/></svg>
             <span id="film-toggle-label">Pause</span>
           </button>
-          <p>Promo film. It starts muted and loops.</p>
+          <p>0.3.0 launch film. It starts muted and loops.</p>
         </div>
       </figure>
     </div>
@@ -431,18 +431,18 @@ kbd{padding:2px 8px;border-radius:var(--r-sm);background:var(--surface);box-shad
       <p class="lead">Studio bundles <code>designos-mcp</code>, a local server with 22 tools. Point your coding agent at it and it works on the document you have open.</p>
       <div class="split">
         <figure class="media">
-          <a class="shot" href="images/agent-builds-on-open-canvas.png" data-size="1600 × 900">
-            <img src="images/agent-builds-on-open-canvas.png" width="1600" height="900" loading="lazy" alt="DESIGN:OS Studio with a coding agent terminal on the left reporting that it built a pricing card with one apply-spec call, and the finished 480 by 422 pricing card selected on the canvas on the right">
+          <a class="shot" href="images/agent-edits-open-file-030.png" data-size="1160 × 912">
+            <img src="images/agent-edits-open-file-030.png" width="1160" height="912" loading="lazy" alt="A DESIGN:OS Studio canvas with a file from the Untitled UI kit open: under the kit's purple header, a 1440 by 883 pricing section that a coding agent added, with a billing toggle and three plan cards, Basic, Business and Enterprise">
           </a>
-          <figcaption><strong>An agent builds a pricing card</strong> on the open canvas with one <code>designos_apply_spec</code> call. A still from the promo film.</figcaption>
+          <figcaption><strong>An agent adds a pricing section</strong> to the file you have open. Antigravity with Gemini 4 Argon, through <code>designos-mcp</code>. A still from the launch film.</figcaption>
         </figure>
         <div>
           <ul class="points">
             <li><strong>Edits replay into your document.</strong><span>They land as node operations, so the rest of a large file stays intact.</span></li>
             <li><strong>Agents wait while you work.</strong><span>An edit holds while you drag or edit text, then lands.</span></li>
-            <li><strong>One undo step per batch.</strong><span>The new layer is selected and your view stays where it was.</span></li>
+            <li><strong>Every agent edit is its own undo.</strong><span>The new layer is selected and your view stays where it was.</span></li>
           </ul>
-          <p class="agents"><i aria-hidden="true"></i>Works with Claude Code, Codex, Gemini CLI and Antigravity.</p>
+          <p class="agents"><i aria-hidden="true"></i>Built-in presets for Claude Code, Codex and Antigravity.</p>
         </div>
       </div>
     </div>
@@ -590,7 +590,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         </details>
         <details>
           <summary>How do coding agents work with it?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-          <p>Studio bundles <code>designos-mcp</code>, a local MCP server with 22 tools. Claude Code, Codex, Gemini CLI and Antigravity can use it. Agent edits replay into your open document, wait while you drag, and count as one undo step per batch.</p>
+          <p>Studio bundles <code>designos-mcp</code>, a local MCP server with 22 tools. Studio has built-in presets for Claude Code, Codex and Antigravity. Agent edits replay into your open document, wait while you drag, and each one is its own undo step.</p>
         </details>
         <details>
           <summary>Which systems does it run on?<svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
@@ -624,7 +624,7 @@ rm -rf /tmp/design-os-studio</code></pre></div>
         </ul>
       </nav>
     </div>
-    <div class="legal"><p>DESIGN:OS Studio is an independent open-source project. Figma is a trademark of Figma, Inc.</p></div>
+    <div class="legal"><p>DESIGN:OS Studio is an independent open-source project. Figma is a trademark of Figma, Inc. Demo content in the film and screenshots: Untitled UI PRO v8.0 kit by Untitled UI.</p></div>
   </div>
 </footer>
 
