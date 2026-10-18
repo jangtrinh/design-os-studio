@@ -32,6 +32,11 @@ Pack **Components** ([milestone v0.5 Components](https://github.com/jangtrinh/de
   - Resized instances apply Stretch and Scale constraints to their children (#522).
 - **Paste from Figma** remaps slot and instance-swap ids and drops unknown ones (#109).
 - **Styles.** Applying a colour style recolours every text run, in one undo step (#68).
+- **Agent tabs.**
+  - Antigravity and Grok tabs start again: Studio registers its MCP server in the way each CLI accepts (#642, #646).
+  - Claude, Grok and Antigravity tabs load the session hooks; Codex tabs keep the existing status detection (#647). The designos-studio skill and rules are reachable from every tab (#648).
+  - Codex tabs and Agent Chat pass the session folder and workspace to designos-mcp (#649).
+  - A tab that fails to start shows the cause and a way to continue (#650).
 - Windows CI: terminal tests use the system temp folder (#581).
 
 ## [0.4.1] - 2026-10-19
