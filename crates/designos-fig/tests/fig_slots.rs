@@ -269,3 +269,25 @@ fn preferred_components_without_a_slot_config_survive_a_fig_round_trip() {
     let icon = find(&rt, "Icon").id;
     assert_eq!(find(&rt, "Panel").component.slot_configs.get("Body"), Some(&SlotPropConfig { preferred: vec![icon], ..Default::default() }));
 }
+
+#[test]
+fn raw_numeric_slot_entries_are_rejected_and_do_not_bind_unrelated_nodes() {
+    let mut fixture = kiwi_fixture();
+    let arr = fixture.as_array_mut().unwrap();
+    // Instance (1, 2) assigns SLOT prop (7, 1) with raw numbers "1" (Page), "2" (Panel), "999" (non-existent),
+    // alongside valid GUID "1:1" (Card).
+    arr[6]["componentPropAssignments"] = json!([
+        {
+            "defID": g(7, 1),
+            "value": { "textValue": { "characters": "1, 2, 1:1, 999" } }
+        }
+    ]);
+    let doc = import_fig_node_changes(&fixture, "t").unwrap();
+    let card_id = find(&doc, "Card").id;
+    let inst = find(&doc, "Panel copy");
+    assert_eq!(
+        inst.component.values.get("Body"),
+        Some(&PropValue::Slot(vec![card_id])),
+        "raw numbers in a SLOT list must be rejected instead of aliasing internal NodeIds"
+    );
+}
