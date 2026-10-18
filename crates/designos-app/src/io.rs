@@ -127,13 +127,15 @@ fn load_path_importing_pen_with(
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
             match designos_fig::import_rest_json(&text) {
                 Ok(mut d) => {
-                    if let Ok((clean, replaced)) = d.to_json_counted() {
-                        if replaced > 0 {
-                            if let Ok(reloaded) = Document::from_json(&clean) {
-                                d = reloaded;
-                            }
-                            warning = non_finite_notice_once(path, replaced);
+                    // A number that overflowed `f32` on import is infinity here. Counting walks the
+                    // document without building any text; only a file that has such numbers pays for
+                    // the serialization that replaces them.
+                    let replaced = d.count_non_finite().unwrap_or(0);
+                    if replaced > 0 {
+                        if let Some(reloaded) = d.to_json_counted().ok().and_then(|(clean, _)| Document::from_json(&clean).ok()) {
+                            d = reloaded;
                         }
+                        warning = non_finite_notice_once(path, replaced);
                     }
                     d
                 }
@@ -243,16 +245,29 @@ pub fn clear_pending_repair_backup(path: &Path) {
 
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
+    let (p, replaced) = save_path_counted(doc, path)?;
+    if replaced > 0 {
+        eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
+    }
+    Ok(p)
+}
+
+/// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
+/// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
+pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), String> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
     }
+    let mut replaced = 0;
     let payload = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
         designos_fig::export_fig(doc).map_err(|e| format!("Cannot export .fig: {e}"))?
     } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pen")) {
         designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes()
     } else {
-        doc.to_json().map_err(|e| format!("Cannot serialize: {e}"))?.into_bytes()
+        let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
+        replaced = n;
+        json.into_bytes()
     };
 
     let wrote_backup = write_pending_repair_backup(&p)?;
@@ -260,7 +275,7 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
     if wrote_backup {
         clear_pending_repair_backup(&p);
     }
-    Ok(p)
+    Ok((p, replaced))
 }
 
 pub fn pick_open() -> Option<PathBuf> {
@@ -289,9 +304,7 @@ pub fn pick_export(default_name: &str) -> Option<PathBuf> {
 
 /// Like [`save_path`], also returning the once-per-file notice when non-finite numbers were replaced.
 pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let replaced = if ext.eq_ignore_ascii_case("fig") || ext.eq_ignore_ascii_case("pen") { 0 } else { doc.to_json_counted().map(|(_, n)| n).unwrap_or(0) };
-    let p = save_path(doc, path)?;
+    let (p, replaced) = save_path_counted(doc, path)?;
     let notice = non_finite_notice_once(&p, replaced);
     Ok((p, notice))
 }
@@ -677,5 +690,94 @@ mod tests {
         std::fs::remove_file(&p).ok();
         std::fs::remove_file(&bak0).ok();
         std::fs::remove_file(&bak1).ok();
+    }
+
+    /// A Figma REST file with one rectangle; `stroke` and `radius` are raw JSON numbers, so `1e39`
+    /// overflows to infinity when the importer reads it as an `f32`.
+    fn rest_json_with(stroke: &str, radius: &str) -> String {
+        format!(
+            r#"{{"name": "Shapes", "version": "1", "schemaVersion": 0,
+              "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [
+                {{"id": "0:1", "name": "Page", "type": "CANVAS", "children": [
+                  {{"id": "1:1", "name": "Box", "type": "RECTANGLE", "size": {{"x": 10, "y": 20}},
+                   "relativeTransform": [[1, 0, 0], [0, 1, 4]], "strokeWeight": {stroke}, "cornerRadius": {radius}}}]}}]}}}}"#
+        )
+    }
+
+    fn json_texts_built_by(f: impl FnOnce()) -> usize {
+        let before = designos_doc::finite_json::serialize_calls_on_this_thread();
+        f();
+        designos_doc::finite_json::serialize_calls_on_this_thread() - before
+    }
+
+    #[test]
+    fn opening_a_finite_rest_json_builds_no_native_json_text() {
+        let p = tmp("finite_rest_open.json");
+        std::fs::write(&p, rest_json_with("2", "3")).unwrap();
+        let mut warning = Some("unset".to_string());
+        let built = json_texts_built_by(|| warning = load_path_with_warning(&p).unwrap().1);
+        std::fs::remove_file(&p).ok();
+        assert_eq!(warning, None, "nothing was replaced, so nothing to tell");
+        assert_eq!(built, 0, "a clean REST open must not serialize the document just to count");
+    }
+
+    #[test]
+    fn opening_a_rest_json_with_overflowing_numbers_replaces_them_and_tells_the_user_once() {
+        let p = tmp("overflow_rest_open.json");
+        std::fs::write(&p, rest_json_with("1e39", "1e39")).unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        let again = load_path_with_warning(&p).unwrap().1;
+        std::fs::remove_file(&p).ok();
+        assert!(warning.as_deref().is_some_and(|w| w.contains("replaced by 0 or 1")), "{warning:?}");
+        assert_eq!(doc.count_non_finite().unwrap(), 0, "the opened document holds only finite numbers");
+        assert_eq!(again, None, "the second open in the same run stays quiet");
+    }
+
+    #[test]
+    fn saving_to_a_path_builds_one_json_text_and_reports_the_replaced_numbers() {
+        let mut doc = Document::new("Nan");
+        let page = doc.add_page("P");
+        let id = doc.alloc_id();
+        doc.insert(page, Node::rectangle(id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        doc.get_mut(id).unwrap().size.x = f32::NAN;
+        let p = tmp("one_text_per_save.designos");
+        let mut notice = None;
+        let built = json_texts_built_by(|| notice = save_path_with_notice(&doc, &p).unwrap().1);
+        std::fs::remove_file(&p).ok();
+        assert!(notice.as_deref().is_some_and(|w| w.starts_with("1 number in this file")), "{notice:?}");
+        assert_eq!(built, 1, "counting the replaced numbers and writing the file must share one serialization");
+    }
+
+    #[test]
+    fn importing_several_files_names_each_one_that_had_numbers_replaced() {
+        let lib_dir = tmp("import_many_lib");
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.attach_library(lib_dir.clone());
+        let lib = app.lib.clone().expect("library attached");
+        let proj = lib.list_projects().into_iter().next().unwrap_or_else(|| lib.create_project("P").unwrap());
+
+        let files = [
+            (tmp("import_stroke_overflow.json"), rest_json_with("1e39", "3")),
+            (tmp("import_radius_overflow.json"), rest_json_with("2", "1e39")),
+            (tmp("import_all_finite.json"), rest_json_with("2", "3")),
+        ];
+        for (path, text) in &files {
+            std::fs::write(path, text).unwrap();
+        }
+        let paths: Vec<PathBuf> = files.iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(app.import_into_library(&paths, &proj.id, None), 3);
+
+        let toast = app.toast.as_ref().expect("import must show a toast");
+        for (path, _) in &files {
+            std::fs::remove_file(path).ok();
+        }
+        let _ = std::fs::remove_dir_all(&lib_dir);
+        assert!(toast.error, "{}", toast.text);
+        for named in ["import_stroke_overflow.json", "import_radius_overflow.json"] {
+            assert!(toast.text.contains(named), "the toast must name {named}: {}", toast.text);
+        }
+        assert!(!toast.text.contains("import_all_finite.json"), "a clean file is not mentioned: {}", toast.text);
+        assert_eq!(toast.text.matches("replaced by 0 or 1").count(), 2, "one notice per affected file: {}", toast.text);
     }
 }
