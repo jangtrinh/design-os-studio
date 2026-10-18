@@ -280,4 +280,76 @@ mod tests {
 }"####;
         assert_eq!(react_with(&d, id, &ReactOptions { tailwind: true }), expected);
     }
+
+    #[test]
+    fn golden_react_grid_inline_and_tailwind() {
+        let mut d = Document::new("grid");
+        let page = d.add_page("p");
+        let gid = d.alloc_id();
+        let mut g = Node::frame(gid, Rect::new(0.0, 0.0, 480.0, 200.0));
+        g.name = "DashboardGrid".into();
+        g.fills = vec![];
+        let mut al = AutoLayout {
+            direction: LayoutDirection::Grid,
+            item_spacing: 16.0,
+            counter_spacing: 24.0,
+            padding: [12.0, 16.0, 12.0, 16.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Fixed,
+            grid_columns: 3,
+            grid_rows: 2,
+            ..Default::default()
+        };
+        al.grid_col_tracks[0] = GridTrack::Flex(1.0);
+        al.grid_col_tracks[1] = GridTrack::Fixed(120.0);
+        al.grid_col_tracks[2] = GridTrack::Hug;
+        al.grid_row_tracks[0] = GridTrack::Fixed(80.0);
+        al.grid_row_tracks[1] = GridTrack::Hug;
+        g.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), ..Default::default() });
+        let g = d.insert(page, g).unwrap();
+
+        let c1 = d.alloc_id();
+        let mut n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 200.0, 80.0));
+        n1.fills = vec![];
+        n1.layout_child.grid_column = Some(1);
+        n1.layout_child.grid_row = Some(0);
+        n1.layout_child.col_span = 2;
+        n1.layout_child.row_span = 1;
+        d.insert(g, n1).unwrap();
+
+        let expected_inline = r####"export function DashboardGrid() {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        width: 480,
+        height: 200,
+        padding: '12px 16px',
+        gridTemplateColumns: 'minmax(0, 1fr) 120px auto',
+        gridTemplateRows: '80px auto',
+        gap: '24px 16px',
+      }}
+    >
+      <div
+        style={{
+          gridColumn: '2 / span 2',
+          gridRow: '1 / span 1',
+          width: 200,
+          height: 80,
+        }}
+      />
+    </div>
+  );
+}"####;
+        assert_eq!(react_for(&d, g), expected_inline);
+
+        let expected_tw = r####"export function DashboardGrid() {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]">
+      <div className="col-start-2 col-span-2 row-start-1 w-[200px] h-20" />
+    </div>
+  );
+}"####;
+        assert_eq!(react_with(&d, g, &ReactOptions { tailwind: true }), expected_tw);
+    }
 }
