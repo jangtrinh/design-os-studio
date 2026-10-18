@@ -75,8 +75,8 @@ variable `Color/Primary`, a text style whose size is `Type/Body`, an effect styl
 | Format | Mapping |
 |---|---|
 | `.designos` | `StyleMeta.bindings` |
-| `.fig` (kiwi) | style node paints: `colorVar` per paint (same encoding as node paints); text style variable fields and effect variable fields: field names to be confirmed by the REA step E1-b with `rea` (morluto/rea) on Figma's schema before coding — UNKNOWN until then |
-| Figma REST JSON | `boundVariables` on style-defining nodes imported into `bindings` when present |
+| `.fig` (kiwi) | RESOLVED (Facts below). Style nodes are ordinary `NodeChange`s with `styleType` (163) set. Fill style: `fillPaints` (38) `[i].colorVar` (21) → `fills/<i>`; gradient stops `[i].stopsVar` (23) `[j].colorVar` (2) → `fills/<i>/stops/<j>`; `[i].opacityVar` (38) → `fills/<i>/opacity`. Effect style: `effects` (43) `[i]` `colorVar` (10), `radiusVar` (9), `spreadVar` (11), `xVar` (12) → `offsetX`, `yVar` (13) → `offsetY`. Text style: `variableConsumptionMap` (307) entries `{variableField, variableData}` with `VariableField` `FONT_SIZE` (32), `LINE_HEIGHT` (36), `LETTER_SPACING` (34), `PARAGRAPH_SPACING` (2), `PARAGRAPH_INDENT` (3), `FONT_FAMILY` (28), `FONT_STYLE` (29), `FONT_VARIATIONS` (30); `fontWeight` and `fontStyle` both live in the one `FONT_STYLE` entry (`VariableFontStyle.asFloat` / `.asString`) |
+| Figma REST JSON | RESOLVED. The `styles` map carries metadata only (`key`, `name`, `description`, `remote`, `styleType`). Values and bindings come from the style node (`GET /v1/files/:key/nodes?ids=<style node_id>`): `fills[i].boundVariables.color`, `fills[i].gradientStops[j].boundVariables.color`, `style.boundVariables.{fontFamily,fontSize,fontStyle,fontWeight,letterSpacing,lineHeight,paragraphSpacing,paragraphIndent}` (TEXT node `TypeStyle`), `effects[i].boundVariables.{color,radius,spread,offsetX,offsetY}` (shadows; blurs: `radius` only). Each value is `{"type":"VARIABLE_ALIAS","id":"VariableID:…"}` |
 
 ## 7. UI
 
@@ -115,7 +115,8 @@ Seams: designos-doc mode-switch test and `.fig` round trip.
 | `fig_style_colorvar_round_trips` | export_fig then import → `StyleMeta.bindings["fills/0"]` equals the variable (by key) |
 | `check_designs_counts_bound` | linked rect produces no hard-coded finding for `fills/0` |
 | `old_file_byte_identical` | load and save a file without bindings → identical bytes |
-| `text_style_size_binding` | text style `fontSize` bound → linked text resolves size per mode (after REA confirms export fields, the `.fig` round trip of this case is added) |
+| `text_style_size_binding` | text style `fontSize` bound → linked text resolves size per mode, and the `.fig` round trip writes one `variableConsumptionMap` entry `{variableField: FONT_SIZE, variableData: ALIAS}` on the style node and reads it back |
+| `effect_style_shadow_vars_round_trip` | effect style shadow with `color`, `radius`, `spread`, `offsetX`, `offsetY` bound → `.fig` writes `colorVar`/`radiusVar`/`spreadVar`/`xVar`/`yVar` and re-imports the same five bindings |
 
 ## 11. Performance budgets
 
@@ -131,3 +132,42 @@ Hot-file queue position 22. The REA step precedes `.fig` coding. Before part-2 E
 - REA rule: reverse-engineering of Figma fields uses `rea` (morluto/rea).
 - Full scope: colour, text and effect style bindings ship together.
 - Nothing vanishes silently: broken bindings are reported, not dropped.
+
+## 14. Facts (REA 2026-10-18)
+
+Method. Read-only. Sources: the kiwi schema compiled into Figma's cached editor wasm, the cached editor JS, one Figma-saved community kit `.fig` (counts only; no content copied), and the public REST OpenAPI and plugin typings. `rea` (morluto/rea 6.7.0, `npx -y rea-agents`) ran `analyze-javascript-application` over the extracted JS chunks (evidence `ev_2624766…`). Its wasm lanes were unavailable on this machine: WABT and Ghidra are not installed. So the schema was decoded directly from the wasm data section with a 40-line kiwi `decodeBinarySchema` reader.
+
+1. FACT. Schema source: `~/Library/Application Support/Figma/DesktopProfile/v43/Cache/Cache_Data`, entry `static.figma.com/fullscreen/c36343e1…/fullscreen-wasm/compiled_wasm.wasm.br` (brotli, 52 MB). The binary kiwi schema (653 definitions) starts at byte 49,396,956 with `MessageType`. Three other cached builds (`8a9f81ff…`, `065cabdf…`, `8d77463d…`) have identical ids for every field below.
+2. FACT. Paint and stop fields:
+   ```
+   message Paint { … VariableData opacityVar = 38; VariableData colorVar = 21; ColorStopVar[] stopsVar = 23; … }
+   message ColorStopVar { Color color = 1; VariableData colorVar = 2; float position = 3; }
+   ```
+3. FACT. Effect fields:
+   ```
+   message Effect { … VariableData radiusVar = 9; VariableData colorVar = 10;
+     VariableData spreadVar = 11; VariableData xVar = 12; VariableData yVar = 13; … }
+   ```
+4. FACT. Text-style numeric bindings use the node's consumption map:
+   ```
+   NodeChange: VariableDataMap variableConsumptionMap = 307;  StyleType styleType = 163;
+   message VariableDataMapEntry { uint nodeField = 1; VariableData variableData = 2; VariableField variableField = 3; }
+   enum VariableField { PARAGRAPH_SPACING = 2; PARAGRAPH_INDENT = 3; FONT_FAMILY = 28; FONT_STYLE = 29; FONT_VARIATIONS = 30; FONT_SIZE = 32; LETTER_SPACING = 34; LINE_HEIGHT = 36; … }
+   ```
+   `VariableData { VariableAnyValue value = 1; VariableDataType dataType = 2; VariableResolvedDataType resolvedDataType = 3; }`. An alias is `VariableAnyValue.alias = 4` → `VariableID { GUID guid = 1; AssetRef assetRef = 2; }`.
+5. FACT. Font weight and style: `VariableAnyValue.fontStyleValue = 9` → `VariableFontStyle { VariableData asString = 1; VariableData asFloat = 2; VariableData asVariations = 3; }`. The kiwi `VariableField` has no FONT_WEIGHT. A weight binding is the `FONT_STYLE` entry with `dataType = FONT_STYLE (8)` and `asFloat` = ALIAS of a FLOAT variable (seen in the kit below). INFERENCE: a string style binding uses `asString`.
+6. FACT, observed in a Figma-saved kit (`fig-kiwi` version 106, 56,625 nodes). Its schema has the same ids as the wasm for `Effect`, `Paint` and `VariableDataMapEntry`; the wasm only adds newer fields.
+
+   | Style | Style nodes | Bindings observed |
+   |---|---|---|
+   | TEXT (node type TEXT) | 334 | `variableConsumptionMap` entries: FONT_FAMILY ×332, FONT_SIZE ×332, FONT_STYLE ×290 (`asFloat` alias), LINE_HEIGHT ×176, LETTER_SPACING ×6 |
+   | EFFECT (node type ROUNDED_RECTANGLE) | 49 | `colorVar` ×33, `radiusVar` ×43, `spreadVar`/`xVar`/`yVar` ×25 each |
+   | FILL (node type ROUNDED_RECTANGLE) | 16 | `fillPaints[].colorVar` ×4 |
+
+   All of them are `dataType = ALIAS`. `nodeField` was unset in every entry, so key on `variableField`.
+7. FACT. REST (`figma/rest-api-spec` openapi.yaml 0.45.0) has these `boundVariables` keys. `SolidPaint`: `color`. `ColorStop`: `color`. `TypeStyle`: `fontFamily, fontSize, fontStyle, fontWeight, letterSpacing, lineHeight, paragraphSpacing, paragraphIndent`. `BaseShadowEffect`: `radius, spread, color, offsetX, offsetY`. `BaseBlurEffect`: `radius`. The `Style` metadata schema has `key, name, description, remote, styleType` and no values. `VariableAlias = {type: "VARIABLE_ALIAS", id}`.
+8. FACT. Plugin API (`@figma/plugin-typings` 1.142.0) has these binding types. `TextStyle.boundVariables: {[VariableBindableTextField]?: VariableAlias}`, with the same eight text fields as REST. `PaintStyle.boundVariables: {paints?: VariableAlias[]}` and `EffectStyle.boundVariables: {effects?: VariableAlias[]}` are read-only. Per-paint and per-effect bindings: `VariableBindablePaintField = 'color'`, `VariableBindableColorStopField = 'color'`, `VariableBindableEffectField = 'color'|'radius'|'spread'|'offsetX'|'offsetY'`.
+9. Gaps against rule 1, for the spec owner. Nothing was changed here.
+   - Figma also binds `paragraphIndent` (rule 1 omits it).
+   - Figma has no separate `fontWeight` numeric field in kiwi (see 5).
+   - `fills/<i>/opacity` exists in kiwi (`opacityVar`) but is exposed by neither REST nor the Plugin API.
