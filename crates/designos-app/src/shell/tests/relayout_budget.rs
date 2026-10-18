@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::home::Act;
-use designos_doc::{AutoLayout, Document, LayoutAlign, LayoutChild, LayoutDirection, Node, Rect as DRect, Sizing};
+use designos_doc::{AutoLayout, Command, Document, LayoutAlign, LayoutChild, LayoutDirection, Node, Rect as DRect, Sizing};
 use designos_library::Library;
 use std::path::PathBuf;
 
@@ -209,4 +209,39 @@ fn the_canvas_follows_the_lazy_steps_on_every_frame() {
     assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
     assert!(indexed_x(&s, leaf) > 500.0, "the lazy step moved the leaf, so the canvas index must follow: {}", indexed_x(&s, leaf));
     assert!(toast_text(&s).is_none_or(|t| !t.starts_with(NOTICE)), "the notice goes away with the work it reported");
+}
+
+#[test]
+fn undo_and_redo_finish_the_queue_and_retire_the_notice() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (frames, leaf) = add_chain(&mut s.shell.app.doc, page, 200.0);
+    s.shell.app.doc.relayout_subtree(page);
+    s.shell.app.changed();
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    // The edit is one command, the outermost frame growing; its relayout reaches only the first frames.
+    let mut wide = s.app().doc.get(frames[0]).unwrap().clone();
+    wide.size.x = 600.0;
+    let app = &mut s.shell.app;
+    app.hist.exec(&mut app.doc, Command::Update { node: Box::new(wide) }).unwrap();
+    app.doc.relayout_subtree(page);
+    app.changed();
+    s.frame(vec![]);
+    assert!(s.app().doc.relayout_skipped_count() > 0, "precondition: the first lazy step leaves frames queued");
+    assert!(toast_text(&s).is_some_and(|t| t.starts_with(NOTICE)), "precondition: the user was told");
+
+    s.shell.app.undo();
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0, "undo must not leave a queue built for the edit it reverted");
+    assert!(toast_text(&s).is_none_or(|t| !t.starts_with(NOTICE)), "the notice reported work that no longer exists: {:?}", toast_text(&s));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 200.0);
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0, "the layout below the edit stays one whole state");
+
+    s.shell.app.redo();
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0);
+    assert_eq!(s.app().doc.get(frames[0]).unwrap().size.x, 600.0);
+    assert_eq!(s.app().doc.get(leaf).unwrap().transform.tx, 590.0);
 }

@@ -11,7 +11,7 @@ impl Document {
     /// is queued in `pending_relayout` so it can be reported and finished lazily.
     pub fn relayout_subtree(&mut self, root: NodeId) {
         let mut budget = MAX_RELAYOUT_RESOLVES;
-        self.relayout_bottom_up(root, true, &mut budget);
+        self.relayout_bottom_up(root, &mut budget);
     }
 
     /// What a flow frame's solver reads of child `id`: `None` when the child sits outside the flow
@@ -34,7 +34,7 @@ impl Document {
         Some(ChildIn::from_layout_child(size, &bound.layout_child, horiz))
     }
 
-    fn relayout_bottom_up(&mut self, root: NodeId, is_root: bool, budget: &mut usize) {
+    fn relayout_bottom_up(&mut self, root: NodeId, budget: &mut usize) {
         let Some(n) = self.get(root) else { return };
         if !n.kind.is_container() {
             return;
@@ -42,12 +42,12 @@ impl Document {
         let children = n.children.clone();
         for c in &children {
             if self.get(*c).is_some_and(|k| k.kind.is_container()) {
-                self.relayout_bottom_up(*c, false, budget);
+                self.relayout_bottom_up(*c, budget);
             }
         }
-        if !is_root && self.pending_relayout.contains(&root) {
-            return;
-        }
+        // A container queued by an earlier pass is solved here like any other, at the size its
+        // parent already wrote: skipping it would leave it queued forever, because a repeat pass
+        // finds its size unchanged and never takes the top-down path to it again.
         self.solve_auto_layout_node(root, 0, budget);
     }
 
@@ -342,9 +342,17 @@ mod tests {
         }
         assert_eq!(doc.nodes.len(), 50_000);
 
-        // Make initial layout consistent before timing the two callers.
+        // Make initial layout consistent before timing the two callers: a pass that stops at the
+        // depth budget leaves the rest queued, and the next pass would finish it inside the
+        // timed call.
         doc.relayout_subtree(mode_root);
         doc.relayout_subtree(swap_host);
+        doc.flush_pending_relayout();
+        assert_eq!(doc.relayout_skipped_count(), 0, "precondition: the baseline layout is complete");
+        let mode_chain_end_before = doc.get(*mode_chain.last().unwrap()).unwrap().size.x;
+        assert_ne!(mode_chain_end_before, 640.0, "precondition: the end of the chain still has the compact mode's width");
+        let swap_chain_end_before = doc.get(*swap_chain.last().unwrap()).unwrap().size.y;
+        assert_ne!(swap_chain_end_before, 64.0, "precondition: the end of the chain still has the small variant's height");
 
         // 1. Mode switch caller (`apply_variable_mode_to_subtree`) on the 50k-node document.
         reset_resolve_calls();
@@ -355,7 +363,11 @@ mod tests {
         eprintln!("50k-node bench: apply_variable_mode_to_subtree = {:.2} ms (re-solves = {mode_resolves})", mode_switch_elapsed.as_secs_f64() * 1000.0);
         assert!(mode_resolves <= MAX_RELAYOUT_RESOLVES, "mode switch re-solves ({mode_resolves}) exceeded budget ({MAX_RELAYOUT_RESOLVES})");
         assert_eq!(doc.get(mode_chain[MAX_RELAYOUT_RESOLVE_DEPTH]).unwrap().size.x, 640.0);
-        assert_eq!(doc.get(*mode_chain.last().unwrap()).unwrap().size.x, 50.0, "nodes deeper than MAX_RELAYOUT_RESOLVE_DEPTH (32) must not be re-solved");
+        assert_eq!(
+            doc.get(*mode_chain.last().unwrap()).unwrap().size.x,
+            mode_chain_end_before,
+            "nodes deeper than MAX_RELAYOUT_RESOLVE_DEPTH (32) must not be re-solved"
+        );
 
         // 2. Variant swap caller (`swap_instance_variant`) on the 50k-node document.
         reset_resolve_calls();
@@ -369,7 +381,11 @@ mod tests {
             "variant swap chain re-solves ({swap_resolves}) exceeded depth budget ({MAX_RELAYOUT_RESOLVE_DEPTH})"
         );
         assert_eq!(doc.get(swap_chain[MAX_RELAYOUT_RESOLVE_DEPTH]).unwrap().size.y, 64.0);
-        assert_eq!(doc.get(*swap_chain.last().unwrap()).unwrap().size.y, 40.0, "nodes deeper than MAX_RELAYOUT_RESOLVE_DEPTH (32) must not be re-solved");
+        assert_eq!(
+            doc.get(*swap_chain.last().unwrap()).unwrap().size.y,
+            swap_chain_end_before,
+            "nodes deeper than MAX_RELAYOUT_RESOLVE_DEPTH (32) must not be re-solved"
+        );
         assert!(doc.relayout_skipped_count() > 0, "skipped subtrees past budget/depth must be counted and not dropped silently");
         doc.flush_pending_relayout();
         assert_eq!(doc.get(*mode_chain.last().unwrap()).unwrap().size.x, 640.0);
@@ -377,8 +393,10 @@ mod tests {
         assert_eq!(doc.relayout_skipped_count(), 0);
     }
 
-    #[test]
-    fn repro_4097_rows_reports_skipped_and_flushes_remaining_row() {
+    /// A vertical frame of 4,097 centred rows, each holding one 20 px rectangle at x = 40.
+    /// Widening the frame to 500 moves every rectangle to x = 240; the 4,096 re-solve budget
+    /// leaves the last row for the lazy pass.
+    fn rows_doc() -> (Document, NodeId, Vec<NodeId>) {
         let mut doc = Document::new("4097-rows");
         let page = doc.add_page("Page 1");
         let parent = doc.alloc_id();
@@ -413,6 +431,12 @@ mod tests {
             doc.insert(row, Node::rectangle(r, Rect::new(40.0, 0.0, 20.0, 20.0))).unwrap();
             rects.push(r);
         }
+        (doc, parent, rects)
+    }
+
+    #[test]
+    fn repro_4097_rows_reports_skipped_and_flushes_remaining_row() {
+        let (mut doc, parent, rects) = rows_doc();
 
         doc.get_mut(parent).unwrap().size.x = 500.0;
         doc.relayout_subtree(parent);
@@ -426,6 +450,22 @@ mod tests {
         doc.flush_pending_relayout();
         assert_eq!(doc.get(rects[4_096]).unwrap().transform.tx, 240.0, "flushing pending relayout must finish row 4096");
         assert_eq!(doc.relayout_skipped_count(), 0);
+    }
+
+    #[test]
+    fn a_second_relayout_repairs_a_row_the_first_one_left_queued() {
+        let (mut doc, parent, rects) = rows_doc();
+        doc.get_mut(parent).unwrap().size.x = 500.0;
+        doc.relayout_subtree(parent);
+        let last = rects[4_096];
+        assert_eq!(doc.relayout_skipped_count(), 1, "precondition: the last row is queued");
+        assert_eq!(doc.get(last).unwrap().transform.tx, 40.0, "precondition: its rectangle is not centred yet");
+
+        // The parent already wrote the row's new size, so the second pass sees no size change and
+        // must repair the row in its own bottom-up solve.
+        doc.relayout_subtree(parent);
+        assert_eq!(doc.get(last).unwrap().transform.tx, 240.0, "a queued row must be solved by the next relayout, not skipped again");
+        assert_eq!(doc.relayout_skipped_count(), 0, "a solved row leaves the queue");
     }
 
     #[test]
