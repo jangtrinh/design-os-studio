@@ -163,6 +163,7 @@ impl App {
             return None;
         }
         let (lib, lf) = (self.lib.clone()?, self.lib_file.clone()?);
+        self.settle_pending_relayout();
         let hash = doc_hash(&self.doc);
         if hash == self.history.last_version_hash {
             return None;
@@ -217,6 +218,7 @@ impl App {
             return false;
         }
         let desc = (!description.trim().is_empty()).then(|| description.trim().to_string());
+        self.settle_pending_relayout();
         match lib.save_version_described(&lf.id, &self.doc, Some(name.to_string()), desc, false) {
             Ok(_) => {
                 self.history.last_version_hash = doc_hash(&self.doc);

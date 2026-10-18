@@ -313,17 +313,17 @@ pub(crate) enum Dim {
 
 /// The auto-layout parent context of a node.
 #[derive(Clone, Copy)]
-pub(crate) struct Parent {
-    pub al: Option<AutoLayout>,
+pub(crate) struct Parent<'a> {
+    pub al: Option<&'a AutoLayout>,
     pub root: bool,
 }
 
-impl Parent {
+impl<'a> Parent<'a> {
     pub fn root() -> Self {
         Self { al: None, root: true }
     }
-    pub fn of(n: &Node) -> Self {
-        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout), root: false }
+    pub fn of(n: &'a Node) -> Self {
+        Self { al: n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()), root: false }
     }
 }
 
@@ -336,12 +336,37 @@ pub(crate) struct Sizes {
     pub row_parent: bool,
 }
 
-pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
-    let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
-    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout);
+/// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
+/// grid as a column, so every parent that is not `Horizontal` counts as one.
+pub(crate) fn sizes(n: &Node, parent: Parent<'_>) -> Sizes {
     let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
-    let hug_w = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.primary_sizing } else { a.counter_sizing } == Sizing::Hug).unwrap_or(false);
-    let hug_h = own_al.map(|a| if a.direction == LayoutDirection::Horizontal { a.counter_sizing } else { a.primary_sizing } == Sizing::Hug).unwrap_or(false);
+    sizes_along(n, parent, row_parent)
+}
+
+/// Sizing as a browser lays the node out (CSS and Tailwind). It differs from [`sizes`] only for grids:
+/// - a grid runs along the width, as in the layout solver (`AutoLayout::primary_is_horizontal`), so
+///   `grow` stretches an item across its cell and leaves its height alone;
+/// - a grid frame that hugs still exports the size the solver gave it, because its `1fr` tracks
+///   only split an explicit size (the tracks themselves stay fractions of that size).
+pub(crate) fn web_sizes(n: &Node, parent: Parent<'_>) -> Sizes {
+    let row_parent = parent.al.map(|a| a.primary_is_horizontal()).unwrap_or(true);
+    let mut sz = sizes_along(n, parent, row_parent);
+    if n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some_and(|a| a.direction == LayoutDirection::Grid) {
+        if sz.w == Dim::Hug {
+            sz.w = Dim::Fixed(n.size.x);
+        }
+        if sz.h == Dim::Hug {
+            sz.h = Dim::Fixed(n.size.y);
+        }
+    }
+    sz
+}
+
+fn sizes_along(n: &Node, parent: Parent<'_>, row_parent: bool) -> Sizes {
+    let in_flow = parent.al.is_some() && !n.layout_child.absolute && !parent.root;
+    let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
+    let hug_w = own_al.is_some_and(|a| a.sizing_along(true) == Sizing::Hug);
+    let hug_h = own_al.is_some_and(|a| a.sizing_along(false) == Sizing::Hug);
     let text_w = matches!(&n.kind, NodeKind::Text(t) if t.auto_resize == TextAutoResize::WidthAndHeight);
     let text_h = matches!(&n.kind, NodeKind::Text(t) if matches!(t.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height));
     let grows = in_flow && n.layout_child.grow > 0.0;
@@ -367,7 +392,7 @@ pub(crate) fn sizes(n: &Node, parent: Parent) -> Sizes {
 }
 
 /// Position offset for children that are not placed by auto layout.
-pub(crate) fn offset(n: &Node, parent: Parent, sz: &Sizes) -> Option<(f32, f32)> {
+pub(crate) fn offset(n: &Node, parent: Parent<'_>, sz: &Sizes) -> Option<(f32, f32)> {
     if parent.root || sz.in_flow {
         return None;
     }
@@ -435,6 +460,77 @@ pub(crate) fn drop_shadows(n: &Node) -> Vec<(&Color, &Vec2, f32, f32)> {
             _ => None,
         })
         .collect()
+}
+
+// ---------------------------------------------------------------- Grid templates and placement
+
+/// Columns the layout solver lays out for `al`: the stored count (3 when unset) kept within
+/// `1..=MAX_GRID_TRACKS`. The export writes this count, never the raw stored one.
+pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
+    let stored = if al.grid_columns > 0 { al.grid_columns as usize } else { 3 };
+    stored.clamp(1, MAX_GRID_TRACKS)
+}
+
+/// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
+/// width and lets it shrink to a pixel, while a bare `{n}fr` is `minmax(auto, {n}fr)` and cannot
+/// shrink under its content.
+pub(crate) fn grid_track_token(t: GridTrack) -> String {
+    match t {
+        GridTrack::Flex(f) => format!("minmax(0, {}fr)", num(if f.is_finite() && f > 0.0 { f } else { 1.0 })),
+        GridTrack::Fixed(px) => format!("{}px", num(if px.is_finite() && px >= 0.0 { px } else { 0.0 })),
+        GridTrack::Hug => "auto".into(),
+    }
+}
+
+/// Whether the first `count` tracks are all the default `1fr` (a track the document does not store
+/// is the default, so only the stored ones are looked at).
+pub(crate) fn grid_tracks_are_default(tracks: &[GridTrack], count: usize) -> bool {
+    tracks.iter().take(count).all(|t| *t == GridTrack::default())
+}
+
+/// The value of `grid-template-columns` / `-rows` for `count` tracks. All `1fr` tracks are one
+/// `repeat()`. Otherwise every other track is listed and a run of two or more default tracks (the
+/// ones past the stored list included) folds into a `repeat()`, so the text depends on the tracks
+/// alone and the work on the stored tracks, never on `count`.
+pub(crate) fn grid_tracks_css(tracks: &[GridTrack], count: usize) -> String {
+    let default_track = grid_track_token(GridTrack::default());
+    if grid_tracks_are_default(tracks, count) {
+        return format!("repeat({count}, {default_track})");
+    }
+    fn flush(parts: &mut Vec<String>, run: &mut usize, default_track: &str) {
+        match std::mem::take(run) {
+            0 => {}
+            1 => parts.push(default_track.to_string()),
+            n => parts.push(format!("repeat({n}, {default_track})")),
+        }
+    }
+    let stored = count.min(tracks.len());
+    let (mut parts, mut run) = (Vec::new(), 0usize);
+    for t in &tracks[..stored] {
+        if *t == GridTrack::default() {
+            run += 1;
+        } else {
+            flush(&mut parts, &mut run, &default_track);
+            parts.push(grid_track_token(*t));
+        }
+    }
+    run += count - stored;
+    flush(&mut parts, &mut run, &default_track);
+    parts.join(" ")
+}
+
+/// A track list as one Tailwind arbitrary value: no spaces, `_` between tracks.
+pub(crate) fn tailwind_tracks_value(tracks_css: &str) -> String {
+    tracks_css.replace(", ", ",").replace(' ', "_")
+}
+
+pub(crate) fn grid_placement_css(anchor: Option<u16>, span: u16) -> Option<String> {
+    let span = span.max(1);
+    match anchor {
+        Some(idx) => Some(format!("{} / span {span}", u32::from(idx) + 1)),
+        None if span > 1 => Some(format!("span {span}")),
+        None => None,
+    }
 }
 
 // ---------------------------------------------------------------- CSS variable references
@@ -508,22 +604,46 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     if let Some(v) = b("opacity", Fallback::Raw) {
         set_decl(lines, "opacity", format!("calc({} / 100)", v.trim()));
     }
-    if let Some(v) = b("itemSpacing", Fallback::Px) {
-        if has_decl(lines, "gap") {
-            set_decl(lines, "gap", v);
+    if has_decl(lines, "gap") {
+        let item_v = b("itemSpacing", Fallback::Px);
+        let counter_v = b("counterAxisSpacing", Fallback::Px);
+        if item_v.is_some() || counter_v.is_some() {
+            if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
+                if al.direction == LayoutDirection::Grid {
+                    let col_fb = format!("{}px", num(al.item_spacing));
+                    let row_px = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
+                    let row_fb = format!("{}px", num(row_px));
+                    // The column gap is `itemSpacing`, the row gap `counterAxisSpacing`. An unbound row keeps
+                    // its own pixel gap; only a row with no spacing of its own (`counterAxisSpacing` unset,
+                    // so the solver reuses `itemSpacing`) follows the item variable.
+                    let row_follows_item = al.counter_spacing <= 0.0;
+                    let col_s = item_v.clone().unwrap_or(col_fb);
+                    let row_s = counter_v.or(item_v.filter(|_| row_follows_item)).unwrap_or(row_fb);
+                    set_decl(lines, "gap", if row_s == col_s { row_s } else { format!("{row_s} {col_s}") });
+                } else if let Some(v) = item_v {
+                    set_decl(lines, "gap", v);
+                }
+            } else if let Some(v) = item_v {
+                set_decl(lines, "gap", v);
+            }
         }
     }
     // padding: expand to a 4-value shorthand when any side is bound
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     if sides.iter().any(|k| bound(doc, n, k).is_some()) {
-        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout) {
+        if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));
             let value = css_box(&vals);
             // keep declaration order: padding follows the size declarations
             let at = lines
                 .iter()
-                .position(|l| l.starts_with("flex-direction: ") || l.starts_with("justify-content: ") || l.starts_with("align-items: "))
+                .position(|l| {
+                    l.starts_with("flex-direction: ")
+                        || l.starts_with("justify-content: ")
+                        || l.starts_with("align-items: ")
+                        || l.starts_with("grid-template-columns: ")
+                })
                 .unwrap_or(lines.len());
             lines.insert(at, format!("padding: {value};"));
         }
@@ -553,6 +673,26 @@ fn css_box(v: &[String]) -> String {
 #[cfg(test)]
 pub(crate) mod fixture {
     use super::*;
+
+    /// An empty grid frame on a fresh page. Insert children with [`add_rect`], then call
+    /// `Document::relayout_subtree` so the frame and its children hold the solver's output.
+    pub fn grid_frame(al: AutoLayout, size: Vec2) -> (Document, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut g = Node::frame(id, Rect::new(0.0, 0.0, size.x, size.y));
+        g.fills.clear();
+        if let NodeKind::Frame(fp) = &mut g.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Grid, ..al });
+        }
+        let id = d.insert(page, g).unwrap();
+        (d, id)
+    }
+
+    pub fn add_rect(d: &mut Document, parent: NodeId, size: Vec2) -> NodeId {
+        let id = d.alloc_id();
+        d.insert(parent, Node::rectangle(id, Rect::new(0.0, 0.0, size.x, size.y))).unwrap()
+    }
 
     pub fn card() -> (Document, NodeId) {
         let mut d = Document::new("t");
@@ -842,5 +982,29 @@ mod tests {
         assert_eq!(css_var(v), "var(--Color-Primary)");
         assert_eq!(token_camel(&d.variables["muted"], true), "textMuted");
         assert_eq!(css_var(&d.variables["md"]), "var(--Spacing-Md)");
+    }
+
+    #[test]
+    fn grid_items_are_sized_as_a_column_by_the_stack_generators_and_along_the_width_by_the_web_ones() {
+        let al = AutoLayout { direction: LayoutDirection::Grid, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+        let mut item = Node::rectangle(NodeId(2), Rect::new(0.0, 0.0, 80.0, 40.0));
+        item.layout_child.grow = 1.0;
+        let parent = Parent { al: Some(&al), root: false };
+        // SwiftUI, UIKit, Compose and Android XML emit a grid as a column, where `grow` fills the height.
+        let stack = sizes(&item, parent);
+        assert!(!stack.row_parent);
+        assert_eq!((stack.w, stack.h), (Dim::Fixed(80.0), Dim::Fill));
+        // The browser runs a grid along the width, like the layout solver: `grow` fills the width.
+        let web = web_sizes(&item, parent);
+        assert!(web.row_parent);
+        assert_eq!((web.w, web.h), (Dim::Fill, Dim::Fixed(40.0)));
+
+        // A grid frame always exports the size the solver gave it, even when it hugs.
+        let mut grid = Node::frame(NodeId(3), Rect::new(0.0, 0.0, 120.0, 30.0));
+        if let NodeKind::Frame(fp) = &mut grid.kind {
+            fp.auto_layout = Some(al.clone());
+        }
+        assert_eq!((sizes(&grid, Parent::root()).w, sizes(&grid, Parent::root()).h), (Dim::Hug, Dim::Hug));
+        assert_eq!((web_sizes(&grid, Parent::root()).w, web_sizes(&grid, Parent::root()).h), (Dim::Fixed(120.0), Dim::Fixed(30.0)));
     }
 }

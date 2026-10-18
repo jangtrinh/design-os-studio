@@ -169,7 +169,7 @@ fn non_finite_grid_tracks_export_and_reimport_as_finite_defaults() {
     let back = import_fig(&bytes).unwrap();
     assert_eq!(back.to_json_counted().unwrap().1, 0, "no non-finite numbers after re-import");
     let gf = back.nodes.values().find(|n| n.name == "GridFrame").unwrap();
-    let back_al = gf.kind.frame_props().unwrap().auto_layout.expect("grid auto_layout preserved");
+    let back_al = gf.kind.frame_props().unwrap().auto_layout.as_ref().expect("grid auto_layout preserved");
     assert_eq!(back_al.grid_col_tracks[..5], [GridTrack::Flex(1.0), GridTrack::Flex(1.0), GridTrack::Fixed(0.0), GridTrack::Fixed(0.0), GridTrack::Hug,]);
     assert_eq!(back_al.grid_row_tracks[..2], [GridTrack::Flex(1.0), GridTrack::Fixed(0.0)]);
 }

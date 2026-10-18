@@ -606,19 +606,233 @@ fn symbol_id_str(v: &Value) -> Option<String> {
     None
 }
 
-fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
-    if large_file {
-        if orig_ty == "BRUSH" {
-            let bt = fstr(nc, "brushType").filter(|s| !s.is_empty()).unwrap_or("STRETCH");
-            return Some(json!({"brushType": bt}));
-        }
-        if orig_ty == "SHAPE_WITH_TEXT" {
-            if let Some(swt) = fstr(nc, "shapeWithTextType").or_else(|| fstr(nc, "shapeType")).filter(|s| !s.is_empty()) {
-                return Some(json!({"shapeWithTextType": swt}));
+const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
+    "guid",
+    "phase",
+    "parentIndex",
+    "type",
+    "name",
+    "visible",
+    "locked",
+    "opacity",
+    "size",
+    "transform",
+    "blendMode",
+    "mask",
+    "isMask",
+    "internalOnly",
+    "isStateGroup",
+    "backgroundColor",
+    "isSoftDeleted",
+    "isSoftDeletedStyle",
+    "overrideKey",
+    "overriddenSymbolID",
+    "componentKey",
+    "sourceLibraryKey",
+    "symbolDescription",
+    "description",
+    "propsAreBubbled",
+    "overrideLevel",
+    "detachedSymbolId",
+    "symbolData",
+    "derivedSymbolData",
+    "componentPropDefs",
+    "componentPropAssignments",
+    "componentPropRefs",
+    "stateGroupPropertyValueOrders",
+    "variantPropSpecs",
+    "proportionsConstrained",
+    "preserveRatio",
+    "targetAspectRatio",
+    "hyperlink",
+    "pluginData",
+    "exportSettings",
+    "guides",
+    "devStatus",
+    "sectionStatusInfo",
+    "handoffStatusMap",
+    "key",
+    "fillPaints",
+    "strokePaints",
+    "strokeWeight",
+    "strokeAlign",
+    "strokeCap",
+    "strokeJoin",
+    "dashPattern",
+    "strokeMiterAngle",
+    "miterLimit",
+    "borderStrokeWeightsIndependent",
+    "borderTopWeight",
+    "borderRightWeight",
+    "borderBottomWeight",
+    "borderLeftWeight",
+    "effects",
+    "cornerRadius",
+    "cornerSmoothing",
+    "rectangleCornerRadiiIndependent",
+    "rectangleTopLeftCornerRadius",
+    "rectangleTopRightCornerRadius",
+    "rectangleBottomRightCornerRadius",
+    "rectangleBottomLeftCornerRadius",
+    "styleIdForFill",
+    "styleIdForStrokeFill",
+    "styleIdForText",
+    "styleIdForEffect",
+    "styleIdForGrid",
+    "inheritEffectStyleID",
+    "inheritGridStyleID",
+    "styleType",
+    "styleDescription",
+    "horizontalConstraint",
+    "verticalConstraint",
+    "frameMaskDisabled",
+    "layoutGrids",
+    "stackMode",
+    "gridColumns",
+    "gridRows",
+    "gridColumnsSizing",
+    "gridRowsSizing",
+    "gridColumnGap",
+    "gridColumnsGap",
+    "gridRowGap",
+    "gridRowsGap",
+    "stackSpacing",
+    "stackCounterSpacing",
+    "stackPadding",
+    "stackHorizontalPadding",
+    "stackVerticalPadding",
+    "stackPaddingLeft",
+    "stackPaddingTop",
+    "stackPaddingRight",
+    "stackPaddingBottom",
+    "stackPrimaryAlignItems",
+    "stackCounterAlignItems",
+    "stackCounterAlignContent",
+    "stackLayoutVersion",
+    "stackPrimarySizing",
+    "stackCounterSizing",
+    "stackWrap",
+    "bordersTakeSpace",
+    "stackReverseZIndex",
+    "stackChildPrimaryGrow",
+    "stackChildAlignSelf",
+    "stackPositioning",
+    "layoutSizingHorizontal",
+    "layoutSizingVertical",
+    "gridColumnSpan",
+    "gridRowSpan",
+    "gridColumnAnchor",
+    "gridColumnAnchorIndex",
+    "gridRowAnchor",
+    "gridRowAnchorIndex",
+    "minSize",
+    "maxSize",
+    "variableConsumptionMap",
+    "parameterConsumptionMap",
+    "variableModeBySetMap",
+    "variableSetModes",
+    "variableSetID",
+    "variableResolvedType",
+    "variableDataType",
+    "variableScopes",
+    "codeSyntax",
+    "variableDataValues",
+    "sortPosition",
+    "fillGeometry",
+    "strokeGeometry",
+    "vectorData",
+    "arcData",
+    "count",
+    "pointCount",
+    "starInnerScale",
+    "booleanOperation",
+    "textData",
+    "fontName",
+    "fontSize",
+    "letterSpacing",
+    "textTracking",
+    "lineHeight",
+    "textAlignHorizontal",
+    "textAlignVertical",
+    "textAutoResize",
+    "textTruncation",
+    "maxLines",
+    "textCase",
+    "textDecoration",
+    "leadingTrim",
+    "paragraphIndent",
+    "paragraphSpacing",
+    "listSpacing",
+    "hangingPunctuation",
+    "hangingList",
+    "autoRename",
+    "textDecorationSkipInk",
+    "textWrapStyle",
+    "toggledOnOTFeatures",
+    "toggledOffOTFeatures",
+    "fontVariations",
+    "fontVariantNumericFigure",
+    "fontVariantNumericSpacing",
+    "fontVariantNumericFraction",
+    "fontVariantCaps",
+    "fontVariantPosition",
+    "fontVariantLigatures",
+    "fontVariantCommonLigatures",
+    "fontVariantContextualLigatures",
+    "numericFigure",
+    "numericSpacing",
+    "numericFraction",
+    "authorName",
+    "authorVisible",
+    "stampType",
+    "connectorStart",
+    "connectorEnd",
+    "connectorLineType",
+    "connectorLineStyle",
+    "connectorType",
+    "connectorStartStrokeCap",
+    "connectorEndStrokeCap",
+    "prototypeInteractions",
+    "overflowDirection",
+    "scrollBehavior",
+    "overlayPositionType",
+    "overlayBackgroundInteraction",
+    "overlayBackgroundAppearance",
+    "flowStartingPoint",
+    "isFlowStartingPoint",
+    "transitionNodeID",
+    "transitionDuration",
+    "transitionEasing",
+    "guidPath",
+    "isSlot",
+    "isSlotContent",
+    "jsonSerialized",
+];
+
+fn clean_json_floats(v: &Value) -> Value {
+    match v {
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                Value::Number(n.clone())
+            } else if let Some(f) = n.as_f64() {
+                kiwi::clean_f32(f as f32)
+            } else {
+                Value::Number(n.clone())
             }
         }
-        return None;
+        Value::Array(a) => Value::Array(a.iter().map(clean_json_floats).collect()),
+        Value::Object(o) => {
+            let mut m = Map::with_capacity(o.len());
+            for (k, val) in o {
+                m.insert(k.clone(), clean_json_floats(val));
+            }
+            Value::Object(m)
+        }
+        other => other.clone(),
     }
+}
+
+fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
     let obj = nc.as_object()?;
     let mut meta = Map::new();
     let mut has_brush_type = false;
@@ -659,6 +873,7 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "scrollDirection"
             | "lockMode"
             | "gridChildVerticalAlign"
+            | "gridChildHorizontalAlign"
             | "codeExportName"
             | "documentColorProfile"
             | "codeObjectType"
@@ -692,9 +907,11 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     meta.insert("publishID".into(), Value::String(g));
                 }
             }
-            "editInfo" if !large_file && val.is_object() => {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert("editInfo".into(), Value::String(s));
+            "editInfo" => {
+                if !large_file && val.is_object() {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert("editInfo".into(), Value::String(s));
+                    }
                 }
             }
             "widgetCachedAncestor" => {
@@ -704,46 +921,49 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             }
             "pluginRelaunchData" => {
                 if val.as_array().is_some_and(|a| !a.is_empty()) {
-                    if let Ok(s) = serde_json::to_string(val) {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                         meta.insert("pluginRelaunchData".into(), Value::String(s));
                     }
                 }
             }
             "nodeGenerationData" if val.is_object() => {
-                if let Ok(s) = serde_json::to_string(val) {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                     meta.insert("nodeGenerationData".into(), Value::String(s));
                 }
             }
-            "derivedTextData" | "derivedImmutableFrameData" if !large_file && !val.is_null() => {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert(k.clone(), Value::String(s));
+            "derivedTextData" | "derivedImmutableFrameData" => {
+                if !large_file && !val.is_null() {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
                 }
             }
-            "symbolLinks"
-            | "widgetEvents"
-            | "widgetHoverStyle"
-            | "connectorTextMidpoint"
-            | "ancestorPathBeforeDeletion"
-            | "connectorControlPoints"
-            | "scatterStrokeSettings"
-            | "gridAutoTracks"
-            | "prototypeStartingPoint"
-            | "codeSourceInfo"
-            | "widgetInputBehavior"
-            | "sourceControlConfig"
-            | "widgetMetadata"
-            | "timelineDefinitions"
-            | "renderedSyncedState"
-            | "annotationCategories"
-            | "makeContentState"
-            | "widgetSyncedState"
-            | "widgetPropertyMenuItems"
-                if !val.is_null() =>
-            {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert(k.clone(), Value::String(s));
+            other if !MAPPED_NODE_CHANGE_FIELDS.contains(&other) && !other.starts_with('_') => match val {
+                Value::Null => {}
+                Value::String(s) if !s.is_empty() => {
+                    meta.insert(k.clone(), Value::String(s.clone()));
                 }
-            }
+                Value::Bool(b) => {
+                    meta.insert(k.clone(), Value::String(if *b { "true".into() } else { "false".into() }));
+                }
+                Value::Number(_) => {
+                    let cleaned = clean_json_floats(val);
+                    if !cleaned.is_null() {
+                        meta.insert(k.clone(), Value::String(cleaned.to_string()));
+                    }
+                }
+                Value::Array(a) if !a.is_empty() => {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
+                }
+                Value::Object(o) if !o.is_empty() => {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -1028,6 +1248,11 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     if fstr(nc, "stackPositioning") == Some("ABSOLUTE") {
         m.insert("layoutPositioning".into(), "ABSOLUTE".into());
     }
+    for k in ["stackChildMarginTop", "stackChildMarginRight", "stackChildMarginBottom", "stackChildMarginLeft"] {
+        if let Some(v) = fnum(nc, k) {
+            m.insert(k.into(), v.into());
+        }
+    }
     for k in ["gridColumnSpan", "gridRowSpan"] {
         copy(&mut m, nc, k, k);
     }
@@ -1285,9 +1510,21 @@ fn explicit_modes(nc: &Value, lk: &Lk) -> Option<Value> {
 /// `componentPropRefs`). Variants refer to their set's definitions through
 /// `parentPropDefId`; see [`Lk::prop_defs`].
 fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
-    let text_of = |v: &Value| -> Option<Value> { Some(Value::String(fstr(v.get("textValue")?, "characters")?.to_string())) };
+    // `textValue` is a message with `characters` in `value`, a plain string in `varValue.value`.
+    let text_of = |v: &Value| -> Option<Value> {
+        let t = v.get("textValue")?;
+        Some(Value::String(t.as_str().or_else(|| fstr(t, "characters"))?.to_string()))
+    };
     let value_of = |v: &Value| -> Option<Value> {
-        v.get("boolValue").cloned().or_else(|| text_of(v)).or_else(|| v.get("guidValue").and_then(guid_str).map(Value::String))
+        v.get("boolValue")
+            .cloned()
+            .or_else(|| text_of(v))
+            .or_else(|| v.get("guidValue").and_then(guid_str).map(Value::String))
+            .or_else(|| v.get("symbolIdValue").and_then(|s| s.get("guid")).and_then(guid_str).map(Value::String))
+    };
+    // Newer files leave `holder.<plain>` empty (`{}`) and keep the payload in `holder.varValue.value`.
+    let held = |holder: &Value, plain: &str| -> Option<Value> {
+        holder.get(plain).and_then(value_of).or_else(|| holder.get("varValue").and_then(|v| v.get("value")).and_then(value_of))
     };
     let mut defs = Map::new();
     for d in rest_import::farr(nc, "componentPropDefs") {
@@ -1295,7 +1532,7 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
         let Some((key, ty)) = lk.prop_defs.get(&id) else { continue };
         let mut def = Map::new();
         def.insert("type".into(), (*ty).into());
-        if let Some(v) = d.get("initialValue").and_then(value_of) {
+        if let Some(v) = held(d, "initialValue") {
             def.insert("defaultValue".into(), v);
         }
         if *ty == "VARIANT" {
@@ -1323,7 +1560,7 @@ fn component_props(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let mut vals = Map::new();
     for a in rest_import::farr(nc, "componentPropAssignments") {
         let Some((key, ty)) = a.get("defID").and_then(guid_str).and_then(|id| lk.prop_defs.get(&id)) else { continue };
-        let Some(v) = a.get("value").and_then(value_of) else { continue };
+        let Some(v) = held(a, "value") else { continue };
         vals.insert(key.clone(), json!({"type": ty, "value": v}));
     }
     if !vals.is_empty() {
@@ -1559,6 +1796,10 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "stackChildPrimaryGrow"
             | "stackChildAlignSelf"
             | "stackPositioning"
+            | "stackChildMarginTop"
+            | "stackChildMarginRight"
+            | "stackChildMarginBottom"
+            | "stackChildMarginLeft"
             | "layoutSizingHorizontal"
             | "layoutSizingVertical"
             | "gridColumns"
@@ -1704,6 +1945,11 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
         if let Some(pos) = fstr(o, "stackPositioning") {
             m.insert("layoutPositioning".into(), pos.into());
+        }
+        for k in ["stackChildMarginTop", "stackChildMarginRight", "stackChildMarginBottom", "stackChildMarginLeft"] {
+            if let Some(v) = fnum(o, k) {
+                m.insert(k.into(), v.into());
+            }
         }
         copy(&mut m, o, "layoutSizingHorizontal", "layoutSizingHorizontal");
         copy(&mut m, o, "layoutSizingVertical", "layoutSizingVertical");

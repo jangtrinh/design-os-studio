@@ -25,7 +25,7 @@ fn check(doc: &Document) {
     assert!(matches!(card.effects[0], Effect::DropShadow { radius, .. } if radius == 8.0));
     let f = card.kind.frame_props().unwrap();
     assert!(f.clips_content, "frameMaskDisabled absent means clipping on");
-    let al = f.auto_layout.unwrap();
+    let al = f.auto_layout.as_ref().unwrap();
     assert_eq!(al.direction, LayoutDirection::Vertical);
     assert_eq!(al.padding, [12.0, 16.0, 12.0, 16.0], "right/bottom fall back to horizontal/vertical padding");
     assert_eq!(al.primary_sizing, Sizing::Hug);
