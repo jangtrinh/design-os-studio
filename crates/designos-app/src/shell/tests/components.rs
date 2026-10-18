@@ -558,3 +558,84 @@ fn slot_preferred_picker_tells_same_named_components_apart_by_id() {
     click_picker_row(&mut s, first_row);
     assert_eq!(preferred_of(&s, main), vec![second], "removing the first Icon keeps the second");
 }
+
+#[test]
+fn instance_slot_add_reorder_remove_keeps_instance_linked_enforces_max_with_toast_and_syncs_non_slot_parts() {
+    let mut s = Sim::with(Options { select: Some("Get started".into()), ..Default::default() });
+    let main = s.by_name("Primary button");
+    let inst = s.by_name("Get started");
+    let page = s.app().page;
+
+    let run_cmd = |app: &mut crate::app::App, cmd: designos_doc::Command| {
+        let mut tx = crate::edit::Tx::new();
+        let _ = tx.cmd(&mut app.doc, cmd);
+        app.run_tx(tx);
+    };
+    let badge_id = s.shell.app.doc.alloc_id();
+    let mut badge_node = designos_doc::Node::frame(badge_id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+    badge_node.name = "Badge".into();
+    run_cmd(&mut s.shell.app, designos_doc::Command::Insert { parent: page, index: 0, nodes: vec![badge_node] });
+    let cmd = designos_doc::create_component(&mut s.shell.app.doc, badge_id);
+    run_cmd(&mut s.shell.app, cmd);
+    let badge = badge_id;
+
+    // Add a Slot frame inside the main component with max_children = 2.
+    let slot_id = s.shell.app.doc.alloc_id();
+    let mut slot_frame = designos_doc::Node::frame(slot_id, designos_doc::Rect::new(8.0, 8.0, 80.0, 24.0));
+    slot_frame.name = "Extra".into();
+    run_cmd(&mut s.shell.app, designos_doc::Command::Insert { parent: main, index: 1, nodes: vec![slot_frame] });
+    let cmd = designos_doc::convert_to_slot(&mut s.shell.app.doc, slot_id);
+    run_cmd(&mut s.shell.app, cmd);
+    let cmd = designos_doc::set_slot_config(&mut s.shell.app.doc, main, "Extra", designos_doc::SlotPropConfig { max_children: Some(2), ..Default::default() });
+    run_cmd(&mut s.shell.app, cmd);
+
+    let inst_slot = child_of(&s.app().doc, inst, "Extra");
+    assert!(designos_doc::is_slot_container(&s.app().doc, inst_slot));
+
+    // Insert first child instance into the instance's slot.
+    s.shell.app.selection = vec![inst_slot];
+    let slot_c = center(s.app(), inst_slot);
+    s.shell.app.insert_instance(badge, slot_c);
+    let c1 = s.app().doc.get(inst_slot).unwrap().children[0];
+    assert_eq!(s.app().doc.get(c1).unwrap().parent, Some(inst_slot));
+
+    // Duplicate c1 inside the slot -> 2 children in slot.
+    s.shell.app.selection = vec![c1];
+    s.shell.app.duplicate_selection();
+    let children = s.app().doc.get(inst_slot).unwrap().children.clone();
+    assert_eq!(children.len(), 2);
+    let c2 = children[1];
+
+    // Reorder c1 after c2 inside the instance slot, then undo/redo.
+    s.shell.app.selection = vec![c1];
+    s.shell.app.reorder(true, false);
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children, vec![c2, c1]);
+    s.shell.app.undo();
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children, vec![c1, c2]);
+
+    // Attempting to add a 3rd child is blocked by max_children = 2 and shows a toast.
+    s.shell.app.toast = None;
+    s.shell.app.selection = vec![c2];
+    s.shell.app.duplicate_selection();
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children.len(), 2, "max_children enforced");
+    assert!(s.app().toast.is_some(), "toast shown when slot max_children is reached");
+
+    // Removing a child inside the instance slot succeeds without detaching the instance.
+    s.shell.app.selection = vec![c2];
+    s.shell.app.delete_selection();
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children, vec![c1]);
+    assert!(matches!(s.app().doc.get(inst).unwrap().kind, NodeKind::Instance { .. }), "instance remains linked");
+
+    // Main component updates to non-slot siblings still propagate to the instance without wiping slot content.
+    let main_bg = child_of(&s.app().doc, main, "Bg");
+    s.shell.app.edit_nodes(&[main_bg], |n| n.opacity = 0.45);
+    assert_eq!(s.app().doc.get(child_of(&s.app().doc, inst, "Bg")).unwrap().opacity, 0.45);
+    assert_eq!(s.app().doc.get(inst_slot).unwrap().children, vec![c1], "custom slot children preserved after main sync");
+
+    // Select the instance's slot frame to verify the Slot content inspector section.
+    s.shell.app.selection = vec![inst_slot];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.rect_of("slot-add-child").width() > 0.0, "Slot content add-instance dropdown rendered");
+    assert!(s.rect_of(&format!("slot-child-del:{}", c1.0)).width() > 0.0, "Slot child remove button rendered");
+}

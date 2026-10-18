@@ -930,11 +930,15 @@ fn start_draw(app: &mut App, tool: Tool, page: DV) {
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, start, &[]);
     let node = create::new_shape(app, tool);
     let id = node.id;
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return;
+    }
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).is_err() {
         return;
     }
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.selection = vec![id];
     app.canvas.inter = Interaction::Draw(DrawState { tx, tool, id, parent, start, last_page: start, targets, dragged: false });
     app.changed();
@@ -1154,11 +1158,27 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
         ids.push(clicked);
     }
     let mut tx = Tx::new();
+    let mut dup_blocked = None;
     if alt {
         let mut dup = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
         let clip = crate::clipboard::capture(&app.doc, &ids);
         let copies = clip.map(|c| crate::clipboard::instantiate(&mut app.doc, &c)).unwrap_or_default();
+        // A copy lands next to its original, but the drop may carry it elsewhere: only a copy that
+        // ends up in a slot it would overfill is refused, and that is decided at release.
+        let mut blocked = Vec::new();
+        for (id, _) in ids.iter().zip(&copies) {
+            let Some(parent) = app.doc.get(*id).and_then(|n| n.parent) else { continue };
+            if blocked.iter().any(|(slot, _)| *slot == parent) {
+                continue;
+            }
+            let roots: Vec<&designos_doc::Node> =
+                ids.iter().zip(&copies).filter(|(o, _)| app.doc.get(**o).and_then(|n| n.parent) == Some(parent)).filter_map(|(_, c)| c.first()).collect();
+            if let Some(err) = crate::ops::slot_edit_error(&app.doc, &[], Some((parent, &roots))) {
+                blocked.push((parent, err));
+            }
+        }
+        dup_blocked = Some(blocked);
         for (id, nodes) in ids.iter().zip(copies) {
             let Some(parent) = app.doc.get(*id).and_then(|n| n.parent) else { continue };
             let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| c == id)).map(|i| i + 1).unwrap_or(usize::MAX);
@@ -1175,7 +1195,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
     let idx = active_index(app);
     let orig_bbox = union_all(ids.iter().map(|i| super::fast_world_aabb(&app.doc, idx, *i)))?;
     let targets = snap_targets(app, &ids);
-    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None })
+    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None, dup_blocked })
 }
 
 fn parent_has_auto_layout(doc: &Document, id: NodeId) -> bool {
@@ -1387,11 +1407,12 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
         Interaction::Guide(g) => rulers::release(app, g),
         Interaction::Connect(c) => crate::board::connect::release(app, c),
         Interaction::Move(mut m) => {
-            // Holding Space on release suppresses reparenting into a different container (MI-12).
-            if m.moved && !m.ids.is_empty() && !inp.space {
-                reparent_after_move(app, &mut m, cur);
+            if release_move(app, &mut m, cur, inp.space) {
+                app.run_tx(m.tx);
+            } else {
+                // A refused drop leaves the document as it was before the drag.
+                m.tx.cancel(&mut app.doc);
             }
-            app.run_tx(m.tx);
         }
         Interaction::Resize(r) => {
             app.run_tx(r.tx);
@@ -1572,25 +1593,60 @@ pub fn commit_auto_layout_inline_value(app: &mut App, id: NodeId, kind: handles:
     app.run_tx(tx)
 }
 
-fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) {
+/// Settles a finished drag: reparents into the container under the pointer and records the slot
+/// edits it made. Returns false when a slot limit refuses the drop (the caller undoes the drag).
+fn release_move(app: &mut App, m: &mut MoveState, cur: DV, space: bool) -> bool {
+    // Holding Space on release suppresses reparenting into a different container (MI-12).
+    if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur) {
+        return false;
+    }
+    for id in m.ids.clone() {
+        let Some(parent) = app.doc.get(id).and_then(|n| n.parent) else { continue };
+        if let Some(blocked) = &m.dup_blocked {
+            if let Some((_, err)) = blocked.iter().find(|(slot, _)| *slot == parent) {
+                app.show_toast(err.to_string(), true);
+                return false;
+            }
+            // A copy that stayed in its slot changed that slot's content.
+            App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, parent);
+        }
+    }
+    true
+}
+
+fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) -> bool {
     let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
+    let copies = m.dup_blocked.is_some();
     let mut touched_parents = Vec::new();
     if let Some(r) = m.reorder.take() {
         // Dropped inside its auto-layout frame: move to the indicated slot.
         if let Some(&id) = m.ids.first() {
+            if !app.slot_move_allowed(&[id], r.parent) {
+                return false;
+            }
+            let old_parent = app.doc.get(id).and_then(|n| n.parent);
+            let order_before = app.doc.get(r.parent).map(|p| p.children.clone());
             if m.tx.cmd(&mut app.doc, Command::Reparent { id, parent: r.parent, index: r.index }).is_ok() {
+                if app.doc.get(r.parent).map(|p| &p.children) != order_before.as_ref() {
+                    App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, r.parent);
+                }
+                if let Some(p) = old_parent.filter(|p| *p != r.parent && !copies) {
+                    App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, p);
+                }
                 layout::relayout_around(&mut app.doc, &mut m.tx.ed, r.parent);
             }
         }
-        return;
+        return true;
     }
-    for id in m.ids.clone() {
-        let Some(n) = app.doc.get(id) else { continue };
-        let old_parent = n.parent;
-        // Children of an auto-layout frame that stay inside it only reorder; leaving it takes them out of the flow.
-        if old_parent == Some(target) || app.doc.is_ancestor(id, target) {
-            continue;
-        }
+    // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
+    let moving: Vec<NodeId> =
+        m.ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.parent != Some(target)) && !app.doc.is_ancestor(*id, target)).collect();
+    if !moving.is_empty() && !app.slot_move_allowed(&moving, target) {
+        return false;
+    }
+    let mut moved = false;
+    for id in moving {
+        let old_parent = app.doc.get(id).and_then(|n| n.parent);
         let Some(inv) = app.doc.world_transform(target).invert() else { continue };
         let world = app.doc.world_transform(id);
         let index = app.doc.get(target).map(|p| p.children.len()).unwrap_or(0);
@@ -1598,17 +1654,24 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) {
             if let Some(n) = m.tx.ed.node(&mut app.doc, id) {
                 n.transform = inv * world;
             }
-            touched_parents.extend(old_parent);
+            moved = true;
+            // The slot an Alt-copy was parked in never gained or lost anything.
+            if !copies {
+                touched_parents.extend(old_parent);
+            }
         }
     }
-    if !touched_parents.is_empty() {
+    if moved {
         for p in touched_parents {
             if app.doc.get(p).is_some() {
+                App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, p);
                 layout::relayout_around(&mut app.doc, &mut m.tx.ed, p);
             }
         }
+        App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, target);
         layout::relayout_around(&mut app.doc, &mut m.tx.ed, target);
     }
+    true
 }
 
 /// 1:1 Figma `Enter` (select direct children) and `Shift+Enter` (select parent container)
@@ -1958,8 +2021,6 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
         n += 1;
     }
     let (poster_key, video_key) = (format!("img-{n}"), format!("video-{n}"));
-    app.doc.images.insert(poster_key.clone(), poster);
-    app.doc.images.insert(video_key.clone(), bytes);
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
     let inv = app.doc.world_transform(parent).invert()?;
     let o = inv.apply(page);
@@ -1969,15 +2030,22 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut node = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
     node.name = name.to_string();
     node.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: poster_key, scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
     }];
-    node.prototype.videos = vec![designos_doc::VideoFill { paint: 0, source: video_key, autoplay: true, looping: false, muted: true }];
+    node.prototype.videos = vec![designos_doc::VideoFill { paint: 0, source: video_key.clone(), autoplay: true, looping: false, muted: true }];
+    // Nothing is stored in the file for a drop that a slot refuses.
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return None;
+    }
+    app.doc.images.insert(poster_key, poster);
+    app.doc.images.insert(video_key, bytes);
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).ok()?;
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![id];
     app.tool = Tool::Move;
@@ -1994,7 +2062,6 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
         }
     };
     let key = format!("img-{}", app.doc.images.len() + 1);
-    app.doc.images.insert(key.clone(), bytes);
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
     let inv = app.doc.world_transform(parent).invert()?;
     let o = inv.apply(page);
@@ -2004,14 +2071,20 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
     n.name = name.to_string();
     n.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: key, scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
     }];
+    // Nothing is stored in the file for a drop that a slot refuses.
+    if !app.slot_insert_allowed(parent, &[&n]) {
+        return None;
+    }
+    app.doc.images.insert(key, bytes);
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![n] }).ok()?;
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![id];
     app.tool = Tool::Move;
@@ -2030,11 +2103,15 @@ fn text_press(app: &mut App, page: DV) {
     let parent = create::container_at_with_index(&app.doc, active_index(app), app.page, page, &[]);
     let Some((node, _)) = create::new_text(app, parent, page) else { return };
     let id = node.id;
+    if !app.slot_insert_allowed(parent, &[&node]) {
+        return;
+    }
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).is_err() {
         return;
     }
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     app.selection = vec![id];
     app.canvas.text = Some(TextSession::new(id, 0, 0, tx, true));
     app.changed();

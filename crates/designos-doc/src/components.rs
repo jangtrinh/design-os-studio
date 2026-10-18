@@ -205,7 +205,7 @@ fn is_top(n: &Node) -> bool {
     n.component.source.is_none() || n.component.source == instance_component(n)
 }
 
-/// True if `id` is a component slot container (either via `OverrideField::SlotContent`
+/// True if `id` is a component slot container (either via `is_slot`, `OverrideField::SlotContent`
 /// override/binding on itself or its master component node, or bound to a `PropKind::Slot` property).
 pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
     let Some(n) = doc.get(id) else { return false };
@@ -239,6 +239,50 @@ pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
         }
     }
     false
+}
+
+/// Nearest ancestor-or-self of `id` that is a slot container inside a component instance.
+pub fn enclosing_instance_slot(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let mut cur = Some(id);
+    while let Some(c) = cur {
+        let n = doc.get(c)?;
+        if is_slot_container(doc, c) && (is_linked(n) || instance_root_of(doc, c).is_some()) {
+            return Some(c);
+        }
+        cur = n.parent;
+    }
+    None
+}
+
+/// Resolves the [`SlotPropConfig`] governing `slot` (either a main-component slot or an instance copy).
+pub fn slot_config_of(doc: &Document, slot: NodeId) -> Option<SlotPropConfig> {
+    if !is_slot_container(doc, slot) {
+        return None;
+    }
+    let n = doc.get(slot)?;
+    let src = n.component.source.and_then(|s| doc.get(s));
+    let prop_name =
+        n.component.bindings.get(&OverrideField::SlotContent).or_else(|| src.and_then(|sn| sn.component.bindings.get(&OverrideField::SlotContent))).cloned();
+    let comp = enclosing_component(doc, slot)
+        .or_else(|| n.component.source.and_then(|s| enclosing_component(doc, s)))
+        .or_else(|| instance_root_of(doc, slot).and_then(|i| doc.get(i)).and_then(instance_component))?;
+    let owner = doc.get(comp).and_then(|c| c.parent).filter(|p| matches!(doc.get(*p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp);
+
+    for holder_id in [owner, comp] {
+        let Some(holder) = doc.get(holder_id) else { continue };
+        if let Some(ref pname) = prop_name {
+            if let Some(cfg) = holder.component.slot_configs.get(pname) {
+                return Some(cfg.clone());
+            }
+        }
+        if let Some((_, cfg)) = holder.component.slot_configs.iter().find(|(k, _)| k.eq_ignore_ascii_case(&n.name)) {
+            return Some(cfg.clone());
+        }
+        if holder.component.slot_configs.len() == 1 {
+            return holder.component.slot_configs.values().next().cloned();
+        }
+    }
+    None
 }
 
 /// Property definitions that apply to `comp`: its own plus those of its set.
@@ -940,23 +984,26 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
     c.update(n);
 
     // --- children ---
-    if inode.component.overrides.contains(&OverrideField::SlotContent)
-        || rn.component.bindings.contains_key(&OverrideField::SlotContent)
-        || is_slot_container(&c.s, i)
-        || is_slot_container(&c.s, ref_id)
-    {
+    // A slot the user has edited keeps its content; once the override is cleared (Reset) the slot
+    // mirrors the main component's children again, including dropping anything the user added.
+    if inode.component.overrides.contains(&OverrideField::SlotContent) {
         return;
     }
+    let in_slot = rn.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(&c.s, i) || is_slot_container(&c.s, ref_id);
     let rkids = c.s.get(ref_id).map(|x| x.children.clone()).unwrap_or_default();
     let ikids = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
     let child_holder = if matches!(inode.kind, NodeKind::Instance { .. }) { i } else { holder };
     let by_src: BTreeMap<NodeId, NodeId> = ikids.iter().filter_map(|k| c.s.get(*k).and_then(|x| x.component.source).map(|s| (s, *k))).collect();
     let rset: BTreeSet<NodeId> = rkids.iter().copied().collect();
     for k in &ikids {
-        if let Some(s) = c.s.get(*k).and_then(|x| x.component.source) {
-            if !rset.contains(&s) {
-                c.push(Command::Remove { id: *k });
-            }
+        let stale = match c.s.get(*k).map(|x| x.component.source) {
+            Some(Some(s)) => !rset.contains(&s),
+            // Slot content the user created has no counterpart in the main component.
+            Some(None) => in_slot,
+            None => false,
+        };
+        if stale {
+            c.push(Command::Remove { id: *k });
         }
     }
     let mut desired: Vec<NodeId> = Vec::new();
@@ -1198,6 +1245,144 @@ pub fn set_slot_config(doc: &mut Document, owner: NodeId, prop_name: &str, confi
     }
     o.component.slot_configs.insert(prop_name.to_string(), config);
     Command::Update { node: Box::new(o) }
+}
+
+/// Error returned when a slot content mutation violates its [`SlotPropConfig`].
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SlotConstraintError {
+    #[error("Node {0:?} is not a slot container")]
+    NotASlot(NodeId),
+    #[error("Slot reaches maximum children ({0})")]
+    MaxChildren(u32),
+    #[error("Slot requires at least {0} children")]
+    MinChildren(u32),
+    #[error("Slot accepts preferred instances only")]
+    PreferredOnly,
+}
+
+fn node_matches_preferred(doc: &Document, node: &Node, preferred: &[NodeId]) -> bool {
+    let Some(comp) = instance_component(node) else { return false };
+    if preferred.contains(&comp) {
+        return true;
+    }
+    if let Some(parent) = doc.get(comp).and_then(|c| c.parent) {
+        if preferred.contains(&parent) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Checks whether inserting `root_nodes` as direct children of `slot` respects its [`SlotPropConfig`].
+pub fn check_slot_insert(doc: &Document, slot: NodeId, root_nodes: &[&Node]) -> Result<(), SlotConstraintError> {
+    check_slot_replace(doc, slot, 0, root_nodes)
+}
+
+/// Like [`check_slot_insert`] for an edit that also takes `removing` direct children out of `slot`
+/// (ungroup, wrap in a group, replace): max and min apply to the count the slot ends with.
+pub fn check_slot_replace(doc: &Document, slot: NodeId, removing: usize, root_nodes: &[&Node]) -> Result<(), SlotConstraintError> {
+    if !is_slot_container(doc, slot) {
+        return Err(SlotConstraintError::NotASlot(slot));
+    }
+    let cur = doc.get(slot).map(|n| n.children.len()).unwrap_or(0);
+    let next_count = (cur + root_nodes.len()).saturating_sub(removing);
+    if let Some(cfg) = slot_config_of(doc, slot) {
+        if let Some(max) = cfg.max_children {
+            if next_count > max as usize {
+                return Err(SlotConstraintError::MaxChildren(max));
+            }
+        }
+        if removing > 0 {
+            if let Some(min) = cfg.min_children {
+                if next_count < min as usize {
+                    return Err(SlotConstraintError::MinChildren(min));
+                }
+            }
+        }
+        if cfg.allow_preferred_values_only == Some(true) && !cfg.preferred.is_empty() {
+            for rn in root_nodes {
+                if !node_matches_preferred(doc, rn, &cfg.preferred) {
+                    return Err(SlotConstraintError::PreferredOnly);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks whether removing `removing_count` direct children from `slot` respects its [`SlotPropConfig`].
+pub fn check_slot_remove(doc: &Document, slot: NodeId, removing_count: usize) -> Result<(), SlotConstraintError> {
+    if !is_slot_container(doc, slot) {
+        return Err(SlotConstraintError::NotASlot(slot));
+    }
+    let cur = doc.get(slot).map(|n| n.children.len()).unwrap_or(0);
+    let rem = cur.saturating_sub(removing_count);
+    if let Some(cfg) = slot_config_of(doc, slot) {
+        if let Some(min) = cfg.min_children {
+            if rem < min as usize {
+                return Err(SlotConstraintError::MinChildren(min));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Inserts a subtree `nodes` (root first) into `slot` at `index`, validating [`SlotPropConfig`]
+/// constraints and recording `OverrideField::SlotContent` so the instance stays linked.
+pub fn insert_into_slot(doc: &mut Document, slot: NodeId, index: usize, nodes: Vec<Node>) -> Result<Command, SlotConstraintError> {
+    let Some(root) = nodes.first() else {
+        if !is_slot_container(doc, slot) {
+            return Err(SlotConstraintError::NotASlot(slot));
+        }
+        return Ok(nothing());
+    };
+    check_slot_insert(doc, slot, &[root])?;
+    let mut c = Ctx::new(doc);
+    if let Some(mut sn) = c.s.get(slot).cloned() {
+        if is_linked(&sn) || instance_root_of(c.s, slot).is_some() {
+            sn.component.overrides.insert(OverrideField::SlotContent);
+            c.update(sn);
+        }
+    }
+    let len = c.s.get(slot).map(|n| n.children.len()).unwrap_or(0);
+    c.push(Command::Insert { parent: slot, index: index.min(len), nodes });
+    Ok(c.finish())
+}
+
+/// Removes a direct child `child` from its enclosing slot container, validating `min_children`
+/// and recording `OverrideField::SlotContent` so the instance stays linked.
+pub fn remove_from_slot(doc: &mut Document, child: NodeId) -> Result<Command, SlotConstraintError> {
+    let Some(slot) = doc.get(child).and_then(|n| n.parent) else {
+        return Err(SlotConstraintError::NotASlot(child));
+    };
+    check_slot_remove(doc, slot, 1)?;
+    let mut c = Ctx::new(doc);
+    if let Some(mut sn) = c.s.get(slot).cloned() {
+        if is_linked(&sn) || instance_root_of(c.s, slot).is_some() {
+            sn.component.overrides.insert(OverrideField::SlotContent);
+            c.update(sn);
+        }
+    }
+    c.push(Command::Remove { id: child });
+    Ok(c.finish())
+}
+
+/// Reorders a direct child `child` inside `slot` to `index`, recording `OverrideField::SlotContent`
+/// so the instance stays linked.
+pub fn reorder_in_slot(doc: &mut Document, slot: NodeId, child: NodeId, index: usize) -> Result<Command, SlotConstraintError> {
+    if !is_slot_container(doc, slot) || doc.get(child).and_then(|n| n.parent) != Some(slot) {
+        return Err(SlotConstraintError::NotASlot(slot));
+    }
+    let mut c = Ctx::new(doc);
+    if let Some(mut sn) = c.s.get(slot).cloned() {
+        if is_linked(&sn) || instance_root_of(c.s, slot).is_some() {
+            sn.component.overrides.insert(OverrideField::SlotContent);
+            c.update(sn);
+        }
+    }
+    let len = c.s.get(slot).map(|n| n.children.len()).unwrap_or(1);
+    c.push(Command::Reparent { id: child, parent: slot, index: index.min(len.saturating_sub(1)) });
+    Ok(c.finish())
 }
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,9 @@ pub struct MoveState {
     pub moved: bool,
     /// Auto-layout reorder target while dragging a child inside its frame.
     pub reorder: Option<reorder::Insertion>,
+    /// `Some` while dragging Alt-copies (`ids` are the copies). Holds the slots whose limit a copy
+    /// breaks if it stays in them; the verdict is taken at release, once the drop is known.
+    pub dup_blocked: Option<Vec<(NodeId, designos_doc::SlotConstraintError)>>,
 }
 
 pub enum ResizeKind {

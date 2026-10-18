@@ -979,6 +979,7 @@ mod menus;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
+mod slot_canvas_edits;
 mod style_edit;
 mod svg;
 mod typography;

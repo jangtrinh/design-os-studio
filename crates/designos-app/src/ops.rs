@@ -99,6 +99,26 @@ fn transform_nodes(doc: &mut Document, ed: &mut Edit, nodes: &[(NodeId, Affine)]
     }
 }
 
+/// The first slot limit broken by taking `leaving` (slot, count) layers out of their slots and
+/// putting `entering` layers into one. Parents that are not slots are not limited.
+pub(crate) fn slot_edit_error(doc: &Document, leaving: &[(NodeId, usize)], entering: Option<(NodeId, &[&Node])>) -> Option<SlotConstraintError> {
+    let into = entering.map(|(slot, _)| slot);
+    for &(slot, count) in leaving {
+        // A slot that is also entered is judged once, on the count it ends with.
+        if Some(slot) != into && is_slot_container(doc, slot) {
+            if let Err(err) = check_slot_remove(doc, slot, count) {
+                return Some(err);
+            }
+        }
+    }
+    let (slot, roots) = entering?;
+    if roots.is_empty() || !is_slot_container(doc, slot) {
+        return None;
+    }
+    let removing = leaving.iter().find(|(s, _)| *s == slot).map_or(0, |(_, n)| *n);
+    check_slot_replace(doc, slot, removing, roots).err()
+}
+
 impl App {
     /// Mirrors the selection across the centre of its bounding box.
     pub fn flip_selection(&mut self, horizontal: bool) {
@@ -401,6 +421,57 @@ impl App {
         self.page
     }
 
+    /// Records on an instance slot that its content now differs from the main component, so a
+    /// later main-component sync leaves the content alone. Call it only after the edit happened.
+    pub(crate) fn mark_slot_content_override(doc: &mut Document, ed: &mut Edit, parent: NodeId) {
+        let is_inst_slot = is_slot_container(doc, parent) && (doc.get(parent).is_some_and(is_linked) || instance_root_of(doc, parent).is_some());
+        if is_inst_slot {
+            if let Some(sn) = ed.node(doc, parent) {
+                sn.component.overrides.insert(OverrideField::SlotContent);
+            }
+        }
+    }
+
+    /// Existing layers `ids` are about to be parented under `to`: refuses (with a toast) when that
+    /// breaks the max, preferred-only or min limits of a slot they enter or leave. Layers that
+    /// already sit in `to` only reorder and are not counted.
+    pub(crate) fn slot_move_allowed(&mut self, ids: &[NodeId], to: NodeId) -> bool {
+        let moving: Vec<&Node> = ids.iter().filter_map(|id| self.doc.get(*id)).filter(|n| n.parent != Some(to)).collect();
+        let mut leaving: Vec<(NodeId, usize)> = Vec::new();
+        for parent in moving.iter().filter_map(|n| n.parent) {
+            match leaving.iter_mut().find(|(slot, _)| *slot == parent) {
+                Some((_, count)) => *count += 1,
+                None => leaving.push((parent, 1)),
+            }
+        }
+        let err = slot_edit_error(&self.doc, &leaving, Some((to, &moving)));
+        self.report_slot_error(err)
+    }
+
+    /// New layers (roots of freshly built subtrees) are about to be inserted under `into`:
+    /// refuses (with a toast) when that breaks the slot's max or preferred-only limit.
+    pub(crate) fn slot_insert_allowed(&mut self, into: NodeId, roots: &[&Node]) -> bool {
+        let err = slot_edit_error(&self.doc, &[], Some((into, roots)));
+        self.report_slot_error(err)
+    }
+
+    /// `removing` of `slot`'s own children are swapped for the new `roots` in one edit (ungroup,
+    /// wrap in a group): refuses (with a toast) when the slot would end outside its limits.
+    pub(crate) fn slot_swap_allowed(&mut self, slot: NodeId, removing: usize, roots: &[&Node]) -> bool {
+        let err = slot_edit_error(&self.doc, &[(slot, removing)], Some((slot, roots)));
+        self.report_slot_error(err)
+    }
+
+    fn report_slot_error(&mut self, err: Option<SlotConstraintError>) -> bool {
+        match err {
+            Some(err) => {
+                self.show_toast(err.to_string(), true);
+                false
+            }
+            None => true,
+        }
+    }
+
     // ------------------------------------------------------------ delete / duplicate
     pub fn delete_selection(&mut self) {
         let tops = self.top_selection();
@@ -410,14 +481,23 @@ impl App {
         let mut tx = Tx::new();
         let mut parents = Vec::new();
         for id in &tops {
-            // Layers inside an instance cannot be removed, only hidden (like Figma).
-            if self.doc.get(*id).is_some_and(|n| is_linked(n) && !is_top_instance(n)) {
+            let parent = self.doc.get(*id).and_then(|n| n.parent);
+            let in_slot = parent.is_some_and(|p| is_slot_container(&self.doc, p));
+            // Layers inside an instance cannot be removed, only hidden (like Figma) — except direct children of a slot!
+            if !in_slot && self.doc.get(*id).is_some_and(|n| is_linked(n) && !is_top_instance(n)) {
                 if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                     n.visible = false;
                 }
                 continue;
             }
-            if let Some(p) = self.doc.get(*id).and_then(|n| n.parent) {
+            if let Some(p) = parent {
+                if in_slot {
+                    if let Err(err) = check_slot_remove(&self.doc, p, 1) {
+                        self.show_toast(err.to_string(), true);
+                        continue;
+                    }
+                    Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, p);
+                }
                 if !parents.contains(&p) {
                     parents.push(p);
                 }
@@ -446,6 +526,11 @@ impl App {
         let copies = clipboard::capture(&self.doc, &tops).map(|c| clipboard::instantiate(&mut self.doc, &c)).unwrap_or_default();
         for (id, mut nodes) in tops.into_iter().zip(copies) {
             let Some(parent) = self.doc.get(id).and_then(|n| n.parent) else { continue };
+            if let Some(root) = nodes.first() {
+                if !self.slot_insert_allowed(parent, &[root]) {
+                    continue;
+                }
+            }
             let index = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)).map(|i| i + 1).unwrap_or(usize::MAX);
             let in_al = self.doc.get(parent).and_then(|p| p.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
             if let Some(root) = nodes.first_mut() {
@@ -457,11 +542,14 @@ impl App {
                 new_sel.push(root.id);
             }
             if tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+                Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
                 layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
             }
         }
         self.run_tx(tx);
-        self.selection = new_sel;
+        if !new_sel.is_empty() {
+            self.selection = new_sel;
+        }
     }
 
     // ------------------------------------------------------------ clipboard
@@ -503,6 +591,10 @@ impl App {
         let Some(clip) = clip else { return };
         let parent = self.container_for_insert();
         let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+        if !self.slot_insert_allowed(parent, &roots) {
+            return;
+        }
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
         let off = theme::PASTE_OFFSET * self.paste_count as f32;
@@ -515,6 +607,7 @@ impl App {
             let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
             let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
         }
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.paste_count += 1;
         self.run_tx(tx);
@@ -543,6 +636,10 @@ impl App {
             (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
         };
         let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+        if !self.slot_insert_allowed(parent, &roots) {
+            return;
+        }
         let first_orig = lists.first().and_then(|l| l.first()).map(|r| v2(r.transform.tx, r.transform.ty)).unwrap_or(v2(0.0, 0.0));
         let delta = v2(target_local.x - first_orig.x, target_local.y - first_orig.y);
         let mut tx = Tx::new();
@@ -556,6 +653,7 @@ impl App {
             let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
             let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
         }
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.run_tx(tx);
         self.selection = new_sel;
@@ -585,6 +683,12 @@ impl App {
                 continue;
             }
             let lists = clipboard::instantiate(&mut self.doc, &clip);
+            // The target is already out of the slot, so the check sees the net count after the swap.
+            let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+            if !self.slot_insert_allowed(parent, &roots) {
+                tx.cancel(&mut self.doc);
+                return;
+            }
             let first_orig = lists.first().and_then(|l| l.first()).map(|r| v2(r.transform.tx, r.transform.ty)).unwrap_or(v2(0.0, 0.0));
             let delta = v2(tx0 - first_orig.x, ty0 - first_orig.y);
             for (k, mut nodes) in lists.into_iter().enumerate() {
@@ -601,6 +705,7 @@ impl App {
             }
         }
         for p in affected_parents {
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, p);
             layout::relayout_around(&mut self.doc, &mut tx.ed, p);
         }
         self.run_tx(tx);
@@ -815,7 +920,12 @@ impl App {
         g.name = self.unique_name(name);
         g.transform = Affine::translate(bb.x, bb.y);
         g.size = v2(bb.w, bb.h);
+        // The wrapped layers leave the parent and one group takes their place.
+        if !self.slot_swap_allowed(parent, ids.len(), &[&g]) {
+            return None;
+        }
         tx.cmd(&mut self.doc, Command::Insert { parent, index: max_index + 1, nodes: vec![g] }).ok()?;
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         for (i, (id, in_parent)) in rel.into_iter().enumerate() {
             tx.cmd(&mut self.doc, Command::Reparent { id, parent: gid, index: i }).ok()?;
             if let Some(n) = tx.ed.node(&mut self.doc, id) {
@@ -861,6 +971,12 @@ impl App {
             if !is_group || g.children.is_empty() {
                 continue;
             }
+            // The group leaves its parent and its children take its place: judge the slot on the net count.
+            let kids: Vec<Node> = g.children.iter().filter_map(|c| self.doc.get(*c).cloned()).collect();
+            let kid_refs: Vec<&Node> = kids.iter().collect();
+            if !self.slot_swap_allowed(parent, 1, &kid_refs) {
+                continue;
+            }
             let mut index = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)).unwrap_or(0);
             for c in g.children.clone() {
                 let t = self.doc.get(c).map(|n| n.transform).unwrap_or_default();
@@ -873,6 +989,7 @@ impl App {
                 }
             }
             let _ = tx.cmd(&mut self.doc, Command::Remove { id });
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
             layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         }
         self.run_tx(tx);
@@ -1318,6 +1435,7 @@ impl App {
         let len = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
         let mut tx = Tx::new();
         let order: Vec<NodeId> = if forward { tops.iter().rev().copied().collect() } else { tops.clone() };
+        let mut moved = false;
         for (k, id) in order.iter().enumerate() {
             let cur = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| c == id)).unwrap_or(0);
             let target = match (forward, extreme) {
@@ -1328,7 +1446,11 @@ impl App {
             };
             if target != cur {
                 let _ = tx.cmd(&mut self.doc, Command::Reparent { id: *id, parent, index: target });
+                moved = true;
             }
+        }
+        if moved {
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         self.run_tx(tx);
@@ -1340,17 +1462,23 @@ impl App {
         let Some(npw) = self.doc.world_transform(new_parent).invert() else { return };
         let mut tx = Tx::new();
         let mut old_parents = Vec::new();
+        let mut moved = false;
         for (i, id) in ids.iter().enumerate() {
             if *id == new_parent || self.doc.is_ancestor(*id, new_parent) {
                 continue;
             }
-            let world = self.doc.world_transform(*id);
-            if let Some(p) = self.doc.get(*id).and_then(|n| n.parent) {
-                old_parents.push(p);
+            let old_p = self.doc.get(*id).and_then(|n| n.parent);
+            if !self.slot_move_allowed(&[*id], new_parent) {
+                continue;
             }
+            let world = self.doc.world_transform(*id);
             if let Err(e) = tx.cmd(&mut self.doc, Command::Reparent { id: *id, parent: new_parent, index: index + i }) {
                 self.show_toast(format!("Cannot move layer: {e}"), true);
                 continue;
+            }
+            moved = true;
+            if let Some(p) = old_p {
+                old_parents.push(p);
             }
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 n.transform = npw * world;
@@ -1358,8 +1486,12 @@ impl App {
         }
         for p in old_parents {
             if self.doc.get(p).is_some() {
+                Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, p);
                 layout::relayout_around(&mut self.doc, &mut tx.ed, p);
             }
+        }
+        if moved {
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, new_parent);
         }
         layout::relayout_around(&mut self.doc, &mut tx.ed, new_parent);
         self.run_tx(tx);

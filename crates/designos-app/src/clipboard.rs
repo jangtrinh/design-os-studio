@@ -135,6 +135,10 @@ fn place_figma(app: &mut App, html: &str) -> Result<Vec<NodeId>, String> {
             new_roots.push(root.id);
         }
     }
+    let slot_roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+    if let Some(err) = crate::ops::slot_edit_error(&app.doc, &[], Some((parent, &slot_roots))) {
+        return Err(err.to_string());
+    }
     let mut tx = Tx::new();
     // Image bytes go through the same undo step as the layers that reference them.
     if !frag.images.is_empty() {
@@ -150,6 +154,7 @@ fn place_figma(app: &mut App, html: &str) -> Result<Vec<NodeId>, String> {
             return Err(format!("Cannot paste from Figma: {e}"));
         }
     }
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     // Figma already laid the payload out, so its layers keep their sizes; only the ancestors (an auto-layout
     // or group parent) re-flow around them.
     for r in &new_roots {
@@ -274,6 +279,9 @@ pub fn drop_svg(app: &mut App, svg: &str, name: &str, at: Option<egui::Pos2>, nt
 /// step, and selects it.
 pub fn place_svg(app: &mut App, svg: &str, name: &str, center: Vec2, parent: NodeId) -> Result<NodeId, String> {
     let mut out = designos_svg::svg_to_nodes(svg, name, &mut || app.doc.alloc_id()).map_err(|e| format!("Cannot import SVG: {e}"))?;
+    if let Some(err) = crate::ops::slot_edit_error(&app.doc, &[], Some((parent, &[&out.nodes[0]]))) {
+        return Err(err.to_string());
+    }
     let inv = app.doc.world_transform(parent).invert().ok_or("Cannot place into a collapsed layer")?;
     let c = inv.apply(center);
     let size = out.nodes[0].size;
@@ -283,6 +291,7 @@ pub fn place_svg(app: &mut App, svg: &str, name: &str, center: Vec2, parent: Nod
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     let mut tx = Tx::new();
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: out.nodes }).map_err(|e| e.to_string())?;
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![root];

@@ -25,6 +25,9 @@ pub(super) fn sections(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) 
         NodeKind::Component(_) | NodeKind::ComponentSet(_) => component_props(app, ui, pane, id),
         _ => {
             if is_linked(&n) {
+                if is_slot_container(&app.doc, id) {
+                    instance_slot_content(app, ui, pane, id);
+                }
                 overrides_row(app, ui, pane, id);
             } else {
                 layer_bindings(app, ui, pane, id);
@@ -219,6 +222,73 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
                 }
             }
             _ => {}
+        }
+        row_end(pane);
+    }
+    pane.y += 4.0;
+    section_sep(ui, pane, false);
+}
+
+/// Inspector section for a selected slot container inside an instance: shows
+/// current child count / max limit, a "+ Add instance" dropdown, and child rows
+/// with reorder / remove controls.
+fn instance_slot_content(app: &mut App, ui: &mut Ui, pane: &mut Pane, slot: NodeId) {
+    let Some(sn) = app.doc.get(slot).cloned() else { return };
+    let cfg = slot_config_of(&app.doc, slot).unwrap_or_default();
+    let count_str = match cfg.max_children {
+        Some(max) => format!("Slot content ({}/{max})", sn.children.len()),
+        None => format!("Slot content ({})", sn.children.len()),
+    };
+    title(ui, pane, &count_str, None, false);
+
+    // "+ Add instance" dropdown (filtered to preferred when allow_preferred_values_only is true).
+    let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
+    widgets::record(ui, "slot-add-child", dd);
+    if is_dropdown_open(ui, "slot-add-child") {
+        let comps: Vec<NodeId> = all_components_cached(app)
+            .into_iter()
+            .filter(|&c| {
+                if cfg.allow_preferred_values_only == Some(true) && !cfg.preferred.is_empty() {
+                    cfg.preferred.contains(&c) || app.doc.get(c).and_then(|n| n.parent).is_some_and(|p| cfg.preferred.contains(&p))
+                } else {
+                    true
+                }
+            })
+            .collect();
+        let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
+        if let Some(i) = dropdown(ui, dd, "slot-add-child", "Add instance...", &names) {
+            let at = crate::util::rect_center(&crate::util::world_aabb(&app.doc, slot));
+            app.selection = vec![slot];
+            app.insert_instance(comps[i], at);
+            app.selection = vec![slot];
+        }
+    } else {
+        let _ = dropdown(ui, dd, "slot-add-child", "Add instance...", &[]);
+    }
+    row_end(pane);
+
+    for (idx, &cid) in sn.children.iter().enumerate() {
+        let cname = app.doc.get(cid).map(|n| n.name.clone()).unwrap_or_else(|| "Item".into());
+        let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, 148.0, theme::FIELD_HEIGHT);
+        let shown = widgets::elide(ui.painter(), &cname, &theme::font_body(), r.width());
+        ui.painter().text(Pos2::new(r.left() + 4.0, r.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), theme::TEXT);
+
+        let down = pane.rect(168.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        let down_key = format!("slot-child-down:{}", cid.0);
+        widgets::record(ui, &down_key, down);
+        if idx + 1 < sn.children.len() && widgets::icon_button(ui, down, &down_key, Icon::ChevronDown, false, "Move later").clicked() {
+            app.selection = vec![cid];
+            app.reorder(true, false);
+            app.selection = vec![slot];
+        }
+
+        let del = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        let del_key = format!("slot-child-del:{}", cid.0);
+        widgets::record(ui, &del_key, del);
+        if widgets::icon_button(ui, del, &del_key, Icon::Minus, false, "Remove from slot").clicked() {
+            app.selection = vec![cid];
+            app.delete_selection();
+            app.selection = vec![slot];
         }
         row_end(pane);
     }

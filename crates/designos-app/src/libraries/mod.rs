@@ -598,15 +598,27 @@ impl App {
         let target = Vec2::new(at.x - size.x / 2.0, at.y - size.y / 2.0);
         let parent = container_at(&self.doc, self.page, at, &[]);
         let local = self.doc.world_transform(parent).invert()?.apply(target);
+        // `import_asset` copies the component's images into the file before it returns the command (outside
+        // undo), so a drop that is refused afterwards has to take them out again.
+        let images_before: BTreeSet<String> = self.doc.images.keys().cloned().collect();
         let cmd = import_asset(&mut self.doc, &snap, key, Some(Placement { parent, at: local }));
         if is_noop(&cmd) {
             return None;
         }
+        // Judge the drop as the insert it is, before anything is applied.
+        if let Some(root) = inserted_under(&cmd, parent) {
+            if !self.slot_insert_allowed(parent, &[root]) {
+                self.doc.images.retain(|k, _| images_before.contains(k));
+                return None;
+            }
+        }
         let mut tx = Tx::new();
         if let Err(e) = tx.cmd(&mut self.doc, cmd) {
+            self.doc.images.retain(|k, _| images_before.contains(k));
             self.show_toast(format!("Edit failed: {e}"), true);
             return None;
         }
+        App::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         if !self.run_tx(tx) {
             return None;
@@ -785,4 +797,13 @@ pub fn instance_library_row(ui: &mut egui::Ui, row: egui::Rect, info: &LibraryIn
     let text = crate::widgets::elide(&p, &text, &crate::theme::font_body(), row.width() - 24.0);
     p.text(egui::pos2(row.left() + 22.0, row.center().y), egui::Align2::LEFT_CENTER, text, crate::theme::font_body(), crate::theme::TEXT_SECONDARY);
     crate::widgets::record(ui, "instance-library", row);
+}
+
+/// Root of the subtree `cmd` inserts under `parent` (the dropped instance), looking inside batches.
+fn inserted_under(cmd: &Command, parent: NodeId) -> Option<&Node> {
+    match cmd {
+        Command::Insert { parent: p, nodes, .. } if *p == parent => nodes.first(),
+        Command::Batch(cmds) => cmds.iter().rev().find_map(|c| inserted_under(c, parent)),
+        _ => None,
+    }
 }

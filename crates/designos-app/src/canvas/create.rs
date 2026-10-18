@@ -284,8 +284,12 @@ pub fn commit_pen(app: &mut App, tx: &mut Tx, pts: &[PenPoint], closed: bool) ->
     n.stroke.paints = vec![Paint::solid(Color::BLACK)];
     n.stroke.weight = 1.0;
     n.stroke.align = StrokeAlign::Center;
+    if !app.slot_insert_allowed(parent, &[&n]) {
+        return None;
+    }
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![n] }).ok()?;
+    App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     Some(id)
 }
 
