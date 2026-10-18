@@ -1,6 +1,6 @@
 # E15-24 Generate large deterministic test documents from open kits
 
-- Issue: not filed yet (task E15-24, epic #585, M / P0)
+- Issue: #612 (task E15-24, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/src/gen/{mod.rs,profile.rs,kit.rs,build.rs,screen.rs,tests.rs}` (new), `crates/designos-eval/src/gen/kits/{shadcn.toml,carbon.toml}` (new), `crates/designos-eval/src/gen/budgets.toml` (new).
 

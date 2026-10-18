@@ -1,6 +1,6 @@
 # E15-48 Support image fills and effects in apply_spec (NodeSpec)
 
-- Issue: not filed yet (task E15-48, epic #585, M / P0)
+- Issue: #638 (task E15-48, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-doc/src/spec.rs` (new `fills` and `effects` keys, export), `crates/designos-doc/src/spec_paint.rs` (new: `PaintSpec`, `EffectSpec`, validation), `crates/designos-doc/src/variables_apply.rs` (effect binding keys, image binding key), `crates/designos-doc/src/image_key.rs` (shared with E15-39), `crates/designos-mcp/src/engine.rs` (`apply_spec` workspace-relative image paths, schema description).
 
@@ -38,7 +38,11 @@ As an agent, I want one `apply_spec` call to create a card with an image fill an
    - `glass { light_angle [45], light_intensity [0.5], refraction [0.3], depth [8], dispersion [0.1], frost [12], visible }`.
    Field names map one to one onto `Effect` fields (`x`/`y` → `offset`, `blur` → `radius`). Ranges: blur and radius ≥ 0; fractions in 0..1; values are never clamped, and an out-of-range value is an error (`spec_value_out_of_range`, details name the field and range).
 6. **Effect variable bindings.** Any colour or number field may be `"var:<name>"`. Binding keys: `effects/<i>/color`, `effects/<i>/radius` (blur), `effects/<i>/spread`, `effects/<i>/offsetX`, `effects/<i>/offsetY` (Figma's effect `boundVariables` names), plus existing `effects/<i>/opacity`. `variables_apply` gains resolve and apply for these keys with scopes `EFFECT_COLOR` (color) and `EFFECT_FLOAT` (numbers). AC2: a bound shadow colour follows a mode switch.
-7. **Strict keys.** `NodeSpec`, `PaintSpec` and `EffectSpec` reject unknown keys. An unknown key returns `spec_unknown_key` with `details: { path: "children[2].effects[0].blurr", allowed: [...] }` and a corrected example that replaces the key with the closest allowed one (Levenshtein ≤ 2, using `strsim`, already in `Cargo.lock`), per the E15-5 error contract. Because strictness changes behaviour for existing callers, it ships behind one release of warnings: v0.6 rejects unknown keys inside `fills` and `effects` (new keys, no callers yet) and returns warnings for unknown top-level `NodeSpec` keys; v0.7 turns those warnings into errors (tracked in the changelog).
+7. **Strict keys.** `NodeSpec`, `PaintSpec` and `EffectSpec` reject unknown keys. An unknown key returns `spec_unknown_key` with `details: { path: "children[2].effects[0].blurr", allowed: [...] }` and a corrected example that replaces the key with the closest allowed one (Levenshtein ≤ 2, using `strsim`, already in `Cargo.lock`), per the E15-5 error contract. Owner ruling 2026-10-19: strict from v0.6 everywhere, with no warning release. Unknown keys at any level (top-level `NodeSpec`, `children[*]`, `fills`, `effects`, layout and text sub-objects) are errors in v0.6. Consequences:
+   - `export_spec` must emit only keys `apply_spec` accepts (round-trip test below), so an exported spec always re-applies.
+   - Keys added by later tasks (E15-21 `surface`, SC-4 agent fields) land in the same PR as the key's parser; a spec using a key from an unmerged task fails with `spec_unknown_key`, which is the intended signal.
+   - The changelog for v0.6 lists the change as breaking for agents that relied on ignored keys, with the error example.
+   - The agent guide (`designos_guide`, E15-15) states that unknown keys are rejected and lists the allowed keys per object.
 8. **Atomicity.** All of this happens inside the existing trial-document `apply_spec` path (`crates/designos-mcp/src/engine.rs:262-268`): any error leaves the document unchanged (AC3), and success is one undo step (AC1), including image bytes added to `Document.images`.
 9. **Export.** `export_spec` writes `fills` (all paints: solid, image with `asset` key and scale mode, gradients as `{ "type": "gradient", … }` read-only for now) and `effects` (all types, with `var:` for bound fields) whenever the node has more than one paint, a non-solid paint, or any effect; `fill` is kept for the single-solid case so old specs stay identical.
 
@@ -133,6 +137,8 @@ Fail-before: `card_with_image_and_shadow_one_undo` fails on `main` (keys ignored
 | `bound_shadow_colour_follows_mode` (AC2) | `color/shadow` Light `#00000040`, Dark `#00000099`; switch the card's mode to Dark | resolved shadow colour equals the Dark value |
 | `invalid_image_path_refused_unchanged` (AC3) | `"path": "../x.png"` | `image_path_invalid`; document hash unchanged; no image added |
 | `unknown_effect_key_named_error` | `blurr` | `spec_unknown_key` with corrected `blur` |
+| `unknown_top_level_key_rejected` | `{"type":"frame","widht":100}` | `spec_unknown_key`, path `widht`, corrected `width`; document unchanged |
+| `export_spec_reapplies_strict` | export every fixture node from `crates/designos-doc` test fixtures, re-apply | zero `spec_unknown_key` |
 | `fill_and_fills_conflict` | both keys | `spec_conflicting_keys` |
 | `export_spec_round_trip` | apply §5, export, re-apply into a new doc | equal node paints and effects (image keys equal) |
 | `single_solid_export_unchanged` | old-style spec | export identical to `main` output |
@@ -155,4 +161,5 @@ Visual evidence: CPU render of the §5 card in Light and Dark modes.
 
 - Full scope (owner ruling 2026-10-18): image fills from asset id, path or asset tools, all four scale modes, optional variable binding; drop shadow, inner shadow, layer blur, background blur, noise, texture and glass, each bindable.
 - Named errors with a corrected example (E15 error contract).
+- Unknown keys are rejected from v0.6, at every level (owner ruling 2026-10-19).
 - Colour is Display P3 per document: hex values convert into the document profile (SC-6).

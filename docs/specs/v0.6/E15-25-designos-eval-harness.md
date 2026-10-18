@@ -1,6 +1,6 @@
 # E15-25 Build the designos-eval harness: runner, tasks, 3 runs, confidence intervals, held-out set, JSONL
 
-- Issue: not filed yet (task E15-25, epic #585, L / P0)
+- Issue: #613 (task E15-25, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/` (new crate: `Cargo.toml`, `src/{main.rs,lib.rs,cli.rs,task.rs,split.rs,runner.rs,agent.rs,sandbox.rs,transcript.rs,stats.rs,rng.rs,hash.rs,jsonl.rs,config.rs}`, `tests/`), workspace `Cargo.toml` (member), `crates/designos-mcp/src/server.rs` (transcript logging switch).
 

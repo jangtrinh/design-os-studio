@@ -1,6 +1,6 @@
 # E15-27 Add suite S1 recreate with fidelity metrics
 
-- Issue: not filed yet (task E15-27, epic #585, L / P0)
+- Issue: #616 (task E15-27, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/suites/s1/{tasks.toml,split.lock,README.md}` (new), `crates/designos-eval/src/metrics/fidelity.rs` (new), `crates/designos-eval/src/metrics/{blocks.rs,assign.rs,ciede2000.rs,inpaint.rs}` (new), `crates/designos-eval/src/judge/clip.rs` (new, feature `aesthetic`), `crates/designos-eval/tools/s1_reference_blocks.py` (new, offline helper), `crates/designos-eval/tests/fixtures/s1_golden.json` (new).
 

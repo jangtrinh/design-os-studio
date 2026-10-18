@@ -1,6 +1,6 @@
 # E15-42 Import globals.css and Tailwind themes as variable collections with modes
 
-- Issue: not filed yet (task E15-42, epic #585, L / P0)
+- Issue: #632 (task E15-42, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-export/src/tokens/{mod.rs,css_scan.rs,css_values.rs,css_import.rs,css_export.rs,tailwind_config.rs,tests.rs}` (new), `crates/designos-doc/src/variables.rs` (`Variable.web_notation`), `crates/designos-app/src/cli.rs` (`designos tokens` subcommand), `crates/designos-mcp/src/engine.rs` tool list (`designos_import_tokens`, `designos_export_tokens`).
 

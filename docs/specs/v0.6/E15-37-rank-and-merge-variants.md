@@ -1,6 +1,6 @@
 # E15-37 Rank variants by lint, checklist and pairwise scores and merge the winner
 
-- Issue: not filed yet (task E15-37, epic #585, M / P0)
+- Issue: #626 (task E15-37, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/variants.rs` (rank, merge, archive, restore), `crates/designos-eval/src/judge/` (used as a library with default features), `crates/designos-doc/src/explorations.rs` (`VariantScores`), `crates/designos-mcp/Cargo.toml` (dependency on `designos-eval`, `default-features = false`).
 

@@ -34,7 +34,7 @@ Colour and type choices are where models are weakest. Briefs plus concrete value
    - Archetype given, some params missing: every group with exactly one option is filled automatically. If any group still has more than one option and no value, return `status: "needs_params"` with the option lists for the open groups. This is a success result, not an error.
    - A supplied value that is not in its group's option list fails with `style_param_invalid`, listing the allowed values and a corrected example.
    - All groups resolved: return the brief, the resolved values and a `resolved_params` object that `designos_apply_style` (E15-19) accepts verbatim.
-4. **Catalogue content.** One archetype per persona in `ease-design/knowledge/personas/personas.json` (26 on 2026-10-18), rewritten for design:os in our own words. Each archetype offers at least 2 palettes, 2 radius scales and 2 elevation sets, so the explorer (E15-36) can vary style inside one archetype.
+4. **Catalogue content.** One archetype per persona in `ease-design/knowledge/personas/personas.json` (26 on 2026-10-18), rewritten for design:os in our own words. Owner ruling 2026-10-19: ship all 26 now; the owner's blind review later removes or reworks the ones that miss, so each archetype carries `status: "candidate"` until reviewed. Each archetype offers at least 2 palettes, 2 radius scales and 2 elevation sets, so the explorer (E15-36) can vary style inside one archetype.
 5. **Font licence rule.** A font option is valid only when its `licence` is one of `OFL-1.1`, `Apache-2.0`, `MIT`, `UFL-1.0`, and its `source` is `bundled` (Inter) or `fontsource`. A persona font that fails this rule is replaced by a licensed font with a similar role (for example Inter for a system UI face) and the replacement is noted in the archetype's `source_notes`.
 6. **Palette roles.** Every palette defines, in both modes, the required roles `background`, `foreground`, `primary`, `primary-foreground`, `border`, `ring`. Optional roles: `card`, `card-foreground`, `popover`, `popover-foreground`, `secondary`, `secondary-foreground`, `muted`, `muted-foreground`, `accent`, `accent-foreground`, `destructive`, `destructive-foreground`, `success`, `warning`, `info`, `chart-1` … `chart-5`, `shadow`. Missing optional roles are derived at compile time by the fixed rules in E15-19 §3.4, so every compiled document has the same variable names.
 7. **Contrast gate (AC2).** For every palette and mode:
@@ -54,6 +54,7 @@ Archetype file (`assets/styles/archetypes/quiet-editorial.json`, abridged):
 {
   "schema": 1,
   "id": "quiet-editorial",
+  "status": "candidate",
   "name": "Quiet editorial",
   "summary": "Paper-like calm, serif headlines, generous margins.",
   "surfaces": ["landing-page", "slides", "web-app"],

@@ -1,6 +1,6 @@
 # E15-36 Explore design variants in parallel frames or branches with mixed models
 
-- Issue: not filed yet (task E15-36, epic #585, L / P0)
+- Issue: #625 (task E15-36, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/variants.rs` (new), the RD-3 agent orchestration module from #572 (`spawn_agents`), `crates/designos-doc/src/explorations.rs` (new: stored explorations), `crates/designos-doc/src/style_compile/variant_modes.rs` (new), `crates/designos-doc/src/agent_meta.rs` (SC-4: `variant` field), `engine.rs` tool list.
 

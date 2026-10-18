@@ -14,7 +14,8 @@ As a user, I want a slide with 18 px body text, or a mobile screen with six tab 
 
 - FACT: `designos_lint` has two rules, `zero-bounds` and `default-layer-name` (`crates/designos-mcp/src/engine.rs:350-374`). E15-9 (#594) replaces it with one solver-backed linter; E15-11 (#596) adds spacing and type-scale rules.
 - FACT: nodes carry no surface or purpose tag. Available per-node maps are `plugin_data` and `fig_metadata` (`crates/designos-doc/src/node.rs:146,155`), both Figma-shaped; slides have `slide: Option<SlideProps>` with notes only (`node.rs:137,159-162`).
-- FACT: `NodeSpec` has no `surface` key and does not reject unknown keys (no `deny_unknown_fields` on `NodeSpec`, `crates/designos-doc/src/spec.rs:44-46`).
+- FACT: `NodeSpec` has no `surface` key and does not reject unknown keys (no `deny_unknown_fields` on `NodeSpec`, `crates/designos-doc/src/spec.rs:44-46`). E15-48 makes `NodeSpec` strict in v0.6 (owner ruling 2026-10-19), so the `surface` key and its parser must land in one PR, after E15-48 in the `spec.rs` queue.
+- Owner ruling 2026-10-19: the per-surface values in the table below are ours and accepted as written; they live in the surface data files so they can be tuned later without code changes.
 - FACT: source knowledge (MIT, owner's own): `ease-design/knowledge/page-structures.md` (21 macrostructures, honest copy, chrome tells) and `knowledge/ux-psychology.md`.
 - FACT: #248 asks `get_guidelines` to serve guides per surface: code, design system, landing page, mobile app, slides, table, tailwind, web app.
 

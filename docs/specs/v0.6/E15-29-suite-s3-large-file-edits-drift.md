@@ -1,6 +1,6 @@
 # E15-29 Add suite S3 edits on large self-generated files
 
-- Issue: not filed yet (task E15-29, epic #585, M / P0)
+- Issue: #618 (task E15-29, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/suites/s3/{tasks.toml,split.lock,README.md}` (new), `crates/designos-eval/src/metrics/drift.rs` (new), `crates/designos-eval/src/metrics/node_hash.rs` (new), `crates/designos-eval/tests/fixtures/s3/` (new drift fixtures).
 

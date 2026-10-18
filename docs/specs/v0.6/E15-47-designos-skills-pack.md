@@ -1,6 +1,6 @@
 # E15-47 Build our own design:os skills pack from the ease-design knowledge
 
-- Issue: not filed yet (task E15-47, epic #585, L / P0)
+- Issue: #637 (task E15-47, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `skills/designos-use/`, `skills/generate-design/`, `skills/generate-library/`, `skills/critique/` (new, each in the tool-product profile layout), `skills/design-os-studio/` (updated), `skills/ATTRIBUTION.md` (new), `scripts/skills/{build_contract.py,validate.py,look.py,sync_hosts.py}` (new), `tests/skills/` shape, validate and contract tests (new), `crates/designos-mcp/src/prompts.rs` (new: MCP prompts), `crates/designos-mcp/src/server.rs` (enable prompts capability), `.github/workflows/ci.yml` (skill tests step), `.claude-plugin/plugin.json` (description tool count).
 

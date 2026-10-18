@@ -1,6 +1,6 @@
 # E15-28 Add suite S2 brief-to-screen on two open design systems
 
-- Issue: not filed yet (task E15-28, epic #585, M / P0)
+- Issue: #617 (task E15-28, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/suites/s2/{briefs.toml,tasks.toml,split.lock,README.md}` (new), `crates/designos-eval/suites/s2/ds/{shadcn,carbon}.ds.toml` (new library recipes), `crates/designos-eval/src/suites/s2.rs` (new).
 

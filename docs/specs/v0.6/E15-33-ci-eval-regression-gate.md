@@ -1,6 +1,6 @@
 # E15-33 Gate CI on deterministic eval metrics
 
-- Issue: not filed yet (task E15-33, epic #585, M / P0)
+- Issue: #622 (task E15-33, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/src/gate.rs` (new), `crates/designos-eval/baselines/<release>/` (new: transcripts and baseline JSONL), `crates/designos-eval/gate.toml` (new), `.github/workflows/ci.yml` (new `eval-gate` job), `crates/designos-eval/tests/gate.rs` (new).
 
@@ -47,7 +47,7 @@ As the team, we want every pull request to fail when the engine makes agent outp
    - `cargo build --release -p designos-eval -p designos-mcp`;
    - generate the needed fixtures with `designos-eval gen` (cached by key `gen-<kit>-<nodes>-<seed>-<generator version>`; 1M fixtures are excluded from PR runs and replayed nightly);
    - `designos-eval gate`; upload `gate/` as an artefact; post `summary.md` to the job summary.
-   - The job is required for merge once three consecutive green runs on `main` are recorded (AC2); until then it reports but does not block. Making it required is an owner action on the ruleset (owner-manual, recorded in the PR).
+   - The job is required for merge once three consecutive green runs on `main` are recorded (AC2); until then it reports but does not block. Making it required is an owner action on the ruleset (owner-manual, recorded in the PR). Owner ruling 2026-10-19: yes, required after three consecutive green runs.
 7. **Baseline updates.** Live-agent runs happen locally (`designos-eval run … --record-baseline`). A new baseline lands only through a reviewed commit that adds `baselines/<release>/` and states the reason; CI never writes baselines.
 8. **Seeded regression check (AC1).** A test patches the engine through a test-only switch (`DESIGNOS_TEST_FORCE_CLIP=1`, compiled only with `cfg(test)` or the `gate-selftest` feature) that makes `apply_spec` give every text node a fixed height equal to half its measured text height, so text clips; the gate on the S2 baseline subset must exit 1 and name `clipped_text`.
 

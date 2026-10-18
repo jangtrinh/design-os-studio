@@ -1,6 +1,6 @@
 # E15-44 Detect repeated subtrees in web imports and turn them into components
 
-- Issue: not filed yet (task E15-44, epic #585, L / P0)
+- Issue: #634 (task E15-44, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: the web-capture importer from #277: new `component_detect` step (`signature.rs`, `grouping.rs`, `promote.rs`), capture script addition for framework component names (#276 format v2, shared with E15-43).
 

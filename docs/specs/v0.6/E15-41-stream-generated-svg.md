@@ -1,6 +1,6 @@
 # E15-41 Stream generated SVG into frames as it arrives
 
-- Issue: not filed yet (task E15-41, epic #585, L / P0)
+- Issue: #631 (task E15-41, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/assets.rs` (`kind: "svg"`), `crates/designos-mcp/src/tools/svg_stream.rs` (new: incremental parser and inserter), `crates/designos-eval/src/agent_job.rs` (streaming stdout option, SC-5), `crates/designos-doc/src/vector_fit.rs` (use only), `crates/designos-svg/src/lib.rs` (use only).
 

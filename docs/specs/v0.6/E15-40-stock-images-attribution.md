@@ -1,6 +1,6 @@
 # E15-40 Insert stock images with attribution metadata
 
-- Issue: not filed yet (task E15-40, epic #585, M / P0)
+- Issue: #629 (task E15-40, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/assets.rs` (`kind: "stock"`), `crates/designos-doc/src/agent_meta.rs` (SC-4: `attribution`), `crates/designos-app/src/panels/inspect.rs` (Credit row), `crates/designos-export/src/{svg.rs,pdf.rs,raster.rs}` (credits in exports), `crates/designos-fig/src/fig_export.rs` and the `.fig` importer (plugin data round trip, one field; these are hot files that merge one at a time per `docs/releasing.md`).
 

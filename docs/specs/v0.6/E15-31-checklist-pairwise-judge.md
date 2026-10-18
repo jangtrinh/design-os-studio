@@ -1,6 +1,6 @@
 # E15-31 Judge designs with checklists through the agent CLI, with position swap, plus a local aesthetic score
 
-- Issue: not filed yet (task E15-31, epic #585, L / P0)
+- Issue: #620 (task E15-31, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/src/judge/{mod.rs,checklist.rs,pairwise.rs,bradley_terry.rs,prompts.rs,parse.rs,aesthetic.rs}` (new; `aesthetic.rs` behind feature `aesthetic`), `crates/designos-eval/src/judge/prompts/{checklist.md,pairwise.md}` (new, our own text), `crates/designos-eval/src/judge/rubric.toml` (new).
 

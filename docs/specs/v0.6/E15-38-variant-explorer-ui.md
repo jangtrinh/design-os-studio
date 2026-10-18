@@ -1,6 +1,6 @@
 # E15-38 Add the variant explorer UI: count, mode, model per agent, progress and ranking
 
-- Issue: not filed yet (task E15-38, epic #585, M / P0)
+- Issue: #627 (task E15-38, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-app/src/panels/variants_view.rs` (new), `crates/designos-app/src/panels/variants_ranking.rs` (new), the AI panel segmented control added by E15-20 (`crates/designos-app/src/panels/style_gallery.rs` host in `shell.rs`), `crates/designos-app/src/terminal.rs` (agent profile list for the model picker; read-only use), shell tests under `crates/designos-app/src/shell/tests/`.
 

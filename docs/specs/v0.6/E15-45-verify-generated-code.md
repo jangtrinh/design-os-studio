@@ -1,6 +1,6 @@
 # E15-45 Verify generated code by rendering it and pixel-diffing against our render
 
-- Issue: not filed yet (task E15-45, epic #585, L / P0)
+- Issue: #635 (task E15-45, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-export/src/verify/{mod.rs,harness.rs,bounds.rs,report.rs}` (new), `crates/designos-export/verify-runtime/` (new: pinned Node package with the render harness; reuses the capture runtime from #276 when present), `crates/designos-export/tests/verify_fixtures/` (new), `crates/designos-diff/src/lib.rs` (use only), `crates/designos-mcp/src/engine.rs` tool list (`designos_verify_code`), `.github/workflows/ci.yml` (verify job).
 

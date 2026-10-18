@@ -1,6 +1,6 @@
 # E15-23 Review dataset, model-weight and skill licences for the eval and skills pack
 
-- Issue: not filed yet (task E15-23, epic #585, S / P0)
+- Issue: #611 (task E15-23, epic #585, S / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `docs/eval-licences.md` (new register), `THIRD_PARTY_LICENSES.md` (new), `scripts/check_eval_licences.py` (new), `.github/workflows/ci.yml` (one step).
 
@@ -22,7 +22,7 @@ As the owner, I want every dataset, model weight, design kit and skill used by `
 | UICrit (`google-research-datasets/uicrit`) | pin a commit at implementation | CC BY 4.0 (README) | screenshots come from the RICO dataset, which has its own terms |
 | UIClip weights (`biglab/uiclip_jitteredwebsites-2-224-paraphrased` and siblings) | pin a revision | `mit` (model tag) | check training-data terms |
 | CLIP code and weights (`openai/CLIP`) | pin a commit | MIT (repository) | ViT-B/32 weights |
-| shadcn/ui (`shadcn-ui/ui`) | pin a commit | MIT | open kit for S2 and the generator |
+| shadcn/ui (`shadcn-ui/ui`) | pin a commit | MIT | open kit for S2 and the generator (owner ruling 2026-10-19: S2 uses shadcn/ui + IBM Carbon) |
 | IBM Carbon (`carbon-design-system/carbon`) | pin a commit | Apache-2.0 | open kit for S2 |
 | `jakubkrehel/skills` | commit `4c66b1fa86e9ab70187b43d7da9b6fdb29f2ef63` (pushed 2026-10-13) | MIT | adopted by E15-46 |
 | transitions.dev skills | none | no licence file found | excluded |
@@ -38,7 +38,7 @@ As the owner, I want every dataset, model weight, design kit and skill used by `
    - `ship-in-app` / `ship-in-skills`: files go into the app bundle or the skills folder with the licence text and attribution in `THIRD_PARTY_LICENSES.md`.
    - `excluded`: no task may reference it.
 4. **Exclusion rule.** `licence = "NONE"` forces `use = "excluded"` (owner ruling). A `pending` review blocks every consumer except the review itself: `designos-eval` refuses to fetch or run a task whose source is `pending` or `rejected` (E15-25 reads this file).
-5. **Licence review required before `approved`:**
+5. **Licence review required before `approved`:** Owner ruling 2026-10-19: Design2Code, UICrit, RICO screenshots and UIClip weights are approved as `eval-only-cache` only: downloaded at run time into the user cache by `designos-eval fetch`, never committed, never shipped. Their entries are filed with `review = "approved"`, `reviewer = "owner"`, `reviewed_on = "2026-10-19"`, and the RICO terms are still recorded verbatim in `notes`. Derived metadata (S1 reference blocks) stays in the cache too. Other sources still need the review below.
    - Design2Code: ODC-BY covers the dataset; page text and images are third-party web content. Required: confirm eval use of the screenshots and HTML; attribution text; no redistribution of pages in this repo (class `eval-only-cache`). Our committed artefacts are task ids and derived block metadata only after review allows it.
    - WebSight: CC BY 4.0 allows redistribution with attribution; confirm the licence of any embedded photos before committing rendered fixtures.
    - UICrit: CC BY 4.0 for critiques and ratings; RICO screenshot terms must be read and recorded separately (separate entry `rico-screenshots`). If RICO terms do not allow redistribution, screenshots stay `eval-only-cache`.

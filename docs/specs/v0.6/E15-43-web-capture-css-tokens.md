@@ -1,6 +1,6 @@
 # E15-43 Turn CSS custom properties into tokens when importing a web capture
 
-- Issue: not filed yet (task E15-43, epic #585, M / P0)
+- Issue: #633 (task E15-43, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: the web-capture module created by #276/#277 (`designos-interop/webcapture` in those issues): capture script additions (custom properties and declaration sources) and a new `token_mapping` step in the importer; `crates/designos-export/src/tokens/` (reuse of E15-42 value parsing and naming).
 

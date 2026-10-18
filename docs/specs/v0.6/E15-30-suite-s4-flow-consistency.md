@@ -1,6 +1,6 @@
 # E15-30 Add suite S4 multi-screen flows with a consistency metric
 
-- Issue: not filed yet (task E15-30, epic #585, M / P0)
+- Issue: #619 (task E15-30, epic #585, M / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-eval/suites/s4/{flows.toml,tasks.toml,split.lock,README.md}` (new), `crates/designos-eval/src/metrics/consistency.rs` (new), `crates/designos-eval/tests/fixtures/s4/` (new twin fixtures).
 

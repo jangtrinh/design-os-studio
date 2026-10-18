@@ -23,32 +23,32 @@ These specs were written against `main` at `767acf9` on 2026-10-18. Before codin
 | E15-20 | #608 | Style preset gallery rendered by our own renderer | [E15-20](E15-20-style-preset-gallery.md) | M |
 | E15-21 | #609 | Surface guides as data and lint profiles | [E15-21](E15-21-surface-guides-and-lint-profiles.md) | M |
 | E15-22 | #610 | Surface templates and slide layout contracts | [E15-22](E15-22-surface-templates-and-slide-contracts.md) | L |
-| E15-23 | not filed yet | Licence register for eval data, model weights and skills | [E15-23](E15-23-eval-and-skills-licence-register.md) | S |
-| E15-24 | not filed yet | Large deterministic test documents from open kits | [E15-24](E15-24-deterministic-large-document-generator.md) | M |
-| E15-25 | not filed yet | `designos-eval` harness | [E15-25](E15-25-designos-eval-harness.md) | L |
-| E15-26 | not filed yet | Deterministic eval metrics | [E15-26](E15-26-deterministic-eval-metrics.md) | M |
-| E15-27 | not filed yet | Suite S1 recreate, fidelity metrics | [E15-27](E15-27-suite-s1-recreate-fidelity.md) | L |
-| E15-28 | not filed yet | Suite S2 brief-to-screen on two open design systems | [E15-28](E15-28-suite-s2-brief-to-screen.md) | M |
-| E15-29 | not filed yet | Suite S3 edits on large generated files, drift metric | [E15-29](E15-29-suite-s3-large-file-edits-drift.md) | M |
-| E15-30 | not filed yet | Suite S4 multi-screen flows, consistency metric | [E15-30](E15-30-suite-s4-flow-consistency.md) | M |
-| E15-31 | not filed yet | Checklist and pairwise judge, local aesthetic score | [E15-31](E15-31-checklist-pairwise-judge.md) | L |
-| E15-32 | not filed yet | Suite S5 judge calibration | [E15-32](E15-32-suite-s5-judge-calibration.md) | M |
-| E15-33 | not filed yet | CI gate on deterministic eval metrics | [E15-33](E15-33-ci-eval-regression-gate.md) | M |
-| E15-34 | not filed yet | Rubric critique with boxes, never by the generator | [E15-34](E15-34-rubric-critique.md) | L |
-| E15-35 | not filed yet | Region-scoped repair with a regression guard | [E15-35](E15-35-scoped-repair-regression-guard.md) | L |
-| E15-36 | not filed yet | Variant explorer in frames or branches | [E15-36](E15-36-variant-explorer.md) | L |
-| E15-37 | not filed yet | Rank variants and merge the winner | [E15-37](E15-37-rank-and-merge-variants.md) | M |
-| E15-38 | not filed yet | Variant explorer UI | [E15-38](E15-38-variant-explorer-ui.md) | M |
-| E15-39 | not filed yet | Generate images through the agent CLI | [E15-39](E15-39-generate-image-assets.md) | L |
-| E15-40 | not filed yet | Stock images with attribution | [E15-40](E15-40-stock-images-attribution.md) | M |
-| E15-41 | not filed yet | Stream generated SVG into frames | [E15-41](E15-41-stream-generated-svg.md) | L |
-| E15-42 | not filed yet | Import globals.css and Tailwind themes as variables | [E15-42](E15-42-import-css-tailwind-tokens.md) | L |
-| E15-43 | not filed yet | CSS custom properties to tokens on web capture | [E15-43](E15-43-web-capture-css-tokens.md) | M |
-| E15-44 | not filed yet | Repeated subtrees to components on web import | [E15-44](E15-44-web-import-component-detection.md) | L |
-| E15-45 | not filed yet | Verify generated code by rendering and pixel diff | [E15-45](E15-45-verify-generated-code.md) | L |
-| E15-46 | not filed yet | Adopt MIT `jakubkrehel/skills` as canvas-checkable rules | [E15-46](E15-46-adopt-mit-ui-skills.md) | M |
-| E15-47 | not filed yet | Our own design:os skills pack | [E15-47](E15-47-designos-skills-pack.md) | L |
-| E15-48 | not filed yet | Image fills and effects in `apply_spec` | [E15-48](E15-48-apply-spec-image-fills-effects.md) | M |
+| E15-23 | #611 | Licence register for eval data, model weights and skills | [E15-23](E15-23-eval-and-skills-licence-register.md) | S |
+| E15-24 | #612 | Large deterministic test documents from open kits | [E15-24](E15-24-deterministic-large-document-generator.md) | M |
+| E15-25 | #613 | `designos-eval` harness | [E15-25](E15-25-designos-eval-harness.md) | L |
+| E15-26 | #614 | Deterministic eval metrics | [E15-26](E15-26-deterministic-eval-metrics.md) | M |
+| E15-27 | #616 | Suite S1 recreate, fidelity metrics | [E15-27](E15-27-suite-s1-recreate-fidelity.md) | L |
+| E15-28 | #617 | Suite S2 brief-to-screen on two open design systems | [E15-28](E15-28-suite-s2-brief-to-screen.md) | M |
+| E15-29 | #618 | Suite S3 edits on large generated files, drift metric | [E15-29](E15-29-suite-s3-large-file-edits-drift.md) | M |
+| E15-30 | #619 | Suite S4 multi-screen flows, consistency metric | [E15-30](E15-30-suite-s4-flow-consistency.md) | M |
+| E15-31 | #620 | Checklist and pairwise judge, local aesthetic score | [E15-31](E15-31-checklist-pairwise-judge.md) | L |
+| E15-32 | #621 | Suite S5 judge calibration | [E15-32](E15-32-suite-s5-judge-calibration.md) | M |
+| E15-33 | #622 | CI gate on deterministic eval metrics | [E15-33](E15-33-ci-eval-regression-gate.md) | M |
+| E15-34 | #623 | Rubric critique with boxes, never by the generator | [E15-34](E15-34-rubric-critique.md) | L |
+| E15-35 | #624 | Region-scoped repair with a regression guard | [E15-35](E15-35-scoped-repair-regression-guard.md) | L |
+| E15-36 | #625 | Variant explorer in frames or branches | [E15-36](E15-36-variant-explorer.md) | L |
+| E15-37 | #626 | Rank variants and merge the winner | [E15-37](E15-37-rank-and-merge-variants.md) | M |
+| E15-38 | #627 | Variant explorer UI | [E15-38](E15-38-variant-explorer-ui.md) | M |
+| E15-39 | #628 | Generate images through the agent CLI | [E15-39](E15-39-generate-image-assets.md) | L |
+| E15-40 | #629 | Stock images with attribution | [E15-40](E15-40-stock-images-attribution.md) | M |
+| E15-41 | #631 | Stream generated SVG into frames | [E15-41](E15-41-stream-generated-svg.md) | L |
+| E15-42 | #632 | Import globals.css and Tailwind themes as variables | [E15-42](E15-42-import-css-tailwind-tokens.md) | L |
+| E15-43 | #633 | CSS custom properties to tokens on web capture | [E15-43](E15-43-web-capture-css-tokens.md) | M |
+| E15-44 | #634 | Repeated subtrees to components on web import | [E15-44](E15-44-web-import-component-detection.md) | L |
+| E15-45 | #635 | Verify generated code by rendering and pixel diff | [E15-45](E15-45-verify-generated-code.md) | L |
+| E15-46 | #636 | Adopt MIT `jakubkrehel/skills` as canvas-checkable rules | [E15-46](E15-46-adopt-mit-ui-skills.md) | M |
+| E15-47 | #637 | Our own design:os skills pack | [E15-47](E15-47-designos-skills-pack.md) | L |
+| E15-48 | #638 | Image fills and effects in `apply_spec` | [E15-48](E15-48-apply-spec-image-fills-effects.md) | M |
 
 Issue numbers for E15-23 … E15-48 did not exist on 2026-10-18 (the filing script had reached E15-22, #610). Add them here when filed.
 
@@ -104,3 +104,18 @@ Shared files, merge one at a time in this order: `crates/designos-doc/src/spec.r
 - Parallel agents are hard-locked to their frames (RD-3, #572).
 - Colour is Display P3 per document.
 - Variables JSON is Figma-native plus DTCG (#138).
+
+## Owner answers (2026-10-19)
+
+| Question | Answer | Recorded in |
+|---|---|---|
+| Archetype catalogue | All 26 ease-design personas ship now as `candidate`; the owner's blind review later removes or reworks misses | E15-18 |
+| Open kits for S2 | shadcn/ui (MIT) + IBM Carbon (Apache-2.0) | E15-23, E15-28 |
+| Judge trust and voting | Thresholds as proposed (owner ≥ 0.70, UICrit ≥ 0.65); the whole evaluation experience lives in Studio, so voting and the trust table are a Studio Eval view, not an offline HTML file | E15-32 |
+| Surface rule values | Accepted as written, stored as data so they can be tuned later | E15-21 |
+| CI eval gate | Required for merge after three consecutive green runs | E15-33 |
+| Licences for Design2Code, UICrit/RICO, UIClip | Approved as `eval-only-cache`: downloaded at run time, never committed or shipped | E15-23 |
+| Unknown NodeSpec keys | Rejected from v0.6 at every level, no warning release | E15-48, E15-21 |
+| Pending fill | Canvas overlay drawn by Studio, never a paint in the file | E15-39 |
+
+The thresholds were not objected to; the owner's answer to that question was about where voting happens. If the owner wants different thresholds, only `judge-trust.toml` changes.

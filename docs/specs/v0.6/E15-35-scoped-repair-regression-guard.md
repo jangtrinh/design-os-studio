@@ -1,6 +1,6 @@
 # E15-35 Repair critique findings inside their region only, with a regression guard
 
-- Issue: not filed yet (task E15-35, epic #585, L / P0)
+- Issue: #624 (task E15-35, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/critique.rs` (repair tools), the RD-3 ownership enforcement module from #572 (lease kind), `crates/designos-mcp/src/tools/repair_guard.rs` (new), `crates/designos-diff/src/lib.rs` (masked compare helper), `crates/designos-doc/src/critique.rs` (`RepairLink`).
 

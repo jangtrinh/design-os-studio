@@ -1,6 +1,6 @@
 # E15-34 Critique designs against a rubric checklist with bounding boxes, never by the generator
 
-- Issue: not filed yet (task E15-34, epic #585, L / P0)
+- Issue: #623 (task E15-34, epic #585, L / P0)
 - Spec base: `main` at `767acf9`.
 - Files: `crates/designos-mcp/src/tools/critique.rs` (new), `crates/designos-doc/src/agent_meta.rs` (SC-4: authorship fields), `crates/designos-doc/src/critique.rs` (new: stored critiques), `crates/designos-doc/src/lib.rs` (`Document.agent_runs`, `Document.critiques`), `crates/designos-render/src/annotate.rs` (new: numbered boxes overlay for headless PNGs), `engine.rs` tool list.
 
