@@ -262,3 +262,70 @@ fn untitled_ui_swapped_link_and_secondary_buttons_match_variant_shell() {
     }
     assert_eq!(view_integration, 9, "View integration link buttons in 1685:415210");
 }
+
+#[test]
+#[ignore = "needs the private Untitled UI .fig"]
+fn untitled_ui_instance_text_overrides_resolve() {
+    let bytes = reference("untitled-ui.fig")
+        .or_else(|| std::fs::read("/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig").ok());
+    let Some(bytes) = bytes else {
+        eprintln!("untitled-ui.fig not found: skipped");
+        return;
+    };
+    let mut doc = import_fig(&bytes).expect("import");
+    for page in doc.pages.clone() {
+        doc.ensure_page_hydrated(page);
+    }
+
+    for (inst_src, expected_snip, expect_runs) in [
+        ("3936:417924", "For apps and websites with a lot of user-generated content", false),
+        ("3936:417929", "Things go wrong. When they do, it can be a frustrating experience", false),
+        ("11185:8546", "Your brand color and base white and black styles.", false),
+        ("9352:550138", "This component has been moved to Base components -> Progress indicators.", true),
+    ] {
+        let inst = doc.nodes.values().find(|n| n.source_id.as_deref() == Some(inst_src)).unwrap_or_else(|| panic!("missing instance {inst_src}"));
+        let texts: Vec<&TextProps> = subtree(&doc, inst.id)
+            .into_iter()
+            .filter_map(|n| match &n.kind {
+                NodeKind::Text(t) => Some(t),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            texts.iter().all(|t| !t.content.starts_with("Lorem ipsum")),
+            "instance {inst_src} still has un-overridden Lorem ipsum: {:?}",
+            texts.iter().map(|t| &t.content).collect::<Vec<_>>()
+        );
+        let body = texts.iter().find(|t| t.content.contains(expected_snip)).unwrap_or_else(|| {
+            panic!("instance {inst_src} missing expected text {expected_snip:?}; found: {:?}", texts.iter().map(|t| &t.content).collect::<Vec<_>>())
+        });
+        if expect_runs {
+            assert!(!body.runs.is_empty(), "instance {inst_src} should preserve mixed-style runs");
+            assert!(
+                body.runs.iter().any(|r| r.style.font_weight >= 600),
+                "instance {inst_src} should have bold/semibold run weights: {:?}",
+                body.runs.iter().map(|r| r.style.font_weight).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    // Across the entire file, instances of Design note (2680:401975) and Figma Variables note (5263:372534)
+    // that override their supporting text resolve to the overridden copy instead of falling back to Lorem ipsum.
+    let note_comp_ids: Vec<NodeId> =
+        doc.nodes.values().filter(|n| matches!(n.source_id.as_deref(), Some("2680:401975" | "5263:372534"))).map(|n| n.id).collect();
+    assert_eq!(note_comp_ids.len(), 2);
+    let mut overridden_notes = 0usize;
+    for n in doc.nodes.values() {
+        if let NodeKind::Instance { component: Some(c), .. } = n.kind {
+            if note_comp_ids.contains(&c) {
+                let has_overridden_body = subtree(&doc, n.id).into_iter().any(|sub| {
+                    matches!(&sub.kind, NodeKind::Text(t) if sub.component.overrides.contains(&OverrideField::Characters) && !t.content.starts_with("Lorem ipsum"))
+                });
+                if has_overridden_body {
+                    overridden_notes += 1;
+                }
+            }
+        }
+    }
+    assert!(overridden_notes >= 40, "expected >= 40 overridden note instances, found {overridden_notes}");
+}

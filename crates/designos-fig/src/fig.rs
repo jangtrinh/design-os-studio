@@ -101,11 +101,15 @@ fn kiwi_guid_str(g: &KiwiValue) -> Option<String> {
     let u64_of = |v: &KiwiValue| match v {
         KiwiValue::Uint(u) => Some(*u as u64),
         KiwiValue::Uint64(u) => Some(*u),
-        KiwiValue::Int(i) => Some(*i as u64),
-        KiwiValue::Int64(i) => Some(*i as u64),
+        KiwiValue::Int(i) if *i >= 0 => Some(*i as u64),
+        KiwiValue::Int64(i) if *i >= 0 => Some(*i as u64),
         _ => None,
     };
-    Some(format!("{}:{}", u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?))
+    let (s, l) = (u64_of(g.get("sessionID")?)?, u64_of(g.get("localID")?)?);
+    if s >= u32::MAX as u64 || l >= u32::MAX as u64 {
+        return None;
+    }
+    Some(format!("{s}:{l}"))
 }
 
 /// A kiwi float field as `f32`. A NaN or infinity is treated as absent, the way the JSON path does
@@ -307,7 +311,11 @@ fn entry_from_json(j: Value) -> Option<Entry> {
 }
 
 fn guid_str(g: &Value) -> Option<String> {
-    Some(format!("{}:{}", g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?))
+    let (s, l) = (g.get("sessionID")?.as_u64()?, g.get("localID")?.as_u64()?);
+    if s >= u32::MAX as u64 || l >= u32::MAX as u64 {
+        return None;
+    }
+    Some(format!("{s}:{l}"))
 }
 
 /// Library asset key of an `{assetRef: {key, version}}` reference.
@@ -2138,6 +2146,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             | "textAutoResize"
             | "textTruncation"
             | "maxLines"
+            | "styleIdForText"
             | "textData" => {
                 has_text = true;
             }
@@ -2278,10 +2287,23 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
         }
     }
     if has_text {
-        let mut st = convert_type_style(o, None);
-        st.remove("fills");
+        let mut st = Map::new();
+        if let Some(shared) = obj.get("styleIdForText").and_then(|r| lk.style_node(r)) {
+            let mut linked = convert_type_style(shared, None);
+            for (key, default) in [("textCase", "ORIGINAL"), ("textDecoration", "NONE")] {
+                linked.entry(key.to_string()).or_insert_with(|| default.into());
+            }
+            for key in ["fills", "textAlignHorizontal", "textAlignVertical"] {
+                linked.remove(key);
+            }
+            st.extend(linked);
+        }
+        let base_sz = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32));
+        let mut inline_st = convert_type_style(o, base_sz);
+        inline_st.remove("fills");
+        st.extend(inline_st);
         if let Some(ls) = obj.get("letterSpacing") {
-            if fstr(ls, "units") == Some("PERCENT") && fnum(o, "fontSize").is_none() {
+            if fstr(ls, "units") == Some("PERCENT") && base_sz.is_none() {
                 // Resolved against the target node's own font size when applied.
                 st.remove("letterSpacing");
                 st.insert("letterSpacingPercent".into(), kiwi::clean_f32(fnum(ls, "value").unwrap_or(0.0)));
@@ -2304,7 +2326,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
                     m.insert("style".into(), Value::Object(st));
                 }
             }
-            text_overrides(&mut m, td, fnum(o, "fontSize"));
+            text_overrides(&mut m, td, base_sz, lk);
         }
     }
     m
@@ -2675,18 +2697,36 @@ fn convert_text(m: &mut Map<String, Value>, nc: &Value, lk: &Lk) {
     let base_size = style.get("fontSize").and_then(Value::as_f64).map(|n| n as f32);
     m.insert("style".into(), Value::Object(style));
     if let Some(td) = td {
-        text_overrides(m, td, base_size);
+        text_overrides(m, td, base_size, lk);
     }
 }
 
 /// Per-character style ids and the override table from kiwi `textData`.
-fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>) {
+fn text_overrides(m: &mut Map<String, Value>, td: &Value, base_size: Option<f32>, lk: &Lk) {
     if let Some(ids) = td.get("characterStyleIDs").and_then(Value::as_array) {
         m.insert("characterStyleOverrides".into(), Value::Array(ids.clone()));
         let mut table = Map::new();
         for o in rest_import::farr(td, "styleOverrideTable") {
             if let Some(sid) = o.get("styleID").and_then(Value::as_u64) {
-                table.insert(sid.to_string(), Value::Object(convert_type_style(o, base_size)));
+                let mut st = Map::new();
+                if let Some(shared) = o.get("styleIdForText").and_then(|r| lk.style_node(r)) {
+                    let mut linked = convert_type_style(shared, base_size);
+                    for key in ["fills", "textAlignHorizontal", "textAlignVertical"] {
+                        linked.remove(key);
+                    }
+                    st.extend(linked);
+                }
+                let eff_base = fnum(o, "fontSize").or_else(|| st.get("fontSize").and_then(Value::as_f64).map(|n| n as f32)).or(base_size);
+                st.extend(convert_type_style(o, eff_base));
+                if !st.contains_key("fills") {
+                    if let Some(sn) = o.get("styleIdForFill").and_then(|r| lk.style_node(r)) {
+                        let fills: Vec<Value> = rest_import::farr(sn, "fillPaints").iter().filter_map(convert_paint).collect();
+                        if !fills.is_empty() {
+                            st.insert("fills".into(), Value::Array(fills));
+                        }
+                    }
+                }
+                table.insert(sid.to_string(), Value::Object(st));
             }
         }
         m.insert("styleOverrideTable".into(), Value::Object(table));

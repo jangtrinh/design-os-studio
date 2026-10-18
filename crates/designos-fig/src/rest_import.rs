@@ -775,7 +775,7 @@ impl<'a> Ctx<'a> {
             self.ids.insert(src.clone(), id);
         }
         crate::proto::apply_scroll(&mut node, &v);
-        if let Some(k) = fstr(&v, "_overrideKey") {
+        if let Some(k) = fstr(&v, "_overrideKey").filter(|k| *k != "4294967295:4294967295") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
         if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
@@ -879,7 +879,7 @@ impl<'a> Ctx<'a> {
             self.ids.insert(src.clone(), id);
         }
         crate::proto::apply_scroll(&mut node, v);
-        if let Some(k) = fstr(v, "_overrideKey") {
+        if let Some(k) = fstr(v, "_overrideKey").filter(|k| *k != "4294967295:4294967295") {
             self.override_keys.insert(id, std::sync::Arc::from(k));
         }
         if matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
@@ -2222,16 +2222,31 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn source_tail_of(&self, mut id: NodeId) -> Option<&str> {
+        for _ in 0..8 {
+            let n = self.doc.get(id)?;
+            if let Some(s) = n.source_id.as_deref() {
+                let tail = s.rsplit(';').next().unwrap_or(s);
+                if !tail.is_empty() {
+                    return Some(tail);
+                }
+            }
+            let src = n.component.source?;
+            if src == id {
+                return None;
+            }
+            id = src;
+        }
+        None
+    }
+
     fn node_matches(&self, c: NodeId, g: &str) -> bool {
         if let Some(k) = self.override_key_of(c) {
             if &**k == g {
                 return true;
             }
         }
-        self.doc.get(c).is_some_and(|n| {
-            let s = n.source_id.as_deref().unwrap_or("");
-            s.rsplit(';').next().unwrap_or(s) == g
-        })
+        self.source_tail_of(c) == Some(g)
     }
 
     fn build_subtree_lookup(&self, root: NodeId) -> HashMap<String, NodeId> {
@@ -2244,12 +2259,9 @@ impl<'a> Ctx<'a> {
                     map.insert(k.to_string(), c);
                 }
             }
-            if let Some(cn) = self.doc.get(c) {
-                if let Some(s) = cn.source_id.as_deref() {
-                    let tail = s.rsplit(';').next().unwrap_or(s);
-                    if !tail.is_empty() && ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
-                        map.insert(tail.to_string(), c);
-                    }
+            if let Some(tail) = self.source_tail_of(c) {
+                if ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
+                    map.insert(tail.to_string(), c);
                 }
             }
         }
@@ -2267,9 +2279,8 @@ impl<'a> Ctx<'a> {
                     map.insert(k.to_string(), n);
                 }
             }
-            if let Some(s) = nn.source_id.as_deref() {
-                let tail = s.rsplit(';').next().unwrap_or(s);
-                if !tail.is_empty() && ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
+            if let Some(tail) = self.source_tail_of(n) {
+                if ok.map(|x| &**x) != Some(tail) && !map.contains_key(tail) {
                     map.insert(tail.to_string(), n);
                 }
             }

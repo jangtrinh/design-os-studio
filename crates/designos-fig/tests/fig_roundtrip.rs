@@ -2195,6 +2195,152 @@ fn slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_m
 }
 
 #[test]
+fn instance_multi_paragraph_and_mixed_style_text_override_resolves_with_null_override_key_and_linked_styles() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let null_g = g(u32::MAX as u64, u32::MAX as u64);
+    let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 520.0, "y": 120.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+
+    let para1 = "We've included a few simple templates to help you get started.\n\n";
+    let para2_prefix = "Check out the ";
+    let para2_link = "Guide to variables in Figma";
+    let para2_suffix = " to learn more.";
+    let overridden_text = format!("{para1}{para2_prefix}{para2_link}{para2_suffix}");
+
+    // Build characterStyleIDs: para1 = 0, para2_prefix = 13 (semibold), para2_link = 12 (semibold + underline + purple), para2_suffix = 13 (semibold).
+    let mut char_ids: Vec<u64> = Vec::new();
+    char_ids.extend(std::iter::repeat(0).take(para1.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat(13).take(para2_prefix.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat(12).take(para2_link.encode_utf16().count()));
+    char_ids.extend(std::iter::repeat(13).take(para2_suffix.encode_utf16().count()));
+
+    let mut raw_nodes = vec![
+        node((0, 0), (0, 0), "", "DOCUMENT", "NoteDoc", json!({})),
+        node((0, 1), (0, 0), "!", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node((0, 2), (0, 0), "\"", "CANVAS", "Examples", json!({})),
+        // Shared text style 18:2016 ("Text lg/Semibold": Inter Semi Bold 600, 18px)
+        node(
+            (18, 2016),
+            (0, 1),
+            "!",
+            "TEXT",
+            "Text lg/Semibold",
+            json!({
+                "styleType": "TEXT",
+                "fontName": {"family": "Inter", "style": "Semi Bold", "postscript": "Inter-SemiBold"},
+                "fontSize": 18.0,
+                "lineHeight": {"units": "PIXELS", "value": 28.0}
+            }),
+        ),
+        // Component "Design note" (2680:401975) with child "Supporting text" (2680:401977)
+        // carrying the null GUID sentinel overrideKey {4294967295, 4294967295}.
+        node((2680, 401975), (0, 1), "\"", "SYMBOL", "Design note", json!({})),
+        node(
+            (2680, 401977),
+            (2680, 401975),
+            "!",
+            "TEXT",
+            "Supporting text",
+            json!({
+                "overrideKey": null_g,
+                "fontName": {"family": "Inter", "style": "Regular", "postscript": "Inter-Regular"},
+                "fontSize": 18.0,
+                "textData": {
+                    "characters": "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+                }
+            }),
+        ),
+        // Instance "Design note" (11185:8546) on the Examples page overriding 2680:401977
+        // with two paragraphs and mixed character styles referencing shared style 18:2016.
+        node(
+            (11185, 8546),
+            (0, 2),
+            "!",
+            "INSTANCE",
+            "Design note instance",
+            json!({
+                "symbolData": {
+                    "symbolID": g(2680, 401975),
+                    "symbolOverrides": [
+                        {
+                            "guidPath": {"guids": [g(2680, 401977)]},
+                            "textData": {
+                                "characters": overridden_text,
+                                "characterStyleIDs": char_ids,
+                                "styleOverrideTable": [
+                                    {
+                                        "styleID": 12,
+                                        "styleIdForText": {"guid": g(18, 2016)},
+                                        "textDecoration": "UNDERLINE",
+                                        "fillPaints": [
+                                            {
+                                                "type": "SOLID",
+                                                "visible": true,
+                                                "opacity": 1.0,
+                                                "blendMode": "NORMAL",
+                                                "color": {"r": 0.41, "g": 0.25, "b": 0.78, "a": 1.0}
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "styleID": 13,
+                                        "styleIdForText": {"guid": g(18, 2016)},
+                                        "styleIdForFill": {"guid": null_g},
+                                        "fillPaints": [
+                                            {
+                                                "type": "SOLID",
+                                                "visible": true,
+                                                "opacity": 1.0,
+                                                "blendMode": "NORMAL",
+                                                "color": {"r": 0.09, "g": 0.11, "b": 0.15, "a": 1.0}
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }),
+        ),
+    ];
+
+    // Pad past the 10_000-node fast_clone threshold so expand_instance takes the fast_clone path.
+    for i in 0..10_010u64 {
+        raw_nodes.push(node((5000, i + 1), (0, 2), "z", "RECTANGLE", "Pad", json!({})));
+    }
+
+    let doc = import_fig_node_changes(&Value::Array(raw_nodes), "NoteDoc").expect("import");
+    let inst = find(&doc, "Design note instance");
+    let child_id = *inst.children.first().expect("instance expanded");
+    let child = doc.get(child_id).expect("supporting text child");
+    assert!(child.component.overrides.contains(&OverrideField::Characters), "Characters override recorded");
+    let NodeKind::Text(tp) = &child.kind else { panic!("expected Text child") };
+    assert!(!tp.content.starts_with("Lorem ipsum"), "multi-paragraph override was lost and fell back to component Lorem ipsum: {:?}", tp.content);
+    assert_eq!(tp.content, overridden_text);
+    assert_eq!(tp.runs.len(), 3, "expected 3 styled runs in second paragraph");
+    assert_eq!(tp.runs[0].style.font_weight, 600, "run 0 inherits semibold (600) from linked styleIdForText 18:2016");
+    assert_eq!(tp.runs[1].style.font_weight, 600, "run 1 inherits semibold (600) from linked styleIdForText 18:2016");
+    assert_eq!(tp.runs[1].style.decoration, TextDecoration::Underline, "run 1 keeps inline UNDERLINE override");
+    assert_eq!(tp.runs[2].style.font_weight, 600, "run 2 inherits semibold (600) from linked styleIdForText 18:2016");
+}
+
+#[test]
 fn stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout() {
     let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
     let node = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
