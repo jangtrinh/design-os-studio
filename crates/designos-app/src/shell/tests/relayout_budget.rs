@@ -128,6 +128,25 @@ fn a_saved_file_holds_the_finished_layout_not_the_queued_one() {
 }
 
 #[test]
+fn saving_an_external_file_writes_the_finished_layout() {
+    let dir = TmpDir::new();
+    std::fs::create_dir_all(&dir.0).unwrap();
+    let ext = dir.0.join("outside.designos");
+    let mut d = Document::new("Outside");
+    d.add_page("P");
+    std::fs::write(&ext, d.to_json().unwrap()).unwrap();
+    let mut s = Sim::with(Options { file: Some(ext.clone()), library: Some(dir.0.join("lib")), ..Default::default() });
+    assert!(s.app().lib_file.is_none(), "precondition: the file lives outside the library");
+    let page = s.app().page;
+    let (parent, rects) = add_rows(&mut s.shell.app.doc, page);
+    widen_rows(&mut s.shell.app, parent);
+    s.shell.app.save(false);
+    let saved = Document::from_json(&std::fs::read_to_string(&ext).unwrap()).unwrap();
+    assert_eq!(saved.get(rects[ROWS - 1]).unwrap().transform.tx, 240.0, "Save wrote the last row still queued");
+    assert_eq!(s.app().doc.relayout_skipped_count(), 0);
+}
+
+#[test]
 fn closing_the_window_saves_the_finished_layout() {
     let (mut s, _d, rects) = sim_with_one_row_queued();
     s.close_frame();
