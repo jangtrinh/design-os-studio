@@ -620,8 +620,8 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
 }
 
 /// Slot content id written on the definition of slot property `prop_name`. It comes from the
-/// per-property map only: the node's own `slot_content_id` is a different field (written as
-/// `jsonSerialized.slot-content-id`) and is never turned into a property assignment.
+/// per-property map only: the node's own `slot_content_id` is a different field (carried in the
+/// plugin data entry `slot-content-id`) and is never turned into a property assignment.
 fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&'a str> {
     link.slot_content_ids.get(prop_name).map(String::as_str)
 }

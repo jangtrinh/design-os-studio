@@ -1156,9 +1156,20 @@ fn the_slot_scan_finds_every_slot_record_a_fig_export_writes() {
         slot_prop_configs: 1,
         slot_content_id_refs: 2,
         slot_assignments: 1,
-        slot_content_id_bags: 1,
+        // The export's schema is a subset of Figma's real one, which has no `jsonSerialized`: the
+        // node's own slot content id travels in Studio's plugin data instead (counted below).
+        slot_content_id_bags: 0,
     };
     assert_eq!(c, expected, "a scan that cannot see slots would make a zero result meaningless");
+    let carried_ids = msg
+        .get("nodeChanges")
+        .and_then(designos_fig::kiwi::KiwiValue::as_array)
+        .unwrap_or(&[])
+        .iter()
+        .flat_map(|nc| nc.get("pluginData").and_then(designos_fig::kiwi::KiwiValue::as_array).unwrap_or(&[]).iter())
+        .filter(|e| e.get("key").is_some_and(|k| matches!(k, designos_fig::kiwi::KiwiValue::String(s) if s.ends_with("slot-content-id"))))
+        .count();
+    assert_eq!(carried_ids, 1, "the node's own slot content id is written once, in plugin data");
 }
 
 /// Where the owner's private `VSF - PCP.fig` lives: `DESIGNOS_VSF_PCP`, else `$HOME/Downloads`.
