@@ -606,19 +606,233 @@ fn symbol_id_str(v: &Value) -> Option<String> {
     None
 }
 
-fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
-    if large_file {
-        if orig_ty == "BRUSH" {
-            let bt = fstr(nc, "brushType").filter(|s| !s.is_empty()).unwrap_or("STRETCH");
-            return Some(json!({"brushType": bt}));
-        }
-        if orig_ty == "SHAPE_WITH_TEXT" {
-            if let Some(swt) = fstr(nc, "shapeWithTextType").or_else(|| fstr(nc, "shapeType")).filter(|s| !s.is_empty()) {
-                return Some(json!({"shapeWithTextType": swt}));
+const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
+    "guid",
+    "phase",
+    "parentIndex",
+    "type",
+    "name",
+    "visible",
+    "locked",
+    "opacity",
+    "size",
+    "transform",
+    "blendMode",
+    "mask",
+    "isMask",
+    "internalOnly",
+    "isStateGroup",
+    "backgroundColor",
+    "isSoftDeleted",
+    "isSoftDeletedStyle",
+    "overrideKey",
+    "overriddenSymbolID",
+    "componentKey",
+    "sourceLibraryKey",
+    "symbolDescription",
+    "description",
+    "propsAreBubbled",
+    "overrideLevel",
+    "detachedSymbolId",
+    "symbolData",
+    "derivedSymbolData",
+    "componentPropDefs",
+    "componentPropAssignments",
+    "componentPropRefs",
+    "stateGroupPropertyValueOrders",
+    "variantPropSpecs",
+    "proportionsConstrained",
+    "preserveRatio",
+    "targetAspectRatio",
+    "hyperlink",
+    "pluginData",
+    "exportSettings",
+    "guides",
+    "devStatus",
+    "sectionStatusInfo",
+    "handoffStatusMap",
+    "key",
+    "fillPaints",
+    "strokePaints",
+    "strokeWeight",
+    "strokeAlign",
+    "strokeCap",
+    "strokeJoin",
+    "dashPattern",
+    "strokeMiterAngle",
+    "miterLimit",
+    "borderStrokeWeightsIndependent",
+    "borderTopWeight",
+    "borderRightWeight",
+    "borderBottomWeight",
+    "borderLeftWeight",
+    "effects",
+    "cornerRadius",
+    "cornerSmoothing",
+    "rectangleCornerRadiiIndependent",
+    "rectangleTopLeftCornerRadius",
+    "rectangleTopRightCornerRadius",
+    "rectangleBottomRightCornerRadius",
+    "rectangleBottomLeftCornerRadius",
+    "styleIdForFill",
+    "styleIdForStrokeFill",
+    "styleIdForText",
+    "styleIdForEffect",
+    "styleIdForGrid",
+    "inheritEffectStyleID",
+    "inheritGridStyleID",
+    "styleType",
+    "styleDescription",
+    "horizontalConstraint",
+    "verticalConstraint",
+    "frameMaskDisabled",
+    "layoutGrids",
+    "stackMode",
+    "gridColumns",
+    "gridRows",
+    "gridColumnsSizing",
+    "gridRowsSizing",
+    "gridColumnGap",
+    "gridColumnsGap",
+    "gridRowGap",
+    "gridRowsGap",
+    "stackSpacing",
+    "stackCounterSpacing",
+    "stackPadding",
+    "stackHorizontalPadding",
+    "stackVerticalPadding",
+    "stackPaddingLeft",
+    "stackPaddingTop",
+    "stackPaddingRight",
+    "stackPaddingBottom",
+    "stackPrimaryAlignItems",
+    "stackCounterAlignItems",
+    "stackCounterAlignContent",
+    "stackLayoutVersion",
+    "stackPrimarySizing",
+    "stackCounterSizing",
+    "stackWrap",
+    "bordersTakeSpace",
+    "stackReverseZIndex",
+    "stackChildPrimaryGrow",
+    "stackChildAlignSelf",
+    "stackPositioning",
+    "layoutSizingHorizontal",
+    "layoutSizingVertical",
+    "gridColumnSpan",
+    "gridRowSpan",
+    "gridColumnAnchor",
+    "gridColumnAnchorIndex",
+    "gridRowAnchor",
+    "gridRowAnchorIndex",
+    "minSize",
+    "maxSize",
+    "variableConsumptionMap",
+    "parameterConsumptionMap",
+    "variableModeBySetMap",
+    "variableSetModes",
+    "variableSetID",
+    "variableResolvedType",
+    "variableDataType",
+    "variableScopes",
+    "codeSyntax",
+    "variableDataValues",
+    "sortPosition",
+    "fillGeometry",
+    "strokeGeometry",
+    "vectorData",
+    "arcData",
+    "count",
+    "pointCount",
+    "starInnerScale",
+    "booleanOperation",
+    "textData",
+    "fontName",
+    "fontSize",
+    "letterSpacing",
+    "textTracking",
+    "lineHeight",
+    "textAlignHorizontal",
+    "textAlignVertical",
+    "textAutoResize",
+    "textTruncation",
+    "maxLines",
+    "textCase",
+    "textDecoration",
+    "leadingTrim",
+    "paragraphIndent",
+    "paragraphSpacing",
+    "listSpacing",
+    "hangingPunctuation",
+    "hangingList",
+    "autoRename",
+    "textDecorationSkipInk",
+    "textWrapStyle",
+    "toggledOnOTFeatures",
+    "toggledOffOTFeatures",
+    "fontVariations",
+    "fontVariantNumericFigure",
+    "fontVariantNumericSpacing",
+    "fontVariantNumericFraction",
+    "fontVariantCaps",
+    "fontVariantPosition",
+    "fontVariantLigatures",
+    "fontVariantCommonLigatures",
+    "fontVariantContextualLigatures",
+    "numericFigure",
+    "numericSpacing",
+    "numericFraction",
+    "authorName",
+    "authorVisible",
+    "stampType",
+    "connectorStart",
+    "connectorEnd",
+    "connectorLineType",
+    "connectorLineStyle",
+    "connectorType",
+    "connectorStartStrokeCap",
+    "connectorEndStrokeCap",
+    "prototypeInteractions",
+    "overflowDirection",
+    "scrollBehavior",
+    "overlayPositionType",
+    "overlayBackgroundInteraction",
+    "overlayBackgroundAppearance",
+    "flowStartingPoint",
+    "isFlowStartingPoint",
+    "transitionNodeID",
+    "transitionDuration",
+    "transitionEasing",
+    "guidPath",
+    "isSlot",
+    "isSlotContent",
+    "jsonSerialized",
+];
+
+fn clean_json_floats(v: &Value) -> Value {
+    match v {
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                Value::Number(n.clone())
+            } else if let Some(f) = n.as_f64() {
+                kiwi::clean_f32(f as f32)
+            } else {
+                Value::Number(n.clone())
             }
         }
-        return None;
+        Value::Array(a) => Value::Array(a.iter().map(clean_json_floats).collect()),
+        Value::Object(o) => {
+            let mut m = Map::with_capacity(o.len());
+            for (k, val) in o {
+                m.insert(k.clone(), clean_json_floats(val));
+            }
+            Value::Object(m)
+        }
+        other => other.clone(),
     }
+}
+
+fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
     let obj = nc.as_object()?;
     let mut meta = Map::new();
     let mut has_brush_type = false;
@@ -659,6 +873,7 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "scrollDirection"
             | "lockMode"
             | "gridChildVerticalAlign"
+            | "gridChildHorizontalAlign"
             | "codeExportName"
             | "documentColorProfile"
             | "codeObjectType"
@@ -692,9 +907,11 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                     meta.insert("publishID".into(), Value::String(g));
                 }
             }
-            "editInfo" if !large_file && val.is_object() => {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert("editInfo".into(), Value::String(s));
+            "editInfo" => {
+                if !large_file && val.is_object() {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert("editInfo".into(), Value::String(s));
+                    }
                 }
             }
             "widgetCachedAncestor" => {
@@ -704,46 +921,49 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             }
             "pluginRelaunchData" => {
                 if val.as_array().is_some_and(|a| !a.is_empty()) {
-                    if let Ok(s) = serde_json::to_string(val) {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                         meta.insert("pluginRelaunchData".into(), Value::String(s));
                     }
                 }
             }
             "nodeGenerationData" if val.is_object() => {
-                if let Ok(s) = serde_json::to_string(val) {
+                if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
                     meta.insert("nodeGenerationData".into(), Value::String(s));
                 }
             }
-            "derivedTextData" | "derivedImmutableFrameData" if !large_file && !val.is_null() => {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert(k.clone(), Value::String(s));
+            "derivedTextData" | "derivedImmutableFrameData" => {
+                if !large_file && !val.is_null() {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
                 }
             }
-            "symbolLinks"
-            | "widgetEvents"
-            | "widgetHoverStyle"
-            | "connectorTextMidpoint"
-            | "ancestorPathBeforeDeletion"
-            | "connectorControlPoints"
-            | "scatterStrokeSettings"
-            | "gridAutoTracks"
-            | "prototypeStartingPoint"
-            | "codeSourceInfo"
-            | "widgetInputBehavior"
-            | "sourceControlConfig"
-            | "widgetMetadata"
-            | "timelineDefinitions"
-            | "renderedSyncedState"
-            | "annotationCategories"
-            | "makeContentState"
-            | "widgetSyncedState"
-            | "widgetPropertyMenuItems"
-                if !val.is_null() =>
-            {
-                if let Ok(s) = serde_json::to_string(val) {
-                    meta.insert(k.clone(), Value::String(s));
+            other if !MAPPED_NODE_CHANGE_FIELDS.contains(&other) && !other.starts_with('_') => match val {
+                Value::Null => {}
+                Value::String(s) if !s.is_empty() => {
+                    meta.insert(k.clone(), Value::String(s.clone()));
                 }
-            }
+                Value::Bool(b) => {
+                    meta.insert(k.clone(), Value::String(if *b { "true".into() } else { "false".into() }));
+                }
+                Value::Number(_) => {
+                    let cleaned = clean_json_floats(val);
+                    if !cleaned.is_null() {
+                        meta.insert(k.clone(), Value::String(cleaned.to_string()));
+                    }
+                }
+                Value::Array(a) if !a.is_empty() => {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
+                }
+                Value::Object(o) if !o.is_empty() => {
+                    if let Ok(s) = serde_json::to_string(&clean_json_floats(val)) {
+                        meta.insert(k.clone(), Value::String(s));
+                    }
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
