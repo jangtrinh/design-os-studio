@@ -35,11 +35,15 @@ fn layout_of(s: &Sim, id: NodeId) -> AutoLayout {
     s.app().doc.get(id).unwrap().kind.frame_props().unwrap().auto_layout.clone().unwrap()
 }
 
-/// The track labels the canvas pills show.
-fn labels(s: &Sim, grid_id: NodeId, is_col: bool) -> Vec<String> {
-    let ov = node_css_grid_overlay(&s.app().doc, grid_id).unwrap();
+/// The track labels the canvas pills show (`1fr`, `120px`, `Hug`) for one axis of a grid.
+pub(super) fn track_labels(doc: &designos_doc::Document, grid_id: NodeId, is_col: bool) -> Vec<String> {
+    let ov = node_css_grid_overlay(doc, grid_id).unwrap();
     let tracks = if is_col { ov.col_tracks } else { ov.row_tracks };
     tracks.into_iter().map(format_grid_track).collect()
+}
+
+fn labels(s: &Sim, grid_id: NodeId, is_col: bool) -> Vec<String> {
+    track_labels(&s.app().doc, grid_id, is_col)
 }
 
 fn column_pin(s: &Sim, id: NodeId) -> Option<u16> {

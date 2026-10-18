@@ -1066,9 +1066,10 @@ fn launch_e2e_proves_100_figma_micro_interactions_end_to_end() {
 
 #[test]
 fn grid_track_editing_insert_delete_resize_and_reorder() {
-    use crate::canvas::grids::{delete_grid_track, format_grid_track_list, insert_grid_track, move_grid_track, resize_grid_track};
+    use crate::canvas::grids::{delete_grid_track, insert_grid_track, move_grid_track, resize_grid_track};
     use crate::edit::Edit;
     use designos_doc::{AutoLayout, GridTrack, LayoutDirection, Node, Rect as DRect};
+    use grid_track_editing::track_labels;
 
     let mut s = Sim::new();
     let page = s.app().page;
@@ -1103,17 +1104,17 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     s.shell.app.selection = vec![grid_id];
     s.frame(vec![]);
 
-    assert_eq!(format_grid_track_list(&s.app().doc, grid_id, true), vec!["80px", "120px", "1fr", "Hug"]);
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "1fr", "Hug"]);
 
     // 2. Insert a 5th column track (2fr) and resize column index 2 from 1fr -> 100px.
     assert!(insert_grid_track(&mut s.shell.app, grid_id, true, 4, GridTrack::Flex(2.0)));
     assert!(resize_grid_track(&mut s.shell.app, grid_id, true, 2, GridTrack::Fixed(100.0)));
-    assert_eq!(format_grid_track_list(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
 
     // 3. Move track 2 (index 1, 120px) to track 4 (index 3): moves anchored item kids[1] in one undo step.
     assert!(move_grid_track(&mut s.shell.app, grid_id, true, 1, 3));
-    assert_eq!(format_grid_track_list(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(3));
     // Columns 0..3 have widths 80, 100, 60 (Hug of kids[3]) -> column 3 starts at x = 240.0.
     assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 240.0);
@@ -1121,7 +1122,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
 
     // Single undo step restores both the track order and the anchored items' positions.
     s.shell.app.undo();
-    assert_eq!(format_grid_track_list(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "120px", "100px", "Hug", "2fr"]);
     assert_eq!(s.app().doc.get(kids[1]).unwrap().layout_child.grid_column, Some(1));
     assert_eq!(s.app().doc.get(kids[1]).unwrap().transform.tx, 80.0);
 
@@ -1152,7 +1153,7 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     assert_eq!(p3_before, (0.0, 40.0));
 
     assert!(delete_grid_track(&mut s.shell.app, grid2_id, true, 1));
-    assert_eq!(format_grid_track_list(&s.app().doc, grid2_id, true), vec!["100px", "100px"]);
+    assert_eq!(track_labels(&s.app().doc, grid2_id, true), vec!["100px", "100px"]);
     // After deleting column 1: 2 columns -> item 2 re-flows to (0, 40), item 3 re-flows to (100, 40).
     let p2_after = (s.app().doc.get(auto_kids[2]).unwrap().transform.tx, s.app().doc.get(auto_kids[2]).unwrap().transform.ty);
     let p3_after = (s.app().doc.get(auto_kids[3]).unwrap().transform.tx, s.app().doc.get(auto_kids[3]).unwrap().transform.ty);
@@ -1167,5 +1168,5 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     let col_pills: Vec<_> = pills.iter().filter(|&&(gid, is_col, _, _)| gid == grid_id && is_col).copied().collect();
     assert_eq!(col_pills.len(), 5);
     assert!(crate::canvas::interact::try_drag_grid_track_pill(&mut s.shell.app, crect, col_pills[1].3.center(), col_pills[3].3.center()));
-    assert_eq!(format_grid_track_list(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
+    assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
 }

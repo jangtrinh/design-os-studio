@@ -49,22 +49,12 @@ pub fn format_grid_track(track: GridTrack) -> String {
     }
 }
 
-/// The column (`is_col = true`) or row tracks of the grid frame `grid_id`, one per track the canvas draws a
-/// header pill for. The children are placed exactly as the layout solver places them (explicit rows and
-/// columns included), so the rows are the ones it lays out (`grid_rows`, or more when children fill more rows)
-/// and a pill, a `+` button, an inspector row and a track edit all name the same index.
-pub fn grid_tracks_in(doc: &Document, grid_id: NodeId, is_col: bool) -> Vec<GridTrack> {
-    node_css_grid_overlay(doc, grid_id).map(|ov| if is_col { ov.col_tracks } else { ov.row_tracks }).unwrap_or_default()
-}
-
-/// How many tracks the canvas shows on one axis of `grid_id`; 0 when it is not a grid.
+/// How many tracks the canvas shows on one axis of `grid_id`; 0 when it is not a grid. The children are placed exactly
+/// as the layout solver places them (explicit rows and columns included), so the rows are the ones it lays out
+/// (`grid_rows`, or more when children fill more rows) and a pill, a `+` button, an inspector row and a track edit
+/// all name the same index.
 pub fn grid_track_count(doc: &Document, grid_id: NodeId, is_col: bool) -> usize {
     node_css_grid_overlay(doc, grid_id).map_or(0, |ov| if is_col { ov.cols } else { ov.rows })
-}
-
-/// Figma-formatted labels (`1fr`, `120px`, `Hug`) of [`grid_tracks_in`].
-pub fn format_grid_track_list(doc: &Document, grid_id: NodeId, is_col: bool) -> Vec<String> {
-    grid_tracks_in(doc, grid_id, is_col).into_iter().map(format_grid_track).collect()
 }
 
 /// One edit of the tracks on one axis of a grid.
@@ -193,7 +183,7 @@ fn edit_grid_tracks(app: &mut App, grid_id: NodeId, is_col: bool, edit: TrackEdi
 }
 
 /// Inserts a column (`is_col = true`) or row (`is_col = false`) track at `at` in one undo step, moving
-/// the children pinned at or after it. `at` counts tracks as [`grid_tracks_in`] does.
+/// the children pinned at or after it. `at` counts tracks as [`grid_track_count`] does.
 pub fn insert_grid_track(app: &mut App, grid_id: NodeId, is_col: bool, at: usize, track: GridTrack) -> bool {
     edit_grid_tracks(app, grid_id, is_col, TrackEdit::Insert { at, track })
 }

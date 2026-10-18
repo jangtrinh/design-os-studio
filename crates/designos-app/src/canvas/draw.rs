@@ -1430,7 +1430,7 @@ mod tests {
         al.grid_col_tracks[1] = designos_doc::GridTrack::Hug;
         al.grid_row_tracks[0] = designos_doc::GridTrack::Fixed(60.0);
         let ov = bare_overlay(&al);
-        let pills = grid_pill_rects_of(&ov, |x, y| Pos2::new(x, y));
+        let pills = grid_pill_rects_of(&ov, Pos2::new);
         let col0 = pills.iter().find(|(c, i, _)| *c && *i == 0).unwrap().2;
         assert_eq!((col0.width(), col0.height()), (40.0, GRID_PILL_HEIGHT), "`100px` is 5 characters: 5 * 6 + 10");
         let col1 = pills.iter().find(|(c, i, _)| *c && *i == 1).unwrap().2;
