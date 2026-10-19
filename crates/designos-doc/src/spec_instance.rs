@@ -1,8 +1,8 @@
-//! Instance placement, variant resolution, and descendant overrides for `apply_spec` / `export_spec` (E15-1).
+//! Instance placement, variant resolution, descendant overrides, and slot fills for `apply_spec` / `export_spec` (E15-1 / E15-2).
 
 #![allow(clippy::result_large_err)]
 
-use crate::spec::{estimate_intrinsic_text_size, parse_sizing};
+use crate::spec::{estimate_intrinsic_text_size, parse_sizing, FalseLiteral, SlotFillSpec};
 use crate::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,6 +16,7 @@ pub const ALLOWED_INSTANCE_SPEC_FIELDS: &[&str] = &[
     "component",
     "variant",
     "props",
+    "slots",
     "overrides",
     "x",
     "y",
@@ -35,7 +36,7 @@ pub const ALLOWED_INSTANCE_SPEC_FIELDS: &[&str] = &[
     "annotations",
 ];
 
-/// Structured error envelope for `apply_spec` instance/variant/override failures (E15-1 / E15-5).
+/// Structured error envelope for `apply_spec` instance/variant/override/slot failures (E15-1 / E15-2 / E15-5).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpecError {
     pub code: String,
@@ -80,6 +81,19 @@ impl std::fmt::Display for SpecError {
 
 impl std::error::Error for SpecError {}
 
+/// Non-fatal design issue / warning produced during `apply_spec_with_libraries` (E15-2 / E15-5).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpecIssue {
+    pub rule: String,
+    pub severity: String,
+    pub node_id: u64,
+    pub node_name: String,
+    pub path: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommended: Vec<String>,
+}
+
 /// Metadata for one placed component instance returned by `apply_spec_with_libraries`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlacedInstanceInfo {
@@ -101,6 +115,8 @@ pub struct ApplySpecReport {
     pub imported_assets: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale_library_assets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<SpecIssue>,
 }
 
 #[derive(Clone, Debug)]
@@ -139,6 +155,8 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub imported_assets: Vec<String>,
     pub stale_library_assets: Vec<String>,
     pub instances: Vec<PlacedInstanceInfo>,
+    pub issues: Vec<SpecIssue>,
+    pub touched_slot_containers: HashMap<NodeId, String>,
 }
 
 impl<'a> SpecBuildCtx<'a> {
@@ -247,6 +265,8 @@ impl<'a> SpecBuildCtx<'a> {
             imported_assets: Vec::new(),
             stale_library_assets: Vec::new(),
             instances: Vec::new(),
+            issues: Vec::new(),
+            touched_slot_containers: HashMap::new(),
         }
     }
 
@@ -1125,6 +1145,21 @@ pub(crate) fn apply_overrides_with_ctx(
             apply_instance_props_with_ctx(doc, target_id, &ov.props, ctx)?;
         }
 
+        // 3b. Nested instance slots (`slots`, E15-2)
+        if !ov.slots.is_empty() {
+            let is_inst = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { .. }));
+            if !is_inst {
+                return Err(SpecError::named(
+                    "OVERRIDE_FIELD_NOT_APPLICABLE",
+                    format!("Cannot apply 'slots' override to non-instance layer '{}'", doc.get(target_id).map(|n| n.name.as_str()).unwrap_or("")),
+                    Some("overrides.slots".into()),
+                    Vec::new(),
+                    None,
+                ));
+            }
+            apply_instance_slots_with_ctx(doc, target_id, &ov.slots, "overrides.slots", ctx)?;
+        }
+
         // 4. Text characters (`text`)
         if let Some(text_val) = &ov.text {
             let is_text = doc.get(target_id).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)));
@@ -1208,6 +1243,21 @@ pub(crate) fn apply_overrides_with_ctx(
 
         // 7. Visibility (`visible`)
         if let Some(vis) = ov.visible {
+            if is_slot_container(doc, target_id) {
+                if let Some(prev_op) = ctx.touched_slot_containers.get(&target_id) {
+                    return Err(SpecError::named(
+                        "INVALID_SLOT_VALUE",
+                        format!(
+                            "Conflicting slot operations on '{}' (already touched via {prev_op})",
+                            doc.get(target_id).map(|n| n.name.as_str()).unwrap_or("")
+                        ),
+                        Some("overrides.visible".into()),
+                        vec!["false".into(), "[NodeSpec...]".into()],
+                        None,
+                    ));
+                }
+                ctx.touched_slot_containers.insert(target_id, "overrides.visible".into());
+            }
             if let Some(node) = doc.get_mut(target_id) {
                 node.visible = vis;
                 node.component.overrides.insert(OverrideField::Visible);
@@ -1219,6 +1269,436 @@ pub(crate) fn apply_overrides_with_ctx(
             if let Some(node) = doc.get_mut(target_id) {
                 node.opacity = op.clamp(0.0, 1.0);
                 node.component.overrides.insert(OverrideField::Opacity);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Pre-validates raw JSON `spec` before deserializing into `NodeSpec` so malformed `"slots"` entries
+/// (such as `true`, numbers, strings, or non-object array items) return a structured `SpecError`
+/// with `code == "INVALID_SLOT_VALUE"` and `valid_options == ["false", "[NodeSpec...]"]`.
+pub fn validate_raw_spec_slots(raw: &Value) -> Result<(), SpecError> {
+    validate_raw_spec_slots_at(raw, "slots")
+}
+
+fn validate_raw_spec_slots_at(raw: &Value, slots_prefix: &str) -> Result<(), SpecError> {
+    let Some(obj) = raw.as_object() else {
+        return Ok(());
+    };
+    if let Some(slots_val) = obj.get("slots") {
+        let Some(slots_map) = slots_val.as_object() else {
+            return Err(SpecError::named(
+                "INVALID_SLOT_VALUE",
+                format!("Field '{slots_prefix}' must be an object mapping slot names to `false` or `[NodeSpec...]`"),
+                Some(slots_prefix.into()),
+                vec!["false".into(), "[NodeSpec...]".into()],
+                None,
+            ));
+        };
+        for (slot_key, val) in slots_map {
+            let field_path = format!("{slots_prefix}.{slot_key}");
+            match val {
+                Value::Bool(false) => {}
+                Value::Array(items) => {
+                    for (idx, item) in items.iter().enumerate() {
+                        if !item.is_object() {
+                            return Err(SpecError::named(
+                                "INVALID_SLOT_VALUE",
+                                format!("Slot '{slot_key}' item [{idx}] must be a NodeSpec object, got {item}"),
+                                Some(format!("{field_path}[{idx}]")),
+                                vec!["false".into(), "[NodeSpec...]".into()],
+                                None,
+                            ));
+                        }
+                        validate_raw_spec_slots_at(item, &format!("{field_path}[{idx}].slots"))?;
+                    }
+                }
+                other => {
+                    return Err(SpecError::named(
+                        "INVALID_SLOT_VALUE",
+                        format!("Slot '{slot_key}' value must be `false` or an array of NodeSpec, got {other}"),
+                        Some(field_path),
+                        vec!["false".into(), "[NodeSpec...]".into()],
+                        Some(json!({ "slots": { slot_key: false } })),
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(children) = obj.get("children").and_then(|c| c.as_array()) {
+        for item in children {
+            validate_raw_spec_slots_at(item, "slots")?;
+        }
+    }
+    if let Some(overrides) = obj.get("overrides").and_then(|o| o.as_array()) {
+        for ov in overrides {
+            validate_raw_spec_slots_at(ov, "overrides.slots")?;
+        }
+    }
+    Ok(())
+}
+
+/// Collects all slot names declared on `comp_id` or its enclosing `ComponentSet` (including
+/// `PropKind::Slot` property definitions and any direct-template `is_slot` frames).
+fn declared_slots_of_component(doc: &Document, comp_id: NodeId) -> Vec<String> {
+    let mut out = Vec::new();
+    for def in prop_defs(doc, comp_id) {
+        if matches!(def.kind, PropKind::Slot) && !out.contains(&def.name) {
+            out.push(def.name);
+        }
+    }
+    let owner = doc.get(comp_id).and_then(|c| c.parent).filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp_id);
+    for variant_id in components_of(doc, owner) {
+        let mut stack: Vec<NodeId> = doc.get(variant_id).map(|n| n.children.clone()).unwrap_or_default();
+        while let Some(cid) = stack.pop() {
+            let Some(cn) = doc.get(cid) else { continue };
+            if let Some(bound) = cn.component.bindings.get(&OverrideField::SlotContent) {
+                if !out.contains(bound) {
+                    out.push(bound.clone());
+                }
+            } else if cn.component.is_slot && !cn.name.is_empty() && !out.contains(&cn.name) {
+                out.push(cn.name.clone());
+            }
+            if !matches!(cn.kind, NodeKind::Instance { .. }) {
+                stack.extend(cn.children.iter().copied());
+            }
+        }
+    }
+    out
+}
+
+/// Collects all nodes in `instance_id`'s own template (excluding descendants inside nested instances).
+fn direct_template_descendants(doc: &Document, instance_id: NodeId) -> Vec<NodeId> {
+    let mut out = Vec::new();
+    let Some(root) = doc.get(instance_id) else {
+        return out;
+    };
+    let mut stack: Vec<NodeId> = root.children.iter().copied().rev().collect();
+    while let Some(cid) = stack.pop() {
+        let Some(cn) = doc.get(cid) else { continue };
+        out.push(cid);
+        if !matches!(cn.kind, NodeKind::Instance { .. }) {
+            for &grand in cn.children.iter().rev() {
+                stack.push(grand);
+            }
+        }
+    }
+    out
+}
+
+fn slot_name_matches(candidate: &str, canonical: &str, raw_key: &str) -> bool {
+    candidate == canonical
+        || candidate == raw_key
+        || candidate.split('#').next() == Some(canonical)
+        || candidate.split('#').next() == Some(raw_key)
+        || candidate.eq_ignore_ascii_case(canonical)
+        || candidate.eq_ignore_ascii_case(raw_key)
+}
+
+/// Locates the slot container node inside `instance_id` for `canonical_slot_name`.
+fn find_instance_slot_container(doc: &Document, instance_id: NodeId, canonical_slot_name: &str, raw_slot_key: &str) -> Option<NodeId> {
+    let descendants = direct_template_descendants(doc, instance_id);
+
+    // Pass 1: explicit `OverrideField::SlotContent` binding on the node or its main-component source
+    for &cid in &descendants {
+        let Some(cn) = doc.get(cid) else { continue };
+        if let Some(b) = cn.component.bindings.get(&OverrideField::SlotContent) {
+            if slot_name_matches(b, canonical_slot_name, raw_slot_key) {
+                return Some(cid);
+            }
+        }
+        if let Some(src) = cn.component.source.and_then(|s| doc.get(s)) {
+            if let Some(b) = src.component.bindings.get(&OverrideField::SlotContent) {
+                if slot_name_matches(b, canonical_slot_name, raw_slot_key) {
+                    return Some(cid);
+                }
+            }
+        }
+    }
+
+    // Pass 2: `is_slot == true` frame whose layer name matches the slot name
+    for &cid in &descendants {
+        let Some(cn) = doc.get(cid) else { continue };
+        let src = cn.component.source.and_then(|s| doc.get(s));
+        let is_slot = cn.component.is_slot || src.is_some_and(|s| s.component.is_slot);
+        if !is_slot {
+            continue;
+        }
+        if slot_name_matches(&cn.name, canonical_slot_name, raw_slot_key) || src.is_some_and(|s| slot_name_matches(&s.name, canonical_slot_name, raw_slot_key))
+        {
+            return Some(cid);
+        }
+    }
+
+    None
+}
+
+fn resolve_slot_config(doc: &Document, comp_id: NodeId, slot_container_id: NodeId, canonical_slot_name: &str) -> SlotPropConfig {
+    if let Some(cfg) = slot_config_of(doc, slot_container_id) {
+        return cfg;
+    }
+    let owner = doc.get(comp_id).and_then(|c| c.parent).filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp_id);
+    for holder_id in [owner, comp_id] {
+        let Some(holder) = doc.get(holder_id) else { continue };
+        if let Some(cfg) = holder.component.slot_configs.get(canonical_slot_name) {
+            return cfg.clone();
+        }
+        if let Some((_, cfg)) = holder.component.slot_configs.iter().find(|(k, _)| k.eq_ignore_ascii_case(canonical_slot_name)) {
+            return cfg.clone();
+        }
+    }
+    SlotPropConfig::default()
+}
+
+fn recommended_component_names(doc: &Document, preferred: &[NodeId]) -> Vec<String> {
+    let mut names = Vec::new();
+    for &pid in preferred {
+        let Some(pn) = doc.get(pid) else { continue };
+        let display = match &pn.kind {
+            NodeKind::Component(_) => pn
+                .parent
+                .and_then(|p| doc.get(p))
+                .filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| pn.name.clone()),
+            _ => pn.name.clone(),
+        };
+        if !display.is_empty() && !names.contains(&display) {
+            names.push(display);
+        }
+    }
+    names
+}
+
+fn child_matches_preferred(doc: &Document, child: &Node, preferred: &[NodeId]) -> Option<NodeId> {
+    let comp = instance_component(child)?;
+    if preferred.contains(&comp) {
+        return Some(comp);
+    }
+    if let Some(parent) = doc.get(comp).and_then(|c| c.parent) {
+        if preferred.contains(&parent) {
+            return Some(parent);
+        }
+    }
+    None
+}
+
+fn has_instance_cycle(doc: &Document, parent: NodeId, resolved_id: NodeId, variant_comp_id: NodeId) -> bool {
+    if parent == variant_comp_id || doc.is_ancestor(variant_comp_id, parent) || parent == resolved_id || doc.is_ancestor(resolved_id, parent) {
+        return true;
+    }
+    let mut cur = Some(parent);
+    while let Some(cid) = cur {
+        let Some(cn) = doc.get(cid) else { break };
+        if let Some(anc_comp) = instance_component(cn) {
+            let anc_owner = doc
+                .get(anc_comp)
+                .and_then(|c| c.parent)
+                .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
+                .unwrap_or(anc_comp);
+            if anc_comp == variant_comp_id || anc_comp == resolved_id || anc_owner == resolved_id || anc_owner == variant_comp_id {
+                return true;
+            }
+        }
+        cur = cn.parent;
+    }
+    false
+}
+
+/// Applies `slots` (`SlotFillSpec::Disabled` or `SlotFillSpec::Fill`) onto `instance_id` (E15-2).
+pub(crate) fn apply_instance_slots_with_ctx(
+    doc: &mut Document,
+    instance_id: NodeId,
+    slots: &BTreeMap<String, SlotFillSpec>,
+    field_prefix: &str,
+    ctx: &mut SpecBuildCtx<'_>,
+) -> Result<(), SpecError> {
+    if slots.is_empty() {
+        return Ok(());
+    }
+    let comp_id = doc.get(instance_id).and_then(instance_component).ok_or_else(|| {
+        SpecError::named("OVERRIDE_FIELD_NOT_APPLICABLE", format!("Node {} is not an instance", instance_id.0), Some(field_prefix.into()), Vec::new(), None)
+    })?;
+
+    let owner = doc.get(comp_id).and_then(|c| c.parent).filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp_id);
+    let comp_display_name = doc.get(owner).map(|n| n.name.clone()).unwrap_or_default();
+    let variant_display_name = doc.get(comp_id).map(|n| n.name.clone()).unwrap_or_default();
+    let declared_slots = declared_slots_of_component(doc, comp_id);
+
+    for (slot_key, fill_spec) in slots {
+        let field_path = format!("{field_prefix}.{slot_key}");
+        let canonical_slot_name = declared_slots
+            .iter()
+            .find(|d| *d == slot_key || d.split('#').next() == Some(slot_key.as_str()))
+            .or_else(|| declared_slots.iter().find(|d| d.eq_ignore_ascii_case(slot_key)))
+            .cloned()
+            .ok_or_else(|| {
+                let example = declared_slots.first().map(|first| json!({ "slots": { first: [] } }));
+                SpecError::named(
+                    "UNKNOWN_SLOT",
+                    format!("Component '{comp_display_name}' has no slot named '{slot_key}'"),
+                    Some(field_path.clone()),
+                    declared_slots.clone(),
+                    example,
+                )
+            })?;
+
+        let slot_container_id = find_instance_slot_container(doc, instance_id, &canonical_slot_name, slot_key).ok_or_else(|| {
+            SpecError::named(
+                "SLOT_CONTAINER_NOT_FOUND",
+                format!(
+                    "Slot '{canonical_slot_name}' is declared on '{comp_display_name}' but variant '{variant_display_name}' has no bound slot container frame"
+                ),
+                Some(field_path.clone()),
+                Vec::new(),
+                None,
+            )
+        })?;
+
+        if let Some(prev_op) = ctx.touched_slot_containers.get(&slot_container_id) {
+            return Err(SpecError::named(
+                "INVALID_SLOT_VALUE",
+                format!("Conflicting slot operations on slot '{canonical_slot_name}' (already touched via '{prev_op}')"),
+                Some(field_path),
+                vec!["false".into(), "[NodeSpec...]".into()],
+                None,
+            ));
+        }
+        ctx.touched_slot_containers.insert(slot_container_id, field_path.clone());
+
+        match fill_spec {
+            SlotFillSpec::Disabled(FalseLiteral) => {
+                if let Some(slot_node) = doc.get_mut(slot_container_id) {
+                    slot_node.visible = false;
+                    slot_node.component.overrides.insert(OverrideField::Visible);
+                }
+            }
+            SlotFillSpec::Fill(child_specs) => {
+                let cfg = resolve_slot_config(doc, comp_id, slot_container_id, &canonical_slot_name);
+                let count = child_specs.len();
+                if let Some(min) = cfg.min_children {
+                    if count < min as usize {
+                        let max_str = cfg.max_children.map(|m| m.to_string()).unwrap_or_else(|| "∞".into());
+                        return Err(SpecError::named(
+                            "SLOT_CHILD_COUNT",
+                            format!("Slot '{canonical_slot_name}' requires {min}..{max_str} children, got {count}"),
+                            Some(field_path),
+                            Vec::new(),
+                            None,
+                        ));
+                    }
+                }
+                if let Some(max) = cfg.max_children {
+                    if count > max as usize {
+                        let min_val = cfg.min_children.unwrap_or(0);
+                        return Err(SpecError::named(
+                            "SLOT_CHILD_COUNT",
+                            format!("Slot '{canonical_slot_name}' allows {min_val}..{max} children, got {count}"),
+                            Some(field_path),
+                            Vec::new(),
+                            None,
+                        ));
+                    }
+                }
+
+                // Remove default placeholder children inside the instance's slot container
+                let existing_children: Vec<NodeId> = doc.get(slot_container_id).map(|n| n.children.clone()).unwrap_or_default();
+                for old_cid in existing_children {
+                    Command::Remove { id: old_cid }.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+                }
+
+                // Warn if any preferred component belongs to a disabled library (§8.6)
+                let recommended = recommended_component_names(doc, &cfg.preferred);
+                if !cfg.preferred.is_empty() && !doc.library.enabled.is_empty() {
+                    for &pid in &cfg.preferred {
+                        if let Some((_, ext)) = library_asset_of_component(doc, pid) {
+                            let lib_enabled = ext.library_id.starts_with(REMOTE_LIBRARY_PREFIX) || doc.library.enabled.iter().any(|l| l.id == ext.library_id);
+                            if !lib_enabled {
+                                let p_name = doc.get(pid).map(|n| n.name.clone()).unwrap_or_default();
+                                ctx.issues.push(SpecIssue {
+                                    rule: "slot-preferred-library-disabled".into(),
+                                    severity: "warning".into(),
+                                    node_id: slot_container_id.0,
+                                    node_name: canonical_slot_name.clone(),
+                                    path: field_path.clone(),
+                                    message: format!(
+                                        "Preferred component '{}' for slot '{}' belongs to disabled library '{}'",
+                                        p_name, canonical_slot_name, ext.library_id
+                                    ),
+                                    recommended: recommended.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+
+                let mut built_ids = Vec::with_capacity(child_specs.len());
+                for (idx, child_spec) in child_specs.iter().enumerate() {
+                    let item_path = format!("{field_path}[{idx}]");
+                    let child_id = doc.build_spec_node_with_ctx(slot_container_id, child_spec, ctx)?;
+
+                    // Validate against preferred components (§3.2 / §4 / §5.2)
+                    if !cfg.preferred.is_empty() {
+                        let matched_pref = doc.get(child_id).and_then(|cn| child_matches_preferred(doc, cn, &cfg.preferred));
+                        if matched_pref.is_none() {
+                            let child_name = doc
+                                .get(child_id)
+                                .map(|n| if n.name.is_empty() { n.kind.default_name().to_string() } else { n.name.clone() })
+                                .unwrap_or_else(|| child_spec.kind.clone());
+                            if cfg.allow_preferred_values_only == Some(true) {
+                                let corrected = recommended.first().map(|rec| {
+                                    json!({
+                                        "kind": "instance",
+                                        "component": rec,
+                                    })
+                                });
+                                return Err(SpecError::named(
+                                    "SLOT_FILL_NOT_ALLOWED",
+                                    format!(
+                                        "Slot '{canonical_slot_name}' only accepts instances of recommended components {:?}, got '{child_name}'",
+                                        recommended
+                                    ),
+                                    Some(item_path),
+                                    recommended,
+                                    corrected,
+                                ));
+                            } else {
+                                ctx.issues.push(SpecIssue {
+                                    rule: "slot-non-recommended".into(),
+                                    severity: "warning".into(),
+                                    node_id: child_id.0,
+                                    node_name: child_name.clone(),
+                                    path: item_path,
+                                    message: format!("Slot '{canonical_slot_name}' recommends {:?}, got '{child_name}'", recommended),
+                                    recommended: recommended.clone(),
+                                });
+                            }
+                        }
+                    }
+
+                    let explicit_width = child_spec.width.is_some() || child_spec.width_sizing.is_some();
+                    if let Some(child_mut) = doc.get_mut(child_id) {
+                        child_mut.component.is_slot_content = true;
+                    }
+                    if !explicit_width {
+                        if let Some(mut child_clone) = doc.get(child_id).cloned() {
+                            apply_slot_stretch_on_insert(doc, slot_container_id, &mut child_clone);
+                            if let Some(child_mut) = doc.get_mut(child_id) {
+                                *child_mut = child_clone;
+                            }
+                        }
+                    }
+                    built_ids.push(child_id);
+                }
+
+                if let Some(slot_node) = doc.get_mut(slot_container_id) {
+                    slot_node.component.overrides.insert(OverrideField::SlotContent);
+                }
+                if let Some(inst_node) = doc.get_mut(instance_id) {
+                    inst_node.component.values.insert(canonical_slot_name, PropValue::Slot(built_ids));
+                }
             }
         }
     }
@@ -1272,11 +1752,11 @@ impl Document {
         let resolved_id = ctx.resolve_component(self, comp_ref, Some(spec))?;
         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
 
-        // Cycle check (§8.5): cannot instantiate a component inside itself or its ComponentSet
-        if parent == variant_comp_id || self.is_ancestor(variant_comp_id, parent) || parent == resolved_id || self.is_ancestor(resolved_id, parent) {
+        // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
+        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
             return Err(SpecError::named(
                 "INSTANCE_CYCLE",
-                format!("Cannot place an instance of component '{}' inside its own definition", comp_ref),
+                format!("Cannot place an instance of component '{}' inside its own definition or enclosing instance", comp_ref),
                 Some("component".into()),
                 Vec::new(),
                 None,
@@ -1310,6 +1790,9 @@ impl Document {
 
         // Apply root component properties (`props`)
         apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)?;
+
+        // Apply root component slots (`slots`, E15-2)
+        apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx)?;
 
         // Apply descendant overrides (`overrides`)
         apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx)?;
@@ -1419,6 +1902,36 @@ impl Document {
         Ok(report)
     }
 
+    fn collect_instance_slots(
+        &self,
+        instance_id: NodeId,
+        all_comments: &[ResolvedCommentThread],
+    ) -> Result<(BTreeMap<String, SlotFillSpec>, BTreeSet<NodeId>), String> {
+        let mut slots = BTreeMap::new();
+        let mut handled_containers = BTreeSet::new();
+        let Some(comp_id) = self.get(instance_id).and_then(instance_component) else {
+            return Ok((slots, handled_containers));
+        };
+        for slot_name in declared_slots_of_component(self, comp_id) {
+            let Some(slot_cid) = find_instance_slot_container(self, instance_id, &slot_name, &slot_name) else {
+                continue;
+            };
+            let Some(sn) = self.get(slot_cid) else { continue };
+            if sn.component.overrides.contains(&OverrideField::Visible) && !sn.visible {
+                slots.insert(slot_name, SlotFillSpec::Disabled(FalseLiteral));
+                handled_containers.insert(slot_cid);
+            } else if sn.component.overrides.contains(&OverrideField::SlotContent) {
+                let mut child_specs = Vec::with_capacity(sn.children.len());
+                for &child_id in &sn.children {
+                    child_specs.push(self.export_spec_inner(child_id, all_comments)?);
+                }
+                slots.insert(slot_name, SlotFillSpec::Fill(child_specs));
+                handled_containers.insert(slot_cid);
+            }
+        }
+        Ok((slots, handled_containers))
+    }
+
     pub(crate) fn export_instance_spec_node(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
         let n = self.get(id).ok_or_else(|| format!("Node {} not found", id.0))?;
         let NodeKind::Instance { component, component_key, .. } = &n.kind else {
@@ -1462,8 +1975,9 @@ impl Document {
             }
         }
 
+        let (slots, mut handled_containers) = self.collect_instance_slots(id, all_comments)?;
         let mut overrides = Vec::new();
-        self.collect_exported_overrides(id, "", &mut overrides);
+        self.collect_exported_overrides(id, "", all_comments, &mut handled_containers, &mut overrides);
 
         let size_overridden = n.component.overrides.contains(&OverrideField::Size);
         let opacity = if n.component.overrides.contains(&OverrideField::Opacity) { n.opacity } else { 1.0 };
@@ -1482,6 +1996,7 @@ impl Document {
             component: comp_ref,
             variant,
             props,
+            slots,
             overrides,
             preset: None,
             x: n.transform.tx,
@@ -1516,7 +2031,14 @@ impl Document {
         })
     }
 
-    fn collect_exported_overrides(&self, parent: NodeId, prefix: &str, out: &mut Vec<OverrideSpec>) {
+    fn collect_exported_overrides(
+        &self,
+        parent: NodeId,
+        prefix: &str,
+        all_comments: &[ResolvedCommentThread],
+        handled_slot_containers: &mut BTreeSet<NodeId>,
+        out: &mut Vec<OverrideSpec>,
+    ) {
         let Some(pnode) = self.get(parent) else {
             return;
         };
@@ -1529,6 +2051,9 @@ impl Document {
         let mut seen: HashMap<&str, usize> = HashMap::new();
 
         for &cid in &pnode.children {
+            if handled_slot_containers.contains(&cid) {
+                continue;
+            }
             let Some(cn) = self.get(cid) else {
                 continue;
             };
@@ -1563,28 +2088,37 @@ impl Document {
                 }
             }
 
-            if matches!(cn.kind, NodeKind::Instance { .. }) && !cn.component.values.is_empty() {
-                for (k, v) in &cn.component.values {
-                    match v {
-                        PropValue::Variant(val) => {
-                            spec_ov.variant.insert(k.clone(), val.clone());
-                            any_field = true;
+            if matches!(cn.kind, NodeKind::Instance { .. }) {
+                if !cn.component.values.is_empty() {
+                    for (k, v) in &cn.component.values {
+                        match v {
+                            PropValue::Variant(val) => {
+                                spec_ov.variant.insert(k.clone(), val.clone());
+                                any_field = true;
+                            }
+                            PropValue::Bool(b) => {
+                                spec_ov.props.insert(k.clone(), Value::Bool(*b));
+                                any_field = true;
+                            }
+                            PropValue::Text(s) => {
+                                spec_ov.props.insert(k.clone(), Value::String(s.clone()));
+                                any_field = true;
+                            }
+                            PropValue::Instance(cid) => {
+                                let s = library_key_for_component(self, *cid).unwrap_or_else(|| format!("node:{}", cid.0));
+                                spec_ov.props.insert(k.clone(), Value::String(s));
+                                any_field = true;
+                            }
+                            PropValue::Slot(_) => {}
                         }
-                        PropValue::Bool(b) => {
-                            spec_ov.props.insert(k.clone(), Value::Bool(*b));
-                            any_field = true;
-                        }
-                        PropValue::Text(s) => {
-                            spec_ov.props.insert(k.clone(), Value::String(s.clone()));
-                            any_field = true;
-                        }
-                        PropValue::Instance(cid) => {
-                            let s = library_key_for_component(self, *cid).unwrap_or_else(|| format!("node:{}", cid.0));
-                            spec_ov.props.insert(k.clone(), Value::String(s));
-                            any_field = true;
-                        }
-                        PropValue::Slot(_) => {}
                     }
+                }
+                if let Ok((nested_slots, nested_handled)) = self.collect_instance_slots(cid, all_comments) {
+                    if !nested_slots.is_empty() {
+                        spec_ov.slots = nested_slots;
+                        any_field = true;
+                    }
+                    handled_slot_containers.extend(nested_handled);
                 }
             }
 
@@ -1635,7 +2169,7 @@ impl Document {
                 out.push(spec_ov);
             }
 
-            self.collect_exported_overrides(cid, &rel_path, out);
+            self.collect_exported_overrides(cid, &rel_path, all_comments, handled_slot_containers, out);
         }
     }
 }
@@ -1681,6 +2215,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
         instances: ctx.instances,
         imported_assets: ctx.imported_assets,
         stale_library_assets: ctx.stale_library_assets,
+        issues: ctx.issues,
     };
 
     Ok((final_cmd, report))
@@ -1694,8 +2229,21 @@ fn populate_name_to_id(doc: &Document, id: NodeId, prefix: &str, out: &mut BTree
     if !path.is_empty() {
         out.entry(path.clone()).or_insert(id.0);
     }
+    let bound_slot_name = n
+        .component
+        .bindings
+        .get(&OverrideField::SlotContent)
+        .or_else(|| n.component.source.and_then(|s| doc.get(s)).and_then(|s| s.component.bindings.get(&OverrideField::SlotContent)))
+        .cloned();
+    let alias_path = bound_slot_name.filter(|sn| *sn != n.name).map(|sn| if prefix.is_empty() { sn } else { format!("{prefix}/{sn}") });
+    if let Some(ap) = &alias_path {
+        out.entry(ap.clone()).or_insert(id.0);
+    }
     for &cid in &n.children {
         populate_name_to_id(doc, cid, &path, out);
+        if let Some(ap) = &alias_path {
+            populate_name_to_id(doc, cid, ap, out);
+        }
     }
 }
 
@@ -1808,6 +2356,143 @@ pub mod fixtures {
                 }
             }
         }
+
+        doc
+    }
+
+    /// Returns a `Document` containing:
+    /// - Recommended helper components `"CardHeader"`, `"FormRow"`, `"CopyBlock"`, `"ButtonRow"`.
+    /// - A `"Card"` component with 3 slots:
+    ///   - `"header"` (optional, `display_by_default = false`, `max_children = 1`, `preferred = [CardHeader]`),
+    ///   - `"body"` (`min_children = 1`, `max_children = 4`, `stretch_child_on_insert = true`,
+    ///     `preferred = [FormRow, CopyBlock]`, `allow_preferred_values_only = false`),
+    ///   - `"footer"` (optional, `display_by_default = true`, `max_children = 2`,
+    ///     `preferred = [ButtonRow]`, `allow_preferred_values_only = true`).
+    pub fn card_with_slots() -> Document {
+        let mut doc = Document::new("Card Slot Library");
+        let page = doc.add_page("Components");
+
+        let make_comp = |doc: &mut Document, name: &str, w: f32, h: f32| -> NodeId {
+            let cid = doc.alloc_id();
+            let mut cnode = Node::new(cid, NodeKind::Component(FrameProps::default()));
+            cnode.name = name.into();
+            cnode.size = Vec2::new(w, h);
+            cnode.fills = vec![Paint::solid(Color::rgb(0x27, 0x27, 0x2A))];
+            doc.insert(page, cnode).unwrap();
+
+            let tid = doc.alloc_id();
+            let mut tnode = Node::text(tid, Rect::new(8.0, 6.0, (w - 16.0).max(20.0), 20.0), name, TextStyle::default());
+            tnode.name = "Label".into();
+            doc.insert(cid, tnode).unwrap();
+            cid
+        };
+
+        let card_header_id = make_comp(&mut doc, "CardHeader", 240.0, 40.0);
+        let form_row_id = make_comp(&mut doc, "FormRow", 200.0, 36.0);
+        let copy_block_id = make_comp(&mut doc, "CopyBlock", 200.0, 48.0);
+        let button_row_id = make_comp(&mut doc, "ButtonRow", 240.0, 40.0);
+
+        // "Card" main component
+        let card_id = doc.alloc_id();
+        let mut card_fp = FrameProps::default();
+        card_fp.auto_layout = Some(AutoLayout {
+            direction: LayoutDirection::Vertical,
+            item_spacing: 12.0,
+            padding: [16.0, 16.0, 16.0, 16.0],
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Fixed,
+            ..AutoLayout::default()
+        });
+        let mut card_node = Node::new(card_id, NodeKind::Component(card_fp));
+        card_node.name = "Card".into();
+        card_node.size = Vec2::new(320.0, 240.0);
+        card_node.fills = vec![Paint::solid(Color::rgb(0x18, 0x18, 0x1B))];
+        doc.insert(page, card_node).unwrap();
+
+        let make_slot_frame = |doc: &mut Document, name: &str, h: f32, default_child_name: Option<&str>| -> NodeId {
+            let sid = doc.alloc_id();
+            let mut fp = FrameProps::default();
+            fp.auto_layout = Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                item_spacing: 8.0,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Fixed,
+                ..AutoLayout::default()
+            });
+            let mut snode = Node::new(sid, NodeKind::Frame(fp));
+            snode.name = name.into();
+            snode.size = Vec2::new(288.0, h);
+            snode.layout_child.horizontal = Sizing::Fill;
+            doc.insert(card_id, snode).unwrap();
+
+            if let Some(def_name) = default_child_name {
+                let did = doc.alloc_id();
+                let mut dnode = Node::new(did, NodeKind::Frame(FrameProps::default()));
+                dnode.name = def_name.into();
+                dnode.size = Vec2::new(288.0, 24.0);
+                doc.insert(sid, dnode).unwrap();
+            }
+
+            let cmd = convert_to_slot(doc, sid);
+            cmd.apply(doc).unwrap();
+            sid
+        };
+
+        let _header_slot = make_slot_frame(&mut doc, "header", 40.0, None);
+        let _body_slot = make_slot_frame(&mut doc, "body", 120.0, Some("DefaultBodyPlaceholder"));
+        let _footer_slot = make_slot_frame(&mut doc, "footer", 40.0, Some("DefaultFooterContent"));
+
+        set_slot_config(
+            &mut doc,
+            card_id,
+            "header",
+            SlotPropConfig {
+                preferred: vec![card_header_id],
+                allow_preferred_values_only: Some(false),
+                max_children: Some(1),
+                min_children: None,
+                display_by_default: Some(false),
+                stretch_child_on_insert: Some(true),
+                ..SlotPropConfig::default()
+            },
+        )
+        .apply(&mut doc)
+        .unwrap();
+
+        set_slot_config(
+            &mut doc,
+            card_id,
+            "body",
+            SlotPropConfig {
+                preferred: vec![form_row_id, copy_block_id],
+                allow_preferred_values_only: Some(false),
+                max_children: Some(4),
+                min_children: Some(1),
+                display_by_default: Some(true),
+                stretch_child_on_insert: Some(true),
+                ..SlotPropConfig::default()
+            },
+        )
+        .apply(&mut doc)
+        .unwrap();
+
+        set_slot_config(
+            &mut doc,
+            card_id,
+            "footer",
+            SlotPropConfig {
+                preferred: vec![button_row_id],
+                allow_preferred_values_only: Some(true),
+                max_children: Some(2),
+                min_children: None,
+                display_by_default: Some(true),
+                stretch_child_on_insert: None,
+                ..SlotPropConfig::default()
+            },
+        )
+        .apply(&mut doc)
+        .unwrap();
 
         doc
     }
@@ -2359,5 +3044,329 @@ mod tests {
 
         let report2 = consumer.apply_spec_with_libraries(page, &spec, &[snap_v2]).unwrap();
         assert_eq!(report2.stale_library_assets, vec!["k_btn".to_string()]);
+    }
+
+    // -----------------------------------------------------------------------
+    // E15-2: Component slot fills and validation (§10 + §8)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn fills_content_and_round_trips_native() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "ProfileCard",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "name": "Row1", "component": "FormRow" },
+                    { "kind": "instance", "name": "Row2", "component": "FormRow" }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let report = doc.apply_spec_with_libraries(page, &spec, &[]).unwrap();
+        assert!(report.issues.is_empty(), "recommended FormRow fills must not emit warnings");
+        let card_inst_id = report.root_node_id;
+
+        // Verify name_to_id registers "<InstanceName>/<SlotName>/<ChildName>"
+        assert!(report.name_to_id.contains_key("ProfileCard/body/Row1"));
+        assert!(report.name_to_id.contains_key("ProfileCard/body/Row2"));
+
+        let card_inst = doc.get(card_inst_id).unwrap();
+        assert!(is_linked(card_inst), "outer Card instance must remain linked");
+
+        let body_slot_id = resolve_override_path(&doc, card_inst_id, "body").unwrap();
+        let body_slot = doc.get(body_slot_id).unwrap();
+        assert!(body_slot.component.overrides.contains(&OverrideField::SlotContent));
+        assert_eq!(body_slot.children.len(), 2, "default placeholder replaced by 2 FormRow children");
+
+        for &child_id in &body_slot.children {
+            let child = doc.get(child_id).unwrap();
+            assert!(is_linked(child), "FormRow child must be a linked instance");
+            assert!(child.component.is_slot_content, "inserted slot root must set is_slot_content = true");
+            assert_eq!(child.layout_child.horizontal, Sizing::Fill, "stretch_child_on_insert = true must set horizontal Sizing::Fill");
+        }
+
+        // Round-trip through native Document::to_json / from_json
+        let json_str = doc.to_json().unwrap();
+        let restored = Document::from_json(&json_str).unwrap();
+        let restored_card = restored.get(card_inst_id).unwrap();
+        assert!(is_linked(restored_card));
+        let restored_body = restored.get(body_slot_id).unwrap();
+        assert!(restored_body.component.overrides.contains(&OverrideField::SlotContent));
+        assert_eq!(restored_body.children.len(), 2);
+        for &cid in &restored_body.children {
+            let c = restored.get(cid).unwrap();
+            assert!(c.component.is_slot_content);
+            assert_eq!(c.layout_child.horizontal, Sizing::Fill);
+        }
+
+        // Also verify export_spec -> apply_spec round-trip preserves slots
+        let exported = doc.export_spec(card_inst_id).unwrap();
+        assert!(matches!(exported.slots.get("body"), Some(SlotFillSpec::Fill(items)) if items.len() == 2));
+        let reapplied_id = doc.apply_spec(page, &exported).unwrap();
+        let reapplied_body = resolve_override_path(&doc, reapplied_id, "body").unwrap();
+        assert_eq!(doc.get(reapplied_body).unwrap().children.len(), 2);
+    }
+
+    #[test]
+    fn non_recommended_fill_warns() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "CustomCard",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "frame", "name": "AdhocBox", "width": 160, "height": 40 }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let report = doc.apply_spec_with_libraries(page, &spec, &[]).unwrap();
+        assert_eq!(report.issues.len(), 1);
+        let issue = &report.issues[0];
+        assert_eq!(issue.rule, "slot-non-recommended");
+        assert_eq!(issue.severity, "warning");
+        assert_eq!(issue.node_name, "AdhocBox");
+        assert_eq!(issue.recommended, vec!["FormRow".to_string(), "CopyBlock".to_string()]);
+    }
+
+    #[test]
+    fn strict_slot_refuses() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+        let before_json = doc.to_json().unwrap();
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "footer": [
+                    { "kind": "frame", "name": "RawFooter" }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let err = doc.apply_spec_with_libraries(page, &spec, &[]).expect_err("strict footer slot must refuse non-recommended raw frame");
+        assert_eq!(err.code, "SLOT_FILL_NOT_ALLOWED");
+        assert_eq!(err.valid_options, vec!["ButtonRow".to_string()]);
+        assert_eq!(doc.to_json().unwrap(), before_json, "document must be unchanged on strict slot error");
+    }
+
+    #[test]
+    fn disable_hides_without_detach() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "NoFooterCard",
+            "component": "Card",
+            "slots": {
+                "footer": false
+            }
+        }))
+        .unwrap();
+
+        let inst_id = doc.apply_spec(page, &spec).unwrap();
+        let inst = doc.get(inst_id).unwrap();
+        assert!(is_linked(inst), "Card instance must stay linked when slot is disabled");
+
+        let footer_id = resolve_override_path(&doc, inst_id, "footer").unwrap();
+        let footer = doc.get(footer_id).unwrap();
+        assert!(!footer.visible, "disabled slot container must have visible == false");
+        assert!(footer.component.overrides.contains(&OverrideField::Visible));
+        assert!(!footer.children.is_empty(), "disabling a slot must keep its default child structure intact for later re-enable");
+
+        // Export round-trip preserves `"footer": false`
+        let exported = doc.export_spec(inst_id).unwrap();
+        assert_eq!(exported.slots.get("footer"), Some(&SlotFillSpec::Disabled(FalseLiteral)));
+    }
+
+    #[test]
+    fn child_count_bounds() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+        let before_json = doc.to_json().unwrap();
+
+        // 0 children into `body` (min_children = 1) -> SLOT_CHILD_COUNT
+        let empty_body: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "body": []
+            }
+        }))
+        .unwrap();
+        let err0 = doc.apply_spec_with_libraries(page, &empty_body, &[]).unwrap_err();
+        assert_eq!(err0.code, "SLOT_CHILD_COUNT");
+
+        // 5 children into `body` (max_children = 4) -> SLOT_CHILD_COUNT
+        let five_body: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "component": "FormRow" },
+                    { "kind": "instance", "component": "FormRow" },
+                    { "kind": "instance", "component": "FormRow" },
+                    { "kind": "instance", "component": "FormRow" },
+                    { "kind": "instance", "component": "FormRow" }
+                ]
+            }
+        }))
+        .unwrap();
+        let err5 = doc.apply_spec_with_libraries(page, &five_body, &[]).unwrap_err();
+        assert_eq!(err5.code, "SLOT_CHILD_COUNT");
+        assert_eq!(doc.to_json().unwrap(), before_json, "document must be unchanged on child count errors");
+    }
+
+    #[test]
+    fn nested_slot_via_override_path() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+        let card_comp_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Card").unwrap().id;
+
+        // Build an outer component "SectionShell" containing a nested "Card" instance named "InnerCard"
+        let shell_id = doc.alloc_id();
+        let mut shell = Node::new(shell_id, NodeKind::Component(FrameProps::default()));
+        shell.name = "SectionShell".into();
+        shell.size = Vec2::new(400.0, 320.0);
+        doc.insert(page, shell).unwrap();
+
+        let icmd = create_instance(&mut doc, card_comp_id, shell_id, Vec2::new(20.0, 20.0));
+        let inner_card_id = match &icmd {
+            Command::Insert { nodes, .. } => nodes[0].id,
+            _ => unreachable!(),
+        };
+        icmd.apply(&mut doc).unwrap();
+        doc.get_mut(inner_card_id).unwrap().name = "InnerCard".into();
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "PlacedShell",
+            "component": "SectionShell",
+            "overrides": [
+                {
+                    "path": "InnerCard",
+                    "slots": {
+                        "body": [
+                            { "kind": "instance", "name": "NestedRow", "component": "CopyBlock" }
+                        ]
+                    }
+                }
+            ]
+        }))
+        .unwrap();
+
+        let shell_inst = doc.apply_spec(page, &spec).unwrap();
+        let nested_body = resolve_override_path(&doc, shell_inst, "InnerCard/body").unwrap();
+        let nested_body_node = doc.get(nested_body).unwrap();
+        assert!(nested_body_node.component.overrides.contains(&OverrideField::SlotContent));
+        assert_eq!(nested_body_node.children.len(), 1);
+        let nested_child = doc.get(nested_body_node.children[0]).unwrap();
+        assert_eq!(nested_child.name, "NestedRow");
+        assert!(nested_child.component.is_slot_content);
+
+        // Export round-trip preserves `overrides[].slots`
+        let exported = doc.export_spec(shell_inst).unwrap();
+        let inner_ov = exported.overrides.iter().find(|o| o.path.as_deref() == Some("InnerCard")).expect("InnerCard override must be exported");
+        assert!(matches!(inner_ov.slots.get("body"), Some(SlotFillSpec::Fill(v)) if v.len() == 1));
+    }
+
+    #[test]
+    fn slot_edge_cases_unknown_cycle_conflict_stretch_and_empty_optional() {
+        let mut doc = fixtures::card_with_slots();
+        let page = doc.pages[0];
+
+        // §8.1: Unknown slot name -> UNKNOWN_SLOT with valid_options = ["header", "body", "footer"]
+        let bad_slot: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": { "sidebar": [] }
+        }))
+        .unwrap();
+        let err_unknown = doc.apply_spec_with_libraries(page, &bad_slot, &[]).unwrap_err();
+        assert_eq!(err_unknown.code, "UNKNOWN_SLOT");
+        assert_eq!(err_unknown.valid_options, vec!["header".to_string(), "body".to_string(), "footer".to_string()]);
+
+        // §8.2: Empty array `"header": []` on optional slot (min_children = None) clears slot content
+        let clear_optional: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": { "footer": [] }
+        }))
+        .unwrap();
+        let cleared_id = doc.apply_spec(page, &clear_optional).unwrap();
+        let footer_id = resolve_override_path(&doc, cleared_id, "footer").unwrap();
+        assert!(doc.get(footer_id).unwrap().children.is_empty());
+        assert!(doc.get(footer_id).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+
+        // §8.3: Filling a Card slot with another instance of Card -> INSTANCE_CYCLE
+        let cycle_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "component": "Card" }
+                ]
+            }
+        }))
+        .unwrap();
+        let err_cycle = doc.apply_spec_with_libraries(page, &cycle_spec, &[]).unwrap_err();
+        assert_eq!(err_cycle.code, "INSTANCE_CYCLE");
+
+        // §8.4: Disabling and filling / touching the same slot container in one spec -> INVALID_SLOT_VALUE
+        let conflict_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "component": "FormRow" }
+                ]
+            },
+            "overrides": [
+                { "path": "body", "visible": false }
+            ]
+        }))
+        .unwrap();
+        let err_conflict = doc.apply_spec_with_libraries(page, &conflict_spec, &[]).unwrap_err();
+        assert_eq!(err_conflict.code, "INVALID_SLOT_VALUE");
+
+        // Raw JSON `"footer": true` pre-validation -> INVALID_SLOT_VALUE
+        let err_true = validate_raw_spec_slots(&json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": { "footer": true }
+        }))
+        .unwrap_err();
+        assert_eq!(err_true.code, "INVALID_SLOT_VALUE");
+        assert_eq!(err_true.valid_options, vec!["false".to_string(), "[NodeSpec...]".to_string()]);
+
+        // §8.5: Explicit width: 120 on fill root preserved despite stretch_child_on_insert = true
+        let explicit_w_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "name": "FixedRow", "component": "FormRow", "width": 120.0 }
+                ]
+            }
+        }))
+        .unwrap();
+        let explicit_card = doc.apply_spec(page, &explicit_w_spec).unwrap();
+        let body_id = resolve_override_path(&doc, explicit_card, "body").unwrap();
+        let fixed_row = doc.get(doc.get(body_id).unwrap().children[0]).unwrap();
+        assert_eq!(fixed_row.size.x, 120.0);
+        assert_eq!(fixed_row.layout_child.horizontal, Sizing::Fixed);
     }
 }

@@ -307,6 +307,9 @@ impl Engine {
                 Ok(json!({"thread_id": a.thread_id, "resolved": a.resolved, "changed": changed}))
             }
             "designos_apply_spec" => {
+                if let Some(raw_spec) = args.get("spec") {
+                    designos_doc::validate_raw_spec_slots(raw_spec).map_err(|e| e.to_string())?;
+                }
                 let a: ApplySpecArgs = parse(args)?;
                 let parent = a
                     .parent_id
@@ -331,6 +334,7 @@ impl Engine {
                     "name_to_id": report.name_to_id,
                     "instances": report.instances,
                     "imported_assets": report.imported_assets,
+                    "issues": report.issues,
                 });
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
@@ -1422,6 +1426,7 @@ mod tests {
     }
 
     #[test]
+<<<<<<< HEAD
     fn engine_exec_applies_the_boundary() {
         use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchState};
         use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
@@ -1571,5 +1576,77 @@ mod tests {
         let budget_ms: u128 = if cfg!(debug_assertions) { 2_500 } else { 100 };
         eprintln!("[#583 bench] 10k-children on 100k-node doc Engine::exec={}ms (budget={}ms)", elapsed.as_secs_f64() * 1000.0, budget_ms);
         assert!(elapsed.as_millis() <= budget_ms, "Engine::exec took {}ms > {}ms budget", elapsed.as_millis(), budget_ms);
+    }
+
+    #[test]
+    fn apply_spec_slots_issues_and_fig_round_trip() {
+        let mut e = Engine { doc: designos_doc::fixtures::card_with_slots(), history: History::default(), active_page_id: None, live_ops: None, ..Engine::default() };
+        let page = e.doc.pages[0];
+        e.active_page_id = Some(page);
+
+        // Passing `"footer": true` fails with structured INVALID_SLOT_VALUE and does not mutate doc/history
+        let err_str = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Card",
+                        "slots": { "footer": true }
+                    }
+                }),
+            )
+            .unwrap_err();
+        let parsed_err: designos_doc::SpecError = serde_json::from_str(&err_str).unwrap();
+        assert_eq!(parsed_err.code, "INVALID_SLOT_VALUE");
+        assert!(!e.history.can_undo());
+
+        // Filling `body` with a recommended FormRow + a non-recommended raw frame succeeds and returns `issues`
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "SettingsCard",
+                        "component": "Card",
+                        "slots": {
+                            "header": [
+                                { "kind": "instance", "name": "Hdr", "component": "CardHeader" }
+                            ],
+                            "body": [
+                                { "kind": "instance", "name": "RowA", "component": "FormRow" },
+                                { "kind": "frame", "name": "CustomBanner", "height": 32 }
+                            ],
+                            "footer": false
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let issues = res["issues"].as_array().unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["rule"], "slot-non-recommended");
+        assert_eq!(issues[0]["severity"], "warning");
+        assert_eq!(issues[0]["node_name"], "CustomBanner");
+
+        // .fig binary round-trip preserves filled slot children
+        let fig_bytes = designos_fig::export_fig(&e.doc).unwrap();
+        let from_fig = designos_fig::import_fig(&fig_bytes).unwrap();
+        let fig_card = from_fig
+            .nodes
+            .values()
+            .find(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.name == "SettingsCard")
+            .expect("SettingsCard must survive .fig round-trip");
+        let fig_body = designos_doc::resolve_override_path(&from_fig, fig_card.id, "body").unwrap();
+        assert_eq!(from_fig.get(fig_body).unwrap().children.len(), 2);
+
+        // Undo removes the placed Card and all its slot children in 1 step
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root_id).is_none());
     }
 }
