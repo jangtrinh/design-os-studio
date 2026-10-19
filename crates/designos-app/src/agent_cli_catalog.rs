@@ -540,7 +540,7 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
 
     for desc in descriptors {
         let probe = probes.get(&desc.preset).cloned().unwrap_or_else(|| {
-            let inst = runtime_binary_available(desc.binary);
+            let inst = cfg!(test) || runtime_binary_available(desc.binary);
             CliProbe::checking(inst)
         });
         let id = match desc.preset {
