@@ -375,6 +375,7 @@ impl Engine {
                 let count = findings.len();
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }
+            "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
             "designos_undo" | "designos_redo" => {
                 let _: Empty = parse(args)?;
                 let undo = name == "designos_undo";
@@ -834,6 +835,18 @@ pub fn tools() -> Vec<Value> {
         json!({"output_path":{"type":"string","description":"Destination .fig path inside the workspace."}}),
         vec!["output_path"],
         false,
+        true,
+    );
+    add(
+        "get_guidelines",
+        "List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules').",
+        json!({
+            "topic":{"type":"string"},
+            "platform":{"type":"string","enum":["web","ios","android"],"default":"web"},
+            "max_tokens":{"type":"integer","minimum":500,"maximum":25000,"default":8000}
+        }),
+        vec![],
+        true,
         true,
     );
     add("undo", "Undo the latest successful edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);

@@ -1,5 +1,9 @@
 //! Real MCP client/server lifecycle across a subprocess, not a mocked dispatcher.
-use rmcp::{model::CallToolRequestParams, transport::TokioChildProcess, ServiceExt};
+use rmcp::{
+    model::{CallToolRequestParams, GetPromptRequestParams},
+    transport::TokioChildProcess,
+    ServiceExt,
+};
 use serde_json::{json, Value};
 
 #[tokio::test]
@@ -10,12 +14,22 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let client = ().serve(TokioChildProcess::new(command).unwrap()).await.unwrap();
         assert_eq!(client.peer_info().unwrap().server_info.as_ref().unwrap().name, "designos-mcp");
         let tools = client.list_all_tools().await.unwrap();
-        assert_eq!(tools.len(), 24);
+        assert_eq!(tools.len(), 25);
         assert!(tools.iter().all(|t| t.annotations.is_some()));
+        let prompts = client.list_all_prompts().await.unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].name, "create_design_system_rules");
+        let prompt_result = client.get_prompt(GetPromptRequestParams::new("create_design_system_rules")).await.unwrap();
+        assert_eq!(prompt_result.messages.len(), 1);
         let call = |name: &'static str, args: Value| CallToolRequestParams::new(name).with_arguments(args.as_object().unwrap().clone());
         let libs = client.call_tool(call("designos_get_libraries", json!({}))).await.unwrap();
         assert_eq!(libs.is_error, Some(false));
         assert_eq!(libs.structured_content.unwrap()["libraries"][0]["id"], "local");
+        let guidelines_list = client.call_tool(call("designos_get_guidelines", json!({}))).await.unwrap();
+        assert_eq!(guidelines_list.is_error, Some(false));
+        let guidelines_ds = client.call_tool(call("designos_get_guidelines", json!({"topic":"design-system"}))).await.unwrap();
+        assert_eq!(guidelines_ds.is_error, Some(false));
+        assert!(guidelines_ds.structured_content.unwrap()["content"].as_str().unwrap().contains("# Design system rules"));
         let doc = client.call_tool(call("designos_get_document", json!({}))).await.unwrap();
         assert_eq!(doc.is_error, Some(false));
         let page = doc.structured_content.unwrap()["pages"][0]["node_id"].clone();
