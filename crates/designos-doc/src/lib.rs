@@ -22,7 +22,7 @@ mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
 mod comments;
-mod components;
+pub mod components;
 mod dev;
 pub mod find;
 pub mod finite_json;

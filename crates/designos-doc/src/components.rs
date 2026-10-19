@@ -254,6 +254,23 @@ pub fn enclosing_instance_slot(doc: &Document, id: NodeId) -> Option<NodeId> {
     None
 }
 
+/// Marks `root` and every node in its subtree with `is_slot_content = true`, and marks any
+/// enclosing instance slot container with [`OverrideField::SlotContent`].
+pub fn mark_slot_content_subtree(doc: &mut Document, root: NodeId) {
+    if let Some(slot_id) = enclosing_instance_slot(doc, root) {
+        if let Some(slot) = doc.get_mut(slot_id) {
+            slot.component.overrides.insert(OverrideField::SlotContent);
+        }
+    }
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if let Some(n) = doc.get_mut(id) {
+            n.component.is_slot_content = true;
+            stack.extend(n.children.iter().copied());
+        }
+    }
+}
+
 /// Follows `component.source` from `slot` to the slot node of the main component that defines it
 /// (the node itself for a main-component slot). A slot inside a nested instance therefore resolves
 /// to the nested component's slot, not to the component that merely contains the nested instance.

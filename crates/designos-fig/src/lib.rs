@@ -37,7 +37,7 @@ pub use export::export_rest_json;
 pub use fig::import_fig_node_changes;
 pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig};
 pub use fig_export::{export_fig, path_to_commands_blob};
-pub use pen::{export_pen_json, import_pen_json, import_pen_json_with_warnings};
+pub use pen::{export_pen_json, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenImport, PenImportOptions, PenWarning};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{image_refs, import_rest_json};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
