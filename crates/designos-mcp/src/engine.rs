@@ -260,14 +260,24 @@ impl Engine {
                 if !self.node(parent.0)?.kind.is_container() {
                     return Err("parent_id must identify a container".into());
                 }
-                let mut trial = self.doc.clone();
-                let root_id = trial.apply_spec(parent, &a.spec)?;
-                let mut nodes = Vec::new();
-                trial.walk(root_id, |n, _| nodes.push(n.clone()));
-                let index = self.doc.get(parent).ok_or("parent not found")?.children.len();
-                self.exec(Command::Insert { parent, index, nodes })?;
+                let snapshots = crate::tools::library_source::load_enabled_snapshots(&self.doc);
+                let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots).map_err(|e| e.to_string())?;
+                self.exec_apply_spec(cmd)?;
                 self.relayout(parent);
-                Ok(json!({"root_node_id": root_id, "parent_id": parent.0, "node": self.doc.get(root_id), "changed": true}))
+                let root_id = report.root_node_id;
+                let mut resp = json!({
+                    "root_node_id": root_id,
+                    "parent_id": parent.0,
+                    "node": self.doc.get(root_id),
+                    "changed": true,
+                    "name_to_id": report.name_to_id,
+                    "instances": report.instances,
+                    "imported_assets": report.imported_assets,
+                });
+                if !report.stale_library_assets.is_empty() {
+                    resp["stale_library_assets"] = json!(report.stale_library_assets);
+                }
+                Ok(resp)
             }
             "designos_export_spec" => {
                 let a: NodeArgs = parse(args)?;
@@ -418,6 +428,26 @@ impl Engine {
         self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
         self.record(ops);
         Ok(())
+    }
+
+    fn exec_apply_spec(&mut self, command: Command) -> Result<(), String> {
+        let ops = if self.live_ops.is_some() {
+            let filtered = Self::filter_live_command(&command);
+            self.live_ops_for(&filtered)?
+        } else {
+            Vec::new()
+        };
+        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
+        self.record(ops);
+        Ok(())
+    }
+
+    fn filter_live_command(cmd: &Command) -> Command {
+        match cmd {
+            Command::SetLibraryState { .. } => Command::Batch(Vec::new()),
+            Command::Batch(cmds) => Command::Batch(cmds.iter().map(Self::filter_live_command).collect()),
+            other => other.clone(),
+        }
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
@@ -1240,5 +1270,75 @@ mod tests {
             .collect();
         let expected: Vec<String> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id().to_string()).collect();
         assert_eq!(enum_vals, expected);
+    }
+
+    #[test]
+    fn apply_spec_instance_round_trips_designos_and_fig_and_exports_spec() {
+        let mut e = Engine { doc: designos_doc::fixtures::button_library(), history: History::default(), active_page_id: None, live_ops: None };
+        let page = e.doc.pages[0];
+        e.active_page_id = Some(page);
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "Hero CTA",
+                        "component": "Button",
+                        "variant": { "Size": "lg", "State": "hover" },
+                        "overrides": [
+                            { "path": "Label", "text": "Launch" },
+                            { "path": "Icon", "swap": "Icon/Arrow" }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        assert_eq!(res["instances"].as_array().unwrap().len(), 1);
+        assert_eq!(res["name_to_id"]["Hero CTA"], root_id.0);
+
+        // .designos JSON round-trip
+        let json_str = e.doc.to_json().unwrap();
+        let from_json = Document::from_json(&json_str).unwrap();
+        let inst_json = from_json.get(root_id).unwrap();
+        let comp_json = designos_doc::instance_component(inst_json).unwrap();
+        assert_eq!(from_json.get(comp_json).unwrap().name, "Size=lg, State=hover");
+
+        // .fig binary round-trip
+        let fig_bytes = designos_fig::export_fig(&e.doc).unwrap();
+        let from_fig = designos_fig::import_fig(&fig_bytes).unwrap();
+        let fig_inst = from_fig
+            .nodes
+            .values()
+            .find(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.name == "Hero CTA")
+            .expect("Hero CTA instance must survive .fig round-trip");
+        let fig_comp = designos_doc::instance_component(fig_inst).expect("Hero CTA must remain linked to its variant component after .fig import");
+        assert_eq!(from_fig.get(fig_comp).unwrap().name, "Size=lg, State=hover");
+        let fig_label_id = designos_doc::resolve_override_path(&from_fig, fig_inst.id, "Label").unwrap();
+        assert_eq!(from_fig.get(fig_label_id).unwrap().kind.any_text().unwrap().content, "Launch");
+
+        // designos_export_spec -> designos_apply_spec round-trip
+        let exported = e.call("designos_export_spec", json!({ "node_id": root_id.0 })).unwrap();
+        assert_eq!(exported["spec"]["kind"], "instance");
+        let reapplied = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": exported["spec"]
+                }),
+            )
+            .unwrap();
+        let root2 = NodeId(reapplied["root_node_id"].as_u64().unwrap());
+        assert_eq!(designos_doc::instance_component(e.doc.get(root_id).unwrap()), designos_doc::instance_component(e.doc.get(root2).unwrap()));
+
+        // Undo removes the second instance in one step
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root2).is_none());
+        assert!(e.doc.get(root_id).is_some());
     }
 }

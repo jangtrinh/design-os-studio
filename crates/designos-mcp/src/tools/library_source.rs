@@ -73,3 +73,15 @@ pub fn enabled_snapshots(doc: &Document) -> Vec<LibrarySnapshot> {
 pub fn enabled_snapshots_from_root(doc: &Document, root: &Path) -> Vec<LibrarySnapshot> {
     doc.library.enabled.iter().filter_map(|en| load_cached_snapshot_at(root, &en.id, Some(en.version)).map(|arc| (*arc).clone())).collect()
 }
+
+/// Loads the published `LibrarySnapshot` for each library enabled in `doc.library.enabled`
+/// from the default `designos_library::Library::default_root()`.
+pub fn load_enabled_snapshots(doc: &Document) -> Vec<LibrarySnapshot> {
+    enabled_snapshots(doc)
+}
+
+/// Loads the published `LibrarySnapshot` for each library enabled in `doc.library.enabled`
+/// from `root`.
+pub fn load_enabled_snapshots_from(doc: &Document, root: &Path) -> Vec<LibrarySnapshot> {
+    enabled_snapshots_from_root(doc, root)
+}
