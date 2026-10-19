@@ -25,7 +25,7 @@ mod text_styles;
 pub use fixture::FIXTURE;
 pub use state::CheckDesignsState;
 
-use designos_doc::{CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind};
+use designos_doc::{BlendMode, CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind, PaintKind};
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -33,6 +33,29 @@ use std::time::{Duration, Instant};
 
 /// Default per-frame time slice budget (2.0 ms) for incremental page scanning.
 pub const SLICE_BUDGET: Duration = Duration::from_millis(2);
+
+/// Meaningful layers scanned per audit. A page of several hundred thousand layers must never stall
+/// the UI thread, so the audit stops here and the panel says so.
+pub const MAX_SCANNED_LAYERS: usize = 20_000;
+
+/// Total visible layers examined per audit, including quiet mirrors inside component instances.
+///
+/// Measured release-mode `audit_with_libraries` wall times on the synthetic mirror page:
+/// - 10,000 visited layers: 0.91 ms (`0.908 ms`)
+/// - 50,000 visited layers: 6.19 ms (`6.187 ms`)
+/// - 100,000 visited layers: 13.18 ms (`13.184 ms`)
+/// - 200,000 visited layers: 26.08 ms (`26.084 ms`, well under the 150 ms UI-thread budget)
+/// - 112,474-node synthetic large fixture: 3.71 ms (`3.713 ms`) vs 3.78 ms (`3.777 ms`) pre-change
+pub const MAX_VISITED_LAYERS: usize = 200_000;
+
+/// Which scan cap stopped an audit early.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Truncation {
+    /// Stopped at [`MAX_SCANNED_LAYERS`] meaningful layers.
+    Scanned,
+    /// Stopped at [`MAX_VISITED_LAYERS`] total examined layers.
+    Work,
+}
 
 /// The kind of problem a [`Finding`] reports; also the group it is listed under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -161,10 +184,14 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Findings in the audited scope that were suppressed by `doc.check_designs.ignored`.
     pub ignored: Vec<Finding>,
-    /// Layers examined.
+    /// Meaningful layers examined.
     pub scanned: usize,
     /// Whether the scan has finished visiting every layer in the scope.
     pub complete: bool,
+    /// The scan stopped at [`MAX_SCANNED_LAYERS`] or [`MAX_VISITED_LAYERS`].
+    pub truncated: bool,
+    /// Which limit stopped the scan, when [`Self::truncated`] is `true`.
+    pub truncated_by: Option<Truncation>,
     /// Display names of enabled libraries whose pinned snapshot could not be read.
     pub unreadable_libraries: Vec<String>,
 }
@@ -263,6 +290,8 @@ impl ScanCursor {
             ignored: Vec::new(),
             scanned: self.examined,
             complete: self.phase == Phase::Done,
+            truncated: false,
+            truncated_by: None,
             unreadable_libraries: self.unreadable_libraries,
         };
         for f in self.partial {
@@ -407,19 +436,131 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
     cur.phase == Phase::Done
 }
 
-/// Scans `scope` to the end in one go, with the document's own variables and styles only (the app
-/// audits incrementally with its enabled libraries through [`ScanCursor`] and [`audit_step`]).
-/// Hidden layers are skipped; layers inside an instance are audited only where their effective
-/// properties or backdrop diverge from their main component.
+fn has_opaque_fill(n: &Node) -> bool {
+    n.fills
+        .iter()
+        .any(|p| p.visible && matches!(p.blend, BlendMode::Normal | BlendMode::PassThrough) && matches!(p.kind, PaintKind::Solid(c) if c.a * p.opacity >= 1.0))
+}
+
+fn same_own_as_source(n: &Node, src: &Node) -> bool {
+    n.opacity == src.opacity
+        && n.blend == src.blend
+        && n.fills == src.fills
+        && n.stroke == src.stroke
+        && n.effects == src.effects
+        && n.corner_radii == src.corner_radii
+        && n.style_refs == src.style_refs
+        && n.variables == src.variables
+        && n.detached_symbol_id == src.detached_symbol_id
+        && n.component.detached_symbol_id == src.component.detached_symbol_id
+        && match (&n.kind, &src.kind) {
+            (NodeKind::Text(a), NodeKind::Text(b)) => a.style == b.style && a.runs == b.runs,
+            _ => n.kind.frame_props() == src.kind.frame_props(),
+        }
+}
+
+/// Whether `n` is an un-overridden mirror layer inside an instance whose ancestors up to the
+/// instance root are also un-overridden and fully opaque (`opacity >= 1.0`, normal blend).
+fn is_quiet_mirror(doc: &Document, n: &Node) -> bool {
+    let Some(src_id) = n.component.source else { return false };
+    if !n.component.overrides.is_empty() || !n.variables.modes.is_empty() {
+        return false;
+    }
+    let Some(src) = doc.get(src_id) else { return false };
+    if !same_own_as_source(n, src) {
+        return false;
+    }
+    let mut opaque_backdrop = !matches!(n.kind, NodeKind::Text(_)) || has_opaque_fill(n);
+    let mut cur = n.parent;
+    while let Some(pid) = cur {
+        let Some(anc) = doc.get(pid) else { return false };
+        if anc.component.source.is_none() {
+            break;
+        }
+        if !anc.component.overrides.is_empty()
+            || !anc.variables.modes.is_empty()
+            || anc.opacity < 1.0
+            || !matches!(anc.blend, BlendMode::Normal | BlendMode::PassThrough)
+        {
+            return false;
+        }
+        if let Some(anc_src) = anc.component.source.and_then(|s| doc.get(s)) {
+            if anc.fills != anc_src.fills || anc.opacity != anc_src.opacity || anc.blend != anc_src.blend {
+                return false;
+            }
+        }
+        opaque_backdrop |= has_opaque_fill(anc);
+        cur = anc.parent;
+    }
+    opaque_backdrop
+}
+
+/// Scans `scope` with the document's own variables and styles only (the app always audits with
+/// its enabled libraries through [`audit_with_libraries`]). Hidden layers are skipped; layers inside
+/// an instance are audited only where their effective properties or backdrop diverge from their
+/// main component.
 #[cfg(test)]
 pub fn audit(doc: &Document, scope: &Scope) -> Report {
     audit_with_libraries(doc, scope, &LibrarySources::default())
 }
 
-/// Scans `scope` to the end in one go and includes variables and styles from enabled `libs` snapshots.
 #[cfg(test)]
+pub(super) fn audit_with_cheap_skip(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
+    audit_impl(doc, scope, libs, cheap_skip)
+}
+
+/// Scans `scope` and includes variables and styles from enabled `libs` snapshots.
 pub fn audit_with_libraries(doc: &Document, scope: &Scope, libs: &LibrarySources) -> Report {
-    let mut cur = ScanCursor::with_libraries(doc, scope.clone(), libs.clone());
-    while !audit_step(doc, &mut cur, Duration::from_secs(3600)) {}
-    cur.into_report(doc)
+    audit_impl(doc, scope, libs, true)
+}
+
+fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
+    let roots: Vec<NodeId> = match scope {
+        Scope::Page(page) => doc.get(*page).map(|p| p.children.clone()).unwrap_or_default(),
+        Scope::Layers(ids) => ids.clone(),
+    };
+    let index = hardcoded::Index::with_libraries(doc, libs);
+    let components = detached::Components::new(doc);
+    let bounds = contrast::SubtreeBounds::default();
+    let mut report = Report::default();
+    let mut visited = 0usize;
+    let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
+    while let Some(id) = stack.pop() {
+        let Some(n) = doc.get(id) else { continue };
+        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
+            continue;
+        }
+        if visited >= MAX_VISITED_LAYERS {
+            report.truncated = true;
+            report.truncated_by = Some(Truncation::Work);
+            break;
+        }
+        if cheap_skip && is_quiet_mirror(doc, n) {
+            visited += 1;
+            stack.extend(n.children.iter().rev().copied());
+            continue;
+        }
+        let always_counted = n.component.source.is_none() || !n.component.overrides.is_empty();
+        if always_counted && report.scanned >= MAX_SCANNED_LAYERS {
+            report.truncated = true;
+            report.truncated_by = Some(Truncation::Scanned);
+            break;
+        }
+        visited += 1;
+        let before = report.findings.len();
+        hardcoded::check(doc, &index, n, &mut report.findings);
+        contrast::check(doc, &bounds, n, &mut report.findings);
+        detached::check(doc, &components, n, &mut report.findings);
+        if always_counted || report.findings.len() > before {
+            if report.scanned >= MAX_SCANNED_LAYERS {
+                report.findings.truncate(before);
+                report.truncated = true;
+                report.truncated_by = Some(Truncation::Scanned);
+                break;
+            }
+            report.scanned += 1;
+        }
+        stack.extend(n.children.iter().rev().copied());
+    }
+    report
 }

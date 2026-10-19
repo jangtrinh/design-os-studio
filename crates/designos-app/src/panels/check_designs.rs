@@ -2,9 +2,9 @@
 //! Fix per finding, Fix all, per-finding Ignore / Dismiss, and a Rules & contrast threshold popover.
 
 use crate::app::App;
-use crate::check_designs::{Finding, Phase, Report, Rule};
+use crate::check_designs::{Finding, Phase, Report, Rule, Truncation, MAX_SCANNED_LAYERS, MAX_VISITED_LAYERS};
 use crate::icons::{self, Icon};
-use crate::terminal::{STATUS_BAD_TEXT, STATUS_INFO_TEXT, STATUS_OK_TEXT, STATUS_WARN_TEXT};
+use crate::terminal::{STATUS_BAD_TEXT, STATUS_INFO_TEXT, STATUS_OK_TEXT, STATUS_WARN_BG, STATUS_WARN_BORDER, STATUS_WARN_TEXT};
 use crate::theme;
 use crate::widgets;
 use designos_doc::{ContrastLevel, IgnoreKey, NodeId};
@@ -22,6 +22,7 @@ const PROGRESS_H: f32 = 32.0;
 const IGNORED_BAR_H: f32 = 32.0;
 const IGNORED_ROW_H: f32 = 44.0;
 const EMPTY_H: f32 = 112.0;
+const NOTE_H: f32 = 44.0;
 const BTN_H: f32 = 24.0;
 const FIX_W: f32 = 44.0;
 const RESTORE_W: f32 = 56.0;
@@ -103,7 +104,9 @@ fn message_job(f: &Finding, color: Color32) -> egui::text::LayoutJob {
 }
 
 fn list_height(report: &Report, show_ignored: bool, scanning: bool) -> f32 {
-    let notes_h = (report.unreadable_libraries.len() as f32) * 28.0 + if scanning { PROGRESS_H } else { 0.0 };
+    let notes_h = (report.unreadable_libraries.len() as f32) * 28.0
+        + if scanning { PROGRESS_H } else { 0.0 }
+        + if report.truncated { NOTE_H } else { 0.0 };
     let ignored_h = if report.ignored.is_empty() {
         0.0
     } else if show_ignored {
@@ -231,6 +234,9 @@ pub fn show(app: &mut App, ctx: &Context) {
                     if let Some(a) = ignored_footer(ui, &report.ignored, show_ignored) {
                         act = Some(a);
                     }
+                }
+                if report.truncated {
+                    truncation_note(ui, report.truncated_by);
                 }
             });
         });
@@ -553,6 +559,24 @@ fn progress_row(ui: &mut Ui, phase: Phase, scanned: usize, total: usize, updatin
     let galley = p.layout_job(job);
     p.galley(Pos2::new(rect.left() + PAD, rect.top() + PROGRESS_LABEL_Y), galley, theme::TEXT_SECONDARY);
     widgets::hline(&p, rect.left() + PAD, rect.right() - PAD, rect.bottom() - HAIRLINE, theme::BORDER_SUBTLE);
+}
+
+pub(crate) fn truncation_text(truncated_by: Option<Truncation>) -> String {
+    match truncated_by {
+        Some(Truncation::Work) => format!("Stopped after {MAX_VISITED_LAYERS} layers examined. Check a smaller selection to see the rest."),
+        Some(Truncation::Scanned) | None => format!("Stopped after {MAX_SCANNED_LAYERS} checked layers. Check a smaller selection to see the rest."),
+    }
+}
+
+fn truncation_note(ui: &mut Ui, truncated_by: Option<Truncation>) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(PANEL_W, NOTE_H), Sense::hover());
+    let p = ui.painter();
+    let inner = rect.shrink2(Vec2::new(PAD, 6.0));
+    p.rect_filled(inner, theme::cr(theme::RADIUS_CONTROL), STATUS_WARN_BG);
+    p.rect_stroke(inner, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, STATUS_WARN_BORDER), StrokeKind::Inside);
+    let note = truncation_text(truncated_by);
+    let galley = p.layout(note, theme::font_body(), STATUS_WARN_TEXT, inner.width() - theme::SPACE_BLOCK);
+    p.galley(Pos2::new(inner.left() + theme::SPACE_INLINE, inner.center().y - galley.size().y / 2.0), galley, STATUS_WARN_TEXT);
 }
 
 #[cfg(test)]

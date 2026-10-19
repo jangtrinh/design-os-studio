@@ -465,6 +465,70 @@ fn hidden_layers_and_instance_contents_are_skipped_and_scope_is_honoured() {
     assert!(audit(&f.doc, &Scope::Layers(vec![])).findings.is_empty());
 }
 
+#[test]
+fn an_oversized_page_is_cut_off_and_says_so() {
+    let mut f = fx();
+    let frame = f.frame(f.page, "Bulk", None);
+    for _ in 0..MAX_SCANNED_LAYERS + 5 {
+        let id = f.doc.alloc_id();
+        f.doc.insert(frame, Node::rectangle(id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
+    }
+    let report = f.report();
+    assert!(report.truncated);
+    assert_eq!(report.truncated_by, Some(Truncation::Scanned));
+    assert_eq!(report.scanned, MAX_SCANNED_LAYERS);
+    assert_eq!(
+        crate::panels::check_designs::truncation_text(report.truncated_by),
+        format!("Stopped after {MAX_SCANNED_LAYERS} checked layers. Check a smaller selection to see the rest.")
+    );
+}
+
+#[test]
+fn meaningful_layer_cap_still_truncates() {
+    // Exactly MAX_SCANNED_LAYERS meaningful layers: not truncated.
+    let mut exact = fx();
+    let frame = exact.frame(exact.page, "Exact", None);
+    for _ in 0..MAX_SCANNED_LAYERS - 1 {
+        let id = exact.doc.alloc_id();
+        exact.doc.insert(frame, Node::rectangle(id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
+    }
+    let exact_report = exact.report();
+    assert!(!exact_report.truncated);
+    assert_eq!(exact_report.truncated_by, None);
+    assert_eq!(exact_report.scanned, MAX_SCANNED_LAYERS);
+
+    // Exceeding MAX_SCANNED_LAYERS truncates with Truncation::Scanned.
+    an_oversized_page_is_cut_off_and_says_so();
+}
+
+#[test]
+fn work_cap_truncates_and_says_which() {
+    let mut f = fx();
+    let comp = component(&mut f, "cap:1");
+    let comp_rect = f.rect(comp, "Dot", gray(0x20));
+    let inst_id = f.doc.alloc_id();
+    let mut inst = Node::frame(inst_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    inst.kind = NodeKind::Instance { frame: FrameProps::default(), component: Some(comp), component_key: None };
+    inst.component.source = Some(comp);
+    f.doc.insert(f.page, inst).unwrap();
+    for _ in 0..MAX_VISITED_LAYERS + 5 {
+        let id = f.doc.alloc_id();
+        let mut r = Node::rectangle(id, Rect::new(10.0, 10.0, 40.0, 40.0));
+        r.name = "Dot".into();
+        r.fills = vec![Paint::solid(gray(0x20))];
+        r.component.source = Some(comp_rect);
+        f.doc.insert(inst_id, r).unwrap();
+    }
+    let report = f.report();
+    assert!(report.truncated);
+    assert_eq!(report.truncated_by, Some(Truncation::Work));
+    assert!(report.scanned < 10, "quiet mirrors do not count toward scanned: {}", report.scanned);
+    assert_eq!(
+        crate::panels::check_designs::truncation_text(report.truncated_by),
+        format!("Stopped after {MAX_VISITED_LAYERS} layers examined. Check a smaller selection to see the rest.")
+    );
+}
+
 // ---------------------------------------------------------------- fixes
 
 fn snapshot(app: &App, ids: &[NodeId]) -> Vec<Option<Node>> {
