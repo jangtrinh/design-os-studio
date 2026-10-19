@@ -13,7 +13,7 @@ mod replay_comments;
 mod validate;
 
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
+pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
 
 use crate::{Comment, CommentAnchor, CommentThread, ExternalAsset, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
@@ -35,12 +35,18 @@ pub struct LivePatch {
     /// Optional undo-group label shown in Studio's History panel (e.g. `Agent: <run>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Optional agent session / run identifier (`#682`, `#572`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Optional human-readable agent label (`Claude`, `Codex`, `Grok`, `Antigravity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, label: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, session_id: None, agent_label: None, ops }
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {
@@ -50,6 +56,12 @@ impl LivePatch {
 
     pub fn with_label(mut self, label: Option<String>) -> Self {
         self.label = label;
+        self
+    }
+
+    pub fn with_agent(mut self, session_id: impl Into<String>, agent_label: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self.agent_label = Some(agent_label.into());
         self
     }
 }

@@ -195,6 +195,8 @@ pub struct App {
     pub terminal: crate::terminal::TerminalState,
     /// Screen-reader polite live-region announcer for agent tab transitions (`#687`).
     pub agent_a11y: crate::agent_a11y::Announcer,
+    /// Per-session agent cursors and write-flash outlines on the canvas (`#682`).
+    pub agent_presence: crate::agent_presence::AgentPresence,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
     /// Check designs panel: hard-coded values, contrast and detached instances.
@@ -263,6 +265,7 @@ impl App {
             specs: Default::default(),
             terminal: Default::default(),
             agent_a11y: Default::default(),
+            agent_presence: Default::default(),
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
