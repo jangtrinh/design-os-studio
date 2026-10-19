@@ -134,6 +134,8 @@ After #77 at least (rule 7). `crates/designos-mcp/src/engine.rs` is a hot spot: 
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: when an agent calls a read, edit or delete tool without `node_id`, the tool defaults to the editor selection and its reply names the layers it acted on. This applies only to calls that fail today; the selection chip stays click-to-send.
+
 - R1.4: like Figma MCP (selection default when attached) but more open: configurable, expose everything. (Issue text.)
 - Decision 4 (a): MCP tools default to the editor selection when attached to a Studio window; otherwise `node_id` is required (`owner-decisions-and-cross-check.md:51`).
 - The selection is never auto-injected into a prompt; the chip is click-to-send (#654, accepted spec; this task does not touch it).

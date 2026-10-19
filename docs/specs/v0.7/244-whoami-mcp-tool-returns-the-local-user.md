@@ -108,6 +108,8 @@ No hard dependency. `crates/designos-mcp/src/engine.rs` is a hot spot for the pa
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: `designos_whoami` returns the stable local id and the display name from Settings. It returns no email, and the plan is `local`.
+
 - R4.14: hosted identity is replaced by a local equivalent. (Issue text.)
 - Plan and seat fields report a single local user on a free plan; the identity is stable and local, using the T10.14 identity when present. (Issue acceptance criteria.)
 - All AI goes through the user's own agent CLI; nothing is sent anywhere (pack-wide ruling).

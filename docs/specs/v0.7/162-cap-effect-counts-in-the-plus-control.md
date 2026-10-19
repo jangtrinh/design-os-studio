@@ -112,6 +112,8 @@ No dependency. Order with the other effect tasks: this task first if possible, b
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: cap all seven effect kinds with Figma's numbers. A disabled menu row shows a 'Max 8'-style tooltip, hidden effects count toward the cap, and imported effects are never trimmed.
+
 - Limits are enforced in the UI only, and imported data is never dropped (issue text; the delivery workflow's first law: nothing vanishes silently).
 - The 9th drop shadow is disabled with a tooltip; an imported file with more effects keeps them all (issue acceptance criteria).
 - Desktop capture at 1440 in the PR; responsive checks skipped by default (owner default, 2026-10-10).
