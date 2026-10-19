@@ -59,21 +59,22 @@ None.
   - `NodeChange.derivedSymbolData = 125`, `guidPath = 111`, `size = 11`, `transform = 12`, `horizontalConstraint = 28`, `verticalConstraint = 37`;
   - `SymbolData { symbolID = 1; symbolOverrides = 2; uniformScaleFactor = 3 }`.
 
-### Facts (REA 2026-10-18): Q522-1 still UNRESOLVED
+### Facts (REA 2026-10-19): Q522-1 RESOLVED
 
-What was searched (all read-only):
-1. Public docs.
-   - Figma Help "Apply constraints to define how layers resize" and the Plugin API `Constraints` page define behaviour for unrotated layers only. Neither mentions rotation.
-   - `@figma/plugin-typings` 1.142.0: `resize()` says it "applies those constraints during resizing", and `rotation` is about the top-left corner. Neither says how a rotated child is resized.
-   - `figma/rest-api-spec` 0.45.0: no rotation and constraints rule.
-2. Community. A forum thread ("warping on rotated group of shapes when resizing frame") reports that a rotated group warps when its frame is resized, and the unrotated group does not. No Figma staff explanation was given. INFERENCE (weak): Figma may apply the parent-axis scale to a rotated child's matrix (skew) rather than resize it in its local axes. Not verified.
-3. Code. The constraint solver is in the C++ fullscreen wasm (`compiled_wasm.wasm.br`, 52 MB) and is not readable without a disassembler. `rea` 6.7.0's wasm and native lanes were unavailable on this machine: WABT, Ghidra and Hopper are not installed, and no Java runtime is present. The JS bundle has no constraint math.
-4. Measurement. Figma's own `derivedSymbolData` (computed size and transform per instance child) was scanned in two Figma-saved files on this machine: a 56,625-node community kit and the 153,220-node benchmark file. Target: rotated descendants (`|m01| > 1e-4`) with Stretch or Scale constraints inside non-uniformly resized, non-auto-layout instances. Result: 0 cases in both files. The kit has 17,097 instances (6,069 non-uniformly resized) but only 136 rotated nodes, none in such a component. The Untitled UI kit (issue's pie chart `1084:114`) is not on this machine.
+#522 shipped in v0.5.0 with rules 2-3 as first written (local-axis resize, unrounded deltas, `max(w, 1)`). The measured Figma rules below replace them; the follow-up that brings import and editor to them is #691.
 
-Next step to close it (owner-manual, flagged):
-- In Figma, place a 100×40 rectangle rotated 30° with Stretch/Stretch constraints in a 200×200 component, then resize an instance to 300×200.
-- Save the file and read the child's `derivedSymbolData` `size` and `transform`. The script method from step 4 reads it directly; such a file gives the answer in one run.
-- Until then, rule 3 keeps the local size unchanged in the non-uniform case.
+- Method: Figma's constraint solver was read from its cached fullscreen wasm with WABT (static disassembly only, no Figma code executed or copied). The result was checked against Figma's own `derivedSymbolData` in four saved kits.
+- Agreement: 3,634 resized-instance child rows (non-auto-layout, `uniformScaleFactor` 1, no group-like parent), max size error 1.2e-4. The one real rotated case (45°, uniform Scale/Scale) matches to 3e-7.
+- FACT, rule for every child, rotated or not:
+  1. Take the child's axis-aligned bounds in the parent's axes.
+  2. Move its edges per axis: Max `+ r(P′) − r(P)`; Center `+ r(P′/2) − r(P/2)`; Stretch moves only the max edge by `r(P′) − r(P)`; Scale multiplies by `P′/P` without rounding. `r` rounds half away from zero.
+  3. Map the whole child with the resulting per-axis scale (scale 1 when the old extent is under 2⁻¹²).
+  4. Split the new matrix into size `(w·|col0|, h·|det|/|col0|)` and a transform that keeps any skew.
+- FACT: there is no minimum-size clamp. Sub-1 and zero-thickness sizes survive.
+- INFERENCE, high confidence (code-only, no saved reference): a rotated child under non-uniform resize becomes a skewed parallelogram.
+- Owner-manual check (flagged, never claimed by an agent): a 100×40 rectangle rotated 30°, Stretch/Stretch, in a 200×200 component; instance resized to 300×200. Predicted derived size is about 175.130 × 44.266, with skew in the transform.
+- Open (Q522-2, in #691): how group-like parents (Group, BooleanOp, resize-to-fit frames) refit their children after the pass.
+- Edge case 4 revisited: pie arcs rotated 60° under Stretch/Stretch 160 → 240 scale ×1.366 (218.56), not ×1.5. Under Scale/Scale they scale ×1.5. Check which constraint the kit's arcs use.
 
 ## 7. UI
 
