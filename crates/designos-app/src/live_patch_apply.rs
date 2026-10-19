@@ -38,6 +38,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
     app.terminal.live_patch.state = LivePatchState::default();
     app.agent_presence.reset();
+    app.agent_changes_chip.clear();
     app.sanitize();
     app.changed();
     app.fit_all();
@@ -91,6 +92,8 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
                     let sid = patch.session_id.as_deref().unwrap_or(&default_sid);
                     let label = patch.agent_label.as_deref().unwrap_or(&default_label);
                     app.agent_presence.record_patch(sid, label, &app.doc, None, &report, app.now);
+                    let colour_idx = app.agent_presence.sessions.iter().find(|s| s.id == sid.trim()).map(|s| s.colour_index).unwrap_or(0);
+                    app.agent_changes_chip.record_patch(sid, colour_idx, None, &app.doc, &report, app.view, app.canvas_rect);
                 }
                 committed_any |= committed;
                 merge(&mut total, report);
