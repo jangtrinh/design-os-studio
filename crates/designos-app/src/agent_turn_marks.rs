@@ -148,7 +148,7 @@ pub fn turn_mark_hook_command(mark_path: &Path, patch_log_path: &Path, phase: &s
     let mark_q = sh_quote_path(mark_path);
     let patch_q = sh_quote_path(patch_log_path);
     format!(
-        "n=$((wc -c < {patch_q}) 2>/dev/null || echo 0); \
+        "n=$( (wc -c < {patch_q}) 2>/dev/null || echo 0); \
          printf '{{\"v\":1,\"turn_mark\":\"{phase}\",\"cli\":\"{cli}\",\"patch_bytes\":%d}}\\n' \"$n\" >> {mark_q}"
     )
 }
