@@ -6,7 +6,7 @@ use crate::FigError;
 use designos_doc::{CodeSyntax, CodeSyntaxPlatform, Color, Document, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{Cursor, Read, Write};
 
 /// Supported variable serialization dialects (`E1-9` §3.1).
@@ -1022,18 +1022,27 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
         }
     }
 
-    // First pass: map staged variable ids -> destination variable ids
+    // First pass: map staged variable ids -> destination variable ids.
+    // `(collection, name)` index of the variables already in `doc`; the first id in map order wins,
+    // exactly like a linear `find` would.
+    let mut by_collection_and_name: HashMap<(&str, &str), &str> = HashMap::new();
+    for v in doc.variables.values() {
+        by_collection_and_name.entry((v.collection.as_str(), v.name.as_str())).or_insert(v.id.as_str());
+    }
     let mut var_id_map: HashMap<String, String> = HashMap::new();
     for staged_var in staging.variables.values() {
         let dest_cid = coll_id_map.get(&staged_var.collection).cloned().unwrap_or_else(|| staged_var.collection.clone());
         let existing_vid = if doc.variables.contains_key(&staged_var.id) {
             Some(staged_var.id.clone())
         } else {
-            doc.variables.values().find(|v| v.collection == dest_cid && v.name == staged_var.name).map(|v| v.id.clone())
+            by_collection_and_name.get(&(dest_cid.as_str(), staged_var.name.as_str())).map(|id| id.to_string())
         };
         let dest_vid = existing_vid.unwrap_or_else(|| staged_var.id.clone());
         var_id_map.insert(staged_var.id.clone(), dest_vid);
     }
+
+    // Variable ids each destination collection already lists, so membership checks stay O(1).
+    let mut listed: HashMap<String, HashSet<String>> = HashMap::new();
 
     // Second pass: insert or merge each variable
     for (_, mut staged_var) in staging.variables {
@@ -1085,7 +1094,8 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
         }
 
         if let Some(coll) = doc.variable_collections.get_mut(&dest_cid) {
-            if !coll.variables.contains(&dest_vid) {
+            let ids = listed.entry(dest_cid).or_insert_with(|| coll.variables.iter().cloned().collect());
+            if ids.insert(dest_vid.clone()) {
                 coll.variables.push(dest_vid);
             }
         }
@@ -1733,6 +1743,9 @@ fn infer_token_kind(effective_type: Option<&str>, figma_type_ext: Option<&str>, 
 fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedVariable>) -> Document {
     let mut doc = Document::new("staged");
     let mut pending_aliases: Vec<(String, String, String, RawTokenValue)> = Vec::new();
+    // (collection id, variable id) pairs already listed in `VariableCollection::variables`; a hash set
+    // instead of `Vec::contains` keeps assembly linear in the token count.
+    let mut listed: HashSet<(String, String)> = HashSet::new();
 
     for tok in tokens {
         let coll = doc.variable_collections.entry(tok.collection_id.clone()).or_insert_with(|| VariableCollection {
@@ -1751,7 +1764,7 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
         if tok.is_default_mode {
             coll.default_mode = tok.mode_id.clone();
         }
-        if !coll.variables.contains(&tok.var_id) {
+        if listed.insert((tok.collection_id.clone(), tok.var_id.clone())) {
             coll.variables.push(tok.var_id.clone());
         }
 
@@ -2264,12 +2277,12 @@ mod tests {
         assert!(rep.skipped.iter().any(|s| s.reason.contains("alias-cycle")), "expected alias-cycle notice in skipped: {:?}", rep.skipped);
     }
 
-    #[test]
-    fn perf_5000_vars_4_modes_within_budget() {
+    /// A single collection of `n` number variables with 4 modes.
+    fn perf_doc(n: usize) -> Document {
         let mut doc = Document::new("perf");
         let modes: Vec<VariableMode> = (0..4).map(|i| VariableMode { id: format!("m{i}"), name: format!("Mode{i}") }).collect();
-        let mut var_ids = Vec::with_capacity(5000);
-        for i in 0..5000 {
+        let mut var_ids = Vec::with_capacity(n);
+        for i in 0..n {
             let vid = format!("v_{i}");
             var_ids.push(vid.clone());
             let mut values = BTreeMap::new();
@@ -2304,9 +2317,13 @@ mod tests {
                 source_library_key: None,
             },
         );
+        doc
+    }
 
+    /// Exports `doc` as DTCG, then imports the zip into a fresh document; returns `(export_ms, import_ms, added)`.
+    fn time_dtcg_round_trip(doc: &Document) -> (f64, f64, usize) {
         let t0 = std::time::Instant::now();
-        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        let bundle = export_variables(doc, VariablesFormat::Dtcg).unwrap();
         let export_ms = t0.elapsed().as_secs_f64() * 1000.0;
         assert_eq!(bundle.files.len(), 5);
 
@@ -2315,10 +2332,36 @@ mod tests {
         let mut imported = Document::new("imported");
         let rep = import_variables_bytes(&mut imported, &zip_bytes, Some("tokens.zip"), VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
         let import_ms = t1.elapsed().as_secs_f64() * 1000.0;
-        assert_eq!(rep.added, 5000);
-        // Debug builds on CI/shared runners get a 1500ms ceiling; release builds run well under 200ms.
-        let budget_ms = if cfg!(debug_assertions) { 1500.0 } else { 200.0 };
+        (export_ms, import_ms, rep.added)
+    }
+
+    #[test]
+    fn perf_5000_vars_4_modes_within_budget() {
+        let doc = perf_doc(5000);
+        let (export_ms, import_ms, added) = time_dtcg_round_trip(&doc);
+        assert_eq!(added, 5000);
+        eprintln!("perf_5000_vars_4_modes export_ms={export_ms:.1} import_ms={import_ms:.1}");
+        // The 200 ms budget binds optimized builds. Unoptimized debug builds and shared CI VMs run several
+        // times slower, so they get the same 15x scale as the other perf tests in this repo
+        // (`designos-gpu/tests/large_file_perf.rs`); `scaling_*` below guards the algorithmic cost there.
+        let budget_scale = if cfg!(debug_assertions) || std::env::var("CI").is_ok() { 15.0 } else { 1.0 };
+        let budget_ms = 200.0 * budget_scale;
         assert!(export_ms <= budget_ms, "export_ms={export_ms:.1}ms exceeded {budget_ms}ms");
         assert!(import_ms <= budget_ms, "import_ms={import_ms:.1}ms exceeded {budget_ms}ms");
+    }
+
+    /// Import cost must grow linearly with the variable count: 4x the variables may cost about 4x the
+    /// time, never the 16x of a quadratic scan. Machine speed cancels out of the ratio.
+    #[test]
+    fn dtcg_import_scales_linearly_with_variable_count() {
+        let best_import_ms = |n: usize| {
+            let doc = perf_doc(n);
+            (0..3).map(|_| time_dtcg_round_trip(&doc).1).fold(f64::MAX, f64::min)
+        };
+        let small = best_import_ms(2500);
+        let large = best_import_ms(10000);
+        let ratio = large / small;
+        eprintln!("dtcg_import_scaling small_ms={small:.1} large_ms={large:.1} ratio={ratio:.2}");
+        assert!(ratio < 9.0, "4x variables cost {ratio:.1}x import time ({small:.1}ms -> {large:.1}ms); linear is ~4x, quadratic ~16x");
     }
 }
