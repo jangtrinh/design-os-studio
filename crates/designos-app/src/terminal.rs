@@ -1119,6 +1119,10 @@ pub struct TerminalState {
     pub notification_latch: crate::agent_permissions::NotificationLatch,
     /// Pluggable OS notification sender (`#656`).
     pub approval_notifier: Arc<dyn crate::agent_permissions::ApprovalNotifier>,
+    /// Active `@`-mentions recorded for the current composer draft (`#655`).
+    pub active_mentions: Vec<crate::agent_mention::Mention>,
+    /// `@`-mention popup state (`#655`).
+    pub mention_popup: crate::agent_mention_popup::MentionPopupState,
 }
 
 impl Default for TerminalState {
@@ -1251,6 +1255,8 @@ impl TerminalState {
             pending_approvals: Vec::new(),
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
+            active_mentions: Vec::new(),
+            mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
         }
     }
 
@@ -1745,7 +1751,8 @@ impl TerminalState {
              ## Automatic Current-Page Delivery Rules\n\
              1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
              2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\
-             3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n",
+             3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n\
+             4. Prompts with `@`-mentions include a `References:` footer mapping each `@<label>` to `designos:node/<u64>` (resolve with `designos_get_node` or `designos_export_spec`), `designos:variable/<id>` (resolve with `designos_get_variables`), or `designos:style/<key>` (resolve from `styles` / `style_meta` in `designos_get_document`).\n",
             doc_name = self.doc_name,
             page_name = self.current_page_name,
             session_id = self.session_id,
@@ -1859,7 +1866,7 @@ impl TerminalState {
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
     /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
-        ((agent_panel_open && self.side_panel_pty_open) || self.dock_open) && self.viewport_focused
+        self.mention_popup.is_open() || (((agent_panel_open && self.side_panel_pty_open) || self.dock_open) && self.viewport_focused)
     }
 
     /// Returns the currently active terminal tab when one exists.
@@ -1928,11 +1935,17 @@ impl TerminalState {
     /// Submits a user chat message from the Agent Chat UI, executes it inside the live OS PTY shell
     /// for `self.active_runtime` (`claude`, `codex`, `agy`, `grok`), and records the `User` + `Assistant` turns (`DIR-21`).
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
-        let trimmed = prompt.trim();
-        if trimmed.is_empty() {
+        let raw_trimmed = prompt.trim();
+        if raw_trimmed.is_empty() {
             return;
         }
         self.ensure_shell_for_chat(file_path);
+        crate::agent_mention::prune_deleted_mentions(raw_trimmed, &mut self.active_mentions);
+        let full_prompt = crate::agent_mention::build_prompt_with_mentions(raw_trimmed, &self.active_mentions);
+        self.active_mentions.clear();
+        self.mention_popup.close();
+        let trimmed = full_prompt.as_str();
+
         let runtime = self.active_runtime;
         let is_raw_shell = trimmed.starts_with('$')
             || trimmed.starts_with('!')
@@ -2046,7 +2059,7 @@ impl TerminalState {
             id: user_id,
             role: AgentChatRole::User,
             runtime,
-            text: trimmed.to_string(),
+            text: full_prompt,
             shell_cmd: display_cmd.clone(),
             tab_id,
             log_start_offset: current_log_len,
@@ -4082,6 +4095,21 @@ pub fn show_left_with_selection(
     file_path: Option<&Path>,
     selection_summary: &crate::agent_selection_chip::SelectionSummary,
 ) -> Vec<TerminalAction> {
+    let empty_doc = Document::new(&state.doc_name);
+    let page = NodeId(state.current_page_id.max(1));
+    show_left_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
+}
+
+/// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).
+pub fn show_left_with_doc(
+    state: &mut TerminalState,
+    ui: &mut Ui,
+    rect: Rect,
+    file_path: Option<&Path>,
+    selection_summary: &crate::agent_selection_chip::SelectionSummary,
+    doc: &Document,
+    current_page: NodeId,
+) -> Vec<TerminalAction> {
     state.sync_chat_from_pty();
     let mut actions = state.poll_live_agent_bridge();
     crate::agent_a11y::label_agents_panel(state, ui);
@@ -4244,7 +4272,17 @@ pub fn show_left_with_selection(
         widgets::hline(&p, ctx_r.left(), ctx_r.right(), ctx_r.bottom() - theme::BORDER_WIDTH, theme::BORDER);
         let now_secs = crate::agent_sessions::unix_timestamp_secs();
         let strip_left = ctx_r.left() + theme::INSET_CONTROL;
-        let strip_right = (ctx_r.right() - theme::INSET_CONTROL).max(strip_left + theme::TARGET_MIN);
+        let (mention_btn_r, mention_clicked) = crate::agent_mention_popup::paint_terminal_mention_button(
+            ui,
+            "agent-mention-btn-left",
+            ctx_r.right() - theme::INSET_CONTROL,
+            ctx_r,
+            state.mention_popup.is_open(),
+        );
+        if mention_clicked {
+            state.mention_popup.toggle_terminal_mode(doc, current_page);
+        }
+        let strip_right = (mention_btn_r.left() - theme::SPACE_INLINE).max(strip_left + theme::TARGET_MIN);
         let mut chip_right = strip_right;
         // One right-hand slot: a pending approval (`#656`) takes it over from the live turn status (`#683`).
         let needs_approval = state.needs_approval();
@@ -4278,6 +4316,15 @@ pub fn show_left_with_selection(
             actions.push(TerminalAction::SendSelectionToAgent);
         }
 
+        if state.mention_popup.is_open() {
+            state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
+            let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
+            if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
+                let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
+                let _ = state.paste_into_agent_tab(&snippet);
+            }
+        }
+
         let active_receipt =
             state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
         let vp_bottom = if active_receipt.is_some() { (rect.bottom() - 24.0).max(ctx_r.bottom()) } else { rect.bottom() };
@@ -4294,6 +4341,14 @@ pub fn show_left_with_selection(
         }
         if let Some(fix) = state.pending_start_fix.take() {
             state.apply_start_fix(fix, file_path);
+        }
+
+        if state.mention_popup.is_open() {
+            let show_outcome = state.mention_popup.show(ui, rect, ctx_r, &mut state.input_line, &mut state.active_mentions);
+            if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
+                let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
+                let _ = state.paste_into_agent_tab(&snippet);
+            }
         }
 
         // Floating `+` Runtime Selector Dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell` — all skipping dangerous permissions)
@@ -4626,6 +4681,11 @@ pub fn show_left_with_selection(
     p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 
+    state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
+    if state.mention_popup.is_open() {
+        let _ = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
+    }
+
     let input_rect = Rect::from_min_max(
         Pos2::new(composer_rect.left() + 12.0, composer_rect.top() + 10.0),
         Pos2::new(composer_rect.right() - 12.0, composer_rect.bottom() - 38.0),
@@ -4647,6 +4707,12 @@ pub fn show_left_with_selection(
             submit_composer = true;
         }
     });
+
+    state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
+    crate::agent_mention::prune_deleted_mentions(&state.input_line, &mut state.active_mentions);
+    if state.mention_popup.is_open() {
+        let _ = state.mention_popup.show(ui, rect, composer_rect, &mut state.input_line, &mut state.active_mentions);
+    }
 
     let off_20 = theme::SPACE_BLOCK + theme::SPACE_ROW;
     let off_5 = theme::SPACE_ROW + theme::BORDER_WIDTH;
@@ -4995,7 +5061,9 @@ pub fn show_workspace(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_p
 #[allow(dead_code)]
 pub fn show_full(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
     let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
-    render_terminal_surface(state, ui, rect, file_path, "full", &summary)
+    let empty_doc = Document::new(&state.doc_name);
+    let page = NodeId(state.current_page_id.max(1));
+    render_terminal_surface(state, ui, rect, file_path, "full", &summary, &empty_doc, page)
 }
 
 /// Renders the docked bottom split-view Agent Terminal (`Ctrl+\`` / `dock_open`).
@@ -5013,9 +5081,24 @@ pub fn show_dock_with_selection(
     file_path: Option<&Path>,
     selection_summary: &crate::agent_selection_chip::SelectionSummary,
 ) -> Vec<TerminalAction> {
+    let empty_doc = Document::new(&state.doc_name);
+    let page = NodeId(state.current_page_id.max(1));
+    show_dock_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
+}
+
+/// Renders the docked bottom split-view Agent Terminal with live [`Document`] access for the `@`-mention picker (`#655`).
+pub fn show_dock_with_doc(
+    state: &mut TerminalState,
+    ui: &mut Ui,
+    rect: Rect,
+    file_path: Option<&Path>,
+    selection_summary: &crate::agent_selection_chip::SelectionSummary,
+    doc: &Document,
+    current_page: NodeId,
+) -> Vec<TerminalAction> {
     let grip_rect = Rect::from_min_size(Pos2::new(rect.left(), rect.top() - 3.0), Vec2::new(rect.width(), 6.0));
     widgets::record(ui, "dock-resize-grip", grip_rect);
-    let actions = render_terminal_surface(state, ui, rect, file_path, "dock", selection_summary);
+    let actions = render_terminal_surface(state, ui, rect, file_path, "dock", selection_summary, doc, current_page);
     let p = ui.painter().clone();
     let pill_r = Rect::from_center_size(Pos2::new(rect.center().x, rect.top() + 2.0), Vec2::new(36.0, 3.0));
     p.rect_filled(pill_r, CornerRadius::same(2), Color32::from_rgb(0x52, 0x52, 0x5B));
@@ -5048,6 +5131,7 @@ fn resolve_apply_spec_action(state: &mut TerminalState) -> Option<TerminalAction
     Some(TerminalAction::ApplySpecFile(fallback))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_terminal_surface(
     state: &mut TerminalState,
     ui: &mut Ui,
@@ -5055,6 +5139,8 @@ fn render_terminal_surface(
     file_path: Option<&Path>,
     surface_id: &'static str,
     selection_summary: &crate::agent_selection_chip::SelectionSummary,
+    doc: &Document,
+    current_page: NodeId,
 ) -> Vec<TerminalAction> {
     let mut actions = state.poll_live_agent_bridge();
     crate::agent_a11y::label_terminal_surface(state, ui, surface_id);
@@ -5131,8 +5217,18 @@ fn render_terminal_surface(
         actions.push(TerminalAction::ExportSelectionToTerminal);
     }
 
-    // Live selection chip at the left of the bar's right-hand button group (#654)
+    // `@ Mention` button in the terminal header (#655)
     let min_tabs_left = tab_bar_rect.left() + 148.0;
+    if right_x - min_tabs_left >= theme::TARGET_MIN {
+        let (mention_btn_r, mention_clicked) =
+            crate::agent_mention_popup::paint_terminal_mention_button(ui, "agent-mention-btn-dock", right_x, tab_bar_rect, state.mention_popup.is_open());
+        right_x = mention_btn_r.left() - theme::SPACE_INLINE;
+        if mention_clicked {
+            state.mention_popup.toggle_terminal_mode(doc, current_page);
+        }
+    }
+
+    // Live selection chip at the left of the bar's right-hand button group (#654)
     if right_x - min_tabs_left >= theme::TARGET_MIN {
         let chip_max_w = (right_x - min_tabs_left).min(260.0);
         let chip_bounds = Rect::from_min_max(Pos2::new(right_x - chip_max_w, tab_bar_rect.top()), Pos2::new(right_x, tab_bar_rect.bottom()));
@@ -5256,6 +5352,15 @@ fn render_terminal_surface(
         }
     }
 
+    if state.mention_popup.is_open() {
+        state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
+        let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
+        if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
+            let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
+            let _ = state.paste_into_agent_tab(&snippet);
+        }
+    }
+
     // 2. VT100 Screen Grid Renderer + Raw Keyboard Capture (full height)
     let active_receipt =
         state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
@@ -5268,6 +5373,14 @@ fn render_terminal_surface(
     }
     if let Some(fix) = state.pending_start_fix.take() {
         state.apply_start_fix(fix, file_path);
+    }
+
+    if state.mention_popup.is_open() {
+        let show_outcome = state.mention_popup.show(ui, rect, tab_bar_rect, &mut state.input_line, &mut state.active_mentions);
+        if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
+            let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
+            let _ = state.paste_into_agent_tab(&snippet);
+        }
     }
 
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
@@ -5343,7 +5456,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     if vp_resp.clicked() || vp_resp.drag_started() {
         state.viewport_focused = true;
     }
-    let viewport_focused = state.viewport_focused;
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open();
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;
@@ -8686,6 +8799,18 @@ Done!
     }
 
     #[test]
+    fn skill_text_documents_the_grammar() {
+        let st = TerminalState::for_tab(65501);
+        let _ = std::fs::create_dir_all(&st.session_dir);
+        st.provision_session_agent_files(None);
+        let skill_text = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read generated SKILL.md");
+        assert!(skill_text.contains("designos:node/"), "SKILL.md must document designos:node/: {skill_text}");
+        assert!(skill_text.contains("designos:variable/"), "SKILL.md must document designos:variable/: {skill_text}");
+        assert!(skill_text.contains("designos:style/"), "SKILL.md must document designos:style/: {skill_text}");
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
     fn antigravity_in_ask_mode_reports_an_approval_prompt_from_its_output() {
         let waiting_after = |ask: bool| -> bool {
             let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sleep 0.5; printf 'Allow this edit? (y/n)\\r\\n'; sleep 4 || true");
@@ -9606,6 +9731,34 @@ Done!
         append("{\"t\":402.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stopped\"}}\n");
         let _ = st.poll_live_agent_bridge();
         assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Working(_)), "a new prompt starts a new turn");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn submit_chat_prompt_appends_references_and_prunes_deleted_mentions() {
+        let mut st = TerminalState::for_tab(65502);
+        st.active_mentions.push(crate::agent_mention::Mention {
+            label: "Hero/Title".to_string(),
+            kind: crate::agent_mention::MentionKind::Node,
+            id: "4521".to_string(),
+            name: "Hero/Title".to_string(),
+            page: Some("Landing".to_string()),
+        });
+        st.active_mentions.push(crate::agent_mention::Mention {
+            label: "Deleted/Layer".to_string(),
+            kind: crate::agent_mention::MentionKind::Node,
+            id: "9999".to_string(),
+            name: "Deleted/Layer".to_string(),
+            page: Some("Landing".to_string()),
+        });
+        st.submit_chat_prompt("Check @Hero/Title and @Hero/Title spacing", None);
+        let user_turn = st.chat_turns.iter().find(|t| t.role == AgentChatRole::User).expect("user turn recorded");
+        assert!(user_turn.text.contains("References: @Hero/Title = designos:node/4521"));
+        assert!(!user_turn.text.contains("9999"), "deleted mention must not be included in sent prompt");
+        let ref_count = user_turn.text.lines().filter(|l| l.starts_with("References:")).count();
+        assert_eq!(ref_count, 1, "duplicate @Hero/Title must be listed once");
+
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
     }

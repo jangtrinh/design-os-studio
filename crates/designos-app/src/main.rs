@@ -1,6 +1,8 @@
 mod agent_a11y;
 mod agent_approval_card;
 pub mod agent_cli_catalog;
+mod agent_mention;
+mod agent_mention_popup;
 pub mod agent_notify;
 pub mod agent_open_flow;
 pub mod agent_permissions;
