@@ -23,6 +23,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -42,6 +43,12 @@ jobs:
       GH_TOKEN: ${{ secrets.RELEASE_SYNC_TOKEN || github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # A release event runs on the tag; the pages must be edited on main.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ env.GH_TOKEN }}
+
       - name: Resolve version
         id: v
         env:
@@ -51,15 +58,21 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_EVENT: ${{ github.event.workflow_run.event }}
-          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           case "$EVENT" in
             release) raw="$RELEASE_TAG" ;;
             workflow_run)
-              # Only a successful tag push of the Release workflow published a release;
-              # dry runs (workflow_dispatch on a branch) create none.
-              if [ "$RUN_EVENT" != "push" ] || [ "$RUN_CONCLUSION" != "success" ]; then
-                echo "::notice::Release workflow ended '$RUN_CONCLUSION' on a '$RUN_EVENT' event; no release to sync."
+              # Dry runs (workflow_dispatch on a branch) create no release. On a tag push the run
+              # can end 'failure' (a Windows or Linux leg failed) and still have published, so
+              # ask whether the "Publish release" job succeeded instead of reading the run result.
+              if [ "$RUN_EVENT" != "push" ]; then
+                echo "::notice::Release workflow ran on a '$RUN_EVENT' event; no release to sync."
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              if ! gh run view "$RUN_ID" --json jobs | python3 scripts/release-sync-pages.py --publish-job-ok; then
+                echo "::notice::The Release workflow's publish job did not succeed; no release to sync."
                 echo "skip=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
@@ -79,13 +92,6 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      # A release event runs on the tag; the pages must be edited on main.
-      - uses: actions/checkout@v4
-        if: steps.v.outputs.skip != 'true'
-        with:
-          ref: main
-          token: ${{ env.GH_TOKEN }}
 
       # The Release workflow creates the release first and uploads the packages after, so
       # `published` can fire before the assets exist. SHA256SUMS is uploaded last; wait for it

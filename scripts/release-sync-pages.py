@@ -218,7 +218,24 @@ def verify_urls(urls: list[str]) -> list[str]:
     return bad
 
 
+PUBLISH_JOB = "Publish release"
+
+
+def publish_job_succeeded(run: dict, name: str = PUBLISH_JOB) -> bool:
+    """True when the Release workflow's publish job succeeded, whatever the run's own conclusion.
+
+    The run ends `failure` when a Windows or Linux leg fails, yet release.yml still publishes
+    (macOS is the only required leg), so the run conclusion alone would skip a real release.
+    `run` is `gh run view <id> --json jobs` output.
+    """
+    return any(j.get("name") == name and j.get("conclusion") == "success" for j in run.get("jobs", []))
+
+
 def run(args: argparse.Namespace) -> int:
+    if args.publish_job_ok:
+        return 0 if publish_job_succeeded(json.load(sys.stdin)) else 1
+    if not args.version:
+        raise SyncError("version is required")
     version = args.version.removeprefix("v")
     if not re.fullmatch(VERSION, version):
         raise SyncError(f"version must look like 1.2.3, got {args.version!r}")
@@ -282,7 +299,9 @@ def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("version", help="release version, 1.2.3 or v1.2.3")
+    ap.add_argument("version", nargs="?", help="release version, 1.2.3 or v1.2.3")
+    ap.add_argument("--publish-job-ok", action="store_true",
+                    help=f"read `gh run view --json jobs` from stdin; exit 0 if the '{PUBLISH_JOB}' job succeeded")
     ap.add_argument("--root", default=".", help="repository root (default: cwd)")
     ap.add_argument("--repo", default=DEFAULT_REPO)
     ap.add_argument("--assets-json", help="gh release view --json tagName,publishedAt,isPrerelease,assets output")

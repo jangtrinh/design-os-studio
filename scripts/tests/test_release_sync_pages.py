@@ -191,5 +191,32 @@ class GuardTests(SyncCase):
         self.assertEqual(mod.size_label(104_600_000), "105 MB")
 
 
+class PublishJobTests(unittest.TestCase):
+    """The workflow syncs on the publish job, not on the run's own conclusion."""
+
+    @staticmethod
+    def jobs(**conclusions):
+        return {"jobs": [{"name": n.replace("_", " "), "conclusion": c} for n, c in conclusions.items()]}
+
+    def test_publish_succeeded_while_a_platform_leg_failed(self):
+        run = self.jobs(version_check="success", windows_leg="failure", macos="success", Publish_release="success")
+        self.assertTrue(mod.publish_job_succeeded(run))
+
+    def test_publish_skipped_or_failed_or_missing(self):
+        self.assertFalse(mod.publish_job_succeeded(self.jobs(macos="failure", Publish_release="skipped")))
+        self.assertFalse(mod.publish_job_succeeded(self.jobs(Publish_release="failure")))
+        self.assertFalse(mod.publish_job_succeeded(self.jobs(macos="success")))
+        self.assertFalse(mod.publish_job_succeeded({}))
+
+    def run_cli(self, payload):
+        import json
+        return subprocess.run([sys.executable, str(SCRIPT), "--publish-job-ok"], input=json.dumps(payload),
+                              capture_output=True, text=True).returncode
+
+    def test_cli_exit_code_matches(self):
+        self.assertEqual(self.run_cli(self.jobs(windows_leg="failure", Publish_release="success")), 0)
+        self.assertEqual(self.run_cli(self.jobs(windows_leg="success", Publish_release="skipped")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
