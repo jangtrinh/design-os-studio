@@ -20,7 +20,7 @@ As a designer opening a large or odd Figma file, I want the import to finish in 
 - Item 2. The zero-size struct count is capped at `MAX_ZERO_WIRE_INSTANCES = 1 << 16` (`kiwi.rs:35`); one more fails with "zero-size struct count exceeds budget" (`:218`). A struct of zero wire bytes costs no input, so the cap exists to stop a tiny file from asking for unbounded work. The existing test builds 20 messages of 50,000 empty structs (`kiwi.rs:1316`). UNKNOWN: the largest count in a real file. Check: log the maximum while decoding every available kit.
 - Item 3. `self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0) + 1` (`rest_import.rs:1393`) and `NodeId(max + 1)` plus `out.reserve_ids(NodeId(max + 1))` (`proto/smart.rs:14-15`, `:31`) overflow `u64` when the highest id is `u64::MAX`. `fresh_id` also does `self.next_clone += 1` unchecked. `Document` has an exhausted-counter fallback in its own allocator (`designos-doc/src/lib.rs`, the `gap_cursor` field); UNKNOWN whether `alloc_id` is overflow-safe at the top of the range. Check: a test with `next_id` at `u64::MAX`.
 - Item 4. A NaN once serialized as `null` and failed to reload with "invalid type: null, expected f32". This is already fixed on `main`: `designos-doc/src/finite_json/` writes finite numbers and repairs old files (`finite_json/mod.rs:1-12`), with `fig_export_non_finite.rs` and `fig_non_finite_derived.rs` among the tests; the change shipped in 0.4.1. The issue item is stale. UNKNOWN: whether a real `.fig` import, save and reopen was re-run after that fix. Check: run that sequence on a kit and on the NaN-poisoned synthetic file.
-- Item 5. The issue names "the review report" (about 30 MEDIUM and 13 LOW findings) and an unreviewed "app-root slice (specs, ops, cmdk, shell, video, present, dev)". No such report exists under `plans/` or `docs/` on `main` (search run on this commit). UNKNOWN: its location. Check: ask the owner or coordinator for the path.
+- Item 5. The review is the 2026-10-16 full-repository code review that PR #1 came from. It is not in the repo, so its MEDIUM and LOW findings are copied into the appendix "Review backlog" at the end of this spec, as written on 2026-10-16 (baseline before 0.4.0). Several have probably been fixed since; rule 13's table gives each one a verdict on the current `main`. The unreviewed app-root slice (specs, ops, cmdk, shell, video, present, dev) is still unreviewed.
 - The sibling importer in `designos-fig` already has a document-wide clone budget that leaves further instances unexpanded and returns a warning string; it is the pattern to follow (module not named here on purpose).
 
 ## 3. Behaviour rules
@@ -125,3 +125,22 @@ No task dependency. `rest_import.rs` is a hot file with a one-at-a-time rule: #5
 1. Raising the zero-size struct cap (item 2). Recommended: approve the input-derived cap with the hard upper bound `1 << 24`, because the old cap rejects honest files and the new one still stops hostile ones.
 2. Where the review report is. Recommended: the owner or coordinator supplies the path; without it item 5 cannot start.
 3. The clone budget value (item 1). Recommended: set it from the kit measurement as in rule 4.
+
+## Appendix: Review backlog (full-repository review, 2026-10-16)
+
+Copied verbatim from the review so workers on any machine can read it. (V) marks a finding the reviewer re-read in source. Each item needs a verdict on the current `main` (rule 13).
+
+### MEDIUM findings (~30, condensed)
+- **Rendering:** the mesh arena clears and re-uploads every frame once over 384 MiB (V). GPU effect layers go to GB scale at high zoom. Background-blur tile invalidation leaves stale edges. More than 1024 gradients corrupt the ramp rows.
+- **Library:** retention deletes named versions after an index rebuild. `project.json` uses a fixed `.tmp` name with only partial locking, so a project can silently disappear. `move_file` and `restore_file` have no rollback. `write_atomic` never fsyncs.
+- **Document model:** a stale `next_id` overwrites existing nodes. `Batch` is not atomic, and undo drops the command on error. `grid_columns` from MCP/spec is unclamped.
+- **MCP / export / fonts:** `save overwrite` truncates in place. Every session writes to fixed world-readable `/tmp/designos-live-*`. A canvas reload keeps the old undo history. Polygon `count` is unclamped. Font family is interpolated unescaped into SwiftUI/CSS/Tailwind (code injection). Font cache: a failed write discards the download, and ids are unsanitised. Font fetching is unbounded with no negative cache.
+- **Windows packaging:** the installer takes over `.fig` without saving the old handler. The uninstaller deletes the key and runs a recursive force delete on `-InstallRoot` with errors silenced.
+- **App UX:** Z+click zooms to an absolute 200%/50% (V). Multi-select X/Y stacks every node at the same point. Paint rows edit by index across every selected node. 5 Zoom-menu rows do nothing, and "Multiplayer cursors" is hard-coded as checked. The Share link has no handler. The Dev Mode token estimate is a constant. Editing the radius flattens per-corner values. Duplicating a guide is outside undo history. A panel edit during text editing corrupts the undo order. Replace in Find gets stuck when the replacement contains the query. Publishing a library is allowed while viewing an old version. Variable import overwrites ids that collide.
+
+### LOW findings (~13)
+- **Docs vs code:** docs say "29 MCP tools", the server registers 22 (V).
+- **Panic paths:** comments panic on foreign data. Typing `nan` in the zoom box breaks the viewport.
+- **Edge cases:** the resize box covers only the first 512 nodes. A numeric index on variable-binding export can allocate billions of entries. XPath recursion has no depth limit. Manifest paths are not validated.
+- **Silent failures:** `.fig` export reports success even when the write failed. The sticky-note author ignores the user's name setting.
+- **CI and scripts:** `ci.yml` has no `permissions:` block and actions are not pinned to a SHA. The `.mjs` scripts hard-code `/Users/jangtrinh`, and the release manifest has a single macOS `download_url` for all platforms.
