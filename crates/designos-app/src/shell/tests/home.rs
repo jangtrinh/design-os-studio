@@ -444,8 +444,11 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Claude);
 
     s.shell.app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", None);
-    assert_eq!(s.app().terminal.chat_turns.len(), 2);
-    assert_eq!(s.app().terminal.chat_turns[0].text, "Create a SaaS analytics card in Claude Code");
+    assert!(
+        s.app().terminal.active_composer().pending_send.as_deref() == Some("Create a SaaS analytics card in Claude Code")
+            || s.app().terminal.active_composer().history.back().map(String::as_str) == Some("Create a SaaS analytics card in Claude Code")
+            || s.app().terminal.active_composer().last_outcome.is_some()
+    );
 
     // Click File while in Agents -> switches to File panel in 1 click (not MenuKind::FileMenu)
     click_rect(&mut s, "rail-File");

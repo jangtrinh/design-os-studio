@@ -1,4 +1,5 @@
 pub mod agent_cli_catalog;
+pub mod agent_composer;
 pub mod agent_open_flow;
 pub mod agent_picker;
 pub mod agent_sessions;

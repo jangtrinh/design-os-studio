@@ -3147,13 +3147,14 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         ui.ctx().copy_text(payload.clone());
         app.specs.last_ai_copy = Some(payload);
         let spec_ref = format!("@spec://{}/{} ({})", pkg.slug, app.specs.active_tab.anchor(), pkg.contract_id);
-        if app.terminal.input_line.trim().is_empty() {
-            app.terminal.input_line = format!("{spec_ref} ");
-        } else if !app.terminal.input_line.contains(&spec_ref) {
-            app.terminal.input_line = format!("{spec_ref} {}", app.terminal.input_line.trim());
-        }
         let fp = app.file_path.clone();
         app.terminal.open_for_agent_use(fp.as_deref());
+        let cur_draft = app.terminal.composer_draft().to_string();
+        if cur_draft.trim().is_empty() {
+            app.terminal.set_composer_draft(format!("{spec_ref} "));
+        } else if !cur_draft.contains(&spec_ref) {
+            app.terminal.set_composer_draft(format!("{spec_ref} {}", cur_draft.trim()));
+        }
         app.terminal.dock_open = true;
         app.ui.rail = Some(crate::app::RailItem::Agents);
         app.show_toast("Referenced @spec in Agent CLI (Claude / Codex / AGY / Grok)", false);
@@ -4107,20 +4108,23 @@ mod tests {
         assert_eq!(app.specs.packages[app.specs.selected_pkg].stories.len(), before_us + 1);
         assert_eq!(app.specs.active_tab, SpecTab::UseCases);
 
-        // 6. Click Reference @spec in Agent -> populates terminal input_line and opens Agents rail
+        // 6. Click Reference @spec in Agent -> populates terminal composer draft and opens Agents rail
         render_all(&ctx, &mut app, Vec::new());
         let ref_r = get_rect(&ctx, "specs-right-ref-agent");
         click_at(&ctx, &mut app, ref_r.center());
-        assert!(app.terminal.input_line.contains("@spec://"));
+        assert!(app.terminal.composer_draft().contains("@spec://"));
         assert_eq!(app.ui.rail, Some(crate::app::RailItem::Agents));
 
-        // 7. Submit Ask @agent bar -> dispatches prompt to terminal chat_turns
+        // 7. Submit Ask @agent bar -> dispatches prompt through send_to_agent
         app.specs.ask_input = "Verify AC-01 on canvas".to_string();
         render_all(&ctx, &mut app, Vec::new());
         let send_r = get_rect(&ctx, "specs-ask-agent-send");
-        let turns_before = app.terminal.chat_turns.len();
         click_at(&ctx, &mut app, send_r.center());
-        assert!(app.terminal.chat_turns.len() > turns_before);
+        assert!(
+            app.terminal.active_composer().pending_send.as_deref() == Some("Verify AC-01 on canvas")
+                || app.terminal.active_composer().history.iter().any(|h| h.contains("Verify AC-01 on canvas"))
+                || app.terminal.active_composer().last_outcome.is_some()
+        );
 
         for mut tab in app.terminal.tabs.drain(..) {
             let _ = tab.child.kill();

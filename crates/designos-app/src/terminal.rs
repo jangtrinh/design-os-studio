@@ -327,71 +327,6 @@ impl SessionEnv {
     }
 }
 
-/// Builds a shell-escaped real CLI invocation for `preset` (`claude`, `codex`, `agy`, `grok`, or shell)
-/// with dangerous-permissions skipped (`DIR-29`) and per-file MCP/context environment exported.
-pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &Path, selection_json: &Path) -> String {
-    let clean = sanitize_pty_paste_text(prompt);
-    let escaped = clean.replace('\'', "'\\''");
-    let session_dir = live_spec.parent().unwrap_or_else(|| Path::new("/tmp"));
-    let mcp_config = session_dir.join("mcp-config.json");
-    let live_doc_sync = session_dir.join("doc-sync.designos");
-    let live_canvas = session_dir.join("canvas.designos");
-    let context_json = session_dir.join("context.json");
-    let env_prefix = format!(
-        "DESIGNOS_AGENT_RUNTIME='{}' DESIGNOS_SESSION_DIR='{}' DESIGNOS_MCP_CONFIG='{}' DESIGNOS_LIVE_SPEC='{}' DESIGNOS_LIVE_DOC_SYNC='{}' DESIGNOS_LIVE_CANVAS='{}' DESIGNOS_CONTEXT_JSON='{}' DESIGNOS_SELECTION_JSON='{}'",
-        preset.binary_name(),
-        session_dir.display(),
-        mcp_config.display(),
-        live_spec.display(),
-        live_doc_sync.display(),
-        live_canvas.display(),
-        context_json.display(),
-        selection_json.display()
-    );
-    let sys_prompt = "You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.";
-    match preset {
-        AgentCliPreset::Claude => format!(
-            "{env_prefix} claude --dangerously-skip-permissions -p '{escaped}' --mcp-config \"{}\" --settings '{}' --append-system-prompt \"{sys_prompt}\"",
-            mcp_config.display(),
-            session_dir.join("hooks.json").display()
-        ),
-        AgentCliPreset::Codex => format!(
-            "{env_prefix} codex --dangerously-bypass-approvals-and-sandbox exec{} '{escaped} (Deliver onto current file/page in $DESIGNOS_CONTEXT_JSON via designos-mcp or write NodeSpec JSON to $DESIGNOS_LIVE_SPEC)'",
-            codex_mcp_overrides!()
-        ),
-        AgentCliPreset::Antigravity => format!(
-            "{env_prefix} agy --dangerously-skip-permissions -p '{escaped}' --add-dir '{}'",
-            session_dir.display()
-        ),
-        AgentCliPreset::Grok => format!(
-            "{env_prefix} GROK_FOLDER_TRUST='0' grok --always-approve -p '{escaped}' --cwd '{}'",
-            session_dir.display()
-        ),
-        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => clean,
-    }
-}
-
-#[cfg(test)]
-fn default_test_stub_cli() -> PathBuf {
-    let p = std::env::temp_dir().join(format!("designos-noop-stub-cli-{}.sh", std::process::id()));
-    if !p.is_file() {
-        let _ = std::fs::write(&p, b"#!/bin/sh\nexit 0\n");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
-        }
-    }
-    p
-}
-
-#[cfg(test)]
-fn apply_stub_cli_to_command(_preset: AgentCliPreset, stub: &Path, _real_cli_cmd: &str, prompt: &str) -> String {
-    let stub_quoted = format!("'{}'", stub.display().to_string().replace('\'', "'\\''"));
-    let escaped = sanitize_pty_paste_text(prompt).replace('\n', " ").replace('\'', "'\\''");
-    format!("{stub_quoted} -p '{escaped}'")
-}
-
 /// Actions emitted by the Embedded Agent Terminal for the host `App` / `Shell` to execute.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TerminalAction {
@@ -455,6 +390,8 @@ pub struct TerminalTab {
     /// Raw bytes written via [`Self::write_bytes`] during tests (`#685`).
     #[cfg(test)]
     pub written_bytes: Vec<u8>,
+    /// Per-tab multi-line composer state (`#689` §4).
+    pub composer: crate::agent_composer::ComposerState,
 }
 
 impl TerminalTab {
@@ -476,7 +413,7 @@ impl TerminalTab {
     }
 
     /// Like [`Self::spawn_with_session`], with an optional prepared `CommandBuilder` (tests inject a stub agent).
-    fn spawn_with_session_cmd(
+    pub(crate) fn spawn_with_session_cmd(
         id: usize,
         preset: AgentCliPreset,
         rows: u16,
@@ -606,12 +543,13 @@ impl TerminalTab {
             is_resumed: false,
             #[cfg(test)]
             written_bytes: Vec::new(),
+            composer: crate::agent_composer::ComposerState::default(),
         })
     }
 
     /// Test helper: Claude `spawn_preset` running a stub that prints and exits (no `$SHELL` fallback).
     #[cfg(test)]
-    fn spawn_exiting_stub_agent(id: usize, rows: u16, cols: u16, file_path: Option<&Path>, session: Option<&SessionEnv>) -> Result<Self, String> {
+    pub(crate) fn spawn_exiting_stub_agent(id: usize, rows: u16, cols: u16, file_path: Option<&Path>, session: Option<&SessionEnv>) -> Result<Self, String> {
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo STUB-AGENT-EXIT; exit 1'");
         isolate_zsh_from_home(&mut cmd);
         Self::spawn_with_session_cmd(id, AgentCliPreset::Claude, rows, cols, file_path, session, Some(cmd))
@@ -632,12 +570,17 @@ impl TerminalTab {
         }
     }
 
-    /// Writes raw bytes directly to the PTY master stdin.
-    pub fn write_bytes(&mut self, bytes: &[u8]) {
+    /// Writes raw bytes directly to the PTY master stdin, returning any I/O error.
+    pub fn try_write_bytes(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         #[cfg(test)]
         self.written_bytes.extend_from_slice(bytes);
-        let _ = self.writer.write_all(bytes);
-        let _ = self.writer.flush();
+        self.writer.write_all(bytes)?;
+        self.writer.flush()
+    }
+
+    /// Writes raw bytes directly to the PTY master stdin.
+    pub fn write_bytes(&mut self, bytes: &[u8]) {
+        let _ = self.try_write_bytes(bytes);
     }
 
     /// Writes a single line followed by `\r` to execute in the PTY.
@@ -663,35 +606,13 @@ impl TerminalTab {
     }
 
     /// Writes `Ctrl-E` (end-of-line) then `Ctrl-U` (kill line / tty VKILL), then `line` and `\r`.
+    #[allow(dead_code)]
     pub fn send_line_clearing_pending(&mut self, line: &str) {
         let _ = self.writer.write_all(b"\x05\x15");
         let _ = self.writer.write_all(line.as_bytes());
         let _ = self.writer.write_all(b"\r");
         let _ = self.writer.flush();
     }
-}
-
-/// Role of a turn in the Agent Chat UI wrapping the live PTY shell (`DIR-21`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AgentChatRole {
-    User,
-    Assistant,
-    System,
-}
-
-/// One conversational turn in the Agent Chat UI wrapping `Claude Code`, `Codex`, or `Antigravity CLI` (`DIR-21`).
-#[derive(Clone, Debug)]
-pub struct AgentChatTurn {
-    pub id: usize,
-    pub role: AgentChatRole,
-    pub runtime: AgentCliPreset,
-    pub text: String,
-    pub shell_cmd: String,
-    pub tab_id: usize,
-    pub log_start_offset: usize,
-    pub log_end_offset: Option<usize>,
-    pub extracted_spec_json: Option<String>,
-    pub applied_to_canvas: bool,
 }
 
 /// Persistent state for the embedded multi-tab PTY terminal, isolated per open document tab.
@@ -716,7 +637,8 @@ pub struct TerminalState {
     pub active_tab: usize,
     pub dock_open: bool,
     pub dock_height: f32,
-    pub input_line: String,
+    /// Unattached composer state held while `tabs` is empty; moved into the first spawned tab (`#689` §4).
+    pub unattached_composer: crate::agent_composer::ComposerState,
     pub status_msg: Option<String>,
     pub next_tab_id: usize,
     pub viewport_focused: bool,
@@ -740,12 +662,6 @@ pub struct TerminalState {
     pub expanded_agent_cat: Option<usize>,
     /// Active CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`, `Shell`).
     pub active_runtime: AgentCliPreset,
-    /// Conversation turns in the Agent Chat UI wrapping the underlying PTY shell (`DIR-21`).
-    pub chat_turns: Vec<AgentChatTurn>,
-    /// Scroll offset for the Agent Chat thread (`DIR-21`).
-    pub chat_scroll: f32,
-    /// Monotonically increasing turn ID counter (`DIR-21`).
-    pub next_turn_id: usize,
     /// Whether the Orca floating `Cmd+F` terminal search bar is open.
     pub search_open: bool,
     /// Query string for the `Cmd+F` terminal search bar.
@@ -846,7 +762,7 @@ impl TerminalState {
             active_tab: 0,
             dock_open: false,
             dock_height: 400.0,
-            input_line: String::new(),
+            unattached_composer: crate::agent_composer::ComposerState::default(),
             status_msg: None,
             next_tab_id: 1,
             viewport_focused: true,
@@ -860,9 +776,6 @@ impl TerminalState {
             pending_start_fix: None,
             expanded_agent_cat: None,
             active_runtime: AgentCliPreset::Shell,
-            chat_turns: Vec::new(),
-            chat_scroll: 0.0,
-            next_turn_id: 1,
             search_open: false,
             search_query: String::new(),
             search_case_sensitive: false,
@@ -1310,12 +1223,11 @@ impl TerminalState {
         }
     }
 
-    /// Switches the active CLI runtime wrapped by the Agent Chat UI (`Claude Code`, `Codex`, `Antigravity CLI`, `Grok`, `Shell`)
-    /// and binds the active PTY shell tab to that runtime (`DIR-21`).
+    /// Switches the active CLI runtime (`Claude Code`, `Codex`, `Antigravity CLI`, `Grok`, `Shell`)
+    /// and binds the active PTY tab label to that runtime (`DIR-21`).
     ///
     /// Never types an `export` into the tab: when it hosts an agent TUI the line lands as a chat
-    /// prompt. `DESIGNOS_AGENT_RUNTIME` is set at spawn (`configure_pty_env`) and per command
-    /// (`build_real_cli_command`) instead.
+    /// prompt. `DESIGNOS_AGENT_RUNTIME` is set at spawn (`configure_pty_env`) instead.
     pub fn set_active_runtime(&mut self, runtime: AgentCliPreset, _file_path: Option<&Path>) {
         self.active_runtime = runtime;
         let active_idx = self.active_tab;
@@ -1326,247 +1238,9 @@ impl TerminalState {
         self.status_msg = Some(format!("Active agent CLI shell: {} ({})", runtime.tab_title(), runtime.binary_name()));
     }
 
-    /// Submits a user chat message from the Agent Chat UI, executes it inside the live OS PTY shell
-    /// for `self.active_runtime` (`claude`, `codex`, `agy`, `grok`), and records the `User` + `Assistant` turns (`DIR-21`).
+    /// Submits a user message from the Agent composer into the active tab's live CLI session (`#689` §3 rules 1, 8).
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
-        let trimmed = prompt.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        self.ensure_shell_for_chat(file_path);
-        let runtime = self.active_runtime;
-        let is_raw_shell = trimmed.starts_with('$')
-            || trimmed.starts_with('!')
-            || trimmed.starts_with("claude ")
-            || trimmed.starts_with("codex ")
-            || trimmed.starts_with("agy ")
-            || trimmed.starts_with("grok ")
-            || trimmed.starts_with("designos ");
-        let raw_cmd = if is_raw_shell { sanitize_pty_paste_text(trimmed.trim_start_matches('$').trim_start_matches('!').trim()) } else { String::new() };
-
-        let selection_path = self.selection_spec_path.clone();
-        let real_cli_cmd = build_real_cli_command(runtime, trimmed, &self.live_spec_path, &selection_path);
-        let display_cmd = if is_raw_shell { raw_cmd.clone() } else { real_cli_cmd.clone() };
-
-        let is_agent_runtime = !matches!(runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
-        const _RETAINED_MIC_ICON_VARIANT: crate::icons::Icon = crate::icons::Icon::Microphone;
-        #[cfg(not(test))]
-        let bin_available = runtime_binary_available(runtime.binary_name());
-        #[cfg(test)]
-        let bin_available = if self.stub_cli.is_some() {
-            true
-        } else if let Some(ref p) = self.path_override {
-            runtime_binary_available_in(runtime.binary_name(), Some(p.as_os_str()), false)
-        } else {
-            true
-        };
-
-        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
-        if !skip_dead_agent && !is_raw_shell && is_agent_runtime && !bin_available {
-            let user_id = self.next_turn_id.max(1);
-            self.next_turn_id = user_id + 1;
-            let (tab_id, current_log_len) = self
-                .active_tab()
-                .map(|t| {
-                    let len = t.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
-                    (t.id, len)
-                })
-                .unwrap_or((1, 0));
-            self.chat_turns.push(AgentChatTurn {
-                id: user_id,
-                role: AgentChatRole::User,
-                runtime,
-                text: trimmed.to_string(),
-                shell_cmd: display_cmd,
-                tab_id,
-                log_start_offset: current_log_len,
-                log_end_offset: Some(current_log_len),
-                extracted_spec_json: None,
-                applied_to_canvas: false,
-            });
-            self.side_panel_pty_open = true;
-            self.chat_mode = false;
-            let _ = self.spawn_tab(runtime, file_path);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(if cfg!(test) { 2000 } else { 250 });
-            while std::time::Instant::now() < deadline {
-                if self.active_tab_mut().is_some_and(|t| !t.is_alive()) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            let _ = self.poll_live_agent_bridge();
-            return;
-        }
-
-        self.ensure_default_tab(file_path);
-        if let Some(tab) = self.active_tab_mut() {
-            tab.preset = runtime;
-            tab.title = format!("{} #{}", runtime.tab_title(), tab.id);
-        }
-
-        let (tab_id, current_log_len) = self
-            .active_tab()
-            .map(|t| {
-                let len = t.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
-                (t.id, len)
-            })
-            .unwrap_or((1, 0));
-
-        // Seal any prior open Assistant turn.
-        for turn in &mut self.chat_turns {
-            if turn.role == AgentChatRole::Assistant && turn.log_end_offset.is_none() {
-                turn.log_end_offset = Some(current_log_len);
-            }
-        }
-
-        let user_id = self.next_turn_id.max(1);
-        let asst_id = user_id + 1;
-        self.next_turn_id = asst_id + 1;
-
-        #[cfg(test)]
-        let exec_cli_cmd = {
-            let stub = self.resolve_test_cli_stub(runtime);
-            apply_stub_cli_to_command(runtime, &stub, &real_cli_cmd, trimmed)
-        };
-        #[cfg(not(test))]
-        let exec_cli_cmd = real_cli_cmd.clone();
-
-        let pty_exec_line = if is_raw_shell {
-            format!("printf 'DESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN'; {raw_cmd}; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'")
-        } else {
-            let safe = sanitize_pty_paste_text(trimmed).replace('\'', "").replace('\n', " ");
-            let bin = runtime.binary_name();
-            let title = runtime.tab_title();
-            format!(
-                "printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[%s · %s PTY] %s\\n' 'BEGIN' '{title}' '{bin}' '{safe}'; {exec_cli_cmd} 2>&1; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'"
-            )
-        };
-
-        self.chat_turns.push(AgentChatTurn {
-            id: user_id,
-            role: AgentChatRole::User,
-            runtime,
-            text: trimmed.to_string(),
-            shell_cmd: display_cmd.clone(),
-            tab_id,
-            log_start_offset: current_log_len,
-            log_end_offset: Some(current_log_len),
-            extracted_spec_json: None,
-            applied_to_canvas: false,
-        });
-
-        self.chat_turns.push(AgentChatTurn {
-            id: asst_id,
-            role: AgentChatRole::Assistant,
-            runtime,
-            text: String::new(),
-            shell_cmd: display_cmd,
-            tab_id,
-            log_start_offset: current_log_len,
-            log_end_offset: None,
-            extracted_spec_json: None,
-            applied_to_canvas: false,
-        });
-
-        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
-        if skip_dead_agent {
-            self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
-        } else if let Some(tab) = self.active_tab_mut() {
-            tab.send_line_clearing_pending(&pty_exec_line);
-            self.status_msg = Some(format!("Executed in {} PTY shell", runtime.tab_title()));
-        } else {
-            self.status_msg = Some(format!("Executed in {} PTY shell", runtime.tab_title()));
-        }
-        // Keep `side_panel_pty_open = true` in normal interactive Terminal-first workflow;
-        // only switch to chat bubble view in tests or when already in chat view.
-        if cfg!(test) || !self.side_panel_pty_open {
-            self.side_panel_pty_open = false;
-            self.chat_mode = true;
-        }
-    }
-
-    /// Submits an automated system prompt (e.g. an AI image tool task) to the active or preferred
-    /// agent CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`), recording the prompt turn with
-    /// [`AgentChatRole::System`] (`E5-10` §3 rule 3, §7).
-    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
-        if let Some(idx) = self.tabs.iter().position(|t| t.preset == preset && t.start_failure.is_none() && !t.exited_notice_shown) {
-            self.active_tab = idx;
-            self.active_runtime = preset;
-        } else {
-            let active_dead = self.active_tab().is_some_and(|t| !t.is_shell_process() && t.exited_notice_shown);
-            if active_dead {
-                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
-            }
-            self.set_active_runtime(preset, file_path);
-        }
-        if let Some(tab) = self.active_tab() {
-            if let Ok(mut st) = tab.agent_status.lock() {
-                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
-            }
-        }
-        self.submit_chat_prompt(prompt, file_path);
-        let len = self.chat_turns.len();
-        if len >= 2 {
-            self.chat_turns[len - 2].role = AgentChatRole::System;
-            self.chat_turns[len - 1].extracted_spec_json = None;
-        }
-    }
-
-    /// Synchronizes all `Assistant` chat turns with the live PTY `raw_log` buffer, stripping ANSI
-    /// escape codes and extracting per-turn stdout (`DIR-21`).
-    pub fn sync_chat_from_pty(&mut self) {
-        if self.chat_turns.is_empty() || self.tabs.is_empty() {
-            return;
-        }
-        let default_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        for turn in &mut self.chat_turns {
-            if turn.role != AgentChatRole::Assistant {
-                continue;
-            }
-            let tab_idx = self.tabs.iter().position(|t| t.id == turn.tab_id).unwrap_or(default_idx);
-            let Some(tab) = self.tabs.get(tab_idx) else { continue };
-            let Ok(log) = tab.raw_log.lock() else { continue };
-
-            let full_clean = strip_ansi_codes(&log);
-            let begin_marker = format!("DESIGNOS_CHAT_BEGIN_{}", turn.id);
-            let end_marker = format!("DESIGNOS_CHAT_END_{}", turn.id);
-
-            if let Some(b_pos) = full_clean.find(&begin_marker) {
-                let after_begin = &full_clean[b_pos + begin_marker.len()..];
-                let body = if let Some(e_pos) = after_begin.find(&end_marker) {
-                    if turn.log_end_offset.is_none() {
-                        turn.log_end_offset = Some(log.len());
-                    }
-                    &after_begin[..e_pos]
-                } else {
-                    after_begin
-                };
-                let trimmed_body = body.trim();
-                if !trimmed_body.is_empty() {
-                    turn.text = trimmed_body.to_string();
-                }
-                if let Some(parsed_spec) = extract_spec_json_from_log(trimmed_body) {
-                    turn.extracted_spec_json = Some(parsed_spec);
-                }
-            } else if turn.log_start_offset < log.len() {
-                let end = turn.log_end_offset.unwrap_or(log.len()).min(log.len());
-                if turn.log_start_offset < end {
-                    let slice = &log[turn.log_start_offset..end];
-                    let stripped = strip_ansi_codes(slice);
-                    let filtered: Vec<&str> = stripped
-                        .lines()
-                        .map(|l| l.trim())
-                        .filter(|l| !l.is_empty() && !l.contains("DESIGNOS_CHAT_") && !l.starts_with("printf ") && *l != turn.shell_cmd && *l != "%")
-                        .collect();
-                    if !filtered.is_empty() {
-                        turn.text = filtered.join("\n");
-                    }
-                    if let Some(parsed_spec) = extract_spec_json_from_log(&stripped) {
-                        turn.extracted_spec_json = Some(parsed_spec);
-                    }
-                }
-            }
-        }
+        let _ = self.send_to_agent(prompt, file_path);
     }
 
     /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
@@ -1593,9 +1267,14 @@ impl TerminalState {
         cmd.cwd(&self.session_dir);
 
         let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
-        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Shell, 28, 100, file_path, Some(&env), Some(cmd)) {
+        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Claude, 28, 100, file_path, Some(&env), Some(cmd)) {
             Ok(mut tab) => {
+                tab.preset = AgentCliPreset::Shell;
                 tab.title = clean_title.to_string();
+                if self.tabs.is_empty() {
+                    tab.composer = std::mem::take(&mut self.unattached_composer);
+                }
+                let has_queued = tab.composer.pending_send.is_some();
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
                 self.picker_open = false;
@@ -1603,7 +1282,9 @@ impl TerminalState {
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                    if !has_queued {
+                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                    }
                 }
                 Ok(self.active_tab)
             }
@@ -1670,6 +1351,10 @@ impl TerminalState {
                 if let Some(title) = custom_title {
                     tab.title = title;
                 }
+                if self.tabs.is_empty() {
+                    tab.composer = std::mem::take(&mut self.unattached_composer);
+                }
+                let has_queued = tab.composer.pending_send.is_some();
                 if register_new_entry && crate::agent_sessions::is_registrable_cli(preset) {
                     let now = crate::agent_sessions::unix_timestamp_secs();
                     let entry = crate::agent_sessions::SessionEntry {
@@ -1694,7 +1379,9 @@ impl TerminalState {
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                    if !has_queued {
+                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                    }
                 }
                 Ok(self.active_tab)
             }
@@ -1926,80 +1613,19 @@ impl TerminalState {
             self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
         }
 
+        self.tick_composer();
+
         actions
     }
 
-    /// Dispatches a Figma AI task prompt into the active PTY session (`#651` §3 rule 10: with no live tab,
-    /// resumes the file's last resumable session or opens the picker and holds the prompt until a CLI is chosen).
+    /// Dispatches a Figma AI task prompt into the active PTY session through [`Self::send_to_agent`]
+    /// (`#651` §3 rule 10 & `#689` §3 rule 8).
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
-        if !self.has_live_tab() {
-            self.open_for_agent_use(file_path);
-            if !self.has_live_tab() {
-                self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
-                self.dock_open = true;
-                return;
-            }
-        }
         self.dock_open = true;
-
-        let (tab_id, current_log_len) = self
-            .active_tab()
-            .map(|t| {
-                let len = t.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
-                (t.id, len)
-            })
-            .unwrap_or((1, 0));
-
-        // Reuse the latest Assistant turn ID if `submit_chat_prompt` was just invoked for `cli_prompt`,
-        // otherwise push a dedicated User + Assistant turn pair so `dispatch_figma_ai_prompt` always records a turn.
-        let already_recorded = self.chat_turns.iter().rev().find(|t| t.role == AgentChatRole::User).is_some_and(|u| u.text == cli_prompt.trim());
-
-        let asst_id = if already_recorded {
-            self.chat_turns.iter().rev().find(|t| t.role == AgentChatRole::Assistant).map(|t| t.id).unwrap_or(1)
-        } else {
-            let user_id = self.next_turn_id.max(1);
-            let aid = user_id + 1;
-            self.next_turn_id = aid + 1;
-            let runtime = self.active_runtime;
-            let display_cmd = format!("[Figma AI · {task_title}] {cli_prompt}");
-            self.chat_turns.push(AgentChatTurn {
-                id: user_id,
-                role: AgentChatRole::User,
-                runtime,
-                text: format!("[{task_title}] {cli_prompt}"),
-                shell_cmd: display_cmd.clone(),
-                tab_id,
-                log_start_offset: current_log_len,
-                log_end_offset: Some(current_log_len),
-                extracted_spec_json: None,
-                applied_to_canvas: false,
-            });
-            self.chat_turns.push(AgentChatTurn {
-                id: aid,
-                role: AgentChatRole::Assistant,
-                runtime,
-                text: format!("[Figma AI · {task_title}] {cli_prompt}"),
-                shell_cmd: display_cmd,
-                tab_id,
-                log_start_offset: current_log_len,
-                log_end_offset: None,
-                extracted_spec_json: None,
-                applied_to_canvas: false,
-            });
-            aid
-        };
-
-        let safe_title = sanitize_pty_paste_text(task_title).replace('\'', "").replace('\n', " ");
-        let safe_prompt = sanitize_pty_paste_text(cli_prompt).replace('\'', "").replace('\n', " ");
-        let line =
-            format!("printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[Figma AI · %s] %s\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN' '{safe_title}' '{safe_prompt}' 'END'");
-        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
-        if skip_dead_agent {
-            self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
-        } else {
-            if let Some(tab) = self.active_tab_mut() {
-                tab.send_line_clearing_pending(&line);
-            }
+        let outcome = self.send_to_agent(cli_prompt, file_path);
+        if self.tabs.is_empty() && self.picker_open {
+            self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+        } else if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
             let title = self.active_tab().map(|t| t.title.clone()).unwrap_or_else(|| "Agent".into());
             self.status_msg = Some(format!("Dispatched '{task_title}' to {title} PTY"));
         }
@@ -3052,21 +2678,16 @@ pub fn export_selection_and_comments_to_pty(
 /// pure Chat UI wrapper over the live PTY shell (`DIR-21`), `What's next?` empty state, bottom
 /// `"Ask for changes"` blue-bordered composer box, and toggleable in-panel live VT100 PTY viewport).
 pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    state.sync_chat_from_pty();
     let mut actions = state.poll_live_agent_bridge();
     let p = ui.painter().clone();
+    let composer_input_id = Id::new("agents-ask-for-changes-input");
+    if ui.memory(|m| m.has_focus(composer_input_id)) {
+        state.viewport_focused = false;
+    }
 
     if state.side_panel_pty_open {
         // Pure Interactive PTY Shell by Default + Top `+` Runtime Dropdown (`DIR-29`)
         p.rect_filled(rect, 0.0, TERM_BG_VIEWPORT);
-
-        if ui.input(|i| i.pointer.any_pressed()) {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                if rect.contains(pos) {
-                    state.viewport_focused = true;
-                }
-            }
-        }
 
         let bar_h = 36.0;
         let bar_r = Rect::from_min_size(rect.min, Vec2::new(rect.width(), bar_h));
@@ -3194,8 +2815,22 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         p.circle_filled(Pos2::new(ctx_r.left() + 10.0, ctx_r.center().y), 2.5, STATUS_INFO_TEXT);
         p.text(Pos2::new(ctx_r.left() + 17.0, ctx_r.center().y), Align2::LEFT_CENTER, ctx_elided, theme::font_caption(), STATUS_INFO_TEXT);
 
-        // Live VT100 PTY Terminal Viewport (full height)
-        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), rect.max);
+        // Render bottom composer (`#689` §3 rule 9 & §7) first so its focused `TextEdit` consumes keys
+        // before `render_vt100_viewport` checks keyboard input.
+        let composer_rect = crate::agent_composer::show_composer(state, ui, rect, ctx_r.bottom(), file_path, &mut actions);
+
+        // Live VT100 PTY Terminal Viewport above the composer
+        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE).max(ctx_r.bottom() + theme::CONTROL_ROW);
+        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
+
+        if ui.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if vp_r.contains(pos) {
+                    state.viewport_focused = true;
+                    ui.memory_mut(|m| m.surrender_focus(composer_input_id));
+                }
+            }
+        }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
         if let Some(fix) = state.pending_start_fix.take() {
@@ -3238,8 +2873,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         state.side_panel_pty_open = true;
         state.chat_mode = false;
         state.expanded_agent_cat = None;
-        state.chat_turns.clear();
-        state.chat_scroll = 0.0;
     }
 
     p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_strong(), Color32::WHITE);
@@ -3297,8 +2930,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     widgets::record(ui, "agents-more-menu", more_rect);
     widgets::record(ui, "agents-header-more", more_rect);
     if more_resp.clicked() {
-        state.chat_turns.clear();
-        state.chat_scroll = 0.0;
         state.expanded_agent_cat = None;
     }
 
@@ -3360,449 +2991,134 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     }
     top_y = rt_bar_r.bottom();
 
-    // ---- D. Bottom Docked `"Ask for changes"` Composer Box (`96px` height, `12px` margin)
-    let comp_margin = 12.0;
-    let comp_h = 96.0;
-    let comp_top = (rect.bottom() - comp_margin - comp_h).max(top_y + 80.0);
-    let composer_rect =
-        Rect::from_min_max(Pos2::new(rect.left() + comp_margin, comp_top), Pos2::new(rect.right() - comp_margin, (comp_top + comp_h).min(rect.bottom() - 4.0)));
+    // ---- D. Bottom Docked Composer Box (`#689` §7)
+    let composer_rect = crate::agent_composer::show_composer(state, ui, rect, top_y, file_path, &mut actions);
 
     // ---- C. Center Area (`between runtime bar and bottom composer`)
     let center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
 
-    if !state.chat_turns.is_empty() {
-        // Mode 3: Pure Chat UI Wrapper Over Live PTY Shell (`Claude Code`, `Codex`, `Antigravity CLI`)
-        render_agent_chat_thread(state, ui, center_rect, &mut actions);
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-    } else {
-        // Mode 1 (Default): 1:1 Figma Desktop 126.9.13 `What's next?` View
-        clipped(ui, center_rect, |ui| {
-            let p = ui.painter().clone();
-            let badge_center = Pos2::new(center_rect.center().x, center_rect.top() + 44.0);
-            paint_agents_grid_plus_badge(&p, badge_center);
+    clipped(ui, center_rect, |ui| {
+        let p = ui.painter().clone();
+        let badge_center = Pos2::new(center_rect.center().x, center_rect.top() + 44.0);
+        paint_agents_grid_plus_badge(&p, badge_center);
 
-            p.text(
-                Pos2::new(center_rect.center().x, center_rect.top() + 82.0),
-                Align2::CENTER_CENTER,
-                "What's next?",
-                theme::font_large_strong(),
-                Color32::WHITE,
-            );
+        p.text(Pos2::new(center_rect.center().x, center_rect.top() + 82.0), Align2::CENTER_CENTER, "What's next?", theme::font_large_strong(), Color32::WHITE);
 
-            let mut y = center_rect.top() + 108.0;
-            let card_x = center_rect.left() + 14.0;
-            let card_w = (center_rect.width() - 28.0).max(100.0);
-            let card_h = 40.0;
+        let mut y = center_rect.top() + 108.0;
+        let card_x = center_rect.left() + 14.0;
+        let card_w = (center_rect.width() - 28.0).max(100.0);
+        let card_h = 40.0;
 
-            for (cat_idx, cat_id, cat_title) in [
-                (0usize, "agents-cat-tidy", "Tidy and polish"),
-                (1usize, "agents-cat-generate", "Generate designs"),
-                (2usize, "agents-cat-plugins", "Create plugins and shaders"),
-            ] {
-                let card_r = Rect::from_min_size(Pos2::new(card_x, y), Vec2::new(card_w, card_h));
-                let card_resp = ui.interact(card_r, Id::new(cat_id), Sense::click());
-                let is_expanded = state.expanded_agent_cat == Some(cat_idx);
-                let fill = if card_resp.hovered() || is_expanded { Color32::from_rgb(0x2E, 0x2E, 0x2E) } else { Color32::from_rgb(0x25, 0x25, 0x25) };
-                p.rect_filled(card_r, CornerRadius::same(10), fill);
-                p.rect_stroke(card_r, CornerRadius::same(10), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
+        for (cat_idx, cat_id, cat_title) in [
+            (0usize, "agents-cat-tidy", "Tidy and polish"),
+            (1usize, "agents-cat-generate", "Generate designs"),
+            (2usize, "agents-cat-plugins", "Create plugins and shaders"),
+        ] {
+            let card_r = Rect::from_min_size(Pos2::new(card_x, y), Vec2::new(card_w, card_h));
+            let card_resp = ui.interact(card_r, Id::new(cat_id), Sense::click());
+            let is_expanded = state.expanded_agent_cat == Some(cat_idx);
+            let fill = if card_resp.hovered() || is_expanded { Color32::from_rgb(0x2E, 0x2E, 0x2E) } else { Color32::from_rgb(0x25, 0x25, 0x25) };
+            p.rect_filled(card_r, CornerRadius::same(10), fill);
+            p.rect_stroke(card_r, CornerRadius::same(10), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
 
-                let icon_pos = Pos2::new(card_r.left() + 18.0, card_r.center().y);
-                let icon_col = Color32::from_rgb(0xB3, 0xB3, 0xB3);
-                match cat_idx {
-                    0 => paint_wand_sparkle_icon(&p, icon_pos, icon_col),
-                    1 => paint_four_point_star_icon(&p, icon_pos, icon_col),
-                    _ => paint_toolbox_icon(&p, icon_pos, icon_col),
-                }
+            let icon_pos = Pos2::new(card_r.left() + 18.0, card_r.center().y);
+            let icon_col = Color32::from_rgb(0xB3, 0xB3, 0xB3);
+            match cat_idx {
+                0 => paint_wand_sparkle_icon(&p, icon_pos, icon_col),
+                1 => paint_four_point_star_icon(&p, icon_pos, icon_col),
+                _ => paint_toolbox_icon(&p, icon_pos, icon_col),
+            }
 
-                let label = widgets::elide(&p, cat_title, &theme::font_body_strong(), (card_w - 58.0).max(32.0));
-                p.text(Pos2::new(card_r.left() + 34.0, card_r.center().y), Align2::LEFT_CENTER, label, theme::font_body_strong(), Color32::WHITE);
+            let label = widgets::elide(&p, cat_title, &theme::font_body_strong(), (card_w - 58.0).max(32.0));
+            p.text(Pos2::new(card_r.left() + 34.0, card_r.center().y), Align2::LEFT_CENTER, label, theme::font_body_strong(), Color32::WHITE);
 
-                let ch_c = Pos2::new(card_r.right() - 16.0, card_r.center().y);
-                let ch_stroke = Stroke::new(1.4, icon_col);
-                if is_expanded {
-                    p.line_segment([Pos2::new(ch_c.x - 4.0, ch_c.y + 2.0), Pos2::new(ch_c.x, ch_c.y - 2.0)], ch_stroke);
-                    p.line_segment([Pos2::new(ch_c.x, ch_c.y - 2.0), Pos2::new(ch_c.x + 4.0, ch_c.y + 2.0)], ch_stroke);
-                } else {
-                    p.line_segment([Pos2::new(ch_c.x - 4.0, ch_c.y - 2.0), Pos2::new(ch_c.x, ch_c.y + 2.0)], ch_stroke);
-                    p.line_segment([Pos2::new(ch_c.x, ch_c.y + 2.0), Pos2::new(ch_c.x + 4.0, ch_c.y - 2.0)], ch_stroke);
-                }
+            let ch_c = Pos2::new(card_r.right() - 16.0, card_r.center().y);
+            let ch_stroke = Stroke::new(1.4, icon_col);
+            if is_expanded {
+                p.line_segment([Pos2::new(ch_c.x - 4.0, ch_c.y + 2.0), Pos2::new(ch_c.x, ch_c.y - 2.0)], ch_stroke);
+                p.line_segment([Pos2::new(ch_c.x, ch_c.y - 2.0), Pos2::new(ch_c.x + 4.0, ch_c.y + 2.0)], ch_stroke);
+            } else {
+                p.line_segment([Pos2::new(ch_c.x - 4.0, ch_c.y - 2.0), Pos2::new(ch_c.x, ch_c.y + 2.0)], ch_stroke);
+                p.line_segment([Pos2::new(ch_c.x, ch_c.y + 2.0), Pos2::new(ch_c.x + 4.0, ch_c.y - 2.0)], ch_stroke);
+            }
 
-                widgets::record(ui, cat_id, card_r);
-                if card_resp.clicked() {
-                    state.expanded_agent_cat = if is_expanded { None } else { Some(cat_idx) };
-                }
-                y += card_h + 10.0;
+            widgets::record(ui, cat_id, card_r);
+            if card_resp.clicked() {
+                state.expanded_agent_cat = if is_expanded { None } else { Some(cat_idx) };
+            }
+            y += card_h + 10.0;
 
-                if is_expanded {
-                    let sub_items: &[(&str, &str, &str, &str)] = match cat_idx {
-                        0 => &[
-                            (
-                                "term-ai-rename-layers",
-                                "Rename layers semantically",
-                                "Rename Layers",
-                                "Semantically rename generic Frame/Rect/Text layers across selection",
-                            ),
-                            ("term-ai-design-gate", "Design Gate audit & auto-fix", "Design Gate", "\"$DESIGNOS_BIN\" \"$DESIGNOS_FILE\" --inspect-json"),
-                            (
-                                "term-ai-translate",
-                                "Translate selection (VI <-> EN)",
-                                "Translate VI/EN",
-                                "Translate selected UI copy between Vietnamese and English",
-                            ),
-                        ],
-                        1 => &[
-                            ("term-ai-make-design", "Make design (First Draft)", "Make Design", MAKE_DESIGN_FIRST_DRAFT_PROMPT),
-                            (
-                                "term-ai-make-proto",
-                                "Make prototype flows",
-                                "Make Prototype",
-                                "Auto-wire OnClick -> NavigateTo SmartAnimate flows across frames",
-                            ),
-                            (
-                                "term-ai-populate",
-                                "Populate realistic data",
-                                "Populate Content",
-                                "Populate realistic SaaS metrics, names, and statuses into repeated cards",
-                            ),
-                        ],
-                        _ => &[
-                            ("agents-open-pty", "Open Live PTY Terminal", "Open PTY", ""),
-                            ("term-left-send-sel", "Send selection & comments to PTY", "Send Selection", ""),
-                            ("term-left-apply-out", "Apply NodeSpec from PTY output", "Apply Spec", ""),
-                            ("term-left-sync-disk", "Sync canvas from disk", "Sync Canvas", ""),
-                        ],
-                    };
-                    for &(sub_id, sub_label, task_title, cli_prompt) in sub_items {
-                        let sub_r = Rect::from_min_size(Pos2::new(card_x + 6.0, y), Vec2::new((card_w - 12.0).max(80.0), 28.0));
-                        let sub_resp = ui.interact(sub_r, Id::new(sub_id), Sense::click());
-                        p.rect_filled(sub_r, CornerRadius::same(6), if sub_resp.hovered() { TERM_BG_HOVER } else { Color32::from_rgb(0x1E, 0x1E, 0x1E) });
-                        p.rect_stroke(sub_r, CornerRadius::same(6), Stroke::new(1.0, Color32::from_rgb(0x33, 0x33, 0x33)), StrokeKind::Inside);
-                        let elided = widgets::elide(&p, sub_label, &theme::font_caption_medium(), (sub_r.width() - 20.0).max(24.0));
-                        p.text(Pos2::new(sub_r.left() + 10.0, sub_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), theme::TEXT);
-                        widgets::record(ui, sub_id, sub_r);
-                        if sub_resp.clicked() {
-                            match sub_id {
-                                "agents-open-pty" => {
-                                    state.side_panel_pty_open = true;
-                                }
-                                "term-left-send-sel" => actions.push(TerminalAction::ExportSelectionToTerminal),
-                                "term-left-apply-out" => {
-                                    if let Some(act) = resolve_apply_spec_action(state) {
-                                        actions.push(act);
-                                    }
-                                }
-                                "term-left-sync-disk" => actions.push(TerminalAction::ReloadFromDisk),
-                                "term-ai-make-design" => {
-                                    state.submit_chat_prompt(cli_prompt, file_path);
-                                }
-                                _ => {
-                                    state.submit_chat_prompt(cli_prompt, file_path);
-                                    state.dispatch_figma_ai_prompt(task_title, cli_prompt, file_path);
+            if is_expanded {
+                let sub_items: &[(&str, &str, &str, &str)] = match cat_idx {
+                    0 => &[
+                        (
+                            "term-ai-rename-layers",
+                            "Rename layers semantically",
+                            "Rename Layers",
+                            "Semantically rename generic Frame/Rect/Text layers across selection",
+                        ),
+                        ("term-ai-design-gate", "Design Gate audit & auto-fix", "Design Gate", "\"$DESIGNOS_BIN\" \"$DESIGNOS_FILE\" --inspect-json"),
+                        (
+                            "term-ai-translate",
+                            "Translate selection (VI <-> EN)",
+                            "Translate VI/EN",
+                            "Translate selected UI copy between Vietnamese and English",
+                        ),
+                    ],
+                    1 => &[
+                        ("term-ai-make-design", "Make design (First Draft)", "Make Design", MAKE_DESIGN_FIRST_DRAFT_PROMPT),
+                        ("term-ai-make-proto", "Make prototype flows", "Make Prototype", "Auto-wire OnClick -> NavigateTo SmartAnimate flows across frames"),
+                        (
+                            "term-ai-populate",
+                            "Populate realistic data",
+                            "Populate Content",
+                            "Populate realistic SaaS metrics, names, and statuses into repeated cards",
+                        ),
+                    ],
+                    _ => &[
+                        ("agents-open-pty", "Open Live PTY Terminal", "Open PTY", ""),
+                        ("term-left-send-sel", "Send selection & comments to PTY", "Send Selection", ""),
+                        ("term-left-apply-out", "Apply NodeSpec from PTY output", "Apply Spec", ""),
+                        ("term-left-sync-disk", "Sync canvas from disk", "Sync Canvas", ""),
+                    ],
+                };
+                for &(sub_id, sub_label, _task_title, cli_prompt) in sub_items {
+                    let sub_r = Rect::from_min_size(Pos2::new(card_x + 6.0, y), Vec2::new((card_w - 12.0).max(80.0), 28.0));
+                    let sub_resp = ui.interact(sub_r, Id::new(sub_id), Sense::click());
+                    p.rect_filled(sub_r, CornerRadius::same(6), if sub_resp.hovered() { TERM_BG_HOVER } else { Color32::from_rgb(0x1E, 0x1E, 0x1E) });
+                    p.rect_stroke(sub_r, CornerRadius::same(6), Stroke::new(1.0, Color32::from_rgb(0x33, 0x33, 0x33)), StrokeKind::Inside);
+                    let elided = widgets::elide(&p, sub_label, &theme::font_caption_medium(), (sub_r.width() - 20.0).max(24.0));
+                    p.text(Pos2::new(sub_r.left() + 10.0, sub_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), theme::TEXT);
+                    widgets::record(ui, sub_id, sub_r);
+                    if sub_resp.clicked() {
+                        match sub_id {
+                            "agents-open-pty" => {
+                                state.side_panel_pty_open = true;
+                            }
+                            "term-left-send-sel" => actions.push(TerminalAction::ExportSelectionToTerminal),
+                            "term-left-apply-out" => {
+                                if let Some(act) = resolve_apply_spec_action(state) {
+                                    actions.push(act);
                                 }
                             }
+                            "term-left-sync-disk" => actions.push(TerminalAction::ReloadFromDisk),
+                            _ => {
+                                let _ = state.send_to_agent(cli_prompt, file_path);
+                            }
                         }
-                        y += 32.0;
                     }
-                    y += 4.0;
+                    y += 32.0;
                 }
+                y += 4.0;
             }
-        });
-    }
-
-    // ---- Render Bottom `"Ask for changes"` Composer Box
-    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_FRAME), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
-    widgets::record(ui, "agents-composer-box", composer_rect);
-
-    let input_rect = Rect::from_min_max(
-        Pos2::new(composer_rect.left() + 12.0, composer_rect.top() + 10.0),
-        Pos2::new(composer_rect.right() - 12.0, composer_rect.bottom() - 38.0),
-    );
-    let mut submit_composer = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(input_rect), |ui| {
-        let te = TextEdit::singleline(&mut state.input_line)
-            .id(Id::new("agents-ask-for-changes-input"))
-            .desired_width(input_rect.width())
-            .frame(egui::Frame::NONE)
-            .font(theme::font_body())
-            .text_color(Color32::WHITE)
-            .hint_text(RichText::new("Ask for changes").font(theme::font_body()).color(Color32::from_rgb(0x8C, 0x8C, 0x8C)));
-        let resp = ui.add(te);
-        if resp.clicked() || resp.has_focus() {
-            state.viewport_focused = false;
-        }
-        if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-            submit_composer = true;
         }
     });
-
-    let off_20 = theme::SPACE_BLOCK + theme::SPACE_ROW;
-    let off_5 = theme::SPACE_ROW + theme::BORDER_WIDTH;
-    let icon_y = composer_rect.bottom() - off_20;
-    let icon_gray = Color32::from_rgb(0xB3, 0xB3, 0xB3);
-
-    // Bottom-left `+` button (attaches selection & PRD context to composer and PTY)
-    let plus_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_20, icon_y), Vec2::splat(22.0));
-    let plus_resp = ui.interact(plus_r, Id::new("agents-composer-plus"), Sense::click());
-    if plus_resp.hovered() {
-        p.rect_filled(plus_r, CornerRadius::same(4), TERM_BG_HOVER);
-    }
-    let pc = plus_r.center();
-    p.line_segment([Pos2::new(pc.x - off_5, pc.y), Pos2::new(pc.x + off_5, pc.y)], Stroke::new(1.5, icon_gray));
-    p.line_segment([Pos2::new(pc.x, pc.y - off_5), Pos2::new(pc.x, pc.y + off_5)], Stroke::new(1.5, icon_gray));
-    widgets::record(ui, "agents-composer-plus", plus_r);
-    widgets::record(ui, "agents-composer-attach", plus_r);
-    if plus_resp.clicked() {
-        if !state.input_line.contains("@selection") {
-            let existing = state.input_line.trim().to_string();
-            state.input_line = if existing.is_empty() { "@selection @prd ".to_string() } else { format!("@selection @prd {existing}") };
-        }
-        actions.push(TerminalAction::ExportSelectionToTerminal);
-    }
-
-    // Bottom-left open-book button (toggles in-panel live PTY terminal / prompt library)
-    let off_46 = theme::CONTROL_DENSE + off_20 + theme::INSET_SEGMENT;
-    let book_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_46, icon_y), Vec2::splat(22.0));
-    let book_resp = ui.interact(book_r, Id::new("agents-composer-book"), Sense::click());
-    if book_resp.hovered() {
-        p.rect_filled(book_r, CornerRadius::same(4), TERM_BG_HOVER);
-    }
-    paint_open_book_icon(&p, book_r.center(), icon_gray);
-    widgets::record(ui, "agents-composer-book", book_r);
-    if book_resp.clicked() {
-        state.side_panel_pty_open = !state.side_panel_pty_open;
-    }
-
-    // Bottom-left `PRD` context chip button (attaches/cycles `@prd `, `@selection `, `@tokens `)
-    let off_82 = theme::CONTROL_STANDARD * 2.0 + off_20 + theme::SPACE_ROW;
-    let prd_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_82, icon_y), Vec2::new(38.0, 20.0));
-    let prd_resp = ui.interact(prd_r, Id::new("agents-composer-prd"), Sense::click());
-    let lower_in = state.input_line.to_ascii_lowercase();
-    let has_prd_tag = lower_in.contains("@prd") || lower_in.contains("@selection") || lower_in.contains("@tokens");
-    let prd_bg = if has_prd_tag {
-        Color32::from_rgb(0x16, 0x35, 0x52)
-    } else if prd_resp.hovered() {
-        TERM_BG_HOVER
-    } else {
-        Color32::from_rgb(0x28, 0x28, 0x2C)
-    };
-    p.rect_filled(prd_r, theme::cr(theme::RADIUS_CONTROL), prd_bg);
-    p.rect_stroke(
-        prd_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        Stroke::new(1.0, if has_prd_tag { Color32::from_rgb(0x0D, 0x99, 0xFF) } else { Color32::from_rgb(0x3C, 0x3C, 0x42) }),
-        StrokeKind::Inside,
-    );
-    p.text(
-        prd_r.center(),
-        Align2::CENTER_CENTER,
-        "PRD",
-        theme::font_caption_strong(),
-        if has_prd_tag { Color32::from_rgb(0x6E, 0xA8, 0xFE) } else { icon_gray },
-    );
-    widgets::record(ui, "agents-composer-prd", prd_r);
-    widgets::record(ui, "agents-composer-context", prd_r);
-    if prd_resp.clicked() {
-        let next_tag = if !lower_in.contains("@prd") {
-            "@prd"
-        } else if !lower_in.contains("@selection") {
-            "@selection"
-        } else {
-            "@tokens"
-        };
-        if state.input_line.trim().is_empty() {
-            state.input_line = format!("{next_tag} ");
-        } else if !lower_in.contains(next_tag) {
-            state.input_line = format!("{next_tag} {}", state.input_line.trim());
-        }
-    }
-
-
-    // Bottom-right Up-Arrow Send circle button (`26x26` `#383838` / `#0D99FF` circle + `↑` arrow)
-    let has_text = !state.input_line.trim().is_empty();
-    let off_18 = theme::INSET_PANEL + theme::INSET_SEGMENT;
-    let send_center = Pos2::new(composer_rect.right() - off_18, icon_y);
-    let send_r = Rect::from_center_size(send_center, Vec2::splat(26.0));
-    let send_resp = ui.interact(send_r, Id::new("agents-composer-send"), Sense::click());
-    let send_bg = if has_text {
-        Color32::from_rgb(0x0D, 0x99, 0xFF)
-    } else if send_resp.hovered() {
-        Color32::from_rgb(0x45, 0x45, 0x45)
-    } else {
-        Color32::from_rgb(0x38, 0x38, 0x38)
-    };
-    p.circle_filled(send_center, 13.0, send_bg);
-    paint_up_arrow_icon(&p, send_center, if has_text { Color32::WHITE } else { icon_gray });
-    widgets::record(ui, "agents-composer-send", send_r);
-    if send_resp.clicked() {
-        submit_composer = true;
-    }
-
-    if submit_composer && has_text {
-        let prompt = state.input_line.trim().to_string();
-        state.input_line.clear();
-        state.submit_chat_prompt(&prompt, file_path);
-    }
 
     actions
 }
 
 fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     crate::agent_picker::render_runtime_dropdown_menu(state, ui, panel_rect, top_y, file_path);
-}
-
-fn wrap_chat_lines(p: &Painter, text: &str, font: &FontId, max_w: f32, max_lines: usize) -> Vec<String> {
-    let mut out = Vec::new();
-    for raw_line in text.lines() {
-        let trimmed = raw_line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let mut current = String::new();
-        for word in trimmed.split_whitespace() {
-            let candidate = if current.is_empty() { word.to_string() } else { format!("{current} {word}") };
-            if widgets::text_width(p, &candidate, font) <= max_w {
-                current = candidate;
-            } else {
-                if !current.is_empty() {
-                    out.push(widgets::elide(p, &current, font, max_w));
-                    if out.len() >= max_lines {
-                        return out;
-                    }
-                }
-                current = widgets::elide(p, word, font, max_w);
-            }
-        }
-        if !current.is_empty() {
-            out.push(widgets::elide(p, &current, font, max_w));
-            if out.len() >= max_lines {
-                return out;
-            }
-        }
-    }
-    if out.is_empty() {
-        out.push("Running in PTY shell...".to_string());
-    }
-    out
-}
-
-fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect: Rect, actions: &mut Vec<TerminalAction>) {
-    let mut apply_turn_idx: Option<usize> = None;
-    clipped(ui, center_rect, |ui| {
-        let p = ui.painter().clone();
-        let font = theme::font_caption();
-        let font_strong = theme::font_caption_strong();
-        let mut y = center_rect.top() + 8.0 - state.chat_scroll;
-
-        for (idx, turn) in state.chat_turns.iter().enumerate() {
-            match turn.role {
-                AgentChatRole::User | AgentChatRole::System => {
-                    let header_label = if turn.role == AgentChatRole::System { "System" } else { "You" };
-                    let card_w = (center_rect.width() - 28.0).max(120.0);
-                    let max_txt_w = (card_w - 20.0).max(60.0);
-                    let lines = wrap_chat_lines(&p, &turn.text, &font, max_txt_w, 6);
-                    let card_h = (26.0 + lines.len() as f32 * 15.0 + 10.0).max(68.0);
-                    let card_r = Rect::from_min_size(Pos2::new(center_rect.right() - card_w - 10.0, y), Vec2::new(card_w, card_h));
-
-                    p.rect_filled(card_r, CornerRadius::same(8), Color32::from_rgb(0x26, 0x35, 0x4A));
-                    p.rect_stroke(card_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x4C, 0x6D)), StrokeKind::Inside);
-
-                    p.text(Pos2::new(card_r.left() + 10.0, card_r.top() + 13.0), Align2::LEFT_CENTER, header_label, font_strong.clone(), Color32::WHITE);
-                    p.text(
-                        Pos2::new(card_r.right() - 10.0, card_r.top() + 13.0),
-                        Align2::RIGHT_CENTER,
-                        turn.runtime.badge(),
-                        font_strong.clone(),
-                        Color32::from_rgb(0x6E, 0xA8, 0xFE),
-                    );
-                    widgets::hline(&p, card_r.left() + 8.0, card_r.right() - 8.0, card_r.top() + 23.0, Color32::from_rgb(0x36, 0x46, 0x63));
-
-                    for (li, line) in lines.iter().enumerate() {
-                        p.text(
-                            Pos2::new(card_r.left() + 10.0, card_r.top() + 34.0 + li as f32 * 15.0),
-                            Align2::LEFT_CENTER,
-                            line,
-                            font.clone(),
-                            Color32::from_rgb(0xF0, 0xF4, 0xFF),
-                        );
-                    }
-                    widgets::record(ui, &format!("agents-chat-turn-{}", turn.id), card_r);
-                    y += card_h + 8.0;
-                }
-                AgentChatRole::Assistant => {
-                    let card_w = (center_rect.width() - 20.0).max(120.0);
-                    let max_txt_w = (card_w - 20.0).max(60.0);
-                    let display_txt = if turn.text.trim().is_empty() {
-                        format!("[{} · PTY] Executing in live shell...", turn.runtime.tab_title())
-                    } else {
-                        turn.text.clone()
-                    };
-                    let lines = wrap_chat_lines(&p, &display_txt, &font, max_txt_w, 8);
-                    let card_h = (28.0 + lines.len() as f32 * 15.0 + 26.0).max(82.0);
-                    let card_r = Rect::from_min_size(Pos2::new(center_rect.left() + 10.0, y), Vec2::new(card_w, card_h));
-
-                    p.rect_filled(card_r, CornerRadius::same(8), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-                    p.rect_stroke(card_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-
-                    p.circle_filled(Pos2::new(card_r.left() + 12.0, card_r.top() + 13.0), 3.0, STATUS_OK_TEXT);
-                    let title_elided = widgets::elide(&p, turn.runtime.tab_title(), &font_strong, (card_w - 64.0).max(40.0));
-                    p.text(Pos2::new(card_r.left() + 20.0, card_r.top() + 13.0), Align2::LEFT_CENTER, title_elided, font_strong.clone(), Color32::WHITE);
-                    p.text(Pos2::new(card_r.right() - 10.0, card_r.top() + 13.0), Align2::RIGHT_CENTER, "PTY", font_strong.clone(), STATUS_OK_TEXT);
-                    widgets::hline(&p, card_r.left() + 8.0, card_r.right() - 8.0, card_r.top() + 24.0, Color32::from_rgb(0x2E, 0x2E, 0x2E));
-
-                    for (li, line) in lines.iter().enumerate() {
-                        p.text(
-                            Pos2::new(card_r.left() + 10.0, card_r.top() + 35.0 + li as f32 * 15.0),
-                            Align2::LEFT_CENTER,
-                            line,
-                            font.clone(),
-                            Color32::from_rgb(0xE4, 0xE4, 0xE7),
-                        );
-                    }
-
-                    let footer_y = card_r.bottom() - 12.0;
-                    let has_spec = turn.extracted_spec_json.is_some();
-                    let cmd_max_w = if has_spec { (card_w - 88.0).max(36.0) } else { (card_w - 20.0).max(40.0) };
-                    let cmd_str = widgets::elide(&p, &format!("$ {}", turn.shell_cmd), &font, cmd_max_w);
-                    p.text(Pos2::new(card_r.left() + 10.0, footer_y), Align2::LEFT_CENTER, cmd_str, font.clone(), Color32::from_rgb(0x8C, 0x8C, 0x8C));
-
-                    if has_spec {
-                        let btn_r = Rect::from_min_size(Pos2::new(card_r.right() - 72.0, card_r.bottom() - 22.0), Vec2::new(64.0, 18.0));
-                        let btn_resp = ui.interact(btn_r, Id::new(("agents-chat-apply-spec", turn.id)), Sense::click());
-                        let b_bg = if turn.applied_to_canvas {
-                            STATUS_OK_BG
-                        } else if btn_resp.hovered() {
-                            TERM_BG_HOVER
-                        } else {
-                            STATUS_INFO_BG
-                        };
-                        let b_border = if turn.applied_to_canvas { STATUS_OK_BORDER } else { STATUS_INFO_BORDER };
-                        let b_fg = if turn.applied_to_canvas { STATUS_OK_TEXT } else { STATUS_INFO_TEXT };
-                        let b_label = if turn.applied_to_canvas { "Applied" } else { "Apply" };
-                        p.rect_filled(btn_r, CornerRadius::same(4), b_bg);
-                        p.rect_stroke(btn_r, CornerRadius::same(4), Stroke::new(1.0, b_border), StrokeKind::Inside);
-                        p.text(btn_r.center(), Align2::CENTER_CENTER, b_label, font_strong.clone(), b_fg);
-                        widgets::record(ui, "agents-chat-apply-spec", btn_r);
-                        if btn_resp.clicked() {
-                            apply_turn_idx = Some(idx);
-                        }
-                    }
-
-                    widgets::record(ui, &format!("agents-chat-turn-{}", turn.id), card_r);
-                    y += card_h + 8.0;
-                }
-            }
-        }
-    });
-
-    if let Some(idx) = apply_turn_idx {
-        if let Some(turn) = state.chat_turns.get_mut(idx) {
-            if let Some(spec_json) = turn.extracted_spec_json.clone() {
-                turn.applied_to_canvas = true;
-                actions.push(TerminalAction::ApplySpecJson(spec_json));
-            }
-        }
-    }
 }
 
 fn paint_agents_grid_plus_badge(p: &egui::Painter, center: Pos2) {
@@ -3825,10 +3141,6 @@ fn paint_toolbox_icon(p: &egui::Painter, c: Pos2, col: Color32) {
 
 fn paint_open_book_icon(p: &egui::Painter, c: Pos2, col: Color32) {
     icons::paint(p, Icon::BookOpen, c, 14.0, col);
-}
-
-fn paint_up_arrow_icon(p: &egui::Painter, c: Pos2, col: Color32) {
-    icons::paint(p, Icon::ArrowUp, c, 14.0, col);
 }
 
 fn paint_popout_icon(p: &egui::Painter, c: Pos2, col: Color32) {
@@ -4811,9 +4123,6 @@ Done!
 
     #[test]
     fn agents_chat_wrapper_executes_in_pty_shell_and_streams_clean_output() {
-        let stripped = strip_ansi_codes("\x1b[1;32mHello\x1b[0m \x1b]0;WindowTitle\x07World\r\n");
-        assert_eq!(stripped.trim(), "Hello World");
-
         let mut st = TerminalState::default();
         assert_eq!(st.active_runtime, AgentCliPreset::Shell);
         st.side_panel_pty_open = false;
@@ -4827,29 +4136,19 @@ Done!
         st.set_active_runtime(AgentCliPreset::Claude, None);
         assert_eq!(st.active_runtime, AgentCliPreset::Claude);
 
-        st.submit_chat_prompt("Create a SaaS analytics card in Claude Code", None);
-        assert_eq!(st.chat_turns.len(), 2);
-        assert_eq!(st.chat_turns[0].role, AgentChatRole::User);
-        assert_eq!(st.chat_turns[0].text, "Create a SaaS analytics card in Claude Code");
-        assert_eq!(st.chat_turns[1].role, AgentChatRole::Assistant);
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut synced = false;
-        while std::time::Instant::now() < deadline {
-            st.sync_chat_from_pty();
-            let reply = &st.chat_turns[1].text;
-            if !reply.trim().is_empty() {
-                assert!(!reply.contains("DESIGNOS_CHAT_BEGIN_"), "Marker should not leak into chat bubble: {reply}");
-                assert!(!reply.contains("\x1b["), "ANSI CSI should be stripped: {reply}");
-                synced = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(40));
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
         }
-        assert!(synced, "Assistant chat turn should receive live PTY shell output");
-
-        // Inject an extracted NodeSpec JSON on the assistant turn to also verify the 'Apply' button layout
-        st.chat_turns[1].extracted_spec_json = Some(r#"{"name":"Analytics Card","preset":"easeui-card"}"#.to_string());
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        let outcome = st.send_to_agent("Create a SaaS analytics card in Claude Code", None);
+        assert_eq!(outcome, crate::agent_composer::SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(written.contains("Create a SaaS analytics card in Claude Code"));
+        assert!(written.ends_with('\r'));
 
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
@@ -4861,20 +4160,10 @@ Done!
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
         let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
-        let all_text: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
-        assert!(all_text.contains(&"Claude"), "Runtime pill 'Claude' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Codex"), "Runtime pill 'Codex' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"AGY"), "Runtime pill 'AGY' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Grok"), "Runtime pill 'Grok' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Shell"), "Runtime pill 'Shell' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"You"), "User bubble header 'You' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"PTY"), "Assistant bubble 'PTY' badge must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Apply"), "Assistant bubble 'Apply' spec button must be painted: {all_text:?}");
-
         let text_findings = crate::lint::check_text(&texts, &boxes);
         let icon_findings = crate::lint::check_icons(&crate::lint::take_icons());
-        assert!(text_findings.is_empty(), "Chat thread text lint findings: {text_findings:?}");
-        assert!(icon_findings.is_empty(), "Chat thread icon lint findings: {icon_findings:?}");
+        assert!(text_findings.is_empty(), "Agents panel text lint findings: {text_findings:?}");
+        assert!(icon_findings.is_empty(), "Agents panel icon lint findings: {icon_findings:?}");
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -4884,26 +4173,24 @@ Done!
     #[test]
     fn all_four_agent_cli_runtimes_claude_codex_agy_grok_execute_in_pty() {
         let mut st = TerminalState::default();
-        for (preset, prompt, expected_tag) in [
-            (AgentCliPreset::Claude, "Audit layout in Claude", "[Claude Code · claude PTY]"),
-            (AgentCliPreset::Codex, "Generate React code in Codex", "[Codex CLI · codex PTY]"),
-            (AgentCliPreset::Antigravity, "Check parity in Antigravity", "[Antigravity (agy) · agy PTY]"),
-            (AgentCliPreset::Grok, "Fast build in Grok", "[Grok Build · grok PTY]"),
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        for (preset, prompt) in [
+            (AgentCliPreset::Claude, "Audit layout in Claude"),
+            (AgentCliPreset::Codex, "Generate React code in Codex"),
+            (AgentCliPreset::Antigravity, "Check parity in Antigravity"),
+            (AgentCliPreset::Grok, "Fast build in Grok"),
         ] {
-            st.set_active_runtime(preset, None);
-            let turn_idx = st.chat_turns.len() + 1;
-            st.submit_chat_prompt(prompt, None);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-            let mut ok = false;
-            while std::time::Instant::now() < deadline {
-                st.sync_chat_from_pty();
-                if st.chat_turns[turn_idx].text.contains(expected_tag) {
-                    ok = true;
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(40));
+            {
+                let tab = st.active_tab_mut().unwrap();
+                tab.spawn_preset = preset;
+                tab.preset = preset;
             }
-            assert!(ok, "Runtime {:?} failed to stream expected output '{}' in PTY: got '{}'", preset, expected_tag, st.chat_turns[turn_idx].text);
+            let rec = attach_recorder(st.active_tab_mut().unwrap());
+            st.submit_chat_prompt(prompt, None);
+            st.flush_pending_enter_now();
+            let written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+            assert!(written.contains(prompt), "Runtime {preset:?} must write prompt to live PTY: got {written:?}");
+            assert!(written.ends_with('\r'));
         }
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -4913,22 +4200,17 @@ Done!
     #[test]
     fn agent_chat_supports_prd_and_spec_context_handoff() {
         let mut st = TerminalState::default();
-        st.submit_chat_prompt("@prd Review & implement spec block (REQ-01)", None);
-        assert_eq!(st.chat_turns.len(), 2);
-        assert!(st.chat_turns[0].text.contains("@prd"), "User turn should carry @prd tag: {}", st.chat_turns[0].text);
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        let mut prd_streamed = false;
-        while std::time::Instant::now() < deadline {
-            st.sync_chat_from_pty();
-            if st.chat_turns[1].text.contains("@prd Review & implement spec block (REQ-01)") {
-                prd_streamed = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(40));
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
         }
-        assert!(prd_streamed, "Assistant PTY turn should echo user prompt without hardcoded planning paths: got '{}'", st.chat_turns[1].text);
-        assert!(!st.chat_turns[1].text.contains("plans/specs/"), "Must not inject repo-internal planning paths: '{}'", st.chat_turns[1].text);
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.submit_chat_prompt("@prd Review & implement spec block (REQ-01)", None);
+        st.flush_pending_enter_now();
+        let written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(written.contains("@prd Review & implement spec block (REQ-01)"), "Live PTY should receive @prd prompt: {written}");
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -4940,11 +4222,6 @@ Done!
         let mut cmd = CommandBuilder::new("sh");
         configure_pty_env(&mut cmd, AgentCliPreset::Codex, None);
         assert_eq!(cmd.get_env("DESIGNOS_AGENT_RUNTIME"), Some(std::ffi::OsStr::new("codex")));
-
-        let live_spec = std::path::Path::new("/tmp/designos-live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-selection.json");
-        let grok_cmd = build_real_cli_command(AgentCliPreset::Grok, "Build card", live_spec, sel_json);
-        assert!(grok_cmd.contains("DESIGNOS_AGENT_RUNTIME='grok'"));
     }
 
     #[test]
@@ -4958,39 +4235,20 @@ Done!
         assert!(AgentCliPreset::Antigravity.cli_launch_command().starts_with("agy --dangerously-skip-permissions"));
         assert_eq!(AgentCliPreset::Shell.cli_launch_command(), "");
 
-        let live_spec = std::path::Path::new("/tmp/designos-live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-selection.json");
-        let claude_cmd = build_real_cli_command(AgentCliPreset::Claude, "Create a SaaS hero frame", live_spec, sel_json);
-        assert!(claude_cmd.contains("claude --dangerously-skip-permissions -p"));
-        assert!(claude_cmd.contains("--mcp-config"));
-        assert!(claude_cmd.contains("DESIGNOS_LIVE_SPEC"));
-        assert!(claude_cmd.contains("DESIGNOS_SELECTION_JSON"));
-
-        let codex_cmd = build_real_cli_command(AgentCliPreset::Codex, "Audit layout", live_spec, sel_json);
-        assert!(codex_cmd.contains("codex --dangerously-bypass-approvals-and-sandbox exec"));
-        let agy_cmd = build_real_cli_command(AgentCliPreset::Antigravity, "Check parity", live_spec, sel_json);
-        assert!(agy_cmd.contains("agy --dangerously-skip-permissions") && agy_cmd.contains("-p"));
-        let grok_cmd = build_real_cli_command(AgentCliPreset::Grok, "Build card", live_spec, sel_json);
-        assert!(grok_cmd.contains("grok --always-approve") && grok_cmd.contains("-p"));
-
         let mut st = TerminalState::default();
-        let _ = st.spawn_tab(AgentCliPreset::Shell, None);
-        st.dispatch_figma_ai_prompt("Auto-rename layers to semantic names", "Auto-rename layers to semantic names", None);
-        assert!(st.dock_open);
-        assert_eq!(st.chat_turns.len(), 2);
-        assert!(st.chat_turns[0].text.contains("Auto-rename layers to semantic names"));
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut got_reply = false;
-        while std::time::Instant::now() < deadline {
-            st.sync_chat_from_pty();
-            if st.chat_turns[1].text.contains("[Figma AI ·") {
-                got_reply = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(40));
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
         }
-        assert!(got_reply, "dispatch_figma_ai_prompt must stream real PTY output instead of a comment line");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.dispatch_figma_ai_prompt("Auto-rename layers to semantic names", "Auto-rename layers to semantic names", None);
+        st.flush_pending_enter_now();
+        assert!(st.dock_open);
+        let written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(written.contains("Auto-rename layers to semantic names"));
+        assert!(!written.trim_start().starts_with('#'));
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
         }
@@ -5051,12 +4309,12 @@ Done!
 
         // Click `+` attach button -> prepends @selection @prd and emits ExportSelectionToTerminal
         let acts = click_at(&ctx, &mut st, plus_rect.center());
-        assert!(st.input_line.contains("@selection"));
+        assert!(st.composer_draft().contains("@selection"));
         assert!(acts.contains(&TerminalAction::ExportSelectionToTerminal));
 
         // Click `PRD` context chip -> cycles next context tag (@tokens since @prd & @selection are present)
         let _ = click_at(&ctx, &mut st, prd_rect.center());
-        assert!(st.input_line.contains("@tokens"));
+        assert!(st.composer_draft().contains("@tokens"));
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -5714,8 +4972,14 @@ Done!
     fn submit_chat_prompt_sanitizes_control_chars() {
         let mut st = TerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+        }
         let rec = attach_recorder(st.active_tab_mut().unwrap());
-        st.submit_chat_prompt("hello\rworld\x07", None);
+        st.submit_chat_prompt("hello world\x07", None);
+        st.flush_pending_enter_now();
         let bytes = rec.lock().unwrap().clone();
         assert!(!bytes.contains(&0x07), "BEL must not reach the PTY: {bytes:?}");
         let cr_positions: Vec<usize> = bytes.iter().enumerate().filter(|(_, b)| **b == b'\r').map(|(i, _)| i).collect();
@@ -5824,13 +5088,6 @@ Done!
         assert_eq!(unknown_agy_flags(interactive), Vec::<String>::new(), "tab launch: {interactive}");
         assert!(!interactive.contains("--mcp-config"), "agy has no --mcp-config: {interactive}");
         assert!(interactive.contains("--add-dir \"$DESIGNOS_SESSION_DIR\""), "session plugin dir must be added: {interactive}");
-
-        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
-        let one_shot = build_real_cli_command(AgentCliPreset::Antigravity, "Check parity", live_spec, sel_json);
-        assert_eq!(unknown_agy_flags(&one_shot), Vec::<String>::new(), "one-shot launch: {one_shot}");
-        assert!(!one_shot.contains("--mcp-config"), "agy has no --mcp-config: {one_shot}");
-        assert!(one_shot.contains("--add-dir '/tmp/designos-session-x'"), "session plugin dir must be added: {one_shot}");
     }
 
     #[test]
@@ -5859,14 +5116,6 @@ Done!
         assert_eq!(unknown_flags(interactive, GROK_1_0_62_FLAGS), Vec::<String>::new(), "tab launch: {interactive}");
         assert!(!interactive.contains("--mcp-config"), "grok has no --mcp-config: {interactive}");
         assert!(interactive.contains("--cwd \"$DESIGNOS_SESSION_DIR\""), "grok reads the session project config from its cwd: {interactive}");
-
-        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
-        let one_shot = build_real_cli_command(AgentCliPreset::Grok, "Build card", live_spec, sel_json);
-        assert_eq!(unknown_flags(&one_shot, GROK_1_0_62_FLAGS), Vec::<String>::new(), "one-shot launch: {one_shot}");
-        assert!(!one_shot.contains("--mcp-config"), "grok has no --mcp-config: {one_shot}");
-        assert!(one_shot.contains("--cwd '/tmp/designos-session-x'"), "{one_shot}");
-        assert!(one_shot.contains("GROK_FOLDER_TRUST='0'"), "{one_shot}");
     }
 
     #[test]
@@ -6030,11 +5279,6 @@ Done!
             "{}",
             AgentCliPreset::Claude.cli_launch_command()
         );
-        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
-        let one_shot = build_real_cli_command(AgentCliPreset::Claude, "hi", live_spec, sel_json);
-        let hooks_file = live_spec.parent().unwrap().join("hooks.json");
-        assert!(one_shot.contains(&format!("--settings '{}'", hooks_file.display())), "{one_shot}");
 
         let st = provisioned_session(741);
         let settings = read_json(&st.session_dir.join("hooks.json"));
@@ -6110,15 +5354,10 @@ Done!
     #[test]
     fn agent_chat_codex_command_carries_the_same_mcp_overrides_as_the_tab() {
         let tab = AgentCliPreset::Codex.cli_launch_command();
-        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
-        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
-        let chat = build_real_cli_command(AgentCliPreset::Codex, "Audit layout", live_spec, sel_json);
-        assert!(chat.contains("codex --dangerously-bypass-approvals-and-sandbox exec"), "{chat}");
-        for key in ["mcp_servers.designos.args", "mcp_servers.designos.env_vars"] {
-            assert_eq!(codex_list_override(&chat, key), codex_list_override(tab, key), "{key} differs between tab and chat: {chat}");
-        }
-        assert!(chat.contains("mcp_servers.designos.command=\"'\"$DESIGNOS_MCP_BIN\"'\""), "{chat}");
-        assert!(chat.contains("--workspace") && chat.contains("$DESIGNOS_WORKSPACE"), "{chat}");
+        assert!(tab.contains("codex --dangerously-bypass-approvals-and-sandbox"), "{tab}");
+        assert!(!codex_list_override(tab, "mcp_servers.designos.args").is_empty(), "{tab}");
+        assert!(!codex_list_override(tab, "mcp_servers.designos.env_vars").is_empty(), "{tab}");
+        assert!(tab.contains("--workspace") && tab.contains("$DESIGNOS_WORKSPACE"), "{tab}");
     }
 
     /// A state whose stub agent has exited but whose exit the terminal has not yet observed: the

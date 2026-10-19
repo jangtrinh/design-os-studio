@@ -275,8 +275,8 @@ impl Shell {
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
                 let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
                 while std::time::Instant::now() < deadline {
-                    app.terminal.sync_chat_from_pty();
-                    if app.terminal.chat_turns.last().is_some_and(|t| !t.text.trim().is_empty()) {
+                    let _ = app.terminal.poll_live_agent_bridge();
+                    if app.terminal.active_composer().pending_send.is_none() {
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(30));

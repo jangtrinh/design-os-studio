@@ -1386,30 +1386,30 @@ mod tests {
     #[test]
     fn closing_background_tab_and_per_tab_terminal_isolation() {
         let mut app = make_app_with_doc("File One");
-        app.terminal.input_line = "claude --file-one".to_string();
+        app.terminal.set_composer_draft("claude --file-one");
 
         let doc2 = Document::new("File Two");
         let idx2 = app.open_new_tab("File Two", doc2, ProjectTabKind::Design);
         assert_eq!(idx2, 1);
-        assert_eq!(app.terminal.input_line, "", "New file tab gets its own clean TerminalState");
-        app.terminal.input_line = "codex --file-two".to_string();
+        assert_eq!(app.terminal.composer_draft(), "", "New file tab gets its own clean TerminalState");
+        app.terminal.set_composer_draft("codex --file-two");
 
         // Switch back to File One and verify its terminal state was isolated & preserved
         app.switch_tab(0);
         assert_eq!(app.doc.name, "File One");
-        assert_eq!(app.terminal.input_line, "claude --file-one");
+        assert_eq!(app.terminal.composer_draft(), "claude --file-one");
 
         // Switch to File Two and verify its terminal state was isolated & preserved
         app.switch_tab(1);
         assert_eq!(app.doc.name, "File Two");
-        assert_eq!(app.terminal.input_line, "codex --file-two");
+        assert_eq!(app.terminal.composer_draft(), "codex --file-two");
 
         // Close background tab 0 (File One) while editing active tab 1 (File Two)
         assert!(app.close_tab(0));
         assert_eq!(app.tabs.entries.len(), 1);
         assert_eq!(app.tabs.active_idx, 0);
         assert_eq!(app.doc.name, "File Two");
-        assert_eq!(app.terminal.input_line, "codex --file-two");
+        assert_eq!(app.terminal.composer_draft(), "codex --file-two");
     }
 
     #[test]
@@ -1822,7 +1822,7 @@ mod tests {
         let mut app = App::new(Document::new("Preset"));
         let bound = app.tabs.active_session_id();
         app.terminal.bind_session(&bound);
-        app.terminal.ensure_shell_for_chat(None);
+        let _ = app.terminal.spawn_tab(crate::terminal::AgentCliPreset::Shell, None);
         assert_eq!(app.terminal.tabs.len(), 1, "precondition: the shell started");
         let started_with = app.terminal.session_env();
 
