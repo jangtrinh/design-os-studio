@@ -1,0 +1,114 @@
+
+### tenant-lint (docs/index.html)
+TENANT-LINT: PASS
+
+### line counts
+     139 v2-closer.js
+      30 v2-closer.css
+     169 total
+
+### section heights 1440 reduced motion (static document)
+{
+ "doc": 5942,
+ "scrollW": 1440,
+ "header.topbar": 65,
+ "top.hero": 1261,
+ "proof.proof": 725,
+ "anatomy.anatomy": 602,
+ "workflow.workflow": 608,
+ "scale.scale": 461,
+ "new.sec": 628,
+ "install.sec": 583,
+ "faq.sec": 414,
+ "get.sec": 194,
+ "footer.foot": 400
+}
+
+### section heights 375 reduced motion (scrollW must be 375)
+{
+ "doc": 8281,
+ "scrollW": 375,
+
+### console + network, motion 1440
+{"mode":"motion","w":"1440","v2Motion":true,"docHeight":11106,"requests":517,"consoleErrorsAndWarnings":[],"failedRequests":[],"httpErrors":[]}
+
+### console + network, reduced motion 1440
+{"mode":"reduce","w":"1440","v2Motion":false,"docHeight":5942,"requests":32,"consoleErrorsAndWarnings":[],"failedRequests":[],"httpErrors":[]}
+
+### console + network, 375
+{"mode":"motion","w":"375","v2Motion":false,"docHeight":8281,"requests":33,"consoleErrorsAndWarnings":[],"failedRequests":[],"httpErrors":[]}
+
+### axe 1440x900
+axe-core 4.12.1 at 1440x900: 0 violation(s), 30 rules passed, incomplete: aria-prohibited-attr, color-contrast, video-caption
+
+### axe 375x812
+axe-core 4.12.1 at 375x812: 0 violation(s), 30 rules passed, incomplete: aria-prohibited-attr, color-contrast, video-caption
+
+### axe on #get + footer with the narrator and burst layers removed (incomplete list must be empty)
+[]
+
+### header 1440 / 900 / 375 / 320
+{"scrollW":1440,"navW":1200,"pill":{"x":1129.0625,"w":190.9375,"h":44,"text":"Download for macOS","href":"https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg"},"brand
+{"scrollW":900,"navW":828,"pill":{"x":673.0625,"w":190.9375,"h":44,"text":"Download for macOS","href":"https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg"},"brand":{
+{"scrollW":375,"navW":343,"pill":{"x":190.25,"w":168.75,"h":44,"text":"Download for macOS","href":"https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg"},"brand":{"x":
+{"scrollW":320,"navW":288,"pill":{"x":139.25,"w":164.75,"h":44,"text":"Download for macOS","href":"https://github.com/jangtrinh/design-os-studio/releases/download/v0.3.0/designos-0.3.0-macos.dmg"},"brand":{"x":
+
+### end of page, motion 1440 (narrator on the wordmark, 1212 x 215 pill)
+{"doc":11106,"w":1440,"get":194.359375,"foot":399.78125,"mark":{"x":120,"y":529.15625,"width":1200,"height":203,"top":529.15625,"right":1320,"bottom":732.15625,"left":120}} errors: []
+
+### end of page, static 1440 (reduced motion)
+{"doc":5942,"w":1440,"get":194.359375,"foot":399.78125,"mark":{"x":120,"y":528.765625,"width":1200,"height":203,"top":528.765625,"right":1320,"bottom":731.765625,"left":120}} errors: []
+
+### wordmark zoom 2x (static)
+
+### end of page, 375 viewport and full #get + footer
+{"doc":8281,"w":375,"get":412.8125,"foot":407.578125,"mark":{"x":16,"y":433.671875,"width":343,"height":58.015625,"top":433.671875,"right":359,"bottom":491.6875,"left":16}} errors: []
+{"y":7460.859375,"h":820.390625,"w":375,"over":["LI.proof-slot","ARTICLE.proof-card","DIV.
+{"y":5274.859375,"h":656.65625,"w":1024,"over":["g.[object SVGAnimatedString]","use.[objec
+
+### wordmark draw-on frames (motion 1440)
+450 {"off":"332px","rows":"0.0044"}
+1000 {"off":"3px","rows":"0.8496"}
+1700 {"off":"0px","rows":"1"}
+before {"dash":"1000px","off":"1000px","rows":"0"} after {"dash":"none","off":"0px","rows":"1","inline":""}
+
+### download click 1440: handles + burst at 100 ms and 250 ms; download request must fire at once, never prevented
+frame 0.1s: rects=56 elapsedSinceClick~0.106
+resuming
+resumed
+{"mode":"motion","how":"click","w":"1440","requestFiredMsAfterClick":10.300048828125,"downloaded":"designos-test.dmg","defaultPrevented":false,"leftoverRects":0,"burstChildren":0,"url":"http://127.0.0.1:4103/","errors":[]}
+frame 0.25s: rects=56 elapsedSinceClick~0.252
+resuming
+resumed
+{"mode":"motion","how":"click","w":"1440","requestFiredMsAfterClick":17,"downloaded":"designos-test.dmg","defaultPrevented":false,"leftoverRects":0,"burstChildren":0,"url":"http://127.0.0.1:4103/","errors":[]}
+
+### download click via keyboard Enter 1440
+frame 0.25s: rects=56 elapsedSinceClick~0.263
+resuming
+resumed
+{"mode":"motion","how":"enter","w":"1440","requestFiredMsAfterClick":7.900146484375,"downloaded":"designos-test.dmg","defaultPrevented":false,"leftoverRects":0,"burstChildren":0,"url":"http://127.0.0.1:4103/","errors":[]}
+
+### download click 375 (phone)
+frame 0.25s: rects=32 elapsedSinceClick~0.265
+resuming
+resumed
+{"mode":"motion","how":"click","w":"375","requestFiredMsAfterClick":11.300048828125,"downloaded":"designos-test.dmg","defaultPrevented":false,"leftoverRects":0,"burstChildren":0,"url":"http://127.0.0.1:4103/","errors":[]}
+
+### download click under reduced motion: no burst, download still starts
+frame 0.25s: rects=0 elapsedSinceClick~0.015
+resuming
+resumed
+{"mode":"reduce","how":"click","w":"1440","requestFiredMsAfterClick":17.300048828125,"downloaded":"designos-test.dmg","defaultPrevented":false,"leftoverRects":0,"burstChildren":0,"url":"http://127.0.0.1:4103/","errors":[]}
+
+### mode toggle motion -> static -> motion
+motion, at top    {"motion":true,"stops":"closer,new,scale,workflow,anatomy,cards,film,headline","outlineStyle":"stroke-dashoffset: 1000px; stroke-dasharray: 1000;","dash":"1000px","rows":"0"}
+static (700px)    {"motion":false,"stops":"film,headline","outlineStyle":"","dash":"none","rows":"1"}
+motion again      {"motion":true,"stops":"closer,new,scale,workflow,anatomy,cards,film,headline","outlineStyle":"stroke-dashoffset: 1000px; stroke-dasharray: 1000;","dash":"1000px","rows":"0"}
+scrolled to end   {"motion":true,"stops":"closer,new,scale,workflow,anatomy,cards,film,headline","outlineStyle":"","dash":"none","rows":"1"}
+errors []
+
+### files changed (git status, read-only)
+ M docs/index.html
+?? docs/assets/v2-closer.css
+?? docs/assets/v2-closer.js
+DONE

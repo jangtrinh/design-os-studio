@@ -1,0 +1,88 @@
+{
+  "frameCount": 232,
+  "fps": 10,
+  "size": [
+    1280,
+    720
+  ],
+  "sizeLQ": [
+    640,
+    360
+  ],
+  "crop": {
+    "figma": [
+      128,
+      144,
+      1664,
+      936
+    ],
+    "agent": [
+      132,
+      144,
+      1664,
+      936
+    ],
+    "code": [
+      128,
+      144,
+      1664,
+      936
+    ]
+  },
+  "chapters": [
+    {
+      "id": "figma",
+      "range": [
+        0,
+        79
+      ],
+      "film": [
+        3.183,
+        11.126
+      ],
+      "frames": 80
+    },
+    {
+      "id": "agent",
+      "range": [
+        80,
+        199
+      ],
+      "film": [
+        11.933,
+        23.841
+      ],
+      "frames": 120,
+      "requestedFilmStart": 11.126,
+      "trimmedTitleFrames": 8,
+      "trimNote": "first 0.8 s of bar 7 carries the mid-frame title card \"Now bring an agent.\" that no single crop can remove; chapter starts at the first clean frame"
+    },
+    {
+      "id": "code",
+      "range": [
+        201,
+        231
+      ],
+      "film": [
+        27.017,
+        30.199
+      ],
+      "frames": 31,
+      "trimNote": "frame index 200 (file 0201) still shows the agent chapter; the chapter starts one frame later"
+    }
+  ],
+  "cropSource": "1920x1080 film master; 1664x936 (16:9) rect per chapter, scaled to size",
+  "quality": {
+    "hq": 72,
+    "lq": 55
+  },
+  "source": "film-v030-16x9.mp4 (60 fps CFR), master frame = round(t*60), one frame per 6 master frames",
+  "fallback": {
+    "poster": "fallback/<chapter>.webp",
+    "posterFrames": {
+      "figma": "frames/0058.webp",
+      "agent": "frames/0178.webp",
+      "code": "frames/0232.webp"
+    }
+  }
+}

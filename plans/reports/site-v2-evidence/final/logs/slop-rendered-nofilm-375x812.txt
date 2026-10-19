@@ -1,0 +1,32 @@
+
+http://127.0.0.1:4103/index.html
+  [cramped-padding] 7.2px vertical padding (need ≥12.0px for 40px text)
+    → Text is too close to the edge of its container. Two shapes: (1) an element with its own text where the padding is too low for the font size, and (2) a wrapper with text-bearing children and near-zero padding against a visible boundary (border, outline, or non-transparent background) — children land flush against the boundary line. Add at least 8px (ideally 12–16px) of padding inside bordered, outlined, or colored containers.
+  [body-text-viewport-edge] <p> with 121-char body bleeds to viewport edge (right -198px)
+    → Body paragraphs render flush against the left or right viewport edge with no container providing horizontal padding. Wrap content in a container with at least 16px (ideally 24-32px) of horizontal padding, or apply max-width with mx-auto.
+  [body-text-viewport-edge] <p> with 78-char body bleeds to viewport edge (right -506px)
+    → Body paragraphs render flush against the left or right viewport edge with no container providing horizontal padding. Wrap content in a container with at least 16px (ideally 24-32px) of horizontal padding, or apply max-width with mx-auto.
+  [tight-leading] line-height 1.00x (need >=1.3)
+    → Line height below 1.3x the font size makes multi-line text hard to read. Use 1.5 to 1.7 for body text so lines have room to breathe.
+  [overused-font] Primary font: inter (99% of text)
+    → Inter, Roboto, Fraunces, Geist, Plus Jakarta Sans, and Space Grotesk are used on so many sites they no longer feel distinctive. Each new wave of AI-generated UIs converges on the same handful of faces. Choose a face that gives your interface personality.
+  [script-error] Cannot read properties of null (reading 'getAttribute')
+    → A script threw an uncaught exception or failed to parse while the page loaded. Broken JavaScript silently kills reveals, interactions, and dynamic content, and can leave most of a page invisible. Fix the error before judging anything else.
+  [low-contrast] browser contrast 3.1:1 median 3.1:1 (need 4.5:1) via analytic-gradient+alpha "nodes in one file"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 1.3:1 median 1.3:1 (need 4.5:1) via analytic-gradient+alpha "The Untitled UI PRO v8.0 Figma kit opens and renders on the GPU, across 113 page"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 2.7:1 median 2.7:1 (need 3:1) via analytic-gradient+alpha "22"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 2.7:1 median 2.7:1 (need 4.5:1) via analytic-gradient+alpha "MCP tools"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 1.2:1 median 1.2:1 (need 4.5:1) via analytic-gradient+alpha, solid-background "Coding agents edit the document you have open through . Built-in presets: Claude"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 2.6:1 median 2.6:1 (need 3:1) via analytic-gradient+alpha "7"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 2.6:1 median 2.6:1 (need 4.5:1) via analytic-gradient+alpha "code targets"
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+  [low-contrast] browser contrast 1.1:1 median 1.1:1 (need 4.5:1) via analytic-gradient+alpha "Dev Mode prints CSS, Tailwind, SwiftUI, UIKit, Compose, Android XML and React."
+    → Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.
+
+14 anti-patterns found.

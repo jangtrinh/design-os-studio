@@ -1,0 +1,18 @@
+head 1d54fd1 2026-10-18 13:01:11 +0700
+tenant-lint exit=0 TENANT-LINT: PASS
+ui gate exit=1 gate: docs/index.html — 1 error(s), 5 warning(s)   taste: 0 error(s), 5 warning(s)   tell: 0 error(s), 0 warning(s)   autofix: 1 error(s), 0 warning(s) 
+zero_fake_ui_gate exit=0  Gate Verdict: PASS (14/14 invariants satisfied)
+self_check exit=0 ok: design-os-studio self-check passed (design-os-studio)
+slop-detect file exit=2 6 anti-patterns found.
+axe-core 4.12.1 at 1440x900: 0 violation(s), 30 rules passed, incomplete: aria-prohibited-attr, color-contrast, video-caption
+axe-core 4.12.1 at 375x812: 0 violation(s), 30 rules passed, incomplete: aria-prohibited-attr, color-contrast, video-caption
+probe-render exit=1 375px (target floor 44px): overflow none · truncated 0 · small targets 0 · radius 26 · native 0 768px (target floor 44px): overflow none · truncated 0 · small targets 0 · radius 26 · native 0 1440px (target floor 24px): overflow none · truncated 0 · small targets 0 · radius 20 · native 0
+interaction-test exit=0 PASS  5 distinct release files; every macOS download is the same dmg  (8 links: designos-0.3.0-macos.dmg, designos-0.3.0-macos-universal.tar.gz, designos-0.3.0-x86_64-pc-windows-msvc.zip, designos_0.3
+static 1440 {"doc":5964,"scrollW":1440,"header.topbar":65,"top.hero":1261,"proof.proof":725,"anatomy.anatomy":602,"workflow.workflow":608,"scale.scale":461,"new.sec":628,"install.sec":583,"faq.sec":414,"get.sec":194,"footer.foot":422}
+static 375 "doc":8281,"scrollW":375,
+interaction-test 20/20 PASS (install tab-panel and release-link checks scoped for v2)
+slop-detect rendered, film-less copy (film <source> tags removed; the real film makes the scan exceed its 30 s navigation timeout): 1440x900 18 findings, 375x812 14 findings; see findings-explained.md
+violet (page chrome, img/video hidden, 1440 full page) 0.000000%; proofs red-violet 100%, red-blue 0%
+motion scroll 1440x900, 75 steps through every pin: 0 console/page/request/http errors; motion doc 11128 px (static 5964 + 5164)
+proof card fronts, rendered pixels at motion p=0.30: numbers/labels 14.1-14.4:1, notes 5.5-6.3:1
+done 13:03:12

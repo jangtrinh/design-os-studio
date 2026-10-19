@@ -1,0 +1,49 @@
+{
+  "frameCount": 39,
+  "fps": 24,
+  "size": [
+    1280,
+    720
+  ],
+  "sizeLQ": [
+    640,
+    360
+  ],
+  "crop": {
+    "scale": [
+      128,
+      144,
+      1664,
+      936
+    ]
+  },
+  "film": [
+    30.2,
+    31.788
+  ],
+  "chapters": [
+    {
+      "id": "scale",
+      "range": [
+        1,
+        38
+      ],
+      "film": [
+        30.2,
+        31.788
+      ],
+      "frames": 38,
+      "trimNote": "frame index 0 (file 0001) still shows the code chapter; the zoom starts one frame later"
+    }
+  ],
+  "cropSource": "1920x1080 film master; 1664x936 (16:9) rect scaled to size",
+  "quality": {
+    "hq": 72,
+    "lq": 55
+  },
+  "source": "film-v030-16x9.mp4 (60 fps CFR), master frame = round((t0 + k/24)*60); spacing alternates 2/3 master frames",
+  "fallback": {
+    "poster": "fallback/scale.webp",
+    "posterFrame": "frames/0039.webp"
+  }
+}

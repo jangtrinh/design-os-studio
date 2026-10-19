@@ -1,0 +1,20 @@
+PASS  film autoplays muted  ({"paused":false,"muted":true})
+PASS  Pause button pauses  (label=Play)
+PASS  Play overlay resumes
+PASS  Sound button unmutes  (aria-pressed=true)
+PASS  Sound button mutes again
+PASS  keyboard focus ring visible on Download button  (Download for macOS | solid 2px rgb(13, 153, 255) offset 3px focus-visible=true)
+PASS  ArrowRight moves to Codex tab
+PASS  End key selects last tab
+PASS  exactly one install tab panel visible  (1)
+PASS  the New in 0.3.0 panel stays visible
+PASS  Copy button puts the snippet on the clipboard  (git clone https://github.com/jangtrinh/design-os-studio /tmp/design-os-studio)
+PASS  FAQ item opens
+PASS  #figma exists
+PASS  #agents exists
+PASS  #scale exists
+PASS  #new exists
+PASS  #install exists
+PASS  #faq exists
+PASS  #film exists
+PASS  5 distinct release files; every macOS download is the same dmg  (8 links: designos-0.3.0-macos.dmg, designos-0.3.0-macos-universal.tar.gz, designos-0.3.0-x86_64-pc-windows-msvc.zip, designos_0.3.0_amd64.deb, designos-0.3.0-x86_64-unknown-linux-gnu.tar.gz)

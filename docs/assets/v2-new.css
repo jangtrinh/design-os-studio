@@ -1,0 +1,61 @@
+/* v2-new.css: scene 7, "New in 0.3.0". Tokens come from index.html :root only.
+   Default rules style the no-JS state (every title and line visible). v2-new.js adds .is-live
+   to the section and rebuilds each row as one tab button; nothing here pins the section. */
+
+.new-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 16px 40px; }
+.new-head .lead { margin-top: 0; max-width: none; }
+
+.new-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 24px; }
+
+/* no-JS list: stacked text blocks */
+.new-list { position: relative; display: grid; gap: 20px; }
+.new-item__title { font-size: 1.125rem; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; }
+.new-item__line { margin-top: 4px; color: var(--muted); font-size: .9375rem; line-height: 1.5; text-wrap: pretty; }
+.new-item__full { display: inline-flex; align-items: center; min-height: 44px; font-size: .9375rem; font-weight: 600; }
+
+/* the render: 16:9 frame, hairline rim, contain on the panel colour */
+.new-frame { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-lg); background: var(--panel); overflow: hidden; }
+.new-frame::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); pointer-events: none; }
+.new-img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: contain; }
+
+.new-also { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 24px; margin-top: 8px; color: var(--muted); font-size: .875rem; line-height: 1.5; }
+.new-also p { flex: 1 1 320px; max-width: var(--measure); text-wrap: pretty; }
+.new-also strong { color: var(--text); font-weight: 600; }
+.new-also a { flex: none; display: inline-flex; align-items: center; min-height: 44px; font-size: .9375rem; font-weight: 600; }
+
+/* live list: one tab per row, the bar tracks the active row */
+.new.is-live .new-list { display: block; padding-left: 4px; }
+.new-tab {
+  display: block; width: 100%; min-height: 44px; margin: 0; padding: 10px 16px 10px 20px;
+  border: 0; border-radius: var(--r-sm); background: none; color: var(--muted);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: color .15s ease-out;
+}
+.new-tab:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.new-tab[aria-selected="true"] { color: var(--text); }
+.new-tab__t { display: block; font-size: 1.125rem; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; }
+.new-tab__l { display: none; margin-top: 6px; color: var(--muted); font-size: .9375rem; line-height: 1.5; font-weight: 400; text-wrap: pretty; }
+.new-tab[aria-selected="true"] .new-tab__l { display: block; }
+.new-bar { position: absolute; left: 0; top: 0; width: 4px; height: 44px; background: var(--orange); transform-origin: 0 0; pointer-events: none; }
+
+@media (hover: hover) {
+  .new-tab:hover { color: var(--text); }
+}
+
+/* the narrator's size pill floats 20-46px under the frame in motion mode. The note line is centred in a
+   44px row, so one line clears the pill with 40px; where it can wrap to two lines it needs 56px. */
+@media (min-width: 800px) {
+  .new-also { margin-top: 56px; }
+}
+@media (min-width: 1200px) {
+  .new-also { margin-top: 40px; }
+}
+
+@media (min-width: 960px) {
+  .new.sec { padding-block: 40px 32px; }
+  .new-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: clamp(32px, 4vw, 48px); align-items: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-tab { transition: none; }
+}

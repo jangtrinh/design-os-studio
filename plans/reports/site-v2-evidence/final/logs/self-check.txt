@@ -1,0 +1,1 @@
+ok: design-os-studio self-check passed (design-os-studio)

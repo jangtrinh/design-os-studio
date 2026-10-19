@@ -1,0 +1,45 @@
+{
+  "motion1440": {
+    "motion": true,
+    "wfH": 2430,
+    "scaleH": 1260,
+    "vh": 900,
+    "docH": 10774
+  },
+  "motionErrors": [],
+  "static1440": {
+    "motion": false,
+    "wf": 608,
+    "scale": 461,
+    "doc": 5610,
+    "scrollW": 1440,
+    "clientW": 1440,
+    "canvases": 0,
+    "sticky": 0
+  },
+  "staticErrors1440": [],
+  "static768": {
+    "motion": false,
+    "wf": 1676,
+    "scale": 865,
+    "doc": 7725,
+    "scrollW": 768,
+    "clientW": 768,
+    "canvases": 0,
+    "sticky": 0
+  },
+  "staticErrors768": [],
+  "static375": {
+    "motion": false,
+    "wf": 1492,
+    "scale": 688,
+    "doc": 7934,
+    "scrollW": 375,
+    "clientW": 375,
+    "canvases": 0,
+    "sticky": 0
+  },
+  "staticErrors375": [],
+  "nojsNumeral": "208,610",
+  "nojsErrors": []
+}

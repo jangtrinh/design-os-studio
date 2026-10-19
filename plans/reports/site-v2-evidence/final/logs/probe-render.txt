@@ -1,0 +1,27 @@
+375px (target floor 44px): overflow none · truncated 0 · small targets 0 · radius 26 · native 0
+  radius     crowds-corner "208,610 nodes in one file The Untitled U" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes in one file The Untitled U" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" BottomRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools Coding agents edit the docu" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools Coding agents edit the docu" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+768px (target floor 44px): overflow none · truncated 0 · small targets 0 · radius 26 · native 0
+  radius     crowds-corner "208,610 nodes in one file The Untitled U" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes in one file The Untitled U" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" BottomRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools Coding agents edit the docu" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools Coding agents edit the docu" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+1440px (target floor 24px): overflow none · truncated 0 · small targets 0 · radius 20 · native 0
+  radius     crowds-corner "IMG" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "208,610 nodes" BottomRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" TopLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "IMG" TopRight -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools" BottomLeft -6.6px from the 16px arc vs 0px on the straight edge
+  radius     crowds-corner "22 MCP tools" BottomRight -6.6px from the 16px arc vs 0px on the straight edge

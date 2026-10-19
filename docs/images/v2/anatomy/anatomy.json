@@ -1,0 +1,278 @@
+{
+ "viewBox": [
+  0,
+  0,
+  1440,
+  900
+ ],
+ "source": "DESIGN:OS Studio 0.3.0 --screenshot --gpu of the Untitled UI PRO v8.0 kit, \"Input field\" selected, zoom 17, 1440x900 at scale 2 (CPU render byte-identical); sha256:6050d8ae5054d45c993231c4c35ccc73f463b229f315e062a3f3627e58c390b7",
+ "scale": "source is 2880x1800 = 2x logical; every stroke vertex is rounded to 0.5 logical px (= 1 source px)",
+ "layers": [
+  {
+   "id": "file",
+   "file": "file.svg",
+   "bbox": [
+    320.0,
+    139.5,
+    879.0,
+    583.5
+   ],
+   "region": [
+    318,
+    52,
+    881,
+    848
+   ],
+   "anchor": [
+    1199.0,
+    431.2
+   ],
+   "anchor_side": "right (ink bbox edge)",
+   "label": "The .fig document",
+   "bytes": 56654,
+   "path_elements": 2,
+   "subpaths": 2253,
+   "shape_subpaths": 1186,
+   "text_bars": 1067
+  },
+  {
+   "id": "canvas",
+   "file": "canvas.svg",
+   "bbox": [
+    298.0,
+    32.0,
+    901.0,
+    867.5
+   ],
+   "region": [
+    298,
+    32,
+    901,
+    868
+   ],
+   "anchor": [
+    750,
+    900
+   ],
+   "anchor_side": "bottom",
+   "label": "Canvas",
+   "bytes": 14309,
+   "path_elements": 2,
+   "subpaths": 956,
+   "shape_subpaths": 923,
+   "text_bars": 33
+  },
+  {
+   "id": "layers",
+   "file": "layers.svg",
+   "bbox": [
+    57.0,
+    32.0,
+    241.0,
+    867.5
+   ],
+   "region": [
+    57,
+    32,
+    241,
+    868
+   ],
+   "anchor": [
+    177.5,
+    900
+   ],
+   "anchor_side": "bottom",
+   "label": "Layers panel",
+   "bytes": 2637,
+   "path_elements": 2,
+   "subpaths": 105,
+   "shape_subpaths": 90,
+   "text_bars": 15
+  },
+  {
+   "id": "inspector",
+   "file": "inspector.svg",
+   "bbox": [
+    1199.0,
+    32.0,
+    240.5,
+    867.5
+   ],
+   "region": [
+    1199,
+    32,
+    241,
+    868
+   ],
+   "anchor": [
+    1440,
+    450
+   ],
+   "anchor_side": "right",
+   "label": "Inspector",
+   "bytes": 5354,
+   "path_elements": 2,
+   "subpaths": 144,
+   "shape_subpaths": 116,
+   "text_bars": 28
+  },
+  {
+   "id": "rail",
+   "file": "rail.svg",
+   "bbox": [
+    7.5,
+    32.0,
+    49.5,
+    867.5
+   ],
+   "region": [
+    0,
+    32,
+    57,
+    868
+   ],
+   "anchor": [
+    0,
+    450
+   ],
+   "anchor_side": "left",
+   "label": "Agents rail",
+   "bytes": 1619,
+   "path_elements": 2,
+   "subpaths": 47,
+   "shape_subpaths": 41,
+   "text_bars": 6
+  },
+  {
+   "id": "chrome",
+   "file": "chrome.svg",
+   "bbox": [
+    0.0,
+    3.0,
+    1439.5,
+    29.0
+   ],
+   "region": [
+    0,
+    0,
+    1440,
+    32
+   ],
+   "anchor": [
+    720,
+    0
+   ],
+   "anchor_side": "top",
+   "label": "Window chrome",
+   "bytes": 992,
+   "path_elements": 2,
+   "subpaths": 24,
+   "shape_subpaths": 22,
+   "text_bars": 2
+  }
+ ],
+ "splits": {
+  "note": "measured from the render (source px, 2 px = 1 logical px); border lines belong to the panel whose edge they are",
+  "chrome_bottom_logical": 32,
+  "chrome_bottom_src": "tab bar bottom border = rows 62-63",
+  "rail_right_logical": 57,
+  "rail_right_src": "rail border = cols 112-113",
+  "layers_right_logical": 298,
+  "layers_right_src": "left panel border = cols 594-595",
+  "inspector_left_logical": 1199,
+  "inspector_left_src": "inspector border = cols 2398-2399",
+  "ruler_left_right_logical": 318,
+  "ruler_left_right_src": "vertical ruler right edge = cols 634-635",
+  "ruler_top_bottom_logical": 52,
+  "ruler_top_bottom_src": "horizontal ruler bottom edge = rows 102-103",
+  "toolbar_rect_logical": [
+   456,
+   835,
+   984,
+   899
+  ],
+  "toolbar_src": "dark pill 928..1952 x 1680..1778, soft shadow 917..1962 x 1675..1792",
+  "size_pill_logical": [
+   716.5,
+   692.5,
+   781,
+   708.5
+  ],
+  "canvas_vs_file": "inside the viewport interior a stroke is canvas when it sits on cyan overlay ink (selection box, handles, frame names, size pill) or in rulers/toolbar, else file"
+ },
+ "gate": {
+  "tolerance_px": 2,
+  "recall_precision": {
+   "file": {
+    "recall": 0.99992,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.9214,
+    "shifted_6px_dx_precision": 0.9334,
+    "shifted_6px_dy_recall": 0.6527,
+    "shifted_6px_dy_precision": 0.6234
+   },
+   "canvas": {
+    "recall": 1.0,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.6465,
+    "shifted_6px_dx_precision": 0.6401,
+    "shifted_6px_dy_recall": 0.4147,
+    "shifted_6px_dy_precision": 0.4076
+   },
+   "layers": {
+    "recall": 1.0,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.6512,
+    "shifted_6px_dx_precision": 0.6921,
+    "shifted_6px_dy_recall": 0.3051,
+    "shifted_6px_dy_precision": 0.2787
+   },
+   "inspector": {
+    "recall": 1.0,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.7592,
+    "shifted_6px_dx_precision": 0.7919,
+    "shifted_6px_dy_recall": 0.2769,
+    "shifted_6px_dy_precision": 0.2408
+   },
+   "rail": {
+    "recall": 1.0,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.27,
+    "shifted_6px_dx_precision": 0.3496,
+    "shifted_6px_dy_recall": 0.7008,
+    "shifted_6px_dy_precision": 0.64
+   },
+   "chrome": {
+    "recall": 1.0,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.9463,
+    "shifted_6px_dx_precision": 0.9479,
+    "shifted_6px_dy_recall": 0.0787,
+    "shifted_6px_dy_precision": 0.0814
+   },
+   "ALL": {
+    "recall": 0.99994,
+    "precision": 1.0,
+    "shifted_6px_dx_recall": 0.8699,
+    "shifted_6px_dx_precision": 0.8837,
+    "shifted_6px_dy_recall": 0.5968,
+    "shifted_6px_dy_precision": 0.5653
+   }
+  },
+  "source_check": {
+   "P_src": 0.9432,
+   "R_src_strong15": 0.963,
+   "R_src_text_zones_widened": 0.994
+  },
+  "note": "recall/precision compare the rasterised SVG with the structure map the strokes were extracted from (as specified); source_check is the independent comparison with the render's own Sobel gradient"
+ },
+ "notes": [
+  "No Update control exists in this render: the tab bar holds Home, the file tab and + only (no ink right of source x=707)",
+  "Text runs are one bar each at the run's ink-weighted vertical centre; inline arrow glyphs that touch text (the arrows in Required, Icon leading, Icon swap, Colors) are absorbed into that run's bar",
+  "Avatar initial J and a few single-glyph shapes stay as outlines (a lone glyph is indistinguishable from an icon)",
+  "Tiny doc-matrix icons (flags, card logos, mail glyph) shrink to short bars or disappear: they are 4-8 logical px at the 17% document zoom",
+  "Rounded corners are polylines (Douglas-Peucker 0.8 source px = 0.4 logical px), not arcs; straight segments within 1 px of an axis are snapped to it"
+ ],
+ "stroke_pixel_overlap_between_layers": 0
+}
