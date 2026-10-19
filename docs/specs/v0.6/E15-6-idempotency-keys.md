@@ -5,7 +5,7 @@
 | Epic / pack | E15 / v0.6 AI design |
 | Size / priority | S / P0 |
 | Depends on | E15-4, E15-5 |
-| Unblocks | RD-3 (spawned agents retry safely) |
+| Unblocks | RD-3 (spawned agents retry safely), E15-13 (its undo test needs keys) |
 | Touches | `crates/designos-mcp/src/tools/batch.rs`, new `crates/designos-mcp/src/tools/ledger.rs`, `crates/designos-mcp/src/server.rs` (dispatch wrapper) |
 
 ## 1. Summary and user story
@@ -37,22 +37,25 @@ for a different payload, I get a named error and nothing changes.
    `idempotency_key` removed, prefixed by the tool name. Canonical = `serde_json::to_vec` of the
    key-ordered `Value`.
 3. Lookup happens before any validation or dispatch:
-   - key absent from the ledger → run the call; on success store `{key, tool, hash, undo_depth, reply,
-     created_ms}` (`undo_depth` per item 6); errors are not stored (a failed call is
-     retried for real);
-   - key present, same tool and hash, write still applied → return the stored reply unchanged, run
-     nothing, publish nothing; the result's `_meta` carries `{"designos/idempotent_replay": true}`
-     (outside `structuredContent`, so the reply body is identical);
-   - key present, same tool and hash, entry undone or dead (item 6) → `IDEMPOTENCY_KEY_STALE`,
-     nothing runs, `safe_to_retry: true`, `next_step` "Read the target nodes; this write was undone.
-     Send it again with a new idempotency_key only if you still want it." The stored reply is never
-     returned, because it may name nodes that no longer exist;
+   - key absent from the ledger → run the call; on success store `{key, tool, hash, undo_depth, live,
+     gone, reply, created_ms}` (`undo_depth` per item 6, `live` and `gone` per item 7); errors are not
+     stored (a failed call is retried for real);
+   - key present, same tool and hash, write still applied (item 6) and the document still holds its
+     result (item 7) → return the stored reply unchanged, run nothing, publish nothing; the result's
+     `_meta` carries `{"designos/idempotent_replay": true}` (outside `structuredContent`, so the reply
+     body is identical);
+   - key present, same tool and hash, entry undone or dead (item 6), or the document no longer holds
+     its result (item 7) → `IDEMPOTENCY_KEY_STALE`, nothing runs, `safe_to_retry: true`, `next_step`
+     "Read the target nodes; this write was undone or is not in the open document. Send it again with
+     a new idempotency_key only if you still want it." The stored reply is never returned, because it
+     may name nodes that no longer exist;
    - key present with a different tool or hash → `IDEMPOTENCY_KEY_REUSED`, nothing runs,
      `safe_to_retry: true`.
 4. Lifetime: the ledger belongs to the document session.
    - With a session directory, it is persisted to `<session_dir>/idempotency-ledger.jsonl` (append
-     one line per stored entry, fsync per write) and loaded on server start, so it survives an MCP
-     reconnect.
+     one line per stored entry, fsync per write) and loaded on server start, after the initial canvas
+     load of `Session::with_session_dir` (that first load is not a clearing reload), so it survives an
+     MCP reconnect. A loaded entry is a claim about a document the new process has to check (item 7).
    - Without a session directory (standalone `--workspace` use), it is in memory for the process.
    - It is cleared when the document closes or switches: `designos_open_file`,
      `designos_new_document`, and a canvas reload that replaces the document
@@ -73,20 +76,37 @@ for a different payload, I get a named error and nothing changes.
      whose `undo_depth` is above the depth at that moment is marked dead for good (stale even if the
      depth later grows again).
    - Each such transition is appended to the ledger file as `{"key":K,"state":"stale"|"valid"}`; on
-     load the earlier process's history is gone, so loaded `valid` entries get `undo_depth = 0` and
-     stale ones stay stale.
+     load the earlier process's history is gone, so a loaded entry has `undo_depth = None` ("reloaded":
+     the depth rule does not apply, item 7 alone decides) and a loaded `stale` entry stays stale. A
+     new entry stored after the reload gets a real depth and follows the depth rule.
    - Studio-side undo: it changes the canvas snapshot, which the session picks up through the canvas
      reload (`sync_from_live_canvas_if_newer`). That reload clears the whole ledger (item 4), so a
      retry after a Studio undo runs as a new write. This differs from an MCP-side `designos_undo` (the
      retry is refused) and is recorded as an open owner question in the PR.
    Documented in the tool description ("a key names one logical write").
+7. Presence check on every replay. A key counts as applied only while the open document holds what the
+   write produced. At store time the call records `live` = `[{id, kind}]` for every node the reply says
+   exists after the call (ids under `created` and `name_to_id` values that exist in the committed
+   document, plus `node_id` of a non-delete tool; a node the same batch created and then deleted is
+   not listed) and `gone` = the ids the call deleted (`designos_delete_node`, batch `delete` ops;
+   nodes created and deleted inside one batch are not listed). On lookup, before the stored reply is
+   returned: every `live` id must exist with the same `kind`, and no `gone` id may exist. Any miss →
+   `IDEMPOTENCY_KEY_STALE`, nothing runs. The check also covers a reload: the new process sees only
+   what `canvas.designos` holds (`server.rs:194-214`; a normal edit appends `doc-patch.jsonl`,
+   `server.rs:249-266`, and does not rewrite the canvas, and history is in memory only), so a key whose
+   nodes are not in the loaded document is stale, never "applied forever". An entry with empty `live`
+   and `gone` (variables-only batch, a comment on no node) has nothing to check: it replays inside the
+   process by the depth rule and is `IDEMPOTENCY_KEY_STALE` once reloaded. The check compares ids and
+   kinds only; an editor that reused an id for a node of the same kind would pass it (residual risk,
+   named in 8.7).
 
 ## 4. Data model / schema changes
 
-- `struct LedgerEntry { key: String, tool: String, hash: u64, undo_depth: usize, dead: bool,
-  reply: Value, created_ms: u64 }` (serde, one JSON line each; state transitions are extra
-  `{"key","state"}` lines).
-- `Session.ledger: Ledger` with `lookup(key, current_undo_depth)`, `store`, `mark_dead_above(depth)`,
+- `struct LedgerNode { id: u64, kind: String }`.
+- `struct LedgerEntry { key: String, tool: String, hash: u64, undo_depth: Option<usize>, dead: bool,
+  live: Vec<LedgerNode>, gone: Vec<u64>, reply: Value, created_ms: u64 }` (serde, one JSON line each;
+  `undo_depth` is `None` after a reload; state transitions are extra `{"key","state"}` lines).
+- `Session.ledger: Ledger` with `lookup(key, current_undo_depth, &Document)`, `store`, `mark_dead_above(depth)`,
   `clear`, backed by an optional file path.
 - Input schemas of mutating tools add the `idempotency_key` property (declared once for the batch in
   E15-4).
@@ -136,6 +156,14 @@ None.
 6. Very large reply (diff images, E15-8): image content is not stored; the stored reply keeps the image
    metadata, and a replay re-renders the images from the current document, flagged in `_meta`
    `designos/images_rerendered: true`.
+7. Reload with an id collision: the editor may give a colliding id to another layer on replay
+   (`replay.rs:16-17`). A same-kind node on the stored id passes the presence check although it is a
+   different layer; the agent's next update then edits the wrong layer. Not closed here (a node
+   fingerprint would need a stable per-node token the model does not have); the tool description tells
+   agents to `designos_get_node` after a reconnect before trusting a replayed id.
+8. Reconnect with a stored reply naming ids the new document lacks (no canvas written yet, or a later
+   delete removed them): `IDEMPOTENCY_KEY_STALE`, the document is untouched, and the agent re-sends
+   with a new key.
 
 ## 9. Non-goals
 
@@ -150,16 +178,26 @@ Seam: `cargo test -p designos-mcp`.
 |---|---|---|
 | `same_key_same_payload_applies_once` | send batch twice with key `k1` | node count +1 once; replies byte-identical structuredContent; second has replay `_meta` |
 | `key_reuse_with_changed_payload_refused` | `k1` with a different name | `IDEMPOTENCY_KEY_REUSED`; revision and undo depth unchanged |
-| `ledger_survives_reconnect` | session dir in temp; call, drop `Session`, new `Session::with_session_dir`, resend | no new nodes; stored reply returned |
+| `ledger_survives_reconnect` | session dir in temp; batch with `k1` creates node N; write the document to the session's `canvas.designos` (what Studio's snapshot does); drop `Session`; new `Session::with_session_dir`; resend `k1` | N exists in the new session; no new nodes; stored reply returned |
+| `reconnect_without_document_state_is_stale` | same, but the canvas file is not written (the new session's document lacks N) | `IDEMPOTENCY_KEY_STALE`; no node created; `designos_get_node` N is `NODE_NOT_FOUND`; undo depth unchanged |
+| `reconnect_after_node_deleted_is_stale` | as `ledger_survives_reconnect`, then `designos_delete_node` N in the new session; resend `k1` | `IDEMPOTENCY_KEY_STALE`; no new node |
+| `replay_after_created_node_deleted_is_stale` | one process: `k1` creates N; `designos_delete_node` N; resend `k1` | `IDEMPOTENCY_KEY_STALE`; N stays absent |
+| `delete_key_replays_only_while_gone` | `k1` deletes node M; resend `k1` (replays); then `designos_undo` brings M back; resend `k1` | replay, then `IDEMPOTENCY_KEY_STALE` |
+| `reloaded_entry_without_checkable_ids_is_stale` | `k1` is a variables-only batch (empty `live` and `gone`); replays in-process; reconnect; resend `k1` | in-process replay; `IDEMPOTENCY_KEY_STALE` after reconnect |
+| `reloaded_key_follows_presence_not_depth` | reconnect with N present; `designos_update_node` on N (new write, history starts empty); resend `k1` | replay (N present); never "applied forever" by a forced depth, only by the presence check |
 | `ledger_cleared_on_document_switch` | call, `designos_new_document`, resend | runs again |
 | `errors_not_stored` | first call invalid, fix payload, same key | second call runs and is stored |
 | `undo_then_same_key_is_refused_not_replayed` | batch with key `k1` creates a node; `designos_undo`; resend `k1` | `IDEMPOTENCY_KEY_STALE`; the node stays absent; revision and undo depth unchanged |
 | `undo_second_write_keeps_first_key_valid` | writes `k1` then `k2`; `designos_undo`; resend `k1`, then `k2` | `k1` replays (node count unchanged, no duplicate); `k2` is `IDEMPOTENCY_KEY_STALE` |
-| `undo_of_auto_fix_keeps_write_key_valid` | write `k1` that triggers an E15-13 fix; one `designos_undo`; resend `k1` | replay; the agent's write is still present, only the fix is gone |
 | `redo_makes_key_valid_again` | write `k1`; undo; redo; resend `k1` | replay |
 | `new_write_after_undo_kills_undone_key` | write `k1`; undo; write `k2` (discards the redo branch); resend `k1` | `IDEMPOTENCY_KEY_STALE` even if the depth later grows past `k1`'s |
 | `stale_mark_survives_reconnect` | session dir; call `k1`, undo, drop `Session`, new `Session::with_session_dir`, resend `k1` | `IDEMPOTENCY_KEY_STALE` |
 | `ledger_cleared_on_canvas_reload` | session with a live canvas file; call `k1`; replace the canvas file with a newer snapshot; resend `k1` | runs again as a new write |
+
+The test `undo_of_auto_fix_keeps_write_key_valid` (write `k1` that triggers an E15-13 fix; one
+`designos_undo`; resend `k1`; replay, the write is present, only the fix is gone) needs E15-13, which
+lands in wave 4 after this spec's wave 3. It lives in the E15-13 test plan and is that PR's
+acceptance for the `undo_depth` bookkeeping in item 6. This spec's own tests use no auto-fix.
 
 Fail-before: all fail today (`idempotency_key` is an unknown field).
 

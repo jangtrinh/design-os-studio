@@ -35,14 +35,16 @@ variable `Color/Primary`, a text style whose size is `Type/Body`, an effect styl
 ## 3. Behaviour rules
 
 1. `StyleMeta.bindings: BTreeMap<String, String>`: property key → variable id. Keys:
-   - Fill styles: `fills/<i>` (colour) and `fills/<i>/opacity` (number);
+   - Fill styles: `fills/<i>` (colour), `fills/<i>/stops/<j>` (colour of gradient stop `j` of fill `i`,
+     section 6, edge 5) and `fills/<i>/opacity` (number);
    - Text styles: `fontSize`, `lineHeight`, `letterSpacing`, `paragraphSpacing`, `paragraphIndent`,
      `fontWeight` (number), `fontFamily`, `fontStyle` (string). `fontWeight` and `fontStyle` are two
      keys that pack into one kiwi `FONT_STYLE` entry (`asFloat` / `asString`, section 6);
    - Effect styles: `effects/<i>/color`, `effects/<i>/radius`, `effects/<i>/spread`,
      `effects/<i>/offsetX`, `effects/<i>/offsetY`.
-   Kind checks reuse `property_kind` semantics (`variables_apply.rs:21-32`) extended with the new keys;
-   a mismatch is refused by the editing APIs.
+   Kind checks reuse `property_kind` semantics (`variables_apply.rs:21-32`) extended with the new keys
+   (`fills/<i>/stops/<j>` already falls under its `fills/` colour arm); a mismatch is refused by the
+   editing APIs.
 2. Style values remain stored (they are the default-mode resolution and the fallback when a variable is
    missing).
 3. Resolution: for a node linked to a style (`Node.style_refs`), `resolve_node` resolves the style's
@@ -117,6 +119,7 @@ Seams: designos-doc mode-switch test and `.fig` round trip.
 | `check_designs_counts_bound` | linked rect produces no hard-coded finding for `fills/0` |
 | `old_file_byte_identical` | load and save a file without bindings → identical bytes |
 | `text_style_paragraph_indent_and_weight_round_trip` | text style with `paragraphIndent` bound to a number variable and `fontWeight` bound to a number variable and `fontStyle` to a string variable | `.fig` writes a `PARAGRAPH_INDENT` entry and one `FONT_STYLE` entry carrying `asFloat` and `asString`; re-import restores all three bindings; REST import of `paragraphIndent`, `fontWeight`, `fontStyle` `boundVariables` yields the same keys; nothing is dropped |
+| `fill_style_gradient_stop_binding_round_trips` | gradient fill style with stop 1 bound to a colour variable (`fills/0/stops/1`) and stop 0 unbound | `.fig` writes `stopsVar[1].colorVar` only and re-imports `bindings["fills/0/stops/1"]`; REST import of `fills[0].gradientStops[1].boundVariables.color` yields the same key; an unbound stop stays unbound; with the variable bound in Dark the linked layer's stop 1 resolves per mode |
 | `text_style_size_binding` | text style `fontSize` bound → linked text resolves size per mode, and the `.fig` round trip writes one `variableConsumptionMap` entry `{variableField: FONT_SIZE, variableData: ALIAS}` on the style node and reads it back |
 | `effect_style_shadow_vars_round_trip` | effect style shadow with `color`, `radius`, `spread`, `offsetX`, `offsetY` bound → `.fig` writes `colorVar`/`radiusVar`/`spreadVar`/`xVar`/`yVar` and re-imports the same five bindings |
 

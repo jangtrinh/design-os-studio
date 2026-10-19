@@ -72,9 +72,11 @@ number variables in Check designs), #155 (E3-11 library suggestions), #157 (E3-1
 graph LR
   E15_1[E15-1 instances] --> E15_2[E15-2 slots]
   X150([#150]) --> E15_2
+  E15_9 --> E15_2
   E15_4[E15-4 batch] --> E15_5[E15-5 errors]
   E15_4 --> E15_6[E15-6 idempotency]
   E15_5 --> E15_6
+  E15_6 --> E15_13
   E15_4 --> E15_7[E15-7 in progress]
   X570([#570]) --> E15_7
   T7_1[T7.1 screenshot] --> E15_8[E15-8 diff images]
@@ -125,7 +127,9 @@ merged; parallel workers need disjoint file ownership, noted per spec under "Tou
 
 1. E15-1, E15-3, E15-4, T7.1, T7.2, T7.3, T7.6, T7.38, T8.25, T10.1, T10.2, E1-4 (hot-file queue
    position 22), E1-9, E5-10, RD-4.
-2. E15-2, E15-5, E15-7, E15-8, E15-9, T7.4, T7.9, T7.29, T7.40, T8.27, T10.3.
+2. E15-2, E15-5, E15-7, E15-8, E15-9, T7.4, T7.9, T7.29, T7.40, T8.27, T10.3. Order inside the wave:
+   E15-9 merges before E15-2, because E15-2's PR appends `slot-non-recommended` to E15-9's `agent`
+   preset and extends its `presets_name_only_registered_rules` test.
 3. E15-6, E15-10, E15-11, E15-12, E15-17.
 4. E15-13, E15-15.
 5. E15-14, E15-16.

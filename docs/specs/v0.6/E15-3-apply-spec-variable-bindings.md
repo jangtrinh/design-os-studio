@@ -36,16 +36,33 @@ open document, so a theme or mode switch restyles my layers like hand-made ones.
 
 ### 3.1 Variable reference syntax
 
-`var:<path>` or `var:id:<variable id>`. Path resolution, first match wins, more than one match at a
-step is `AMBIGUOUS_VARIABLE`:
+`var:<path>` or `var:id:<variable id>`. `var:id:` names one variable exactly and is never ambiguous.
+A `<path>` resolves in this order (precedence: qualified, then unqualified, then library); the first
+step that matches stops the search, and more than one match inside a step is `AMBIGUOUS_VARIABLE`:
 
-1. Split at the first `/`: collection name (exact) + variable name (exact, may contain `/`).
-2. The whole path equals a variable name in exactly one collection.
-3. Enabled library variables, same two rules; a hit is imported with the library import command in
-   the same trial document.
+1. Qualified, `<collection>/<variable name>`. `<collection>` is a collection **id** or an exact
+   collection **name**; either may itself contain `/` (the part-2 style compiler's collection is named
+   `Style / Color`, its id is `designos-style:color`), so every collection whose id or name `c`
+   satisfies `path` starts with `c` + `/` is a candidate and the longest `c` wins. The remainder is the
+   variable name, matched exactly inside that collection (the name may contain `/`). A hit ends
+   resolution: a variable with the same name in another collection is never considered. Two candidates
+   of the same length (two collections with one name, or one collection's id equal to another's name)
+   is ambiguous. If a collection matches but holds no such variable, resolution continues with step 2,
+   and step 2 compares the whole path, not the remainder, so a typo after a qualified prefix cannot
+   bind a variable of another collection.
+2. Unqualified: the whole path equals a variable name in exactly one collection. Two collections
+   holding that name is `AMBIGUOUS_VARIABLE`; an agent that needs one of them writes step 1 with the
+   collection id, or `var:id:`.
+3. Enabled library variables, same two steps; a hit is imported with the library import command in the
+   same trial document.
+
+Examples (collections `Color`, id `c1`, holding `Primary`; and a collection with id `c2` holding a
+variable named `Color/Primary`): `var:Color/Primary` is step 1, collection `Color`, the `c1` variable,
+`c2`'s is never considered; `var:c2/Color/Primary` is step 1 by id and names the `c2` variable.
 
 No match: `UNKNOWN_VARIABLE` with the 5 closest `collection/name` strings by Levenshtein distance
-(ties broken by collection order, then name).
+(ties broken by collection order, then name); a candidate whose collection name occurs twice is listed
+with its collection id instead of its name.
 
 ### 3.2 Bindable spec fields
 
@@ -197,6 +214,11 @@ Fixture `fixtures::tokens_doc()`: collection `Color` (modes Light, Dark) with `P
 | `text_style_link` | `text_style:"Heading L"` | `style_refs["text"]` set; font size 24 |
 | `easeui_alias_bit_identical` | existing test spec from `spec.rs:804` (`easeui-screen`, `$easeui.*`) | render bytes equal to a golden produced on main before the change; one `DEPRECATED_EASEUI_TOKEN` warning per use |
 | `type_mismatch` | `font_size:"var:Color/Primary"` | `VARIABLE_TYPE_MISMATCH` |
+| `qualified_by_collection_id` | collections `Style / Color` (id `designos-style:color`) with `color/primary` and `Brand` (id `b1`) with `color/primary`; `fill:"var:designos-style:color/color/primary"` | binds the `Style / Color` variable; the `Brand` one is untouched |
+| `qualified_name_with_slash` | same document; `fill:"var:Style / Color/color/primary"` | binds the `Style / Color` variable (longest collection prefix) |
+| `unqualified_same_name_is_ambiguous` | same document; `fill:"var:color/primary"` | `AMBIGUOUS_VARIABLE`, `valid_options` has the id-qualified form of both, doc unchanged |
+| `qualified_miss_does_not_cross_collections` | same document; `fill:"var:designos-style:color/color/primry"` | `UNKNOWN_VARIABLE`; no binding to the `Brand` variable |
+| `qualified_ignores_other_collection_same_name` | collection `Color` with `Primary` and collection `X` with a variable named `Color/Primary`; `var:Color/Primary` | binds `Color`'s `Primary`, no ambiguity |
 | `export_apply_keeps_bindings` | export then apply | equal binding maps |
 
 Fail-before: `binds_fill_and_mode_switch_recolours` fails today (fill silently skipped,

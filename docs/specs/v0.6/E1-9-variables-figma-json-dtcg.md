@@ -75,15 +75,84 @@ Format detection on import:
 ## 4. Data model / schema changes
 
 One additive model change, needed so `figma-native` round-trips Figma fields the model has no slot for
-(8.6): `Variable.extensions` and `VariableCollection.extensions`, both
-`BTreeMap<String, serde_json::Value>` with `#[serde(default, skip_serializing_if =
-"BTreeMap::is_empty")]` (old files load unchanged; files without extensions save byte-identically).
-Keys are stored verbatim as Figma wrote them (`com.figma.*`):
-- variable: `com.figma.isOverride`, `com.figma.aliasData`, `com.figma.paint`, `com.figma.paintAliasData`,
-  `com.figma.composedColor`, and `com.figma.type` only for the kinds the model lacks (`easing`,
-  `duration`: an easing token imports as a `String` variable, a duration token as a `Number` variable
-  in ms, a solid PAINT token as a `Color` variable, each carrying its marker);
-- collection: `com.figma.parentVariableSetId`, `com.figma.parentVariableSetName`.
+(8.6). Fields in `crates/designos-doc/src/variables.rs`, all on existing structs; none changes a field
+that exists today (`Variable.values` stays `BTreeMap<String, VariableValue>`, `variables.rs:100-101`).
+
+```rust
+pub type FigmaExtensions = BTreeMap<String, serde_json::Value>; // key -> verbatim JSON
+
+pub struct VariableCollection {
+    // ...existing fields...
+    /// Collection-level Figma keys. Today: `com.figma.parentVariableSetId`,
+    /// `com.figma.parentVariableSetName` (extended collections, file-root `$extensions`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
+}
+
+pub struct Variable {
+    // ...existing fields...
+    /// Variable-level keys. Today exactly one, ours: `org.designos.figmaTokenType`
+    /// (`"easing"` or `"duration"`), set when a figma-native token of that `$type` is imported
+    /// because the model has only Color/Number/String/Boolean (easing -> `String` variable holding the
+    /// serialized easing; duration -> `Number` variable in ms). Export reads it to write `$type`
+    /// back. Not a Figma key and never written into a token's `$extensions`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
+    /// Per-mode Figma keys: outer key = a mode id of this variable's collection (the same keys as
+    /// `values`), inner map = the `com.figma.*` keys that mode's token carried. A mode that carried
+    /// none has no entry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mode_extensions: BTreeMap<String, FigmaExtensions>,
+}
+```
+
+Serde: `default` plus `skip_serializing_if` on all three fields, so old files load unchanged and a
+document without extensions saves byte-identically. `BTreeMap` keeps the output ordered
+(deterministic). Every `Variable { .. }` and `VariableCollection { .. }` struct literal in the
+workspace gains `extensions: Default::default()` (and `mode_extensions: Default::default()` on
+`Variable`); the compiler finds them all. Keys are stored verbatim as Figma wrote them. An unknown
+`com.figma.*` token key lands in `mode_extensions[mode]` (never in the variable-level map), so a
+difference between modes is never merged away. The mode id that keys `mode_extensions` is whatever id
+the import assigned to the mode (a native file carries no mode id, so the import uses the mode name,
+unique within the collection).
+
+**Where each Figma key lands** (figma-native token `$extensions` and file-root `$extensions`):
+
+| Figma key | Level | Lands in |
+|---|---|---|
+| `com.figma.variableId` | variable | `Variable.id` |
+| `com.figma.scopes` | variable | `Variable.scopes` (REST names; native `STROKE` is accepted and stored as `STROKE_COLOR`, native export writes `STROKE`, INFERENCE per §14.8; `COLOR_OPACITY` follows the existing REST handling) |
+| `com.figma.codeSyntax` | variable | `Variable.code_syntax` |
+| `com.figma.hiddenFromPublishing` | variable | `Variable.hidden_from_publishing` |
+| `com.figma.type` (`"boolean"`, `"string"`) | variable | not stored: derived from `Variable.kind` on export |
+| `com.figma.modeName` (file root) | mode | `VariableMode.name` |
+| `com.figma.parentVariableSetId`, `com.figma.parentVariableSetName` (file root) | collection | `VariableCollection.extensions` (same value in every mode file; export writes it into every file root) |
+| `com.figma.isOverride` | **per mode** | `Variable.mode_extensions[mode]["com.figma.isOverride"]` |
+| `com.figma.aliasData` | **per mode** | `Variable.mode_extensions[mode]["com.figma.aliasData"]` |
+| `com.figma.paint` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paint"]` (the value itself is a `Color`) |
+| `com.figma.paintAliasData` | **per mode** | `Variable.mode_extensions[mode]["com.figma.paintAliasData"]` |
+| `com.figma.composedColor` | **per mode** | `Variable.mode_extensions[mode]["com.figma.composedColor"]` (the value itself is the literal `Color`) |
+| `$type: "easing"` / `"duration"` | variable | `Variable.extensions["org.designos.figmaTokenType"]` plus the `String` / `Number` value |
+| any other `com.figma.*` | per mode | `Variable.mode_extensions[mode][key]` |
+
+Cross-collection alias (the one case where §14.6 exports a literal): import keeps the token's literal as
+that mode's `VariableValue` and the `com.figma.aliasData` object in `mode_extensions[mode]`; it does not
+become a model `Alias`, because the file does not say which target mode the literal came from. The
+import report lists each one (`cross-collection-alias-kept-as-literal`, token path). Export writes the
+literal and the stored `aliasData` unchanged. A model `Alias` to a variable in another collection (made
+in Studio) exports the target resolved the way `Document::resolve_variable` does (the exporting mode
+id, else the target collection's default mode, `variables.rs:150-166`) plus an `aliasData` built from
+the target (`targetVariableId` = `Variable.id`, `targetVariableName`, `targetVariableSetId`,
+`targetVariableSetName`; a library target uses its publish `key` for the id). ASSUMPTION (confidence
+medium): Figma resolves that literal the same way; it flips if the manual re-import leg shows
+otherwise.
+
+Edits that keep the per-mode map consistent: removing a mode (`variables_edit.rs:296`) and the
+case where deleting a variable leaves an alias with no literal, so its mode value is removed
+(`variables_edit.rs:482`), also remove `mode_extensions[mode]` for that mode;
+deleting a variable drops everything. Editing a value in Studio clears that mode's
+`com.figma.isOverride`, `aliasData`, `paint`, `paintAliasData` and `composedColor` keys (the Figma
+metadata described the old value); unrelated keys stay.
 
 The extensions are written by `figma-native` export and by `.designos` save. REST, `.fig` and `dtcg`
 exports do not carry them: each export report lists every extension key it left out (count and
@@ -123,11 +192,11 @@ before UI code; desktop capture at 1440; responsive SKIPPED.
    back by `figma-native` export, so the export re-imports into Figma unchanged. Any other
    `com.figma.*` key found on import is stored the same way (never dropped), and keys a target format
    cannot carry are listed in that export's report. REA found these (§14):
-   - `com.figma.isOverride` and the parent-collection ids (extended collections);
-   - `com.figma.aliasData` (cross-collection alias target by id and name);
-   - `com.figma.paint` and `com.figma.paintAliasData` (PAINT variables);
-   - `com.figma.composedColor`;
-   - `easing` and `duration` tokens (TIMING and EASING variables).
+   - `com.figma.isOverride`, `com.figma.aliasData`, `com.figma.paint`, `com.figma.paintAliasData`,
+     `com.figma.composedColor`: per mode (§4 table); two modes of one variable may carry different
+     ones, or none;
+   - the parent-collection ids (extended collections): on the collection;
+   - `easing` and `duration` tokens (TIMING and EASING variables): variable-level marker (§4).
 
 ## 9. Non-goals
 
@@ -141,8 +210,11 @@ client files).
 
 | Case | Expected |
 |---|---|
-| `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model, and every `com.figma.*` extension listed in §4 is present on the right variable or collection |
+| `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model, and every `com.figma.*` key of the §4 table is present at the level and mode the table names |
 | `figma_native_round_trip_json_equal` | fixture with a PAINT, an EASING, a TIMING, a composed colour, a cross-collection alias with `aliasData`, an `isOverride` token and an extended collection → import then `figma-native` export | every exported `<mode>.tokens.json` is JSON-equal to the fixture file |
+| `two_mode_extensions_differ_per_mode` | fixture `variables-two-mode-extensions` (written by us): collection `Theme`, modes `Light` and `Dark`; `Brand/Fill`: Light carries `isOverride: true` and a cross-collection `aliasData`, Dark carries neither; `Brand/Paint` (PAINT): Light has `paint {paintType:"SOLID", blendMode:"MULTIPLY"}` and `paintAliasData`, Dark has `paint {paintType:"SOLID"}` only; `Brand/Tint`: Dark carries `composedColor`, Light does not; the collection carries the two parent keys | import: `mode_extensions[Light]` and `mode_extensions[Dark]` hold exactly those keys, no more; collection `extensions` holds the parent keys; export: `Light.tokens.json` and `Dark.tokens.json` are each JSON-equal to the fixture (a key never leaks into the other mode's file); parent keys appear in both file roots |
+| `mode_extensions_follow_mode_edits` | on the document from the previous case: edit the `Light` value of `Brand/Fill`; then delete mode `Dark` | after the edit `Brand/Fill` Light has no `isOverride` or `aliasData` and `Brand/Paint` Light still has its `paint`; after the delete no `mode_extensions` entry for `Dark` remains |
+| `extensions_serde_default` | load a `.designos` written before this change; save a document with no extensions | loads with empty maps; the saved JSON has none of the three new keys and is byte-identical to today's for a document without extensions |
 | `non_native_exports_report_extensions` | same document exported as `dtcg`, REST and `.fig` | `dtcg` output has no `com.figma.` key; each export report lists the left-out extension keys with counts; nothing dropped without a report entry |
 | `figma_export_reimports_in_figma` | manual check: export, import into Figma, screenshot attached to the PR (owner-manual leg, flagged) |
 | `dtcg_export_validates` | export of the tokens fixture → validator reports 0 errors; `$type`, colour objects and aliases correct |

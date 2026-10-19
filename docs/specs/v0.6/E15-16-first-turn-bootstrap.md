@@ -125,7 +125,7 @@ is indicated by a small `Context attached` caption (11 px, secondary text) under
 5. Bootstrap build slower than the user typing the first prompt: the prompt waits at most 500 ms, then
    sends with a compact block (sections 1-2 and the rules) and a note to call
    `designos_get_app_state` for the rest.
-6. Rules pack disabled tools: section 8 reflects the enable list.
+6. Rules pack disabled tools: section 7 (rules pack) reflects the enable list.
 
 ## 9. Non-goals
 

@@ -4,7 +4,7 @@
 |---|---|
 | Epic / pack | E15 / v0.6 AI design |
 | Size / priority | M / P0 |
-| Depends on | #150 (E3-7, recommended components per slot), E15-1 |
+| Depends on | #150 (E3-7, recommended components per slot), E15-1, E15-9 (preset and test edit, section 12) |
 | Unblocks | part-2 surface templates, E15-12 (slot lint finding) |
 | Touches | `crates/designos-doc/src/spec.rs`, `crates/designos-doc/src/spec_instance.rs` |
 
@@ -153,7 +153,8 @@ under 10 ms release. No document-wide walk.
 
 ## 12. Dependencies and build order
 
-After E15-1 (shares `spec_instance.rs`) and #150 (recommended components). Can be built in parallel
+After E15-1 (shares `spec_instance.rs`), #150 (recommended components) and E15-9 (the PR edits E15-9's
+`agent` preset, so the preset and its test exist first; both are wave 2, E15-9 merges first). Can be built in parallel
 with E15-3 if E15-3 does not touch `spec_instance.rs`. The PR that registers `slot-non-recommended`
 also appends it to E15-9's built-in `agent` preset and extends `presets_name_only_registered_rules`.
 

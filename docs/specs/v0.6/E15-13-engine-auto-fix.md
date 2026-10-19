@@ -4,7 +4,7 @@
 |---|---|
 | Epic / pack | E15 / v0.6 AI design |
 | Size / priority | L / P0 |
-| Depends on | E15-12, E15-10, E15-11 |
+| Depends on | E15-12, E15-10, E15-11, E15-6 (for the idempotency undo test only) |
 | Unblocks | E15-14, part-2 eval (auto-fix rate metric) |
 | Touches | `crates/designos-doc/src/lint/fix.rs` (replaces `lint_fix_document`), `crates/designos-mcp/src/tools/issues.rs`, `crates/designos-mcp/src/tools/session_options.rs` |
 
@@ -156,6 +156,7 @@ Seams: designos-doc unit tests for `plan_fixes`; MCP fixture tests for execution
 | `bind_unchanged_value_applied` | fill equal to exactly one mode-constant variable | `applied` has `hardcoded-value`; resolved fill unchanged in every mode |
 | `binding_never_overwritten` | gap bound to a variable whose value is off-scale | no fix |
 | `instance_mirror_skipped` | exact-match hard-coded fill inside an instance's mirrored child | no fix; finding still reported |
+| `undo_of_auto_fix_keeps_write_key_valid` | write with idempotency key `k1` (E15-6) that triggers an applied fix; one `designos_undo`; resend `k1` | replay (`designos/idempotent_replay`); the agent's write is still present, only the fix is gone; E15-6 stores `undo_depth` before the fix entry |
 | `two_pass_limit` | `plan_fixes` driven by a test rule that reports a new safe finding after every pass (the shipped safe rules cannot reliably chain, so the cap is tested with an injected rule) | `passes: 2`, no third pass |
 
 Fail-before: `fill_child_without_layout_parent_fixed` fails today (no `auto_fix` key).
@@ -167,8 +168,8 @@ top of E15-12's 50 ms per call (recorded). No whole-document passes.
 
 ## 12. Dependencies and build order
 
-After E15-12 (findings and reply), E15-10 (contrast stays suggest-tier) and E15-11 (`safe` flags).
-Before E15-14.
+After E15-12 (findings and reply), E15-10 (contrast stays suggest-tier), E15-11 (`safe` flags) and
+E15-6 (wave 3; the `undo_of_auto_fix_keeps_write_key_valid` test needs idempotency keys). Before E15-14.
 
 ## 13. Owner rulings
 
