@@ -867,6 +867,7 @@ impl TerminalState {
         let key = (doc.mutation_epoch(), page.0, selection_key);
         if self.last_synced_key != Some(key) {
             let selected_ids: Vec<u64> = selection.iter().map(|n| n.0).collect();
+            let is_scoped = doc.nodes.len() > 25_000;
             let ctx_val = serde_json::json!({
                 "session_id": self.session_id,
                 "doc_name": self.doc_name,
@@ -874,6 +875,7 @@ impl TerminalState {
                 "current_page_id": page.0,
                 "current_page_name": self.current_page_name,
                 "selected_node_ids": selected_ids,
+                "scoped": is_scoped,
             });
             if let Ok(ctx_bytes) = serde_json::to_vec_pretty(&ctx_val) {
                 let _ = atomic_write_session_file(&self.context_json_path, &ctx_bytes);
@@ -882,11 +884,8 @@ impl TerminalState {
                 }
             }
 
-            let canvas_json = if doc.nodes.len() <= 25_000 {
-                doc.to_json().ok()
-            } else {
-                crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok()
-            };
+            let canvas_json =
+                if !is_scoped { doc.to_json().ok() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok() };
             if let Some(json_str) = canvas_json {
                 let _ = atomic_write_session_file(&self.live_canvas_path, json_str.as_bytes());
                 if !cfg!(test) {

@@ -4,15 +4,16 @@
 //! or a page-space rectangle (`region: {page_id, x, y, width, height}`) on the deterministic
 //! CPU path with per-subtree variable resolution, downsizing to `max_long_edge` when needed.
 
-use designos_doc::{resolve_node, Affine, Document, NodeId, NodeKind, Rect, Vec2};
+use designos_doc::{resolve_node, Affine, Color, Document, Node, NodeId, NodeKind, PaintKind, Rect, Vec2};
 use designos_export::{
     base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _},
     designos_render::{checked_pixmap_size, render_page, Viewport, MAX_PIXMAP_PIXELS, MAX_PIXMAP_SIDE},
-    encode_jpg_pixmap, encode_png_pixmap, render_bounds, render_export,
+    encode_jpg_pixmap, encode_png_pixmap, render_bounds,
     tiny_skia::Pixmap,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 
 /// Structured MCP tool error with stable code, valid options, and retry safety flag.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -320,23 +321,86 @@ pub fn page_render_bounds(doc: &Document, id: NodeId) -> Rect {
     transform_rect(&world, local)
 }
 
-/// Detects whether `page` holds empty top-level frame shells (from `live_canvas_scope.rs`).
+/// Detects whether `page` is a scoped Studio page or holds top-level frame shells (from `live_canvas_scope.rs`).
 fn page_has_scoped_shells(doc: &Document, page_id: NodeId) -> bool {
     let Some(page) = doc.get(page_id) else { return false };
-    let mut empty_frames = 0usize;
-    let mut populated_frames = 0usize;
-    for &cid in &page.children {
-        if let Some(c) = doc.get(cid) {
-            if matches!(c.kind, NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
-                if c.children.is_empty() && c.fill_geometry.is_none() && c.stroke_geometry.is_none() {
-                    empty_frames += 1;
-                } else {
-                    populated_frames += 1;
-                }
+    let is_scoped_flag = |val: &str| matches!(val, "true" | "1");
+    if page.fig_metadata.get("designos:scoped").is_some_and(|v| is_scoped_flag(v))
+        || page.fig_metadata.get("scoped").is_some_and(|v| is_scoped_flag(v))
+        || page.plugin_data.get("scoped").is_some_and(|v| is_scoped_flag(v))
+    {
+        return true;
+    }
+    page.children.iter().filter_map(|&cid| doc.get(cid)).any(|c| {
+        c.fig_metadata.get("designos:scoped_shell").is_some_and(|v| is_scoped_flag(v))
+            || c.fig_metadata.get("scoped_shell").is_some_and(|v| is_scoped_flag(v))
+            || c.fig_metadata.get("designos:scoped").is_some_and(|v| is_scoped_flag(v))
+            || c.plugin_data.get("scoped").is_some_and(|v| is_scoped_flag(v))
+    })
+}
+
+fn collect_node_images(n: &Node, out: &mut BTreeSet<String>) {
+    let mut visit = |paints: &[designos_doc::Paint]| {
+        for p in paints {
+            if let PaintKind::Image { image_ref, .. } = &p.kind {
+                out.insert(image_ref.clone());
             }
         }
+    };
+    visit(&n.fills);
+    visit(&n.stroke.paints);
+    if let NodeKind::Text(t) = &n.kind {
+        visit(&t.style.fills);
+        for r in &t.runs {
+            visit(&r.style.fills);
+        }
     }
-    empty_frames > 0 && populated_frames > 0
+}
+
+/// Rasterizes `root`'s page-space `bounds` at `scale_used` into a `(w, h)` pixmap, keeping `root`'s
+/// world matrix (`world_transform`) and resolving bound variables per node in `root`'s subtree.
+fn render_node_in_page_space(doc: &Document, root: NodeId, bounds: Rect, scale_used: f32, w: u32, h: u32) -> Option<Pixmap> {
+    let mut pm = Pixmap::new(w, h)?;
+    let root_node = doc.get(root)?;
+    let vp = Viewport { offset: Vec2::new(bounds.x, bounds.y), zoom: scale_used, dpr: 1.0 };
+    if matches!(root_node.kind, NodeKind::Page { .. }) {
+        render_page(doc, root, &vp, &mut pm);
+        return Some(pm);
+    }
+    let mut scratch = Document::new(doc.name.clone());
+    if let Some(max) = doc.nodes.keys().max() {
+        scratch.reserve_ids(*max);
+    }
+    let page = scratch.add_page("export");
+    if let Some(p) = scratch.get_mut(page) {
+        p.kind = NodeKind::Page { background: Color::TRANSPARENT };
+    }
+    let mut refs = BTreeSet::new();
+    let mut nodes: Vec<Node> = Vec::new();
+    doc.walk(root, |n, _| {
+        let mut resolved = resolve_node(doc, n).into_owned();
+        resolved.variables.bindings.clear();
+        collect_node_images(&resolved, &mut refs);
+        nodes.push(resolved);
+    });
+    let root_world = world_transform(doc, root);
+    for (i, mut n) in nodes.into_iter().enumerate() {
+        let parent = if i == 0 {
+            n.transform = root_world;
+            page
+        } else {
+            n.parent.unwrap_or(page)
+        };
+        n.children.clear();
+        let _ = scratch.insert(parent, n);
+    }
+    for r in refs {
+        if let Some(data) = doc.images.get(&r) {
+            scratch.images.insert(r, data.clone());
+        }
+    }
+    render_page(&scratch, page, &vp, &mut pm);
+    Some(pm)
 }
 
 /// Computes `(scale_used, downscaled)` for `bounds` given `scale` and `max_long_edge`.
@@ -395,7 +459,7 @@ pub fn render_target(doc: &Document, target: ScreenshotTarget, scale: f32, max_l
             let (w, h) =
                 checked_pixmap_size(bounds.w * scale_used, bounds.h * scale_used).ok_or_else(|| ToolError::image_too_large(bounds.w, bounds.h, scale_used))?;
             let pixmap = if visible {
-                render_export(doc, *id, scale_used).ok_or_else(|| ToolError::image_too_large(bounds.w, bounds.h, scale_used))?
+                render_node_in_page_space(doc, *id, bounds, scale_used, w, h).ok_or_else(|| ToolError::image_too_large(bounds.w, bounds.h, scale_used))?
             } else {
                 Pixmap::new(w, h).ok_or_else(|| ToolError::image_too_large(bounds.w, bounds.h, scale_used))?
             };
@@ -779,5 +843,82 @@ mod tests {
         let reply = execute_get_screenshot(&doc, json!({"node_ids": [n1.0, n2.0]})).unwrap();
         assert_eq!(reply["bounds"]["width"], 400.0);
         assert_eq!(reply["bounds"]["height"], 100.0);
+    }
+
+    #[test]
+    fn rotated_node_and_scaled_parent_keep_world_transform_and_page_bounds_size() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+
+        // 4000x100 rectangle rotated 90 degrees -> page bounds ~100x4000, at scale 0.5 -> ~50x2000 px
+        let rot_id = doc.alloc_id();
+        let mut rot_rect = Node::rectangle(rot_id, Rect::new(0.0, 0.0, 4000.0, 100.0));
+        rot_rect.transform = Affine::rotate(std::f32::consts::FRAC_PI_2);
+        rot_rect.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        doc.insert(page, rot_rect).unwrap();
+
+        let reply = execute_get_screenshot(&doc, json!({"node_id": rot_id.0, "scale": 0.5, "max_long_edge": 0})).unwrap();
+        let pm = decode_png_from_reply(&reply);
+        assert!((reply["bounds"]["width"].as_f64().unwrap() - 100.0).abs() <= 1.0, "bounds={}", reply["bounds"]);
+        assert!((reply["bounds"]["height"].as_f64().unwrap() - 4000.0).abs() <= 1.0, "bounds={}", reply["bounds"]);
+        assert!((pm.width() as i32 - 50).abs() <= 1, "expected width ~50, got {}", pm.width());
+        assert!((pm.height() as i32 - 2000).abs() <= 1, "expected height ~2000, got {}", pm.height());
+        assert_eq!(reply["width"], pm.width());
+        assert_eq!(reply["height"], pm.height());
+        let center_px = pm.pixel(pm.width() / 2, pm.height() / 2).unwrap();
+        assert!(center_px.red() > 240 && center_px.green() < 15 && center_px.blue() < 15, "center pixel should be red: {center_px:?}");
+
+        // Button (100x40) inside a 2x scaled parent frame -> page bounds 200x80, at scale 0.5 -> 100x40 px
+        let parent_id = doc.alloc_id();
+        let mut parent = Node::frame(parent_id, Rect::new(0.0, 0.0, 200.0, 200.0));
+        parent.transform = Affine::scale(2.0, 2.0);
+        doc.insert(page, parent).unwrap();
+
+        let btn_id = doc.alloc_id();
+        let mut btn = Node::rectangle(btn_id, Rect::new(10.0, 20.0, 100.0, 40.0));
+        btn.fills = vec![Paint::solid(Color::rgb(0, 200, 0))];
+        doc.insert(parent_id, btn).unwrap();
+
+        let btn_reply = execute_get_screenshot(&doc, json!({"node_id": btn_id.0, "scale": 0.5, "max_long_edge": 0})).unwrap();
+        let btn_pm = decode_png_from_reply(&btn_reply);
+        assert!((btn_reply["bounds"]["width"].as_f64().unwrap() - 200.0).abs() <= 1.0);
+        assert!((btn_reply["bounds"]["height"].as_f64().unwrap() - 80.0).abs() <= 1.0);
+        assert_eq!((btn_pm.width(), btn_pm.height()), (100, 40));
+        assert_eq!(btn_reply["width"], 100);
+        assert_eq!(btn_reply["height"], 40);
+    }
+
+    #[test]
+    fn scoped_flag_tracks_scoped_shells_not_mixed_empty_frames() {
+        // 1. Normal page with one empty frame and one populated frame must NOT set scoped: true.
+        let mut normal_doc = Document::new("Normal");
+        let normal_page = normal_doc.add_page("Page 1");
+        let empty_f = normal_doc.alloc_id();
+        normal_doc.insert(normal_page, Node::frame(empty_f, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let full_f = normal_doc.alloc_id();
+        normal_doc.insert(normal_page, Node::frame(full_f, Rect::new(300.0, 0.0, 200.0, 200.0))).unwrap();
+        let child = normal_doc.alloc_id();
+        normal_doc.insert(full_f, Node::rectangle(child, Rect::new(10.0, 10.0, 50.0, 50.0))).unwrap();
+
+        let normal_reply =
+            execute_get_screenshot(&normal_doc, json!({"region": {"page_id": normal_page.0, "x": 0.0, "y": 0.0, "width": 500.0, "height": 200.0}})).unwrap();
+        assert!(normal_reply.get("scoped").is_none(), "unscoped page must not report scoped: true: {normal_reply}");
+
+        // 2. Scoped page where every top-level frame is an empty shell (no expanded frame) MUST set scoped: true.
+        let mut scoped_doc = Document::new("Scoped");
+        let scoped_page = scoped_doc.add_page("Page 1");
+        let shell1 = scoped_doc.alloc_id();
+        let mut f1 = Node::frame(shell1, Rect::new(0.0, 0.0, 200.0, 200.0));
+        f1.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
+        scoped_doc.insert(scoped_page, f1).unwrap();
+        let shell2 = scoped_doc.alloc_id();
+        let mut f2 = Node::frame(shell2, Rect::new(300.0, 0.0, 200.0, 200.0));
+        f2.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
+        scoped_doc.insert(scoped_page, f2).unwrap();
+        scoped_doc.get_mut(scoped_page).unwrap().fig_metadata.insert("designos:scoped".into(), "true".into());
+
+        let scoped_reply =
+            execute_get_screenshot(&scoped_doc, json!({"region": {"page_id": scoped_page.0, "x": 0.0, "y": 0.0, "width": 500.0, "height": 200.0}})).unwrap();
+        assert_eq!(scoped_reply["scoped"], json!(true));
     }
 }

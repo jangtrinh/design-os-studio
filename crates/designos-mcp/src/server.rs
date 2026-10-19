@@ -215,6 +215,7 @@ impl Session {
     /// Reloads `self.engine.doc` from `live_canvas_path` if `design:os studio` wrote a newer canvas
     /// snapshot, and updates `self.engine.active_page_id` from `context.json` (`current_page_id`).
     pub fn sync_from_live_canvas_if_newer(&mut self) {
+        let mut reloaded_live_canvas = false;
         if let Some(canvas_path) = self.bridge.live_canvas_path.clone() {
             if let Ok(meta) = fs::metadata(&canvas_path) {
                 if let Ok(mtime) = meta.modified() {
@@ -235,6 +236,7 @@ impl Session {
                                     self.history_dropped = true;
                                 }
                                 self.bridge.last_canvas_mtime = Some(mtime);
+                                reloaded_live_canvas = true;
                             }
                         }
                     }
@@ -243,10 +245,12 @@ impl Session {
         }
 
         let mut loaded_page_id: Option<u64> = None;
+        let mut context_scoped = false;
         if let Some(ctx_path) = &self.bridge.context_json_path {
             if let Ok(raw) = fs::read_to_string(ctx_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     loaded_page_id = val.get("current_page_id").and_then(Value::as_u64);
+                    context_scoped = val.get("scoped").and_then(Value::as_bool).unwrap_or(false);
                 }
             }
         }
@@ -259,6 +263,13 @@ impl Session {
             self.engine.active_page_id = Some(designos_doc::NodeId(pid));
         } else if self.engine.active_page_id.is_none() {
             self.engine.active_page_id = self.engine.doc.pages.first().copied();
+        }
+        if reloaded_live_canvas && context_scoped {
+            if let Some(pid) = self.engine.active_page_id {
+                if let Some(page_node) = self.engine.doc.get_mut(pid) {
+                    page_node.fig_metadata.insert("designos:scoped".into(), "true".into());
+                }
+            }
         }
     }
 
