@@ -211,6 +211,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             variables: vec!["VariableID:10:10".into(), "VariableID:10:11".into(), "VariableID:10:12".into()],
             key: Some("theme_key".into()),
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let mut bg_vals = BTreeMap::new();
@@ -230,6 +231,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_bg_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut pad_vals = BTreeMap::new();
@@ -249,6 +252,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_pad_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut alias_vals = BTreeMap::new();
@@ -268,6 +273,8 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
             key: Some("var_alias_key".into()),
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 

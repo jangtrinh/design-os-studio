@@ -122,6 +122,7 @@ mod tests {
             variables: vec![],
             key: None,
             source_library_key: lib.map(String::from),
+            extensions: BTreeMap::new(),
         }
     }
 

@@ -308,8 +308,20 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 }
             }
         }
-        let report = designos_fig::import_variables_bytes(&mut doc, &bytes, var_path.file_name().and_then(|s| s.to_str()), fmt, import_opts)
+        let before_store = designos_doc::VariableStore::from_doc(&doc);
+        let mut working = designos_doc::Document::new("variables_work");
+        working.variable_collections = doc.variable_collections.clone();
+        working.variables = doc.variables.clone();
+        let mut report = designos_fig::import_variables_bytes(&mut working, &bytes, var_path.file_name().and_then(|s| s.to_str()), fmt, import_opts)
             .map_err(|e| format!("Cannot import variables from {}: {e}", var_path.display()))?;
+        let skipped_lib = variables::library::drop_refused_records(&before_store, &mut working.variable_collections, &mut working.variables);
+        for _ in 0..skipped_lib {
+            report.skipped.push(designos_fig::SkippedVariable { path: "library".into(), reason: "subscribed library collection is read-only".into() });
+        }
+        let mut after_store = designos_doc::VariableStore { collections: working.variable_collections, variables: working.variables };
+        after_store.enforce_library_read_only(&before_store);
+        doc.variable_collections = after_store.collections;
+        doc.variables = after_store.variables;
         save_target.save(&doc)?;
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
@@ -332,7 +344,12 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         } else {
             std::fs::create_dir_all(out_target).map_err(|e| format!("Cannot create dir {}: {e}", out_target.display()))?;
             for (name, bytes) in &bundle.files {
-                let dest = out_target.join(name);
+                let safe_name = std::path::Path::new(name)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !name.contains("..") && !name.contains('/') && !name.contains('\\'))
+                    .ok_or_else(|| format!("Refusing to write unsafe export filename '{name}'"))?;
+                let dest = out_target.join(safe_name);
                 std::fs::write(&dest, bytes).map_err(|e| format!("Cannot write {}: {e}", dest.display()))?;
             }
         }

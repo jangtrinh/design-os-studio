@@ -37,14 +37,15 @@ pub use export::export_rest_json;
 #[doc(hidden)]
 pub use fig::import_fig_node_changes;
 pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig};
-pub use fig_export::{export_fig, path_to_commands_blob};
+pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
 pub use pen::{export_pen_json, import_pen_json, import_pen_json_with_warnings};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{image_refs, import_rest_json};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
 pub use variables_dtcg::{
-    detect_variables_format, detect_variables_format_value, export_variables, import_variables, import_variables_bytes, mode_name_from_filename,
-    validate_dtcg_json, validate_dtcg_value, DtcgValidationError, ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable, VariablesFormat,
+    collect_omitted_extensions, detect_variables_format, detect_variables_format_value, export_variables, import_variables, import_variables_bytes,
+    mode_name_from_filename, validate_dtcg_json, validate_dtcg_value, DtcgValidationError, ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable,
+    VariablesFormat,
 };
 
 #[derive(Debug, thiserror::Error)]

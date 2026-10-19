@@ -75,6 +75,19 @@ pub struct EditPopover {
     pub scroll: f32,
 }
 
+pub enum VarsIoResult {
+    Imported {
+        collections: std::collections::BTreeMap<String, VariableCollection>,
+        variables: std::collections::BTreeMap<String, Variable>,
+        report: designos_fig::ImportReport,
+    },
+    Exported {
+        var_count: usize,
+        format_label: &'static str,
+    },
+    Error(String),
+}
+
 pub struct VarsState {
     pub open: bool,
     /// Full view (true) or floating panel (false); remembered between openings.
@@ -111,6 +124,8 @@ pub struct VarsState {
     pub last_import_report: Option<designos_fig::ImportReport>,
     /// Whether the skipped-tokens details modal/popover is visible (`E1-9` §7).
     pub show_skipped_details: bool,
+    /// Background variable import/export worker result receiver.
+    pub pending_io: Option<std::sync::mpsc::Receiver<VarsIoResult>>,
 }
 
 impl Default for VarsState {
@@ -140,6 +155,7 @@ impl Default for VarsState {
             rename_frames: 0,
             last_import_report: None,
             show_skipped_details: false,
+            pending_io: None,
         }
     }
 }
@@ -371,59 +387,102 @@ impl App {
         Ok(library::VariablesImport { imported: total - skipped, skipped_library: skipped })
     }
 
-    /// Merges one or more variable files (`figma-rest`, `figma-native`, `dtcg`, or `.zip`) into the document (`E1-9` §3.3, §7).
-    pub fn import_variables_files_with_format(&mut self, paths: &[std::path::PathBuf], format: designos_fig::VariablesFormat) {
-        let Some((first_path, rest_paths)) = paths.split_first() else { return };
-        let bytes = match std::fs::read(first_path) {
-            Ok(b) => b,
-            Err(e) => {
-                self.show_toast(format!("Cannot read {}: {e}", first_path.display()), true);
-                return;
-            }
-        };
-        let mut opts = designos_fig::ImportVariablesOptions::default();
-        for p in rest_paths {
-            if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(p)) {
-                opts.additional_files.push((fname.to_string(), fbytes));
-            }
+    fn variables_only_doc(&self) -> Document {
+        let mut working = Document::new("variables_work");
+        working.variable_collections = self.doc.variable_collections.clone();
+        working.variables = self.doc.variables.clone();
+        working
+    }
+
+    fn apply_imported_variables(
+        &mut self,
+        mut collections: std::collections::BTreeMap<String, VariableCollection>,
+        mut variables: std::collections::BTreeMap<String, Variable>,
+        mut rep: designos_fig::ImportReport,
+    ) {
+        let mut store = VariableStore::from_doc(&self.doc);
+        let skipped_lib = library::drop_refused_records(&store, &mut collections, &mut variables);
+        for _ in 0..skipped_lib {
+            rep.skipped.push(designos_fig::SkippedVariable { path: "library".into(), reason: "subscribed library collection is read-only".into() });
         }
-        if first_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifest.json") {
-            if let Some(parent_dir) = first_path.parent() {
-                if let Ok(entries) = std::fs::read_dir(parent_dir) {
-                    for entry in entries.flatten() {
-                        let p = entry.path();
-                        if p != *first_path && p.extension().and_then(|e| e.to_str()) == Some("json") {
-                            if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(&p)) {
-                                if !opts.additional_files.iter().any(|(n, _)| n == fname) {
-                                    opts.additional_files.push((fname.to_string(), fbytes));
-                                }
-                            }
-                        }
+        store.collections = collections;
+        store.variables = variables;
+        self.commit_store(store, &[], &[]);
+        if self.vars.collection.is_none() {
+            self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
+        }
+        let toast = rep.toast_message();
+        self.vars.show_skipped_details = !rep.skipped.is_empty();
+        self.vars.last_import_report = Some(rep);
+        self.show_toast(toast, false);
+    }
+
+    /// Polls any in-flight background variable import/export worker and commits results on the UI thread.
+    pub fn poll_variables_io(&mut self) {
+        let Some(rx) = &self.vars.pending_io else { return };
+        match rx.try_recv() {
+            Ok(res) => {
+                self.vars.pending_io = None;
+                match res {
+                    VarsIoResult::Imported { collections, variables, report } => {
+                        self.apply_imported_variables(collections, variables, report);
+                    }
+                    VarsIoResult::Exported { var_count, format_label } => {
+                        self.show_toast(format!("Exported {var_count} variables ({format_label})"), false);
+                    }
+                    VarsIoResult::Error(msg) => {
+                        self.show_toast(msg, true);
                     }
                 }
             }
-        }
-
-        let mut working = self.doc.clone();
-        match designos_fig::import_variables_bytes(&mut working, &bytes, first_path.file_name().and_then(|s| s.to_str()), format, opts) {
-            Ok(mut rep) => {
-                let mut store = VariableStore::from_doc(&self.doc);
-                let skipped_lib = library::drop_refused_records(&store, &mut working.variable_collections, &mut working.variables);
-                for _ in 0..skipped_lib {
-                    rep.skipped.push(designos_fig::SkippedVariable { path: "library".into(), reason: "subscribed library collection is read-only".into() });
-                }
-                store.collections = working.variable_collections;
-                store.variables = working.variables;
-                self.commit_store(store, &[], &[]);
-                if self.vars.collection.is_none() {
-                    self.vars.collection = library::first_collection_of(&self.doc.variable_collections);
-                }
-                let toast = rep.toast_message();
-                self.vars.show_skipped_details = !rep.skipped.is_empty();
-                self.vars.last_import_report = Some(rep);
-                self.show_toast(toast, false);
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.vars.pending_io = None;
             }
-            Err(e) => self.show_toast(format!("Cannot import variables: {e}"), true),
+        }
+    }
+
+    /// Spawns a background worker to read and parse variable files off the UI thread.
+    pub fn spawn_import_variables_files_with_format(&mut self, paths: Vec<std::path::PathBuf>, format: designos_fig::VariablesFormat) {
+        if paths.is_empty() {
+            return;
+        }
+        let mut working = self.variables_only_doc();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.vars.pending_io = Some(rx);
+        std::thread::spawn(move || {
+            let res = run_import_variables_worker(&mut working, &paths, format);
+            let _ = tx.send(match res {
+                Ok(report) => VarsIoResult::Imported { collections: working.variable_collections, variables: working.variables, report },
+                Err(e) => VarsIoResult::Error(e),
+            });
+        });
+    }
+
+    /// Spawns a background worker to serialize and write exported variables off the UI thread.
+    pub fn spawn_export_variables_with_format(&mut self, path: std::path::PathBuf, format: designos_fig::VariablesFormat) {
+        let working = self.variables_only_doc();
+        let var_count = working.variables.len();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.vars.pending_io = Some(rx);
+        std::thread::spawn(move || {
+            let res = run_export_variables_worker(&working, &path, format);
+            let _ = tx.send(match res {
+                Ok(format_label) => VarsIoResult::Exported { var_count, format_label },
+                Err(e) => VarsIoResult::Error(e),
+            });
+        });
+    }
+
+    /// Merges one or more variable files (`figma-rest`, `figma-native`, `dtcg`, or `.zip`) into the document (`E1-9` §3.3, §7).
+    pub fn import_variables_files_with_format(&mut self, paths: &[std::path::PathBuf], format: designos_fig::VariablesFormat) {
+        if paths.is_empty() {
+            return;
+        }
+        let mut working = self.variables_only_doc();
+        match run_import_variables_worker(&mut working, paths, format) {
+            Ok(rep) => self.apply_imported_variables(working.variable_collections, working.variables, rep),
+            Err(e) => self.show_toast(e, true),
         }
     }
 
@@ -433,25 +492,10 @@ impl App {
     }
 
     pub fn export_variables_with_format(&mut self, path: &Path, format: designos_fig::VariablesFormat) {
-        let bundle = match designos_fig::export_variables(&self.doc, format) {
-            Ok(b) => b,
-            Err(e) => {
-                self.show_toast(format!("Cannot export variables: {e}"), true);
-                return;
-            }
-        };
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let res = if ext.eq_ignore_ascii_case("zip") || (bundle.files.len() > 1 && !path.is_dir()) {
-            let zip_path = if ext.eq_ignore_ascii_case("zip") { path.to_path_buf() } else { path.with_extension("zip") };
-            bundle.to_zip_bytes().map_err(|e| e.to_string()).and_then(|bytes| std::fs::write(&zip_path, bytes).map_err(|e| e.to_string()))
-        } else if let Some((_, first_bytes)) = bundle.files.first() {
-            std::fs::write(path, first_bytes).map_err(|e| e.to_string())
-        } else {
-            Ok(())
-        };
-        match res {
-            Ok(()) => self.show_toast(format!("Exported {} variables ({})", self.doc.variables.len(), bundle.format.label()), false),
-            Err(e) => self.show_toast(format!("Cannot write {}: {e}", path.display()), true),
+        let working = self.variables_only_doc();
+        match run_export_variables_worker(&working, path, format) {
+            Ok(label) => self.show_toast(format!("Exported {} variables ({label})", self.doc.variables.len()), false),
+            Err(e) => self.show_toast(e, true),
         }
     }
 
@@ -459,6 +503,55 @@ impl App {
     pub fn export_variables_file(&mut self, path: &Path) {
         self.export_variables_with_format(path, designos_fig::VariablesFormat::FigmaRest);
     }
+}
+
+fn run_import_variables_worker(
+    working: &mut Document,
+    paths: &[std::path::PathBuf],
+    format: designos_fig::VariablesFormat,
+) -> Result<designos_fig::ImportReport, String> {
+    let Some((first_path, rest_paths)) = paths.split_first() else {
+        return Err("No variable files selected".into());
+    };
+    let bytes = std::fs::read(first_path).map_err(|e| format!("Cannot read {}: {e}", first_path.display()))?;
+    let mut opts = designos_fig::ImportVariablesOptions::default();
+    for p in rest_paths {
+        if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(p)) {
+            opts.additional_files.push((fname.to_string(), fbytes));
+        }
+    }
+    if first_path.file_name().and_then(|s| s.to_str()) == Some("tokens.manifest.json") {
+        if let Some(parent_dir) = first_path.parent() {
+            if let Ok(entries) = std::fs::read_dir(parent_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p != *first_path && p.extension().and_then(|e| e.to_str()) == Some("json") {
+                        if let (Some(fname), Ok(fbytes)) = (p.file_name().and_then(|s| s.to_str()), std::fs::read(&p)) {
+                            if !opts.additional_files.iter().any(|(n, _)| n == fname) {
+                                opts.additional_files.push((fname.to_string(), fbytes));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    designos_fig::import_variables_bytes(working, &bytes, first_path.file_name().and_then(|s| s.to_str()), format, opts)
+        .map_err(|e| format!("Cannot import variables: {e}"))
+}
+
+fn run_export_variables_worker(working: &Document, path: &Path, format: designos_fig::VariablesFormat) -> Result<&'static str, String> {
+    let bundle = designos_fig::export_variables(working, format).map_err(|e| format!("Cannot export variables: {e}"))?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let res = if ext.eq_ignore_ascii_case("zip") || (bundle.files.len() > 1 && !path.is_dir()) {
+        let zip_path = if ext.eq_ignore_ascii_case("zip") { path.to_path_buf() } else { path.with_extension("zip") };
+        bundle.to_zip_bytes().map_err(|e| e.to_string()).and_then(|bytes| std::fs::write(&zip_path, bytes).map_err(|e| e.to_string()))
+    } else if let Some((_, first_bytes)) = bundle.files.first() {
+        std::fs::write(path, first_bytes).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    };
+    res.map(|()| bundle.format.label()).map_err(|e| format!("Cannot write {}: {e}", path.display()))
 }
 
 /// Variables whose resolved value may differ after installing `store`: those added or edited,

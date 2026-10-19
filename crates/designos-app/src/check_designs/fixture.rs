@@ -40,6 +40,7 @@ pub fn document() -> Document {
             variables: vec!["primary".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     d.variables.insert(
@@ -55,6 +56,8 @@ pub fn document() -> Document {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut style = |key: &str, name: &str, s: Style, property: StyleProperty| {

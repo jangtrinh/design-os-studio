@@ -1300,6 +1300,7 @@ mod tests {
             variables: vec!["v1".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         };
         let coll2 = VariableCollection { id: "c2".into(), name: "Alias".into(), variables: vec!["v2".into()], ..coll.clone() };
         d.variable_collections.insert("c1".into(), coll);
@@ -1316,6 +1317,8 @@ mod tests {
             key: None,
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert("v1".into(), mk("v1", "Base", "c1", VariableValue::Number(8.0)));
         d.variables.insert("v2".into(), mk("v2", "Gap", "c2", VariableValue::Alias("v1".into())));

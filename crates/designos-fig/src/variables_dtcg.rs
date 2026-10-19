@@ -3,7 +3,7 @@
 
 use crate::variables::{export_variables_json, import_variables_json};
 use crate::FigError;
-use designos_doc::{CodeSyntax, CodeSyntaxPlatform, Color, Document, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+use designos_doc::{CodeSyntax, CodeSyntaxPlatform, Color, Document, FigmaExtensions, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -88,12 +88,16 @@ impl ImportReport {
     }
 }
 
-/// Output of [`export_variables`] (`E1-9` §4).
+/// Output of [`export_variables`] (`E1-9` §4, §10).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExportBundle {
     pub format: VariablesFormat,
     /// Generated `(filename, utf8_or_zip_bytes)` entries.
     pub files: Vec<(String, Vec<u8>)>,
+    /// Variables and collections whose preserved `extensions` or `mode_extensions`
+    /// were omitted because the target format (`dtcg` or `figma-rest`) does not carry them (`E1-9` §4, §10).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub omitted_extensions: Vec<SkippedVariable>,
 }
 
 impl ExportBundle {
@@ -111,6 +115,34 @@ impl ExportBundle {
         }
         Ok(buf.into_inner())
     }
+}
+
+/// Collects every collection-level and variable/mode-level extension in `doc` that non-native formats
+/// (`dtcg`, `figma-rest`, `.fig`) omit (`E1-9` §4, §10).
+pub fn collect_omitted_extensions(doc: &Document) -> Vec<SkippedVariable> {
+    let mut out = Vec::new();
+    for coll in doc.variable_collections.values() {
+        for k in coll.extensions.keys() {
+            out.push(SkippedVariable { path: coll.name.clone(), reason: format!("omitted collection extension '{k}' (count: 1)") });
+        }
+    }
+    for v in doc.variables.values() {
+        let coll_name = doc.variable_collections.get(&v.collection).map(|c| c.name.as_str()).unwrap_or("");
+        let var_path = if coll_name.is_empty() { v.name.clone() } else { format!("{coll_name}/{}", v.name) };
+        for k in v.extensions.keys() {
+            out.push(SkippedVariable { path: var_path.clone(), reason: format!("omitted variable extension '{k}' (count: 1)") });
+        }
+        let mut mode_key_counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for mext in v.mode_extensions.values() {
+            for k in mext.keys() {
+                *mode_key_counts.entry(k.as_str()).or_insert(0) += 1;
+            }
+        }
+        for (k, count) in mode_key_counts {
+            out.push(SkippedVariable { path: var_path.clone(), reason: format!("omitted mode extension '{k}' (count: {count})") });
+        }
+    }
+    out
 }
 
 /// Validation error reported by [`validate_dtcg_value`] (`E1-9` §6).
@@ -431,9 +463,9 @@ fn clamp01(x: f32) -> f32 {
     }
 }
 
-fn finite_f64(x: f32) -> f64 {
+fn finite_f32(x: f32) -> f64 {
     if x.is_finite() {
-        f64::from(x)
+        x.to_string().parse::<f64>().unwrap_or(x as f64)
     } else {
         0.0
     }
@@ -450,8 +482,8 @@ fn color_to_dtcg_obj(c: Color) -> Value {
     let hex = format!("#{ri:02X}{gi:02X}{bi:02X}");
     json!({
         "colorSpace": "srgb",
-        "components": [r, g, b],
-        "alpha": a,
+        "components": [finite_f32(r), finite_f32(g), finite_f32(b)],
+        "alpha": finite_f32(a),
         "hex": hex,
     })
 }
@@ -487,27 +519,29 @@ fn sanitize_dtcg_path(name: &str) -> (Vec<String>, bool) {
     (segs, any_changed)
 }
 
-/// Resolves the literal value of `var_id` in `mode_id` (falling back to collection default mode).
-fn resolve_literal_in_mode(doc: &Document, var_id: &str, mode_id: &str) -> Option<(VariableKind, VariableValue)> {
+/// Resolves the literal value of `var_id` in `mode_id` / `mode_name` (matching target collection mode by id,
+/// then by mode name, and falling back to the target collection's default mode).
+fn resolve_literal_in_mode(doc: &Document, var_id: &str, mode_id: &str, mode_name: &str) -> Option<(VariableKind, VariableValue)> {
     let mut cur_id = var_id.to_string();
-    let mut cur_mode = mode_id.to_string();
+    let mut cur_mode_id = mode_id.to_string();
+    let mut cur_mode_name = mode_name.to_string();
     for _ in 0..16 {
         let v = doc.variables.get(&cur_id)?;
         let coll = doc.variable_collections.get(&v.collection)?;
-        let val = v.values.get(&cur_mode).or_else(|| v.values.get(&coll.default_mode)).or_else(|| v.values.values().next())?;
+        let effective_mode_id = if v.values.contains_key(&cur_mode_id) {
+            cur_mode_id.clone()
+        } else if let Some(m) = coll.modes.iter().find(|m| m.name == cur_mode_name && v.values.contains_key(&m.id)) {
+            m.id.clone()
+        } else {
+            coll.default_mode.clone()
+        };
+        let val = v.values.get(&effective_mode_id).or_else(|| v.values.get(&coll.default_mode)).or_else(|| v.values.values().next())?;
+        if let Some(m) = coll.modes.iter().find(|m| m.id == effective_mode_id) {
+            cur_mode_name = m.name.clone();
+        }
+        cur_mode_id = effective_mode_id;
         match val {
             VariableValue::Alias(next_id) => {
-                let next_var = doc.variables.get(next_id)?;
-                if next_var.collection != v.collection {
-                    if let Some(next_coll) = doc.variable_collections.get(&next_var.collection) {
-                        cur_mode = next_coll
-                            .modes
-                            .iter()
-                            .find(|m| coll.modes.iter().find(|cm| cm.id == cur_mode).is_some_and(|cm| cm.name == m.name))
-                            .map(|m| m.id.clone())
-                            .unwrap_or_else(|| next_coll.default_mode.clone());
-                    }
-                }
                 cur_id = next_id.clone();
             }
             other => return Some((v.kind, other.clone())),
@@ -565,7 +599,11 @@ pub fn export_variables(doc: &Document, format: VariablesFormat) -> Result<Expor
         VariablesFormat::Auto | VariablesFormat::FigmaRest => {
             let val = export_variables_json(doc);
             let bytes = serde_json::to_vec_pretty(&val)?;
-            Ok(ExportBundle { format: VariablesFormat::FigmaRest, files: vec![("variables.json".to_string(), bytes)] })
+            Ok(ExportBundle {
+                format: VariablesFormat::FigmaRest,
+                files: vec![("variables.json".to_string(), bytes)],
+                omitted_extensions: collect_omitted_extensions(doc),
+            })
         }
         VariablesFormat::FigmaNative => export_figma_native(doc),
         VariablesFormat::Dtcg => export_dtcg(doc),
@@ -602,7 +640,7 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
         for mode in &coll.modes {
             let mut root = Map::new();
             for v in &vars {
-                let Some(val) = v.values.get(&mode.id).or_else(|| v.values.get(&coll.default_mode)) else {
+                let Some(val) = v.values.get(&mode.id) else {
                     continue;
                 };
 
@@ -619,28 +657,38 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
                 if v.hidden_from_publishing {
                     ext.insert("com.figma.hiddenFromPublishing".into(), Value::Bool(true));
                 }
-                if let Some(key) = &v.key {
-                    ext.insert("com.figma.key".into(), Value::String(key.clone()));
-                }
+
+                let figma_token_type = v.extensions.get("org.designos.figmaTokenType").and_then(Value::as_str);
 
                 let (ty_str, val_json) = match val {
                     VariableValue::Color(c) => ("color", color_to_dtcg_obj(*c)),
-                    VariableValue::Number(n) => ("number", json!(finite_f64(*n))),
+                    VariableValue::Number(n) => {
+                        if figma_token_type == Some("duration") {
+                            ("duration", json!({ "value": finite_f32(*n).round() as i64, "unit": "ms" }))
+                        } else {
+                            ("number", json!(finite_f32(*n)))
+                        }
+                    }
                     VariableValue::Boolean(b) => {
                         ext.insert("com.figma.type".into(), Value::String("boolean".into()));
                         ("number", json!(if *b { 1 } else { 0 }))
                     }
                     VariableValue::String(s) => {
-                        ext.insert("com.figma.type".into(), Value::String("string".into()));
-                        ("string", Value::String(s.clone()))
+                        if figma_token_type == Some("easing") {
+                            ("easing", Value::String(s.clone()))
+                        } else {
+                            ext.insert("com.figma.type".into(), Value::String("string".into()));
+                            ("string", Value::String(s.clone()))
+                        }
                     }
                     VariableValue::Alias(target_id) => {
                         if let Some(target_var) = doc.variables.get(target_id) {
+                            let target_tok_type = target_var.extensions.get("org.designos.figmaTokenType").and_then(Value::as_str);
                             match target_var.kind {
                                 VariableKind::Boolean => {
                                     ext.insert("com.figma.type".into(), Value::String("boolean".into()));
                                 }
-                                VariableKind::String => {
+                                VariableKind::String if target_tok_type != Some("easing") => {
                                     ext.insert("com.figma.type".into(), Value::String("string".into()));
                                 }
                                 _ => {}
@@ -651,14 +699,16 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
                                 if group_prefixes.contains(&target_var.name) {
                                     ref_path.push_str(".$root");
                                 }
-                                let ty = match target_var.kind {
-                                    VariableKind::Color => "color",
-                                    VariableKind::Number | VariableKind::Boolean => "number",
-                                    VariableKind::String => "string",
+                                let ty = match (target_var.kind, target_tok_type) {
+                                    (_, Some("duration")) => "duration",
+                                    (_, Some("easing")) => "easing",
+                                    (VariableKind::Color, _) => "color",
+                                    (VariableKind::Number | VariableKind::Boolean, _) => "number",
+                                    (VariableKind::String, _) => "string",
                                 };
                                 (ty, Value::String(format!("{{{ref_path}}}")))
                             } else {
-                                // Cross-collection alias: resolved literal + com.figma.aliasData (§14.6)
+                                // Cross-collection alias created in Studio: resolved literal + com.figma.aliasData (§4, §14.6)
                                 let target_coll = doc.variable_collections.get(&target_var.collection);
                                 let target_var_id_or_key = target_var.key.clone().unwrap_or_else(|| target_var.id.clone());
                                 ext.insert(
@@ -670,11 +720,23 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
                                         "targetVariableSetName": target_coll.map(|c| c.name.as_str()).unwrap_or("Collection"),
                                     }),
                                 );
-                                match resolve_literal_in_mode(doc, target_id, &mode.id) {
+                                match resolve_literal_in_mode(doc, target_id, &mode.id, &mode.name) {
                                     Some((_, VariableValue::Color(c))) => ("color", color_to_dtcg_obj(c)),
-                                    Some((_, VariableValue::Number(n))) => ("number", json!(finite_f64(n))),
+                                    Some((_, VariableValue::Number(n))) => {
+                                        if target_tok_type == Some("duration") {
+                                            ("duration", json!({ "value": finite_f32(n).round() as i64, "unit": "ms" }))
+                                        } else {
+                                            ("number", json!(finite_f32(n)))
+                                        }
+                                    }
                                     Some((_, VariableValue::Boolean(b))) => ("number", json!(if b { 1 } else { 0 })),
-                                    Some((_, VariableValue::String(s))) => ("string", Value::String(s)),
+                                    Some((_, VariableValue::String(s))) => {
+                                        if target_tok_type == Some("easing") {
+                                            ("easing", Value::String(s))
+                                        } else {
+                                            ("string", Value::String(s))
+                                        }
+                                    }
                                     _ => ("string", Value::String(String::new())),
                                 }
                             }
@@ -684,11 +746,30 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
                     }
                 };
 
+                let mut deprecated_val: Option<Value> = None;
+                for (k, v_ext) in &v.extensions {
+                    if !k.starts_with("org.designos.") {
+                        ext.insert(k.clone(), v_ext.clone());
+                    }
+                }
+                if let Some(m_ext) = v.mode_extensions.get(&mode.id) {
+                    for (k, v_ext) in m_ext {
+                        if k == "$deprecated" {
+                            deprecated_val = Some(v_ext.clone());
+                        } else {
+                            ext.insert(k.clone(), v_ext.clone());
+                        }
+                    }
+                }
+
                 let mut token = Map::new();
                 token.insert("$type".into(), Value::String(ty_str.into()));
                 token.insert("$value".into(), val_json);
                 if !v.description.is_empty() {
                     token.insert("$description".into(), Value::String(v.description.clone()));
+                }
+                if let Some(dep) = deprecated_val {
+                    token.insert("$deprecated".into(), dep);
                 }
                 token.insert("$extensions".into(), Value::Object(ext));
 
@@ -699,17 +780,8 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
 
             let mut root_ext = Map::new();
             root_ext.insert("com.figma.modeName".into(), Value::String(mode.name.clone()));
-            root_ext.insert("com.figma.modeId".into(), Value::String(mode.id.clone()));
-            root_ext.insert("com.figma.collectionId".into(), Value::String(coll.id.clone()));
-            root_ext.insert("com.figma.collectionName".into(), Value::String(coll.name.clone()));
-            if let Some(k) = &coll.key {
-                root_ext.insert("com.figma.collectionKey".into(), Value::String(k.clone()));
-            }
-            if let Some(lib) = &coll.source_library_key {
-                root_ext.insert("com.figma.sourceLibraryKey".into(), Value::String(lib.clone()));
-            }
-            if coll.default_mode == mode.id {
-                root_ext.insert("com.figma.isDefaultMode".into(), Value::Bool(true));
+            for (k, v_ext) in &coll.extensions {
+                root_ext.insert(k.clone(), v_ext.clone());
             }
             root.insert("$extensions".into(), Value::Object(root_ext));
 
@@ -725,7 +797,7 @@ fn export_figma_native(doc: &Document) -> Result<ExportBundle, FigError> {
         }
     }
 
-    Ok(ExportBundle { format: VariablesFormat::FigmaNative, files })
+    Ok(ExportBundle { format: VariablesFormat::FigmaNative, files, omitted_extensions: Vec::new() })
 }
 
 fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
@@ -756,7 +828,7 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
             let mut coll_group = Map::new();
 
             for v in &vars {
-                let Some(val) = v.values.get(&mode.id).or_else(|| v.values.get(&coll.default_mode)) else {
+                let Some(val) = v.values.get(&mode.id) else {
                     continue;
                 };
 
@@ -787,9 +859,9 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
                     VariableValue::Color(c) => (Some("color"), color_to_dtcg_obj(*c)),
                     VariableValue::Number(n) => {
                         if is_all_geometric_scopes(&v.scopes) {
-                            (Some("dimension"), json!({ "value": finite_f64(*n), "unit": "px" }))
+                            (Some("dimension"), json!({ "value": finite_f32(*n), "unit": "px" }))
                         } else {
-                            (Some("number"), json!(finite_f64(*n)))
+                            (Some("number"), json!(finite_f32(*n)))
                         }
                     }
                     VariableValue::String(s) => {
@@ -894,7 +966,7 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     files.insert(0, ("tokens.manifest.json".to_string(), manifest_bytes));
 
-    Ok(ExportBundle { format: VariablesFormat::Dtcg, files })
+    Ok(ExportBundle { format: VariablesFormat::Dtcg, files, omitted_extensions: collect_omitted_extensions(doc) })
 }
 
 // ============================================================================
@@ -986,12 +1058,41 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
     // Map (dest_coll_id, staged_mode_id) -> dest_mode_id
     let mut mode_id_map: HashMap<(String, String), String> = HashMap::new();
 
-    for (_, staged_coll) in staging.variable_collections {
-        let existing_coll_id = if doc.variable_collections.contains_key(&staged_coll.id) {
-            Some(staged_coll.id.clone())
+    for (_, mut staged_coll) in staging.variable_collections {
+        let is_implicit_id = staged_coll.extensions.get("org.designos.implicitCollectionId").and_then(Value::as_bool).unwrap_or(false);
+        let is_implicit_name = staged_coll.extensions.get("org.designos.implicitCollectionName").and_then(Value::as_bool).unwrap_or(false);
+
+        let existing_coll_id = if !is_implicit_id {
+            doc.variable_collections.contains_key(&staged_coll.id).then(|| staged_coll.id.clone())
         } else {
-            doc.variable_collections.values().find(|c| c.name == staged_coll.name).map(|c| c.id.clone())
+            // Implicit collection ID (e.g. Figma-native single-mode file without collectionId):
+            // 1. Match by an existing variable ID belonging to a collection in `doc`.
+            let by_var_id = staged_coll
+                .variables
+                .iter()
+                .find_map(|vid| doc.variables.get(vid).map(|v| v.collection.clone()))
+                .filter(|cid| doc.variable_collections.contains_key(cid));
+            // 2. Match by explicit collection name if provided.
+            let by_explicit_name =
+                (!is_implicit_name).then(|| doc.variable_collections.values().find(|c| c.name == staged_coll.name).map(|c| c.id.clone())).flatten();
+            // 3. Match an existing collection with the same fallback name ("Tokens") or a single collection
+            //    in `doc` when it shares a mode name with `staged_coll` (e.g. merging `Light.tokens.json`
+            //    into a Studio collection that already has a "Light" mode).
+            let by_shared_mode = doc
+                .variable_collections
+                .values()
+                .find(|c| {
+                    (c.name == staged_coll.name || doc.variable_collections.len() == 1)
+                        && staged_coll.modes.iter().any(|sm| c.modes.iter().any(|em| em.id == sm.id || em.name == sm.name))
+                })
+                .map(|c| c.id.clone());
+
+            by_var_id.or(by_explicit_name).or(by_shared_mode)
         };
+
+        let mut cleaned_ext = std::mem::take(&mut staged_coll.extensions);
+        cleaned_ext.remove("org.designos.implicitCollectionId");
+        cleaned_ext.remove("org.designos.implicitCollectionName");
 
         if let Some(dest_cid) = existing_coll_id {
             coll_id_map.insert(staged_coll.id.clone(), dest_cid.clone());
@@ -999,8 +1100,9 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
             if dest_coll.key.is_none() && staged_coll.key.is_some() {
                 dest_coll.key = staged_coll.key.clone();
             }
-            if dest_coll.source_library_key.is_none() && staged_coll.source_library_key.is_some() {
-                dest_coll.source_library_key = staged_coll.source_library_key.clone();
+            // Never copy `source_library_key` onto an existing collection during merge.
+            for (k, v) in cleaned_ext {
+                dest_coll.extensions.insert(k, v);
             }
             for sm in &staged_coll.modes {
                 if let Some(existing_mode) = dest_coll.modes.iter().find(|m| m.id == sm.id || m.name == sm.name) {
@@ -1011,20 +1113,28 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
                 }
             }
         } else {
-            let dest_cid = staged_coll.id.clone();
+            let mut dest_cid = staged_coll.id.clone();
+            if doc.variable_collections.contains_key(&dest_cid) {
+                let mut suffix = 2usize;
+                while doc.variable_collections.contains_key(&format!("{}_{suffix}", staged_coll.id)) {
+                    suffix += 1;
+                }
+                dest_cid = format!("{}_{suffix}", staged_coll.id);
+            }
             coll_id_map.insert(staged_coll.id.clone(), dest_cid.clone());
             for sm in &staged_coll.modes {
                 mode_id_map.insert((dest_cid.clone(), sm.id.clone()), sm.id.clone());
             }
             let mut new_coll = staged_coll;
+            new_coll.id = dest_cid.clone();
+            new_coll.extensions = cleaned_ext;
             new_coll.variables.clear();
             doc.variable_collections.insert(dest_cid, new_coll);
         }
     }
 
+    // Strip internal staging markers when `replace == true` wasn't taken above (also strip on replace path via assemble).
     // First pass: map staged variable ids -> destination variable ids.
-    // `(collection, name)` index of the variables already in `doc`; the first id in map order wins,
-    // exactly like a linear `find` would.
     let mut by_collection_and_name: HashMap<(&str, &str), &str> = HashMap::new();
     for v in doc.variables.values() {
         by_collection_and_name.entry((v.collection.as_str(), v.name.as_str())).or_insert(v.id.as_str());
@@ -1059,16 +1169,34 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
             mapped_values.insert(dmode, dval);
         }
 
+        let mut mapped_mode_extensions = BTreeMap::new();
+        for (smode, mext) in staged_var.mode_extensions {
+            let dmode = mode_id_map.get(&(dest_cid.clone(), smode.clone())).cloned().unwrap_or(smode);
+            mapped_mode_extensions.insert(dmode, mext);
+        }
+
         staged_var.id = dest_vid.clone();
         staged_var.collection = dest_cid.clone();
         staged_var.values = mapped_values;
+        staged_var.mode_extensions = mapped_mode_extensions;
 
         if let Some(existing) = doc.variables.get_mut(&dest_vid) {
             let before = existing.clone();
             existing.name = staged_var.name;
             existing.kind = staged_var.kind;
             for (m, v) in staged_var.values {
+                if let Some(mext) = staged_var.mode_extensions.remove(&m) {
+                    existing.mode_extensions.insert(m.clone(), mext);
+                } else {
+                    existing.clear_derived_mode_extensions(&m);
+                }
                 existing.values.insert(m, v);
+            }
+            for (m, mext) in staged_var.mode_extensions {
+                existing.mode_extensions.insert(m, mext);
+            }
+            for (k, v) in staged_var.extensions {
+                existing.extensions.insert(k, v);
             }
             if !staged_var.description.is_empty() {
                 existing.description = staged_var.description;
@@ -1112,6 +1240,9 @@ struct ParsedToken {
     collection_name: String,
     collection_key: Option<String>,
     source_library_key: Option<String>,
+    has_explicit_collection_id: bool,
+    has_explicit_collection_name: bool,
+    coll_extensions: FigmaExtensions,
     mode_id: String,
     mode_name: String,
     is_default_mode: bool,
@@ -1124,6 +1255,8 @@ struct ParsedToken {
     hidden_from_publishing: bool,
     key: Option<String>,
     code_syntax: CodeSyntax,
+    var_extensions: FigmaExtensions,
+    mode_extensions: FigmaExtensions,
 }
 
 #[derive(Clone, Debug)]
@@ -1133,14 +1266,6 @@ enum RawTokenValue {
     AliasPath {
         target_path: String,
         same_collection_only: bool,
-    },
-    /// Cross-collection `com.figma.aliasData` with fallback literal value.
-    FigmaCrossAlias {
-        target_id: String,
-        target_name: String,
-        target_set_id: Option<String>,
-        target_set_name: Option<String>,
-        fallback: VariableValue,
     },
 }
 
@@ -1283,34 +1408,50 @@ fn import_figma_native_files(doc: &mut Document, primary_text: &str, opts: &Impo
             .map(String::from)
             .or_else(|| mode_hint.clone())
             .unwrap_or_else(|| format!("Mode {}", file_idx + 1));
-        let mode_id = root_ext
-            .and_then(|e| e.get("com.figma.modeId"))
-            .and_then(Value::as_str)
-            .map(String::from)
-            .unwrap_or_else(|| format!("mode:{}", mode_name.to_ascii_lowercase().replace(' ', "_")));
-        let coll_name = root_ext
-            .and_then(|e| e.get("com.figma.collectionName"))
-            .or_else(|| root_ext.and_then(|e| e.get("com.figma.parentVariableSetName")))
-            .and_then(Value::as_str)
-            .map(String::from)
-            .or_else(|| opts.collection_name.clone())
-            .unwrap_or_else(|| "Tokens".to_string());
-        let coll_id = root_ext
-            .and_then(|e| e.get("com.figma.collectionId"))
-            .or_else(|| root_ext.and_then(|e| e.get("com.figma.parentVariableSetId")))
-            .and_then(Value::as_str)
-            .map(String::from)
-            .unwrap_or_else(|| format!("VariableCollectionId:{}", coll_name.to_ascii_lowercase().replace(' ', "_")));
+        // Per E1-9 §4 & §10: mode_id uses `com.figma.modeId` if present, else `com.figma.modeName` (`mode_name`).
+        let mode_id = root_ext.and_then(|e| e.get("com.figma.modeId")).and_then(Value::as_str).map(String::from).unwrap_or_else(|| mode_name.clone());
+
+        // Per E1-9 §4: Never use `com.figma.parentVariableSetId` / `com.figma.parentVariableSetName`
+        // as the collection ID or name; those point to the parent collection of an extended collection
+        // and belong in `VariableCollection.extensions`.
+        let explicit_coll_name =
+            root_ext.and_then(|e| e.get("com.figma.collectionName")).and_then(Value::as_str).map(String::from).or_else(|| opts.collection_name.clone());
+        let has_explicit_collection_name = explicit_coll_name.is_some();
+        let coll_name = explicit_coll_name.unwrap_or_else(|| "Tokens".to_string());
+
+        let explicit_coll_id = root_ext.and_then(|e| e.get("com.figma.collectionId")).and_then(Value::as_str).map(String::from);
+        let has_explicit_collection_id = explicit_coll_id.is_some();
+        let coll_id = explicit_coll_id.unwrap_or_else(|| format!("VariableCollectionId:{}", coll_name.to_ascii_lowercase().replace(' ', "_")));
+
         let coll_key = root_ext.and_then(|e| e.get("com.figma.collectionKey")).and_then(Value::as_str).map(String::from);
-        let source_library_key = root_ext.and_then(|e| e.get("com.figma.sourceLibraryKey")).and_then(Value::as_str).map(String::from);
         let is_default_mode = root_ext.and_then(|e| e.get("com.figma.isDefaultMode")).and_then(Value::as_bool).unwrap_or(file_idx == 0);
+
+        let mut coll_extensions = FigmaExtensions::new();
+        if let Some(re) = root_ext {
+            for (k, v) in re {
+                if !matches!(
+                    k.as_str(),
+                    "com.figma.modeName"
+                        | "com.figma.modeId"
+                        | "com.figma.collectionId"
+                        | "com.figma.collectionName"
+                        | "com.figma.collectionKey"
+                        | "com.figma.isDefaultMode"
+                ) {
+                    coll_extensions.insert(k.clone(), v.clone());
+                }
+            }
+        }
 
         let ctx = WalkContext {
             dialect: VariablesFormat::FigmaNative,
             collection_id: coll_id,
             collection_name: coll_name,
             collection_key: coll_key,
-            source_library_key,
+            source_library_key: None,
+            has_explicit_collection_id,
+            has_explicit_collection_name,
+            coll_extensions,
             mode_id,
             mode_name,
             is_default_mode,
@@ -1318,7 +1459,7 @@ fn import_figma_native_files(doc: &mut Document, primary_text: &str, opts: &Impo
         walk_tokens_group(root_obj, &[], None, &ctx, &mut parsed_tokens, &mut report.skipped);
     }
 
-    let staging = assemble_staged_document(parsed_tokens, &mut report.skipped);
+    let staging = assemble_staged_document(parsed_tokens, opts.replace, &mut report.skipped);
     merge_staged_into_doc(doc, staging, opts.replace, &mut report);
     Ok(report)
 }
@@ -1350,7 +1491,9 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                 let Some(co) = coll_entry.as_object() else {
                     continue;
                 };
+                let has_explicit_collection_id = co.get("id").and_then(Value::as_str).is_some();
                 let coll_id = co.get("id").and_then(Value::as_str).unwrap_or("VariableCollectionId:1:0").to_string();
+                let has_explicit_collection_name = co.get("name").and_then(Value::as_str).is_some();
                 let coll_name = co.get("name").and_then(Value::as_str).unwrap_or("Tokens").to_string();
                 let group_key = co.get("group").and_then(Value::as_str).unwrap_or(&coll_name).to_string();
                 let default_mode = co.get("default_mode").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1367,6 +1510,10 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                         let file_name = mo.get("file").and_then(Value::as_str).unwrap_or("");
                         let short_file = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
                         let Some(file_val) = additional_by_name.get(short_file) else {
+                            report.skipped.push(SkippedVariable {
+                                path: format!("{coll_name}/{mode_name}"),
+                                reason: format!("missing mode file '{file_name}' referenced by tokens.manifest.json"),
+                            });
                             continue;
                         };
                         let Some(file_obj) = file_val.as_object() else {
@@ -1384,6 +1531,9 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                             collection_name: coll_name.clone(),
                             collection_key: coll_key.clone(),
                             source_library_key: source_library_key.clone(),
+                            has_explicit_collection_id,
+                            has_explicit_collection_name,
+                            coll_extensions: FigmaExtensions::new(),
                             mode_id: mode_id.clone(),
                             mode_name,
                             is_default_mode: mode_id == default_mode || m_idx == 0,
@@ -1406,8 +1556,6 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
 
         for (file_idx, (mode_name, root_obj)) in all_files.into_iter().enumerate() {
             let mode_id = format!("mode:{}", mode_name.to_ascii_lowercase().replace(' ', "_"));
-            // In DTCG §3.2, top-level keys (that are not `$` and not leaf tokens) represent collections
-            // if they wrap nested token groups; otherwise fall back to a single collection.
             let top_groups: Vec<(&String, &Map<String, Value>)> = root_obj
                 .iter()
                 .filter(|(k, _)| !k.starts_with('$'))
@@ -1426,6 +1574,9 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                         collection_name: coll_name.clone(),
                         collection_key: None,
                         source_library_key: None,
+                        has_explicit_collection_id: false,
+                        has_explicit_collection_name: true,
+                        coll_extensions: FigmaExtensions::new(),
                         mode_id: mode_id.clone(),
                         mode_name: mode_name.clone(),
                         is_default_mode: file_idx == 0,
@@ -1433,6 +1584,7 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                     walk_tokens_group(group_obj, &[], None, &ctx, &mut parsed_tokens, &mut report.skipped);
                 }
             } else {
+                let has_explicit_collection_name = opts.collection_name.is_some();
                 let coll_name = opts.collection_name.clone().unwrap_or_else(|| "Tokens".to_string());
                 let coll_id = format!("VariableCollectionId:{}", coll_name.to_ascii_lowercase().replace(' ', "_"));
                 let ctx = WalkContext {
@@ -1441,6 +1593,9 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                     collection_name: coll_name,
                     collection_key: None,
                     source_library_key: None,
+                    has_explicit_collection_id: false,
+                    has_explicit_collection_name,
+                    coll_extensions: FigmaExtensions::new(),
                     mode_id,
                     mode_name,
                     is_default_mode: file_idx == 0,
@@ -1450,7 +1605,7 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
         }
     }
 
-    let staging = assemble_staged_document(parsed_tokens, &mut report.skipped);
+    let staging = assemble_staged_document(parsed_tokens, opts.replace, &mut report.skipped);
     merge_staged_into_doc(doc, staging, opts.replace, &mut report);
     Ok(report)
 }
@@ -1462,6 +1617,9 @@ struct WalkContext {
     collection_name: String,
     collection_key: Option<String>,
     source_library_key: Option<String>,
+    has_explicit_collection_id: bool,
+    has_explicit_collection_name: bool,
+    coll_extensions: FigmaExtensions,
     mode_id: String,
     mode_name: String,
     is_default_mode: bool,
@@ -1526,7 +1684,9 @@ fn parse_single_token(
             format!("VariableID:{}:{}", ctx.collection_name.to_ascii_lowercase().replace(' ', "_"), var_name.to_ascii_lowercase().replace('/', "_"))
         });
 
-    let collection_id = dos_ext.and_then(|d| d.get("collection_id")).and_then(Value::as_str).map(String::from).unwrap_or_else(|| ctx.collection_id.clone());
+    let dos_coll_id = dos_ext.and_then(|d| d.get("collection_id")).and_then(Value::as_str).map(String::from);
+    let has_explicit_collection_id = ctx.has_explicit_collection_id || dos_coll_id.is_some();
+    let collection_id = dos_coll_id.unwrap_or_else(|| ctx.collection_id.clone());
 
     let description = obj.get("$description").and_then(Value::as_str).unwrap_or("").to_string();
 
@@ -1550,8 +1710,31 @@ fn parse_single_token(
     let figma_type_ext = ext.and_then(|e| e.get("com.figma.type")).and_then(Value::as_str);
     let dos_kind_ext = dos_ext.and_then(|d| d.get("kind")).and_then(Value::as_str);
 
-    // Check for cross-collection `com.figma.aliasData` first (`E1-9` §14.6)
-    let figma_alias_data = ext.and_then(|e| e.get("com.figma.aliasData")).and_then(Value::as_object);
+    let mut var_extensions = FigmaExtensions::new();
+    if ctx.dialect == VariablesFormat::FigmaNative && matches!(effective_type, Some("duration" | "easing")) {
+        var_extensions.insert("org.designos.figmaTokenType".into(), Value::String(effective_type.unwrap().into()));
+    }
+
+    let mut mode_extensions = FigmaExtensions::new();
+    if let Some(dep) = obj.get("$deprecated") {
+        mode_extensions.insert("$deprecated".into(), dep.clone());
+    }
+    if let Some(ext_map) = ext {
+        for (k, v_ext) in ext_map {
+            if !matches!(
+                k.as_str(),
+                "com.figma.variableId"
+                    | "com.figma.scopes"
+                    | "com.figma.codeSyntax"
+                    | "com.figma.hiddenFromPublishing"
+                    | "com.figma.type"
+                    | "com.figma.key"
+                    | "org.designos"
+            ) {
+                mode_extensions.insert(k.clone(), v_ext.clone());
+            }
+        }
+    }
 
     // Check for curly-brace alias `$value: "{a.b.c}"`
     if let Some(s) = val.as_str() {
@@ -1563,6 +1746,9 @@ fn parse_single_token(
                 collection_name: ctx.collection_name.clone(),
                 collection_key: ctx.collection_key.clone(),
                 source_library_key: ctx.source_library_key.clone(),
+                has_explicit_collection_id,
+                has_explicit_collection_name: ctx.has_explicit_collection_name,
+                coll_extensions: ctx.coll_extensions.clone(),
                 mode_id: ctx.mode_id.clone(),
                 mode_name: ctx.mode_name.clone(),
                 is_default_mode: ctx.is_default_mode,
@@ -1575,6 +1761,8 @@ fn parse_single_token(
                 hidden_from_publishing,
                 key,
                 code_syntax,
+                var_extensions,
+                mode_extensions,
             });
             return;
         }
@@ -1684,33 +1872,36 @@ fn parse_single_token(
         }
     };
 
-    let raw_value = if let Some(ad) = figma_alias_data {
-        let target_id = ad.get("targetVariableId").and_then(Value::as_str).unwrap_or("").to_string();
-        let target_name = ad.get("targetVariableName").and_then(Value::as_str).unwrap_or("").to_string();
-        let target_set_id = ad.get("targetVariableSetId").and_then(Value::as_str).map(String::from);
-        let target_set_name = ad.get("targetVariableSetName").and_then(Value::as_str).map(String::from);
-        RawTokenValue::FigmaCrossAlias { target_id, target_name, target_set_id, target_set_name, fallback: literal_val }
-    } else {
-        RawTokenValue::Literal(literal_val)
-    };
+    // Per E1-9 §4, §8.2 & §14.6: Cross-collection `com.figma.aliasData` on a native token cannot
+    // be resolved to a live `VariableValue::Alias` from a single collection's mode file alone.
+    // Keep the token's `$value` as the literal value for that mode, preserve `com.figma.aliasData`
+    // in `mode_extensions` for lossless native re-export, and record a `SkippedVariable` notice.
+    if mode_extensions.contains_key("com.figma.aliasData") {
+        skipped.push(SkippedVariable { path: token_path, reason: "cross-collection-alias-kept-as-literal".into() });
+    }
 
     out.push(ParsedToken {
         collection_id,
         collection_name: ctx.collection_name.clone(),
         collection_key: ctx.collection_key.clone(),
         source_library_key: ctx.source_library_key.clone(),
+        has_explicit_collection_id,
+        has_explicit_collection_name: ctx.has_explicit_collection_name,
+        coll_extensions: ctx.coll_extensions.clone(),
         mode_id: ctx.mode_id.clone(),
         mode_name: ctx.mode_name.clone(),
         is_default_mode: ctx.is_default_mode,
         var_id,
         var_name,
         kind,
-        raw_value,
+        raw_value: RawTokenValue::Literal(literal_val),
         description,
         scopes,
         hidden_from_publishing,
         key,
         code_syntax,
+        var_extensions,
+        mode_extensions,
     });
 }
 
@@ -1740,23 +1931,37 @@ fn infer_token_kind(effective_type: Option<&str>, figma_type_ext: Option<&str>, 
     }
 }
 
-fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedVariable>) -> Document {
+fn assemble_staged_document(tokens: Vec<ParsedToken>, is_replace: bool, skipped: &mut Vec<SkippedVariable>) -> Document {
     let mut doc = Document::new("staged");
     let mut pending_aliases: Vec<(String, String, String, RawTokenValue)> = Vec::new();
-    // (collection id, variable id) pairs already listed in `VariableCollection::variables`; a hash set
-    // instead of `Vec::contains` keeps assembly linear in the token count.
     let mut listed: HashSet<(String, String)> = HashSet::new();
 
     for tok in tokens {
-        let coll = doc.variable_collections.entry(tok.collection_id.clone()).or_insert_with(|| VariableCollection {
-            id: tok.collection_id.clone(),
-            name: tok.collection_name.clone(),
-            modes: Vec::new(),
-            default_mode: tok.mode_id.clone(),
-            variables: Vec::new(),
-            key: tok.collection_key.clone(),
-            source_library_key: tok.source_library_key.clone(),
+        let coll = doc.variable_collections.entry(tok.collection_id.clone()).or_insert_with(|| {
+            let mut ext = tok.coll_extensions.clone();
+            if !is_replace {
+                if !tok.has_explicit_collection_id {
+                    ext.insert("org.designos.implicitCollectionId".into(), Value::Bool(true));
+                }
+                if !tok.has_explicit_collection_name {
+                    ext.insert("org.designos.implicitCollectionName".into(), Value::Bool(true));
+                }
+            }
+            VariableCollection {
+                id: tok.collection_id.clone(),
+                name: tok.collection_name.clone(),
+                modes: Vec::new(),
+                default_mode: tok.mode_id.clone(),
+                variables: Vec::new(),
+                key: tok.collection_key.clone(),
+                source_library_key: tok.source_library_key.clone(),
+                extensions: ext,
+            }
         });
+
+        for (k, v) in tok.coll_extensions {
+            coll.extensions.insert(k, v);
+        }
 
         if !coll.modes.iter().any(|m| m.id == tok.mode_id) {
             coll.modes.push(VariableMode { id: tok.mode_id.clone(), name: tok.mode_name.clone() });
@@ -1779,6 +1984,8 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
             hidden_from_publishing: tok.hidden_from_publishing,
             key: tok.key.clone(),
             code_syntax: tok.code_syntax.clone(),
+            extensions: BTreeMap::new(),
+            mode_extensions: BTreeMap::new(),
         });
 
         if var.description.is_empty() && !tok.description.is_empty() {
@@ -1796,6 +2003,12 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
             var.key = tok.key;
         }
         var.hidden_from_publishing |= tok.hidden_from_publishing;
+        for (k, v) in tok.var_extensions {
+            var.extensions.insert(k, v);
+        }
+        if !tok.mode_extensions.is_empty() {
+            var.mode_extensions.entry(tok.mode_id.clone()).or_default().extend(tok.mode_extensions);
+        }
 
         match tok.raw_value {
             RawTokenValue::Literal(lit) => {
@@ -1820,7 +2033,6 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
     // Build lookup indexes for resolving aliases
     let mut by_coll_and_name: HashMap<(String, String), String> = HashMap::new();
     let mut by_coll_and_sanitized: HashMap<(String, String), String> = HashMap::new();
-    let mut by_key_or_id: HashMap<String, String> = HashMap::new();
     let mut coll_by_group_name: HashMap<String, String> = HashMap::new();
 
     for c in doc.variable_collections.values() {
@@ -1832,10 +2044,6 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
         by_coll_and_name.insert((v.collection.clone(), v.name.clone()), v.id.clone());
         let (segs, _) = sanitize_dtcg_path(&v.name);
         by_coll_and_sanitized.insert((v.collection.clone(), segs.join("/")), v.id.clone());
-        by_key_or_id.insert(v.id.clone(), v.id.clone());
-        if let Some(k) = &v.key {
-            by_key_or_id.insert(k.clone(), v.id.clone());
-        }
     }
 
     for (var_id, coll_id, mode_id, raw) in pending_aliases {
@@ -1865,7 +2073,6 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
                 };
 
                 if let Some(tid) = resolved_target {
-                    // Update variable kind to match target variable kind if needed
                     let target_kind = doc.variables.get(&tid).map(|tv| tv.kind);
                     if let Some(v) = doc.variables.get_mut(&var_id) {
                         if let Some(tk) = target_kind {
@@ -1875,24 +2082,6 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, skipped: &mut Vec<SkippedV
                     }
                 } else {
                     skipped.push(SkippedVariable { path: var_id, reason: format!("unresolved alias '{{{target_path}}}'") });
-                }
-            }
-            RawTokenValue::FigmaCrossAlias { target_id, target_name, target_set_id, target_set_name, fallback } => {
-                let resolved = by_key_or_id
-                    .get(&target_id)
-                    .cloned()
-                    .or_else(|| {
-                        let tcid = target_set_id.as_ref().cloned().or_else(|| target_set_name.as_ref().and_then(|n| coll_by_group_name.get(n).cloned()))?;
-                        by_coll_and_name.get(&(tcid, target_name.clone())).cloned()
-                    })
-                    .unwrap_or(target_id);
-                let has_resolved = doc.variables.contains_key(&resolved) || !resolved.is_empty();
-                if let Some(v) = doc.variables.get_mut(&var_id) {
-                    if has_resolved {
-                        v.values.entry(mode_id).or_insert(VariableValue::Alias(resolved));
-                    } else {
-                        v.values.entry(mode_id).or_insert(fallback);
-                    }
                 }
             }
             RawTokenValue::Literal(_) => {}
@@ -1979,10 +2168,32 @@ mod tests {
           "com.figma.scopes": ["FRAME_FILL"]
         }
       }
+    },
+    "Semantic": {
+      "Surface": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [1.0, 1.0, 1.0],
+          "alpha": 1.0,
+          "hex": "#FFFFFF"
+        },
+        "$extensions": {
+          "com.figma.variableId": "VariableID:10:6",
+          "com.figma.scopes": ["FRAME_FILL"],
+          "com.figma.isOverride": true,
+          "com.figma.aliasData": {
+            "targetVariableId": "VariableID:99:1",
+            "targetVariableName": "Neutral/White",
+            "targetVariableSetId": "VariableCollectionId:99:0",
+            "targetVariableSetName": "Primitives"
+          }
+        }
+      }
     }
   },
   "Space": {
-    "1.5x": {
+    "Md": {
       "$type": "number",
       "$value": 12.0,
       "$extensions": {
@@ -1995,6 +2206,7 @@ mod tests {
     "ShowBadge": {
       "$type": "number",
       "$value": 1,
+      "$deprecated": true,
       "$extensions": {
         "com.figma.variableId": "VariableID:10:4",
         "com.figma.type": "boolean",
@@ -2011,11 +2223,28 @@ mod tests {
       }
     }
   },
+  "Motion": {
+    "Fast": {
+      "$type": "duration",
+      "$value": {
+        "value": 200,
+        "unit": "ms"
+      },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:10:7"
+      }
+    },
+    "Standard": {
+      "$type": "easing",
+      "$value": "ease-in-out",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:10:8"
+      }
+    }
+  },
   "$extensions": {
     "com.figma.modeName": "Light",
-    "com.figma.modeId": "10:0",
-    "com.figma.collectionId": "VariableCollectionId:10:0",
-    "com.figma.collectionName": "Theme"
+    "com.figma.parentVariableSetId": "VariableCollectionId:99:0"
   }
 }"##
     }
@@ -2032,25 +2261,54 @@ mod tests {
           "alpha": 1.0,
           "hex": "#33B3FF"
         },
+        "$description": "Primary brand blue",
         "$extensions": {
-          "com.figma.variableId": "VariableID:10:1"
+          "com.figma.variableId": "VariableID:10:1",
+          "com.figma.scopes": ["ALL_FILLS", "STROKE"],
+          "com.figma.codeSyntax": {
+            "WEB": "var(--color-brand)",
+            "iOS": "Color.brand"
+          }
         }
       },
       "Accent": {
         "$type": "color",
         "$value": "{Color.Brand.$root}",
         "$extensions": {
-          "com.figma.variableId": "VariableID:10:2"
+          "com.figma.variableId": "VariableID:10:2",
+          "com.figma.scopes": ["FRAME_FILL"]
+        }
+      }
+    },
+    "Semantic": {
+      "Surface": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [0.0, 0.0, 0.0],
+          "alpha": 1.0,
+          "hex": "#000000"
+        },
+        "$extensions": {
+          "com.figma.variableId": "VariableID:10:6",
+          "com.figma.scopes": ["FRAME_FILL"],
+          "com.figma.aliasData": {
+            "targetVariableId": "VariableID:99:2",
+            "targetVariableName": "Neutral/Black",
+            "targetVariableSetId": "VariableCollectionId:99:0",
+            "targetVariableSetName": "Primitives"
+          }
         }
       }
     }
   },
   "Space": {
-    "1.5x": {
+    "Md": {
       "$type": "number",
       "$value": 16.0,
       "$extensions": {
-        "com.figma.variableId": "VariableID:10:3"
+        "com.figma.variableId": "VariableID:10:3",
+        "com.figma.scopes": ["GAP", "WIDTH_HEIGHT"]
       }
     }
   },
@@ -2060,7 +2318,8 @@ mod tests {
       "$value": 0,
       "$extensions": {
         "com.figma.variableId": "VariableID:10:4",
-        "com.figma.type": "boolean"
+        "com.figma.type": "boolean",
+        "com.figma.hiddenFromPublishing": true
       }
     },
     "Label": {
@@ -2068,15 +2327,33 @@ mod tests {
       "$value": "Pro Plan Dark",
       "$extensions": {
         "com.figma.variableId": "VariableID:10:5",
-        "com.figma.type": "string"
+        "com.figma.type": "string",
+        "com.figma.scopes": ["TEXT_CONTENT"]
+      }
+    }
+  },
+  "Motion": {
+    "Fast": {
+      "$type": "duration",
+      "$value": {
+        "value": 300,
+        "unit": "ms"
+      },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:10:7"
+      }
+    },
+    "Standard": {
+      "$type": "easing",
+      "$value": "linear",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:10:8"
       }
     }
   },
   "$extensions": {
     "com.figma.modeName": "Dark",
-    "com.figma.modeId": "10:1",
-    "com.figma.collectionId": "VariableCollectionId:10:0",
-    "com.figma.collectionName": "Theme"
+    "com.figma.parentVariableSetId": "VariableCollectionId:99:0"
   }
 }"##
     }
@@ -2085,19 +2362,24 @@ mod tests {
     fn figma_native_import_lossless() {
         let mut doc = Document::new("d");
         let opts = ImportVariablesOptions {
+            collection_name: Some("Theme".into()),
             additional_files: vec![("Dark.tokens.json".into(), sample_figma_native_dark_json().as_bytes().to_vec())],
             ..Default::default()
         };
         let report = import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::Auto, opts).unwrap();
         assert_eq!(report.format, VariablesFormat::FigmaNative);
-        assert_eq!(report.added, 5);
-        assert!(report.skipped.is_empty(), "skipped: {:?}", report.skipped);
+        assert_eq!(report.added, 8);
+        assert_eq!(report.skipped.len(), 2, "skipped: {:?}", report.skipped);
+        assert!(report.skipped.iter().all(|s| s.reason == "cross-collection-alias-kept-as-literal"));
 
-        let coll = &doc.variable_collections["VariableCollectionId:10:0"];
+        let coll = &doc.variable_collections["VariableCollectionId:theme"];
         assert_eq!(coll.name, "Theme");
         assert_eq!(coll.modes.len(), 2);
+        assert_eq!(coll.modes[0].id, "Light");
         assert_eq!(coll.modes[0].name, "Light");
+        assert_eq!(coll.modes[1].id, "Dark");
         assert_eq!(coll.modes[1].name, "Dark");
+        assert_eq!(coll.extensions.get("com.figma.parentVariableSetId"), Some(&Value::String("VariableCollectionId:99:0".into())));
 
         let brand = &doc.variables["VariableID:10:1"];
         assert_eq!(brand.name, "Color/Brand");
@@ -2109,18 +2391,381 @@ mod tests {
 
         let accent = &doc.variables["VariableID:10:2"];
         assert_eq!(accent.name, "Color/Brand/Accent");
-        assert_eq!(accent.values.get("10:0"), Some(&VariableValue::Alias("VariableID:10:1".into())));
+        assert_eq!(accent.values.get("Light"), Some(&VariableValue::Alias("VariableID:10:1".into())));
+
+        let surface = &doc.variables["VariableID:10:6"];
+        assert_eq!(surface.name, "Color/Semantic/Surface");
+        assert!(matches!(surface.values.get("Light"), Some(VariableValue::Color(_))));
+        assert!(surface.mode_extensions["Light"].contains_key("com.figma.aliasData"));
+        assert_eq!(surface.mode_extensions["Light"].get("com.figma.isOverride"), Some(&Value::Bool(true)));
 
         let badge = &doc.variables["VariableID:10:4"];
         assert_eq!(badge.kind, VariableKind::Boolean);
-        assert_eq!(badge.values.get("10:0"), Some(&VariableValue::Boolean(true)));
-        assert_eq!(badge.values.get("10:1"), Some(&VariableValue::Boolean(false)));
+        assert_eq!(badge.values.get("Light"), Some(&VariableValue::Boolean(true)));
+        assert_eq!(badge.values.get("Dark"), Some(&VariableValue::Boolean(false)));
         assert!(badge.hidden_from_publishing);
+        assert_eq!(badge.mode_extensions["Light"].get("$deprecated"), Some(&Value::Bool(true)));
 
         let label = &doc.variables["VariableID:10:5"];
         assert_eq!(label.kind, VariableKind::String);
-        assert_eq!(label.values.get("10:0"), Some(&VariableValue::String("Pro Plan".into())));
-        assert_eq!(label.values.get("10:1"), Some(&VariableValue::String("Pro Plan Dark".into())));
+        assert_eq!(label.values.get("Light"), Some(&VariableValue::String("Pro Plan".into())));
+        assert_eq!(label.values.get("Dark"), Some(&VariableValue::String("Pro Plan Dark".into())));
+
+        let fast = &doc.variables["VariableID:10:7"];
+        assert_eq!(fast.kind, VariableKind::Number);
+        assert_eq!(fast.extensions.get("org.designos.figmaTokenType"), Some(&Value::String("duration".into())));
+        let std_ease = &doc.variables["VariableID:10:8"];
+        assert_eq!(std_ease.kind, VariableKind::String);
+        assert_eq!(std_ease.extensions.get("org.designos.figmaTokenType"), Some(&Value::String("easing".into())));
+    }
+
+    #[test]
+    fn figma_native_round_trip_json_equal() {
+        let mut doc = Document::new("d");
+        let opts = ImportVariablesOptions {
+            additional_files: vec![("Dark.tokens.json".into(), sample_figma_native_dark_json().as_bytes().to_vec())],
+            ..Default::default()
+        };
+        import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, opts).unwrap();
+
+        let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        assert_eq!(bundle.files.len(), 2);
+        assert_eq!(bundle.files[0].0, "Light.tokens.json");
+        assert_eq!(bundle.files[1].0, "Dark.tokens.json");
+
+        let expected_light: Value = serde_json::from_str(sample_figma_native_light_json()).unwrap();
+        let actual_light: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
+        assert_eq!(actual_light, expected_light);
+
+        let expected_dark: Value = serde_json::from_str(sample_figma_native_dark_json()).unwrap();
+        let actual_dark: Value = serde_json::from_slice(&bundle.files[1].1).unwrap();
+        assert_eq!(actual_dark, expected_dark);
+    }
+
+    fn two_mode_fixture_light() -> &'static str {
+        r##"{
+  "Brand": {
+    "Fill": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [1.0, 1.0, 1.0], "alpha": 1.0, "hex": "#FFFFFF" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:1",
+        "com.figma.isOverride": true,
+        "com.figma.aliasData": {
+          "targetVariableId": "VariableID:9:1",
+          "targetVariableName": "TargetA",
+          "targetVariableSetId": "VariableCollectionId:9:0",
+          "targetVariableSetName": "Base"
+        }
+      }
+    },
+    "Paint": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [1.0, 0.0, 0.0], "alpha": 1.0, "hex": "#FF0000" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:2",
+        "com.figma.paint": { "paintType": "SOLID", "blendMode": "MULTIPLY" },
+        "com.figma.paintAliasData": { "targetVariableId": "VariableID:9:3" }
+      }
+    },
+    "Tint": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [0.0, 1.0, 0.0], "alpha": 1.0, "hex": "#00FF00" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:3"
+      }
+    }
+  },
+  "$extensions": {
+    "com.figma.modeName": "Light",
+    "com.figma.parentVariableSetId": "VariableCollectionId:9:0",
+    "com.figma.parentVariableSetName": "Base"
+  }
+}"##
+    }
+
+    fn two_mode_fixture_dark() -> &'static str {
+        r##"{
+  "Brand": {
+    "Fill": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [0.0, 0.0, 0.0], "alpha": 1.0, "hex": "#000000" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:1"
+      }
+    },
+    "Paint": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [1.0, 0.0, 0.0], "alpha": 1.0, "hex": "#FF0000" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:2",
+        "com.figma.paint": { "paintType": "SOLID" }
+      }
+    },
+    "Tint": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [0.0, 0.0, 1.0], "alpha": 1.0, "hex": "#0000FF" },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:3",
+        "com.figma.composedColor": { "op": "mix", "amount": 0.5 }
+      }
+    }
+  },
+  "$extensions": {
+    "com.figma.modeName": "Dark",
+    "com.figma.parentVariableSetId": "VariableCollectionId:9:0",
+    "com.figma.parentVariableSetName": "Base"
+  }
+}"##
+    }
+
+    #[test]
+    fn two_mode_extensions_differ_per_mode() {
+        let light = two_mode_fixture_light();
+        let dark = two_mode_fixture_dark();
+        let mut doc = Document::new("d");
+        let opts = ImportVariablesOptions {
+            collection_name: Some("Theme".into()),
+            additional_files: vec![("Dark.tokens.json".into(), dark.as_bytes().to_vec())],
+            ..Default::default()
+        };
+        import_variables(&mut doc, light, VariablesFormat::FigmaNative, opts).unwrap();
+
+        let coll = &doc.variable_collections["VariableCollectionId:theme"];
+        assert_eq!(coll.extensions.get("com.figma.parentVariableSetId"), Some(&Value::String("VariableCollectionId:9:0".into())));
+        assert_eq!(coll.extensions.get("com.figma.parentVariableSetName"), Some(&Value::String("Base".into())));
+
+        let fill = &doc.variables["VariableID:1:1"];
+        assert!(fill.mode_extensions["Light"].contains_key("com.figma.isOverride"));
+        assert!(fill.mode_extensions["Light"].contains_key("com.figma.aliasData"));
+        assert!(!fill.mode_extensions.contains_key("Dark"));
+
+        let paint = &doc.variables["VariableID:1:2"];
+        assert!(paint.mode_extensions["Light"].contains_key("com.figma.paint"));
+        assert!(paint.mode_extensions["Light"].contains_key("com.figma.paintAliasData"));
+        assert!(paint.mode_extensions["Dark"].contains_key("com.figma.paint"));
+        assert!(!paint.mode_extensions["Dark"].contains_key("com.figma.paintAliasData"));
+
+        let tint = &doc.variables["VariableID:1:3"];
+        assert!(!tint.mode_extensions.contains_key("Light"));
+        assert!(tint.mode_extensions["Dark"].contains_key("com.figma.composedColor"));
+
+        let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        let out_light: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
+        let out_dark: Value = serde_json::from_slice(&bundle.files[1].1).unwrap();
+        let expected_light: Value = serde_json::from_str(light).unwrap();
+        let expected_dark: Value = serde_json::from_str(dark).unwrap();
+
+        assert_eq!(out_light, expected_light);
+        assert_eq!(out_dark, expected_dark);
+    }
+
+    #[test]
+    fn mode_extensions_follow_mode_edits() {
+        let mut doc = Document::new("d");
+        let opts = ImportVariablesOptions {
+            collection_name: Some("Theme".into()),
+            additional_files: vec![("Dark.tokens.json".into(), two_mode_fixture_dark().as_bytes().to_vec())],
+            ..Default::default()
+        };
+        import_variables(&mut doc, two_mode_fixture_light(), VariablesFormat::FigmaNative, opts).unwrap();
+
+        // Also seed Light on Brand/Tint with composedColor and paint so we verify composedColor is cleared while paint stays
+        let tint_light = doc.variables.get_mut("VariableID:1:3").unwrap().mode_extensions.entry("Light".into()).or_default();
+        tint_light.insert("com.figma.composedColor".into(), json!({"op": "tint"}));
+        tint_light.insert("com.figma.paint".into(), json!({"paintType": "SOLID"}));
+
+        let cid = "VariableCollectionId:theme".to_string();
+        let mut store = designos_doc::VariableStore::from_doc(&doc);
+
+        // Edit Light on Brand/Fill, Brand/Paint, and Brand/Tint
+        assert!(store.set_value("VariableID:1:1", "Light", VariableValue::Color(Color::rgb(10, 20, 30))));
+        assert!(store.set_value("VariableID:1:2", "Light", VariableValue::Color(Color::rgb(40, 50, 60))));
+        assert!(store.set_value("VariableID:1:3", "Light", VariableValue::Color(Color::rgb(70, 80, 90))));
+
+        // Brand/Fill Light: aliasData cleared, isOverride kept
+        let fill_light = &store.variables["VariableID:1:1"].mode_extensions["Light"];
+        assert!(!fill_light.contains_key("com.figma.aliasData"));
+        assert_eq!(fill_light.get("com.figma.isOverride"), Some(&Value::Bool(true)));
+
+        // Brand/Paint Light: paint and paintAliasData kept
+        let paint_light = &store.variables["VariableID:1:2"].mode_extensions["Light"];
+        assert!(paint_light.contains_key("com.figma.paint"));
+        assert!(paint_light.contains_key("com.figma.paintAliasData"));
+
+        // Brand/Tint Light: composedColor cleared, paint kept
+        let tint_light_after = &store.variables["VariableID:1:3"].mode_extensions["Light"];
+        assert!(!tint_light_after.contains_key("com.figma.composedColor"));
+        assert!(tint_light_after.contains_key("com.figma.paint"));
+
+        // Delete mode Dark -> no mode_extensions entry for Dark remains
+        assert!(store.delete_mode(&cid, "Dark"));
+        for v in store.variables.values() {
+            assert!(!v.mode_extensions.contains_key("Dark"));
+        }
+    }
+
+    #[test]
+    fn native_merge_keys_extensions_by_existing_mode_id() {
+        let mut doc = Document::new("d");
+        doc.variable_collections.insert(
+            "c_studio".into(),
+            VariableCollection {
+                id: "c_studio".into(),
+                name: "StudioTheme".into(),
+                modes: vec![VariableMode { id: "1:0".into(), name: "Light".into() }],
+                default_mode: "1:0".into(),
+                variables: Vec::new(),
+                key: None,
+                source_library_key: None,
+                extensions: BTreeMap::new(),
+            },
+        );
+
+        let light = r##"{
+  "Surface": {
+    "$type": "color",
+    "$value": { "colorSpace": "srgb", "components": [1.0, 1.0, 1.0], "alpha": 1.0, "hex": "#FFFFFF" },
+    "$extensions": {
+      "com.figma.variableId": "VariableID:55:1",
+      "com.figma.aliasData": {
+        "targetVariableId": "VariableID:99:1",
+        "targetVariableName": "Neutral/White",
+        "targetVariableSetId": "VariableCollectionId:99:0",
+        "targetVariableSetName": "Primitives"
+      }
+    }
+  },
+  "$extensions": { "com.figma.modeName": "Light" }
+}"##;
+        import_variables(&mut doc, light, VariablesFormat::FigmaNative, ImportVariablesOptions { replace: false, ..Default::default() }).unwrap();
+
+        let v = &doc.variables["VariableID:55:1"];
+        assert_eq!(v.collection, "c_studio");
+        assert!(v.values.contains_key("1:0"), "expected value keyed by '1:0', got {:?}", v.values.keys().collect::<Vec<_>>());
+        assert!(!v.values.contains_key("Light"));
+        assert!(v.mode_extensions.contains_key("1:0"), "expected mode_extensions keyed by '1:0', got {:?}", v.mode_extensions.keys().collect::<Vec<_>>());
+        assert!(!v.mode_extensions.contains_key("Light"));
+
+        let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        let exported: Value = serde_json::from_slice(&bundle.files[0].1).unwrap();
+        assert_eq!(exported["Surface"]["$extensions"]["com.figma.aliasData"]["targetVariableName"], "Neutral/White");
+    }
+
+    #[test]
+    fn extensions_serde_default() {
+        let raw_coll = r#"{"id":"c1","name":"C","modes":[],"default_mode":"1:0","variables":[],"key":null}"#;
+        let coll: VariableCollection = serde_json::from_str(raw_coll).unwrap();
+        assert!(coll.extensions.is_empty());
+        let ser_coll = serde_json::to_string(&coll).unwrap();
+        assert!(!ser_coll.contains("extensions"), "serialized collection should omit empty extensions: {ser_coll}");
+        assert_eq!(ser_coll, raw_coll);
+
+        let raw_var =
+            r#"{"id":"v1","name":"V","collection":"c1","kind":"Number","values":{},"description":"","scopes":[],"hidden_from_publishing":false,"key":null}"#;
+        let var: Variable = serde_json::from_str(raw_var).unwrap();
+        assert!(var.extensions.is_empty());
+        assert!(var.mode_extensions.is_empty());
+        let ser_var = serde_json::to_string(&var).unwrap();
+        assert!(!ser_var.contains("extensions"), "serialized variable should omit empty extensions: {ser_var}");
+        assert!(!ser_var.contains("mode_extensions"), "serialized variable should omit empty mode_extensions: {ser_var}");
+        assert_eq!(ser_var, raw_var);
+    }
+
+    #[test]
+    fn non_native_exports_report_extensions() {
+        let mut doc = Document::new("d");
+        import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
+
+        let rest_bundle = export_variables(&doc, VariablesFormat::FigmaRest).unwrap();
+        assert!(!rest_bundle.omitted_extensions.is_empty(), "expected omitted_extensions on figma-rest export");
+
+        let dtcg_bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert!(!dtcg_bundle.omitted_extensions.is_empty(), "expected omitted_extensions on dtcg export");
+
+        let (_fig_bytes, fig_rep) = crate::export_fig_with_report(&doc).unwrap();
+        assert!(!fig_rep.is_empty(), "expected omitted_extensions on .fig export");
+    }
+
+    #[test]
+    fn studio_cross_collection_alias_two_modes_exports_per_mode_literals() {
+        let mut doc = Document::new("d");
+        doc.variable_collections.insert(
+            "c_prim".into(),
+            VariableCollection {
+                id: "c_prim".into(),
+                name: "Primitives".into(),
+                modes: vec![VariableMode { id: "p_light".into(), name: "Light".into() }, VariableMode { id: "p_dark".into(), name: "Dark".into() }],
+                default_mode: "p_light".into(),
+                variables: vec!["v_brand".into()],
+                key: None,
+                source_library_key: None,
+                extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "v_brand".into(),
+            Variable {
+                id: "v_brand".into(),
+                name: "Brand".into(),
+                collection: "c_prim".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([
+                    ("p_light".into(), VariableValue::Color(Color::rgb(255, 255, 255))),
+                    ("p_dark".into(), VariableValue::Color(Color::rgb(0, 0, 0))),
+                ]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: BTreeMap::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        doc.variable_collections.insert(
+            "c_sem".into(),
+            VariableCollection {
+                id: "c_sem".into(),
+                name: "Semantic".into(),
+                modes: vec![VariableMode { id: "s_light".into(), name: "Light".into() }, VariableMode { id: "s_dark".into(), name: "Dark".into() }],
+                default_mode: "s_light".into(),
+                variables: vec!["v_bg".into()],
+                key: None,
+                source_library_key: None,
+                extensions: BTreeMap::new(),
+            },
+        );
+        doc.variables.insert(
+            "v_bg".into(),
+            Variable {
+                id: "v_bg".into(),
+                name: "Bg".into(),
+                collection: "c_sem".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("s_light".into(), VariableValue::Alias("v_brand".into())), ("s_dark".into(), VariableValue::Alias("v_brand".into()))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: BTreeMap::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+
+        let bundle = export_variables(&doc, VariablesFormat::FigmaNative).unwrap();
+        let sem_light = bundle.files.iter().find(|(n, _)| n == "Semantic.Light.tokens.json").unwrap();
+        let sem_dark = bundle.files.iter().find(|(n, _)| n == "Semantic.Dark.tokens.json").unwrap();
+
+        let v_light: Value = serde_json::from_slice(&sem_light.1).unwrap();
+        let v_dark: Value = serde_json::from_slice(&sem_dark.1).unwrap();
+
+        assert_eq!(v_light["Bg"]["$value"]["hex"], "#FFFFFF");
+        assert_eq!(v_light["Bg"]["$extensions"]["com.figma.aliasData"]["targetVariableId"], "v_brand");
+        assert_eq!(v_dark["Bg"]["$value"]["hex"], "#000000");
+        assert_eq!(v_dark["Bg"]["$extensions"]["com.figma.aliasData"]["targetVariableId"], "v_brand");
     }
 
     #[test]
@@ -2142,10 +2787,19 @@ mod tests {
     fn dtcg_round_trip_lossless() {
         let mut doc = Document::new("d");
         let opts = ImportVariablesOptions {
+            collection_name: Some("Theme".into()),
             additional_files: vec![("Dark.tokens.json".into(), sample_figma_native_dark_json().as_bytes().to_vec())],
             ..Default::default()
         };
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, opts).unwrap();
+        // Clear Figma-native-only extension bags (`dtcg` does not emit `com.figma.*` extensions by design).
+        for c in doc.variable_collections.values_mut() {
+            c.extensions.clear();
+        }
+        for v in doc.variables.values_mut() {
+            v.extensions.clear();
+            v.mode_extensions.clear();
+        }
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
         let zip_bytes = bundle.to_zip_bytes().unwrap();
@@ -2161,7 +2815,13 @@ mod tests {
     #[test]
     fn dtcg_export_has_no_figma_keys() {
         let mut doc = Document::new("d");
-        import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
+        import_variables(
+            &mut doc,
+            sample_figma_native_light_json(),
+            VariablesFormat::FigmaNative,
+            ImportVariablesOptions { collection_name: Some("Theme".into()), ..Default::default() },
+        )
+        .unwrap();
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
         for (fname, bytes) in &bundle.files {
@@ -2200,6 +2860,13 @@ mod tests {
     fn rest_round_trip_unchanged() {
         let mut doc = Document::new("d");
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
+        for c in doc.variable_collections.values_mut() {
+            c.extensions.clear();
+        }
+        for v in doc.variables.values_mut() {
+            v.extensions.clear();
+            v.mode_extensions.clear();
+        }
 
         let rest_bundle = export_variables(&doc, VariablesFormat::FigmaRest).unwrap();
         let rest_text = std::str::from_utf8(&rest_bundle.files[0].1).unwrap();
@@ -2225,6 +2892,7 @@ mod tests {
                 variables: vec!["v_extra".into()],
                 key: None,
                 source_library_key: None,
+                extensions: BTreeMap::new(),
             },
         );
         doc.variables.insert(
@@ -2240,13 +2908,15 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: CodeSyntax::new(),
+                extensions: BTreeMap::new(),
+                mode_extensions: BTreeMap::new(),
             },
         );
 
         let rep = import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::Auto, ImportVariablesOptions::default()).unwrap();
-        assert_eq!(rep.added, 5);
+        assert_eq!(rep.added, 8);
         assert!(doc.variables.contains_key("v_extra"), "existing variable must be preserved on merge");
-        assert_eq!(doc.variables.len(), 6);
+        assert_eq!(doc.variables.len(), 9);
     }
 
     #[test]
@@ -2302,6 +2972,8 @@ mod tests {
                     hidden_from_publishing: false,
                     key: None,
                     code_syntax: CodeSyntax::new(),
+                    extensions: BTreeMap::new(),
+                    mode_extensions: BTreeMap::new(),
                 },
             );
         }
@@ -2315,6 +2987,7 @@ mod tests {
                 variables: var_ids,
                 key: None,
                 source_library_key: None,
+                extensions: BTreeMap::new(),
             },
         );
         doc
@@ -2341,9 +3014,6 @@ mod tests {
         let (export_ms, import_ms, added) = time_dtcg_round_trip(&doc);
         assert_eq!(added, 5000);
         eprintln!("perf_5000_vars_4_modes export_ms={export_ms:.1} import_ms={import_ms:.1}");
-        // The 200 ms budget binds optimized builds. Unoptimized debug builds and shared CI VMs run several
-        // times slower, so they get the same 15x scale as the other perf tests in this repo
-        // (`designos-gpu/tests/large_file_perf.rs`); `scaling_*` below guards the algorithmic cost there.
         let budget_scale = if cfg!(debug_assertions) || std::env::var("CI").is_ok() { 15.0 } else { 1.0 };
         let budget_ms = 200.0 * budget_scale;
         assert!(export_ms <= budget_ms, "export_ms={export_ms:.1}ms exceeded {budget_ms}ms");

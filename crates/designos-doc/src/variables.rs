@@ -10,6 +10,9 @@ use crate::{Color, Document, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Verbatim Figma extension keys (`key -> JSON value`) (`E1-9` §4).
+pub type FigmaExtensions = BTreeMap<String, serde_json::Value>;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VariableMode {
     pub id: String,
@@ -30,6 +33,10 @@ pub struct VariableCollection {
     /// `sourceLibraryKey`). `None` for a collection the file owns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_library_key: Option<String>,
+    /// Collection-level Figma keys (`com.figma.parentVariableSetId`,
+    /// `com.figma.parentVariableSetName`, etc.) (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
 }
 
 impl VariableCollection {
@@ -100,13 +107,19 @@ pub struct Variable {
     /// Value per mode id.
     pub values: BTreeMap<String, VariableValue>,
     pub description: String,
-    /// Figma scopes ("ALL_FILLS", "CORNER_RADIUS", "GAP", ...); empty = all.
+    /// Figma scopes ("ALL_SCOPES", "CORNER_RADIUS", "GAP", ...); empty = all.
     pub scopes: Vec<String>,
     pub hidden_from_publishing: bool,
     pub key: Option<String>,
     /// Code written per platform; an empty string is not stored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub code_syntax: CodeSyntax,
+    /// Variable-level extension keys (e.g. `org.designos.figmaTokenType`: `"easing"` or `"duration"`) (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: FigmaExtensions,
+    /// Per-mode Figma extension keys: outer key = mode id, inner map = `com.figma.*` keys for that mode (`E1-9` §4).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mode_extensions: BTreeMap<String, FigmaExtensions>,
 }
 
 impl Variable {
@@ -127,6 +140,21 @@ impl Variable {
 
     pub fn is_publishable(&self) -> bool {
         !self.hidden_from_publishing
+    }
+
+    /// Clears per-mode extension keys that describe how the previous literal value was derived
+    /// (`com.figma.aliasData` and `com.figma.composedColor`), keeping `com.figma.paint`,
+    /// `com.figma.paintAliasData`, `com.figma.isOverride`, and any other keys (`E1-9` §4).
+    pub fn clear_derived_mode_extensions(&mut self, mode: &str) {
+        let mut remove_mode = false;
+        if let Some(ext) = self.mode_extensions.get_mut(mode) {
+            ext.remove("com.figma.aliasData");
+            ext.remove("com.figma.composedColor");
+            remove_mode = ext.is_empty();
+        }
+        if remove_mode {
+            self.mode_extensions.remove(mode);
+        }
     }
 }
 
@@ -212,6 +240,7 @@ mod tests {
                 variables: vec!["base".into(), "bg".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let var = |id: &str, values: Vec<(&str, VariableValue)>| Variable {
@@ -224,8 +253,9 @@ mod tests {
             scopes: vec![],
             hidden_from_publishing: false,
             key: None,
-
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert("base".into(), var("base", vec![("light", VariableValue::Color(Color::WHITE)), ("dark", VariableValue::Color(Color::BLACK))]));
         d.variables.insert("bg".into(), var("bg", vec![("light", VariableValue::Alias("base".into())), ("dark", VariableValue::Alias("base".into()))]));
