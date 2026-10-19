@@ -79,3 +79,61 @@ fn a_style_fix_found_in_dark_is_refused_once_the_frame_is_back_in_light() {
     assert!(!app.check_designs_fix(&finding), "in Light the layer is 16px, so the 32px style no longer equals it");
     assert!(!app.hist.can_undo());
 }
+
+#[test]
+fn bound_font_size_with_mode_dependent_fill_is_not_offered_a_text_style() {
+    let mut f = fx();
+    let size = f.number_var("Size/Body", 16.0, 16.0);
+    let ink = f.color_var("Color/Ink", gray(0x11), gray(0xEE));
+    let frame = f.frame(f.page, "Card", Some(gray(0x80)));
+    let body = f.text(frame, "Body", 16.0, 400, gray(0x11));
+    {
+        let n = f.doc.get_mut(body).unwrap();
+        n.variables.bindings.insert("fontSize".into(), size);
+        n.variables.bindings.insert("fills/0".into(), ink);
+    }
+    f.style("BodyStyle", "Text/Body", Style::Text(TextStyle { font_size: 16.0, font_weight: 400, ..TextStyle::default() }), StyleProperty::Text);
+
+    let resolved_light = designos_doc::resolved_node(&f.doc, body).expect("resolved_node in Light");
+    assert!(super::super::hardcoded::text_number_bound_in_place(&f.doc, &resolved_light));
+    let light_report = f.report();
+    let light_style_offers: Vec<_> =
+        light_report.of(Rule::HardCodedValue).filter(|x| x.node == body && matches!(x.fix, Some(Fix::ApplyStyle { .. }))).collect();
+    assert!(light_style_offers.is_empty(), "expected no text style offer in Light mode, got {light_style_offers:#?}");
+
+    // Dark mode: fills/0 differs from stored, but fontSize still resolves to 16.0 == stored 16.0.
+    f.doc.get_mut(frame).unwrap().variables.modes.insert("theme".into(), DARK.into());
+    let resolved_dark = designos_doc::resolved_node(&f.doc, body).expect("resolved_node in Dark");
+    assert!(super::super::hardcoded::text_number_bound_in_place(&f.doc, &resolved_dark));
+    let dark_report = f.report();
+    let dark_style_offers: Vec<_> = dark_report.of(Rule::HardCodedValue).filter(|x| x.node == body && matches!(x.fix, Some(Fix::ApplyStyle { .. }))).collect();
+    assert!(dark_style_offers.is_empty(), "expected no text style offer in Dark mode, got {dark_style_offers:#?}");
+}
+
+#[test]
+fn bound_font_size_resolving_differently_still_offers_the_style() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
+    let size = f.number_var("Size/Title", 16.0, 32.0);
+    let frame = dark_frame(&mut f);
+    let title = f.text(frame, "Title", 16.0, 700, gray(0xEE));
+    f.doc.get_mut(title).unwrap().variables.bindings.insert("fontSize".into(), size);
+    f.style("Title", "Heading/Title", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
+
+    let resolved = designos_doc::resolved_node(&f.doc, title).expect("resolved_node");
+    assert!(!super::super::hardcoded::text_number_bound_in_place(&f.doc, &resolved));
+
+    let finding = only(&f.report(), Rule::TextStyles);
+    assert_eq!(finding.node, title);
+    assert_eq!(finding.fix, Some(Fix::ApplyStyle { style: "Title".into() }));
+}
+
+#[test]
+fn kind_mismatch_arm_is_conservative() {
+    let f = fx();
+    let orphan_id = NodeId(999_999);
+    assert!(f.doc.get(orphan_id).is_none());
+    let mut synthetic = Node::text(orphan_id, Rect::new(0.0, 0.0, 50.0, 20.0), "Orphan", TextStyle::default());
+    synthetic.variables.bindings.insert("fontSize".into(), "var:missing".into());
+    assert!(super::super::hardcoded::text_number_bound_in_place(&f.doc, &synthetic));
+}

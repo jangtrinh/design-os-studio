@@ -3902,3 +3902,144 @@ fn resized_instance_scales_rotated_vector_and_boolean_geometry_without_derived_d
         assert!((bmax.x - badge.size.x).abs() < 1e-2, "boolean fill_geometry max_x={} vs size.x={}", bmax.x, badge.size.x);
     }
 }
+
+fn make_comp_node(doc: &mut Document, page: NodeId, name: &str, guid: (u32, u32), explicit_key: Option<&str>) -> NodeId {
+    let id = doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Component(FrameProps::default()));
+    n.name = name.into();
+    n.size = Vec2::new(40.0, 40.0);
+    n.source_id = Some(format!("{}:{}", guid.0, guid.1));
+    if let Some(k) = explicit_key {
+        n.fig_metadata.insert("componentKey".into(), k.into());
+    }
+    doc.insert(page, n).unwrap()
+}
+
+fn swap_preferred(doc: &Document, comp_name: &str, prop_name: &str) -> Vec<NodeId> {
+    let comp = find(doc, comp_name);
+    let def = comp.component.props.iter().find(|p| p.name == prop_name).expect("prop exists");
+    match &def.kind {
+        PropKind::InstanceSwap { preferred } => preferred.clone(),
+        other => panic!("expected InstanceSwap, got {other:?}"),
+    }
+}
+
+#[test]
+fn keyless_component_guid_colliding_with_explicit_key_stays_distinct() {
+    let mut doc = Document::new("CompKeyCollision");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "CompA").id;
+    let rt_b = find(&rt, "CompB").id;
+    assert_ne!(rt_a, rt_b);
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b]);
+}
+
+#[test]
+fn explicit_key_takes_precedence_over_comp_prefix_fallback() {
+    let mut doc = Document::new("CompKeyPrecedence");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("comp:1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let comp_c = make_comp_node(&mut doc, page, "CompC", (3, 4), Some("1:2"));
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b, comp_c] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "CompA").id;
+    let rt_b = find(&rt, "CompB").id;
+    let rt_c = find(&rt, "CompC").id;
+    assert_ne!(rt_a, rt_b);
+    assert_ne!(rt_b, rt_c);
+    assert_ne!(rt_a, rt_c);
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b, rt_c]);
+}
+
+fn decode_exported_message(bytes: &[u8]) -> designos_fig::kiwi::KiwiValue {
+    use designos_fig::{container, kiwi::Schema};
+    let archive = container::open(bytes).expect("open .fig container");
+    let (schema_bin, msg_bin) = container::read_archive_chunks(&archive).expect("read archive chunks");
+    let schema = Schema::decode(&schema_bin).expect("decode embedded Kiwi schema");
+    let root = schema.root_message().expect("root message");
+    schema.decode_message_for_import(root, &msg_bin).expect("decode message")
+}
+
+fn kstr<'a>(v: &'a designos_fig::kiwi::KiwiValue, field: &str) -> Option<&'a str> {
+    match v.get(field) {
+        Some(designos_fig::kiwi::KiwiValue::String(s)) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+#[test]
+fn both_fallback_call_sites_agree() {
+    use designos_fig::kiwi::KiwiValue;
+    let mut doc = Document::new("CompKeySitesAgree");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "CompA", (2, 3), Some("comp:1:2"));
+    let comp_b = make_comp_node(&mut doc, page, "CompB", (1, 2), None);
+    let comp_c = make_comp_node(&mut doc, page, "CompC", (3, 4), Some("1:2"));
+    let host = make_comp_node(&mut doc, page, "Host", (9, 9), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b, comp_c, host] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let msg = decode_exported_message(&bytes);
+    let changes = msg.get("nodeChanges").and_then(KiwiValue::as_array).expect("nodeChanges array");
+    let symbol_key = |name: &str| -> String {
+        changes.iter().find(|nc| kstr(nc, "name") == Some(name)).and_then(|nc| kstr(nc, "componentKey")).expect("componentKey on SYMBOL").to_string()
+    };
+    let host_nc = changes.iter().find(|nc| kstr(nc, "name") == Some("Host")).expect("Host SYMBOL");
+    let defs = host_nc.get("componentPropDefs").and_then(KiwiValue::as_array).expect("componentPropDefs");
+    let swap_vals = defs[0].get("preferredValues").and_then(|pv| pv.get("instanceSwapValues")).and_then(KiwiValue::as_array).expect("instanceSwapValues");
+    let pref_keys: Vec<String> = swap_vals.iter().map(|v| kstr(v, "key").expect("key").to_string()).collect();
+    assert_eq!(
+        pref_keys,
+        vec![symbol_key("CompA"), symbol_key("CompB"), symbol_key("CompC"), symbol_key("Host")],
+        "ExportCtx::new and encode_preferred_values must emit identical keys for every component"
+    );
+}
+
+#[test]
+fn uncollided_keyless_component_still_round_trips() {
+    use designos_fig::kiwi::KiwiValue;
+    let mut doc = Document::new("UncollidedKeyless");
+    let page = doc.add_page("Page 1");
+    let comp_a = make_comp_node(&mut doc, page, "KeylessA", (5, 10), None);
+    let comp_b = make_comp_node(&mut doc, page, "KeylessB", (5, 11), None);
+    let host = make_comp_node(&mut doc, page, "Host", (5, 12), None);
+    doc.get_mut(host).unwrap().component.props.push(ComponentPropDef {
+        name: "Icon".into(),
+        kind: PropKind::InstanceSwap { preferred: vec![comp_a, comp_b] },
+        default: PropValue::Instance(comp_a),
+    });
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let msg = decode_exported_message(&bytes);
+    let changes = msg.get("nodeChanges").and_then(KiwiValue::as_array).expect("nodeChanges");
+    let key_a = changes.iter().find(|nc| kstr(nc, "name") == Some("KeylessA")).and_then(|nc| kstr(nc, "componentKey")).expect("KeylessA componentKey");
+    assert_eq!(key_a, "5:10", "uncollided keyless component keeps bare s:l key");
+
+    let rt = import_fig(&bytes).expect("import_fig");
+    let rt_a = find(&rt, "KeylessA").id;
+    let rt_b = find(&rt, "KeylessB").id;
+    assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b]);
+}

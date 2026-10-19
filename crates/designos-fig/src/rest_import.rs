@@ -1620,6 +1620,7 @@ impl<'a> Ctx<'a> {
             .copied()
             .or_else(|| self.library_keys.iter().find_map(|(&nid, (k, _))| (k == pref_key).then_some(nid)))
             .or_else(|| self.component_keys.iter().find_map(|(sid, k)| (k == pref_key).then(|| self.ids.get(sid).copied()).flatten()))
+            .or_else(|| crate::fig::strip_fallback_comp_key(pref_key).and_then(|g| self.ids.get(&g).copied()))
     }
 
     fn resolve_swaps(&mut self) {
