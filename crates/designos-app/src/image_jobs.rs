@@ -835,15 +835,27 @@ pub fn layer_row_progress_chip(app: &mut App, ui: &mut egui::Ui, p: &egui::Paint
     let chip_w = status_w + 8.0 + cancel_w + 12.0;
     let chip_h = 20.0;
     let chip_right = right_limit - 4.0;
-    let chip_left = (chip_right - chip_w).max(row_rect.left() + 48.0);
+    let chip_left = (chip_right - chip_w).max(row_rect.left() + theme::SPACE_REGION);
     let chip_rect = Rect::from_min_size(Pos2::new(chip_left, row_rect.center().y - chip_h * 0.5), egui::vec2(chip_right - chip_left, chip_h));
     widgets::record(ui, &format!("layer-ai-chip:{}", node.0), chip_rect);
     p.rect_filled(chip_rect, theme::cr_pill(chip_h), theme::BG_SECONDARY);
     p.rect_stroke(chip_rect, theme::cr_pill(chip_h), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-    p.text(Pos2::new(chip_rect.left() + 6.0, chip_rect.center().y), Align2::LEFT_CENTER, status_text, font.clone(), theme::TEXT_SECONDARY);
+    p.text(
+        Pos2::new(chip_rect.left() + theme::INSET_CONTROL - theme::INSET_SEGMENT, chip_rect.center().y),
+        Align2::LEFT_CENTER,
+        status_text,
+        font.clone(),
+        theme::TEXT_SECONDARY,
+    );
 
-    let cancel_hit = Rect::from_min_size(Pos2::new(chip_rect.right() - cancel_w - 2.0, row_rect.center().y - 12.0), egui::vec2(cancel_w.max(24.0), 24.0));
-    let cancel_vis = Rect::from_min_size(Pos2::new(chip_rect.right() - cancel_w - 2.0, chip_rect.top() + 2.0), egui::vec2(cancel_w, chip_h - 4.0));
+    let cancel_hit = Rect::from_min_size(
+        Pos2::new(chip_rect.right() - cancel_w - theme::INSET_SEGMENT, row_rect.center().y - theme::SPACE_GROUP),
+        egui::vec2(cancel_w.max(24.0), 24.0),
+    );
+    let cancel_vis = Rect::from_min_size(
+        Pos2::new(chip_rect.right() - cancel_w - theme::INSET_SEGMENT, chip_rect.top() + theme::INSET_SEGMENT),
+        egui::vec2(cancel_w, chip_h - 4.0),
+    );
     widgets::record(ui, &format!("layer-ai-cancel:{}", node.0), cancel_hit);
     let c_resp = ui.interact(cancel_hit, ui.id().with(("layer-ai-cancel", node.0)), Sense::click());
     if c_resp.hovered() {
@@ -875,7 +887,8 @@ fn show_fill_ai_menu(app: &mut App, ctx: &Context) {
         widgets::menu::MenuItem::new("Expand…").disabled(!available).tooltip(tip),
         widgets::menu::MenuItem::new("Erase…").disabled(!available).tooltip(tip),
     ];
-    let pos = Pos2::new(anchor.left() - 140.0, anchor.bottom() + 4.0);
+    let menu_dx = theme::SPACE_REGION * 3.0 - theme::SPACE_ROW;
+    let pos = Pos2::new(anchor.left() - menu_dx, anchor.bottom() + theme::SPACE_ROW);
     match widgets::menu::popup_menu(ctx, Id::new(("ai-image-fill-menu", node.0, fill_index)), pos, 180.0, &items, Some(anchor)) {
         widgets::menu::MenuResult::Picked(idx) => {
             app.image_jobs.open_fill_menu = None;
@@ -917,8 +930,8 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
     let h = if total_fills > 1 { 176.0 } else { 156.0 };
     let inspector_left = screen.right() - theme::RIGHT_PANEL_WIDTH;
     let target_x = if pop.anchor.center().x >= inspector_left { inspector_left - w - 8.0 } else { pop.anchor.left() - w - 8.0 };
-    let x = target_x.clamp(screen.left() + 8.0, (screen.right() - w - 8.0).max(screen.left() + 8.0));
-    let y = pop.anchor.top().clamp(screen.top() + 8.0, (screen.bottom() - h - 8.0).max(screen.top() + 8.0));
+    let x = target_x.clamp(screen.left() + theme::SPACE_INLINE, (screen.right() - w - theme::SPACE_INLINE).max(screen.left() + theme::SPACE_INLINE));
+    let y = pop.anchor.top().clamp(screen.top() + theme::SPACE_INLINE, (screen.bottom() - h - theme::SPACE_INLINE).max(screen.top() + theme::SPACE_INLINE));
     let rect = Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h));
 
     let mut run_clicked = false;
@@ -1023,8 +1036,8 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
     let h = if total_fills > 1 { 164.0 } else { 144.0 };
     let inspector_left = screen.right() - theme::RIGHT_PANEL_WIDTH;
     let target_x = if pop.anchor.center().x >= inspector_left { inspector_left - w - 8.0 } else { pop.anchor.left() - w - 8.0 };
-    let x = target_x.clamp(screen.left() + 8.0, (screen.right() - w - 8.0).max(screen.left() + 8.0));
-    let y = pop.anchor.top().clamp(screen.top() + 8.0, (screen.bottom() - h - 8.0).max(screen.top() + 8.0));
+    let x = target_x.clamp(screen.left() + theme::SPACE_INLINE, (screen.right() - w - theme::SPACE_INLINE).max(screen.left() + theme::SPACE_INLINE));
+    let y = pop.anchor.top().clamp(screen.top() + theme::SPACE_INLINE, (screen.bottom() - h - theme::SPACE_INLINE).max(screen.top() + theme::SPACE_INLINE));
     let rect = Rect::from_min_size(Pos2::new(x, y), egui::vec2(w, h));
 
     // Optional canvas drag-to-mask interaction while the Erase popover is open.
@@ -1070,7 +1083,7 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
         }
         if pop.instruction.is_empty() && !ui.memory(|m| m.has_focus(input_id)) {
             ui.painter().text(
-                Pos2::new(input_r.left() + 8.0, input_r.center().y),
+                Pos2::new(input_r.left() + theme::INSET_CONTROL, input_r.center().y),
                 Align2::LEFT_CENTER,
                 "e.g. the person on the left",
                 theme::font_body(),

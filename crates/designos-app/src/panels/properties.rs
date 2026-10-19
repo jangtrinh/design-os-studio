@@ -2413,7 +2413,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 });
             }
             let fill_idx = app.doc.get(id).and_then(crate::image_jobs::topmost_visible_image_fill).map(|t| t.0).unwrap_or(0);
-            let anchor = Rect::from_min_size(Pos2::new(screen.x - 84.0, 640.0), Vec2::splat(24.0));
+            let anchor = Rect::from_min_size(Pos2::new(screen.x - (theme::SPACE_SECTION * 3.0 + theme::SPACE_GROUP), 640.0), Vec2::splat(24.0));
             app.image_jobs.override_agent_installed = Some(true);
             match spec {
                 "ai-image-menu" => app.image_jobs.open_fill_menu = Some((id, fill_idx, anchor)),
