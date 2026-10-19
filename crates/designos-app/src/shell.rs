@@ -188,15 +188,7 @@ impl Shell {
         if let Some(l) = &opts.dev {
             app.ui.dev_mode = true;
             app.ui.right_tab = Some(crate::app::RightTab::Design);
-            app.dev.lang = match l.as_str() {
-                "tailwind" => crate::dev::Language::Tailwind,
-                "swiftui" => crate::dev::Language::SwiftUi,
-                "uikit" => crate::dev::Language::UiKit,
-                "compose" => crate::dev::Language::Compose,
-                "android-xml" => crate::dev::Language::AndroidXml,
-                "react" => crate::dev::Language::React,
-                _ => crate::dev::Language::Css,
-            };
+            app.dev.lang = crate::dev::Language::from_id(l).unwrap_or(crate::dev::Language::Css);
             if opts.dev_demo {
                 crate::dev::preset::apply(&mut app);
             }
@@ -2803,6 +2795,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 crate::dev::Language::UiKit => "UIKit",
                 crate::dev::Language::Compose => "Jetpack Compose",
                 crate::dev::Language::AndroidXml => "Android XML",
+                crate::dev::Language::Html => "HTML5 + CSS3",
             };
             hud.badge_text = format!("Dev Mode · Box Model · {lang_name}");
             hud.keycap = "⇧D".into();

@@ -289,6 +289,16 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     }
 
+    if let Some(lang_id) = &opts.codegen {
+        let lang = designos_export::CodeLanguage::from_id(lang_id).ok_or_else(|| format!("Unknown codegen language '{lang_id}'"))?;
+        let target_id = selected_node
+            .or_else(|| doc.pages.first().and_then(|p| doc.get(*p)).and_then(|p| p.children.first()).copied())
+            .or_else(|| doc.pages.first().copied())
+            .ok_or("No node found to generate code for")?;
+        let resolved = designos_doc::apply_bound_variables(&doc);
+        println!("{}", lang.generate(&resolved, target_id, false));
+    }
+
     if opts.comments_json {
         let targets = doc.resolve_comment_targets();
         let unresolved_count = targets.iter().filter(|c| !c.resolved).count();
