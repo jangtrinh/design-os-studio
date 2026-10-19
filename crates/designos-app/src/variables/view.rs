@@ -1614,42 +1614,45 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
         app.vars.show_skipped_details = false;
         return;
     }
-    let size = Vec2::new(360.0, 220.0);
-    let pos = Pos2::new((g.panel.right() - size.x - 16.0).max(g.panel.left() + 8.0), g.head_top() + 8.0);
+    let size = Vec2::new(360.0, 240.0);
+    let pos = Pos2::new((g.panel.right() - size.x - theme::INSET_POPOVER).max(g.panel.left() + theme::INSET_CONTROL), g.head_top() + theme::SPACE_INLINE);
     let mut close = false;
     let area = egui::Area::new(Id::new("vars-skipped-details")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::click());
-        widgets::menu_panel(ui.painter(), rect, theme::MENU_RADIUS);
+        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
         let p = ui.painter();
-        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + 32.0));
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
         p.text(
-            Pos2::new(head.left() + 12.0, head.center().y),
+            Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
             Align2::LEFT_CENTER,
             format!("Skipped variables ({})", rep.skipped.len()),
-            egui::FontId::proportional(11.0),
+            egui::FontId::proportional(theme::FONT_SIZE_BODY),
             theme::TEXT,
         );
-        let close_rect = Rect::from_center_size(Pos2::new(head.right() - 16.0, head.center().y), Vec2::splat(20.0));
+        let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_DENSE));
         let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());
         cross_glyph(p, close_rect.center(), 4.5, if close_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
         if close_resp.clicked() {
             close = true;
         }
         p.hline(rect.x_range(), head.bottom(), Stroke::new(1.0, theme::BORDER));
-        let body = Rect::from_min_max(Pos2::new(rect.left() + 12.0, head.bottom() + 6.0), Pos2::new(rect.right() - 12.0, rect.bottom() - 8.0));
+        let body = Rect::from_min_max(
+            Pos2::new(rect.left() + theme::SPACE_GROUP, head.bottom() + theme::SPACE_INLINE),
+            Pos2::new(rect.right() - theme::SPACE_GROUP, rect.bottom() - theme::SPACE_INLINE),
+        );
         let mut y = body.top();
         for item in rep.skipped.iter().take(8) {
-            if y + 20.0 > body.bottom() {
+            if y + theme::CONTROL_DENSE > body.bottom() {
                 break;
             }
             p.text(
-                Pos2::new(body.left(), y + 8.0),
+                Pos2::new(body.left(), y + theme::CONTROL_DENSE * 0.5),
                 Align2::LEFT_CENTER,
                 format!("{}: {}", item.path, item.reason),
-                egui::FontId::proportional(11.0),
+                egui::FontId::proportional(theme::FONT_SIZE_BODY),
                 theme::TEXT_SECONDARY,
             );
-            y += 20.0;
+            y += theme::CONTROL_DENSE;
         }
         rect
     });
