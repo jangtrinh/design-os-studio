@@ -199,6 +199,8 @@ pub struct App {
     pub check_designs: crate::check_designs::CheckDesignsState,
     /// 1:1 Figma UI3 Multi-Tab Project Workspace state (`US-10`).
     pub tabs: crate::tabs::TabsState,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    pub image_jobs: crate::image_jobs::ImageJobsState,
     /// Two-digit rapid opacity keystroke buffer (`(digit, timestamp)` within 400ms).
     pub opacity_buffer: Option<(u8, f64)>,
     /// Non-finite or save warning produced by `save_library_file` / `flush_autosave` during a document
@@ -258,6 +260,7 @@ impl App {
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
+            image_jobs: Default::default(),
             opacity_buffer: None,
             pending_flush_notice: None,
         }

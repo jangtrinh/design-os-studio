@@ -459,6 +459,7 @@ impl App {
         crate::decks::ui::flush_notes(self);
         self.save_close_version();
         self.stop_plugin();
+        self.cleanup_image_jobs_on_file_close();
         self.flush_autosave();
         self.canvas.reset_interaction();
         let mut home = Home::new();

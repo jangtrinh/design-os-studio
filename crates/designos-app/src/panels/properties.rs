@@ -1487,13 +1487,15 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             app.props.selected_property = Some(prop);
             app.props.drag_property = Some(prop);
         }
-        let g = pane.rect(theme::SWATCH_ROW_X, 0.0, PAINT_GROUP_W, theme::FIELD_HEIGHT);
+        let is_image_fill = !stroke && matches!(p.kind, PaintKind::Image { .. }) && sel.len() == 1;
+        let group_w = if is_image_fill { PAINT_GROUP_W - 28.0 } else { PAINT_GROUP_W };
+        let divider_x = if is_image_fill { PAINT_DIVIDER_X - 28.0 } else { PAINT_DIVIDER_X };
+        let g = pane.rect(theme::SWATCH_ROW_X, 0.0, group_w, theme::FIELD_HEIGHT);
         let sw = Rect::from_min_size(Pos2::new(g.left() + 4.0, g.center().y - theme::SWATCH_SIZE / 2.0), Vec2::splat(theme::SWATCH_SIZE));
-        let hex_r = Rect::from_min_max(
-            Pos2::new(g.left() + theme::FIELD_PREFIX_X + theme::FIELD_PREFIX_ICON, g.top()),
-            Pos2::new(g.left() + PAINT_DIVIDER_X, g.bottom()),
-        );
-        let op_r = Rect::from_min_max(Pos2::new(g.left() + PAINT_DIVIDER_X + 1.0, g.top()), Pos2::new(g.right() - 16.0, g.bottom()));
+        let hex_r =
+            Rect::from_min_max(Pos2::new(g.left() + theme::FIELD_PREFIX_X + theme::FIELD_PREFIX_ICON, g.top()), Pos2::new(g.left() + divider_x, g.bottom()));
+        let op_r = Rect::from_min_max(Pos2::new(g.left() + divider_x + 1.0, g.top()), Pos2::new(g.right() - 16.0, g.bottom()));
+        let ai_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0 - 28.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let eye_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let minus_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, &format!("sw:{stroke}:{i}"), sw);
@@ -1538,7 +1540,7 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         let var_key = format!("{}/{i}", if stroke { "strokes" } else { "fills" });
         let bound = var_bind::pill_field(app, ui, Rect::from_min_max(hex_r.min, Pos2::new(g.right(), hex_r.bottom())), sel, &[var_key.as_str()]);
         if !bound {
-            widgets::vline(ui.painter(), g.left() + PAINT_DIVIDER_X, g.top(), g.bottom(), theme::BG);
+            widgets::vline(ui.painter(), g.left() + divider_x, g.top(), g.bottom(), theme::BG);
         }
         if swr.clicked() && !bound {
             app.props.selected_property = Some(prop);
@@ -1582,6 +1584,9 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             }
             let pct_x = g.right() - 8.0 - widgets::text_width(ui.painter(), "%", &font);
             widgets::text_on_baseline(ui.painter(), pct_x, widgets::centered_baseline(g, &font), "%", font, theme::TEXT_SECONDARY);
+        }
+        if is_image_fill {
+            crate::image_jobs::paint_row_ai_button(app, ui, ai_r, sel[0], i);
         }
         if widgets::icon_button(ui, eye_r, ("peye", key), if p.visible { Icon::Eye } else { Icon::EyeOff }, false, "").clicked() {
             edit_paint_list(app, sel, stroke, |ps| {
@@ -2390,6 +2395,31 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             let i = app.doc.get(id).map(|n| n.effects.len().saturating_sub(1)).unwrap_or(0);
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 80.0, 800.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::Effect(i), anchor, ids: vec![id] });
+        }
+        "ai-image-menu" | "ai-image-expand" | "ai-image-erase" => {
+            // Ensure the selected node has a valid PNG image fill so the AI button and popover render.
+            const SAMPLE_PNG: &[u8] = include_bytes!("../../../../assets/icon/png/icon_256.png");
+            let img_key = "sample-ai-image".to_string();
+            app.doc.images.entry(img_key.clone()).or_insert_with(|| SAMPLE_PNG.to_vec());
+            let has_img = app.doc.get(id).is_some_and(|n| crate::image_jobs::topmost_visible_image_fill(n).is_some());
+            if !has_img {
+                app.edit_nodes(&[id], |n| {
+                    n.fills = vec![Paint {
+                        visible: true,
+                        opacity: 1.0,
+                        blend: BlendMode::Normal,
+                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+                    }];
+                });
+            }
+            let fill_idx = app.doc.get(id).and_then(crate::image_jobs::topmost_visible_image_fill).map(|t| t.0).unwrap_or(0);
+            let anchor = Rect::from_min_size(Pos2::new(screen.x - 84.0, 640.0), Vec2::splat(24.0));
+            app.image_jobs.override_agent_installed = Some(true);
+            match spec {
+                "ai-image-menu" => app.image_jobs.open_fill_menu = Some((id, fill_idx, anchor)),
+                "ai-image-expand" => app.open_expand_image_popover(id, fill_idx, anchor),
+                _ => app.open_erase_image_popover(id, fill_idx, anchor),
+            }
         }
         _ => {}
     }

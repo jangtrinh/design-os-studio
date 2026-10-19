@@ -1081,6 +1081,10 @@ impl Shell {
         let ctx = ui.ctx().clone();
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
+        self.app.poll_image_jobs();
+        if self.app.image_jobs.has_active_jobs() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
         self.drive_screenshot(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             crate::decks::ui::flush_notes(&mut self.app);
@@ -1297,6 +1301,7 @@ impl Shell {
             }
             menus::show(&mut self.app, &ctx);
             panels::context::show(&mut self.app, &ctx);
+            crate::image_jobs::show_popovers(&mut self.app, &ctx);
             panels::check_designs::show(&mut self.app, &ctx);
             // the floating panel (or only the inspector's binding picker when closed)
             crate::variables::view::show(&mut self.app, ui, full);

@@ -618,10 +618,18 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     has_select = "ctx-select-area" in toolbar_rs
     has_edit_img = ("ctx-edit-image" in toolbar_rs) or ("ctx-edit-prompt" in toolbar_rs)
     # Crop / Remove-background had no real implementation (a 5% shrink and "delete first fill").
-    # They may only come back with an honest implementation, which must update this check.
-    # Scan all shipped, non-test sources (not only cmdk.rs / toolbar.rs) and reject concat! / \u{ in UI labels.
+    # E5-10 brings back Remove background as an honest agent-CLI job in image_jobs.rs (request.json + input.png + output.png);
+    # keep scanning all other shipped, non-test sources (including cmdk.rs, panels/toolbar.rs, panels/mod.rs) and reject concat! / \u{ in UI labels.
+    image_jobs_rs = sources.code("image_jobs.rs")
+    honest_e5_10 = (
+        "request.json" in image_jobs_rs
+        and "input.png" in image_jobs_rs
+        and "output.png" in image_jobs_rs
+        and "ImageOp::RemoveBackground" in image_jobs_rs
+    )
+    allowed_e5_10_files = {"image_jobs.rs", "panels/context.rs", "panels/menus.rs"} if honest_e5_10 else set()
     retired_actions = sources.code_hits(RETIRED_ACTION_PATTERN)
-    retired_cmdk = sources.code_hits(RETIRED_CMDK_PATTERN)
+    retired_cmdk = [f for f in sources.code_hits(RETIRED_CMDK_PATTERN) if f not in allowed_e5_10_files]
     cmdk_unnorm = sources.unnormalized_code("cmdk.rs")
     toolbar_unnorm = sources.unnormalized_code("panels/toolbar.rs")
     obfuscated_ui_labels = []

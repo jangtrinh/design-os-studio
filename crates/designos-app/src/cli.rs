@@ -106,7 +106,7 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 47] = [
+pub const PANELS: [&str; 50] = [
     "agents",
     "agents-chat",
     "agents-start-failure",
@@ -142,6 +142,9 @@ pub const PANELS: [&str; 47] = [
     "version-history",
     "dev-annotate",
     "dev-compare",
+    "ai-image-menu",
+    "ai-image-expand",
+    "ai-image-erase",
     "micro-autolayout",
     "micro-css-grid",
     "micro-smart-selection",

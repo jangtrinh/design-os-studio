@@ -1819,6 +1819,7 @@ impl App {
     pub fn replace_document(&mut self, doc: Document, path: Option<PathBuf>) {
         crate::decks::ui::flush_notes(self);
         self.stop_plugin();
+        self.cleanup_image_jobs_on_file_close();
         // Pending edits of the library file being left are saved first (from the live state, not an old version).
         self.exit_version_view();
         self.flush_autosave();

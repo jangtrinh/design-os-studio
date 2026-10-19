@@ -18,6 +18,7 @@ pub struct MenuItem {
     pub disabled: bool,
     pub separator_after: bool,
     pub icon: Option<Icon>,
+    pub tooltip: String,
     pub children: Vec<MenuItem>,
 }
 
@@ -44,6 +45,10 @@ impl MenuItem {
     }
     pub fn icon(mut self, i: Icon) -> Self {
         self.icon = Some(i);
+        self
+    }
+    pub fn tooltip(mut self, t: impl Into<String>) -> Self {
+        self.tooltip = t.into();
         self
     }
     fn has_sub(&self) -> bool {
@@ -392,6 +397,9 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                     Vec2::new(rect.width() - theme::MENU_PILL_INSET * 2.0, theme::MENU_ITEM_HEIGHT),
                 );
                 let resp = ui.interact(hit, id.with(("row", k, i)), if it.disabled { Sense::hover() } else { Sense::click() });
+                if !it.tooltip.is_empty() {
+                    let _ = resp.clone().on_hover_text(&it.tooltip);
+                }
                 let lit = st.hl.get(k).copied().flatten() == Some(i) && !it.disabled;
                 if owner == Some(k) && ptr.is_some_and(|p| hit.contains(p)) {
                     hover_hit = Some((k, i));

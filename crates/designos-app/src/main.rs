@@ -17,6 +17,7 @@ mod fonts;
 mod history;
 mod home;
 mod icons;
+mod image_jobs;
 mod io;
 mod layout;
 mod libraries;
