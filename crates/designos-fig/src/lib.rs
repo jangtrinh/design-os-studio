@@ -33,13 +33,13 @@ mod vecnet;
 pub use clipboard::{import_figma_clipboard, looks_like_figma_clipboard, parse_figma_clipboard_html, FigClipboard};
 pub use designos_doc::Document;
 pub use export::export_rest_json;
-pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig};
+pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_with_budget, import_fig_with_report};
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
 pub use fig_export::{export_fig, path_to_commands_blob};
 pub use pen::{export_pen_json, import_pen_json, import_pen_json_with_warnings};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
-pub use rest_import::{image_refs, import_rest_json};
+pub use rest_import::{image_refs, import_rest_json, import_rest_json_with_budget, import_rest_json_with_report, ImportReport, CLONE_BUDGET_TOTAL};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
 
 #[derive(Debug, thiserror::Error)]

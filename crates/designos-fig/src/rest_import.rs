@@ -355,6 +355,23 @@ fn auto_resize(s: &str) -> TextAutoResize {
 
 // ------------------------------------------------------------ importer
 
+/// Document-wide cap on cloned nodes created while expanding component instances during a single import.
+///
+/// Sizing across the benchmark kits (`Simple Design System`, `Polaris`, `Material 3`, and `VSF - PCP.fig` which has
+/// 23,429 cloned nodes across 1,082,324 expanded scene nodes; community kits stay under 450,000 cloned nodes):
+/// `2_000_000` is >= 4x the largest real kit clone count and matches `.pen`'s `MAX_PEN_REF_CLONES`.
+pub const CLONE_BUDGET_TOTAL: usize = 2_000_000;
+
+/// Per-instance cap on cloned nodes so a single runaway component still stops early even when the global budget has room.
+pub const PER_INSTANCE_CLONE_BUDGET: usize = 50_000;
+
+/// Non-fatal summary reported alongside an imported [`Document`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ImportReport {
+    /// How many component instances were left unexpanded because expanding them would exceed [`CLONE_BUDGET_TOTAL`].
+    pub instances_left_unexpanded: usize,
+}
+
 struct Ctx<'a> {
     doc: Document,
     blobs: &'a [&'a [u8]],
@@ -370,6 +387,10 @@ struct Ctx<'a> {
     /// `.fig` instance overrides / derived data, keyed by instance.
     overrides: BTreeMap<NodeId, Overrides>,
     next_clone: u64,
+    clone_budget_total: usize,
+    cloned_nodes: usize,
+    budget_exhausted: bool,
+    unexpanded_instances: BTreeSet<NodeId>,
     /// `.fig` override keys (`_overrideKey`): the id override paths use for a
     /// node. Clones inherit the key of the node they copy.
     override_keys: HashMap<NodeId, std::sync::Arc<str>>,
@@ -503,8 +524,19 @@ pub(crate) fn parse_json_text(json: &str) -> Result<Value, FigError> {
 }
 
 pub fn import_rest_json(json: &str) -> Result<Document, FigError> {
+    import_rest_json_with_report(json).map(|(doc, _)| doc)
+}
+
+/// Imports a Figma REST JSON document and returns an [`ImportReport`] describing any instances left unexpanded by
+/// [`CLONE_BUDGET_TOTAL`].
+pub fn import_rest_json_with_report(json: &str) -> Result<(Document, ImportReport), FigError> {
+    import_rest_json_with_budget(json, CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_rest_json_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_rest_json_with_budget(json: &str, clone_budget_total: usize) -> Result<(Document, ImportReport), FigError> {
     let v = parse_json_text(json)?;
-    import_rest_value(&v, false)
+    import_rest_value_with_blobs_and_budget(&v, true, &[], None, clone_budget_total)
 }
 
 /// Maps an already-parsed REST-shaped value. `expand_instances` clones the
@@ -514,14 +546,15 @@ pub(crate) fn import_rest_value(v: &Value, expand_instances: bool) -> Result<Doc
     import_rest_value_with_blobs(v, expand_instances, &[], None)
 }
 
-pub(crate) fn import_rest_value_owned<'a>(
+pub(crate) fn import_rest_value_owned_with_budget<'a>(
     mut v: Value,
     expand_instances: bool,
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
-) -> Result<Document, FigError> {
+    clone_budget_total: usize,
+) -> Result<(Document, ImportReport), FigError> {
     if crate::board::is_figjam(&v) {
-        return import_rest_value_with_blobs(&v, expand_instances, blobs, fast_derived_map);
+        return import_rest_value_with_blobs_and_budget(&v, expand_instances, blobs, fast_derived_map, clone_budget_total);
     }
     let has_doc = v.get("document").is_some();
     if !has_doc && fstr(&v, "type").is_none() {
@@ -540,6 +573,10 @@ pub(crate) fn import_rest_value_owned<'a>(
         component_keys: BTreeMap::new(),
         overrides: BTreeMap::new(),
         next_clone: 0,
+        clone_budget_total,
+        cloned_nodes: 0,
+        budget_exhausted: false,
+        unexpanded_instances: BTreeSet::new(),
         override_keys: HashMap::new(),
         col_anchor_guids: HashMap::new(),
         row_anchor_guids: HashMap::new(),
@@ -606,7 +643,7 @@ pub(crate) fn import_rest_value_owned<'a>(
     if cx.doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    cx.finish(expand_instances);
+    cx.finish(expand_instances)?;
     cx.register_library_assets();
     cx.doc.kind = DocumentKind::Design;
     if !cx.connectors.is_empty() {
@@ -617,6 +654,7 @@ pub(crate) fn import_rest_value_owned<'a>(
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     drop(v);
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -627,7 +665,7 @@ pub(crate) fn import_rest_value_owned<'a>(
     if doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 pub(crate) fn import_rest_value_with_blobs<'a>(
@@ -636,6 +674,16 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     blobs: &'a [&'a [u8]],
     fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
 ) -> Result<Document, FigError> {
+    import_rest_value_with_blobs_and_budget(v, expand_instances, blobs, fast_derived_map, CLONE_BUDGET_TOTAL).map(|(doc, _)| doc)
+}
+
+pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
+    v: &'a Value,
+    expand_instances: bool,
+    blobs: &'a [&'a [u8]],
+    fast_derived_map: Option<&'a mut HashMap<String, Vec<crate::fig::FastDerivedEntry>>>,
+    clone_budget_total: usize,
+) -> Result<(Document, ImportReport), FigError> {
     let root = match v.get("document") {
         Some(d) => d,
         None if fstr(v, "type").is_some() => v,
@@ -653,6 +701,10 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         component_keys: BTreeMap::new(),
         overrides: BTreeMap::new(),
         next_clone: 0,
+        clone_budget_total,
+        cloned_nodes: 0,
+        budget_exhausted: false,
+        unexpanded_instances: BTreeSet::new(),
         override_keys: HashMap::new(),
         col_anchor_guids: HashMap::new(),
         row_anchor_guids: HashMap::new(),
@@ -701,7 +753,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
             }
         }
     }
-    cx.finish(expand_instances);
+    cx.finish(expand_instances)?;
     cx.register_library_assets();
     cx.doc.kind = if crate::board::is_figjam(v) { DocumentKind::Board } else { DocumentKind::Design };
     if cx.doc.kind == DocumentKind::Board {
@@ -719,6 +771,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -729,7 +782,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
     if doc.nodes.len() > 10_000 {
         crate::fig::release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 impl<'a> Ctx<'a> {
@@ -1368,7 +1421,7 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn finish(&mut self, expand_instances: bool) {
+    fn finish(&mut self, expand_instances: bool) -> Result<(), FigError> {
         let links = std::mem::take(&mut self.instances);
         let mut targets: BTreeMap<NodeId, NodeId> = BTreeMap::new();
         for (inst, cid) in links {
@@ -1386,11 +1439,12 @@ impl<'a> Ctx<'a> {
         if !expand_instances {
             self.apply_rest_overrides();
             self.resolve_proto();
-            return;
+            return Ok(());
         }
         // Clone ids are handed out sequentially above every imported id, in
         // instance order, so the same input always yields the same ids.
-        self.next_clone = self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0) + 1;
+        let max_id = self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0);
+        self.next_clone = max_id.checked_add(1).ok_or_else(|| FigError::Format("node ids exhausted".into()))?;
         self.has_instance_swap_values = self.doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
         let mut done = BTreeSet::new();
         let defer_inactive = self.large_file && self.doc.nodes.len() > 25_000 && self.doc.pages.len() > 2;
@@ -1425,7 +1479,7 @@ impl<'a> Ctx<'a> {
             }
             let all_comps: BTreeSet<NodeId> = targets.values().copied().collect();
             for comp in all_comps {
-                self.expand_nested(comp, &targets, &mut done);
+                self.expand_nested(comp, &targets, &mut done)?;
             }
             let mut pending_by_page: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
             let order: Vec<NodeId> = targets.keys().copied().collect();
@@ -1434,25 +1488,32 @@ impl<'a> Ctx<'a> {
                     continue;
                 }
                 match node_page.get(&inst).copied() {
-                    Some(p) if !initial_pages.contains(&p) => {
+                    Some(p) if !initial_pages.contains(&p) && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total => {
                         pending_by_page.entry(p).or_default().push(inst);
                     }
                     _ => {
-                        self.expand_rec(inst, &targets, &mut done);
+                        self.expand_rec(inst, &targets, &mut done)?;
                     }
+                }
+            }
+            if self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total {
+                let mut deferred: Vec<NodeId> = pending_by_page.drain().flat_map(|(_, v)| v).collect();
+                deferred.sort();
+                for inst in deferred {
+                    self.expand_rec(inst, &targets, &mut done)?;
                 }
             }
             let rest: Vec<NodeId> = self.overrides.keys().copied().filter(|i| !done.contains(i)).collect();
             for inst in rest {
                 match node_page.get(&inst).copied() {
-                    Some(p) if !initial_pages.contains(&p) => {
+                    Some(p) if !initial_pages.contains(&p) && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total => {
                         let list = pending_by_page.entry(p).or_default();
                         if !list.contains(&inst) {
                             list.push(inst);
                         }
                     }
                     _ => {
-                        self.apply_overrides(inst, &targets, &mut done);
+                        self.apply_overrides(inst, &targets, &mut done)?;
                     }
                 }
             }
@@ -1462,12 +1523,12 @@ impl<'a> Ctx<'a> {
         } else {
             let order: Vec<NodeId> = targets.keys().copied().collect();
             for inst in order {
-                self.expand_rec(inst, &targets, &mut done);
+                self.expand_rec(inst, &targets, &mut done)?;
             }
             // Instances whose component is unknown still honour their own overrides.
             let rest: Vec<NodeId> = self.overrides.keys().copied().filter(|i| !done.contains(i)).collect();
             for inst in rest {
-                self.apply_overrides(inst, &targets, &mut done);
+                self.apply_overrides(inst, &targets, &mut done)?;
             }
         }
         if self.next_clone > 1 {
@@ -1475,6 +1536,7 @@ impl<'a> Ctx<'a> {
         }
         self.apply_rest_overrides();
         self.resolve_proto();
+        Ok(())
     }
 
     fn install_deferred_hydrator(&mut self) {
@@ -1524,6 +1586,9 @@ impl<'a> Ctx<'a> {
             blob_cache: std::mem::take(&mut self.blob_cache),
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone: self.next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -1700,10 +1765,10 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn fresh_id(&mut self) -> NodeId {
+    fn fresh_id(&mut self) -> Result<NodeId, FigError> {
         let id = NodeId(self.next_clone);
-        self.next_clone += 1;
-        id
+        self.next_clone = self.next_clone.checked_add(1).ok_or_else(|| FigError::Format("node ids exhausted".into()))?;
+        Ok(id)
     }
 
     /// Expands `inst`, first expanding instances nested inside its component so
@@ -1718,7 +1783,7 @@ impl<'a> Ctx<'a> {
     /// Those components are known before the swap runs (see [`Self::swap_target_components`]), so their nested
     /// instances are scheduled on the same stack ahead of the step that applies the swap, instead of being
     /// expanded from inside it, which would grow the call stack with the length of a swap chain.
-    fn expand_rec(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn expand_rec(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         enum Step {
             Enter(NodeId),
             Finish(NodeId, NodeId),
@@ -1737,7 +1802,10 @@ impl<'a> Ctx<'a> {
                     stack.extend(self.take_nested_instances(comp, targets).into_iter().rev().map(Step::Enter));
                 }
                 Step::Finish(inst, comp) => {
-                    self.expand_instance(inst, comp);
+                    self.expand_instance(inst, comp)?;
+                    if self.unexpanded_instances.contains(&inst) {
+                        continue;
+                    }
                     if let Some(s) = self.scales.get(&inst).copied() {
                         self.scale_contents(inst, s);
                     }
@@ -1748,11 +1816,12 @@ impl<'a> Ctx<'a> {
                 }
                 Step::Apply(inst) => {
                     // Property values first: an instance swap changes which nodes the overrides address.
-                    self.apply_props(inst, targets, done);
-                    self.apply_overrides(inst, targets, done);
+                    self.apply_props(inst, targets, done)?;
+                    self.apply_overrides(inst, targets, done)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Scales the copied children of an instance made with the scale tool
@@ -1845,10 +1914,11 @@ impl<'a> Ctx<'a> {
     }
 
     /// Expands the instances inside `comp` (innermost first).
-    fn expand_nested(&mut self, comp: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn expand_nested(&mut self, comp: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         for n in self.take_nested_instances(comp, targets) {
-            self.expand_rec(n, targets, done);
+            self.expand_rec(n, targets, done)?;
         }
+        Ok(())
     }
 
     /// Instances inside `comp` that still have to be expanded, lowest id first; empty once `comp` was listed.
@@ -1872,10 +1942,10 @@ impl<'a> Ctx<'a> {
 
     /// Applies the instance's component property values to the nodes of its
     /// copy that are bound to them: visibility, text, and instance swaps.
-    fn apply_props(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn apply_props(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         let values = match self.doc.get(inst) {
             Some(n) if !n.component.values.is_empty() => n.component.values.clone(),
-            _ => return,
+            _ => return Ok(()),
         };
         let mut stack: Vec<NodeId> = self.doc.get(inst).map(|n| n.children.clone()).unwrap_or_default();
         while let Some(d) = stack.pop() {
@@ -1896,31 +1966,32 @@ impl<'a> Ctx<'a> {
                             t.lists.clear();
                         }
                     }
-                    (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done),
+                    (OverrideField::MainComponent, Some(PropValue::Instance(target))) => self.swap_nested(d, *target, targets, done)?,
                     _ => {}
                 }
             }
         }
+        Ok(())
     }
 
     /// Points the nested instance `d` at `target`, updates its component shell
     /// properties to `target`'s defaults, rebuilds its children, and re-applies
     /// `d`'s own component property values.
-    fn swap_nested(&mut self, d: NodeId, target: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
+    fn swap_nested(&mut self, d: NodeId, target: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
         let current = match self.doc.get(d).map(|n| &n.kind) {
             Some(NodeKind::Instance { component, .. }) => *component,
-            _ => return,
+            _ => return Ok(()),
         };
         if current == Some(target) {
-            return;
+            return Ok(());
         }
         let Some(target_node) = self.doc.get(target).cloned() else {
-            return;
+            return Ok(());
         };
         let NodeKind::Component(target_fp) = &target_node.kind else {
-            return;
+            return Ok(());
         };
-        self.expand_nested(target, targets, done);
+        self.expand_nested(target, targets, done)?;
         for k in self.doc.get(d).map(|n| n.children.clone()).unwrap_or_default() {
             let _ = self.doc.remove(k);
         }
@@ -1941,8 +2012,11 @@ impl<'a> Ctx<'a> {
             dn.variables.bindings = target_node.variables.bindings;
             dn.component.variant_props = target_node.component.variant_props;
         }
-        self.expand_instance(d, target);
-        self.apply_props(d, targets, done);
+        self.expand_instance(d, target)?;
+        if !self.unexpanded_instances.contains(&d) {
+            self.apply_props(d, targets, done)?;
+        }
+        Ok(())
     }
 
     /// `.fig` library components of internal-only canvases become external
@@ -2004,9 +2078,15 @@ impl<'a> Ctx<'a> {
     }
 
     /// Deep-copies the component's children under an empty instance.
-    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) {
+    fn expand_instance(&mut self, inst: NodeId, comp: NodeId) -> Result<(), FigError> {
         if !self.doc.get(inst).map(|n| n.children.is_empty()).unwrap_or(false) || self.doc.is_ancestor(comp, inst) || comp == inst {
-            return;
+            return Ok(());
+        }
+        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
+        if !kids.is_empty() && (self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total) {
+            self.budget_exhausted = true;
+            self.unexpanded_instances.insert(inst);
+            return Ok(());
         }
         if !self.no_auto_layout.contains(&inst) {
             let comp_grid_al =
@@ -2037,18 +2117,18 @@ impl<'a> Ctx<'a> {
         }
         let fast_clone = self.rest_overrides.is_empty() && self.doc.nodes.len() >= 10_000;
         let prefix = if fast_clone { String::new() } else { self.doc.get(inst).and_then(|n| n.source_id.clone()).unwrap_or_default() };
-        let kids = self.doc.get(comp).map(|n| n.children.clone()).unwrap_or_default();
-        let mut budget = 50_000usize;
+        let mut budget = PER_INSTANCE_CLONE_BUDGET;
         // Pre-order on an explicit stack: a component of any depth is copied completely without recursion.
         let mut stack: Vec<(NodeId, NodeId)> = kids.into_iter().rev().map(|k| (k, inst)).collect();
         while let Some((src, parent)) = stack.pop() {
             if budget == 0 {
-                return;
+                return Ok(());
             }
             budget -= 1;
             let Some(mut n) = self.doc.get(src).cloned() else { continue };
             let orig_children = std::mem::take(&mut n.children);
-            let id = self.fresh_id();
+            let id = self.fresh_id()?;
+            self.cloned_nodes += 1;
             n.id = id;
             n.parent = Some(parent);
             if fast_clone {
@@ -2098,6 +2178,7 @@ impl<'a> Ctx<'a> {
                 self.apply_instance_constraints(inst, old, new, MAX_TREE_DEPTH);
             }
         }
+        Ok(())
     }
 
     /// Applies horizontal and vertical [`Constraint`]s to the children of a
@@ -2127,12 +2208,12 @@ impl<'a> Ctx<'a> {
 
     /// Applies `.fig` `symbolOverrides` and then `derivedSymbolData` to the
     /// instance's copied subtree.
-    fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) {
-        let Some(ov) = self.overrides.remove(&inst) else { return };
+    fn apply_overrides(&mut self, inst: NodeId, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> Result<(), FigError> {
+        let Some(ov) = self.overrides.remove(&inst) else { return Ok(()) };
         let mut subtree_maps: HashMap<NodeId, HashMap<String, NodeId>> = HashMap::new();
         for e in &ov.set {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                if self.apply_override(t, &e.set, false, targets, done) {
+                if self.apply_override(t, &e.set, false, targets, done)? {
                     subtree_maps.clear();
                 }
             }
@@ -2140,7 +2221,7 @@ impl<'a> Ctx<'a> {
         // Figma's computed results for resized instances win over the raw overrides.
         for e in &ov.derived {
             if let Some(t) = self.resolve_path_cached(inst, &e.path, &mut subtree_maps) {
-                self.apply_override(t, &e.set, true, targets, done);
+                let _ = self.apply_override(t, &e.set, true, targets, done)?;
             }
         }
         for d in &ov.fast_derived {
@@ -2148,6 +2229,7 @@ impl<'a> Ctx<'a> {
                 self.apply_fast_derived(t, d);
             }
         }
+        Ok(())
     }
 
     fn apply_fast_derived(&mut self, id: NodeId, d: &crate::fig::FastDerivedEntry) {
@@ -2336,12 +2418,19 @@ impl<'a> Ctx<'a> {
     /// Applies partial REST node fields to an existing node. `derived_only`
     /// restricts to size, transform and geometry. Returns true if a nested
     /// instance swap took place.
-    fn apply_override(&mut self, id: NodeId, set: &Value, derived_only: bool, targets: &BTreeMap<NodeId, NodeId>, done: &mut BTreeSet<NodeId>) -> bool {
+    fn apply_override(
+        &mut self,
+        id: NodeId,
+        set: &Value,
+        derived_only: bool,
+        targets: &BTreeMap<NodeId, NodeId>,
+        done: &mut BTreeSet<NodeId>,
+    ) -> Result<bool, FigError> {
         let mut swapped = false;
         if !derived_only {
             if let Some(cid) = fstr(set, "componentId") {
                 if let Some(&target_comp) = self.ids.get(cid) {
-                    self.swap_nested(id, target_comp, targets, done);
+                    self.swap_nested(id, target_comp, targets, done)?;
                     swapped = true;
                 }
             }
@@ -2357,7 +2446,7 @@ impl<'a> Ctx<'a> {
         if !derived_only && set.get("layoutMode").is_none() && !self.no_auto_layout.contains(&id) {
             self.inherit_auto_layout_for_partial_override(id, set);
         }
-        let Some(n) = self.doc.get_mut(id) else { return swapped };
+        let Some(n) = self.doc.get_mut(id) else { return Ok(swapped) };
         let keep = |k: &str| !derived_only || matches!(k, "size" | "relativeTransform" | "fillGeometry" | "strokeGeometry");
         let has = |k: &str| keep(k) && set.get(k).is_some();
         let is_vec_or_bool = matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_));
@@ -2412,7 +2501,7 @@ impl<'a> Ctx<'a> {
                 Some(parse_geometry_cached(farr(set, "strokeGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs)).filter(|g| !g.is_empty());
         }
         if derived_only {
-            return swapped;
+            return Ok(swapped);
         }
         let is_text = matches!(n.kind, NodeKind::Text(_));
         if let Some(obj) = set.as_object() {
@@ -2848,11 +2937,11 @@ impl<'a> Ctx<'a> {
                     n.component = node_copy.component;
                 }
                 self.resolve_swaps();
-                self.apply_props(id, targets, done);
+                self.apply_props(id, targets, done)?;
                 swapped = true;
             }
         }
-        swapped
+        Ok(swapped)
     }
 }
 
@@ -2874,6 +2963,9 @@ struct DeferredFigHydrator {
     blob_cache: HashMap<(usize, bool), Path>,
     expanded_comps: HashSet<NodeId>,
     next_clone: u64,
+    clone_budget_total: usize,
+    cloned_nodes: usize,
+    budget_exhausted: bool,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -2923,6 +3015,10 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             large_file: true,
             expanded_comps: std::mem::take(&mut self.expanded_comps),
             next_clone,
+            clone_budget_total: self.clone_budget_total,
+            cloned_nodes: self.cloned_nodes,
+            budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
             has_instance_swap_values,
             has_connectors: false,
             connectors: Vec::new(),
@@ -2930,15 +3026,17 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         };
         for inst in insts {
             if self.targets.contains_key(&inst) {
-                cx.expand_rec(inst, &self.targets, &mut self.done);
+                let _ = cx.expand_rec(inst, &self.targets, &mut self.done);
             } else if !self.done.contains(&inst) {
-                cx.apply_overrides(inst, &self.targets, &mut self.done);
+                let _ = cx.apply_overrides(inst, &self.targets, &mut self.done);
             }
         }
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
         }
         self.next_clone = cx.next_clone;
+        self.cloned_nodes = cx.cloned_nodes;
+        self.budget_exhausted = cx.budget_exhausted;
         *doc = cx.doc;
         if !self.pending_by_page.is_empty() {
             self.ids = cx.ids;
@@ -3760,6 +3858,197 @@ mod expand_depth_tests {
             })
             .unwrap();
         handle.join().expect("import must not overflow the stack");
+    }
+
+    #[test]
+    fn chained_links_stop_at_the_global_clone_budget() {
+        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with CLONE_BUDGET_TOTAL (2,000,000)
+        // it stops after 2,000 links (2,001,000 cloned nodes <= budget + 50,000) and leaves 3,000 instances unexpanded.
+        let chain = component_chain(5_000);
+        let base_nodes = 1 + 2 * 5_000 + 1; // page + 5000*(comp + inner) + Use
+        let started = std::time::Instant::now();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, CLONE_BUDGET_TOTAL).unwrap();
+        let elapsed = started.elapsed();
+        let cloned = doc.nodes.len().saturating_sub(base_nodes);
+        assert!(cloned <= CLONE_BUDGET_TOTAL + PER_INSTANCE_CLONE_BUDGET, "cloned {cloned} > budget + 50k");
+        assert_eq!(cloned, 2_001_000);
+        assert_eq!(report.instances_left_unexpanded, 3_000);
+        assert!(elapsed.as_secs() < 15, "5,000-link chain took {elapsed:?}");
+    }
+
+    #[test]
+    fn a_budgeted_import_is_deterministic() {
+        let json = component_chain(120).to_string();
+        let (doc_a, rep_a) = import_rest_json_with_budget(&json, 1_000).unwrap();
+        let (doc_b, rep_b) = import_rest_json_with_budget(&json, 1_000).unwrap();
+        assert_eq!(rep_a, rep_b);
+        assert!(rep_a.instances_left_unexpanded > 0);
+        assert_eq!(doc_a.nodes, doc_b.nodes);
+        assert_eq!(doc_a.pages, doc_b.pages);
+        assert_eq!(doc_a.peek_next_id(), doc_b.peek_next_id());
+
+        // Exact boundary (edge case 2): budget reached right at the end of an instance (1 + 2 + 3 = 6).
+        // The 3rd instance completes; the 4th does not start.
+        let json10 = component_chain(10).to_string();
+        let (_doc_exact, rep_exact) = import_rest_json_with_budget(&json10, 6).unwrap();
+        assert_eq!(rep_exact.instances_left_unexpanded, 7);
+    }
+
+    #[test]
+    fn an_unexpanded_instance_survives_a_fig_round_trip() {
+        let json = component_chain(10).to_string();
+        let (doc, rep) = import_rest_json_with_budget(&json, 6).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 7);
+        let use_node = doc.nodes.values().find(|n| n.name == "Use").unwrap();
+        assert!(use_node.children.is_empty(), "outer instance must remain unexpanded");
+        let c0_id = doc.nodes.values().find(|n| n.name == "C0").unwrap().id;
+        assert!(matches!(use_node.kind, NodeKind::Instance { component: Some(c), .. } if c == c0_id));
+
+        let fig_bytes = crate::export_fig(&doc).unwrap();
+        let (reimported, _rep2) = crate::import_fig_with_budget(&fig_bytes, 0).unwrap();
+        let use_after = reimported.nodes.values().find(|n| n.name == "Use").unwrap();
+        let c0_after = reimported.nodes.values().find(|n| n.name == "C0").unwrap().id;
+        assert!(matches!(use_after.kind, NodeKind::Instance { component: Some(c), .. } if c == c0_after));
+    }
+
+    #[test]
+    fn per_instance_budget_still_applies() {
+        let leaves: Vec<Value> = (0..50_020).map(|i| json!({"id": format!("2:{i}"), "name": "L", "type": "RECTANGLE", "size": {"x": 2, "y": 2}})).collect();
+        let doc_json = json!({"document": {"type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "children": [
+            {"id": "1:1", "name": "HugeComp", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "children": leaves},
+            {"id": "1:2", "name": "HugeInst", "type": "INSTANCE", "componentId": "1:1", "size": {"x": 10, "y": 10}}
+        ]}]}});
+        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, CLONE_BUDGET_TOTAL).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 0);
+        let inst = doc.nodes.values().find(|n| n.name == "HugeInst").unwrap();
+        assert_eq!(inst.children.len(), PER_INSTANCE_CLONE_BUDGET);
+    }
+
+    #[test]
+    fn max_id_overflow_is_an_error_in_import() {
+        let mut cx = Ctx {
+            doc: Document::new("overflow"),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: false,
+            ids: BTreeMap::new(),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            component_keys: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            next_clone: 0,
+            clone_budget_total: CLONE_BUDGET_TOTAL,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            pending_swaps: Vec::new(),
+            rest_overrides: Vec::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            has_instance_swap_values: false,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        cx.doc.nodes.insert(NodeId(u64::MAX), Node::new(NodeId(u64::MAX), NodeKind::Rectangle));
+        let err = cx.finish(true).unwrap_err();
+        assert!(err.to_string().contains("node ids exhausted"), "{err}");
+    }
+
+    #[test]
+    fn fresh_id_is_checked() {
+        let mut cx = Ctx {
+            doc: Document::new("fresh"),
+            blobs: &[],
+            fast_derived_map: None,
+            large_file: false,
+            ids: BTreeMap::new(),
+            instances: Vec::new(),
+            unresolved: Vec::new(),
+            component_keys: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            next_clone: 0,
+            clone_budget_total: CLONE_BUDGET_TOTAL,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            library_keys: BTreeMap::new(),
+            pending_swaps: Vec::new(),
+            rest_overrides: Vec::new(),
+            proto: Vec::new(),
+            overlay_props: BTreeMap::new(),
+            flow_pages: Vec::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            has_instance_swap_values: false,
+            has_connectors: false,
+            connectors: Vec::new(),
+            deferred_pending: None,
+        };
+        // Edge case 4: highest id is u64::MAX - 1 -> first clone id (u64::MAX) works, second reports exhaustion.
+        let page = cx.doc.add_page("P");
+        let comp_id = NodeId(10);
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        let child_id = NodeId(11);
+        let mut child = Node::new(child_id, NodeKind::Rectangle);
+        child.parent = Some(comp_id);
+        comp.children.push(child_id);
+        comp.parent = Some(page);
+        let inst1 = NodeId(12);
+        let mut i1 = Node::new(inst1, NodeKind::Instance { frame: FrameProps::default(), component: None, component_key: None });
+        i1.parent = Some(page);
+        let inst2 = NodeId(u64::MAX - 2);
+        let mut i2 = Node::new(inst2, NodeKind::Instance { frame: FrameProps::default(), component: None, component_key: None });
+        i2.parent = Some(page);
+        cx.doc.get_mut(page).unwrap().children.extend([comp_id, inst1, inst2]);
+        cx.doc.nodes.insert(comp_id, comp);
+        cx.doc.nodes.insert(child_id, child);
+        cx.doc.nodes.insert(inst1, i1);
+        cx.doc.nodes.insert(inst2, i2);
+        cx.ids.insert("10:1".into(), comp_id);
+        cx.instances.push((inst1, "10:1".into()));
+        cx.instances.push((inst2, "10:1".into()));
+        let err = cx.finish(true).unwrap_err();
+        assert!(err.to_string().contains("node ids exhausted"), "{err}");
+        // First instance got u64::MAX - 1; second instance overflowed when advancing past u64::MAX.
+        assert_eq!(cx.doc.get(inst1).unwrap().children, vec![NodeId(u64::MAX - 1)]);
+    }
+
+    #[test]
+    fn nan_round_trip_import_save_reopen() {
+        let mut doc = import_rest_value(&component_chain(4), true).unwrap();
+        let rect_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle)).unwrap().id;
+        doc.get_mut(rect_id).unwrap().size.x = f32::NAN;
+        doc.get_mut(rect_id).unwrap().transform.tx = f32::INFINITY;
+        let bytes = crate::export_fig(&doc).unwrap();
+        let fig_imported = crate::import_fig(&bytes).unwrap();
+        for n in fig_imported.nodes.values() {
+            assert!(n.size.x.is_finite() && n.size.y.is_finite());
+            assert!(n.transform.tx.is_finite() && n.transform.ty.is_finite());
+        }
+        let native_json = fig_imported.to_json().unwrap();
+        let reopened = Document::from_json(&native_json).unwrap();
+        assert_eq!(reopened.nodes.len(), fig_imported.nodes.len());
     }
 }
 

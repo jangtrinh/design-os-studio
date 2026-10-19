@@ -136,7 +136,11 @@ fn load_path_importing_pen_with_mode(
     let mut doc = match ext.as_str() {
         "fig" => {
             let bytes = std::fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            designos_fig::import_fig(&bytes).map_err(|e| format!("Cannot import .fig: {e}"))?
+            let (d, report) = designos_fig::import_fig_with_report(&bytes).map_err(|e| format!("Cannot import .fig: {e}"))?;
+            if report.instances_left_unexpanded > 0 {
+                warning = Some(format!("{} instances were left unexpanded to keep the import fast.", report.instances_left_unexpanded));
+            }
+            d
         }
         "pen" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
@@ -151,14 +155,21 @@ fn load_path_importing_pen_with_mode(
         }
         "json" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            match designos_fig::import_rest_json(&text) {
-                Ok(mut d) => {
+            match designos_fig::import_rest_json_with_report(&text) {
+                Ok((mut d, report)) => {
                     // A number that overflowed `f32` on import is infinity here. Neutralize only the
                     // affected entries in place without re-parsing the whole document or running
                     // `migrate_text`.
                     let replaced = d.neutralize_non_finite();
                     if replaced > 0 {
                         warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
+                    }
+                    if report.instances_left_unexpanded > 0 {
+                        let budget_msg = format!("{} instances were left unexpanded to keep the import fast.", report.instances_left_unexpanded);
+                        warning = Some(match warning {
+                            Some(prev) => format!("{prev} {budget_msg}"),
+                            None => budget_msg,
+                        });
                     }
                     d
                 }
@@ -960,5 +971,32 @@ mod tests {
             .unwrap();
         assert_eq!(text_overflow.content, text_clean.content, "overflow neutralization must not strip literal bullets via migrate_text");
         assert_eq!(text_overflow.lists, text_clean.lists);
+    }
+
+    #[test]
+    fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
+        let mut children = Vec::with_capacity(1421);
+        children.push(
+            r#"{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{"id": "2:0", "name": "R0", "type": "RECTANGLE", "size": {"x": 4, "y": 4}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}]}"#
+                .to_string(),
+        );
+        for k in 1..=1420 {
+            let prev = k - 1;
+            children.push(format!(
+                r#"{{"id": "1:{k}", "name": "C{k}", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{{"id": "3:{k}", "name": "I{k}", "type": "INSTANCE", "componentId": "1:{prev}", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}, {{"id": "2:{k}", "name": "R{k}", "type": "RECTANGLE", "size": {{"x": 4, "y": 4}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}}]}}"#
+            ));
+        }
+        let json = format!(
+            r#"{{"name": "BudgetKit", "version": "1", "schemaVersion": 0, "document": {{"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": [{{"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": [{}]}}]}}}}"#,
+            children.join(",")
+        );
+        let p = tmp("budget_kit_warning.json");
+        std::fs::write(&p, json).unwrap();
+        let mut app = crate::app::App::new(Document::new("Init"));
+        app.open_path(p.clone());
+        std::fs::remove_file(&p).ok();
+
+        let toast = app.toast.as_ref().expect("open_path must show a toast");
+        assert_eq!(toast.text, "Opened BudgetKit with a warning: 5 instances were left unexpanded to keep the import fast.");
     }
 }

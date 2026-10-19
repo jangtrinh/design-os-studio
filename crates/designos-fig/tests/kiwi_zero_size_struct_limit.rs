@@ -49,15 +49,19 @@ fn message_claiming(repeats: usize, claimed: usize) -> Vec<u8> {
 #[test]
 fn rejects_array_of_empty_structs_beyond_the_zero_size_cap() {
     let (schema, m) = schema_with_array_of_empty(0);
-    let msg = message_claiming(1, 200_000);
+    // Honest 200 KB input with 200k empty structs decodes under the input-scaled cap (16 * input_len),
+    // while 20 arrays x 10k empty structs in ~10 KB (200k > 16 * 10k) is rejected.
+    let honest = message_claiming(1, 200_000);
+    assert!(schema.decode_message(m, &honest).is_ok());
+    let msg = message_claiming(20, 10_000);
     let err = schema.decode_message(m, &msg).unwrap_err();
     assert!(err.to_string().contains("zero-size"), "{err}");
 }
 
 #[test]
 fn rejects_array_of_wide_empty_structs_beyond_the_zero_size_cap() {
-    // Each Wide element is 1 + 15 zero-size instances, so the cap is hit by far fewer elements.
-    let (schema, m) = schema_with_array_of_empty(15);
+    // Each Wide element is 1 + 16 = 17 zero-size instances, exceeding 16 * input_len in a single array.
+    let (schema, m) = schema_with_array_of_empty(16);
     let msg = message_claiming(1, 100_000);
     let err = schema.decode_message(m, &msg).unwrap_err();
     assert!(err.to_string().contains("zero-size"), "{err}");
