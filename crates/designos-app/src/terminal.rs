@@ -196,6 +196,36 @@ impl AgentCliPreset {
             other => runtime_binary_available(other.binary_name()),
         }
     }
+
+    /// Verified installation directories for this CLI preset and shared user/system folders.
+    pub fn install_dirs(self) -> Vec<PathBuf> {
+        let _ = self;
+        extra_cli_path_dirs()
+    }
+}
+
+/// Shared list of user and system CLI installation directories probed by [`runtime_binary_available`]
+/// and prepended to the child PTY `PATH` in [`configure_pty_env_with_session`].
+pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.is_empty() {
+            dirs.push(PathBuf::from(format!("{home}/.cargo/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.local/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.antigravity/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.antigravity/antigravity/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.grok/bin")));
+        }
+    }
+    if cfg!(windows) {
+        dirs.push(PathBuf::from(r"C:\Program Files\Git\usr\bin"));
+        dirs.push(PathBuf::from(r"C:\Program Files\Git\bin"));
+        dirs.push(PathBuf::from(r"C:\Windows\System32"));
+    } else {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+    }
+    dirs
 }
 
 /// Checks if `bin` exists as an executable file in `PATH` (or common user/system CLI directories, or as an explicit path).
@@ -217,20 +247,7 @@ pub fn runtime_binary_available(bin: &str) -> bool {
             }
         }
     }
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.is_empty() {
-            dirs.push(PathBuf::from(format!("{home}/.cargo/bin")));
-            dirs.push(PathBuf::from(format!("{home}/.local/bin")));
-            dirs.push(PathBuf::from(format!("{home}/.antigravity/bin")));
-        }
-    }
-    dirs.push(PathBuf::from("/opt/homebrew/bin"));
-    dirs.push(PathBuf::from("/usr/local/bin"));
-    if cfg!(windows) {
-        dirs.push(PathBuf::from(r"C:\Program Files\Git\bin"));
-        dirs.push(PathBuf::from(r"C:\Program Files\Git\usr\bin"));
-        dirs.push(PathBuf::from(r"C:\Windows\System32"));
-    }
+    dirs.extend(extra_cli_path_dirs());
 
     dirs.into_iter().any(|d| {
         d.join(trimmed).is_file()
@@ -2313,20 +2330,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
     cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
 
-    let home = std::env::var("HOME").unwrap_or_default();
-    let mut extra_paths: Vec<String> = Vec::new();
-    if !home.is_empty() {
-        extra_paths.push(format!("{home}/.cargo/bin"));
-        extra_paths.push(format!("{home}/.local/bin"));
-        extra_paths.push(format!("{home}/.antigravity/bin"));
-    }
-    if cfg!(windows) {
-        extra_paths.push(r"C:\Program Files\Git\usr\bin".into());
-        extra_paths.push(r"C:\Program Files\Git\bin".into());
-    } else {
-        extra_paths.push("/opt/homebrew/bin".into());
-        extra_paths.push("/usr/local/bin".into());
-    }
+    let extra_paths: Vec<String> = extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
 
     let current_path = std::env::var("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ";" } else { ":" };
@@ -5725,5 +5729,57 @@ Done!
         assert_eq!(st.tabs.len(), tabs_before + 1, "the fix must open a tab (status: {:?}, pending: {:?})", st.status_msg, st.pending_start_fix);
         assert_eq!(st.tabs.last().map(|t| t.spawn_preset), Some(AgentCliPreset::Shell));
         kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn install_dirs_include_each_clis_own_folder() {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            let grok_dirs = AgentCliPreset::Grok.install_dirs();
+            assert!(grok_dirs.contains(&PathBuf::from(format!("{home}/.grok/bin"))), "{grok_dirs:?}");
+            let agy_dirs = AgentCliPreset::Antigravity.install_dirs();
+            assert!(agy_dirs.contains(&PathBuf::from(format!("{home}/.antigravity/bin"))), "{agy_dirs:?}");
+            assert!(agy_dirs.contains(&PathBuf::from(format!("{home}/.antigravity/antigravity/bin"))), "{agy_dirs:?}");
+        }
+    }
+
+    #[test]
+    fn probe_and_child_path_use_one_list() {
+        let probe_list = AgentCliPreset::Grok.install_dirs();
+        let child_list = extra_cli_path_dirs();
+        assert_eq!(probe_list, child_list);
+    }
+
+    #[test]
+    fn stub_cli_off_the_probed_path_that_prints_unauthorized() {
+        let tmp = std::env::temp_dir().join(format!("designos-673-stub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let stub_path = tmp.join("stub-agent-673");
+        std::fs::write(&stub_path, "#!/bin/sh\necho 'Error: unauthorized'\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&stub_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&stub_path, perms).unwrap();
+        }
+        assert!(!runtime_binary_available("stub-agent-673"), "stub name must not be on PATH or in install_dirs()");
+
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("exec '{}'", stub_path.display()));
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Grok, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        let mut st = TerminalState { tabs: vec![tab], active_tab: 0, ..Default::default() };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while st.active_tab_mut().unwrap().is_alive() {
+            assert!(std::time::Instant::now() < deadline, "stub agent must exit");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
+        let _ = st.poll_live_agent_bridge();
+        let failure = st.active_tab().and_then(|t| t.start_failure.clone()).expect("start failure recorded");
+        assert_eq!(failure.cause, agent_start_failure::StartFailureCause::NotLoggedIn);
+        assert_eq!(failure.fix, FixAction::RunLogin("grok login"));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
