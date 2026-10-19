@@ -106,6 +106,8 @@ After #681 (it removes the template path this empty state used) and preferably a
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19 (#689, work like Orca ADE): the terminal is the conversation. Sample prompts show only when an agent CLI is detected and the tab has no conversation yet; a click fills the composer and never sends. With no CLI detected the empty state reads "No agent CLI detected. Install one or pick a default agent in Settings" with the #652 install guidance.
+
 - Up to six sample prompts per context; a click fills the composer, focused, and never sends; prompts are data (a TOML list); one hint line about #654 and #655; install guidance when no CLI is installed. (Issue text.)
 
 ## Open questions for the owner (recommended first)
