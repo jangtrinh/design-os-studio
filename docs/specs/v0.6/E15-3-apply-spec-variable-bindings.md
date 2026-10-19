@@ -60,6 +60,8 @@ Examples (collections `Color`, id `c1`, holding `Primary`; and a collection with
 variable named `Color/Primary`): `var:Color/Primary` is step 1, collection `Color`, the `c1` variable,
 `c2`'s is never considered; `var:c2/Color/Primary` is step 1 by id and names the `c2` variable.
 
+Producers (lint fixes in E15-10, E15-11 and E15-13, search results in T7.9, `export_spec`) emit the name form `var:<collection name>/<variable name>` only when it resolves back to that same variable under the three steps above; otherwise they emit `var:<collection id>/<variable name>`, or `var:id:<id>` when even that is ambiguous. A reference a producer wrote therefore never fails with `AMBIGUOUS_VARIABLE`.
+
 No match: `UNKNOWN_VARIABLE` with the 5 closest `collection/name` strings by Levenshtein distance
 (ties broken by collection order, then name); a candidate whose collection name occurs twice is listed
 with its collection id instead of its name.
@@ -218,6 +220,7 @@ Fixture `fixtures::tokens_doc()`: collection `Color` (modes Light, Dark) with `P
 | `qualified_name_with_slash` | same document; `fill:"var:Style / Color/color/primary"` | binds the `Style / Color` variable (longest collection prefix) |
 | `unqualified_same_name_is_ambiguous` | same document; `fill:"var:color/primary"` | `AMBIGUOUS_VARIABLE`, `valid_options` has the id-qualified form of both, doc unchanged |
 | `qualified_miss_does_not_cross_collections` | same document; `fill:"var:designos-style:color/color/primry"` | `UNKNOWN_VARIABLE`; no binding to the `Brand` variable |
+| `producer_emits_id_form_when_name_form_is_ambiguous` | two collections both named `Brand`, each with `Color/Primary`; a lint `bind` fix targeting the second | `to` is `var:<second collection id>/Color/Primary`; applying it binds the second; with unique names the fix keeps the name form |
 | `qualified_ignores_other_collection_same_name` | collection `Color` with `Primary` and collection `X` with a variable named `Color/Primary`; `var:Color/Primary` | binds `Color`'s `Primary`, no ambiguity |
 | `export_apply_keeps_bindings` | export then apply | equal binding maps |
 

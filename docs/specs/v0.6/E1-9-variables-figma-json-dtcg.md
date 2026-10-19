@@ -112,9 +112,10 @@ document without extensions saves byte-identically. `BTreeMap` keeps the output 
 workspace gains `extensions: Default::default()` (and `mode_extensions: Default::default()` on
 `Variable`); the compiler finds them all. Keys are stored verbatim as Figma wrote them. An unknown
 `com.figma.*` token key lands in `mode_extensions[mode]` (never in the variable-level map), so a
-difference between modes is never merged away. The mode id that keys `mode_extensions` is whatever id
-the import assigned to the mode (a native file carries no mode id, so the import uses the mode name,
-unique within the collection).
+difference between modes is never merged away. The key of `mode_extensions` is always the key `values` uses
+for that mode: when the import merges into an existing collection (§3.3) and matches the mode by name,
+it is that mode's existing id; for a new mode it is the id the import assigns (a native file carries no
+mode id, so the import uses the mode name, unique within the collection).
 
 **Where each Figma key lands** (figma-native token `$extensions` and file-root `$extensions`):
 
@@ -150,9 +151,11 @@ otherwise.
 Edits that keep the per-mode map consistent: removing a mode (`variables_edit.rs:296`) and the
 case where deleting a variable leaves an alias with no literal, so its mode value is removed
 (`variables_edit.rs:482`), also remove `mode_extensions[mode]` for that mode;
-deleting a variable drops everything. Editing a value in Studio clears that mode's
-`com.figma.isOverride`, `aliasData`, `paint`, `paintAliasData` and `composedColor` keys (the Figma
-metadata described the old value); unrelated keys stay.
+deleting a variable drops everything. Editing a value in Studio clears only the keys that describe how
+the old literal was derived: that mode's `com.figma.aliasData` and `com.figma.composedColor`. It keeps
+`com.figma.paint` and `com.figma.paintAliasData` (the marker that the variable is a PAINT, not a COLOR,
+must stay identical in every mode file) and `com.figma.isOverride` (an edited value in an extended
+collection is still an override); unrelated keys stay.
 
 The extensions are written by `figma-native` export and by `.designos` save. REST, `.fig` and `dtcg`
 exports do not carry them: each export report lists every extension key it left out (count and
@@ -213,7 +216,8 @@ client files).
 | `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model, and every `com.figma.*` key of the §4 table is present at the level and mode the table names |
 | `figma_native_round_trip_json_equal` | fixture with a PAINT, an EASING, a TIMING, a composed colour, a cross-collection alias with `aliasData`, an `isOverride` token and an extended collection → import then `figma-native` export | every exported `<mode>.tokens.json` is JSON-equal to the fixture file |
 | `two_mode_extensions_differ_per_mode` | fixture `variables-two-mode-extensions` (written by us): collection `Theme`, modes `Light` and `Dark`; `Brand/Fill`: Light carries `isOverride: true` and a cross-collection `aliasData`, Dark carries neither; `Brand/Paint` (PAINT): Light has `paint {paintType:"SOLID", blendMode:"MULTIPLY"}` and `paintAliasData`, Dark has `paint {paintType:"SOLID"}` only; `Brand/Tint`: Dark carries `composedColor`, Light does not; the collection carries the two parent keys | import: `mode_extensions[Light]` and `mode_extensions[Dark]` hold exactly those keys, no more; collection `extensions` holds the parent keys; export: `Light.tokens.json` and `Dark.tokens.json` are each JSON-equal to the fixture (a key never leaks into the other mode's file); parent keys appear in both file roots |
-| `mode_extensions_follow_mode_edits` | on the document from the previous case: edit the `Light` value of `Brand/Fill`; then delete mode `Dark` | after the edit `Brand/Fill` Light has no `isOverride` or `aliasData` and `Brand/Paint` Light still has its `paint`; after the delete no `mode_extensions` entry for `Dark` remains |
+| `mode_extensions_follow_mode_edits` | on the document from the previous case: edit the `Light` value of `Brand/Fill` and of `Brand/Paint`; then delete mode `Dark` | after the edits `Brand/Fill` Light has no `aliasData` but still has `isOverride`, `Brand/Paint` Light still has `paint` and `paintAliasData`, and an edited `Brand/Tint` mode has no `composedColor`; after the delete no `mode_extensions` entry for `Dark` remains |
+| `native_merge_keys_extensions_by_existing_mode_id` | document with collection `Theme` whose mode `Light` has id `1:0`; import `Light.tokens.json` carrying `isOverride` | `mode_extensions["1:0"]` holds the key; no entry keyed `Light` |
 | `extensions_serde_default` | load a `.designos` written before this change; save a document with no extensions | loads with empty maps; the saved JSON has none of the three new keys and is byte-identical to today's for a document without extensions |
 | `non_native_exports_report_extensions` | same document exported as `dtcg`, REST and `.fig` | `dtcg` output has no `com.figma.` key; each export report lists the left-out extension keys with counts; nothing dropped without a report entry |
 | `figma_export_reimports_in_figma` | manual check: export, import into Figma, screenshot attached to the PR (owner-manual leg, flagged) |
