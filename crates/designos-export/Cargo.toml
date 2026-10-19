@@ -12,3 +12,6 @@ designos-doc.workspace = true
 designos-render.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 tiny-skia.workspace = true
+
+[dev-dependencies]
+designos-fig.workspace = true

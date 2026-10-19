@@ -1023,6 +1023,7 @@ version = "0.6.1"
 dependencies = [
  "base64",
  "designos-doc",
+ "designos-fig",
  "designos-render",
  "flate2",
  "image",
