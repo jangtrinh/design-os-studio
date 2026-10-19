@@ -126,10 +126,12 @@ No task dependency. `rest_import.rs` is a hot file with a one-at-a-time rule (RE
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: accept the editor behaviour change. Rotated children now move and resize with their frame, as in Figma, and children may become thinner than 1 px. Spike S1 on group-like parents runs first.
+
 - The measured Figma rules (2026-10-19) are the behaviour; one shared function in `designos-doc` called by import and editor; the editor's rotated skip is removed; the owner-manual check is flagged and never claimed. (Issue text.)
 - Fix at the shared layer (delivery law 4). Hot-file rule (`docs/releasing.md:21`).
 
 ## Open questions for the owner (recommended first)
 
-1. The editor changes behaviour: rotated children now move and resize with their frame, and children may become thinner than 1 px. Recommended: accept, since that is what Figma does and the issue asks for it.
+(Answered by the owner 2026-10-19, see §13.) 1. The editor changes behaviour: rotated children now move and resize with their frame, and children may become thinner than 1 px. Recommended: accept, since that is what Figma does and the issue asks for it.
 2. Group-like parents (rule 7). Recommended: run spike S1 on the kit files first and write the measured refit rule into this spec before the group-like code is written.

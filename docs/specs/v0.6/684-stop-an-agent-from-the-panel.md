@@ -110,10 +110,12 @@ After #589, #592 and #677. Part 4 merge order is in README-part4: #684 follows #
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: a stopped turn folds into one undo step. A finished turn keeps its single steps, and #677's "Revert agent turn" is the one-step undo for finished turns.
+
 - A Stop button in the panel header while a turn runs; Esc stops only from the chrome; the stop is Esc or Ctrl+C, retried once at 3 s; pending edits close as one undo step; the receipt records the stop; "Stop all" with parallel agents. (Issue text.)
 - Skip-permissions stays the default.
 
 ## Open questions for the owner (recommended first)
 
-1. "One undo step" versus #677's rule that Ctrl+Z undoes single agent steps. Recommended: a stopped turn folds into one step (the issue's acceptance test), and a finished turn keeps single steps; "Revert agent turn" is the one-step undo for finished turns.
+(Answered by the owner 2026-10-19, see §13.) 1. "One undo step" versus #677's rule that Ctrl+Z undoes single agent steps. Recommended: a stopped turn folds into one step (the issue's acceptance test), and a finished turn keeps single steps; "Revert agent turn" is the one-step undo for finished turns.
 2. The interrupt keys of Claude, Codex and Antigravity are not grounded. Recommended: ship the table with Grok grounded, and block the PR's "done" on one captured run per CLI.

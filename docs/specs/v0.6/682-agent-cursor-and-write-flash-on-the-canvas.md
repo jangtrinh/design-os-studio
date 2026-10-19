@@ -117,11 +117,13 @@ After #592 and #572 (part 1, E15-7 and RD-3). The `touched` field lands with whi
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: four agent colours, added as tokens `agent-1`…`agent-4`: amber, emerald, pink, sky. They avoid purple (Purple Ban), cyan (components) and orange (primary actions). A fifth concurrent agent reuses `agent-1` and is told apart by its label.
+
 - Default cursor size Small, labelled with the agent name (2026-10-19). The behaviour numbers in the issue are the owner's and are used verbatim.
 - Headless renders and exports never contain cursors or flashes; idle CPU returns to 0%.
 
 ## Open questions for the owner (recommended first)
 
-1. The four agent colours. Recommended: amber, emerald, pink and one more warm neutral, as tokens, so no agent looks like a component, a selection or a guide.
+(Answered by the owner 2026-10-19, see §13.) 1. The four agent colours. Recommended: amber, emerald, pink and one more warm neutral, as tokens, so no agent looks like a component, a selection or a guide.
 2. Where the size setting lives. Recommended: the Agents settings of #656, with the value stored beside the other panel settings.
 3. If the fade-in cannot be done without a per-frame recompile. Recommended: ship cursor and flash, replace the fade by the 1 px insert flash, and file the fade as a render task.
