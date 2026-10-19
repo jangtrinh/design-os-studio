@@ -240,6 +240,34 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         'title: "Boost resolution",',
         'title: concat !("Boost ", stringify!(resolution)),',
     ),
+    (
+        "32. synthesize_spec_from_prompt called from terminal.rs",
+        "Z15",
+        "terminal.rs",
+        "pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =",
+        "fn _fake_synth(p: &str) -> String { crate::cmdk::synthesize_spec_from_prompt(p) }\npub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =",
+    ),
+    (
+        "33. canned 'Executed via' transcript literal back in terminal.rs",
+        "Z15",
+        "terminal.rs",
+        "pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =",
+        'const _FAKE_EXEC: &str = "Status: Executed via claude CLI shell & streamed to Canvas";\npub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =',
+    ),
+    (
+        "34. synthesize_spec_from_prompt exported as pub fn in cmdk.rs",
+        "Z15",
+        "cmdk.rs",
+        "fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {",
+        "pub fn synthesize_spec_from_prompt(prompt: &str) -> NodeSpec {",
+    ),
+    (
+        "35. fake agents-composer-mic control re-introduced in terminal.rs",
+        "Z04",
+        "terminal.rs",
+        "pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =",
+        'const _FAKE_MIC: &str = "agents-composer-mic";\npub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =',
+    ),
 ]
 
 
