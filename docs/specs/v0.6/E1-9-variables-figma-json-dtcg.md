@@ -74,7 +74,20 @@ Format detection on import:
 
 ## 4. Data model / schema changes
 
-No document model change. `VariablesFormat` enum and `import_variables(doc, text, format, opts) ->
+One additive model change, needed so `figma-native` round-trips Figma fields the model has no slot for
+(8.6): `Variable.extensions` and `VariableCollection.extensions`, both
+`BTreeMap<String, serde_json::Value>` with `#[serde(default, skip_serializing_if =
+"BTreeMap::is_empty")]` (old files load unchanged; files without extensions save byte-identically).
+Keys are stored verbatim as Figma wrote them (`com.figma.*`):
+- variable: `com.figma.isOverride`, `com.figma.aliasData`, `com.figma.paint`, `com.figma.paintAliasData`,
+  `com.figma.composedColor`, and `com.figma.type` only for the kinds the model lacks (`easing`,
+  `duration`: an easing token imports as a `String` variable, a duration token as a `Number` variable
+  in ms, a solid PAINT token as a `Color` variable, each carrying its marker);
+- collection: `com.figma.parentVariableSetId`, `com.figma.parentVariableSetName`.
+
+The extensions are written by `figma-native` export and by `.designos` save. REST, `.fig` and `dtcg`
+exports do not carry them: each export report lists every extension key it left out (count and
+variable path), never silently. `VariablesFormat` enum and `import_variables(doc, text, format, opts) ->
 ImportReport`, `export_variables(doc, format) -> ExportBundle { files: Vec<(name, bytes)> }`.
 
 ## 5. Contracts
@@ -106,8 +119,10 @@ before UI code; desktop capture at 1440; responsive SKIPPED.
 4. Colour in a non-sRGB colour space (DTCG `display-p3`): converted to sRGB with clamping; reported.
 5. Same variable id in two imported files with different values per mode: merged by mode; conflicts in
    the same mode reported, first wins.
-6. Figma-native fields the model lacks: preserved in collection or variable extension storage if they
-   matter for the round trip, else reported. REA found these (§14):
+6. Figma-native fields the model has no first-class slot for: stored in `extensions` (§4) and written
+   back by `figma-native` export, so the export re-imports into Figma unchanged. Any other
+   `com.figma.*` key found on import is stored the same way (never dropped), and keys a target format
+   cannot carry are listed in that export's report. REA found these (§14):
    - `com.figma.isOverride` and the parent-collection ids (extended collections);
    - `com.figma.aliasData` (cross-collection alias target by id and name);
    - `com.figma.paint` and `com.figma.paintAliasData` (PAINT variables);
@@ -126,7 +141,9 @@ client files).
 
 | Case | Expected |
 |---|---|
-| `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model |
+| `figma_native_import_lossless` | REA-derived fixture → every variable, mode, alias, scope and code syntax equals the expected model, and every `com.figma.*` extension listed in §4 is present on the right variable or collection |
+| `figma_native_round_trip_json_equal` | fixture with a PAINT, an EASING, a TIMING, a composed colour, a cross-collection alias with `aliasData`, an `isOverride` token and an extended collection → import then `figma-native` export | every exported `<mode>.tokens.json` is JSON-equal to the fixture file |
+| `non_native_exports_report_extensions` | same document exported as `dtcg`, REST and `.fig` | `dtcg` output has no `com.figma.` key; each export report lists the left-out extension keys with counts; nothing dropped without a report entry |
 | `figma_export_reimports_in_figma` | manual check: export, import into Figma, screenshot attached to the PR (owner-manual leg, flagged) |
 | `dtcg_export_validates` | export of the tokens fixture → validator reports 0 errors; `$type`, colour objects and aliases correct |
 | `dtcg_round_trip_lossless` | export DTCG (manifest + per-mode files) → import into an empty doc → variables equal (ids via extensions) |

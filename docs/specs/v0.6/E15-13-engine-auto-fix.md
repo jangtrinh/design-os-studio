@@ -10,9 +10,10 @@
 
 ## 1. Summary and user story
 
-As an agent, the engine applies the fixes that have exactly one correct answer right after my write
-(a fill sizing with no layout parent, an exact token match, a 15 px gap on a 16 px scale) and tells me
-precisely what it changed, so I do not spend a round trip on them. As a user, I can switch this to
+As an agent, the engine applies the fixes that have exactly one correct answer and leave the rendered
+result unchanged right after my write (a fill sizing with no layout parent, an exact token match) and
+tells me precisely what it changed, so I do not spend a round trip on them. Fixes that change what the
+user sees (a 15 px gap snapped to 16, a missing text fill) are listed as suggestions with a Fix action. As a user, I can switch this to
 report-only or off, and undo it separately from the agent's work.
 
 ## 2. Current state (FACT)
@@ -25,27 +26,27 @@ report-only or off, and undo it separately from the agent's work.
   layers. Nothing calls it outside its unit test.
 - Check designs fixes are user-initiated, re-validated against the current state, and applied as one
   `Tx` (`crates/designos-app/src/check_designs/fix.rs:1-50`, re-validation `fix.rs:52-82`).
-- E15-12 computes findings for the touched scope of every mutating call; E15-11 marks off-scale and
-  token findings `safe` when unique.
+- E15-12 computes findings for the touched scope of every mutating call; E15-11 marks unique exact
+  token matches `safe` (off-scale snaps change spacing, so they are never `safe`).
 
 ## 3. Behaviour rules
 
 ### 3.1 Tiers
 
-Safe tier (applied automatically when the mode is `on`):
+Safe tier (applied automatically when the mode is `on`). Owner rule: a fix is automatic only when it
+leaves the rendered result unchanged (see the owner ruling at the end of this file):
 
 | Rule | Fix | Safety condition |
 |---|---|---|
 | `sizing-conflict` (fill/hug without an auto-layout parent) | set that axis's sizing to Fixed at the current size | parent has no auto layout; no size change results |
 | `sizing-conflict` (fill on the primary axis of a hugging parent) | set the child's axis to Fixed at its current resolved size | resolved size unchanged after relayout (checked) |
-| `text-missing-fill` | add one solid fill, bound to the same variable (or equal to the same colour) as every other text fill in the nearest frame | all other visible text fills in that frame share one value; else suggest-tier |
-| `absolute-in-auto-layout` | clear `absolute`, insert at the flow index whose neighbours' primary-axis centres bracket the child's centre | the child's primary-axis interval overlaps no flow sibling, and the bracket is unique |
-| `hardcoded-value` | bind to the variable or link the style | `Match::One`; value unchanged by the bind |
-| `off-scale` | set to (or bind to) the nearest step | E15-11 `safe: true` (unique step, distance ≤ max(1, 10%)) |
+| `hardcoded-value` | bind to the variable or link the style | `Match::One`; the variable is constant across modes (or the style is a whole-value match), so the resolved value is unchanged in every mode |
 
-Suggest tier (never applied automatically, listed in the report as `suggested`): `contrast`,
-ambiguous token matches, off-scale beyond the distance limit, `text-truncated`, `small-touch-target`,
-`tiny-text`, `default-layer-name`, and any fix that changes a visible colour.
+Suggest tier (never applied automatically, listed in the report as `suggested`, each with a Fix action
+in the issues block and the panel): `text-missing-fill`, `absolute-in-auto-layout`, `off-scale` (every
+snap, unique or not, changes a gap, padding, radius or font size), `contrast`, ambiguous token matches,
+`text-truncated`, `small-touch-target`, `tiny-text`, `default-layer-name`, and any fix that changes a
+visible colour or any visible size, position or order.
 Never fixed by the engine: `empty-container` deletion and every other destructive change.
 
 ### 3.2 Common safety conditions (re-checked right before applying each fix)
@@ -80,7 +81,9 @@ Never fixed by the engine: `empty-container` deletion and every other destructiv
 specific set value wins per field: session (`designos_configure_session`, E15-12) > file
 (`Document.auto_fix`) > user (`settings.json` key `auto_fix` in the library root, the existing app
 settings file). Default: `mode = on`, every safe-tier rule on. A per-rule `false` moves that rule's
-fixes to `suggested`.
+fixes to `suggested`. `rules` accepts only safe-tier rule ids (`sizing-conflict`, `hardcoded-value`);
+a suggest-tier id is rejected with `UNKNOWN_FIELD` naming the accepted ids, so no setting can switch a
+suggest-tier rule to automatic.
 
 ## 4. Data model / schema changes
 
@@ -97,9 +100,10 @@ Reply key on mutating tools (next to the issues block):
 {"auto_fix":{"mode":"on","undo_label":"Auto-fix","passes":1,
   "applied":[{"node_id":91,"node_name":"Badge","property":"layoutSizingHorizontal",
               "before":"FILL","after":"FIXED","rule":"sizing-conflict"},
-             {"node_id":93,"node_name":"Card","property":"itemSpacing","before":15,"after":"var:Spacing/4","rule":"off-scale"}],
+             {"node_id":93,"node_name":"Card","property":"fills/0","before":"#0D99FF","after":"var:Color/Primary","rule":"hardcoded-value"}],
   "would_apply":[],
-  "suggested":[{"node_id":95,"node_name":"Caption","rule":"contrast","fix":{"kind":"bind","property":"fills/0","to":"var:Color/Text strong"}}],
+  "suggested":[{"node_id":95,"node_name":"Caption","rule":"contrast","fix":{"kind":"bind","property":"fills/0","to":"var:Color/Text strong"}},
+               {"node_id":97,"node_name":"List","rule":"off-scale","fix":{"kind":"bind","property":"itemSpacing","from":15,"to":"var:Spacing/4"}}],
   "error":null}}
 ```
 
@@ -119,10 +123,11 @@ Studio surfaces are E15-14. Here: the Studio History panel shows `Auto-fix` as i
 ## 8. Edge cases
 
 1. Fix A makes fix B stale (both on the same node): fixes are applied in rule order
-   (sizing → absolute → binds → snaps); B re-validates and is skipped if stale, then picked up by
+   (sizing → binds); B re-validates and is skipped if stale, then picked up by
    pass 2 if still valid.
-2. A safe fix would create a new error (snapping a gap makes text truncate): pass 2's lint reports it;
-   the engine never reverts a safe fix automatically; the agent sees both in the reply.
+2. A safe fix would create a new error (binding to a variable whose value later differs per mode, or a
+   sizing change that exposes a clipped child): pass 2's lint reports it; the engine never reverts a
+   safe fix automatically; the agent sees both in the reply.
 3. User preference `off` but session sets `on`: session wins for that agent session only.
 4. Live editor rejects the auto-fix patch line (publish failure): the auto-fix entry is rolled back,
    the agent's write stays; `auto_fix.error` names the cause.
@@ -145,8 +150,12 @@ Seams: designos-doc unit tests for `plan_fixes`; MCP fixture tests for execution
 | `report_only_lists_and_changes_nothing` | same with mode report_only | `would_apply` equals the `applied` list of the previous case; document equal to the no-fix state |
 | `undo_once_removes_only_fixes` | case 1 then `designos_undo` | sizing back to FILL, child still exists; second undo removes the batch |
 | `contrast_never_auto_applied` | text failing contrast with a passing variable | `contrast` only in `suggested`; fill unchanged |
+| `text_missing_fill_is_suggestion_only` | text with no visible fill, written by batch | `text-missing-fill` only in `suggested` with its fix; `applied` empty; document equal to the no-fix state |
+| `absolute_in_auto_layout_is_suggestion_only` | child with `absolute: true` inside an auto-layout parent | `absolute-in-auto-layout` only in `suggested`; `absolute` and sibling order unchanged |
+| `off_scale_is_suggestion_only` | auto layout gap 15 on the default 4 px scale | `off-scale` only in `suggested` (fix to 16 or the bound step); `itemSpacing` still 15 |
+| `bind_unchanged_value_applied` | fill equal to exactly one mode-constant variable | `applied` has `hardcoded-value`; resolved fill unchanged in every mode |
 | `binding_never_overwritten` | gap bound to a variable whose value is off-scale | no fix |
-| `instance_mirror_skipped` | off-scale gap inside an instance's mirrored child | no fix; finding still reported |
+| `instance_mirror_skipped` | exact-match hard-coded fill inside an instance's mirrored child | no fix; finding still reported |
 | `two_pass_limit` | fixture where pass 1 enables another safe fix | `passes: 2`, no third pass |
 
 Fail-before: `fill_child_without_layout_parent_fixed` fails today (no `auto_fix` key).
@@ -170,3 +179,8 @@ Before E15-14.
 
 ## Owner ruling (2026-10-18): tier change
 "Missing text fill" and "absolute child inside auto layout" are moved from the automatic tier to the **suggest tier**. They appear in the issues block and the panel with a Fix action, and they are never applied automatically. The automatic tier is limited to fixes that leave the rendered result unchanged. The tests must assert that these two findings arrive as suggestions with no document change.
+
+Consequence for off-scale (applied 2026-10-19 after the independent review): E15-11's snap of a gap, padding, radius
+or font size changes spacing, so `off-scale` is suggest-only; its `safe` flag is always `false`. The
+safe tier is therefore `sizing-conflict` and `hardcoded-value` only. The tests above assert the
+suggestion and an unchanged document for each of the three.

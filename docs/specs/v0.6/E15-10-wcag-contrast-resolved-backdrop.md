@@ -159,7 +159,9 @@ Reference values are computed in the test from the formulas in 3.1, not from the
 
 ## 12. Dependencies and build order
 
-After E15-9 (registry, env trait) and #158 (thresholds and level setting). Parallel with E15-11.
+After E15-9 (registry, env trait) and #158 (thresholds and level setting). Parallel with E15-11. The
+PR that registers `contrast` also appends it to E15-9's built-in `agent` preset and extends
+`presets_name_only_registered_rules`.
 
 ## 13. Owner rulings
 

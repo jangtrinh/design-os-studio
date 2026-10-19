@@ -23,7 +23,8 @@ for a different payload, I get a named error and nothing changes.
 - Studio sessions have a per-file session directory (`LiveSessionBridge.session_dir`,
   `crates/designos-mcp/src/server.rs:19-32`, `for_session_dir` `server.rs:80-93`) and a document epoch
   counter announced on every document switch (`server.rs:28-29`, `publish_live_doc_sync`
-  `server.rs:293-317`).
+  `server.rs:293-317`). That counter does not move on `designos_undo`/`designos_redo`
+  (`engine.rs:379-388`), so it cannot tell a retry that the write was undone.
 - serde_json is used without `preserve_order` (`Cargo.toml` workspace `serde_json = "1"`), so
   `serde_json::Map` is ordered by key and serializes canonically.
 
@@ -36,11 +37,15 @@ for a different payload, I get a named error and nothing changes.
    `idempotency_key` removed, prefixed by the tool name. Canonical = `serde_json::to_vec` of the
    key-ordered `Value`.
 3. Lookup happens before any validation or dispatch:
-   - key absent from the ledger → run the call; on success store `{key, tool, hash, doc_epoch,
-     reply, created_ms}`; errors are not stored (a failed call is retried for real);
-   - key present, same tool and hash, same `doc_epoch` → return the stored reply unchanged, run
+   - key absent from the ledger → run the call; on success store `{key, seq, tool, hash, reply,
+     created_ms}` (`seq` = next ledger sequence number); errors are not stored (a failed call is
+     retried for real);
+   - key present, same tool and hash, entry not stale (below) → return the stored reply unchanged, run
      nothing, publish nothing; the result's `_meta` carries `{"designos/idempotent_replay": true}`
      (outside `structuredContent`, so the reply body is identical);
+   - key present, same tool and hash, entry stale → `IDEMPOTENCY_KEY_STALE`, nothing runs,
+     `safe_to_retry: true`; the stored reply is never returned, because it may name nodes that no
+     longer exist;
    - key present with a different tool or hash → `IDEMPOTENCY_KEY_REUSED`, nothing runs,
      `safe_to_retry: true`.
 4. Lifetime: the ledger belongs to the document session.
@@ -54,15 +59,21 @@ for a different payload, I get a named error and nothing changes.
 5. Capacity: at most 5,000 entries or 16 MiB of stored replies; beyond that the oldest entries are
    dropped. A dropped key behaves as unknown. The cap and the drop count are reported by
    `designos_get_app_state` (E15-16).
-6. Undo does not clear entries: a retry with the same key after the user undid the batch returns the
-   stored reply and does not re-apply. Documented in the tool description ("a key names one logical
-   write").
+6. Undo and redo make entries stale, they do not clear them: a successful `designos_undo` or
+   `designos_redo` sets `stale_through = <highest seq in the ledger>` (persisted as one
+   `{"stale_through":N}` line). A retry with a key whose `seq ≤ stale_through` gets
+   `IDEMPOTENCY_KEY_STALE` and is not re-applied (the undo was deliberate; re-applying would bring back
+   what the user removed). The agent sends the write again with a new key if it still wants it.
+   Entries stored after the undo stay valid. A canvas reload (item 4) already clears the ledger, and
+   the Studio-side undo reaches the session as that reload. Documented in the tool description ("a key
+   names one logical write").
 
 ## 4. Data model / schema changes
 
-- `struct LedgerEntry { key: String, tool: String, hash: u64, doc_epoch: u64, reply: Value,
+- `struct LedgerEntry { key: String, seq: u64, tool: String, hash: u64, reply: Value,
   created_ms: u64 }` (serde, one JSON line each).
-- `Session.ledger: Ledger` with `lookup`, `store`, `clear`, backed by an optional file path.
+- `Session.ledger: Ledger { entries, next_seq, stale_through }` with `lookup`, `store`, `mark_stale`,
+  `clear`, backed by an optional file path.
 - Input schemas of mutating tools add the `idempotency_key` property (declared once for the batch in
   E15-4).
 
@@ -102,8 +113,10 @@ None.
    the first call changed state.
 2. Key reused after a document switch: the ledger was cleared, so it runs as new.
 3. Corrupt ledger line on load (partial write): skipped and counted; never fails startup.
-4. Same key used by two different agents (RD-3): the hash includes the tool name and payload only, so
-   identical payloads from two agents dedupe; RD-3 prefixes keys with the agent run id to avoid this.
+4. Same key used by two different agents (RD-3): each Studio agent has its own session directory
+   (RD-3 §2), so ledgers are separate and keys never collide across agents. A caller that shares one
+   session directory between agents must namespace its own keys; the hash includes only the tool name
+   and payload.
 5. Dry-run call with a key: dry runs are not stored (no state change to protect); the key is checked
    for mismatch only.
 6. Very large reply (diff images, E15-8): image content is not stored; the stored reply keeps the image
@@ -126,6 +139,9 @@ Seam: `cargo test -p designos-mcp`.
 | `ledger_survives_reconnect` | session dir in temp; call, drop `Session`, new `Session::with_session_dir`, resend | no new nodes; stored reply returned |
 | `ledger_cleared_on_document_switch` | call, `designos_new_document`, resend | runs again |
 | `errors_not_stored` | first call invalid, fix payload, same key | second call runs and is stored |
+| `undo_then_same_key_is_refused_not_replayed` | batch with key `k1` creates a node; `designos_undo`; resend `k1` | `IDEMPOTENCY_KEY_STALE`; the node stays absent; revision and undo depth unchanged |
+| `key_after_undo_is_valid` | as above, then a new call with key `k2`, resend `k2` | replayed normally |
+| `stale_mark_survives_reconnect` | session dir; call `k1`, undo, drop `Session`, new `Session::with_session_dir`, resend `k1` | `IDEMPOTENCY_KEY_STALE` |
 
 Fail-before: all fail today (`idempotency_key` is an unknown field).
 
@@ -142,4 +158,4 @@ After E15-4 and E15-5. Independent of E15-7/8.
 
 - All AI through the user's agent CLI: the retry behaviour targets the agent CLIs that run in Studio's
   terminal.
-- Parallel agents hard-locked to frames (RD-3): keys are namespaced per agent run (8.4).
+- Parallel agents hard-locked to frames (RD-3): ledgers are per session directory, one per agent (8.4).

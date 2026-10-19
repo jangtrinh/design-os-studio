@@ -80,8 +80,9 @@ same fields as objects. `with_problems: true` computes problems for every return
 `validate_document`'s layer limit rises from 100,000 to 1,200,000 (covers the full benchmark), because
 reads are now bounded. The validation pass itself is O(n · depth) with depth ≤ 256 and runs once per
 open. The 64 MiB input-file limit (`server.rs:395-397`) rises to 512 MiB for the same reason; the size
-of the synthetic large fixture file is recorded in the PR so the limit is checked against real data. Writes on such documents keep E15-4's single trial clone; its measured time on the large fixture
-is recorded in E15-4's PR.
+of the synthetic large fixture file is recorded in the PR so the limit is checked against real data. Writes on such documents keep E15-4's single whole-document trial clone; E15-4's
+`trial_clone_budget_on_large_synthetic` test gates its time and memory on 112,474 and 1,200,000
+synthetic nodes.
 
 ## 4. Data model / schema changes
 

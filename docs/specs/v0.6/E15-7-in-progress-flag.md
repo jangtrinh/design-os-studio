@@ -122,7 +122,7 @@ dead). All `safe_to_retry: true`.
 | Format | Mapping |
 |---|---|
 | `.designos` | `in_progress` map (above) |
-| JSON scene format (#570) | export `placeholder: true` on the flagged node; import `placeholder: true` → entry with `run_id: None`, `since_ms` = import time |
+| JSON scene format (#570) | not exported. `placeholder` is an existing field of that format with its own meaning (component placeholder), and #570 exports only fields the current schema defines, so the flag is never written to it and never inferred from `placeholder`. The export report lists the flagged roots left out (count and ids); import ignores `placeholder` for this purpose |
 | `.fig` | `plugin_data["designos:in_progress"]` = compact JSON of the entry, so nothing is dropped on a Figma round trip; import restores it |
 
 ## 7. UI
@@ -162,7 +162,7 @@ Seams: designos-doc unit tests, a shell test with a stub agent command, and a sc
 |---|---|---|
 | `batch_flag_and_clear_on_run_end` | stub agent sets flag via batch; write `{"state":"done"}` to agent-status.json | entry present, badge rect computed; after status change entry removed |
 | `killed_agent_flag_goes_stale` | flag with `stale_after_s: 60`, kill PTY child, advance injected clock 61 s | flag absent from readers; removed at next save |
-| `scene_format_round_trip` | export flagged node, re-import | `placeholder: true` written; entry restored with `run_id: None` |
+| `scene_format_does_not_carry_flag` | export a flagged root to the scene format, re-import; also import a node with `placeholder: true` | no `placeholder` written from the flag; export report names the omitted flag; re-import has no entry; the imported `placeholder: true` node gets no `in_progress` entry |
 | `fig_round_trip_keeps_flag` | export_fig then import | plugin data restores the entry |
 | `undo_does_not_touch_flag` | flag, then undo previous edit | flag unchanged |
 | `not_root_refused` | flag a text inside a frame | `IN_PROGRESS_TARGET_NOT_ROOT` with root id |
@@ -178,8 +178,8 @@ Clock is injected (`fn now_ms()` trait) so tests do not sleep.
 
 ## 12. Dependencies and build order
 
-After E15-4 (batch op) and #570 (scene format `placeholder`). The `.designos` and `.fig` parts do not
-wait for #570; only the scene-format test is gated on it.
+After E15-4 (batch op). The `.designos` and `.fig` parts do not wait for #570; only the
+`scene_format_does_not_carry_flag` test needs the #570 scene exporter.
 
 ## 13. Owner rulings
 

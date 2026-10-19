@@ -86,7 +86,7 @@ section heading) with two parts:
    (P3 pointer floor). A count badge pill next to the header (`Badge/StatusCount`, D85), never
    "Auto-fix (3)". Empty state: `No automatic fixes yet` (real empty state, P6).
 2. **Settings** disclosure: a 28 px segmented control `On | Report only | Off` for `This file`, a second
-   for `My default`, and a list of the safe-tier rules (E15-13 3.1) with 24 px toggles, grouped under
+   for `My default`, and a list of exactly the safe-tier rules (E15-13 3.1: `sizing-conflict`, `hardcoded-value`) with 24 px toggles; suggest-tier rules have no toggle and cannot be made automatic, grouped under
    the same two scopes. Colours: Brand Orange for the active segment and focus ring, Zinc surfaces and
    1 px `#27272A` borders (P2, P4). No purple.
 

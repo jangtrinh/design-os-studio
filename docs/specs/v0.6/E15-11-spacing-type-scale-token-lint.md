@@ -5,7 +5,7 @@
 | Epic / pack | E15 / v0.6 AI design |
 | Size / priority | M / P0 |
 | Depends on | E15-9, #154 (E3-10, number variables in the matcher), #155 (E3-11, library suggestions) |
-| Unblocks | E15-13 (safe binds and snaps), E15-3 acceptance 4 |
+| Unblocks | E15-13 (safe exact binds; snaps are suggestions), E15-3 acceptance 4 |
 | Touches | new `crates/designos-doc/src/lint/rules/scale.rs`, new `crates/designos-doc/src/lint/token_match.rs` (the Check designs matcher moved here as a shared library function), `crates/designos-app/src/check_designs/hardcoded.rs` (becomes a caller) |
 
 ## 1. Summary and user story
@@ -55,13 +55,14 @@ The chosen source is reported in the finding (`scale_source: "archetype" | "vari
   `suggested_fix: {kind:"set", property, from, to}` when unique. When the nearest step is itself a
   variable value with a unique variable, the fix is a bind (`to: "var:Spacing/4"`) instead of a raw
   set.
-- Safe-tier eligibility for E15-13 (`safe: true`): unique nearest step and
-  `|v − nearest| ≤ max(1, 0.1 × nearest)`. Larger gaps look intentional and stay suggest-tier.
+- Off-scale findings are never `safe` (`safe: false`): snapping to the nearest step changes a gap,
+  padding, radius or font size, so E15-13 keeps `off-scale` in the suggest tier (owner rule: automatic
+  fixes leave the rendered result unchanged). The unique `suggested_fix` above is offered as a Fix
+  action only.
 - Legacy ids `inconsistent-spacing`, `non-scale-font-size`, `inconsistent-radius` become aliases.
 
-Example: scale `[4, 8, 12, 16, 24]`, gap 15 → off, nearest 16, distance 1 ≤ 1.6 → safe; gap 14 →
-ties 12 and 16 → no fix; gap 22 → nearest 24, distance 2 ≤ 2.4 → safe; gap 30 → nearest 24,
-distance 6 > 2.4 → suggest only.
+Example: scale `[4, 8, 12, 16, 24]`, gap 15 → off, nearest 16, suggested fix to 16; gap 14 → ties 12
+and 16 → no fix; gap 30 → nearest 24, suggested fix to 24. None is applied automatically.
 
 ### 3.3 Hard-coded value rule (`hardcoded-value`)
 
@@ -73,6 +74,9 @@ distance 6 > 2.4 → suggest only.
 - `One` → finding with `suggested_fix: {kind:"bind", property, to:"var:<collection>/<name>"}` (or
   `"style:<name>"`), library origin named when it comes from a library (the fix imports and binds in
   one step, as #155).
+- A `One` finding is `safe: true` (E15-13 safe tier) only when binding leaves the rendered result
+  unchanged in every mode: the variable is constant across modes, or the style matches on the whole
+  value list. Otherwise `safe: false`.
 - `Ambiguous` → finding listing the candidates, no fix (R2.7).
 - Legacy `hardcoded-color` (any unbound solid) remains only in the `strict` preset.
 
@@ -95,7 +99,7 @@ Findings appear in `designos_lint` (E15-9), the issues block (E15-12) and Check 
 
 ```json
 {"rule":"off-scale","severity":"warning","node_id":77,"property":"itemSpacing","value":15,
- "nearest":16,"scale_source":"variables","safe":true,
+ "nearest":16,"scale_source":"variables","safe":false,
  "suggested_fix":{"kind":"bind","property":"itemSpacing","from":15,"to":"var:Spacing/4"},
  "message":"Gap 15 is off the spacing scale; nearest step 16 (Spacing/4)."}
 {"rule":"hardcoded-value","severity":"warning","node_id":78,"property":"fills/0","value":"#0D99FF",
@@ -136,7 +140,7 @@ Seam: designos-doc unit tests.
 
 | Case | Fixture | Expected |
 |---|---|---|
-| `gap_15_on_4_step_scale_suggests_16` | no variables (default scale), auto layout gap 15 | `off-scale`, nearest 16, `safe:true` |
+| `gap_15_on_4_step_scale_suggests_16` | no variables (default scale), auto layout gap 15 | `off-scale`, nearest 16, suggested fix present, `safe:false` |
 | `variables_define_the_scale` | GAP variables 4, 8, 12, 16, 24; gap 20 | off-scale, nearest tie 16/24 → no fix; `scale_source:"variables"` |
 | `bound_gap_never_off_scale` | gap bound to `Spacing/odd` = 15 | no finding |
 | `colour_equal_to_primary_gets_bind` | fill #0D99FF; one variable `Color/Primary` | `hardcoded-value`, fix `var:Color/Primary` |
@@ -155,11 +159,13 @@ it (measured and recorded).
 ## 12. Dependencies and build order
 
 After E15-9 and after #154/#155 have landed their matcher extensions (this task moves the extended
-matcher). Parallel with E15-10.
+matcher). Parallel with E15-10. The PR that registers `hardcoded-value` and `off-scale` also appends
+them to E15-9's built-in `agent` preset and extends `presets_name_only_registered_rules`.
 
 ## 13. Owner rulings
 
 - R2.7 (D-E3-3): exact value matches only; ambiguous matches are reported without a fix.
 - #154 amendment (2026-10-18): the matcher is a shared library function; E15-11 and E15-13 call it
   instead of re-implementing it.
-- Auto-fix (2026-10-18): only the unique, small off-scale snaps and unique exact binds are safe-tier.
+- Auto-fix (2026-10-18, tiers revised 2026-10-18 by the owner): only unique exact binds are safe-tier;
+  off-scale snaps change spacing and are suggest-only (E15-13).

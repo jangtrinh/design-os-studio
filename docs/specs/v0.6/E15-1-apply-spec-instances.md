@@ -254,8 +254,9 @@ Fail-before: `places_linked_variant` fails on main with `Unsupported spec node k
 - No full-document walk per instance. On the large fixture (112,474 scene nodes / 723,136 records;
   CI uses the synthetic generator, see README) a 50-instance spec applies in under 150 ms
   release on the reference machine; recorded in the PR.
-- The trial clone at `engine.rs:262` is a known O(document) cost; E15-4 owns replacing it with a
-  scoped trial. This task adds no second clone.
+- The trial clone at `engine.rs:262` is a known O(document) cost. E15-4 keeps one whole-document
+  trial clone per batch and owns its measured budget (E15-4 §11, test `trial_clone_budget_on_large_synthetic`);
+  a scoped trial is not part of v0.6. This task adds no second clone.
 
 ## 12. Dependencies and build order
 

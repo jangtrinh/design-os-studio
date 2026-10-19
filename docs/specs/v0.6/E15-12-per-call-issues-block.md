@@ -61,11 +61,13 @@ session's preset (default `agent`, E15-9 3.3) and a `RenderLintEnv` created on t
 ```json
 {"rule":"text-truncated","severity":"error","node_id":88,"node_name":"Plan title",
  "path":"Pricing/Card 2/Plan title","message":"Text needs 2 lines but shows 1.",
- "fix":{"kind":"set","property":"textAutoResize","to":"HEIGHT"},"auto_fixable":true}
+ "fix":{"kind":"set","property":"textAutoResize","to":"HEIGHT"},"auto_fixable":false}
 ```
 
 `path` is the layer-name path from the touched root's frame; `fix` is E15-9's `suggested_fix` without
-`from`; `auto_fixable` reflects the E15-13 safe tier (false until E15-13 lands).
+`from`; `auto_fixable` is `true` only for the E15-13 safe tier (`sizing-conflict`, `hardcoded-value`
+exact binds) and is `false` for everything else, including `text-truncated` (a visible resize) and
+until E15-13 lands.
 
 ### 3.5 Session options
 

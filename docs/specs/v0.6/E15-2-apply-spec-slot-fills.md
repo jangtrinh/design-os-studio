@@ -154,7 +154,8 @@ under 10 ms release. No document-wide walk.
 ## 12. Dependencies and build order
 
 After E15-1 (shares `spec_instance.rs`) and #150 (recommended components). Can be built in parallel
-with E15-3 if E15-3 does not touch `spec_instance.rs`.
+with E15-3 if E15-3 does not touch `spec_instance.rs`. The PR that registers `slot-non-recommended`
+also appends it to E15-9's built-in `agent` preset and extends `presets_name_only_registered_rules`.
 
 ## 13. Owner rulings
 

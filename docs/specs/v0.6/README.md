@@ -166,7 +166,7 @@ or split into new modules first).
 
 ## Owner rulings that apply across the pack
 
-- Auto-fix applies safe mechanical fixes with a diff report and is configurable (on, report-only, off).
+- Auto-fix applies safe mechanical fixes that leave the rendered result unchanged, with a diff report, and is configurable (on, report-only, off).
 - All AI goes through the user's agent CLI; no bundled model (R4.13).
 - Parallel agents are hard-locked to their frames (RD-3).
 - The eval never uses client files.
@@ -175,6 +175,6 @@ or split into new modules first).
 ## Owner answers (2026-10-18)
 - **Q1, branch storage:** branches live **in the library next to the file**: `FileEntry.branches` plus `branches/<file-id>/`. The switcher shows them inside the file. They are not embedded in the `.designos` file. The T10.1–T10.3 specs stand as written.
 - **Q2, MCP limits:** raise them to **1,200,000 layers** (`validate_document`) and **512 MiB** (imports). The other safety limits, such as deadlines and memory, stay. E15-17 stands as written.
-- **Q6, auto-fix tiers:** "missing text fill" and "absolute child inside auto layout" visibly change the design, so they move to the **suggest tier**: reported with a Fix action, never auto-applied. Automatic fixes are only those that leave the rendered result unchanged. See the E15-13 note below.
+- **Q6, auto-fix tiers:** "missing text fill" and "absolute child inside auto layout" visibly change the design, so they move to the **suggest tier**: reported with a Fix action, never auto-applied. Automatic fixes are only those that leave the rendered result unchanged, so `off-scale` snaps (they change spacing) are suggest-only too, and the safe tier is `sizing-conflict` and exact `hardcoded-value` binds. See the E15-13 note at the end of that spec.
 - **Q3, coordinator:** the E15-7 task text is corrected; critique is E15-34, not E15-23.
 - **Q5, coordinator:** `TOPIC_NOT_AVAILABLE` is accepted until part 2 (E15-18 and E15-21) lands in the same pack.

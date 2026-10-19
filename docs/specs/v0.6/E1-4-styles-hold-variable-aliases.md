@@ -36,8 +36,9 @@ variable `Color/Primary`, a text style whose size is `Type/Body`, an effect styl
 
 1. `StyleMeta.bindings: BTreeMap<String, String>`: property key → variable id. Keys:
    - Fill styles: `fills/<i>` (colour) and `fills/<i>/opacity` (number);
-   - Text styles: `fontSize`, `lineHeight`, `letterSpacing`, `paragraphSpacing`, `fontWeight` (number),
-     `fontFamily`, `fontStyle` (string);
+   - Text styles: `fontSize`, `lineHeight`, `letterSpacing`, `paragraphSpacing`, `paragraphIndent`,
+     `fontWeight` (number), `fontFamily`, `fontStyle` (string). `fontWeight` and `fontStyle` are two
+     keys that pack into one kiwi `FONT_STYLE` entry (`asFloat` / `asString`, section 6);
    - Effect styles: `effects/<i>/color`, `effects/<i>/radius`, `effects/<i>/spread`,
      `effects/<i>/offsetX`, `effects/<i>/offsetY`.
    Kind checks reuse `property_kind` semantics (`variables_apply.rs:21-32`) extended with the new keys;
@@ -115,6 +116,7 @@ Seams: designos-doc mode-switch test and `.fig` round trip.
 | `fig_style_colorvar_round_trips` | export_fig then import → `StyleMeta.bindings["fills/0"]` equals the variable (by key) |
 | `check_designs_counts_bound` | linked rect produces no hard-coded finding for `fills/0` |
 | `old_file_byte_identical` | load and save a file without bindings → identical bytes |
+| `text_style_paragraph_indent_and_weight_round_trip` | text style with `paragraphIndent` bound to a number variable and `fontWeight` bound to a number variable and `fontStyle` to a string variable | `.fig` writes a `PARAGRAPH_INDENT` entry and one `FONT_STYLE` entry carrying `asFloat` and `asString`; re-import restores all three bindings; REST import of `paragraphIndent`, `fontWeight`, `fontStyle` `boundVariables` yields the same keys; nothing is dropped |
 | `text_style_size_binding` | text style `fontSize` bound → linked text resolves size per mode, and the `.fig` round trip writes one `variableConsumptionMap` entry `{variableField: FONT_SIZE, variableData: ALIAS}` on the style node and reads it back |
 | `effect_style_shadow_vars_round_trip` | effect style shadow with `color`, `radius`, `spread`, `offsetX`, `offsetY` bound → `.fig` writes `colorVar`/`radiusVar`/`spreadVar`/`xVar`/`yVar` and re-imports the same five bindings |
 
@@ -168,6 +170,6 @@ Method. Read-only. Sources: the kiwi schema compiled into Figma's cached editor 
 7. FACT. REST (`figma/rest-api-spec` openapi.yaml 0.45.0) has these `boundVariables` keys. `SolidPaint`: `color`. `ColorStop`: `color`. `TypeStyle`: `fontFamily, fontSize, fontStyle, fontWeight, letterSpacing, lineHeight, paragraphSpacing, paragraphIndent`. `BaseShadowEffect`: `radius, spread, color, offsetX, offsetY`. `BaseBlurEffect`: `radius`. The `Style` metadata schema has `key, name, description, remote, styleType` and no values. `VariableAlias = {type: "VARIABLE_ALIAS", id}`.
 8. FACT. Plugin API (`@figma/plugin-typings` 1.142.0) has these binding types. `TextStyle.boundVariables: {[VariableBindableTextField]?: VariableAlias}`, with the same eight text fields as REST. `PaintStyle.boundVariables: {paints?: VariableAlias[]}` and `EffectStyle.boundVariables: {effects?: VariableAlias[]}` are read-only. Per-paint and per-effect bindings: `VariableBindablePaintField = 'color'`, `VariableBindableColorStopField = 'color'`, `VariableBindableEffectField = 'color'|'radius'|'spread'|'offsetX'|'offsetY'`.
 9. Gaps against rule 1, for the spec owner. Nothing was changed here.
-   - Figma also binds `paragraphIndent` (rule 1 omits it).
+   - Figma also binds `paragraphIndent`. RESOLVED in the 2026-10-19 review: rule 1 now lists it, with a round-trip test.
    - Figma has no separate `fontWeight` numeric field in kiwi (see 5).
    - `fills/<i>/opacity` exists in kiwi (`opacityVar`) but is exposed by neither REST nor the Plugin API.

@@ -197,14 +197,27 @@ Seam: `cargo test -p designos-mcp` (engine-level tests in `tools/batch.rs`, plus
 | `refs_to_earlier_ops` | op 1 uses `@hero/Title` | update applied to the created text |
 | `unknown_ref_rejected_before_run` | `@nope` | `UNKNOWN_REF`, nothing ran |
 | `one_patch_line_with_label` | live session dir in a temp folder | exactly one new `doc-patch.jsonl` line with `"label":"Agent: ..."` |
+| `trial_clone_budget_on_large_synthetic` | synthetic documents of 100,000, 112,474 and 1,200,000 nodes; one 200-op batch each | clone plus ops within the §11 budgets; times and memory growth recorded; the document is unchanged after a dry run |
 
 Fail-before: every case fails today (`unknown tool: designos_apply_batch`, `engine.rs:388`).
 
 ## 11. Performance budgets
 
-- One trial clone per batch, never per op. Recorded budget: clone plus 200 ops on a 100,000-node
-  document (the standalone MCP limit, `server.rs:572-574`) completes in under 400 ms release on the
-  reference machine; the PR records the measured clone time. In Studio sessions the agent document is
+- One whole-document trial clone per batch, never per op. v0.6 keeps this clone (a scoped trial is
+  not specified, so no other spec may assume one). The standalone limit today is 100,000 nodes
+  (`server.rs:572-574`); E15-17 raises it to 1,200,000 layers (owner answer Q2, 2026-10-18), so the
+  clone is budgeted on three synthetic sizes (README generator, never the owner file), clone plus 200
+  ops, release build, reference machine:
+
+  | Nodes | Budget |
+  |---|---|
+  | 100,000 | under 400 ms |
+  | 112,474 (the benchmark scene) | under 450 ms (the 100,000 budget scaled linearly) |
+  | 1,200,000 | measured and recorded in the PR; must finish under 5 s with peak memory growth of at most one document size |
+
+  The measured times and the memory growth are written into the PR. If the 1,200,000 case misses its
+  limit, the PR stops and reports an owner question (scoped trial, or a lower write-only limit); it
+  does not decide that. In Studio sessions the agent document is
   the scoped canvas (`crates/designos-app/src/live_canvas_scope.rs:11-14`: 128 top-level frames,
   5,000 full-subtree layers), so typical batches clone a few thousand nodes.
 - No `to_json` of the whole document anywhere in the batch runtime path (CLAUDE.md §4.1); only tests

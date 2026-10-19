@@ -98,7 +98,7 @@ are re-specified in E15-11 (`hardcoded-value`, `off-scale`); `hardcoded-color` s
 
 | Preset | Rules |
 |---|---|
-| `agent` (MCP default) | overflow-parent, clipped-partial, clipped-full, text-truncated, text-unexpected-wrap, text-missing-fill, collapsed-size, sizing-conflict, absolute-in-auto-layout, placeholder-text, contrast, hardcoded-value, off-scale, slot-non-recommended |
+| `agent` (MCP default) | overflow-parent, clipped-partial, clipped-full, text-truncated, text-unexpected-wrap, text-missing-fill, collapsed-size, sizing-conflict, absolute-in-auto-layout, placeholder-text (every rule this spec defines). Later specs append their rule to this preset in the PR that registers it: E15-10 `contrast`, E15-11 `hardcoded-value` and `off-scale`, E15-2 `slot-non-recommended` |
 | `check-designs` (Studio panel default, Figma parity) | the #158 rule set: hardcoded-value, contrast, detached-instance and the rules #158 adds |
 | `recommended` | `agent` + detached-instance + default-layer-name + empty-container |
 | `strict` | every rule |
@@ -231,6 +231,9 @@ Per rule, two fixtures built in code: `fail_<rule>` and `clean_<rule>`. Examples
 | `placeholder-text` | text "Lorem ipsum dolor" | "Plan your week" |
 
 Also:
+- `presets_name_only_registered_rules`: every rule id named by a built-in preset exists in the registry
+  at that commit (a preset never names a rule a later spec adds; `UNKNOWN_RULE` cannot fire on a
+  built-in preset). Each later spec's PR extends the preset and this test together.
 - `mcp_lint_returns_full_rule_set`: `designos_lint` with `preset:"strict"` lists every registry id in
   `by_rule` keys for a fixture that trips all rules; the old two-rule shape (`passed` field) is gone.
 - `ignored_never_reappears`: ignore `(text-truncated, 88)`, re-lint twice and after save/load: absent.
