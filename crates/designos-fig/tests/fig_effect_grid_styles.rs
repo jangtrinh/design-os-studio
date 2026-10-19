@@ -334,10 +334,7 @@ fn add_two_mode_collection(doc: &mut Document) {
         VariableCollection {
             id: "VariableCollectionId:3:1".into(),
             name: "Tokens".into(),
-            modes: vec![
-                VariableMode { id: "3:10".into(), name: "Light".into() },
-                VariableMode { id: "3:11".into(), name: "Dark".into() },
-            ],
+            modes: vec![VariableMode { id: "3:10".into(), name: "Light".into() }, VariableMode { id: "3:11".into(), name: "Dark".into() }],
             default_mode: "3:10".into(),
             variables: vec![],
             key: None,
@@ -407,19 +404,9 @@ fn text_style_paragraph_indent_and_weight_round_trip() {
     let style_var = "VariableID:3:23".to_string();
     insert_var(&mut d, &indent_var, "indent", VariableKind::Number, VariableValue::Number(12.0), VariableValue::Number(24.0));
     insert_var(&mut d, &weight_var, "weight", VariableKind::Number, VariableValue::Number(400.0), VariableValue::Number(700.0));
-    insert_var(
-        &mut d,
-        &style_var,
-        "fontStyle",
-        VariableKind::String,
-        VariableValue::String("Regular".into()),
-        VariableValue::String("Bold Italic".into()),
-    );
+    insert_var(&mut d, &style_var, "fontStyle", VariableKind::String, VariableValue::String("Regular".into()), VariableValue::String("Bold Italic".into()));
 
-    d.styles.insert(
-        "2:501".into(),
-        Style::Text(TextStyle { font_weight: 400, ..TextStyle::default() }),
-    );
+    d.styles.insert("2:501".into(), Style::Text(TextStyle { font_weight: 400, ..TextStyle::default() }));
     d.style_meta.insert(
         "2:501".into(),
         StyleMeta {
@@ -458,10 +445,7 @@ fn fill_style_gradient_stop_binding_round_trips() {
     let grad = Paint {
         kind: PaintKind::LinearGradient {
             handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
-            stops: vec![
-                GradientStop { pos: 0.0, color: light_c },
-                GradientStop { pos: 1.0, color: Color::BLACK },
-            ],
+            stops: vec![GradientStop { pos: 0.0, color: light_c }, GradientStop { pos: 1.0, color: Color::BLACK }],
         },
         opacity: 1.0,
         visible: true,
@@ -519,14 +503,7 @@ fn effect_style_shadow_vars_round_trip() {
     insert_var(&mut d, &x_var, "sh-x", VariableKind::Number, VariableValue::Number(2.0), VariableValue::Number(8.0));
     insert_var(&mut d, &y_var, "sh-y", VariableKind::Number, VariableValue::Number(3.0), VariableValue::Number(12.0));
 
-    let fx = Effect::DropShadow {
-        color: light_c,
-        offset: Vec2::new(2.0, 3.0),
-        radius: 4.0,
-        spread: 1.0,
-        visible: true,
-        show_behind: false,
-    };
+    let fx = Effect::DropShadow { color: light_c, offset: Vec2::new(2.0, 3.0), radius: 4.0, spread: 1.0, visible: true, show_behind: false };
     d.styles.insert("2:503".into(), Style::Effect(vec![fx.clone()]));
     d.style_meta.insert(
         "2:503".into(),

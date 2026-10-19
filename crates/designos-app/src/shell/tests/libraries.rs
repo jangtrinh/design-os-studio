@@ -301,11 +301,10 @@ fn publish_red(root: &Path) -> (Sim, String) {
     store.set_value(&n, &mode, VariableValue::Number(8.0));
     assert!(a.shell.app.commit_store(store, &[], &[]));
     a.shell.app.doc.styles.insert("Brand/Red".into(), Style::Fill(vec![Paint::solid(Color::rgb(255, 0, 0))]));
-    a.shell
-        .app
-        .doc
-        .style_meta
-        .insert("Brand/Red".into(), StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() });
+    a.shell.app.doc.style_meta.insert(
+        "Brand/Red".into(),
+        StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+    );
     assert!(a.shell.app.publish_file());
     let lib_id = a.app().doc.library.published.clone().unwrap().library_id;
     (a, lib_id)

@@ -24,25 +24,13 @@ pub fn bound_var<'a>(app: &'a App, node: NodeId, key: &str) -> Option<&'a Variab
 }
 
 fn open_picker(app: &mut App, sel: &[NodeId], keys: &[&str], kind: VariableKind, anchor: Rect) {
-    app.vars.bind_picker = Some(BindPicker {
-        keys: keys.iter().map(|k| k.to_string()).collect(),
-        kind,
-        nodes: sel.to_vec(),
-        style_key: None,
-        anchor,
-        query: String::new(),
-    });
+    app.vars.bind_picker =
+        Some(BindPicker { keys: keys.iter().map(|k| k.to_string()).collect(), kind, nodes: sel.to_vec(), style_key: None, anchor, query: String::new() });
 }
 
 fn open_style_picker(app: &mut App, style_key: &str, prop: &str, kind: VariableKind, anchor: Rect) {
-    app.vars.bind_picker = Some(BindPicker {
-        keys: vec![prop.to_string()],
-        kind,
-        nodes: Vec::new(),
-        style_key: Some(style_key.to_string()),
-        anchor,
-        query: String::new(),
-    });
+    app.vars.bind_picker =
+        Some(BindPicker { keys: vec![prop.to_string()], kind, nodes: Vec::new(), style_key: Some(style_key.to_string()), anchor, query: String::new() });
 }
 
 /// Draws the bound-variable pill in place of a field when `keys[0]` is bound
@@ -71,7 +59,7 @@ pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys
     {
         return;
     }
-    let b = Rect::from_center_size(Pos2::new(rect.right() - 14.0, rect.center().y), Vec2::splat(20.0));
+    let b = Rect::from_center_size(Pos2::new(rect.right() - (theme::SPACE_GROUP + theme::INSET_SEGMENT), rect.center().y), Vec2::splat(20.0));
     let r = ui.interact(b, ui.id().with(("bind-btn", keys[0])), Sense::click());
     let p = ui.painter();
     p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
@@ -118,13 +106,11 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
 pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) {
     if app.doc.variables.is_empty() && app.doc.library.enabled.is_empty()
         || !ui.rect_contains_pointer(rect)
-            && app.vars.bind_picker.as_ref().is_none_or(|b| {
-                b.style_key.as_deref() != Some(style_key) || b.keys.first().map(String::as_str) != Some(prop)
-            })
+            && app.vars.bind_picker.as_ref().is_none_or(|b| b.style_key.as_deref() != Some(style_key) || b.keys.first().map(String::as_str) != Some(prop))
     {
         return;
     }
-    let b = Rect::from_center_size(Pos2::new(rect.right() - 14.0, rect.center().y), Vec2::splat(20.0));
+    let b = Rect::from_center_size(Pos2::new(rect.right() - (theme::SPACE_GROUP + theme::INSET_SEGMENT), rect.center().y), Vec2::splat(20.0));
     let r = ui.interact(b, ui.id().with(("style-bind-btn", style_key, prop)), Sense::click());
     let p = ui.painter();
     p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
@@ -137,14 +123,7 @@ pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &st
 }
 
 /// A numeric field in the style editor that turns into a variable pill when bound.
-pub fn style_numeric(
-    app: &mut App,
-    ui: &mut Ui,
-    rect: Rect,
-    style_key: &str,
-    prop: &str,
-    field: impl FnOnce(&mut Ui) -> Option<f32>,
-) -> Option<f32> {
+pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, field: impl FnOnce(&mut Ui) -> Option<f32>) -> Option<f32> {
     if style_pill_field(app, ui, rect, style_key, prop) {
         return None;
     }

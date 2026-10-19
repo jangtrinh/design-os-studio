@@ -42,10 +42,9 @@ pub fn style_property_kind(style: &Style, property: &str) -> Option<VariableKind
     let kind = property_kind(property)?;
     let valid = match style {
         Style::Fill(_) => property.starts_with("fills/"),
-        Style::Text(_) => matches!(
-            property,
-            "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" | "fontWeight" | "fontFamily" | "fontStyle"
-        ),
+        Style::Text(_) => {
+            matches!(property, "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" | "fontWeight" | "fontFamily" | "fontStyle")
+        }
         Style::Effect(_) => property.starts_with("effects/"),
         Style::Grid(_) => false,
     };
@@ -358,7 +357,10 @@ mod tests {
             Style::Effect(fx) => assert_eq!(fx, &vec![shadow(8.0)]),
             other => panic!("expected an effect style, got {other:?}"),
         }
-        assert_eq!(d.style_meta[&key], StyleMeta { name: "Effect style 1".into(), key: None, description: String::new(), property: StyleProperty::Effect, bindings: Default::default() });
+        assert_eq!(
+            d.style_meta[&key],
+            StyleMeta { name: "Effect style 1".into(), key: None, description: String::new(), property: StyleProperty::Effect, bindings: Default::default() }
+        );
         assert_eq!(d.get(a).unwrap().style_refs.get("effect"), Some(&key));
         h.undo(&mut d).unwrap();
         assert!(d.styles.is_empty() && d.style_meta.is_empty());
@@ -459,7 +461,10 @@ mod tests {
         }
         d.styles.insert("Brand".into(), Style::Fill(vec![red.clone()]));
         d.styles.insert("Line".into(), Style::Fill(vec![Paint::solid(Color::rgb(0, 255, 0))]));
-        d.style_meta.insert("Line".into(), StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke, bindings: Default::default() });
+        d.style_meta.insert(
+            "Line".into(),
+            StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke, bindings: Default::default() },
+        );
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
         // Metadata that never named the property (it defaults to Fill) must not hide the text layers.
         d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), ..Default::default() });

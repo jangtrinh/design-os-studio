@@ -604,10 +604,8 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
         }
         match &style {
             Style::Fill(paints) => {
-                fields.push((
-                    "fillPaints",
-                    V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
-                ));
+                fields
+                    .push(("fillPaints", V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect())));
             }
             Style::Text(ts) => {
                 append_text_style_fields(&mut fields, ts);
@@ -617,10 +615,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
                 }
             }
             Style::Effect(effects) => {
-                fields.push((
-                    "effects",
-                    V::Array(effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, bindings)).collect()),
-                ));
+                fields.push(("effects", V::Array(effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, bindings)).collect())));
             }
             Style::Grid(grids) => {
                 fields.push(("layoutGrids", V::Array(grids.iter().map(encode_grid).collect())));
@@ -770,20 +765,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         }
         _ => &node.fills,
     };
-    let fill_paints: Vec<V> = fills_slice
-        .iter()
-        .enumerate()
-        .map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings))
-        .collect();
+    let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings)).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> = node
-        .stroke
-        .paints
-        .iter()
-        .enumerate()
-        .map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings))
-        .collect();
+    let stroke_paints: Vec<V> =
+        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
     fields.push(("strokePaints", V::Array(stroke_paints)));
     fields.push(("strokeWeight", fl(node.stroke.weight)));
     fields.push((
@@ -825,12 +811,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
 
     // Effects.
-    let effects: Vec<V> = node
-        .effects
-        .iter()
-        .enumerate()
-        .map(|(i, e)| encode_effect_with_bindings(cx, e, i, &node.variables.bindings))
-        .collect();
+    let effects: Vec<V> = node.effects.iter().enumerate().map(|(i, e)| encode_effect_with_bindings(cx, e, i, &node.variables.bindings)).collect();
     if !effects.is_empty() {
         fields.push(("effects", V::Array(effects)));
     }
@@ -1437,13 +1418,7 @@ fn encode_var_entries_from_bindings(cx: &ExportCtx, bindings: &BTreeMap<String, 
             if !fs_fields.is_empty() {
                 var_entries.push(msg(vec![
                     ("variableField", en("FONT_STYLE")),
-                    (
-                        "variableData",
-                        msg(vec![
-                            ("dataType", en("FONT_STYLE")),
-                            ("value", msg(vec![("fontStyleValue", msg(fs_fields))])),
-                        ]),
-                    ),
+                    ("variableData", msg(vec![("dataType", en("FONT_STYLE")), ("value", msg(vec![("fontStyleValue", msg(fs_fields))]))])),
                 ]));
             }
             continue;
@@ -1883,21 +1858,9 @@ fn encode_paint(p: &Paint, color_var: Option<V>, opacity_var: Option<V>) -> V {
     encode_paint_full(p, color_var, opacity_var, None)
 }
 
-fn encode_paint_with_bindings(
-    cx: &ExportCtx,
-    p: &Paint,
-    prefix: &str,
-    idx: usize,
-    bindings: &BTreeMap<String, String>,
-) -> V {
-    let color_var = bindings
-        .get(&format!("{prefix}/{idx}"))
-        .and_then(|vid| cx.resolve_var_guid(vid))
-        .map(alias_var_data);
-    let opacity_var = bindings
-        .get(&format!("{prefix}/{idx}/opacity"))
-        .and_then(|vid| cx.resolve_var_guid(vid))
-        .map(alias_var_data);
+fn encode_paint_with_bindings(cx: &ExportCtx, p: &Paint, prefix: &str, idx: usize, bindings: &BTreeMap<String, String>) -> V {
+    let color_var = bindings.get(&format!("{prefix}/{idx}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
+    let opacity_var = bindings.get(&format!("{prefix}/{idx}/opacity")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
     let stops_slice = match &p.kind {
         PaintKind::LinearGradient { stops, .. }
         | PaintKind::RadialGradient { stops, .. }
@@ -1906,12 +1869,7 @@ fn encode_paint_with_bindings(
         _ => None,
     };
     let stops_var = stops_slice.and_then(|stops| {
-        let has_any = (0..stops.len()).any(|j| {
-            bindings
-                .get(&format!("{prefix}/{idx}/stops/{j}"))
-                .and_then(|vid| cx.resolve_var_guid(vid))
-                .is_some()
-        });
+        let has_any = (0..stops.len()).any(|j| bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)).is_some());
         if !has_any {
             return None;
         }
@@ -1919,14 +1877,8 @@ fn encode_paint_with_bindings(
             .iter()
             .enumerate()
             .map(|(j, s)| {
-                let mut f = vec![
-                    ("color", color(s.color.r, s.color.g, s.color.b, s.color.a)),
-                    ("position", fl(s.pos)),
-                ];
-                if let Some(vg) = bindings
-                    .get(&format!("{prefix}/{idx}/stops/{j}"))
-                    .and_then(|vid| cx.resolve_var_guid(vid))
-                {
+                let mut f = vec![("color", color(s.color.r, s.color.g, s.color.b, s.color.a)), ("position", fl(s.pos))];
+                if let Some(vg) = bindings.get(&format!("{prefix}/{idx}/stops/{j}")).and_then(|vid| cx.resolve_var_guid(vid)) {
                     f.push(("colorVar", alias_var_data(vg)));
                 }
                 msg(f)
@@ -1937,12 +1889,7 @@ fn encode_paint_with_bindings(
     encode_paint_full(p, color_var, opacity_var, stops_var)
 }
 
-fn encode_paint_full(
-    p: &Paint,
-    color_var: Option<V>,
-    opacity_var: Option<V>,
-    stops_var: Option<V>,
-) -> V {
+fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, stops_var: Option<V>) -> V {
     let mut fields = Vec::new();
     let push_grad = |fields: &mut Vec<(&str, V)>, ty: &str, handles: &[Vec2; 3], stops: &[GradientStop]| {
         fields.push(("type", en(ty)));
@@ -1995,26 +1942,13 @@ fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V 
     encode_effect_full(e, color_var, opacity_var, None, None, None, None)
 }
 
-fn encode_effect_with_bindings(
-    cx: &ExportCtx,
-    e: &Effect,
-    idx: usize,
-    bindings: &BTreeMap<String, String>,
-) -> V {
+fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings: &BTreeMap<String, String>) -> V {
     let var_data = |prop: &str| -> Option<V> {
         let vid = bindings.get(&format!("effects/{idx}/{prop}"))?;
         let vg = cx.resolve_var_guid(vid)?;
         Some(alias_var_data(vg))
     };
-    encode_effect_full(
-        e,
-        var_data("color"),
-        var_data("opacity"),
-        var_data("radius"),
-        var_data("spread"),
-        var_data("offsetX"),
-        var_data("offsetY"),
-    )
+    encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
 }
 
 fn encode_effect_full(

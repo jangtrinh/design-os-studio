@@ -34,8 +34,9 @@ pub fn property_kind(key: &str) -> Option<VariableKind> {
         },
         "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
         | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom" | "opacity" | "fontSize" | "fontWeight" | "lineHeight" | "letterSpacing"
-        | "paragraphSpacing" | "paragraphIndent" | "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight"
-        | "strokeLeftWeight" => VariableKind::Number,
+        | "paragraphSpacing" | "paragraphIndent" | "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight" => {
+            VariableKind::Number
+        }
         "visible" => VariableKind::Boolean,
         "characters" | "fontFamily" | "fontStyle" => VariableKind::String,
         _ => return None,
@@ -893,20 +894,11 @@ mod tests {
         let (mut d, _, frame, _) = setup();
         let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
         let dark_c = Color::rgb(0x11, 0x11, 0x11);
-        d.variables.insert(
-            "surface".into(),
-            var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)),
-        );
+        d.variables.insert("surface".into(), var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)));
         d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
         d.style_meta.insert(
             "Card".into(),
-            StyleMeta {
-                name: "Card".into(),
-                key: None,
-                description: String::new(),
-                property: StyleProperty::Fill,
-                bindings: BTreeMap::new(),
-            },
+            StyleMeta { name: "Card".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
         );
         let cmd = crate::styles_ops::bind_style_property(&d, "Card", "fills/0", "surface").unwrap();
         cmd.apply(&mut d).unwrap();
@@ -928,14 +920,8 @@ mod tests {
         let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
         let dark_c = Color::rgb(0x11, 0x11, 0x11);
         let red_c = Color::rgb(0xFF, 0x00, 0x00);
-        d.variables.insert(
-            "surface".into(),
-            var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)),
-        );
-        d.variables.insert(
-            "accent".into(),
-            var("accent", VariableKind::Color, VariableValue::Color(red_c), VariableValue::Color(red_c)),
-        );
+        d.variables.insert("surface".into(), var("surface", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c)));
+        d.variables.insert("accent".into(), var("accent", VariableKind::Color, VariableValue::Color(red_c), VariableValue::Color(red_c)));
         d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
         d.style_meta.insert(
             "Card".into(),
@@ -966,13 +952,7 @@ mod tests {
         d.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
         d.style_meta.insert(
             "Card".into(),
-            StyleMeta {
-                name: "Card".into(),
-                key: Some("k-card".into()),
-                description: String::new(),
-                property: StyleProperty::Fill,
-                bindings: BTreeMap::new(),
-            },
+            StyleMeta { name: "Card".into(), key: Some("k-card".into()), description: String::new(), property: StyleProperty::Fill, bindings: BTreeMap::new() },
         );
         let json = serde_json::to_string_pretty(&d).unwrap();
         assert!(!json.contains("\"bindings\""), "empty bindings map must be omitted from JSON: {json}");
@@ -983,20 +963,11 @@ mod tests {
     #[test]
     fn text_style_size_binding() {
         let (mut d, _, frame, text) = setup();
-        d.variables.insert(
-            "size-body".into(),
-            var("size-body", VariableKind::Number, VariableValue::Number(16.0), VariableValue::Number(24.0)),
-        );
+        d.variables.insert("size-body".into(), var("size-body", VariableKind::Number, VariableValue::Number(16.0), VariableValue::Number(24.0)));
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..TextStyle::default() }));
         d.style_meta.insert(
             "Body".into(),
-            StyleMeta {
-                name: "Body".into(),
-                key: None,
-                description: String::new(),
-                property: StyleProperty::Text,
-                bindings: BTreeMap::new(),
-            },
+            StyleMeta { name: "Body".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: BTreeMap::new() },
         );
         let cmd = crate::styles_ops::bind_style_property(&d, "Body", "fontSize", "size-body").unwrap();
         cmd.apply(&mut d).unwrap();

@@ -154,8 +154,7 @@ fn tree_fingerprint(nodes: &BTreeMap<NodeId, Node>, root: NodeId, refs: &BTreeMa
 
 fn style_fingerprint(style: &Style, meta: Option<&StyleMeta>, prefix: &str) -> u64 {
     let mut h = Fnv::new();
-    let stripped: BTreeMap<&str, &str> =
-        meta.map(|m| m.bindings.iter().map(|(k, v)| (k.as_str(), strip(v, prefix))).collect()).unwrap_or_default();
+    let stripped: BTreeMap<&str, &str> = meta.map(|m| m.bindings.iter().map(|(k, v)| (k.as_str(), strip(v, prefix))).collect()).unwrap_or_default();
     h.write(&serde_json::to_string(&(style, meta.map(|m| (&m.name, &m.description, m.property)), &stripped)).unwrap_or_default());
     h.0
 }
