@@ -110,18 +110,14 @@ None.
 
 ## 7. UI
 
-Described in words; follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes: an Ask option in
-settings, a "Needs approval" tab state, the approval offered in the panel, an OS notification when unfocused. The look is a proposal
-for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- **Settings:** Preferences > "Agent permissions..." opens a small dialog with two radio rows: "Skip permissions (default)" and
-  "Ask before agents act", each with one sentence of explanation, and a note that already-open tabs keep their mode.
-- **Tab state:** the tab's status dot uses the warning colours (`STATUS_WARN_*`) and the tab tooltip says "Needs approval".
-- **Card:** a bar 56 px high at the top of the viewport area, `BG_SECONDARY` with a 1 px `BORDER`; left: tool name in body-medium
-  and the input summary in mono caption (elided); right: a `Deny` ghost button and an `Approve` primary button (pointer targets
-  at least 24 px high); a "+2 waiting" caption when queued.
-- Desktop captures at 1440: settings dialog, card with a command, queued card, "Open tab" card for a CLI without approvals. Responsive
-  SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
+The issue fixes: an Ask option in settings, a "Needs approval" tab state, the approval offered in the panel, an OS notification when unfocused. The look is a proposal for the owner's confirmation:
+
+- **Settings:** Preferences > "Agent permissions..." opens a small dialog (`RADIUS_FRAME`, `INSET_MODAL`) with two radio rows, "Skip permissions (default)" and "Ask before agents act", each with one sentence of explanation (body, `TEXT_SECONDARY`) and a note that already-open tabs keep their mode. The selected radio row uses the neutral fill.
+- **Tab state:** the tab's status dot shows the waiting state the panel already draws for `WaitingForInput` (`paint_orca_tab_status_and_provider`), and the tab tooltip says "Needs approval". A distinct warning colour would need a new token in `theme.rs` (P1): see open question 6.
+- **Card:** a `RADIUS_FRAME` surface (`BG_SECONDARY`, `BORDER` hairline, inset `INSET_FRAME`) at the top of the viewport area, sized by its content: the tool name in body-medium and the input summary in `font_mono` caption (elided), `SPACE_FACT` apart; at the right a `Deny` secondary button and an `Approve` primary button (`BG_BRAND` with a dark label: the view's one primary action), both `CONTROL_STANDARD` high with `RADIUS_CONTROL`; a count pill (same geometry as above) with the caption "waiting" when requests are queued.
+- Desktop captures at 1440: settings dialog, card with a command, queued card, "Open tab" card for a CLI without approvals. Responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 
@@ -210,6 +206,9 @@ is verified by the worker before adding; no dependency is added by this spec.
 5. **Where the setting lives.** The app has a Preferences menu (Your name, GPU rendering) and no Settings window.
    - A (recommended): a Preferences entry "Agent permissions..." with a small dialog, the smallest change that gives the setting a home.
    - B: build a Settings window with an Agents page, as the issue title names it; larger, and it adds an empty shell for later pages.
+6. **A colour for "Needs approval".** `theme.rs` has no warning or info colour (the panel's `STATUS_WARN_*` live in `terminal.rs:45-47`), and `design/principles.md` P1 requires colours to come from `theme.rs` and `design/design.tokens.json`.
+   - A (recommended): add one warning constant to `theme.rs` for this state by the interim route the owner ruled for the design standard (R8, 2026-10-18: constants in `theme.rs` guarded by the ratchet and parity checks until `ui ds add-token` exists), so the new state follows the single token authority.
+   - B: reuse the panel's existing waiting dot colour with no new token; no design-system change, but it adds to the P1 debt in `terminal.rs`.
 
 ## Could not ground
 

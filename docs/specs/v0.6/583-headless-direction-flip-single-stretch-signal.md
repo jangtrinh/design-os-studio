@@ -6,7 +6,7 @@
 | Size / priority | S / P2 |
 | Depends on | none |
 | Unblocks | none |
-| Touches | `crates/designos-doc/src/history.rs` (`Command::Update` apply, `:118-124`), `crates/designos-doc/src/layout_solver_types.rs` (`apply_parent_direction_change`, read only), `crates/designos-doc/src/layout_apply.rs` (read only), tests in `crates/designos-doc` and `crates/designos-doc/src/live_patch/tests.rs` |
+| Touches | new `crates/designos-doc/src/writer_command.rs` (the writer-boundary function shared with #582), `crates/designos-doc/src/live_patch/replay.rs` (call site, `:128-167`), `crates/designos-mcp/src/engine.rs` (`Engine::exec`, `:414-419`), `crates/designos-doc/src/layout_solver_types.rs` and `layout_apply.rs` (read only), tests in `crates/designos-doc` and `crates/designos-doc/src/live_patch/tests.rs` |
 
 Code baseline: `origin/main@01d48f2` (0.5.0). The issue cites `layout_apply.rs:100`; the check now sits at
 `layout_apply.rs:150-155`.
@@ -45,30 +45,32 @@ leaves it, so the child does not stretch on both axes.
 
 ## 3. Behaviour rules
 
-1. `Command::Update::apply` (`history.rs:118-124`) compares the node's previous and new
-   `auto_layout` horizontality (`AutoLayout::primary_is_horizontal`). When it differs, it calls
-   `apply_parent_direction_change(old_horiz, new_horiz)` on every direct child whose
-   `stretched.last_parent_horiz` is `None` (children with `Some(..)` are handled by the solver as
-   today, so nothing is applied twice).
-2. The inverse of that update restores the child rewrites as well: it is a `Command::Batch` of the
-   parent's `Update` and one `Update` per rewritten child (the current inverse restores only the parent,
-   which would leave the children changed after an undo).
-3. The result is the inspector's result: for a child with Fill on the old counter axis and Stretch,
-   Stretch is cleared; Fill stays; `last_parent_horiz` ends consistent with the new direction.
-4. A flip between two directions with the same horizontality (Horizontal to Grid) changes nothing.
-5. A node that is not a frame, or a frame gaining or losing auto layout (no direction before or
-   after), changes nothing.
-6. Children without the duplicate pair are never touched.
+Where the rewrite lives, and why. `Command::apply` cannot host it: undo, redo, `Tx::cmd` (`designos-app/src/edit.rs:88-93`) and the main-component sync (`components.rs` builds
+`Command::Update` for instance frames from the main's props) all run through `Command::apply`, so a rewrite inside it would run again on every undo, redo and sync, and an `Update` whose inverse
+restores only the parent would leave rewritten children behind. #582 reached the same conclusion for the slot mark. Both therefore live at the **writer boundary**: one pure function in
+`designos-doc`, `writer_command(doc: &Document, cmd: Command) -> Command`, that the headless writers call before they apply a command (MCP `Engine::exec`, live-patch replay). #583 adds its
+step to it; #582 adds the slot-mark step. Whichever task lands first creates the file; the other adds its step.
+
+1. **Direction step.** For a `Command::Update { node }` whose target frame's `auto_layout` changes horizontality (`AutoLayout::primary_is_horizontal` differs between the stored node and `node`), the
+   function returns `Command::Batch([Command::Update { parent }, Command::Update { child' } ...])`: the parent's update first, then one explicit `Update` per direct child that
+   `apply_parent_direction_change(old_horiz, new_horiz)` changes, for the children whose `stretched.last_parent_horiz` is `None` (children with `Some(..)` are handled by the solver as today, so
+   nothing is applied twice). The child updates are ordinary full-node updates, so `Command::apply`, its inverse, undo, redo and sync see plain commands.
+2. **Same result as the inspector.** For a child with Fill on the old counter axis and `AlignSelf::Stretch`, Stretch is cleared; Fill stays; `last_parent_horiz` ends consistent with the new
+   direction (`layout_solver_types.rs:134-146`).
+3. A flip between two directions with the same horizontality (Horizontal to Grid) returns the command unchanged.
+4. A node that is not a frame, a frame gaining or losing auto layout (no direction before or after), or a command that is not an `Update` returns unchanged.
+5. Children without the duplicate pair are never touched (no child `Update` is emitted for them).
+6. The main-component sync and the Studio inspector do not call `writer_command`: the inspector keeps its own rewrite (`ops.rs:212-228`) and sync builds its commands itself, so neither is affected.
 
 ## 4. Data model / schema changes
 
-None. `stretched.last_parent_horiz` keeps its meaning.
+None. `stretched.last_parent_horiz` keeps its meaning; `writer_command` is a new public function in `designos-doc`.
 
 ## 5. Contracts
 
-No API change. `Command::Update`'s inverse can now be a `Batch` when a direction flip rewrote children;
-`History` already stores and applies `Batch` inverses (`history.rs:141-149`). Check callers of
-`History::peek_undo` (`history.rs:230-236`) for any that assume the inverse of an `Update` is an `Update`.
+`writer_command` is the only new API. `Command::apply` and `History` are unchanged, so every existing inverse is still an inverse of what it undoes. `Engine::exec`
+(`designos-mcp/src/engine.rs:414-419`) wraps each command before `live_ops_for` and `history.exec`, so the recorded live ops carry the child updates; the replay path wraps the
+`Command::Update` it builds (`live_patch/replay.rs:167`). The one production `History::peek_undo` caller, `designos_undo` (`engine.rs:379`), is unaffected because inverses stay plain.
 
 ## 6. File-format mapping
 
@@ -86,7 +88,8 @@ None.
 4. Child with Stretch only (no Fill): untouched; Stretch keeps stretching the new counter axis, which is
    the same meaning as before the flip.
 5. Many children (10 000): one pass over the children list of the changed frame; no tree walk.
-6. Undo then redo: the pair is restored, then cleared again.
+6. Undo then redo: plain inverses, so the pair is restored by undo and cleared again by redo, exactly as the forward edit did.
+7. The main component's direction is flipped and an instance of it syncs: the sync does not call the boundary; the instance's children follow the main's already-normalised children.
 
 ## 9. Non-goals
 
@@ -100,12 +103,16 @@ Seams: `designos-doc` unit test with a hand-built document; one replay test thro
 
 | Case | Steps | Expected (fails before) |
 |---|---|---|
-| `flip_before_first_solve_leaves_one_signal` | horizontal frame, child `vertical = Fill` + `align_self = Stretch`, `stretched.last_parent_horiz == None`; `Command::Update` sets direction Vertical; `relayout_subtree` | child `align_self == Auto`, `vertical == Fill` |
-| `flip_back_is_symmetric` | continue with another flip to Horizontal | one signal again, none lost |
+| `flip_before_first_solve_leaves_one_signal` | horizontal frame, child `vertical = Fill` + `align_self = Stretch`, `stretched.last_parent_horiz == None`; `writer_command` on an `Update` that sets direction Vertical, apply, `relayout_subtree` | child `align_self == Auto`, `vertical == Fill` |
+| `flip_back_is_symmetric` | another flip to Horizontal | one signal again, none lost |
 | `undo_restores_pair` | undo the flip | Fill + Stretch both back, direction Horizontal |
+| `redo_after_undo_matches_the_first_flip` | undo then redo | same final state as the first apply, history depth unchanged |
 | `solved_child_not_double_rewritten` | solve once, then flip | same final state as the unsolved case |
-| `live_patch_update_flip` | replay a `LiveOp::Update { set: kind with direction }` | same final state as the direct `Command::Update` |
-| `same_horizontality_untouched` | Horizontal to Grid | child unchanged |
+| `live_patch_update_flip` | replay a `LiveOp::Update { set: kind with direction }` | same final state as the direct flip |
+| `engine_exec_applies_the_boundary` | `Engine::exec` with a direction `Update` | recorded live ops include the child updates; replaying them gives the same document |
+| `sync_after_a_main_direction_flip_is_unaffected` | flip the main component's frame through the boundary, then `sync_instances` | instance children equal the main's; no extra rewrite; sync's own batch unchanged |
+| `same_horizontality_untouched` | Horizontal to Grid | command returned unchanged |
+| `children_without_the_pair_emit_no_update` | plain children | the batch holds only the parent update |
 
 Run: `cargo test -p designos-doc`. Evidence: red/green terminal capture; one screenshot of the child
 width after a flip applied through a live patch (`designos --screenshot`).
@@ -117,8 +124,7 @@ direction.
 
 ## 12. Dependencies and build order
 
-Independent. Edits `history.rs`; serialize with #582 only if it also edits `Command::apply` (it does
-not: #582 adds a wrapper function).
+Independent, but it shares `writer_command` with #582: whichever merges first creates `crates/designos-doc/src/writer_command.rs`, the other adds its step (rebase, no hand merge).
 
 ## 13. Owner rulings
 

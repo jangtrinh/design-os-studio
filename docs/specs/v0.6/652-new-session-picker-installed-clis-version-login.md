@@ -93,19 +93,16 @@ None.
 
 ## 7. UI
 
-Described in words; follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes the
-content (rule 3 to 8); the layout is a proposal for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- A list of rows 40 px high inside the panel's viewport area (or a popover when opened from `+`): leading CLI mark
-  (a vector icon, no emoji), name in body-medium, version in caption secondary on the same line, the sign-in state as a
-  small pill at the right using the existing status colours (`STATUS_OK_*`, `STATUS_WARN_*`, neutral for "not checked").
-- Uninstalled rows use disabled text colour and show a text-button "Install" aligned right; the row itself is not a
-  pointer target.
-- The last chosen CLI shows the selected tint. A hairline separates installed from uninstalled and "Other CLI..."
-  and the footer line.
-- Keyboard: arrow keys move, Enter starts; every control is at least 24 px.
-- Desktop captures at 1440 for: all installed, one missing, probing, and the "Other CLI..." form. Responsive SKIPPED
-  (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
+The issue fixes the content (rules 3 to 8); the layout below is a proposal for the owner's confirmation:
+
+- A list of rows `CONTROL_ROW` high inside the panel's viewport area (or a `RADIUS_FRAME` popover with `INSET_POPOVER` when opened from `+`). Each row: a vector mark of the CLI (no emoji, no logo), the name in body-medium, the version in `font_mono` caption `TEXT_SECONDARY` after it (`SPACE_INLINE` apart), and the sign-in state as a status pill at the right.
+- The sign-in state is a static status pill with the geometry of the existing count pill (`panels/check_designs.rs:186-196`: `BG_TERTIARY` fill, `radius` from the pill height, `font_caption_medium`, `TEXT`); "Signed in" and "Not signed in" differ by label and a leading dot, not by a new colour. If the owner wants colour for them, a token must first be added to `theme.rs` and `design/design.tokens.json` (P1); this spec adds none.
+- Uninstalled rows use `TEXT_DISABLED` and show a text button "Install" (`CONTROL_DENSE` high, `TARGET_MIN` hit area) aligned right; the row itself is not a pointer target.
+- The file's last chosen CLI shows the neutral `BG_SELECTED` fill. A `BORDER` hairline separates installed from uninstalled and "Other CLI..." and the footer line; groups are at least twice their inner gap apart (P9).
+- Keyboard: arrow keys move, Enter starts; every control meets `TARGET_MIN`.
+- Desktop captures at 1440 for: all installed, one missing, probing, and the "Other CLI..." form. Responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 

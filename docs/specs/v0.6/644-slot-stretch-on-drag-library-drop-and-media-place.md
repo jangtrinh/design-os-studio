@@ -27,7 +27,7 @@ the same result.
   `size.x = slot width - left/right padding` (minimum 1), `transform.tx = left padding` when the slot has
   no auto layout, and, for an instance or linked child, the `Size` and `Layout` overrides.
 - It runs for: the picker (`comp_ops.rs:369`), paste (`ops.rs:542`, `:606`, `:653`) and moving
-  through `move_to_parent` (`ops.rs:1488-1495`, only when `old_p != Some(new_parent)`).
+  through `move_to_parent` (`ops.rs:1464`; the stretch call is at `:1491`, only when `old_p != Some(new_parent)`).
 - It does not run for:
   - canvas drag: `reparent_after_move` reparents with `Command::Reparent` at
     `canvas/interact.rs:1629` (reorder drop inside an auto-layout frame) and `:1653` (drop into another
@@ -50,7 +50,7 @@ the same result.
 1. One helper, `App::stretch_into_slot_if_configured(doc: &mut Document, ed: &mut Edit, slot: NodeId, child: NodeId)`,
    in `ops.rs` next to `mark_slot_content_override`. It clones the child, runs
    `apply_slot_stretch_on_insert(doc, slot, &mut clone)`, and writes the clone back through
-   `ed.node(doc, child)` so the change joins the caller's undo step (the pattern of `ops.rs:1488-1495`).
+   `ed.node(doc, child)` so the change joins the caller's undo step (the pattern of `move_to_parent`, `ops.rs:1488-1495`).
    It does nothing unless the slot's config says stretch.
 2. Every path in section 2 calls the helper after the node is in the slot and, for drag, after the
    world-to-local transform was assigned (so `tx = left padding` for a non-auto-layout slot is not

@@ -74,15 +74,14 @@ None.
 
 ## 7. UI
 
-Described in words; follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes: usage per tab, from real sources, nothing
-when a CLI exposes nothing. Placement and form are proposals for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- A caption in the tab's tooltip and at the right end of the panel's header strip: `12.4k in · 3.1k out` and, where reported, `$0.42 ref.` (caption type,
-  secondary text colour). Nothing is drawn for a tab without a reading.
+The issue fixes: usage per tab, from real sources, nothing when a CLI exposes nothing. Placement and form are proposals for the owner's confirmation:
+
+- A caption in the tab's tooltip and at the right end of the panel's header strip: the token counts and, where reported, the cost label, all numbers in `font_mono` (counters, P5), `TEXT_SECONDARY`. Nothing is drawn for a tab without a reading.
 - The tooltip lists the source ("From Claude's transcript", "From grok usage"), the time of the reading, and for a cost the words "list-price reference, not a bill".
 - No animation, no timers (idle CPU invariant); the reading updates on events (turn end, focus), not per frame.
-- Desktop captures at 1440: Claude tab with tokens, Grok tab with tokens and `ref.` cost, Codex or agy tab with nothing. Responsive SKIPPED (owner default).
-  Load es-designer before UI code; update the Figma frames from the captures first.
+- Desktop captures at 1440: Claude tab with tokens, Grok tab with tokens and a `ref.` cost, Codex or agy tab with nothing. Responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 

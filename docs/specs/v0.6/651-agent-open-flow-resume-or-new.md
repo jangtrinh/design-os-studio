@@ -85,21 +85,16 @@ None.
 
 ## 7. UI
 
-Described in words; it follows `design/principles.md` and `crates/designos-app/src/theme.rs` (the panel's own
-dark constants in `terminal.rs:29-55` stay as they are). **Proposal only:** the issue fixes the behaviour of
-section 3, not these control details; the owner confirms them through open question 4 before anyone builds:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- **Sessions control**: a ghost button with the label "Sessions" and a chevron, 24 px high (pointer target at
-  least 24 px), placed after the tab strip and before `+`. Its menu is a popover of rows 34 px high, Inter
-  caption text, with a hairline separator under a small "Sessions for this file" heading; the active row has the
-  selected tint. Status uses the existing dot colours (`STATUS_OK_*` for Done, `STATUS_INFO_*` for Working,
-  `STATUS_WARN_*` for Waiting). No emojis.
-- **Rename**: the row's label field uses the standard text-field style at the row's height; no modal.
-- **Empty state**: the picker (#652) fills the panel's viewport area; the tab bar stays above it with `+` and Sessions.
-- **Failure**: the existing card; one more fix button text, "Start a new session".
-- Desktop capture at 1440 (and the panel at its normal width) for the three states: resumed tab, sessions
-  dropdown open, empty-state picker; responsive SKIPPED (owner default). Load es-designer before UI code. The
-  Figma frames for these states are updated from the captures before gates run (owner rule, 2026-10-13).
+**Proposal only:** the issue fixes the behaviour of section 3, not these control details; the owner confirms them through open question 4 before anyone builds.
+
+- **Sessions control**: a ghost button labelled "Sessions" with a chevron, `CONTROL_DENSE` high, `RADIUS_CONTROL`, between the tab strip and `+`, `SPACE_INLINE` from each.
+- **Popover**: `RADIUS_FRAME`, surface `BG_MENU` with a `BORDER_MENU` hairline, inset `INSET_POPOVER`, a caption heading "Sessions for this file" in `TEXT_SECONDARY` with `SPACE_FACT` below it and a `BORDER` hairline; rows are `CONTROL_ROW` high with two lines: line one the CLI name (body-medium) and the label (body), line two the last-active time and the status in caption; hover `BG_MENU_HOVER`; the row whose tab is focused uses the neutral `BG_SELECTED` fill. The status shown in a row uses the same dot as the tab (`paint_orca_tab_status_and_provider`, `terminal.rs:1983-2058`); no new colour is introduced.
+- **Rename**: the label becomes a text field at `FIELD_HEIGHT` inside the row (Enter saves, Esc cancels); no modal.
+- **Empty state**: the picker (#652) fills the viewport area under the tab bar, which keeps `+` and Sessions.
+- **Failure**: the existing card (`agent_start_failure::paint`) with one more fix button text, "Start a new session".
+- Desktop capture at 1440 for the three states: resumed tab, Sessions popover open, empty-state picker; responsive SKIPPED (owner default). Load es-designer before UI code. The Figma frames for these states are updated from the captures before gates run (owner rule, 2026-10-13).
 
 ## 8. Edge cases
 

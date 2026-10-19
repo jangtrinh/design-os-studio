@@ -6,7 +6,7 @@
 | Size / priority | M / P1 (silent data loss: an agent's insert vanishes on the next sync) |
 | Depends on | none |
 | Unblocks | agent edits into instance slots (E15-1 / E15-2 slot fills rely on content surviving a sync) |
-| Touches | `crates/designos-doc/src/components.rs` (new pure helper next to `insert_into_slot`), `crates/designos-doc/src/live_patch/replay.rs` (call sites `:202`, `:210-216`, `:303`), `crates/designos-mcp/src/engine.rs` (`Engine::exec`, `:415`), `crates/designos-fig/src/rest_import.rs` / `fig.rs` (post-expansion pass), `crates/designos-app/src/ops.rs` (`mark_slot_content_override`, `:426-433`, reuse only). New tests in `crates/designos-doc/src/slot_model_tests.rs`, `crates/designos-mcp`, `crates/designos-fig/tests/fig_slots.rs`. |
+| Touches | `crates/designos-doc/src/components.rs` (the slot predicate moved here from `ops.rs`) and new `crates/designos-doc/src/writer_command.rs` (the writer-boundary function shared with #583), `crates/designos-doc/src/live_patch/replay.rs` (call sites `:202`, `:204-216`, `:303`), `crates/designos-mcp/src/engine.rs` (`Engine::exec`, `:415`), `crates/designos-fig/src/rest_import.rs` / `fig.rs` (post-expansion pass), `crates/designos-app/src/ops.rs` (`mark_slot_content_override`, `:426-433`, reuse only). New tests in `crates/designos-doc/src/slot_model_tests.rs`, `crates/designos-mcp`, `crates/designos-fig/tests/fig_slots.rs`. |
 
 Code baseline: `origin/main@01d48f2` (0.5.0). The issue says the MCP insert paths are "around lines 264
 and 464"; they are `engine.rs:267` (`designos_apply_spec`) and `:483` (`create`).
@@ -47,12 +47,12 @@ main-component sync.
   keeps them. No code sets `SlotContent` for those. Whether the result survives a sync is what the
   issue calls "unchecked"; the first red test below settles it.
 - Custom (non-mirror) content is distinguishable: a mirror child carries `component.source`
-  (`expand_instance` sets it on every cloned child, `rest_import.rs:2080`), user content has
+  (`expand_instance`, `rest_import.rs:2007`, sets it on every cloned child at `:2080`), user content has
   `source == None`.
 
 ## 3. Behaviour rules
 
-1. New pure function in `designos-doc`: `slot_content_marked(doc: &Document, cmd: Command) -> Command`.
+1. New pure function in `designos-doc`: `slot_content_marked(doc: &Document, cmd: Command) -> Command`, one step of the shared writer-boundary function `writer_command(doc, cmd)` (`writer_command.rs`, shared with #583's direction step; whichever task merges first creates the file).
    For `Command::Insert { parent }`, `Command::Reparent { id, parent }` (destination `parent` and the
    source slot `doc.get(id).parent`) and `Command::Remove { id }` (the removed node's parent), when the
    affected node is an instance slot (the predicate of `ops.rs:427`, moved into `designos-doc` and

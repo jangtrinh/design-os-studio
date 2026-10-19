@@ -202,7 +202,8 @@ the call sites (see README-part3).
 2. **Where session folders live.** Sessions hold a copy of the live document and agent files, so location
    decides disk use and clean-up.
    - A (recommended): in the library root next to `projects/` (`agent-sessions/<file-id>/`). The library already owns
-     per-file data and trash clean-up, and the folder is deleted with the file.
+     per-file data and trash clean-up, and the folder is deleted with the file. Precedent: the owner answer of 2026-10-18 for branches (T10.1, `docs/specs/v0.6/README.md` of #615) put
+     per-file branch data in the library next to the file (`branches/<file-id>/`).
    - B: in the OS cache folder. The OS may clear it, which breaks resume silently.
    - C: next to the file on disk (`<file>.agent/`). Visible and portable, but it litters the user's folders
      and fails on read-only locations.

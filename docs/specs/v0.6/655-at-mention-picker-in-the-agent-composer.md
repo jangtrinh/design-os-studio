@@ -90,18 +90,15 @@ None.
 
 ## 7. UI
 
-Described in words; follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes: typing `@`
-searches layers, pages, components, variables and styles, and the picked item becomes a resolvable reference. The look is a
-proposal for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- A popup of rows 32 px high above the input, width of the input, maximum 8 visible rows with scrolling, kind headings
-  ("Layers", "Pages", "Components", "Variables", "Styles") in caption secondary, each row: a small vector icon of the kind, the
-  name (matched text emphasised), and a secondary line with the page or collection. The active row has the selected tint.
-- Keyboard: Up/Down move, Enter or Tab picks, Esc closes; every row is a pointer target of at least 24 px.
-- An empty result shows one line "Nothing in this file matches".
+The issue fixes: typing `@` searches layers, pages, components, variables and styles, and the picked item becomes a resolvable reference. The look is a proposal for the owner's confirmation:
+
+- A popup above the input, width of the input, `RADIUS_FRAME`, `BG_MENU` with a `BORDER_MENU` hairline, inset `INSET_POPOVER`. Kind headings ("Layers", "Pages", "Components", "Variables", "Styles") in caption `TEXT_SECONDARY`, `SPACE_GROUP` above and `SPACE_FACT` below (P9). Rows are `CONTROL_ROW` high, two lines: a vector icon of the kind and the name (matched text in body-medium), and a caption line with the page or collection; the active row uses the neutral `BG_SELECTED` fill; hover `BG_MENU_HOVER`. At most 8 rows are visible, then it scrolls.
+- Keyboard: Up/Down move, Enter or Tab picks, Esc closes; every row meets `TARGET_MIN`.
+- An empty result shows one line "Nothing in this file matches" (caption, `TEXT_SECONDARY`).
 - No animation; the popup exists only while open (no idle cost).
-- Desktop captures at 1440: popup with mixed results, filtered, no results; responsive SKIPPED (owner default). Load es-designer
-  before UI code; update the Figma frames from the captures first.
+- Desktop captures at 1440: popup with mixed results, filtered, no results; responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 
@@ -159,7 +156,8 @@ After #654 for the shared layer-reference wording; library components wait for T
 
 - Typing `@` searches layers, pages, components, variables and styles; the picked item is inserted as a resolvable reference
   (`node_id` plus a scoped spec) that the agent reads through MCP. (Issue text.)
-- The selection is never auto-injected; mentions are explicit.
+- The selection is never auto-injected; mentions are explicit. Related decided ruling, unchanged: MCP tools default to the editor selection when attached, configurable per user and session
+  (owner decision 4 in `plans/261017-epics-full-scope/owner-decisions-and-cross-check.md`); a mention names a thing explicitly and works whatever that default is.
 - Skip-permissions stays the default.
 
 ## Open questions for the owner

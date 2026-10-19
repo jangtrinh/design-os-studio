@@ -88,20 +88,15 @@ None.
 
 ## 7. UI
 
-Follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes the chip text and the click
-behaviour; the rest is a proposal for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- A pill 20 px high in the panel's header strip (it replaces the strip's current `doc · page` text; open question 2) and,
-  in the dock, at the left of the bar's right-hand button group. Caption type, `STATUS_INFO_TEXT` on
-  `STATUS_INFO_BG` with a 1 px `STATUS_INFO_BORDER` when there is a selection; neutral (`TEXT_SECONDARY`, border subtle)
-  when nothing is selected. Hover raises the background one step; the pointer target is at least 24 px tall (the 20 px
-  pill sits in a 24 px hit area).
+The issue fixes the chip text and the click behaviour; the rest is a proposal for the owner's confirmation:
+
+- A pill `CONTROL_DENSE` (24) high with `radius_full(24)`, in the panel's header strip (the strip's height changes from today's 20 px literal at `terminal.rs:2603` to `CONTROL_DENSE`, a move onto the control family) and, in the dock, at the left of the bar's right-hand button group, `SPACE_INLINE` from its neighbours. Caption type (`font_caption`), `TEXT` on a neutral `BG_SELECTED` fill with no outline when there is a selection (selection is a neutral fill, P2; the pill is not blue); `TEXT_SECONDARY` on `BG_SECONDARY` with a `BORDER` outline when nothing is selected. Hover steps the fill to `BG_SELECTED_HOVER` or `BG_HOVER`. The 24 px pill is its own pointer target.
 - Long text is elided with `widgets::elide` to the strip width; the names part shrinks first, then the page name.
 - A tooltip: "Send the selection to the agent" (selection) or "Select layers to send them" (none).
-- No animation, no timers (idle CPU invariant).
-- Zero fake UI: the chip renders only from the real selection.
-- Desktop captures at 1440 for: one layer, three layers, many layers, none selected, elided; responsive SKIPPED (owner
-  default). Load es-designer before UI code; update the Figma frames from the captures first (owner rule).
+- No animation, no timers (idle CPU invariant). Zero fake UI (P6): the chip renders only from the real selection.
+- Desktop captures at 1440 for: one layer, three layers, many layers, none selected, elided; responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first (owner rule).
 
 ## 8. Edge cases
 
@@ -160,6 +155,9 @@ call sites. Serialize with the other agent-panel PRs (README-part3).
 - Show a live chip, `page · N selected · first names`, in the terminal header; it updates within one frame of a selection
   change; clicking it sends the selection; the selection is not auto-injected into every prompt. (Issue text.)
 - No token cost unless the chip is clicked.
+- Related decided ruling, not changed here: MCP tools default to the editor selection when attached, configurable per user and session as selection / require `node_id` / page
+  (owner decision 4 in `plans/261017-epics-full-scope/owner-decisions-and-cross-check.md`). The chip controls what is pasted into the prompt; it does not replace the tool default.
+- Design standard rulings of 2026-10-18 (`plans/reports/design-std-580-evidence/owner-rulings.md`): R3 chips are pills, R4 selection is a neutral fill, R10 control heights 24/28/32/40; the chip follows them.
 - Skip-permissions stays the default; Codex tabs keep the heuristic status.
 
 ## Open questions for the owner

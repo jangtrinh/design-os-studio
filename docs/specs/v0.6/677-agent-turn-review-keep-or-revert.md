@@ -37,16 +37,22 @@ offers Keep or Revert for the whole turn. Revert undoes exactly what the agent d
 | Antigravity 1.4.2 | `PreInvocation` (Studio's file) | `Stop` | event names come from Studio's own hook file; agy documentation not read |
 | Codex 0.163.0 | none: no hooks are loaded; heuristic status only (`terminal.rs:160-169`) | none | ruling: Codex keeps the heuristic |
 
-- The session hooks are provisioned per tab and run with the PTY's environment, which includes `DESIGNOS_LIVE_DOC_PATCH`
-  (`configure_pty_env_with_session`, `terminal.rs:2294`).
+- The session hooks are provisioned per tab (`provision_session_agent_files`, `terminal.rs:906-915`) and their commands embed absolute paths, as `status_hook_command` does with
+  `status_path` (`terminal.rs:2194-2196`). The PTY environment also carries `DESIGNOS_LIVE_DOC_PATCH` (`configure_pty_env_with_session`, `terminal.rs:2294`), but whether a CLI passes its environment
+  to hook processes was not verified, so the hook command uses the literal log path.
+- **Who writes and reads `doc-patch.jsonl` (checked for this spec).** `designos-mcp` appends one line per call with `OpenOptions::new().create(true).append(true)` and a single `write_all`
+  (`append_log_line`, `designos-mcp/src/server.rs:109-115`); it never truncates, rewrites or renames this file (the `truncate` and `remove_file` calls at `server.rs:451-503` belong to save and
+  export paths). Studio's reader treats the log as rewritten only when the file shrank, its identity changed, or its first 256 bytes differ (`live_patch_log.rs:15`, `:98-99`, `:221-223`); an
+  appended line changes none of these. The only production parser is `LiveLogLine::parse` in Studio's reader; the other readers are MCP's own tests (`designos-mcp/tests/live_doc_epoch.rs:40`).
 - A node's identity and content are hashed without building a JSON string by `HashSerializer` (CLAUDE.md invariant 1; `doc_hash`).
 
 ## 3. Behaviour rules
 
 1. **Turn marks in the one ordered log.** A new log line `{"v":1,"turn_mark":"start"|"end","cli":"claude"}` is a third `LiveLogLine` variant,
-   `TurnMark`. The session hooks append it with a one-line `printf >> "$DESIGNOS_LIVE_DOC_PATCH"` on the start and end events of the table. It
+   `TurnMark`. The session hooks append it with a one-line `printf '...\n' >> '<absolute log path>'` on the start and end events of the table. It
    goes into `doc-patch.jsonl` because that file already fixes the order between edits and other markers (the `DocEpoch` precedent): patches
-   between a start and an end belong to that turn. Writing a short line with `>>` is atomic; MCP appends to the same file.
+   between a start and an end belong to that turn. Both writers append a short line to a file opened in append mode, and the file is only ever appended to (section 2), so no line is lost.
+   Every `match` on `LiveLogLine` gains a `TurnMark` arm (the compiler lists them); an unmarked old Studio reading a newer log reports the line as unreadable and goes on.
 2. **Ledger.** `agent_turn_ledger` keeps, per agent tab, the last N turns (open question 4; the text assumes the recommended 10). A turn records: its number, CLI, start and end time, and for each
    patch applied inside it the inverse command taken from `peek_undo` right after `apply_one` commits, the ids of the layers it inserted,
    updated, removed or moved, and a fingerprint (the zero-allocation node hash) of each touched layer right after that patch. Memory per tab
@@ -83,7 +89,7 @@ offers Keep or Revert for the whole turn. Revert undoes exactly what the agent d
 
 - Hook scripts: the Claude and Grok hook files gain a `UserPromptSubmit` entry and a `Stop` entry that run the append command; agy's file gets the
   same for `PreInvocation` and `Stop`. The existing status writes stay (the status file is unchanged).
-- `designos-mcp` does not write turn marks and needs no change.
+- `designos-mcp` does not write turn marks and needs no change; its test helper that parses every log line (`designos-mcp/tests/live_doc_epoch.rs:38-41`) only runs MCP, which writes no marks.
 
 ## 6. File-format mapping
 
@@ -91,16 +97,14 @@ None in `.designos` / `.fig`. The log line is a session-folder file, not part of
 
 ## 7. UI
 
-Described in words; follows `design/principles.md` and `crates/designos-app/src/theme.rs`. The issue fixes: a per-turn summary listing the changed layers,
-clicking one selects it, Keep and Revert. The form is a proposal for the owner's confirmation:
+Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-- A card at the bottom of the agent panel, `BG_SECONDARY` with a 1 px `BORDER`, radius `RADIUS_FRAME`: a headline "Claude changed 7 layers" in
-  body-medium, a one-line caption with the time, a collapsible list (first 5 rows visible, then "Show all 7"), and two buttons: `Revert` (ghost) and
-  `Keep` (primary). Rows: layer name and a caption "added" / "changed" / "removed"; pointer targets at least 24 px high.
-- After Revert: a single line "Reverted" with "Kept 2 layers you changed afterwards" when applicable.
-- The card has no animation and no timer; it exists only while it has a turn to show.
-- Desktop captures at 1440: card with a short list, long list collapsed, after Revert with the note. Responsive SKIPPED (owner default). Load es-designer
-  before UI code; update the Figma frames from the captures first.
+The issue fixes: a per-turn summary listing the changed layers, clicking one selects it, Keep and Revert. The form is a proposal for the owner's confirmation:
+
+- A card at the bottom of the agent panel: `RADIUS_FRAME`, `BG_SECONDARY`, `BORDER` hairline, inset `INSET_FRAME`. Headline "Claude changed layers" in body-medium followed by a count pill with the number (the existing count pill of `panels/check_designs.rs:186-196`, `BG_TERTIARY` fill, number in its own pill, P5); a caption line with the time; a collapsible list (the first 5 rows visible, then "Show all") with rows `CONTROL_DENSE` high (layer name in body, change kind "added" / "changed" / "removed" in caption `TEXT_SECONDARY`; each row is its own pointer target); two secondary buttons, `Revert` and `Keep`, `CONTROL_STANDARD` high, `RADIUS_CONTROL`, `SPACE_INLINE` apart. Neither is the primary action: the view's one primary action stays with the approval card (#656) or the composer's send.
+- After Revert: one caption line "Reverted" and, when applicable, "Kept 2 layers you changed afterwards" (the number in `font_mono`).
+- No animation, no timer; the card exists only while it has a turn to show.
+- Desktop captures at 1440: card with a short list, long list collapsed, after Revert with the note. Responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 
