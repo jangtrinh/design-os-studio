@@ -73,7 +73,7 @@ macro_rules! codex_mcp_overrides {
 }
 
 /// Presets for launching an interactive PTY session inside DESIGN:OS Studio.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentCliPreset {
     Shell,
     Claude,
@@ -714,6 +714,8 @@ pub struct TerminalState {
     pub agy_cwd_scoped: bool,
     /// Additional directories prepended at the front of `PATH` when spawning child PTYs.
     pub path_prepend: Vec<PathBuf>,
+    /// State for the new-session CLI picker, compact `+` menu, and inline `"Other CLI..."` form (`#652`).
+    pub picker: crate::agent_picker::AgentPickerState,
 }
 
 impl Default for TerminalState {
@@ -798,6 +800,7 @@ impl TerminalState {
             lock_owner: None,
             agy_cwd_scoped: false,
             path_prepend: Vec::new(),
+            picker: crate::agent_picker::AgentPickerState::default(),
         }
     }
 
@@ -1358,8 +1361,49 @@ impl TerminalState {
         }
     }
 
+    /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
+    /// Only registrable agent CLIs (`claude`, `codex`, `grok`, `agy`) are recorded; `Shell` and custom
+    /// commands never become the default.
+    pub fn record_last_cli(&mut self, preset: AgentCliPreset) {
+        if crate::agent_sessions::is_registrable_cli(preset) {
+            self.session_registry.last_cli = Some(preset.binary_name().to_string());
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+        }
+    }
+
+    /// Spawns a custom CLI command tab (`"Other CLI..."` / `custom_clis`) in this file's session folder
+    /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
+    pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
+        let id = self.next_tab_id.max(1);
+        self.next_tab_id = id + 1;
+        let _ = std::fs::create_dir_all(&self.session_dir);
+        self.provision_session_agent_files(file_path);
+        let env = self.session_env();
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
+        #[cfg(test)]
+        isolate_zsh_from_home(&mut cmd);
+        cmd.cwd(&self.session_dir);
+
+        let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
+        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Shell, 28, 100, file_path, Some(&env), Some(cmd)) {
+            Ok(mut tab) => {
+                tab.title = clean_title.to_string();
+                self.tabs.push(tab);
+                self.active_tab = self.tabs.len() - 1;
+                self.viewport_focused = true;
+                self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
+                Ok(self.active_tab)
+            }
+            Err(e) => {
+                self.status_msg = Some(format!("PTY error: {e}"));
+                Err(e)
+            }
+        }
+    }
+
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
-    /// For registrable agent CLIs (`claude`, `codex`, `grok`, `agy`), records a new entry in `sessions.json` (`#653`).
+    /// For registrable agent CLIs (`claude`, `codex`, `grok`, `agy`), records a new entry in `sessions.json` (`#653`)
+    /// and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
         if crate::agent_sessions::is_registrable_cli(preset) {
             let session_uuid =
@@ -1425,6 +1469,7 @@ impl TerminalState {
                         status: crate::agent_sessions::SessionEntryStatus::Active,
                         extra: std::collections::BTreeMap::new(),
                     };
+                    self.session_registry.last_cli = Some(preset.binary_name().to_string());
                     self.session_registry.sessions.retain(|s| s.tab_id != id as u64);
                     self.session_registry.sessions.push(entry);
                     let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
@@ -2601,7 +2646,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_FILE", fp.as_os_str());
     }
     cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
-    cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    if cmd.get_cwd().is_none() {
+        cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    }
 
     let mut extra_paths: Vec<String> = Vec::new();
     if let Some(sess) = session {
@@ -3387,94 +3434,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
 }
 
 fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
-    let menu_w = (panel_rect.width() - 16.0).clamp(180.0, 224.0);
-    let entries = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Shell];
-    let last_resume = state.resumable_sessions().first().map(|e| (e.title.clone(), e.cli.clone()));
-    let row_h = 34.0;
-    let header_h = 24.0;
-    let extra_rows = if last_resume.is_some() { 1.0 } else { 0.0 };
-    let menu_h = header_h + (entries.len() as f32 + extra_rows) * row_h + 8.0;
-    let menu_x = (panel_rect.right() - menu_w - 8.0).max(panel_rect.left() + 8.0);
-    let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
-
-    let p = ui.painter().clone();
-    p.rect_filled(menu_r, CornerRadius::same(8), Color32::from_rgb(0x22, 0x22, 0x26));
-    p.rect_stroke(menu_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x3E, 0x46)), StrokeKind::Inside);
-    widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
-
-    p.text(
-        Pos2::new(menu_r.left() + 10.0, menu_r.top() + 13.0),
-        Align2::LEFT_CENTER,
-        "LAUNCH CLI (SKIP PERMISSIONS)",
-        theme::font_caption_strong(),
-        theme::TEXT_SECONDARY,
-    );
-    widgets::hline(&p, menu_r.left() + 6.0, menu_r.right() - 6.0, menu_r.top() + header_h, TERM_BORDER);
-
-    let mut resume_clicked = false;
-    let mut row_offset = 0usize;
-    if let Some((prev_title, prev_cli)) = &last_resume {
-        let ry = menu_r.top() + header_h + 4.0;
-        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + 4.0, ry), Vec2::new(menu_w - 8.0, row_h - 2.0));
-        let resp = ui.interact(row_r, Id::new("agents-dropdown-resume-last"), Sense::click());
-        if resp.hovered() {
-            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
-        }
-        let title_str = widgets::elide(&p, "Resume last session", &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
-        let sub_raw = format!("{prev_title} ({prev_cli})");
-        let sub_str = widgets::elide(&p, &sub_raw, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), STATUS_OK_TEXT);
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), theme::TEXT_SECONDARY);
-        widgets::record(ui, "agents-dropdown-resume-last", row_r);
-        if resp.clicked() {
-            resume_clicked = true;
-        }
-        row_offset = 1;
-    }
-
-    let mut chosen: Option<AgentCliPreset> = None;
-    for (i, preset) in entries.iter().copied().enumerate() {
-        let ry = menu_r.top() + header_h + 4.0 + (i + row_offset) as f32 * row_h;
-        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + 4.0, ry), Vec2::new(menu_w - 8.0, row_h - 2.0));
-        let id_str = match preset {
-            AgentCliPreset::Claude => "agents-dropdown-claude",
-            AgentCliPreset::Codex => "agents-dropdown-codex",
-            AgentCliPreset::Grok => "agents-dropdown-grok",
-            AgentCliPreset::Antigravity => "agents-dropdown-antigravity",
-            AgentCliPreset::Shell => "agents-dropdown-shell",
-            AgentCliPreset::DesignOsHelp => "agents-dropdown-help",
-        };
-        let resp = ui.interact(row_r, Id::new(id_str), Sense::click());
-        if resp.hovered() {
-            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
-        }
-        let (_widget_id, title, subtitle) = preset.dropdown_entry();
-        let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
-        let sub_str = widgets::elide(&p, subtitle, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), Color32::WHITE);
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), STATUS_INFO_TEXT);
-        widgets::record(ui, id_str, row_r);
-        if resp.clicked() {
-            chosen = Some(preset);
-        }
-    }
-
-    if resume_clicked {
-        state.runtime_dropdown_open = false;
-        let _ = state.resume_last_session(file_path);
-    } else if let Some(preset) = chosen {
-        state.runtime_dropdown_open = false;
-        state.active_runtime = preset;
-        let _ = state.spawn_tab(preset, file_path);
-    } else if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-runtime-add-btn".to_string()))));
-            let in_add = add_btn.map(|r| r.contains(pos)).unwrap_or(false);
-            if !menu_r.contains(pos) && !in_add {
-                state.runtime_dropdown_open = false;
-            }
-        }
-    }
+    crate::agent_picker::render_runtime_dropdown_menu(state, ui, panel_rect, top_y, file_path);
 }
 
 fn wrap_chat_lines(p: &Painter, text: &str, font: &FontId, max_w: f32, max_lines: usize) -> Vec<String> {

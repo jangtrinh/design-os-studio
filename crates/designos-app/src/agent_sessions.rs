@@ -48,6 +48,8 @@ pub struct SessionEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionRegistry {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_cli: Option<String>,
     #[serde(default)]
     pub sessions: Vec<SessionEntry>,
     #[serde(flatten)]
@@ -56,7 +58,7 @@ pub struct SessionRegistry {
 
 impl Default for SessionRegistry {
     fn default() -> Self {
-        Self { version: 1, sessions: Vec::new(), extra: BTreeMap::new() }
+        Self { version: 1, last_cli: None, sessions: Vec::new(), extra: BTreeMap::new() }
     }
 }
 

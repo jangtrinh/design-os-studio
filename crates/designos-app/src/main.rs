@@ -1,3 +1,5 @@
+pub mod agent_cli_catalog;
+pub mod agent_picker;
 pub mod agent_sessions;
 mod agent_start_failure;
 mod app;

@@ -55,6 +55,38 @@ pub fn save_author(root: &Path, name: &str) -> Result<(), String> {
     designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
 }
 
+/// Loads saved custom CLI entries (`custom_clis`) from Studio's `settings.json` (`#652` §4).
+pub fn load_custom_clis(root: &Path) -> Vec<crate::agent_cli_catalog::CustomCliEntry> {
+    read(root).get("custom_clis").and_then(|v| serde_json::from_value::<Vec<crate::agent_cli_catalog::CustomCliEntry>>(v.clone()).ok()).unwrap_or_default()
+}
+
+/// Saves `entries` under `"custom_clis"` in Studio's `settings.json`, preserving all other keys.
+pub fn save_custom_clis(root: &Path, entries: &[crate::agent_cli_catalog::CustomCliEntry]) -> Result<(), String> {
+    let mut map = read(root);
+    let val = serde_json::to_value(entries).map_err(|e| e.to_string())?;
+    map.insert("custom_clis".into(), val);
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
+}
+
+/// Adds or updates a custom CLI entry in Studio's `settings.json` (shared across all files, `#652` §3 rule 7).
+pub fn add_custom_cli(root: &Path, label: &str, command: &str) -> Result<Vec<crate::agent_cli_catalog::CustomCliEntry>, String> {
+    let cmd = command.trim();
+    if cmd.is_empty() {
+        return Err("Command cannot be empty".into());
+    }
+    let lbl = label.trim();
+    let resolved_label = if lbl.is_empty() { cmd.split_whitespace().next().unwrap_or(cmd).to_string() } else { lbl.to_string() };
+    let mut entries = load_custom_clis(root);
+    if let Some(existing) = entries.iter_mut().find(|e| e.command == cmd && e.label == resolved_label) {
+        existing.command = cmd.to_string();
+    } else {
+        entries.push(crate::agent_cli_catalog::CustomCliEntry { label: resolved_label, command: cmd.to_string() });
+    }
+    save_custom_clis(root, &entries)?;
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
