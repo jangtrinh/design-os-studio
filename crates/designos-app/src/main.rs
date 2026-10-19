@@ -1,5 +1,6 @@
 mod agent_a11y;
 mod agent_approval_card;
+mod agent_busy_frames;
 pub mod agent_cli_catalog;
 pub mod agent_composer;
 mod agent_mention;

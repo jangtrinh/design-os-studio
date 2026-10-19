@@ -41,6 +41,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     app.terminal.live_patch.state = LivePatchState::default();
     app.agent_presence.reset();
     app.agent_changes_chip.clear();
+    app.agent_busy_frames.clear();
     app.sanitize();
     app.changed();
     app.fit_all();
@@ -165,6 +166,7 @@ pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], off
                     app.agent_presence.record_patch(sid, label, &app.doc, None, &report, app.now);
                     let colour_idx = app.agent_presence.sessions.iter().find(|s| s.id == clean_sid).map(|s| s.colour_index).unwrap_or(0);
                     app.agent_changes_chip.record_patch(clean_sid, colour_idx, Some(turn_id), &app.doc, &report, app.view, app.canvas_rect);
+                    app.agent_busy_frames.record_agent_patch_ops(&patch.ops, &app.terminal.live_patch.state);
                 }
                 committed_any |= committed;
                 merge(&mut total, report);

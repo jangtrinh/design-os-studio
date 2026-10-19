@@ -448,7 +448,7 @@ pub fn in_progress_badge_rect(doc: &designos_doc::Document, id: NodeId, n: &Node
     let label = ip.badge_text();
     let text_w = label.chars().count() as f32 * theme::FONT_SIZE_CAPTION * 0.62 + 12.0;
     let h = 18.0;
-    let left_x = dev_status_badge_rect(id, n, label_rect).map_or(label_rect.right() + 6.0, |(dr, _)| dr.right() + 6.0);
+    let left_x = dev_status_badge_rect(id, n, label_rect).map_or(label_rect.right(), |(dr, _)| dr.right()) + theme::SPACE_ROW;
     let r = ERect::from_min_size(Pos2::new(left_x, label_rect.center().y - h * 0.5), EV::new(text_w, h));
     Some((r, ip))
 }

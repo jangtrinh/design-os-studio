@@ -213,6 +213,8 @@ pub struct App {
     pub agent_presence: crate::agent_presence::AgentPresence,
     /// Edge-anchored "N changes -> Show" chips for off-screen agent turns (`#695`).
     pub agent_changes_chip: crate::canvas::agent_changes_chip::AgentChangesChips,
+    /// Busy-frame banner, dismissals, free-spot duplicate placement, and concurrent-edit ledger (`#693`).
+    pub agent_busy_frames: crate::agent_busy_frames::AgentBusyFrames,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
     /// Check designs panel: hard-coded values, contrast and detached instances.
@@ -283,6 +285,7 @@ impl App {
             agent_a11y: Default::default(),
             agent_presence: Default::default(),
             agent_changes_chip: Default::default(),
+            agent_busy_frames: Default::default(),
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
@@ -384,6 +387,25 @@ impl App {
         self.selection.clear();
     }
 
+    /// Refreshes the `#693` busy-frame banner state from the current selection and any active canvas edit gesture.
+    pub fn sync_busy_frame_banner(&mut self) {
+        use crate::canvas::{Interaction, ResizeKind};
+        let gesture_node = match &self.canvas.inter {
+            Interaction::Pending(p) => Some(p.node),
+            Interaction::Move(m) => m.ids.first().copied(),
+            Interaction::Resize(r) => match &r.kind {
+                ResizeKind::Single { id, .. } => Some(*id),
+                ResizeKind::Multi { nodes, .. } => nodes.first().map(|n| n.0),
+            },
+            Interaction::Rotate(r) => Some(r.id),
+            Interaction::CornerRadius(c) => Some(c.id),
+            Interaction::AutoLayoutDrag(a) => Some(a.id),
+            Interaction::ShapeControl(s) => Some(s.id),
+            _ => self.canvas.text.as_ref().map(|t| t.id).or_else(|| self.canvas.vedit.as_ref().map(|v| v.id)),
+        };
+        self.agent_busy_frames.sync_banner(&self.doc, &self.agent_presence, &self.selection, gesture_node);
+    }
+
     /// Drops selection/hover entries that no longer exist or left the page.
     pub fn sanitize(&mut self) {
         self.doc.prune_in_progress();
@@ -396,6 +418,7 @@ impl App {
         if !doc.nodes.contains_key(&self.page) {
             self.page = doc.pages.first().copied().unwrap_or(NodeId(0));
         }
+        self.sync_busy_frame_banner();
     }
 
     #[allow(dead_code)]
