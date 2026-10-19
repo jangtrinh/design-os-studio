@@ -145,6 +145,6 @@ Each has a recommended answer; none blocks writing the specs; the task that need
 7. **#521** separate from #163; image variables read-only in the panel. Recommended: yes.
 8. **#520** run the two-frame read before any renderer change. Recommended: yes.
 9. **#528** approve the calibration rectangles (a dozen nodes in a scratch Figma file); largest-side stroke weight on every side. Recommended: yes and yes.
-10. **#253** answered 2026-10-19: approved. (Original question: approve the 8 plugins; count the three same-repository plugins as three; vendor built plugin output once. Recommended: yes, yes, yes.
+10. **#253** answered 2026-10-19: approved. (Original question: approve the 8 plugins; count the three same-repository plugins as three; vendor built plugin output once. Recommended: yes, yes, yes.)
 11. **#254** in-process engine answered 2026-10-19 (worker thread). Still open: spike limits 64 MiB, 1 MiB, 5 s, 60 s. Recommended: yes.
 12. **Import report**: let the first of #37, #38, #521 create `ImportReport` in #5's shape if #5 has not landed. Recommended: yes.
