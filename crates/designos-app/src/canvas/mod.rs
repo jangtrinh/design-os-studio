@@ -1,6 +1,7 @@
 //! The canvas: renders the page into a texture, handles viewport gestures,
 //! tools and interactions, and paints the selection overlays.
 
+pub mod agent_overlay;
 pub mod builder;
 pub mod create;
 pub mod draw;
@@ -385,6 +386,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: ERect) {
     crate::comments::pins::process(app, rect, &resp);
     grids::paint(app, ui, rect);
     draw::overlays(app, ui, rect);
+    agent_overlay::paint(app, ui, rect);
     draw::empty_slot_picker_overlay(app, ui, rect);
     interact::auto_layout_inline_overlay(app, ui, rect);
     vector::toolbar(app, ui, rect);

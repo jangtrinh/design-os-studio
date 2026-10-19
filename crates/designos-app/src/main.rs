@@ -2,6 +2,7 @@ mod agent_a11y;
 pub mod agent_cli_catalog;
 pub mod agent_open_flow;
 pub mod agent_picker;
+mod agent_presence;
 mod agent_selection_chip;
 pub mod agent_sessions;
 mod agent_start_failure;

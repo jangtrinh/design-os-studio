@@ -15,6 +15,22 @@
       "$type": "color",
       "$value": "#ff9e66"
     },
+    "agent-1": {
+      "$type": "color",
+      "$value": "#ffa629"
+    },
+    "agent-2": {
+      "$type": "color",
+      "$value": "#14ae5c"
+    },
+    "agent-3": {
+      "$type": "color",
+      "$value": "#ee46bc"
+    },
+    "agent-4": {
+      "$type": "color",
+      "$value": "#38bdf8"
+    },
     "bg": {
       "$extensions": {
         "design-os.role": "background"

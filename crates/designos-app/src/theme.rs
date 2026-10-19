@@ -100,6 +100,13 @@ pub const GUIDE_COLOR: Color32 = rgb(0xFE5938);
 pub const GUIDE_TEXT: Color32 = rgb(0xFFFFFF);
 pub const PEN_POINT: Color32 = rgb(0xFFFFFF);
 pub const DROP_INDICATOR: Color32 = rgb(0xE36323);
+/// Four agent presence colours (amber, emerald, pink, sky) and the dark label drawn on them.
+pub const AGENT_1: Color32 = rgb(0xFFA629);
+pub const AGENT_2: Color32 = rgb(0x14AE5C);
+pub const AGENT_3: Color32 = rgb(0xEE46BC);
+pub const AGENT_4: Color32 = rgb(0x38BDF8);
+pub const AGENT_COLORS: [Color32; 4] = [AGENT_1, AGENT_2, AGENT_3, AGENT_4];
+pub const AGENT_LABEL_TEXT: Color32 = rgb(0x09090B);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts

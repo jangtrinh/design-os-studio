@@ -37,6 +37,7 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     app.page = keep_page;
     // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
     app.terminal.live_patch.state = LivePatchState::default();
+    app.agent_presence.reset();
     app.sanitize();
     app.changed();
     app.fit_all();
@@ -82,9 +83,15 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
     let mut total = LivePatchReport::default();
     let mut committed_any = false;
     let mut failures = Vec::new();
+    let (default_sid, default_label) = app.terminal.active_agent_session_identity();
     for patch in patches {
         match apply_one(app, patch) {
             Ok((report, committed)) => {
+                if committed {
+                    let sid = patch.session_id.as_deref().unwrap_or(&default_sid);
+                    let label = patch.agent_label.as_deref().unwrap_or(&default_label);
+                    app.agent_presence.record_patch(sid, label, &app.doc, None, &report, app.now);
+                }
                 committed_any |= committed;
                 merge(&mut total, report);
             }
@@ -134,6 +141,8 @@ fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool)
 fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
     total.inserted_roots.extend(r.inserted_roots);
     total.needs_layout.extend(r.needs_layout);
+    total.touched.extend(r.touched);
+    total.removed_parents.extend(r.removed_parents);
     total.applied += r.applied;
     total.duplicates += r.duplicates;
     total.skipped.extend(r.skipped);
