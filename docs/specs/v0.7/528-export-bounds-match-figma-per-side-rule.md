@@ -147,3 +147,13 @@ No task dependency for causes 1 to 3. Land in two commits: the additive per-side
 1. Approve the calibration rectangles (a dozen nodes written into a scratch Figma file). Recommended: yes, one scratch page, deleted afterwards; it is the only way to pin the rounding rule and the 100 x 40 case.
 2. Per-side stroke weights with Outside alignment: use the largest side weight on every side (this spec), or each side's own weight. Recommended: the largest, until the live read shows otherwise; per-side outset with different weights is rare.
 3. If cause 5 frames turn out to need a text-glyph or mask rule that touches the renderer, split them into a new task. Recommended: yes, file it with the read's evidence rather than stretching this one.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: render bounds = own box (only when the node has a visible fill or stroke) ∪ true stroke outline (vector-like nodes) ∪ text ink bounds ∪ children (opacity ≤ 0 skipped; clipped by a clipping container) ∪ effect rects. The result is then intersected with every clipping ancestor. A hidden node, or a node with an ancestor at opacity ≤ 0, has no bounds (null).
+- FACT: a drop shadow rect is the source bounds moved by the offset and inflated by radius + spread on every side, unclamped, then unioned with the source. Stroke and shadow therefore add up. This rule reproduces 370×582 and 310×42 exactly.
+- FACT: background blur inflates by its radius (for a progressive blur, the larger of radius and start radius), and is rotation- and scale-aware. Texture inflates by its radius. Inner shadow, noise, glass and custom effects do not inflate the bounds.
+- Cause 5 candidates (INFERENCE, to confirm on the kit): fill-less non-clipping frames that drop their own box, children clipped by a clipping container, children at opacity 0, text measured by ink, and strokes measured by the true outline.
+- UNKNOWN: how the integer 1x size is derived from fractional bounds. PNG pixel size stays round-half-away(scale × integer 1x).

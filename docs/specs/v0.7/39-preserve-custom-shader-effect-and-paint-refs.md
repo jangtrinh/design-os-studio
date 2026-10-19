@@ -137,3 +137,10 @@ Hot-file queue position 19 (issue text), after #37 (position 18); then #161 (pos
 1. Carry the whole message verbatim (this spec) or only the four named fields. Recommended: the whole message; it also keeps fields Studio has never heard of.
 2. Provide a Figma file that contains a shader so the fixture can be checked against a real one. Recommended: yes if one exists; otherwise the synthetic fixture stands and the real check waits.
 3. An old Studio cannot open a `.designos` file that holds a shader. Recommended: accept, and say so in the release notes.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: when the pre-rendered custom-effect texture is missing, Figma logs an error and draws nothing for that effect or paint. A CUSTOM effect also counts as ineffective while a feature flag is on.
+- INFERENCE: an unresolved shader adds no silhouette and no coverage. This matches the spec's render-nothing rule.

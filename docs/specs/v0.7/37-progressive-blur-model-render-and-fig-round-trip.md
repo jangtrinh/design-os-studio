@@ -162,3 +162,15 @@ Hot-file queue position 18 (issue text): after #38 (position 17), before #39 (po
 2. Should uniform blur and shadows move from the Gaussian (radius / 2) to the tent kernel after the calibration? Recommended: not in this task; keep progressive on the tent and decide for uniform when the fit shows a visible difference.
 3. Canvas handles for the ramp start and end. Recommended: a follow-up task; numeric fields in percent ship now.
 4. Wording of the type switch: "Uniform" / "Progressive". Recommended: yes, until the live read shows Figma's labels.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: the blur count is measured in device pixels of the blur tile and is capped at 64 taps.
+- FACT: R_px = radius × the node-to-canvas scale; for a non-uniform scale, use the larger axis.
+- FACT: for large radii the count is compressed by 1 / (1 + 2·R_px·G/W), and the tile is downscaled by count / R_px.
+- FACT: in a progressive blur the end with the larger radius takes the count; the other end takes count × minR/maxR, linear in radius.
+- FACT: layer blur and background blur use one shared tile-blur path. Rectangle shadows use a separate analytic shader that takes the blur radius directly.
+- INFERENCE: below compression, `count = min(R·scale, 64)`. UNKNOWN: the tile constants W and G, so the radius where compression starts. Closing check: calibrate on live Figma.
+- FACT: a new progressive blur defaults to start radius 0 and runs from (50%, 0%) to (50%, 100%). On a LINE node it runs from (0, −0.5) to (1, −0.5). Both radii are capped at 100.

@@ -209,3 +209,12 @@ Hot-file queue position 17 (issue text), after #106 (merged). Slice A uses the h
 2. Show a "Bevel" row and a "Splay" row. Recommended: yes, labelled "Bevel" and "Splay", provisional until the live read; a stored parameter without a control would hide it.
 3. Run the live Figma read (about 20 minutes). Recommended: yes; it closes five UNKNOWNs.
 4. Existing Studio glass and noise effects will look different after slice B (new math, new seeds' patterns). Recommended: accept; say so in the release notes.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: kiwi `specularAngle` is in degrees and maps 1:1 to plugin `lightAngle`. It is clamped to −899…900 and defaults to −45. Studio stores degrees.
+- FACT: glass defaults are refraction 0.8, depth 20, light intensity 0.8, angle −45, bevel 1, dispersion 0.5, splay 0 and frost radius 4. Plugin ranges are refraction 0–1, depth 1–100, intensity 0–1, dispersion 0–1, radius 0–100 and splay 0–1. Plugin writes always set bevel to 1.
+- FACT: kiwi `noiseSize` equals the UI/plugin size, with X and Y independent. The renderer uses 1/size per axis, so UI 0.5 means a frequency of 2 per pixel.
+- FACT: noise defaults are monotone, colour black at 25%, opacity 0.25, density 1, secondary colour white at 25%, size (0.5, 0.5) and a random seed. Texture defaults are size (4, 4), radius 4, clip-to-shape off and a random seed.

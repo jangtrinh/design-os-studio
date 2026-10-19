@@ -121,3 +121,11 @@ No hard task dependency, but the fix is gated by the owner-manual read. #161 cha
 1. Run the live Figma read (two fixture frames, three pixels). Recommended: yes, about 10 minutes; nothing else in this task can be decided without it.
 2. Should uniform blur and shadows move from the Gaussian to Figma's tent kernel? Recommended: no for this task (difference at most 4/255); decide after #37's calibration shows the blur radius mapping.
 3. If the read shows Studio's shadows differ in more ways than the fill-less case, split the rest of the bucket by cause into new tasks. Recommended: yes.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: the shadow knockout is a mask pass. In binary mode (flag `knockout_shadow_binary_mask`), any non-zero mask alpha removes the shadow at that pixel. The non-binary mode blends by mask alpha.
+- FACT: `showShadowBehindNode` is effect field 8 and defaults to false.
+- UNKNOWN: what draws the mask for a frame without fills: the frame geometry, the fill alpha or the children. The two-frame live read stays the deciding step.

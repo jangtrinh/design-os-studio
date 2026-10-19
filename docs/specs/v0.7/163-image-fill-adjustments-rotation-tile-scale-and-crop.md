@@ -157,3 +157,11 @@ Hot-file queue position 21 (issue text): claim only after position 20 (#161) mer
 2. Crop editing (handles on the canvas). Recommended: a follow-up task; this task renders and round trips crops from Figma files.
 3. Adjustments on the sampled colour (this spec) versus on the decoded image before resampling. Recommended: sampled colour, as it matches how a shader-based renderer does it; the difference shows only on hard edges.
 4. Contrast slider scale. Recommended: show the stored value times 100 until the read shows Figma's mapping.
+
+## 14. Facts resolved by REA 2 (2026-10-19)
+
+Static reading of Figma's fullscreen wasm and app bundle. No Figma code was copied. Where a line above says UNKNOWN or INFERENCE and this section says FACT, this section wins.
+
+- FACT: `highlightShadowThreshold` is the constant 0.5, not a stored property, so the contrast pivot is Lc = 50.
+- FACT: the UI/plugin contrast equals the stored value divided by 0.3, clamped to ±1, so ±100% in the UI means ±0.3 in kiwi. Exposure, tint, temperature, highlights and shadows map 1:1. Saturation is kiwi `vibrance`. UNKNOWN: whether the renderer rescales contrast again.
+- FACT: kiwi image `rotation` is in degrees, read back mod 360, and only for Fill, Fit and Tile. Stretch is exposed as Crop with a transform and has no rotation. UNKNOWN: the rotation origin (INFERENCE: the image centre).
