@@ -692,7 +692,7 @@ pub fn apply(app: &mut App, act: Act) {
             app.home = None;
             app.ui.rail = Some(crate::app::RailItem::Agents);
             app.ui.left_collapsed = false;
-            app.terminal.ensure_default_tab(app.file_path.as_deref());
+            app.terminal.open_for_agent_use(app.file_path.as_deref());
             changed = false;
         }
         Act::Import => {

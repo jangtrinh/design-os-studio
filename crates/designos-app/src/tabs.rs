@@ -1785,7 +1785,7 @@ mod tests {
         let mut app = App::new(Document::new("Preset"));
         let bound = app.tabs.active_session_id();
         app.terminal.bind_session(&bound);
-        app.terminal.ensure_default_tab(None);
+        app.terminal.ensure_shell_for_chat(None);
         assert_eq!(app.terminal.tabs.len(), 1, "precondition: the shell started");
         let started_with = app.terminal.session_env();
 

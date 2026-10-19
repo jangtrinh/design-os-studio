@@ -3153,7 +3153,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
             app.terminal.input_line = format!("{spec_ref} {}", app.terminal.input_line.trim());
         }
         let fp = app.file_path.clone();
-        app.terminal.ensure_default_tab(fp.as_deref());
+        app.terminal.open_for_agent_use(fp.as_deref());
         app.terminal.dock_open = true;
         app.ui.rail = Some(crate::app::RailItem::Agents);
         app.show_toast("Referenced @spec in Agent CLI (Claude / Codex / AGY / Grok)", false);

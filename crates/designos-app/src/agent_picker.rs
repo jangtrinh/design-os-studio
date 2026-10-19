@@ -211,12 +211,12 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     let row_h = theme::CONTROL_ROW;
     let row_gap = theme::SPACE_ROW;
     let form_h = if state.picker.other_form_open { 108.0 } else { 0.0 };
-    let header_h = 24.0;
-    let footer_h = 22.0;
+    let header_h = theme::CONTROL_DENSE;
+    let footer_h = theme::FIELD_HEIGHT;
     let content_h = pad * 2.0 + header_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h;
     let card_w = (rect.width() - pad * 2.0).clamp(220.0, 380.0);
     let card_h = content_h.min((rect.height() - pad).max(160.0));
-    let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(8.0);
+    let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(theme::SPACE_INLINE);
     let card_y = rect.top() + pad;
     let card_r = Rect::from_min_size(Pos2::new(card_x, card_y), Vec2::new(card_w, card_h));
 
@@ -230,10 +230,16 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     let mut y = card_r.top() + pad;
 
     let hdr = widgets::elide(&p, "Start agent session", &theme::font_body_medium(), inner_w);
-    p.text(Pos2::new(inner_left, y + 8.0), Align2::LEFT_CENTER, hdr, theme::font_body_medium(), theme::TEXT);
+    p.text(Pos2::new(inner_left, y + theme::SPACE_INLINE), Align2::LEFT_CENTER, hdr, theme::font_body_medium(), theme::TEXT);
     y += header_h;
 
     let mut interaction = PickerInteraction::None;
+    let row_top_offset = theme::INSET_POPOVER + theme::BORDER_WIDTH;
+    let row_bottom_offset = theme::INSET_CONTROL + theme::SPACE_FACT;
+    let install_label_reserve = 90.0;
+    let pill_h = 18.0;
+    let pill_half_h = pill_h * 0.5;
+    let form_card_h = 100.0;
 
     for (idx, row) in rows.iter().enumerate() {
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
@@ -257,21 +263,10 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
         );
 
         let text_col = if row.selectable { theme::TEXT } else { theme::TEXT_DISABLED };
-        let top_line_y = if row.caption.is_some() { r_rect.top() + 13.0 } else { r_rect.center().y };
-
-        // Left: Name + Version (`SPACE_INLINE` = 8 px)
-        let name_str = widgets::elide(&p, &row.label, &theme::font_body_medium(), (inner_w * 0.45).max(48.0));
-        p.text(Pos2::new(r_rect.left() + theme::INSET_CONTROL, top_line_y), Align2::LEFT_CENTER, &name_str, theme::font_body_medium(), text_col);
-        let mut left_cursor = r_rect.left() + theme::INSET_CONTROL + widgets::text_width(&p, &name_str, &theme::font_body_medium()) + theme::SPACE_INLINE;
-
-        if let Some(ref ver) = row.version {
-            let ver_str = widgets::elide(&p, ver, &theme::font_mono(), 68.0);
-            p.text(Pos2::new(left_cursor, top_line_y), Align2::LEFT_CENTER, &ver_str, theme::font_mono(), theme::TEXT_SECONDARY);
-            left_cursor += widgets::text_width(&p, &ver_str, &theme::font_mono()) + theme::SPACE_INLINE;
-        }
-        let _ = left_cursor;
+        let top_line_y = if row.caption.is_some() { r_rect.top() + row_top_offset } else { r_rect.center().y };
 
         // Right: State pill OR Install action button (`CONTROL_DENSE` = 24 px)
+        let mut right_limit = r_rect.right() - theme::INSET_CONTROL;
         if let Some(ref fix) = row.install_action {
             let btn_w = 56.0;
             let btn_r = Rect::from_min_size(
@@ -284,11 +279,20 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
             p.rect_stroke(btn_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, STATUS_INFO_BORDER), StrokeKind::Inside);
             p.text(btn_r.center(), Align2::CENTER_CENTER, "Install", theme::font_caption_medium(), STATUS_INFO_TEXT);
             widgets::record(ui, &format!("{}-install", row.id), btn_r);
+            right_limit = btn_r.left() - theme::SPACE_INLINE;
 
             if let Some(ref st_lbl) = row.state_label {
-                let st_w = (btn_r.left() - r_rect.left() - 90.0).max(36.0);
+                let st_w = (btn_r.left() - r_rect.left() - install_label_reserve).max(36.0);
                 let st_elided = widgets::elide(&p, st_lbl, &theme::font_caption(), st_w);
-                p.text(Pos2::new(btn_r.left() - theme::SPACE_INLINE, top_line_y), Align2::RIGHT_CENTER, st_elided, theme::font_caption(), theme::TEXT_DISABLED);
+                let st_actual_w = widgets::text_width(&p, &st_elided, &theme::font_caption());
+                p.text(
+                    Pos2::new(btn_r.left() - theme::SPACE_INLINE, top_line_y),
+                    Align2::RIGHT_CENTER,
+                    &st_elided,
+                    theme::font_caption(),
+                    theme::TEXT_DISABLED,
+                );
+                right_limit = btn_r.left() - theme::SPACE_INLINE - st_actual_w - theme::SPACE_INLINE;
             }
             if btn_resp.clicked() {
                 interaction = PickerInteraction::ActivateInstall(fix.clone());
@@ -296,20 +300,37 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
         } else if let PickerRowKind::CatalogCli { signed_in, installed, .. } = row.kind {
             if let Some(ref st_lbl) = row.state_label {
                 let (p_bg, p_border, p_fg) = state_pill_colors(signed_in, installed);
-                let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + 12.0;
-                let pill_w = lbl_w.clamp(48.0, (inner_w * 0.46).max(64.0));
-                let pill_r = Rect::from_min_size(Pos2::new(r_rect.right() - theme::INSET_CONTROL - pill_w, top_line_y - 9.0), Vec2::new(pill_w, 18.0));
+                let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + theme::INSET_POPOVER;
+                let pill_w = lbl_w.clamp(48.0, (inner_w * 0.42).max(60.0));
+                let pill_r =
+                    Rect::from_min_size(Pos2::new(r_rect.right() - theme::INSET_CONTROL - pill_w, top_line_y - pill_half_h), Vec2::new(pill_w, pill_h));
                 p.rect_filled(pill_r, theme::cr_pill(pill_r.height()), p_bg);
                 p.rect_stroke(pill_r, theme::cr_pill(pill_r.height()), Stroke::new(theme::BORDER_WIDTH, p_border), StrokeKind::Inside);
-                let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - 8.0).max(24.0));
+                let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - theme::SPACE_INLINE).max(24.0));
                 p.text(pill_r.center(), Align2::CENTER_CENTER, pill_txt, theme::font_caption(), p_fg);
+                right_limit = pill_r.left() - theme::SPACE_INLINE;
+            }
+        }
+
+        // Left: Name + Version (`SPACE_INLINE` = 8 px)
+        let left_start = r_rect.left() + theme::INSET_CONTROL;
+        let avail_left = (right_limit - left_start).max(36.0);
+        let name_str = widgets::elide(&p, &row.label, &theme::font_body_medium(), avail_left);
+        p.text(Pos2::new(left_start, top_line_y), Align2::LEFT_CENTER, &name_str, theme::font_body_medium(), text_col);
+        let left_cursor = left_start + widgets::text_width(&p, &name_str, &theme::font_body_medium()) + theme::SPACE_INLINE;
+
+        if let Some(ref ver) = row.version {
+            let ver_avail = right_limit - left_cursor;
+            if ver_avail >= 32.0 {
+                let ver_str = widgets::elide(&p, ver, &theme::font_mono(), ver_avail.min(68.0));
+                p.text(Pos2::new(left_cursor, top_line_y), Align2::LEFT_CENTER, &ver_str, theme::font_mono(), theme::TEXT_SECONDARY);
             }
         }
 
         if let Some(ref cap) = row.caption {
             let cap_elided = widgets::elide(&p, cap, &theme::font_caption(), (inner_w - theme::INSET_CONTROL * 2.0).max(48.0));
             p.text(
-                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - 10.0),
+                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - row_bottom_offset),
                 Align2::LEFT_CENTER,
                 cap_elided,
                 theme::font_caption(),
@@ -329,13 +350,13 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     }
 
     if state.picker.other_form_open {
-        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + 2.0), Vec2::new(inner_w, 100.0));
+        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::SPACE_FACT), Vec2::new(inner_w, form_card_h));
         render_other_cli_inline_form(state, ui, form_r, &mut interaction);
         y += form_h;
     }
 
     // Footer: Default permission caption (`Skip permissions`, `#652` §3 rule 9)
-    let footer_y = (card_r.bottom() - 12.0).max(y + 8.0);
+    let footer_y = (card_r.bottom() - theme::INSET_POPOVER).max(y + theme::SPACE_INLINE);
     let perm_elided = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w);
     p.text(Pos2::new(inner_left, footer_y), Align2::LEFT_CENTER, perm_elided, theme::font_caption(), theme::TEXT_TERTIARY);
 
@@ -351,15 +372,17 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     handle_picker_keyboard(state, ui, &rows, file_path);
 
     let last_resume = state.resumable_sessions().first().map(|e| (e.title.clone(), e.cli.clone()));
-    let menu_w = (panel_rect.width() - 12.0).clamp(196.0, 232.0);
+    let menu_margin = theme::INSET_POPOVER;
+    let menu_inset = theme::SPACE_ROW;
+    let menu_w = (panel_rect.width() - menu_margin).clamp(196.0, 232.0);
     let row_h = theme::CONTROL_STANDARD; // 28 px compact row height
-    let row_gap = 2.0;
-    let header_h = 22.0;
+    let row_gap = theme::SPACE_FACT;
+    let header_h = theme::FIELD_HEIGHT;
     let footer_h = 20.0;
     let resume_h = if last_resume.is_some() { row_h + row_gap } else { 0.0 };
     let form_h = if state.picker.other_form_open { 104.0 } else { 0.0 };
-    let menu_h = header_h + resume_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h + 8.0;
-    let menu_x = (panel_rect.right() - menu_w - 6.0).max(panel_rect.left() + 6.0);
+    let menu_h = header_h + resume_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h + theme::SPACE_INLINE;
+    let menu_x = (panel_rect.right() - menu_w - menu_inset).max(panel_rect.left() + menu_inset);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
 
     let p = ui.painter().clone();
@@ -367,13 +390,19 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     p.rect_stroke(menu_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
     widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
 
-    let inner_left = menu_r.left() + 6.0;
-    let inner_w = (menu_w - 12.0).max(120.0);
+    let inner_left = menu_r.left() + menu_inset;
+    let inner_w = (menu_w - menu_margin).max(120.0);
     let hdr_txt = widgets::elide(&p, "New session", &theme::font_caption_medium(), inner_w);
-    p.text(Pos2::new(inner_left + 4.0, menu_r.top() + 11.0), Align2::LEFT_CENTER, hdr_txt, theme::font_caption_medium(), theme::TEXT_SECONDARY);
-    widgets::hline(&p, inner_left, menu_r.right() - 6.0, menu_r.top() + header_h, theme::BORDER);
+    p.text(
+        Pos2::new(inner_left + theme::INSET_SEGMENT, menu_r.top() + header_h * 0.5),
+        Align2::LEFT_CENTER,
+        hdr_txt,
+        theme::font_caption_medium(),
+        theme::TEXT_SECONDARY,
+    );
+    widgets::hline(&p, inner_left, menu_r.right() - menu_inset, menu_r.top() + header_h, theme::BORDER);
 
-    let mut y = menu_r.top() + header_h + 4.0;
+    let mut y = menu_r.top() + header_h + theme::INSET_SEGMENT;
     let mut interaction = PickerInteraction::None;
 
     if let Some((prev_title, prev_cli)) = &last_resume {
@@ -383,8 +412,8 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         let resume_txt = format!("Resume {prev_title} ({prev_cli})");
-        let elided = widgets::elide(&p, &resume_txt, &theme::font_caption_medium(), (inner_w - 16.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), STATUS_OK_TEXT);
+        let elided = widgets::elide(&p, &resume_txt, &theme::font_caption_medium(), (inner_w - theme::SPACE_SECTION).max(40.0));
+        p.text(Pos2::new(row_r.left() + theme::INSET_CONTROL, row_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), STATUS_OK_TEXT);
         widgets::record(ui, "agents-dropdown-resume-last", row_r);
         if resp.clicked() {
             interaction = PickerInteraction::ResumeLastSession;
@@ -392,6 +421,8 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         y += row_h + row_gap;
     }
 
+    let install_btn_h = 20.0;
+    let install_btn_half_h = install_btn_h * 0.5;
     for (idx, row) in rows.iter().enumerate() {
         let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let resp = ui.interact(row_r, Id::new(&row.id), Sense::click());
@@ -405,10 +436,13 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         let fg = if row.selectable { theme::TEXT } else { theme::TEXT_DISABLED };
 
         // Right-hand status / action in compact row
-        let mut right_limit = row_r.right() - 6.0;
+        let mut right_limit = row_r.right() - menu_inset;
         if let Some(ref fix) = row.install_action {
             let btn_w = 48.0;
-            let btn_r = Rect::from_min_size(Pos2::new(row_r.right() - btn_w - 4.0, row_r.center().y - 10.0), Vec2::new(btn_w, 20.0));
+            let btn_r = Rect::from_min_size(
+                Pos2::new(row_r.right() - btn_w - theme::INSET_SEGMENT, row_r.center().y - install_btn_half_h),
+                Vec2::new(btn_w, install_btn_h),
+            );
             let btn_resp = ui.interact(btn_r, Id::new((&row.id, "install")), Sense::click());
             p.rect_filled(btn_r, theme::cr(theme::RADIUS_CONTROL), if btn_resp.hovered() { theme::BG_HOVER } else { STATUS_INFO_BG });
             p.rect_stroke(btn_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, STATUS_INFO_BORDER), StrokeKind::Inside);
@@ -417,7 +451,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             if btn_resp.clicked() {
                 interaction = PickerInteraction::ActivateInstall(fix.clone());
             }
-            right_limit = btn_r.left() - 6.0;
+            right_limit = btn_r.left() - menu_inset;
         } else if let Some(ref st_lbl) = row.state_label {
             let st_col = match &row.kind {
                 PickerRowKind::CatalogCli { signed_in: SignIn::Yes, .. } => STATUS_OK_TEXT,
@@ -428,23 +462,23 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             let st_str = widgets::elide(&p, st_lbl, &theme::font_caption(), max_st_w);
             let st_w = widgets::text_width(&p, &st_str, &theme::font_caption());
             p.text(Pos2::new(right_limit, row_r.center().y), Align2::RIGHT_CENTER, &st_str, theme::font_caption(), st_col);
-            right_limit -= st_w + 6.0;
+            right_limit -= st_w + menu_inset;
         } else if let Some(ref cap) = row.caption {
             let max_cap_w = (inner_w * 0.48).max(48.0);
             let cap_str = widgets::elide(&p, cap, &theme::font_caption(), max_cap_w);
             let cap_w = widgets::text_width(&p, &cap_str, &theme::font_caption());
             p.text(Pos2::new(right_limit, row_r.center().y), Align2::RIGHT_CENTER, &cap_str, theme::font_caption(), theme::TEXT_TERTIARY);
-            right_limit -= cap_w + 6.0;
+            right_limit -= cap_w + menu_inset;
         }
 
         // Left: Label (+ version if available and fits)
-        let avail_left_w = (right_limit - (row_r.left() + 8.0)).max(36.0);
+        let avail_left_w = (right_limit - (row_r.left() + theme::INSET_CONTROL)).max(36.0);
         let title_str = widgets::elide(&p, &row.label, &theme::font_caption_medium(), avail_left_w);
         let title_w = widgets::text_width(&p, &title_str, &theme::font_caption_medium());
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.center().y), Align2::LEFT_CENTER, &title_str, theme::font_caption_medium(), fg);
+        p.text(Pos2::new(row_r.left() + theme::INSET_CONTROL, row_r.center().y), Align2::LEFT_CENTER, &title_str, theme::font_caption_medium(), fg);
 
         if let Some(ref ver) = row.version {
-            let ver_x = row_r.left() + 8.0 + title_w + 6.0;
+            let ver_x = row_r.left() + theme::INSET_CONTROL + title_w + menu_inset;
             let ver_avail = right_limit - ver_x;
             if ver_avail >= 28.0 {
                 let ver_str = widgets::elide(&p, ver, &theme::font_mono(), ver_avail);
@@ -463,16 +497,18 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         y += row_h + row_gap;
     }
 
+    let compact_form_h = 98.0;
     if state.picker.other_form_open {
-        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + 2.0), Vec2::new(inner_w, 98.0));
+        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::SPACE_FACT), Vec2::new(inner_w, compact_form_h));
         render_other_cli_inline_form(state, ui, form_r, &mut interaction);
         y += form_h;
     }
 
     // Footer permission caption (`Skip permissions`, `#652` §3 rule 9)
-    let footer_y = (menu_r.bottom() - 10.0).max(y + 6.0);
-    let perm_str = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w - 8.0);
-    p.text(Pos2::new(inner_left + 4.0, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
+    let footer_offset = theme::INSET_CONTROL + theme::SPACE_FACT;
+    let footer_y = (menu_r.bottom() - footer_offset).max(y + menu_inset);
+    let perm_str = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
+    p.text(Pos2::new(inner_left + theme::INSET_SEGMENT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
 
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
@@ -494,17 +530,19 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     p.rect_stroke(form_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     widgets::record(ui, "agents-other-cli-form", form_r);
 
-    let pad = 6.0;
+    let pad = theme::SPACE_ROW;
     let field_w = (form_r.width() - pad * 2.0).max(80.0);
-    let field_h = 22.0;
+    let field_h = theme::FIELD_HEIGHT;
+    let field_inset = Vec2::new(theme::SPACE_ROW, theme::SPACE_FACT);
+    let field_inner_w = field_w - theme::INSET_POPOVER;
 
     let lbl_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, form_r.top() + pad), Vec2::new(field_w, field_h));
     p.rect_filled(lbl_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
     p.rect_stroke(lbl_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-    ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(Vec2::new(6.0, 2.0))), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(field_inset)), |ui| {
         let te = TextEdit::singleline(&mut state.picker.other_label_input)
             .id(Id::new("agents-other-cli-label-input"))
-            .desired_width(field_w - 12.0)
+            .desired_width(field_inner_w)
             .frame(egui::Frame::NONE)
             .font(theme::font_caption())
             .text_color(theme::TEXT)
@@ -516,14 +554,14 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     });
     widgets::record(ui, "agents-other-cli-label-input", lbl_rect);
 
-    let cmd_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, lbl_rect.bottom() + 4.0), Vec2::new(field_w, field_h));
+    let cmd_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, lbl_rect.bottom() + theme::INSET_SEGMENT), Vec2::new(field_w, field_h));
     p.rect_filled(cmd_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
     p.rect_stroke(cmd_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     let mut enter_pressed = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(Vec2::new(6.0, 2.0))), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(field_inset)), |ui| {
         let te = TextEdit::singleline(&mut state.picker.other_command_input)
             .id(Id::new("agents-other-cli-command-input"))
-            .desired_width(field_w - 12.0)
+            .desired_width(field_inner_w)
             .frame(egui::Frame::NONE)
             .font(theme::font_mono())
             .text_color(theme::TEXT)
@@ -538,7 +576,8 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     });
     widgets::record(ui, "agents-other-cli-command-input", cmd_rect);
 
-    let warn_y = cmd_rect.bottom() + 9.0;
+    let warn_offset = theme::SPACE_INLINE + theme::BORDER_WIDTH;
+    let warn_y = cmd_rect.bottom() + warn_offset;
     let warn_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
     let warn_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
     let warn_elided = widgets::elide(&p, warn_txt, &theme::font_caption(), (field_w - 96.0).max(36.0));
@@ -546,9 +585,10 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
 
     let save_w = 48.0;
     let cancel_w = 44.0;
-    let btn_y = cmd_rect.bottom() + 4.0;
-    let save_r = Rect::from_min_size(Pos2::new(form_r.right() - pad - save_w, btn_y), Vec2::new(save_w, 20.0));
-    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - 4.0 - cancel_w, btn_y), Vec2::new(cancel_w, 20.0));
+    let btn_h = 20.0;
+    let btn_y = cmd_rect.bottom() + theme::INSET_SEGMENT;
+    let save_r = Rect::from_min_size(Pos2::new(form_r.right() - pad - save_w, btn_y), Vec2::new(save_w, btn_h));
+    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - theme::INSET_SEGMENT - cancel_w, btn_y), Vec2::new(cancel_w, btn_h));
 
     let cancel_resp = ui.interact(cancel_r, Id::new("agents-other-cli-cancel"), Sense::click());
     p.rect_filled(cancel_r, theme::cr(theme::RADIUS_CONTROL), if cancel_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });

@@ -716,6 +716,16 @@ pub struct TerminalState {
     pub path_prepend: Vec<PathBuf>,
     /// State for the new-session CLI picker, compact `+` menu, and inline `"Other CLI..."` form (`#652`).
     pub picker: crate::agent_picker::AgentPickerState,
+    /// True when the center of the Agent panel / `>_` dock shows the new-session picker (`#651`).
+    pub picker_open: bool,
+    /// True when the `"Sessions"` popover is open (`#651` §3 rule 5).
+    pub sessions_popover_open: bool,
+    /// `tab_id` of the session entry currently being renamed in place inside the `"Sessions"` popover (`#651` §3 rule 6).
+    pub renaming_session_tab_id: Option<u64>,
+    /// Draft text for the active inline session rename (`#651` §3 rule 6).
+    pub rename_session_input: String,
+    /// Prompt held by `dispatch_figma_ai_prompt` when no live tab and no resumable session exist (`#651` §3 rule 10).
+    pub pending_prompt: Option<(String, String)>,
 }
 
 impl Default for TerminalState {
@@ -801,7 +811,25 @@ impl TerminalState {
             agy_cwd_scoped: false,
             path_prepend: Vec::new(),
             picker: crate::agent_picker::AgentPickerState::default(),
+            picker_open: false,
+            sessions_popover_open: false,
+            renaming_session_tab_id: None,
+            rename_session_input: String::new(),
+            pending_prompt: None,
         }
+    }
+
+    /// Creates a `TerminalState` bound to `file_id` (and `lib_root` when provided) with `doc_name`.
+    pub fn new_for_session(file_id: &str, doc_name: &str, lib_root: Option<&Path>) -> Self {
+        let mut st = Self::for_tab(1);
+        st.doc_name = doc_name.to_string();
+        if let Some(root) = lib_root {
+            let win_id = format!("p{}-{}", std::process::id(), file_id);
+            st.bind_library_file(root, file_id, &win_id);
+        } else {
+            st.bind_session(file_id);
+        }
+        st
     }
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
@@ -1114,12 +1142,12 @@ impl TerminalState {
             FixAction::OpenShell => {
                 let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
             }
-            FixAction::StartNewSession(preset) => {
+            FixAction::StartNewSession(_preset) => {
                 if self.active_tab().is_some_and(|t| t.start_failure.is_some()) {
                     let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
                     self.close_tab(idx);
                 }
-                let _ = self.spawn_tab(preset, file_path);
+                self.picker_open = true;
             }
         }
     }
@@ -1150,8 +1178,8 @@ impl TerminalState {
         ((agent_panel_open && self.side_panel_pty_open) || self.dock_open) && self.viewport_focused
     }
 
-    /// Ensures at least one interactive Shell PTY tab is running when the terminal UI is first shown (`DIR-29`).
-    pub fn ensure_default_tab(&mut self, file_path: Option<&Path>) {
+    /// Lazily spawns a Shell PTY tab for the Agent Chat UI composer on first submit (`#651` §3 rule 1 & §5).
+    pub fn ensure_shell_for_chat(&mut self, file_path: Option<&Path>) {
         if self.tabs.is_empty() {
             let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
         }
@@ -1163,9 +1191,8 @@ impl TerminalState {
     /// Never types an `export` into the tab: when it hosts an agent TUI the line lands as a chat
     /// prompt. `DESIGNOS_AGENT_RUNTIME` is set at spawn (`configure_pty_env`) and per command
     /// (`build_real_cli_command`) instead.
-    pub fn set_active_runtime(&mut self, runtime: AgentCliPreset, file_path: Option<&Path>) {
+    pub fn set_active_runtime(&mut self, runtime: AgentCliPreset, _file_path: Option<&Path>) {
         self.active_runtime = runtime;
-        self.ensure_default_tab(file_path);
         let active_idx = self.active_tab;
         if let Some(tab) = self.active_tab_mut() {
             tab.preset = runtime;
@@ -1181,7 +1208,7 @@ impl TerminalState {
         if trimmed.is_empty() {
             return;
         }
-        self.ensure_default_tab(file_path);
+        self.ensure_shell_for_chat(file_path);
         let runtime = self.active_runtime;
         if let Some(tab) = self.active_tab_mut() {
             tab.preset = runtime;
@@ -1390,8 +1417,13 @@ impl TerminalState {
                 tab.title = clean_title.to_string();
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
+                self.picker_open = false;
+                self.sessions_popover_open = false;
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
+                if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                }
                 Ok(self.active_tab)
             }
             Err(e) => {
@@ -1476,8 +1508,13 @@ impl TerminalState {
                 }
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
+                self.picker_open = false;
+                self.sessions_popover_open = false;
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name));
+                if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
+                }
                 Ok(self.active_tab)
             }
             Err(e) => {
@@ -1550,6 +1587,7 @@ impl TerminalState {
     }
 
     /// Closes tab at `idx`, killing its child process if still running.
+    /// Closing the last tab shows the new-session picker (`#651` §3 rule 9).
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
@@ -1565,6 +1603,7 @@ impl TerminalState {
                 self.active_tab = self.tabs.len() - 1;
             } else if self.tabs.is_empty() {
                 self.active_tab = 0;
+                self.picker_open = true;
             }
         }
     }
@@ -1689,15 +1728,16 @@ impl TerminalState {
         actions
     }
 
-    /// Dispatches a Figma AI task prompt into the active PTY session (spawning the first installed
-    /// AI CLI preset if no PTY tab is open yet) and records a structured chat turn.
+    /// Dispatches a Figma AI task prompt into the active PTY session (`#651` §3 rule 10: with no live tab,
+    /// resumes the file's last resumable session or opens the picker and holds the prompt until a CLI is chosen).
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         if self.tabs.is_empty() {
-            let preferred = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok]
-                .into_iter()
-                .find(|p| p.is_installed())
-                .unwrap_or(AgentCliPreset::Shell);
-            let _ = self.spawn_tab(preferred, file_path);
+            self.open_for_agent_use(file_path);
+            if self.tabs.is_empty() {
+                self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+                self.dock_open = true;
+                return;
+            }
         }
         self.dock_open = true;
 
@@ -2799,7 +2839,6 @@ pub fn export_selection_and_comments_to_pty(
 /// pure Chat UI wrapper over the live PTY shell (`DIR-21`), `What's next?` empty state, bottom
 /// `"Ask for changes"` blue-bordered composer box, and toggleable in-panel live VT100 PTY viewport).
 pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    state.ensure_default_tab(file_path);
     state.sync_chat_from_pty();
     let mut actions = state.poll_live_agent_bridge();
     let p = ui.painter().clone();
@@ -2835,12 +2874,12 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
             state.dock_open = !state.dock_open;
         }
 
-        // Left-aligned session tabs + `+` runtime dropdown button
-        let max_tabs_right = pop_rect.left() - 38.0;
+        // Left-aligned session tabs + `"Sessions"` ghost button + `+` runtime dropdown button
+        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(pop_rect.left());
         let mut x = bar_r.left() + 6.0;
         let mut tab_to_select: Option<usize> = None;
         let mut tab_to_close: Option<usize> = None;
-        let can_close = state.tabs.len() > 1;
+        let can_close = !state.tabs.is_empty();
 
         for (idx, tab) in state.tabs.iter().enumerate() {
             let tab_w = if state.tabs.len() <= 1 {
@@ -2901,14 +2940,14 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
             state.active_tab = idx;
             state.viewport_focused = true;
             state.runtime_dropdown_open = false;
+            state.sessions_popover_open = false;
         }
         if let Some(idx) = tab_to_close {
             state.close_tab(idx);
-            state.ensure_default_tab(file_path);
         }
 
-        // Top `+` button (`agents-runtime-add-btn`) to open the runtime selector dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell`)
-        let add_x = x.min(pop_rect.left() - 32.0);
+        // `"Sessions"` ghost button (`#651` §3 rule 5 & §7) + top `+` button (`agents-runtime-add-btn`)
+        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, pop_rect.left());
         let add_rect = Rect::from_min_size(Pos2::new(add_x, bar_r.center().y - 12.0), Vec2::new(28.0, 24.0));
         let add_resp = ui.interact(add_rect, Id::new("agents-runtime-add-btn"), Sense::click());
         let add_bg = if state.runtime_dropdown_open {
@@ -2927,6 +2966,9 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
         if add_resp.clicked() {
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
+            if state.runtime_dropdown_open {
+                state.sessions_popover_open = false;
+            }
         }
 
         // Active File + Page Context Strip (20px) so the user & agent always see the bound Page
@@ -2942,7 +2984,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         // Live VT100 PTY Terminal Viewport (full height)
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), rect.max);
 
-        render_vt100_viewport(state, ui, vp_r, "agents-left-pty");
+        render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
         if let Some(fix) = state.pending_start_fix.take() {
             state.apply_start_fix(fix, file_path);
         }
@@ -2950,6 +2992,9 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         // Floating `+` Runtime Selector Dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell` — all skipping dangerous permissions)
         if state.runtime_dropdown_open {
             render_runtime_dropdown_menu(state, ui, rect, bar_r.bottom() + 4.0, file_path);
+        }
+        if state.sessions_popover_open {
+            crate::agent_open_flow::render_sessions_popover(state, ui, rect, bar_r.bottom() + theme::INSET_SEGMENT, file_path);
         }
 
         let repaint_ms = if state.viewport_focused { 50 } else { 500 };
@@ -3674,7 +3719,6 @@ fn resolve_apply_spec_action(state: &mut TerminalState) -> Option<TerminalAction
 }
 
 fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>, surface_id: &'static str) -> Vec<TerminalAction> {
-    state.ensure_default_tab(file_path);
     let mut actions = state.poll_live_agent_bridge();
     let p = ui.painter().clone();
 
@@ -3808,7 +3852,6 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
     }
     if let Some(idx) = tab_to_close {
         state.close_tab(idx);
-        state.ensure_default_tab(file_path);
     }
 
     // Quick-launch preset buttons with crisp Plus icon
@@ -3843,7 +3886,7 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
 
     // 2. VT100 Screen Grid Renderer + Raw Keyboard Capture (full height)
     let viewport_rect = Rect::from_min_max(Pos2::new(rect.left(), tab_bar_rect.bottom()), rect.max);
-    render_vt100_viewport(state, ui, viewport_rect, surface_id);
+    render_vt100_viewport(state, ui, viewport_rect, file_path, surface_id);
     if let Some(fix) = state.pending_start_fix.take() {
         state.apply_start_fix(fix, file_path);
     }
@@ -3880,7 +3923,7 @@ fn extract_selected_terminal_text(screen: &vt100::Screen, sel: ((u16, u16), (u16
     strip_selection_gutter(&lines.join("\n"))
 }
 
-fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: Rect, surface_id: &'static str) {
+fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: Rect, file_path: Option<&Path>, surface_id: &'static str) {
     if let Some(failure) = state.active_tab().and_then(|t| t.start_failure.clone()) {
         if let Some(fix) = agent_start_failure::paint(ui, viewport_rect, &failure, surface_id) {
             state.pending_start_fix = Some(fix);
@@ -3889,6 +3932,13 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     }
     let p = ui.painter().clone();
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
+
+    if state.picker_open || state.tabs.is_empty() {
+        if !state.runtime_dropdown_open && !state.sessions_popover_open {
+            crate::agent_picker::show_picker_panel(state, ui, viewport_rect, file_path);
+        }
+        return;
+    }
 
     let pad_x = 12.0;
     let pad_y = 8.0;
@@ -4752,6 +4802,7 @@ Done!
         assert!(grok_cmd.contains("grok --always-approve") && grok_cmd.contains("-p"));
 
         let mut st = TerminalState::default();
+        let _ = st.spawn_tab(AgentCliPreset::Shell, None);
         st.dispatch_figma_ai_prompt("Auto-rename layers to semantic names", "Auto-rename layers to semantic names", None);
         assert!(st.dock_open);
         assert_eq!(st.chat_turns.len(), 2);
