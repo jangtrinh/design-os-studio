@@ -3873,7 +3873,8 @@ mod expand_depth_tests {
         assert!(cloned <= CLONE_BUDGET_TOTAL + PER_INSTANCE_CLONE_BUDGET, "cloned {cloned} > budget + 50k");
         assert_eq!(cloned, 2_001_000);
         assert_eq!(report.instances_left_unexpanded, 3_000);
-        assert!(elapsed.as_secs() < 15, "5,000-link chain took {elapsed:?}");
+        let limit_secs = if cfg!(debug_assertions) { 60 } else { 15 };
+        assert!(elapsed.as_secs() < limit_secs, "5,000-link chain took {elapsed:?}");
     }
 
     #[test]
