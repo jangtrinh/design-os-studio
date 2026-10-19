@@ -389,7 +389,8 @@ impl MentionPopupState {
                 }
 
                 let name_color = if cand.hidden { theme::TEXT_TERTIARY } else { theme::TEXT };
-                let icon_pos = Pos2::new(row_r.left() + theme::INSET_CONTROL + 7.0, row_r.top() + 13.0);
+                let top_row_y = row_r.top() + theme::SPACE_GROUP + theme::BORDER_WIDTH;
+                let icon_pos = Pos2::new(row_r.left() + theme::INSET_CONTROL + theme::SPACE_INLINE - theme::BORDER_WIDTH, top_row_y);
                 icons::paint(&clip_painter, cand.icon, icon_pos, 14.0, name_color);
 
                 let text_x = row_r.left() + theme::INSET_CONTROL + 20.0;
@@ -399,8 +400,9 @@ impl MentionPopupState {
                 let elided_name = widgets::elide(&clip_painter, &cand.name, &name_font, max_text_w);
                 let elided_cap = widgets::elide(&clip_painter, &cand.caption, &cap_font, max_text_w);
 
-                clip_painter.text(Pos2::new(text_x, row_r.top() + 13.0), Align2::LEFT_CENTER, elided_name, name_font, name_color);
-                clip_painter.text(Pos2::new(text_x, row_r.top() + 29.0), Align2::LEFT_CENTER, elided_cap, cap_font, theme::TEXT_SECONDARY);
+                clip_painter.text(Pos2::new(text_x, top_row_y), Align2::LEFT_CENTER, elided_name, name_font, name_color);
+                let bottom_row_y = row_r.top() + theme::CONTROL_STANDARD + theme::BORDER_WIDTH;
+                clip_painter.text(Pos2::new(text_x, bottom_row_y), Align2::LEFT_CENTER, elided_cap, cap_font, theme::TEXT_SECONDARY);
                 widgets::record(ui, &format!("agent-mention-row-{idx}"), row_r);
 
                 if resp.clicked() {
