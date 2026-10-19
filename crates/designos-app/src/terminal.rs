@@ -3261,18 +3261,20 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         }
     });
 
-    let icon_y = composer_rect.bottom() - 20.0;
+    let off_20 = theme::SPACE_SECTION + theme::SPACE_TIGHT;
+    let off_5 = theme::SPACE_TIGHT + 1.0;
+    let icon_y = composer_rect.bottom() - off_20;
     let icon_gray = Color32::from_rgb(0xB3, 0xB3, 0xB3);
 
     // Bottom-left `+` button (attaches selection & PRD context to composer and PTY)
-    let plus_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 20.0, icon_y), Vec2::splat(22.0));
+    let plus_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_20, icon_y), Vec2::splat(22.0));
     let plus_resp = ui.interact(plus_r, Id::new("agents-composer-plus"), Sense::click());
     if plus_resp.hovered() {
         p.rect_filled(plus_r, CornerRadius::same(4), TERM_BG_HOVER);
     }
     let pc = plus_r.center();
-    p.line_segment([Pos2::new(pc.x - 5.0, pc.y), Pos2::new(pc.x + 5.0, pc.y)], Stroke::new(1.5, icon_gray));
-    p.line_segment([Pos2::new(pc.x, pc.y - 5.0), Pos2::new(pc.x, pc.y + 5.0)], Stroke::new(1.5, icon_gray));
+    p.line_segment([Pos2::new(pc.x - off_5, pc.y), Pos2::new(pc.x + off_5, pc.y)], Stroke::new(1.5, icon_gray));
+    p.line_segment([Pos2::new(pc.x, pc.y - off_5), Pos2::new(pc.x, pc.y + off_5)], Stroke::new(1.5, icon_gray));
     widgets::record(ui, "agents-composer-plus", plus_r);
     widgets::record(ui, "agents-composer-attach", plus_r);
     if plus_resp.clicked() {
@@ -3284,7 +3286,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     }
 
     // Bottom-left open-book button (toggles in-panel live PTY terminal / prompt library)
-    let book_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 46.0, icon_y), Vec2::splat(22.0));
+    let off_46 = theme::ROW_HEIGHT_COMPACT + off_20 + 2.0;
+    let book_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_46, icon_y), Vec2::splat(22.0));
     let book_resp = ui.interact(book_r, Id::new("agents-composer-book"), Sense::click());
     if book_resp.hovered() {
         p.rect_filled(book_r, CornerRadius::same(4), TERM_BG_HOVER);
@@ -3296,7 +3299,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     }
 
     // Bottom-left `PRD` context chip button (attaches/cycles `@prd `, `@selection `, `@tokens `)
-    let prd_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 82.0, icon_y), Vec2::new(38.0, 20.0));
+    let off_82 = theme::ROW_HEIGHT_STANDARD * 2.0 + off_20 + theme::SPACE_ROW_GAP;
+    let prd_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_82, icon_y), Vec2::new(38.0, 20.0));
     let prd_resp = ui.interact(prd_r, Id::new("agents-composer-prd"), Sense::click());
     let lower_in = state.input_line.to_ascii_lowercase();
     let has_prd_tag = lower_in.contains("@prd") || lower_in.contains("@selection") || lower_in.contains("@tokens");
@@ -3339,7 +3343,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     }
 
     // Bottom-right Microphone circle button (`26x26` `#2D364D` circle + `#6EA8FE` mic glyph)
-    let mic_center = Pos2::new(composer_rect.right() - 50.0, icon_y);
+    let off_50 = theme::ROW_HEIGHT_STANDARD + off_20 + 2.0;
+    let mic_center = Pos2::new(composer_rect.right() - off_50, icon_y);
     let mic_r = Rect::from_center_size(mic_center, Vec2::splat(26.0));
     let mic_resp = ui.interact(mic_r, Id::new("agents-composer-mic"), Sense::click());
     p.circle_filled(mic_center, 13.0, if mic_resp.hovered() { Color32::from_rgb(0x36, 0x41, 0x5C) } else { Color32::from_rgb(0x2D, 0x36, 0x4D) });
@@ -3356,7 +3361,8 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
 
     // Bottom-right Up-Arrow Send circle button (`26x26` `#383838` / `#0D99FF` circle + `↑` arrow)
     let has_text = !state.input_line.trim().is_empty();
-    let send_center = Pos2::new(composer_rect.right() - 18.0, icon_y);
+    let off_18 = theme::SPACE_PANEL_PAD + theme::SPACE_ROW_GAP;
+    let send_center = Pos2::new(composer_rect.right() - off_18, icon_y);
     let send_r = Rect::from_center_size(send_center, Vec2::splat(26.0));
     let send_resp = ui.interact(send_r, Id::new("agents-composer-send"), Sense::click());
     let send_bg = if has_text {
@@ -3392,14 +3398,16 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
 }
 
 fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
-    let menu_w = (panel_rect.width() - 16.0).clamp(180.0, 224.0);
+    let min_menu_w = theme::ROW_HEIGHT_STANDARD * 6.0 + theme::SPACE_PANEL_PAD;
+    let max_menu_w = theme::ROW_HEIGHT_STANDARD * 8.0;
+    let menu_w = (panel_rect.width() - theme::SPACE_SECTION).clamp(min_menu_w, max_menu_w);
     let entries = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Shell];
     let last_resume = state.resumable_sessions().first().map(|e| (e.title.clone(), e.cli.clone()));
-    let row_h = 34.0;
-    let header_h = 24.0;
+    let row_h = theme::ROW_HEIGHT_STANDARD + theme::SPACE_ROW_GAP;
+    let header_h = theme::ROW_HEIGHT_COMPACT;
     let extra_rows = if last_resume.is_some() { 1.0 } else { 0.0 };
-    let menu_h = header_h + (entries.len() as f32 + extra_rows) * row_h + 8.0;
-    let menu_x = (panel_rect.right() - menu_w - 8.0).max(panel_rect.left() + 8.0);
+    let menu_h = header_h + (entries.len() as f32 + extra_rows) * row_h + theme::SPACE_INLINE;
+    let menu_x = (panel_rect.right() - menu_w - theme::SPACE_INLINE).max(panel_rect.left() + theme::SPACE_INLINE);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
 
     let p = ui.painter().clone();
@@ -3407,21 +3415,22 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
     p.rect_stroke(menu_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x3E, 0x46)), StrokeKind::Inside);
     widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
 
+    let row_y1 = theme::SPACE_ROW_GAP + theme::SPACE_TIGHT;
+    let row_y2 = theme::ROW_HEIGHT_COMPACT - 1.0;
+    let hdr_y = theme::SPACE_PANEL_PAD + 1.0;
+    let elide_pad = theme::SPACE_PANEL_PAD + theme::SPACE_ROW_GAP;
+    let elide_min = theme::ROW_HEIGHT_COMPACT + theme::SPACE_SECTION;
     p.text(
-        Pos2::new(menu_r.left() + 10.0, menu_r.top() + 13.0),
+        Pos2::new(menu_r.left() + row_y1, menu_r.top() + hdr_y),
         Align2::LEFT_CENTER,
         "LAUNCH CLI (SKIP PERMISSIONS)",
         theme::font_caption_strong(),
         theme::TEXT_SECONDARY,
     );
-    widgets::hline(&p, menu_r.left() + 6.0, menu_r.right() - 6.0, menu_r.top() + header_h, TERM_BORDER);
+    widgets::hline(&p, menu_r.left() + theme::SPACE_ROW_GAP, menu_r.right() - theme::SPACE_ROW_GAP, menu_r.top() + header_h, TERM_BORDER);
 
     let mut resume_clicked = false;
     let mut row_offset = 0usize;
-    let row_y1 = theme::SPACE_ROW_GAP + theme::SPACE_TIGHT;
-    let row_y2 = theme::ROW_HEIGHT_COMPACT - 1.0;
-    let elide_pad = theme::SPACE_PANEL_PAD + theme::SPACE_ROW_GAP;
-    let elide_min = theme::ROW_HEIGHT_COMPACT + theme::SPACE_SECTION;
     if let Some((prev_title, prev_cli)) = &last_resume {
         let ry = menu_r.top() + header_h + theme::SPACE_TIGHT;
         let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + theme::SPACE_TIGHT, ry), Vec2::new(menu_w - theme::SPACE_INLINE, row_h - 2.0));
@@ -3464,10 +3473,16 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CHIP), TERM_BG_HOVER);
         }
         let (_widget_id, title, subtitle) = preset.dropdown_entry();
-        let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
-        let sub_str = widgets::elide(&p, subtitle, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), Color32::WHITE);
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), STATUS_INFO_TEXT);
+        let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - elide_pad).max(elide_min));
+        let sub_str = widgets::elide(&p, subtitle, &theme::font_mono(), (row_r.width() - elide_pad).max(elide_min));
+        p.text(
+            Pos2::new(row_r.left() + theme::SPACE_INLINE, row_r.top() + row_y1),
+            Align2::LEFT_CENTER,
+            title_str,
+            theme::font_caption_medium(),
+            Color32::WHITE,
+        );
+        p.text(Pos2::new(row_r.left() + theme::SPACE_INLINE, row_r.top() + row_y2), Align2::LEFT_CENTER, sub_str, theme::font_mono(), STATUS_INFO_TEXT);
         widgets::record(ui, id_str, row_r);
         if resp.clicked() {
             chosen = Some(preset);
