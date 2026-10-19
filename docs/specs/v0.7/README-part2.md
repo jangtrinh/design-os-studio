@@ -128,7 +128,6 @@ The UI sections of #37, #38, #39, #161, #163 and #521 were checked against `desi
 
 - Fills of paint type NOISE and PATTERN are dropped on import (`fig.rs:2520`).
 - Paint-valued and gradient variables (`paintVar`, `gradientVar`), and numeric effect variable bindings (`radiusVar` and the rest) are not read.
-- Moving uniform blur and shadows from the Gaussian to the tent kernel, after #37's calibration.
 - Canvas handles for the progressive-blur ramp and for crop editing.
 - SVG and PDF export of image adjustments, rotation, tile scale and crop; the non-rectangular glass variant.
 - A warnings channel for `.fig` and SVG export.
@@ -139,13 +138,13 @@ Each has a recommended answer; none blocks writing the specs; the task that need
 
 1. **Live Figma session** for the table above. Recommended: one session of about four and a half hours with a scratch file; it closes most of the UNKNOWNs the specs list.
 2. **#38 slice split**: model, round trip and labels first, render parity after the read. Recommended: yes.
-3. **#37 kernel**: progressive blur on the tent kernel, uniform blur stays Gaussian until calibration. Recommended: yes.
+3. **#37 kernel**: answered 2026-10-19. Every blur and shadow moves to the tent kernel (owner ruling).
 4. **#39**: carry the whole shader message verbatim; an old Studio cannot read a file with a shader. Recommended: yes, and say so in the release notes.
 5. **#161** size M and PASS_THROUGH kept verbatim. Recommended: yes.
 6. **#163** crop editing and SVG export of adjustments as follow-ups; contrast slider shows the stored value times 100 until the read. Recommended: yes.
 7. **#521** separate from #163; image variables read-only in the panel. Recommended: yes.
 8. **#520** run the two-frame read before any renderer change. Recommended: yes.
 9. **#528** approve the calibration rectangles (a dozen nodes in a scratch Figma file); largest-side stroke weight on every side. Recommended: yes and yes.
-10. **#253** approve the 8 plugins; count the three same-repository plugins as three; vendor built plugin output once. Recommended: yes, yes, yes.
-11. **#254** spike limits 64 MiB, 1 MiB, 5 s, 60 s; in-process engine now. Recommended: yes.
+10. **#253** answered 2026-10-19: approved. (Original question: approve the 8 plugins; count the three same-repository plugins as three; vendor built plugin output once. Recommended: yes, yes, yes.
+11. **#254** in-process engine answered 2026-10-19 (worker thread). Still open: spike limits 64 MiB, 1 MiB, 5 s, 60 s. Recommended: yes.
 12. **Import report**: let the first of #37, #38, #521 create `ImportReport` in #5's shape if #5 has not landed. Recommended: yes.

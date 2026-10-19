@@ -115,6 +115,8 @@ No task dependency. Land the proposal record and the check first; fixtures and t
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: the 8-plugin corpus is approved as proposed. The three figma/plugin-samples folders count as three plugins, and built output is vendored once at the pinned commits.
+
 - R1.1 (2026-10-17): the coordinator proposes 8 open-source Figma plugins and the owner approves the list.
 - R1.2 and R1.3 (same round): plugins enter by "Import plugin from manifest..." and show their UI in an embedded webview; R5.17: network limited to the manifest's `allowedDomains` with a one-time consent (#302).
 - Acceptance (issue): 8 open-source Figma plugins listed with repo, licence and API surface covered; the owner approves via `AskUserQuestion` and the list is recorded; #298 (T8.11) reads this list.

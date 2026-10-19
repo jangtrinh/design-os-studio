@@ -134,6 +134,8 @@ Owner-manual check (flagged, never claimed by an agent): **live Figma read.** In
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19: in-process engine, with rquickjs on a dedicated worker thread, for the spike and v0.12. A child process or QuickJS-in-wasm stays a later hardening step.
+
 - R1.1 (2026-10-17): the corpus is approved by the owner (#253); R1.2: plugins enter by "Import plugin from manifest..."; R1.3: the plugin UI is an embedded webview with a system-browser fallback (#296); R5.17: network only through the manifest's `allowedDomains` after a one-time consent (#302). Recorded in `plans/261017-epics-full-scope/owner-decisions-and-cross-check.md`.
 - Acceptance (issue): one corpus plugin runs end to end headless; the doc fixes sandbox limits and the security model; ships nothing user-visible.
 - Delivery law 6: "Close cancels pending mutations" (#255) is read as a host-initiated close; a plugin's own `closePlugin()` commits (rule 5).

@@ -42,7 +42,7 @@ As a designer, I want a progressive blur (a blur whose strength ramps along a li
 1. **Model.** A blur effect (layer or background) is uniform or progressive. A progressive blur has a start radius, an end radius (the existing `radius`), a start point and an end point in normalized object space.
 2. **Ramp.** For a pixel at normalized position p, the parameter is t = clamp((p - s) . (e - s) / |e - s|^2, 0, 1). The blur count is c(t) = max(0.001, c_start + (c_end - c_start) x t), with c_start the count of the start radius and c_end the count of the end radius. If s = e, c = c_start everywhere.
 3. **Radius to count.** One function `blur_count(radius, device_scale)` is the only place that knows the mapping. Until the calibration, it returns radius x device_scale (INFERENCE above).
-4. **Kernel.** Progressive blur is a separable tent filter, horizontal then vertical, with the per-pixel count of rule 2: tap weights max(c - |k|, 0), normalised to sum 1. Uniform blur keeps its Gaussian until the owner rules otherwise (open question 2).
+4. **Kernel.** Progressive blur is a separable tent filter, horizontal then vertical, with the per-pixel count of rule 2: tap weights max(c - |k|, 0), normalised to sum 1. Uniform layer blur, background blur and shadows use the same tent kernel and count mapping (owner ruling 2026-10-19).
 5. **Edges.** Layer blur: nothing is clamped; pixels outside the layer count as transparent and the result spills past the node box. Background blur: taps outside the backdrop rectangle get weight 0 and the weights are renormalised, then the result is masked to the node shape and replaces the backdrop inside it, as today (`effects.rs:196-202`).
 6. **Crossfade.** The output is the blurred share w(b) x blur + (1 - w(b)) x source, with b = c, w(b) = 0 for b < 1, else (b^2 - 1)^2 / ((b^2 - 1)^2 + b^2).
 7. **Where it applies.** Layer blur: to the node's own rendered content including children (as today's `has_kids && !clips` rule, `lib.rs:374`). Background blur: to what is painted behind the node.
@@ -100,7 +100,6 @@ Words only. Checked against `design/principles.md` (P3, P4, P5, P6, P10) and `de
 
 ## 9. Non-goals
 
-- Replacing the Gaussian of uniform blur and of shadows (open question 2).
 - Canvas handles for the start and end points.
 - Variable bindings of the new fields.
 - Progressive blur on shadows, glass or noise.
@@ -150,6 +149,8 @@ Owner-manual check (flagged, never claimed by an agent): **live Figma read.** In
 Hot-file queue position 18 (issue text): after #38 (position 17), before #39 (position 19). Order inside the task: model plus mechanical commit; CPU render; GPU render; `.fig` and REST; panel; bounds arm (after #528). Render files: before #161 and #520's fix (README-part2).
 
 ## 13. Owner rulings
+
+- Owner ruling 2026-10-19: every blur moves to Figma's tent kernel: progressive blur, uniform layer blur, background blur and drop/inner shadows, on CPU and GPU. The radius-to-count mapping comes from the calibration step (live Figma read) and is shared by all of them. CPU and GPU golden images are re-baselined in the same PR, with a before/after diff attached.
 
 - Acceptance (issue): the model and panel controls work (screenshot); CPU and GPU parity; round trip through `.fig` kiwi (`convert_effect` and `encode_effect`), effect styles carry progressive blur, and the offset units are recorded (now FACT: normalized).
 - Delivery law 1: bindings of the new fields are counted, not dropped quietly.
