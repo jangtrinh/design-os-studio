@@ -42,15 +42,15 @@ As a user, I want to switch the whole design to another style in one undo step, 
    - `shadow` ← `#000000`.
    `mix(a, b, t)` interpolates in OKLab. A derived alias is written as a real colour value, not an alias, so modes stay independent.
 5. **Names are CSS-custom-property compatible.** Each variable name uses only `[a-z0-9-/]`; `code_syntax[WEB] = "var(--<name with / replaced by ->)"`, for example `var(--color-primary)`, `var(--radius-md)`, `var(--font-heading)`. Code export prints these verbatim (§2 FACT), so names survive export.
-6. **Text styles** (keys `designos-style:text/<name>`): `Display`, `H1`, `H2`, `H3`, `H4`, `Body Large`, `Body`, `Body Strong`, `Caption`, `Data`. Each binds `fontFamily` to the slot variable (heading slot for Display–H4, body for Body*, caption, data), `fontSize` and `lineHeight` to the step variables, `fontWeight` to the slot weight variable (Body Strong uses the body slot's highest weight). Line height = `round(size × 1.2)` for Display–H2, `round(size × 1.3)` for H3–H4, `round(size × 1.5)` for body and caption, `round(size × 1.4)` for Data.
-7. **Effect styles** (keys `designos-style:effect/elevation-<n>`): one per elevation level with at least one layer. Each layer becomes `Effect::DropShadow` or `Effect::InnerShadow` (`paint.rs:284-298`). The colour binds to `color/shadow` with the layer's alpha applied through an alias-with-alpha when #131 supports it; otherwise the colour is written as a value and the style records `bound: false` in the report.
+6. **Text styles** (keys `designos-style:text/<Name>`, for example `designos-style:text/Body Large`; the style's `StyleMeta.name` is `<Name>` itself, so `text_style: "Body Large"` resolves by E15-3's exact-name rule): `Display`, `H1`, `H2`, `H3`, `H4`, `Body Large`, `Body`, `Body Strong`, `Caption`, `Data`. Each binds `fontFamily` to the slot variable (heading slot for Display–H4, body for Body*, caption, data), `fontSize` and `lineHeight` to the step variables, `fontWeight` to the slot weight variable (Body Strong uses the body slot's highest weight). Step mapping: `Display`→`display`, `H1`→`h1`, `H2`→`h2`, `H3`→`h3`, `H4`→`h4`, `Body Large`→`body-lg`, `Body` and `Body Strong`→`body`, `Caption`→`caption`; `Data` uses the `body` step (E15-18 §3.8 has no `data` step, so there is no `font-size/data` variable). Line height = `round(size × 1.2)` for Display–H2, `round(size × 1.3)` for H3–H4, `round(size × 1.5)` for body, body-lg, caption and Data.
+7. **Effect styles** (keys `designos-style:effect/elevation-<n>`, `StyleMeta.name` `Elevation/<n>`, so `effect_style: "Elevation/2"` resolves by E15-3's exact-name rule): one per elevation level with at least one layer. Each layer becomes `Effect::DropShadow` or `Effect::InnerShadow` (`paint.rs:284-298`). The colour binds to `color/shadow` with the layer's alpha applied through an alias-with-alpha when #131 supports it; otherwise the colour is written as a value and the style records `bound: false` in the report.
 8. **Determinism and idempotency.**
    - Collections, variables and styles are written in a fixed order (table order, then name order).
    - Re-applying the same resolved style produces no change: the tool compares the would-be state with the current one and returns `changed: false` with no undo entry (AC1).
    - Applying another archetype rewrites values under the same ids and names. Nodes bound with `var:` references therefore re-theme (AC2).
    - Variables the compiler did not create are never touched. A user-made variable whose name collides with a compiler name in a different collection is left alone; the compiler's variable lives in its own collection.
 9. **One undo step.** All writes are one `Command::Batch`. `dry_run: true` returns the full report without changing the document and uses the E15-4 (#589) transaction preview shape.
-10. **Active style record.** `Document.applied_style = Some(AppliedStyle { archetype, params, catalogue_version, applied_at_rev })` is written in the same batch. E15-16 bootstrap and E15-20 read it.
+10. **Active style record.** `Document.applied_style = Some(AppliedStyle { archetype, params, catalogue_version })` (exactly the §4 struct; no revision or timestamp field, so a re-apply of the same style leaves the document hash unchanged) is written in the same batch. E15-16 bootstrap and E15-20 read it.
 11. **Mode selection.** Optional `mode: "light" | "dark"` sets the explicit mode of the `Style / Color` collection on the given `scope_node_id` (default: the active page) through `NodeVariables.modes` (`variables.rs:135-141`).
 
 ## 4. Data model / schema
@@ -142,7 +142,7 @@ Visual evidence: render snapshot PNGs of one sample frame under two archetypes, 
 
 ## 12. Dependencies and build order
 
-- Needs E15-18 (#604), #131 (E1-4), #138 (E1-9), E15-4 (#589, dry-run shape).
+- Needs E15-18 (#604), #131 (E1-4), #138 (E1-9), E15-4 (#589, dry-run shape), E15-3 (#588; AC2 binds a fill with `var:color/primary`, and the text and effect style links resolve by E15-3's name rule).
 - Unblocks E15-20 (#608), E15-22 (#610), E15-36.
 
 ## 13. Owner rulings that apply

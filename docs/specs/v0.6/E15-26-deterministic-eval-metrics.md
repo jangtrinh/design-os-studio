@@ -124,8 +124,8 @@ Visual evidence: terminal capture of the fixture table with computed values.
 
 ## 12. Dependencies and build order
 
-- Needs E15-25, E15-9 (#594), E15-10 (#595), E15-11 (#596).
-- Unblocks E15-30, E15-33, E15-37.
+- Needs E15-25, E15-9 (#594), E15-10 (#595), E15-11 (#596) and E15-21 (#609; `lint_per_100` includes the `surface.*` findings, so the surface rules must exist for the gated metric to count them).
+- Unblocks E15-24 (AC3 measures `token_coverage`), E15-30, E15-33, E15-37.
 
 ## 13. Owner rulings that apply
 

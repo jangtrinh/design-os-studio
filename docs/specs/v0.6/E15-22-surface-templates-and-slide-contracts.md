@@ -18,13 +18,13 @@ As an agent building slides, I want to say what a slide must do ("compare two op
 
 ## 3. Behaviour rules
 
-1. **Template component set.** `components.json` defines our own components, all bound only to E15-19 names (`var:color/*`, `var:radius/*`, `var:space/*`, `Text/*`, `Elevation/*`): `Status Bar`, `Tab Bar` (slot of 3–5 `Tab Item`), `Tab Item` (variants State=Default/Selected), `Top Bar`, `Sidebar` (slot of `Nav Item`), `Nav Item` (State=Default/Selected/Hover), `Button` (Variant=Primary/Secondary/Ghost/Destructive, Size=Sm/Md/Lg), `Input` (State=Default/Focus/Error/Disabled), `Card`, `Table` (header row + slot of `Table Row`), `Table Row`, `Table Cell` (Type=Text/Number/Status/Action), `Badge`, `Empty State`, `Section Header`, `Swatch`, `Type Specimen Row`, `Slide Title`, `Slide Body`, `Slide Footer`.
+1. **Template component set.** `components.json` defines our own components, all bound only to E15-19 names (`var:color/*`, `var:radius/*`, `var:space/*`, the text styles by name `text_style: "<Name>"` for keys `designos-style:text/<Name>`, the effect styles `effect_style: "Elevation/<n>"` for keys `designos-style:effect/elevation-<n>`): `Status Bar`, `Tab Bar` (slot of 3–5 `Tab Item`), `Tab Item` (variants State=Default/Selected), `Top Bar`, `Sidebar` (slot of `Nav Item`), `Nav Item` (State=Default/Selected/Hover), `Button` (Variant=Primary/Secondary/Ghost/Destructive, Size=Sm/Md/Lg), `Input` (State=Default/Focus/Error/Disabled), `Card`, `Table` (header row + slot of `Table Row`), `Table Row`, `Table Cell` (Type=Text/Number/Status/Action), `Badge`, `Empty State`, `Section Header`, `Swatch`, `Type Specimen Row`, `Slide Title`, `Slide Body`, `Slide Footer`.
 2. **Templates** (each a NodeSpec frame tagged with its surface, built from instances of the set):
    - web app: `web-app/shell` (top bar + sidebar + content), `web-app/list-detail`, `web-app/settings`, plus state frames `… / Empty`, `… / Loading`, `… / Error`, `… / Success`, `… / Permission` for the list;
    - landing: `landing-page/hero`, `landing-page/features`, `landing-page/proof`, `landing-page/pricing`, `landing-page/faq`, `landing-page/cta`, `landing-page/footer` (sections, each a full-width frame);
    - mobile: `mobile/shell` (status bar, content wrapper with 16 px side padding, tab bar last in the stack, never absolutely positioned), `mobile/list`, `mobile/detail`;
    - table: `table/data-table` with Empty, Loading, Error states;
-   - design system: `design-system/page` (colour swatches from every `color/*` variable, type specimen per `Text/*` style, radius and elevation samples, component sheet).
+   - design system: `design-system/page` (colour swatches from every `color/*` variable, type specimen per `designos-style:text/<Name>` style, radius and elevation samples, component sheet).
    - slides: one template per contract `slides/L01` … `slides/L20`.
 3. **Insertion through `apply_spec`.** A spec `{ "kind": "instance", "component": "designos.template/mobile/shell" }` places a template:
    - on first use, `import.rs` adds the template component set to the document on a page named `design:os templates` (created if missing, hidden from the page list's default sort only by being last), and the requested template's main frame as a component on the same page;
@@ -104,8 +104,8 @@ No new panel. Imported templates appear in the Assets panel under the `design:os
 1. Template inserted into a frame narrower than its size: the instance keeps its size; the parent's auto layout decides placement; lint reports overflow as usual.
 2. The user deleted the `design:os templates` page: the next insertion re-imports the set; existing instances stay detached-safe because E15-1 instance placement fails if a key is missing rather than creating broken links.
 3. Two documents import different catalogue versions: each keeps its own; no cross-document state.
-4. Slide contract used on a deck whose frames are 1280×720: contracts scale proportionally (all values × width/1920) and the lint thresholds scale the same way; the scale factor is reported.
-5. Archetype with a single elevation level: templates that use `Elevation/2` bind to the effect style; an empty level renders as no shadow, not an error.
+4. Slide contract used on a deck whose frames are 1280×720: only the contract geometry (grid, margin, gutter, regions) scales proportionally (× width/1920) and the scale factor is reported. Type ranges and the E15-21 slides lint thresholds stay absolute (owner-accepted values, E15-21 §3.8), so such a deck reports `surface.slides.frame-size` and, where the scaled margin falls below 96 px, `surface.slides.edge-margin`. That is the intended result of the accepted absolute values; the agent resizes the deck to 1920×1080.
+5. Archetype with a single elevation level: templates that use `Elevation/2` (key `designos-style:effect/elevation-2`) bind to the effect style; an empty level renders as no shadow, not an error.
 6. Dark mode: templates contain no mode overrides; they follow the frame's inherited mode.
 
 ## 9. Non-goals

@@ -50,7 +50,7 @@ These specs were written against `main` at `767acf9` on 2026-10-18. Before codin
 | E15-47 | #637 | Our own design:os skills pack | [E15-47](E15-47-designos-skills-pack.md) | L |
 | E15-48 | #638 | Image fills and effects in `apply_spec` | [E15-48](E15-48-apply-spec-image-fills-effects.md) | M |
 
-Issue numbers for E15-23 … E15-48 did not exist on 2026-10-18 (the filing script had reached E15-22, #610). Add them here when filed.
+Issue numbers for E15-23 … E15-48 were filed after the specs were first written and are filled in the index above.
 
 ## Shared contracts used by these specs
 
@@ -83,10 +83,10 @@ crates/designos-eval/
 ## Build order
 
 1. **Foundations, no part 1 dependency:** E15-23 → E15-25. E15-46 can start right after E15-23.
-2. **Styles:** E15-18 (needs E15-10, #248) → E15-19 (needs #131, #138, E15-4) → E15-20.
+2. **Styles:** E15-18 (needs E15-10, #248) → E15-19 (needs #131, #138, E15-3, E15-4) → E15-20 (needs E15-3 for the sample screens).
 3. **Spec grounding:** E15-48 right after E15-1 (templates and assets use image fills).
-4. **Surfaces:** E15-21 (needs E15-9, E15-11, #248) → E15-22 (needs E15-1/2/3, E15-19).
-5. **Eval layers:** E15-26 (needs E15-9/10/11) → E15-24 (needs E15-1/3) → E15-27, E15-28, E15-31 in parallel → E15-29 (needs E15-17) → E15-30 → E15-32 → E15-33.
+4. **Surfaces:** E15-21 (needs E15-9, E15-11, E15-48, #248) → E15-22 (needs E15-1/2/3, E15-19).
+5. **Eval layers:** E15-26 (needs E15-9/10/11, E15-21) → E15-24 (needs E15-1/3, E15-26) → E15-27, E15-28, E15-31 in parallel → E15-29 (needs E15-17) → E15-30 → E15-32 → E15-33.
 6. **Quality loop:** E15-34 (needs #572, #238, E15-7, E15-9, E15-21, E15-31) → E15-35 → E15-36 (needs #343, #345, E15-16, E15-19) → E15-37 → E15-38.
 7. **Assets:** E15-39 (needs #177, E15-7, E15-18) → E15-40 and E15-41 in parallel.
 8. **Code and design:** E15-42 (needs #138) → E15-43 (needs #276, #277, E15-11); E15-44 (needs #277, E15-1); E15-45 (needs #250, #276).

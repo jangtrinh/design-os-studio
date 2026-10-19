@@ -30,7 +30,7 @@ Colour and type choices are where models are weakest. Briefs plus concrete value
    - `elevation`: elevation sets (shadow layers per level).
    - `imagery`: imagery recipes; may be the single option `none`.
 3. **Resolution.**
-   - No archetype given: return the catalogue (id, name, one-line summary, surfaces, preview preset id).
+   - No archetype given: return the catalogue (id, name, one-line summary, surfaces, status). E15-20 later adds the preset ids to this listing.
    - Archetype given, some params missing: every group with exactly one option is filled automatically. If any group still has more than one option and no value, return `status: "needs_params"` with the option lists for the open groups. This is a success result, not an error.
    - A supplied value that is not in its group's option list fails with `style_param_invalid`, listing the allowed values and a corrected example.
    - All groups resolved: return the brief, the resolved values and a `resolved_params` object that `designos_apply_style` (E15-19) accepts verbatim.
@@ -87,9 +87,10 @@ Archetype file (`assets/styles/archetypes/quiet-editorial.json`, abridged):
 Rust (`designos-doc/src/style_archetype/schema.rs`), all `#[serde(deny_unknown_fields)]`:
 
 ```rust
-pub struct Archetype { pub schema: u32, pub id: String, pub name: String, pub summary: String,
+pub struct Archetype { pub schema: u32, pub id: String, pub status: ArchetypeStatus, pub name: String, pub summary: String,
     pub surfaces: Vec<String>, pub source_notes: String, pub brief: Brief,
     pub type_scale: TypeScale, pub spacing: Spacing, pub params: ParamSources }
+#[serde(rename_all = "kebab-case")] pub enum ArchetypeStatus { Candidate, Reviewed }   // owner ruling: all 26 ship as `candidate`; the owner's blind review later promotes or removes
 pub struct Brief { pub core: String, pub identity: String, pub layout: String, pub token_map: String,
     pub decoration: String, pub hierarchy: String, pub typography: String }
 pub struct ParamSources { pub fonts: FontSlots, pub palette: Vec<Palette>, pub radius: Vec<RadiusScale>,
@@ -134,7 +135,7 @@ Output, needs params:
 
 Output, resolved: `{ "status": "resolved", "resolved_params": {…all eight keys…}, "brief": {…}, "values": { "fonts": […], "palette": {…}, "radius": {…}, "elevation": {…}, "imagery": {…}, "type_scale": [["caption", 12], …], "spacing": {…} }, "catalogue_version": "1.0.0" }`.
 
-Output, no archetype: `{ "status": "catalogue", "catalogue_version": "1.0.0", "archetypes": [{ "id", "name", "summary", "surfaces", "preset" }] }`.
+Output, no archetype: `{ "status": "catalogue", "catalogue_version": "1.0.0", "archetypes": [{ "id", "name", "summary", "surfaces", "status" }] }`. E15-20 adds a top-level `presets` list.
 
 Errors (SC-1):
 - `style_archetype_unknown`, details `{ "allowed": [ids] }`, corrected example `{ "category": "style", "archetype": "quiet-editorial" }`, `safe_to_retry: true`.
@@ -180,6 +181,7 @@ Fail-before: `catalogue_has_every_persona` fails on `main` (no catalogue).
 | `no_param_call_lists_options` (AC3) | `resolve("quiet-editorial", {})` | `NeedsParams`, `open` contains every multi-option group |
 | `bad_font_slot_fails_with_allowed_list` (AC3) | `heading: "comic-sans"` | `style_param_invalid`, `allowed == ["fraunces"]` |
 | `single_option_groups_autofill` | `{}` on an archetype whose imagery has one option | `filled.imagery == "none"` |
+| `every_archetype_ships_candidate` | all files | `status == "candidate"` for all 26 (owner ruling 2026-10-19) |
 | `font_licences_are_embeddable` | all font options | licence in the allowed set, source in `{bundled, fontsource}` |
 | `type_scale_formula` | base 16, ratio 1.25 | caption 16·1.25⁻¹ = 12.8 → 13, body 16, body-lg 20, h1 16·1.25⁵ = 48.83 → 49 |
 

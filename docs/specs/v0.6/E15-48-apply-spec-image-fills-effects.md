@@ -155,7 +155,7 @@ Visual evidence: CPU render of the §5 card in Light and Dark modes.
 ## 12. Dependencies and build order
 
 - Needs E15-1 (#586). Uses E15-3 (#588), E15-5 (#590), E15-39 (job source; the `job` variant lands with E15-39 if it merges later).
-- Merges first in the `spec.rs` queue (README-part2).
+- Merges first in the `spec.rs` queue (README-part2). Unblocks E15-21 (its `surface` key lands in the strict key list after this task).
 
 ## 13. Owner rulings that apply
 

@@ -39,7 +39,7 @@ As the owner, I want every dataset, model weight, design kit and skill used by `
    - `excluded`: no task may reference it.
 4. **Exclusion rule.** `licence = "NONE"` forces `use = "excluded"` (owner ruling). A `pending` review blocks every consumer except the review itself: `designos-eval` refuses to fetch or run a task whose source is `pending` or `rejected` (E15-25 reads this file).
 5. **Licence review required before `approved`:** Owner ruling 2026-10-19: Design2Code, UICrit, RICO screenshots and UIClip weights are approved as `eval-only-cache` only: downloaded at run time into the user cache by `designos-eval fetch`, never committed, never shipped. Their entries are filed with `review = "approved"`, `reviewer = "owner"`, `reviewed_on = "2026-10-19"`, and the RICO terms are still recorded verbatim in `notes`. Derived metadata (S1 reference blocks) stays in the cache too. Other sources still need the review below.
-   - Design2Code: ODC-BY covers the dataset; page text and images are third-party web content. Required: confirm eval use of the screenshots and HTML; attribution text; no redistribution of pages in this repo (class `eval-only-cache`). Our committed artefacts are task ids and derived block metadata only after review allows it.
+   - Design2Code: ODC-BY covers the dataset; page text and images are third-party web content. Required: confirm eval use of the screenshots and HTML; attribution text; no redistribution of pages in this repo (class `eval-only-cache`). Our committed artefacts are task ids only: page screenshots, HTML and derived block metadata (S1 reference blocks) stay in the user cache and are never committed (owner ruling above).
    - WebSight: CC BY 4.0 allows redistribution with attribution; confirm the licence of any embedded photos before committing rendered fixtures.
    - UICrit: CC BY 4.0 for critiques and ratings; RICO screenshot terms must be read and recorded separately (separate entry `rico-screenshots`). If RICO terms do not allow redistribution, screenshots stay `eval-only-cache`.
    - UIClip weights: MIT tag; record the paper citation as attribution; class `eval-only-cache` (weights never enter the app, R4.13).
@@ -66,10 +66,10 @@ pinned = "e2f61f6e9d9b5ee201b81d8e0ae4d37aa13f8f25"
 licence = "ODC-By-1.0"
 use = "eval-only-cache"
 attribution = "Design2Code (Si et al., 2024), SALT-NLP, ODC-BY 1.0."
-review = "pending"
-reviewer = ""
-reviewed_on = ""
-notes = "Pages derive from third-party websites."
+review = "approved"
+reviewer = "owner"
+reviewed_on = "2026-10-19"
+notes = "Pages derive from third-party websites. Owner ruling 2026-10-19: eval-only-cache, never committed or shipped."
 consumers = ["E15-27"]
 
 [ban]
@@ -97,7 +97,7 @@ None.
 
 1. A source with two licences (code MIT, data CC BY): two entries with distinct ids.
 2. Hugging Face revision moved upstream: we pin a revision SHA, so the fetch stays reproducible; a missing revision fails the fetch with the id and SHA.
-3. The ban regex must not match legitimate words (`spec`, `pcp` inside a word): whole-token matching; a test feeds `specs/pcp-free.md` (must pass) and `fixtures/VSF - PCP.fig` (must fail).
+3. The ban regex must not match legitimate words (`spec`, or `pcp` inside a longer word such as `pcpx`): whole-token matching, where a token is bounded by non-alphanumeric characters, so a hyphenated name that contains the token (`pcp-free.md`) does match. A test feeds `specs/pcpx.md` (must pass) and `fixtures/VSF - PCP.fig` and `specs/pcp-free.md` (must fail).
 4. Register edits without a review date for an `approved` entry: schema failure.
 5. Windows path separators in task files: normalised before matching.
 
@@ -118,7 +118,8 @@ Fail-before: running the script on `main` exits 2 (no register).
 | `unlicensed_marked_excluded` (AC2) | entry `transitions-dev` with `licence = "NONE"`, `use = "eval-only-cache"` | exit 1 `none-means-excluded` |
 | `client_fixture_path_fails` (AC3) | `crates/designos-eval/suites/s3/tasks.toml` containing `path = "fixtures/VSF - PCP.fig"` | exit 1 `client-file-ban` |
 | `home_path_fails` | `path = "/Users/x/Downloads/kit.fig"` | exit 1 |
-| `word_containing_pcp_passes` | `specs/pcp-free.md` | exit 0 |
+| `word_containing_pcp_passes` | `specs/pcpx.md` | exit 0 |
+| `hyphenated_pcp_token_fails` | `specs/pcp-free.md` | exit 1 `client-file-ban` |
 | `third_party_file_stale` | edit an attribution | exit 1 `third-party-current` |
 
 Visual evidence: terminal capture of a passing run and of the three failing fixtures.

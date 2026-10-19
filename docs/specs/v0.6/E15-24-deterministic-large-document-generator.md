@@ -112,7 +112,7 @@ Visual evidence: terminal capture of generation with the measured profile, and a
 
 ## 12. Dependencies and build order
 
-- Needs E15-1 (#586), E15-3 (#588), E15-25 (crate and RNG), E15-23 (kit licences).
+- Needs E15-1 (#586), E15-3 (#588), E15-25 (crate and RNG), E15-23 (kit licences) and E15-26 (#614; AC3 measures `variable_coverage` with E15-26 `token_coverage`, so that metric must exist first).
 - Unblocks E15-29 (S3) and the S2 design-system libraries (E15-28).
 
 ## 13. Owner rulings that apply

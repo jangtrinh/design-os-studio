@@ -33,7 +33,7 @@ As the team, we want every pull request to fail when the engine makes agent outp
 | `clipped_text` | lower | 0.5 |
 | `off_grid_pct` | lower | 1.0 |
 | `auto_layout_coverage` | higher | 0.02 |
-| `drift.free` (S3) | higher | 0.0 (any drop fails) |
+| `drift.free` (S3) | higher | 0.0 (zero tolerance: any per-task drop fails, rule 4) |
 | `consistency.overall` (S4) | higher | 0.02 |
 | `fidelity.block_match`, `.text`, `.position`, `.color` (S1) | higher | 0.01 |
 
@@ -41,7 +41,8 @@ As the team, we want every pull request to fail when the engine makes agent outp
 4. **Significance test** (paired bootstrap). For metric `m`, over the common task set `T` (tasks whose replay did not diverge in either baseline or current), let `d_t = sign · (m_cur(t) − m_base(t))` with `sign = +1` when higher is better and `−1` when lower is better (so negative `d` is a regression).
    - `D̄ = mean_t d_t`; bootstrap the mean of `d` over tasks with B = 10,000 (seed `sha1("gate" ‖ metric)` per SC-7); `U` = 97.5th percentile (one-sided 97.5% upper bound at α = 0.025).
    - **Regression** when `U < 0` (the whole interval is below zero) **and** `D̄ < −ε`.
-   - Because replays are deterministic, a metric whose `d_t` are all zero passes exactly; a single-task change below ε passes.
+   - **Zero tolerance.** For a metric with `epsilon = 0` the bootstrap is skipped: it is a regression when any common task has `d_t < 0`. With ε = 0 the bootstrap cannot do this job: one failing task among 96 unchanged ones gives `D̄ = −1/96`, but about 37% of resamples omit that task, so `U = 0` and the test would pass.
+   - Because replays are deterministic, a metric whose `d_t` are all zero passes exactly; for ε > 0 a single-task change below ε passes.
 5. **Divergence.** A replay that stops with `replay_diverged` (E15-25 §3.11) is excluded from the comparison and listed. More than 5% diverged tasks fails the gate with exit 2, since the engine changed the tool contract in a way the baseline cannot measure; the fix is a new baseline (rule 7) or a contract fix.
 6. **CI job.** `eval-gate` on `macos-14`, after `test`:
    - `cargo build --release -p designos-eval -p designos-mcp`;
@@ -100,6 +101,7 @@ Fail-before: no gate exists.
 |---|---|---|
 | `seeded_clipping_fails_gate` (AC1) | S2 subset baseline; forced-clip switch on | exit 1; `clipped_text` regression; worst tasks listed |
 | `unchanged_engine_passes` (AC2) | same commit as baseline | exit 0; every `mean_delta = 0` |
+| `zero_tolerance_single_drop_fails` | one task's `drift.free` falls from 1 to 0 among 95 unchanged | exit 1; `drift.free` regression naming that task |
 | `small_change_below_margin_passes` | one task's `lint_per_100.total` +0.3 | pass |
 | `diverged_share_fails` | 6% of transcripts made unreplayable | exit 2 |
 | `bootstrap_reproducible` | same inputs twice | identical report bytes |

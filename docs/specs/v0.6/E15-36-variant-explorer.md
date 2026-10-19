@@ -22,18 +22,21 @@ Variety comes from parallel attempts, different models and style changes.
 1. **Call.** `designos_explore_variants({ brief, n, mode, placement, models, quick_action?, anchor_frame_id?, surface?, size? })`:
    - `n` ∈ 2…8; `placement` ∈ `frames | branches`; `mode` ∈ `same_style | new_style`;
    - `models`: one model name for all, or exactly `n` names (one per variant); each must map to a configured agent profile;
-   - `quick_action` ∈ `layout | style | colour | typography | surprise` (optional; sets `mode` and the variation prompt, rule 5).
+   - `quick_action` ∈ `layout | style | colour | typography | surprise` (optional; it picks the effective `mode` from the table in rule 5, overriding a `mode` argument, and also the style-assignment rule in rule 6. It is stored on the exploration, so `mode` stays a two-value enum).
 2. **Anchor first.** Without `anchor_frame_id`, the first exploration on a brief builds one anchor screen with one agent (model = `models[0]`) in a frame named `<Brief title> / Anchor`; the call returns after spawning and the variants run when the anchor finishes (status `anchoring` → `exploring`). With `anchor_frame_id`, variants start at once and each agent's prompt includes the anchor's outline and screenshot (#238).
 3. **Frames placement.** The engine creates N frames `<Brief title> / Variant 1…N`, the anchor's size (or `size`), placed in one row to the right of the anchor with a 160 px gap, top-aligned, all on the anchor's page. Each frame is tagged with the surface and flagged in progress (E15-7). RD-3 `spawn_agents` runs one agent per frame with `container_frames = [that frame]`, so cross-frame writes are refused (AC1).
 4. **Branches placement.** The engine creates N branches `variant-<k>` from the current state (T10.1). Each agent edits the anchor frame inside its own branch (ownership = that frame within that branch). Main is not modified during exploration. AC2: each branch merges cleanly into a fresh main (no conflicts, because main did not change).
 5. **Variation prompts** (our own text, versioned in `variants/prompts.md`): the brief, the anchor context, a fixed instruction to design one complete alternative inside the owned frame only, and a per-mode or per-quick-action direction:
-   - `same_style` / `layout`: keep the active style (`Document.applied_style`), change structure and composition;
-   - `new_style` / `style`: use the style parameters assigned in rule 6;
-   - `colour`: same archetype and fonts, a different palette option;
-   - `typography`: same palette, different font options and type scale;
-   - `surprise`: new archetype and a different layout macrostructure (from the E15-21 landing or app structures);
+   | Quick action | Effective `mode` | Direction in the prompt | Style assignment (rule 6) |
+   |---|---|---|---|
+   | none, `mode: same_style` / `layout` | `same_style` | keep the active style (`Document.applied_style`), change structure and composition | none |
+   | none, `mode: new_style` / `style` | `new_style` | use the style parameters assigned by the engine | `full` |
+   | `colour` | `new_style` | same layout; same archetype and fonts, a different palette option | `palette` |
+   | `typography` | `new_style` | same layout; same archetype and palette, different font options | `fonts` |
+   | `surprise` | `new_style` | new archetype and a different layout macrostructure (from the E15-21 landing or app structures) | `full` |
+
    Variant k also gets `variation_index = k` so prompts differ even on one model.
-6. **Style assignment for `new_style`.** The engine picks parameters deterministically: candidates are all (archetype, palette, fonts, radius, elevation) combinations whose archetype lists the brief's surface; exclude the anchor's combination; order candidates by `sha1(exploration_id ‖ archetype ‖ params)` and take the first N with distinct archetypes when possible (distinct palettes otherwise). The assignment is stored and passed to each agent. AC3: the variables written differ per variant.
+6. **Style assignment for `new_style`.** The engine picks parameters deterministically. The assignment kind comes from the rule 5 table. `full`: candidates are all (archetype, palette, fonts, radius, elevation) combinations whose archetype lists the brief's surface. `palette`: candidates are the palette options of the anchor's archetype, other parameters kept. `fonts`: candidates are the font-option combinations (heading, body, caption, data) of the anchor's archetype, palette and other parameters kept. (The type scale belongs to the archetype and is not a parameter, so a `typography` variant never changes it.) Exclude the anchor's combination; order candidates by `sha1(exploration_id ‖ archetype ‖ params)` and take the first N, with distinct archetypes when possible for `full` (distinct palettes otherwise), distinct palettes for `palette` and distinct font combinations for `fonts`. Fewer than N candidates: `variant_count_invalid` with the maximum (edge case 1). The assignment is stored and passed to each agent. AC3: the variables written differ per variant.
 7. **Per-variant styles in frames placement.** For `new_style` in frames placement, E15-19's compiler writes each variant's style as additional modes on the four style collections, named `v<k> Light` / `v<k> Dark` (and `v<k>` for single-mode collections), and sets the variant frame's explicit modes (`NodeVariables.modes`). Variables keep their names, so agents still use `var:color/primary`. In branches placement each branch simply applies its archetype normally.
 8. **Stop.** `designos_stop_variants({ exploration_id })` cancels every running agent of the exploration (RD-3 stop), clears in-progress flags and keeps what each agent finished (each run is its own undo block; a run stopped mid-way is rolled back to its last completed batch per RD-3).
 9. **Status.** `designos_variants_status({ exploration_id })` returns per variant: frame or branch, owner run, model, state (`queued | running | done | failed | stopped`), tool calls, wall time, last error.
@@ -43,13 +46,14 @@ Variety comes from parallel attempts, different models and style changes.
 ## 4. Data model / schema
 
 ```rust
-pub struct Exploration { pub id: String, pub brief: String, pub surface: Option<SurfaceKind>, pub mode: VariantMode,
+pub struct Exploration { pub id: String, pub brief: String, pub surface: Option<SurfaceKind>, pub mode: VariantMode, pub quick_action: Option<QuickAction>,
     pub placement: Placement, pub anchor: Option<NodeId>, pub variants: Vec<VariantRecord>, pub status: ExplorationStatus,
     pub created_at: String, pub prompt_version: String }
 pub struct VariantRecord { pub index: u32, pub model: String, pub frame: Option<NodeId>, pub branch: Option<String>,
     pub run: Option<u32>, pub style: Option<StyleParamsWithArchetype>, pub state: VariantState,
     pub scores: Option<VariantScores> /* E15-37 */, pub archived: bool }
 pub enum VariantMode { SameStyle, NewStyle }   pub enum Placement { Frames, Branches }
+pub enum QuickAction { Layout, Style, Colour, Typography, Surprise }
 // agent_meta.rs: pub variant: Option<VariantTag { exploration: String, index: u32 }>
 ```
 
@@ -71,7 +75,7 @@ The Studio UI for this tool is E15-38. While running, RD-3's ownership and progr
 
 ## 8. Edge cases
 
-1. Not enough distinct archetypes for the surface: distinct palettes or radius scales are used; if fewer than N distinct combinations exist, `variant_count_invalid` with the maximum.
+1. Not enough distinct archetypes for the surface: distinct palettes or radius scales are used; if fewer than N distinct combinations exist (for `colour` and `typography`, within the anchor's archetype), `variant_count_invalid` with the maximum.
 2. A model profile fails to start: that variant is `failed`; others continue; the status says why.
 3. The user edits a variant frame while its agent runs: RD-3 ownership is for agents; a user edit is allowed and recorded as human-authored; the agent's next write sees the change.
 4. Anchor frame deleted mid-exploration: running agents continue in their frames; ranking later skips anchor comparisons.
@@ -97,6 +101,7 @@ Fail-before: the tool does not exist.
 | `new_style_variants_differ` (AC3) | n=3 new_style frames | resolved `color/primary` (and fonts) per variant frame mode differ; stored assignments differ |
 | `stop_cancels_all` | stop while 2 running | all states `stopped` or `done`; no in-progress flag left |
 | `models_length_checked` | n=3, models of length 2 | `models_mismatch` |
+| `quick_actions_assign_by_kind` | n=3 anchor in `quiet-editorial`; `colour`, then `typography` | `colour`: archetype and fonts equal the anchor's, palettes distinct; `typography`: archetype and palette equal the anchor's, font combinations distinct; both stored with mode `new_style` and the quick action |
 | `assignment_is_deterministic` | same exploration id twice | identical style assignments |
 | `max_parallel_respected` | n=6, max 4 | never more than 4 running (stub timestamps) |
 

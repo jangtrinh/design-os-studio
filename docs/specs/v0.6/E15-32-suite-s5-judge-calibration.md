@@ -16,7 +16,7 @@ As the owner, I want a judge configuration (profile, model, prompt version) to b
 
 ## 3. Behaviour rules
 
-1. **UICrit pairs.** From the UICrit rows (licence permitting, `eval-only-cache`), build pairs of screens with the same app category whose mean human quality ratings differ by ≥ 2.0 points; draw 200 pairs with seed `20261018`; the higher-rated screen is the human winner. Pairs are frozen in `uicrit_pairs.toml` by screen id only (no images committed).
+1. **UICrit pairs.** From the UICrit rows (approved `eval-only-cache`, owner ruling 2026-10-19: fetched at run time, never committed), build pairs of screens with the same app category whose mean human quality ratings differ by ≥ 2.0 points; draw 200 pairs with seed `20261018`; the higher-rated screen is the human winner. Pairs are frozen in `uicrit_pairs.toml` by screen id only (no images committed).
 2. **Owner pairs.** 100 pairs of designs we own: outputs of S2/S4 runs and E15-36 variants (never client files), chosen to span easy and hard contrasts (50 pairs with a large deterministic-metric gap, 50 with a small one). Frozen in `owner_pairs.toml` with relative paths into the results store.
 3. **Voting view in Studio (owner-manual leg).** Owner ruling 2026-10-19: the whole evaluation experience lives inside Studio; there is no offline HTML sheet.
    - Entry: command palette and menu `Evaluate › Vote on judge pairs`. It opens the Studio **Eval view** (a full-window view like Home, closed with Esc back to the previous view) on `owner_pairs.toml` from the eval results store.
@@ -80,7 +80,7 @@ The Eval view is Studio UI, so the Studio design system binds it (`design/princi
 
 ## 8. Edge cases
 
-1. UICrit screens unavailable (RICO terms not approved): UICrit metrics `not_measured`; the trust rule then cannot pass, which is intended.
+1. UICrit screens unavailable (download failed or offline; the entries are approved, so this is a runtime failure, not a licence gate): UICrit metrics `not_measured`; the trust rule then cannot pass, which is intended.
 2. Owner votes `No difference` on more than 40% of pairs: agreement is computed on the rest and the report flags the low decision count.
 3. Judge configuration changes between calibration and use: different `judge_config_id`, so it is untrusted until recalibrated.
 4. Partial vote file (owner stopped halfway): imported; metrics computed on voted pairs with `n` reported; trust requires all 100 pairs voted.
@@ -117,7 +117,7 @@ Visual evidence: terminal capture of a stub calibration, and Studio screenshots 
 
 ## 12. Dependencies and build order
 
-- Needs E15-31, E15-23 (UICrit and RICO entries approved).
+- Needs E15-31, E15-23 (UICrit and RICO entries, approved by owner ruling 2026-10-19).
 - Unblocks trusted use of judge scores in E15-37.
 
 ## 13. Owner rulings that apply

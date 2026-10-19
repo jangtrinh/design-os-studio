@@ -11,14 +11,14 @@ As the team, we want to measure how faithfully an agent recreates a reference we
 ## 2. Current state
 
 - FACT: no fidelity metric exists. `designos-diff` compares two images pixel-wise and reports `mismatched`, `ratio` and `ssim` (`crates/designos-diff/src/lib.rs:40-60,301-308`); it has no notion of text blocks.
-- FACT: the Design2Code dataset (`SALT-NLP/Design2Code`, revision `e2f61f6…`) is ODC-BY and its metric code (`NoviScl/Design2Code`) is MIT (E15-23 register, review pending).
+- FACT: the Design2Code dataset (`SALT-NLP/Design2Code`, revision `e2f61f6…`) is ODC-BY and its metric code (`NoviScl/Design2Code`) is MIT (E15-23 register; Design2Code approved as `eval-only-cache` by owner ruling 2026-10-19, so it is fetched at run time and never committed or shipped).
 - FACT: text nodes in a document have exact world bounds, characters and resolved fills, so candidate blocks need no OCR.
 
 ## 3. Behaviour rules
 
 1. **Tasks.** 40 reference pages drawn from the Design2Code test split with seed `20261018`: shuffle the sorted page ids with xoshiro256** (SC-7) and take the first 40. The list is frozen in `tasks.toml`; the draw is re-checkable with `designos-eval lock --suite s1`.
 2. **Task brief.** The agent gets the reference screenshot (PNG in the cache, `inputs = ["ref/<id>.png"]`) and the instruction to recreate it as one frame named `Recreation` whose width equals the screenshot width, height free. The reference HTML is never shown to the agent.
-3. **Reference blocks** are computed once per page offline by `tools/s1_reference_blocks.py`, which runs the pinned Design2Code reference code to extract text blocks (text, bounding box, text colour) from the reference HTML. Output `ref/<id>.blocks.json` lives in the user cache next to the screenshot (class `eval-only-cache` until the licence review allows committing derived metadata).
+3. **Reference blocks** are computed once per page offline by `tools/s1_reference_blocks.py`, which runs the pinned Design2Code reference code to extract text blocks (text, bounding box, text colour) from the reference HTML. Output `ref/<id>.blocks.json` lives in the user cache next to the screenshot (class `eval-only-cache`, approved). It is never committed: no `ref/<id>.blocks.json` file is ever added to the repository.
 4. **Candidate blocks** come from the output frame: every visible text node becomes one block per laid-out line group (consecutive lines of one text node merge into one block, as in the reference method), with world bounds relative to the frame, characters, and the resolved fill colour of its first run (alpha composited over the backdrop colour sampled from the CPU render under the block centre).
 5. **Normalisation.** Both sides' coordinates are divided by their page width and height (reference: screenshot size; candidate: rendered frame size), so positions are in [0, 1].
 6. **Text similarity** between two strings: `sim(a, b) = 2·M / (|a| + |b|)` where `M` is the number of matched characters from Ratcliff/Obershelp longest-common-substring matching (the same definition as Python `difflib.SequenceMatcher.ratio()`); strings are lower-cased and whitespace-collapsed first.
@@ -98,7 +98,7 @@ Visual evidence: terminal capture of the golden test plus, for the live run, the
 
 ## 12. Dependencies and build order
 
-- Needs E15-25, E15-23 (Design2Code and CLIP entries approved). Optional: #277 for the importer ceiling.
+- Needs E15-25, E15-23 (Design2Code approved by owner ruling 2026-10-19; the CLIP ViT-B/32 weights entry is not named in the 2026-10-19 ruling and stays `pending` until the owner reviews it; under E15-23 rule 4 a pending source blocks the CLIP score). Optional: #277 for the importer ceiling.
 - Parallel with E15-28 and E15-31.
 
 ## 13. Owner rulings that apply

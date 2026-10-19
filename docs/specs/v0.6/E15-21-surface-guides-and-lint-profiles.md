@@ -43,7 +43,7 @@ As a user, I want a slide with 18 px body text, or a mobile screen with six tab 
 | `frame_size` | `width`, `height` (either may be `null`) | frame size equals the value (slides 1920×1080) |
 | `min_row_height` | `px` | direct children of the data region (§3.7), the rows, are at least px tall |
 
-6. **Tab bar detection** (mobile): a horizontal auto-layout child whose bottom edge is within 40 px of the frame bottom, at least 75% of the frame width, with ≥ 2 children of equal width (±1 px); or any node whose name or main component name matches `/tab ?bar/i`. The first match wins.
+6. **Tab bar detection** (mobile): a horizontal auto-layout child whose bottom edge is within 40 px of the frame bottom, at least 75% of the frame width, with ≥ 2 children of equal width (±1 px); or any node whose name or main component name matches `/tab ?bar/i`. When several candidates match, the bottom-most one wins (largest world bottom edge; ties go to the lowest node id), and the finding names it.
 7. **Data regions** (web app, table): a table component instance, a node named `/table|list|grid/i` with ≥ 3 repeated children (same main component or same structure), or a chart. State frames are found as sibling frames named `<Name> / <State>` or as variants of a component property named `State` with values `Loading`, `Empty`, `Error`, `Success`, `Permission` (case-insensitive).
 8. **Profiles** (our own values, written for design:os; `px` at 1×):
 
@@ -119,7 +119,7 @@ Studio shows the tag in the Inspect panel for a selected frame: a 28 px row `Sur
 5. Instances: rules check the rendered (override-applied) values.
 6. A slide in a deck with an explicit `surface: mobile` tag: the explicit tag wins over the implicit slides tag.
 7. A frame with no text: text rules produce no findings, not errors.
-8. Two tab bar candidates: the bottom-most wins; the finding names it.
+8. Two tab bar candidates: the bottom-most wins (rule 6); the finding names it.
 
 ## 9. Non-goals
 
@@ -155,8 +155,8 @@ Visual evidence: terminal capture of the slide and mobile tests plus an Inspect 
 
 ## 12. Dependencies and build order
 
-- Needs #248, E15-9 (#594), E15-11 (#596).
-- Unblocks E15-22 (#610), E15-34 (critique uses the surface checklist), E15-28 (briefs carry a surface tag).
+- Needs #248, E15-9 (#594), E15-11 (#596) and E15-48 (#638). E15-48 makes `NodeSpec` strict, so the `surface` key and its parser must merge after it, in the same PR as the key's entry in the strict key list (README-part2 `spec.rs` queue).
+- Unblocks E15-22 (#610), E15-26 (`lint_per_100` includes `surface.*` findings), E15-34 (critique uses the surface checklist), E15-28 (briefs carry a surface tag).
 
 ## 13. Owner rulings that apply
 
