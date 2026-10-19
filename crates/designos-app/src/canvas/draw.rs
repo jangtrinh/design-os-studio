@@ -1658,7 +1658,7 @@ mod tests {
         let node = app.doc.get(frame_id).unwrap();
         let (badge_r, ip) = in_progress_badge_rect(&app.doc, frame_id, node, label_r).expect("flagged frame must produce an in_progress badge rect");
         assert_eq!(badge_r.height(), 18.0);
-        assert!((badge_r.left() - (label_r.right() + 6.0)).abs() < 1e-4);
+        assert!((badge_r.left() - (label_r.right() + theme::SPACE_ROW)).abs() < 1e-4);
         assert_eq!(ip.badge_text(), "Claude Code working");
 
         // Transitioning agent run to done emits ClearInProgress and clears the badge.
