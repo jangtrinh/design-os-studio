@@ -42,6 +42,12 @@ pub struct LivePatchLog {
     /// Patches already read but not applied yet, because the user was in the middle of an edit.
     /// The read position is past them, so they live only here.
     pub pending: Vec<LivePatch>,
+    /// Start byte offset in `doc-patch.jsonl` for each entry in [`Self::pending`].
+    pub pending_offsets: Vec<u64>,
+    /// Start byte offsets of lines returned by recent [`Self::poll`] calls, consumed by [`Self::ingest`].
+    last_polled_offsets: std::collections::VecDeque<u64>,
+    /// Set when a [`DocEpoch`] line was ingested and waiting to replace the document.
+    pub pending_epoch_switch: bool,
     /// A document the agent switched to while the user was mid-edit. It replaces the open one
     /// once the canvas is idle, before any patch in `pending` (those were made on it).
     pub pending_doc: Option<Document>,
@@ -71,6 +77,9 @@ impl LivePatchLog {
             max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
             state: LivePatchState::default(),
             pending: Vec::new(),
+            pending_offsets: Vec::new(),
+            last_polled_offsets: std::collections::VecDeque::new(),
+            pending_epoch_switch: false,
             pending_doc: None,
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
@@ -82,6 +91,11 @@ impl LivePatchLog {
         log
     }
 
+    /// Current byte offset read in `doc-patch.jsonl`.
+    pub fn current_offset(&self) -> u64 {
+        self.offset
+    }
+
     /// Agent changes wait for the canvas to go idle.
     pub fn has_held(&self) -> bool {
         !self.pending.is_empty() || self.pending_doc.is_some()
@@ -90,6 +104,18 @@ impl LivePatchLog {
     /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
     /// lines come back as errors; nothing is skipped silently.
     pub fn poll(&mut self) -> (Vec<LiveLogLine>, Vec<String>) {
+        let (lines, errors) = self.poll_with_offsets();
+        let mut out = Vec::with_capacity(lines.len());
+        for (off, line) in lines {
+            self.last_polled_offsets.push_back(off);
+            out.push(line);
+        }
+        (out, errors)
+    }
+
+    /// Complete log lines appended since the last poll along with each line's start byte offset
+    /// in `doc-patch.jsonl`.
+    pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = std::fs::metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
         if len == self.offset && self.identity == Some(id) {
@@ -101,6 +127,9 @@ impl LivePatchLog {
             self.offset = 0;
             self.skipping = false;
             self.pending.clear();
+            self.pending_offsets.clear();
+            self.last_polled_offsets.clear();
+            self.pending_epoch_switch = false;
             self.pending_doc = None;
             self.dropped_old_epoch = 0;
             self.discarding = false;
@@ -113,13 +142,14 @@ impl LivePatchLog {
         if len <= self.offset {
             return Default::default();
         }
+        let base_offset = self.offset;
         let Some(buf) = self.read_range(self.offset, (len - self.offset).min(self.max_poll_bytes)) else { return Default::default() };
-        let (consumed, patches, errors) = self.split_lines(&buf);
+        let (consumed, patches, errors) = self.split_lines(base_offset, &buf);
         self.offset += consumed as u64;
         (patches, errors)
     }
 
-    fn split_lines(&mut self, buf: &[u8]) -> (usize, Vec<LiveLogLine>, Vec<String>) {
+    fn split_lines(&mut self, base_offset: u64, buf: &[u8]) -> (usize, Vec<(u64, LiveLogLine)>, Vec<String>) {
         let (mut patches, mut errors) = (Vec::new(), Vec::new());
         let mut pos = 0;
         if self.skipping {
@@ -128,13 +158,14 @@ impl LivePatchLog {
             self.skipping = false;
         }
         while let Some(nl) = buf[pos..].iter().position(|b| *b == b'\n') {
+            let line_start = base_offset + pos as u64;
             let line = &buf[pos..pos + nl];
             pos += nl + 1;
             if line.len() > self.max_line_bytes {
                 errors.push(self.too_large(line.len()));
             } else if !line.iter().all(u8::is_ascii_whitespace) {
                 match LiveLogLine::parse(line) {
-                    Ok(p) => patches.push(p),
+                    Ok(p) => patches.push((line_start, p)),
                     Err(e) => errors.push(format!("Unreadable agent edit in {}: {e}", display_name(&self.path))),
                 }
             }
@@ -154,8 +185,14 @@ impl LivePatchLog {
     /// document the one to open; edits after it are held for that document. Returns what the
     /// user must be told.
     pub fn ingest(&mut self, lines: Vec<LiveLogLine>) -> Vec<String> {
+        let with_offsets: Vec<(u64, LiveLogLine)> = lines.into_iter().map(|l| (self.last_polled_offsets.pop_front().unwrap_or(0), l)).collect();
+        self.ingest_with_offsets(with_offsets)
+    }
+
+    /// Same as [`Self::ingest`], preserving each line's start byte offset in [`Self::pending_offsets`].
+    pub fn ingest_with_offsets(&mut self, lines: Vec<(u64, LiveLogLine)>) -> Vec<String> {
         let (mut errors, mut dropped_while_stuck) = (Vec::new(), 0);
-        for line in lines {
+        for (line_offset, line) in lines {
             match line {
                 LiveLogLine::Patch(_) if self.discarding => {
                     if self.load_failed {
@@ -164,10 +201,15 @@ impl LivePatchLog {
                         self.dropped_old_epoch += 1;
                     }
                 }
-                LiveLogLine::Patch(patch) => self.pending.push(patch),
+                LiveLogLine::Patch(patch) => {
+                    self.pending.push(patch);
+                    self.pending_offsets.push(line_offset);
+                }
                 LiveLogLine::DocEpoch(epoch) => {
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
+                    self.pending_offsets.clear();
+                    self.pending_epoch_switch = true;
                     self.pending_doc = None;
                     self.load_failed = false;
                     self.discarding = true;

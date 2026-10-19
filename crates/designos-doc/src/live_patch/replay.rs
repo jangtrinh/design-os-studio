@@ -4,6 +4,7 @@ use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -57,7 +58,7 @@ fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, Node
 const SHAPE_FIELDS: [&str; 6] = ["transform", "size", "kind", "fill_geometry", "stroke_geometry", "corner_radii"];
 
 /// How a replayed live-patch op touched a layer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TouchKind {
     Inserted,
     Updated,

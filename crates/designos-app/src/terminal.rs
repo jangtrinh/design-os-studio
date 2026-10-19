@@ -553,6 +553,8 @@ pub struct TerminalTab {
     pub reader_eof: Arc<std::sync::atomic::AtomicBool>,
     /// Timestamp when the child process was first observed dead while waiting for `reader_eof`.
     pub exited_at: Option<std::time::Instant>,
+    /// Per-tab ledger of agent canvas turns (`#677`).
+    pub turn_ledger: crate::agent_turn_ledger::AgentTurnLedger,
 }
 
 impl TerminalTab {
@@ -723,6 +725,7 @@ impl TerminalTab {
             slave,
             reader_eof,
             exited_at: None,
+            turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),
         })
     }
 
@@ -917,6 +920,12 @@ pub struct TerminalState {
     pub rename_session_input: String,
     /// Prompt held by `dispatch_figma_ai_prompt` when no live tab and no resumable session exist (`#651` §3 rule 10).
     pub pending_prompt: Option<(String, String)>,
+    /// Hook-written turn boundary marks reader (`<session_dir>/turn-marks.jsonl`, `#677`).
+    pub turn_marks: crate::agent_turn_marks::TurnMarkLog,
+    /// Fallback turn ledger used when `tabs` is empty (`#677`).
+    pub turn_ledger: crate::agent_turn_ledger::AgentTurnLedger,
+    /// Deferred `(tab_idx, turn_id)` revert waiting for an in-progress user edit to finish (`#677`).
+    pub pending_turn_revert: Option<(usize, u64)>,
 }
 
 impl Default for TerminalState {
@@ -958,6 +967,7 @@ impl TerminalState {
         let initial_spec_mtime = std::fs::metadata(&live_spec_path).and_then(|m| m.modified()).ok();
         let fallback_spec_mtime = std::fs::metadata("/tmp/designos-live-agent-out.spec.json").and_then(|m| m.modified()).ok();
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
+        let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(session_dir.join("turn-marks.jsonl"));
         Self {
             key: crate::agent_sessions::SessionKey::Fallback(session_id.clone()),
             library_root: None,
@@ -1017,7 +1027,41 @@ impl TerminalState {
             renaming_session_tab_id: None,
             rename_session_input: String::new(),
             pending_prompt: None,
+            turn_marks,
+            turn_ledger: crate::agent_turn_ledger::AgentTurnLedger::default(),
+            pending_turn_revert: None,
         }
+    }
+
+    /// Returns the turn ledger for `tab_idx` (or the fallback ledger when no tabs are spawned).
+    pub fn ledger_for_tab(&self, tab_idx: usize) -> &crate::agent_turn_ledger::AgentTurnLedger {
+        self.tabs.get(tab_idx).map_or(&self.turn_ledger, |t| &t.turn_ledger)
+    }
+
+    /// Mutable access to the turn ledger for `tab_idx` (or the fallback ledger when no tabs are spawned).
+    pub fn ledger_for_tab_mut(&mut self, tab_idx: usize) -> &mut crate::agent_turn_ledger::AgentTurnLedger {
+        if let Some(tab) = self.tabs.get_mut(tab_idx) {
+            &mut tab.turn_ledger
+        } else {
+            &mut self.turn_ledger
+        }
+    }
+
+    /// Returns the active tab's turn ledger (or the fallback ledger when no tabs are spawned).
+    pub fn active_turn_ledger(&self) -> &crate::agent_turn_ledger::AgentTurnLedger {
+        let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        self.ledger_for_tab(idx)
+    }
+
+    /// Mutable access to the active tab's turn ledger (or the fallback ledger when no tabs are spawned).
+    pub fn active_turn_ledger_mut(&mut self) -> &mut crate::agent_turn_ledger::AgentTurnLedger {
+        let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        self.ledger_for_tab_mut(idx)
+    }
+
+    /// True when `tab_idx` is currently in [`AgentTabStatus::Working`].
+    pub fn is_tab_working(&self, tab_idx: usize) -> bool {
+        self.tabs.get(tab_idx).is_some_and(|t| matches!(t.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Working(_))))
     }
 
     #[cfg(test)]
@@ -1059,6 +1103,7 @@ impl TerminalState {
         self.session_dir = session_dir;
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
+        self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
         self.last_synced_key = None;
     }
 
@@ -2029,7 +2074,17 @@ impl TerminalState {
             }
         }
 
-        // Channel 2: doc-patch.jsonl (written by designos-mcp tools). Edits and document switches
+        // Channel 2a: turn-marks.jsonl (written by CLI session hooks before/after agent turns).
+        let expected_marks_path = self.live_patch.path.with_file_name("turn-marks.jsonl");
+        if self.turn_marks.path() != expected_marks_path {
+            self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
+        }
+        let marks = self.turn_marks.poll();
+        if !marks.is_empty() {
+            self.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
+        }
+
+        // Channel 2b: doc-patch.jsonl (written by designos-mcp tools). Edits and document switches
         // share this one log, so their order is the log's order.
         let (lines, errors) = self.live_patch.poll();
         for err in errors {
@@ -2044,11 +2099,14 @@ impl TerminalState {
         let status_file = self.session_dir.join("agent-status.json");
         if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
             if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {
+                let is_working = matches!(parsed, AgentTabStatus::Working(_));
                 if let Some(tab) = self.active_tab() {
                     if let Ok(mut st) = tab.agent_status.lock() {
                         *st = parsed;
                     }
                 }
+                let patch_off = self.live_patch.current_offset();
+                self.active_turn_ledger_mut().on_status_change(is_working, patch_off, std::time::Instant::now());
             }
         }
 
@@ -2057,11 +2115,14 @@ impl TerminalState {
         let path_override = self.path_override.clone();
         let mut registry_dirty = false;
         let now_secs = crate::agent_sessions::unix_timestamp_secs();
+        let patch_off = self.live_patch.current_offset();
+        let now_instant = std::time::Instant::now();
         for tab in &mut self.tabs {
             if tab.is_shell_process() || tab.exited_notice_shown {
                 continue;
             }
             if !tab.is_alive() {
+                tab.turn_ledger.on_tab_exited(patch_off, now_instant);
                 let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
                 let failed_start = agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
@@ -3059,17 +3120,26 @@ fn command_handler_group(command: String) -> serde_json::Value {
 /// nothing: Grok reads any stdout that starts with `{` as a decision (a context reply shows as a
 /// failed hook) and discards an allowing hook's context anyway.
 fn session_hooks_settings(status_path: &Path, context_reply: Option<&Path>) -> serde_json::Value {
+    let session_dir = status_path.parent().unwrap_or_else(|| Path::new("/tmp"));
+    let mark_path = session_dir.join("turn-marks.jsonl");
+    let patch_path = session_dir.join("doc-patch.jsonl");
+    let cli = if context_reply.is_some() { "claude" } else { "grok" };
+    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "start", cli);
+    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "end", cli);
     let prompt = match context_reply {
-        Some(reply) => format!("{} && cat '{}'", status_hook_command(status_path, "working"), reply.display()),
-        None => status_hook_command(status_path, "working"),
+        Some(reply) => format!("{}; {}; cat '{}'", status_hook_command(status_path, "working"), start_mark, reply.display()),
+        None => format!("{}; {}", status_hook_command(status_path, "working"), start_mark),
     };
+    let stop_cmd = format!("{}; {}", status_hook_command(status_path, "done"), end_mark);
     serde_json::json!({
         "hooks": {
             "UserPromptSubmit": command_handler_group(prompt),
             "PreToolUse": command_handler_group(status_hook_command(status_path, "working")),
             "PostToolUse": command_handler_group(status_hook_command(status_path, "working")),
             "PermissionRequest": command_handler_group(status_hook_command(status_path, "waiting")),
-            "Stop": command_handler_group(status_hook_command(status_path, "done")),
+            "Stop": command_handler_group(stop_cmd.clone()),
+            "StopCancelled": command_handler_group(stop_cmd.clone()),
+            "StopFailure": command_handler_group(stop_cmd),
         }
     })
 }
@@ -3077,11 +3147,15 @@ fn session_hooks_settings(status_path: &Path, context_reply: Option<&Path>) -> s
 /// Antigravity's `<workspace>/.agents/hooks.json`: named hook, flat handlers for the invocation and
 /// stop events. Handlers must answer with a JSON object on stdout.
 fn agy_session_hooks(status_path: &Path) -> serde_json::Value {
-    let handler = |state: &str| serde_json::json!([{ "type": "command", "command": format!("{}; printf '{{}}'", status_hook_command(status_path, state)) }]);
+    let session_dir = status_path.parent().unwrap_or_else(|| Path::new("/tmp"));
+    let mark_path = session_dir.join("turn-marks.jsonl");
+    let patch_path = session_dir.join("doc-patch.jsonl");
+    let start_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "start", "agy");
+    let end_mark = crate::agent_turn_marks::turn_mark_hook_command(&mark_path, &patch_path, "end", "agy");
     serde_json::json!({
         "designos-status": {
-            "PreInvocation": handler("working"),
-            "Stop": handler("done"),
+            "PreInvocation": [{ "type": "command", "command": format!("{}; {}; printf '{{}}'", status_hook_command(status_path, "working"), start_mark) }],
+            "Stop": [{ "type": "command", "command": format!("{}; {}; printf '{{}}'", status_hook_command(status_path, "done"), end_mark) }],
         }
     })
 }

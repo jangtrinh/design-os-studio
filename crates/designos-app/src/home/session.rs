@@ -427,6 +427,49 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
     h.finish()
 }
 
+pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
+    use serde::Serialize;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let _ = (
+        &node.id,
+        &node.source_id,
+        &node.name,
+        &node.kind,
+        &node.parent,
+        &node.visible,
+        &node.locked,
+        &node.opacity,
+        &node.blend,
+        &node.transform,
+        &node.size,
+        &node.fills,
+        &node.stroke,
+        &node.effects,
+        &node.corner_radii,
+    )
+        .serialize(HashSerializer(&mut h));
+    let _ = (
+        &node.corner_smoothing,
+        &node.constraints,
+        &node.layout_child,
+        &node.is_mask,
+        &node.style_refs,
+        &node.fill_geometry,
+        &node.stroke_geometry,
+        &node.component,
+        &node.prototype,
+        &node.variables,
+        &node.export_settings,
+        &node.dev,
+        &node.slide,
+        &node.lock_aspect,
+        &node.hyperlink,
+        (&node.plugin_data, &node.detached_symbol_id, &node.fig_metadata),
+    )
+        .serialize(HashSerializer(&mut h));
+    h.finish()
+}
+
 impl App {
     /// Opens (or creates) the library at `root` and seeds it on first run.
     pub fn attach_library(&mut self, root: PathBuf) {

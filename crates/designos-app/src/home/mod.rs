@@ -13,7 +13,7 @@ pub mod time;
 pub mod updater;
 
 pub use dialog::{Dialog, Intent};
-pub(crate) use session::doc_hash;
+pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, LibFile};
 
 use crate::app::App;
