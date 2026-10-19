@@ -32,6 +32,8 @@ pub enum FixAction {
     RunLogin(&'static str),
     /// Opens a shell tab so the CLI can be run by hand (`--help`, update).
     OpenShell,
+    /// Starts a fresh session for the same CLI when a resumed session failed to start.
+    StartNewSession(AgentCliPreset),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -182,6 +184,7 @@ impl StartFailure {
             FixAction::OpenInstallPage(_) => format!("Install {}", self.preset.button_label()),
             FixAction::RunLogin(_) => "Run login".to_string(),
             FixAction::OpenShell => "Open a shell".to_string(),
+            FixAction::StartNewSession(_) => "Start a new session".to_string(),
         }
     }
 }

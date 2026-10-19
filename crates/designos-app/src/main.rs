@@ -1,3 +1,4 @@
+pub mod agent_sessions;
 mod agent_start_failure;
 mod app;
 mod board;

@@ -435,6 +435,9 @@ impl TabsState {
                 self.active_idx = self.entries.len() - 1;
                 app.terminal = crate::terminal::TerminalState::for_tab(id);
                 app.terminal.bind_session(&sid);
+                if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
+                    app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
+                }
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                 self.hist_in_app = true;
                 return;
@@ -448,12 +451,22 @@ impl TabsState {
                 self.hist_in_app = true;
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
+                if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
+                    if app.terminal.tabs.is_empty() {
+                        app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
+                    }
+                }
             }
         }
         self.sync_from_app(app);
         if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
             let sid = self.session_id_for_tab(tab_id);
             app.terminal.bind_session(&sid);
+            if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
+                if app.terminal.tabs.is_empty() {
+                    app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
+                }
+            }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         }
     }
@@ -580,6 +593,9 @@ impl TabsState {
             self.hist_in_app = true;
             app.terminal = crate::terminal::TerminalState::for_tab(id);
             app.terminal.bind_session(&sid);
+            if let Some(lib) = &app.lib {
+                app.terminal.bind_library_file(lib.root(), file_id, &sid);
+            }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             Some(idx)
         } else {
