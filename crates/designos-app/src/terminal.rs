@@ -1610,6 +1610,10 @@ impl TerminalState {
                 let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
                 let failed_start = agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
+                    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
+                    while tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false) && std::time::Instant::now() < drain_deadline {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
                     let output = tab.raw_log.lock().map(|log| log.clone()).unwrap_or_default();
                     let mut diag = agent_start_failure::diagnose(tab.spawn_preset, tab.spawn_preset.is_installed(), exit_code, &output);
                     if tab.is_resumed {
@@ -2410,7 +2414,8 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
         c.arg("-c");
         // Single command: `exec` so the agent is the PTY child; when it exits the child exits.
         // Compound commands keep their own fallback, with no `|| exec $SHELL`.
-        let inner = if agent_cli.contains("||") { agent_cli.to_string() } else { format!("exec {agent_cli}") };
+        let trimmed = agent_cli.trim_start();
+        let inner = if agent_cli.contains("||") || trimmed.starts_with("exec ") { agent_cli.to_string() } else { format!("exec {agent_cli}") };
         c.arg(inner);
     }
     c
@@ -3413,18 +3418,28 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
 
     let mut resume_clicked = false;
     let mut row_offset = 0usize;
+    let row_y1 = theme::SPACE_ROW_GAP + theme::SPACE_TIGHT;
+    let row_y2 = theme::ROW_HEIGHT_COMPACT - 1.0;
+    let elide_pad = theme::SPACE_PANEL_PAD + theme::SPACE_ROW_GAP;
+    let elide_min = theme::ROW_HEIGHT_COMPACT + theme::SPACE_SECTION;
     if let Some((prev_title, prev_cli)) = &last_resume {
-        let ry = menu_r.top() + header_h + 4.0;
-        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + 4.0, ry), Vec2::new(menu_w - 8.0, row_h - 2.0));
+        let ry = menu_r.top() + header_h + theme::SPACE_TIGHT;
+        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + theme::SPACE_TIGHT, ry), Vec2::new(menu_w - theme::SPACE_INLINE, row_h - 2.0));
         let resp = ui.interact(row_r, Id::new("agents-dropdown-resume-last"), Sense::click());
         if resp.hovered() {
-            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
+            p.rect_filled(row_r, theme::cr(theme::RADIUS_CHIP), TERM_BG_HOVER);
         }
-        let title_str = widgets::elide(&p, "Resume last session", &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
+        let title_str = widgets::elide(&p, "Resume last session", &theme::font_caption_medium(), (row_r.width() - elide_pad).max(elide_min));
         let sub_raw = format!("{prev_title} ({prev_cli})");
-        let sub_str = widgets::elide(&p, &sub_raw, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), STATUS_OK_TEXT);
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), theme::TEXT_SECONDARY);
+        let sub_str = widgets::elide(&p, &sub_raw, &theme::font_mono(), (row_r.width() - elide_pad).max(elide_min));
+        p.text(
+            Pos2::new(row_r.left() + theme::SPACE_INLINE, row_r.top() + row_y1),
+            Align2::LEFT_CENTER,
+            title_str,
+            theme::font_caption_medium(),
+            STATUS_OK_TEXT,
+        );
+        p.text(Pos2::new(row_r.left() + theme::SPACE_INLINE, row_r.top() + row_y2), Align2::LEFT_CENTER, sub_str, theme::font_mono(), theme::TEXT_SECONDARY);
         widgets::record(ui, "agents-dropdown-resume-last", row_r);
         if resp.clicked() {
             resume_clicked = true;
@@ -3434,8 +3449,8 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
 
     let mut chosen: Option<AgentCliPreset> = None;
     for (i, preset) in entries.iter().copied().enumerate() {
-        let ry = menu_r.top() + header_h + 4.0 + (i + row_offset) as f32 * row_h;
-        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + 4.0, ry), Vec2::new(menu_w - 8.0, row_h - 2.0));
+        let ry = menu_r.top() + header_h + theme::SPACE_TIGHT + (i + row_offset) as f32 * row_h;
+        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + theme::SPACE_TIGHT, ry), Vec2::new(menu_w - theme::SPACE_INLINE, row_h - 2.0));
         let id_str = match preset {
             AgentCliPreset::Claude => "agents-dropdown-claude",
             AgentCliPreset::Codex => "agents-dropdown-codex",
@@ -3446,7 +3461,7 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
         };
         let resp = ui.interact(row_r, Id::new(id_str), Sense::click());
         if resp.hovered() {
-            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
+            p.rect_filled(row_r, theme::cr(theme::RADIUS_CHIP), TERM_BG_HOVER);
         }
         let (_widget_id, title, subtitle) = preset.dropdown_entry();
         let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
@@ -6075,15 +6090,15 @@ Done!
         }
         assert!(!runtime_binary_available("stub-agent-673"), "stub name must not be on PATH or in install_dirs()");
 
-        let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("exec '{}'", stub_path.display()));
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("'{}'", stub_path.display()));
         isolate_zsh_from_home(&mut cmd);
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Grok, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
         let mut st = TerminalState::default();
         st.tabs = vec![tab];
         st.active_tab = 0;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        while st.active_tab_mut().unwrap().is_alive() {
-            assert!(std::time::Instant::now() < deadline, "stub agent must exit");
+        while st.active_tab_mut().unwrap().is_alive() || !st.active_tab().unwrap().raw_log.lock().map(|l| l.contains("unauthorized")).unwrap_or(false) {
+            assert!(std::time::Instant::now() < deadline, "stub agent must print unauthorized and exit");
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
         st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
