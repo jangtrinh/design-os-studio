@@ -3025,14 +3025,30 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 }
 
-/// Effect and grid styles whose values the file states on the style node (`.fig` imports put them
-/// in the `styles` map): the node's values replace the copy seeded from the first consumer, and a
-/// style no node uses is kept too. REST JSON carries no values there, so it is left as seeded.
+/// Style values that the file states on the style node (`.fig` imports put them in the `styles`
+/// map): the node's values replace the copy seeded from the first consumer, and a style no node
+/// uses is kept too. REST JSON carries no values there, so it is left as seeded.
 fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
     let Some(map) = styles.and_then(Value::as_object) else { return };
     for (id, m) in map {
         let style = match fstr(m, "styleType") {
+            Some("FILL" | "STROKE") if m.get("fills").is_some() => Style::Fill(parse_paints(m.get("fills"))),
+            Some("FILL" | "STROKE") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Fill(Vec::new()),
+            Some("TEXT") if m.get("style").is_some() || m.get("fills").is_some() || (!doc.styles.contains_key(id) && m.get("boundVariables").is_some()) => {
+                let mut ts = match doc.styles.get(id) {
+                    Some(Style::Text(existing)) => existing.clone(),
+                    _ => TextStyle::default(),
+                };
+                if let Some(st) = m.get("style") {
+                    apply_type_style(&mut ts, st);
+                }
+                if m.get("fills").is_some() {
+                    ts.fills = parse_paints(m.get("fills"));
+                }
+                Style::Text(ts)
+            }
             Some("EFFECT") if m.get("effects").is_some() => Style::Effect(farr(m, "effects").iter().filter_map(parse_effect).collect()),
+            Some("EFFECT") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Effect(Vec::new()),
             Some("GRID") if m.get("layoutGrids").is_some() => Style::Grid(farr(m, "layoutGrids").iter().filter_map(parse_grid).collect()),
             _ => continue,
         };
@@ -3074,6 +3090,43 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,
         };
+        let mut bindings = crate::variables::parse_node_variables(m).bindings;
+        // In pure REST JSON (where `_styleNode` is not set on `m`), if the style entry itself carries
+        // no `boundVariables`, copy the matching slot bindings from the first consumer node that links it.
+        if bindings.is_empty() && fbool(m, "_styleNode") != Some(true) {
+            for n in doc.nodes.values() {
+                let Some((slot, _)) = n.style_refs.iter().find(|(_, sid)| *sid == id) else { continue };
+                for (k, vid) in &n.variables.bindings {
+                    let mapped = match slot.as_str() {
+                        "fill" if k.starts_with("fills/") => Some(k.clone()),
+                        "stroke" if k.starts_with("strokes/") => k.strip_prefix("strokes/").map(|rest| format!("fills/{rest}")),
+                        "effect" if k.starts_with("effects/") => Some(k.clone()),
+                        "text"
+                            if matches!(
+                                k.as_str(),
+                                "fontFamily"
+                                    | "fontSize"
+                                    | "fontWeight"
+                                    | "fontStyle"
+                                    | "lineHeight"
+                                    | "letterSpacing"
+                                    | "paragraphSpacing"
+                                    | "paragraphIndent"
+                            ) =>
+                        {
+                            Some(k.clone())
+                        }
+                        _ => None,
+                    };
+                    if let Some(mk) = mapped {
+                        bindings.insert(mk, vid.clone());
+                    }
+                }
+                if !bindings.is_empty() {
+                    break;
+                }
+            }
+        }
         out.insert(
             id.clone(),
             StyleMeta {
@@ -3081,6 +3134,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
                 key: fstr(m, "key").map(String::from).filter(|k| !k.is_empty()),
                 description: fstr(m, "description").unwrap_or("").to_string(),
                 property,
+                bindings,
             },
         );
     }

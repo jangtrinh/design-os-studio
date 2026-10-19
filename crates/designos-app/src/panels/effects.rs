@@ -323,34 +323,70 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         r += 1;
         r - 1
     };
+    let style_key = match tgt {
+        FxTarget::Style => app.props.style_edit.as_ref().map(|s| s.key.clone()),
+        FxTarget::Nodes(_) => None,
+    };
     let shadow = match e {
         Effect::DropShadow { color, offset, radius, spread, show_behind, .. } => Some((*color, *offset, *radius, *spread, Some(*show_behind))),
         Effect::InnerShadow { color, offset, radius, spread, .. } => Some((*color, *offset, *radius, *spread, None)),
         _ => None,
     };
     if let Some((color, offset, radius, spread, behind)) = shadow {
+        let x_prop = format!("effects/{i}/offsetX");
         popover::row(ui, body, next(), "X", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, "") {
+            let v = if let Some(sk) = &style_key {
+                super::var_bind::style_numeric(app, ui, rc, sk, &x_prop, |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
+            } else {
+                num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, "")
+            };
+            if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
             }
         });
+        let y_prop = format!("effects/{i}/offsetY");
         popover::row(ui, body, next(), "Y", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, "") {
+            let v = if let Some(sk) = &style_key {
+                super::var_bind::style_numeric(app, ui, rc, sk, &y_prop, |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
+            } else {
+                num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, "")
+            };
+            if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
             }
         });
+        let r_prop = format!("effects/{i}/radius");
         popover::row(ui, body, next(), "Blur", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, "") {
+            let v = if let Some(sk) = &style_key {
+                super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
+            } else {
+                num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, "")
+            };
+            if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
             }
         });
+        let s_prop = format!("effects/{i}/spread");
         popover::row(ui, body, next(), "Spread", |ui, rc| {
-            if let Some(v) = num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, "") {
+            let v = if let Some(sk) = &style_key {
+                super::var_bind::style_numeric(app, ui, rc, sk, &s_prop, |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
+            } else {
+                num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, "")
+            };
+            if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
             }
         });
+        let c_prop = format!("effects/{i}/color");
         popover::row(ui, body, next(), "Color", |ui, rc| {
-            if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+            if let Some(sk) = &style_key {
+                if !super::var_bind::style_pill_field(app, ui, rc, sk, &c_prop) {
+                    if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                        edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+                    }
+                    super::var_bind::style_hover_button(app, ui, rc, sk, &c_prop, VariableKind::Color);
+                }
+            } else if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
             }
         });
@@ -369,8 +405,14 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     }
     match e {
         Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } => {
+            let r_prop = format!("effects/{i}/radius");
             popover::row(ui, body, next(), "Blur", |ui, rc| {
-                if let Some(v) = num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, "") {
+                let v = if let Some(sk) = &style_key {
+                    super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
+                } else {
+                    num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, "")
+                };
+                if let Some(v) = v {
                     edit_effect(app, tgt, i, |e| {
                         if let Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } = e {
                             *radius = v.max(0.0);

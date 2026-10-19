@@ -31,6 +31,25 @@ pub enum StyleOpError {
     KindMismatch(String),
     #[error("style {0:?} belongs to a library; edit it in the library file")]
     LibraryStyle(String),
+    #[error("variable {0:?} does not exist")]
+    UnknownVariable(String),
+    #[error("property {0:?} cannot be bound on this style")]
+    InvalidProperty(String),
+}
+
+/// Kind of variable a binding key on `style` accepts, or `None` if `property` is invalid for `style`.
+pub fn style_property_kind(style: &Style, property: &str) -> Option<VariableKind> {
+    let kind = property_kind(property)?;
+    let valid = match style {
+        Style::Fill(_) => property.starts_with("fills/"),
+        Style::Text(_) => matches!(
+            property,
+            "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" | "fontWeight" | "fontFamily" | "fontStyle"
+        ),
+        Style::Effect(_) => property.starts_with("effects/"),
+        Style::Grid(_) => false,
+    };
+    valid.then_some(kind)
 }
 
 /// Key of the `style_refs` entry that links a node to a style of `prop`.
@@ -103,7 +122,7 @@ pub fn create_style_from_node(doc: &Document, node: NodeId, prop: StyleProperty,
     let mut styles = doc.styles.clone();
     let mut style_meta = doc.style_meta.clone();
     styles.insert(key.clone(), style);
-    style_meta.insert(key.clone(), StyleMeta { name, key: None, description: String::new(), property: prop });
+    style_meta.insert(key.clone(), StyleMeta { name, key: None, description: String::new(), property: prop, bindings: Default::default() });
     let link = updated(n, |n| {
         n.style_refs.insert(ref_key.into(), key.clone());
     });
@@ -176,6 +195,80 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     Ok(Command::Batch(cmds))
 }
 
+/// Binds `property` of style `key` to `variable`. Validates that the style
+/// exists, the variable exists, and the variable's kind matches the property
+/// (colour variable for `fills/0`, number variable for `fontSize`, etc.).
+pub fn bind_style_property(doc: &Document, key: &str, property: &str, variable: &str) -> Result<Command, StyleOpError> {
+    let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
+    let expected_kind = style_property_kind(stored, property).ok_or_else(|| StyleOpError::InvalidProperty(property.into()))?;
+    let var = doc.variables.get(variable).ok_or_else(|| StyleOpError::UnknownVariable(variable.into()))?;
+    if var.kind != expected_kind {
+        return Err(StyleOpError::KindMismatch(key.into()));
+    }
+    let mut styles = doc.styles.clone();
+    let mut style = stored.clone();
+    if let Some(val) = doc.resolve_variable_default(variable) {
+        set_bound_style_property(&mut style, property, &val);
+        styles.insert(key.to_string(), style.clone());
+    }
+    let prop_kind = style_property(doc, key);
+    let mut style_meta = doc.style_meta.clone();
+    let meta = style_meta.entry(key.to_string()).or_insert_with(|| StyleMeta {
+        name: key.to_string(),
+        key: None,
+        description: String::new(),
+        property: prop_kind,
+        bindings: Default::default(),
+    });
+    meta.bindings.insert(property.to_string(), variable.to_string());
+    let mut cmds = vec![Command::SetStyles { styles, style_meta }];
+    for id in linked_style_nodes(doc, key) {
+        let Some(n) = doc.get(id) else { continue };
+        let mut copy = n.clone();
+        if let Some(val) = doc.resolve_variable(id, variable) {
+            if n.style_refs.get("stroke").is_some_and(|k| k == key) {
+                if let Some(rest) = property.strip_prefix("fills/") {
+                    let s_key = format!("strokes/{rest}");
+                    if !copy.variables.bindings.contains_key(&s_key) {
+                        set_bound_property(&mut copy, &s_key, &val);
+                    }
+                }
+            }
+            if n.style_refs.get("fill").is_some_and(|k| k == key)
+                || n.style_refs.get("text").is_some_and(|k| k == key)
+                || n.style_refs.get("effect").is_some_and(|k| k == key)
+            {
+                if !copy.variables.bindings.contains_key(property) {
+                    set_bound_property(&mut copy, property, &val);
+                }
+            }
+        }
+        if copy != *n {
+            cmds.push(Command::Update { node: Box::new(copy) });
+        }
+    }
+    Ok(if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) })
+}
+
+/// Removes the variable binding on `property` of style `key`.
+pub fn unbind_style_property(doc: &Document, key: &str, property: &str) -> Result<Command, StyleOpError> {
+    let stored = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
+    if is_library_style(doc, key) {
+        return Err(StyleOpError::LibraryStyle(key.into()));
+    }
+    if style_property_kind(stored, property).is_none() {
+        return Err(StyleOpError::InvalidProperty(property.into()));
+    }
+    let mut style_meta = doc.style_meta.clone();
+    if let Some(meta) = style_meta.get_mut(key) {
+        meta.bindings.remove(property);
+    }
+    Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
+}
+
 /// Drops the `prop` link of every node of `nodes` that has one. The nodes keep
 /// their values and the style itself stays in the document.
 pub fn detach_style(doc: &Document, nodes: &[NodeId], prop: StyleProperty) -> Result<Command, StyleOpError> {
@@ -211,6 +304,7 @@ pub fn rename_style(doc: &Document, key: &str, name: &str) -> Result<Command, St
         key: None,
         description: String::new(),
         property,
+        bindings: Default::default(),
     });
     Ok(Command::SetStyles { styles: doc.styles.clone(), style_meta })
 }
@@ -264,7 +358,7 @@ mod tests {
             Style::Effect(fx) => assert_eq!(fx, &vec![shadow(8.0)]),
             other => panic!("expected an effect style, got {other:?}"),
         }
-        assert_eq!(d.style_meta[&key], StyleMeta { name: "Effect style 1".into(), key: None, description: String::new(), property: StyleProperty::Effect });
+        assert_eq!(d.style_meta[&key], StyleMeta { name: "Effect style 1".into(), key: None, description: String::new(), property: StyleProperty::Effect, bindings: Default::default() });
         assert_eq!(d.get(a).unwrap().style_refs.get("effect"), Some(&key));
         h.undo(&mut d).unwrap();
         assert!(d.styles.is_empty() && d.style_meta.is_empty());
@@ -365,7 +459,7 @@ mod tests {
         }
         d.styles.insert("Brand".into(), Style::Fill(vec![red.clone()]));
         d.styles.insert("Line".into(), Style::Fill(vec![Paint::solid(Color::rgb(0, 255, 0))]));
-        d.style_meta.insert("Line".into(), StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke });
+        d.style_meta.insert("Line".into(), StyleMeta { name: "Line".into(), key: None, description: String::new(), property: StyleProperty::Stroke, bindings: Default::default() });
         d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, ..Default::default() }));
         // Metadata that never named the property (it defaults to Fill) must not hide the text layers.
         d.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), ..Default::default() });

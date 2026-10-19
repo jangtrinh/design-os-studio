@@ -152,9 +152,11 @@ fn tree_fingerprint(nodes: &BTreeMap<NodeId, Node>, root: NodeId, refs: &BTreeMa
     h.0
 }
 
-fn style_fingerprint(style: &Style, meta: Option<&StyleMeta>) -> u64 {
+fn style_fingerprint(style: &Style, meta: Option<&StyleMeta>, prefix: &str) -> u64 {
     let mut h = Fnv::new();
-    h.write(&serde_json::to_string(&(style, meta.map(|m| (&m.name, &m.description, m.property)))).unwrap_or_default());
+    let stripped: BTreeMap<&str, &str> =
+        meta.map(|m| m.bindings.iter().map(|(k, v)| (k.as_str(), strip(v, prefix))).collect()).unwrap_or_default();
+    h.write(&serde_json::to_string(&(style, meta.map(|m| (&m.name, &m.description, m.property)), &stripped)).unwrap_or_default());
     h.0
 }
 
@@ -295,6 +297,11 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         var_ids.extend(n.variables.bindings.values().cloned());
         image_refs_of(n, &mut images);
     }
+    for k in &style_keys {
+        if let Some(m) = doc.style_meta.get(k) {
+            var_ids.extend(m.bindings.values().cloned());
+        }
+    }
     let mut queue: Vec<String> = var_ids.iter().cloned().collect();
     while let Some(id) = queue.pop() {
         let Some(v) = doc.variables.get(&id) else { continue };
@@ -339,6 +346,9 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
         n.variables.bindings.retain(|_, v| vars.contains(v));
         n.variables.modes.retain(|k, _| colls.contains(k));
     }
+    for m in snap.style_meta.values_mut() {
+        m.bindings.retain(|_, v| vars.contains(v));
+    }
     for img in images {
         if let Some(b) = doc.images.get(&img) {
             snap.images.insert(img, b.clone());
@@ -366,7 +376,7 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             }
             LibraryAssetKind::Style => {
                 let k = &key["style:".len()..];
-                (None, snap.styles.get(k).map(|s| style_fingerprint(s, snap.style_meta.get(k))).unwrap_or(0), Vec::new())
+                (None, snap.styles.get(k).map(|s| style_fingerprint(s, snap.style_meta.get(k), "")).unwrap_or(0), Vec::new())
             }
             LibraryAssetKind::Variable => (None, snap.variables.get(&key["var:".len()..]).map(|v| variable_fingerprint(v, "")).unwrap_or(0), Vec::new()),
             LibraryAssetKind::VariableCollection => {
@@ -506,7 +516,7 @@ fn local_fingerprint(doc: &Document, lib: &str, raw_key: &str, e: &ExternalAsset
         LibraryAssetKind::Component | LibraryAssetKind::ComponentSet => tree_fingerprint(&doc.nodes, e.node?, refs, &prefix),
         LibraryAssetKind::Style => {
             let k = e.local_key.as_deref()?;
-            style_fingerprint(doc.styles.get(k)?, doc.style_meta.get(k))
+            style_fingerprint(doc.styles.get(k)?, doc.style_meta.get(k), &prefix)
         }
         LibraryAssetKind::Variable => variable_fingerprint(doc.variables.get(e.local_key.as_deref()?)?, &prefix),
         LibraryAssetKind::VariableCollection => collection_fingerprint(doc.variable_collections.get(e.local_key.as_deref()?)?),
@@ -689,10 +699,18 @@ impl<'a> Trial<'a> {
 
     /// Writes style `local` (and its metadata) through `Command::SetStyles` so it is undoable.
     fn set_style(&mut self, local: &str, style: Style, meta: Option<StyleMeta>) {
+        if let Some(m) = &meta {
+            for v in m.bindings.values() {
+                self.import_variable(v);
+            }
+        }
         let mut styles = self.doc.styles.clone();
         let mut style_meta = self.doc.style_meta.clone();
         styles.insert(local.to_string(), style);
-        if let Some(m) = meta {
+        if let Some(mut m) = meta {
+            for v in m.bindings.values_mut() {
+                *v = self.ns(v);
+            }
             style_meta.insert(local.to_string(), StyleMeta { key: None, ..m });
         }
         self.push(Command::SetStyles { styles, style_meta });

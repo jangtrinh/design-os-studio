@@ -600,6 +600,32 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
 
+#[test]
+fn check_designs_counts_bound() {
+    let mut f = fx();
+    let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+    let dark_c = Color::rgb(0x11, 0x11, 0x11);
+    let surface = f.color_var("surface", light_c, dark_c);
+    f.doc.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
+    f.doc.style_meta.insert(
+        "Card".into(),
+        designos_doc::StyleMeta {
+            name: "Card".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Fill,
+            bindings: [("fills/0".to_string(), surface)].into_iter().collect(),
+        },
+    );
+    let frame = f.frame(f.page, "Container", None);
+    let rect = f.rect(frame, "Rect", light_c);
+    f.doc.get_mut(rect).unwrap().style_refs.insert("fill".into(), "Card".into());
+    f.doc.get_mut(frame).unwrap().variables.modes.insert("theme".into(), "dark".into());
+
+    let report = f.report();
+    assert_eq!(report.of(Rule::HardCodedValue).count(), 0, "unexpected hardcoded findings: {:#?}", report.findings);
+}
+
 fn white_page(f: &mut Fx) {
     f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
 }

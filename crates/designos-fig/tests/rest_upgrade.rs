@@ -93,7 +93,13 @@ fn style_metadata_and_property_per_use() {
     let m = &doc.style_meta;
     assert_eq!(
         m["S:1"],
-        StyleMeta { name: "Brand/Primary".into(), key: Some("abc123".into()), description: "Main brand fill".into(), property: StyleProperty::Fill }
+        StyleMeta {
+            name: "Brand/Primary".into(),
+            key: Some("abc123".into()),
+            description: "Main brand fill".into(),
+            property: StyleProperty::Fill,
+            bindings: Default::default(),
+        }
     );
     // S:2 is a FILL style that is only referenced as a stroke.
     assert_eq!(m["S:2"].property, StyleProperty::Stroke);

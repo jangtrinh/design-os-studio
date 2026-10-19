@@ -618,7 +618,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         canvases.into_iter().map(|i| (i, entries[i].json.get("internalOnly").and_then(Value::as_bool) == Some(true))).collect();
 
     let lk = Lk::new(&entries, blobs);
-    let styles = style_table(&entries);
+    let styles = style_table(&entries, &lk);
     let variables = {
         let var_entries: Vec<&Value> = entries.iter().map(|e| &e.json).filter(|j| matches!(fstr(j, "type"), Some("VARIABLE_SET" | "VARIABLE"))).collect();
         crate::variables::from_fig_entries(&var_entries)
@@ -667,7 +667,7 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
 /// REST-style `styles` map from shared-style nodes (nodes carrying `styleType`
 /// FILL/TEXT/EFFECT/GRID; they normally live on the internal-only canvas). The
 /// library key is the node's `key`, the description its `styleDescription`.
-fn style_table(entries: &[Entry]) -> Value {
+fn style_table(entries: &[Entry], lk: &Lk) -> Value {
     let mut out = Map::new();
     for e in entries {
         let j = &e.json;
@@ -685,6 +685,18 @@ fn style_table(entries: &[Entry]) -> Value {
         m.insert("styleType".into(), ty.into());
         // The style node is the source of truth for the values it shares.
         match ty {
+            "FILL" | "STROKE" => {
+                let fills: Vec<Value> = rest_import::farr(j, "fillPaints").iter().filter_map(convert_paint).collect();
+                if !fills.is_empty() {
+                    m.insert("fills".into(), Value::Array(fills));
+                }
+            }
+            "TEXT" => {
+                let ts = convert_type_style(j, None);
+                if !ts.is_empty() {
+                    m.insert("style".into(), Value::Object(ts));
+                }
+            }
             "EFFECT" => {
                 m.insert("effects".into(), Value::Array(rest_import::farr(j, "effects").iter().filter_map(convert_effect).collect()));
             }
@@ -693,6 +705,10 @@ fn style_table(entries: &[Entry]) -> Value {
             }
             _ => {}
         }
+        if let Some(bv) = bound_variables(j, lk) {
+            m.insert("boundVariables".into(), bv);
+        }
+        m.insert("_styleNode".into(), Value::Bool(true));
         out.insert(e.id.clone(), Value::Object(m));
     }
     Value::Object(out)
@@ -1663,8 +1679,24 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
     let mut out = Map::new();
     let var_entries = nc.get("variableConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
     let param_entries = nc.get("parameterConsumptionMap").map(|m| rest_import::farr(m, "entries")).unwrap_or(&[]);
-    for e in var_entries.iter().chain(param_entries.iter()) {
-        let (Some(field), Some(a)) = (fstr(e, "variableField"), e.get("variableData").and_then(alias)) else { continue };
+    for (is_param, e) in var_entries.iter().map(|e| (false, e)).chain(param_entries.iter().map(|e| (true, e))) {
+        let Some(field) = fstr(e, "variableField") else { continue };
+        let Some(vdata) = e.get("variableData") else { continue };
+        if field == "FONT_STYLE" {
+            if let Some(fs) = vdata.get("value").and_then(|v| v.get("fontStyleValue")) {
+                if let Some(a) = fs.get("asFloat").and_then(alias) {
+                    out.insert("fontWeight".into(), a);
+                }
+                if let Some(a) = fs.get("asString").and_then(alias) {
+                    if is_param && fs.get("asFloat").is_none() {
+                        out.insert("fontWeight".into(), a.clone());
+                    }
+                    out.insert("fontStyle".into(), a);
+                }
+                continue;
+            }
+        }
+        let Some(a) = alias(vdata) else { continue };
         let keys: &[&str] = match field {
             "STACK_PADDING_LEFT" => &["paddingLeft"],
             "STACK_PADDING_RIGHT" => &["paddingRight"],
@@ -1708,7 +1740,9 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst, opacity_dst) in [("fillPaints", "fills", "fillOpacities"), ("strokePaints", "strokes", "strokeOpacities")] {
+    for (src, dst, opacity_dst, stops_dst) in
+        [("fillPaints", "fills", "fillOpacities", "fillStops"), ("strokePaints", "strokes", "strokeOpacities", "strokeStops")]
+    {
         let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
@@ -1718,17 +1752,36 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
         if opacities.iter().any(|v| !v.is_null()) {
             out.insert(opacity_dst.into(), Value::Array(opacities));
         }
+        let stops_list: Vec<Value> = rest_import::farr(nc, src)
+            .iter()
+            .map(|p| {
+                let sv: Vec<Value> = rest_import::farr(p, "stopsVar").iter().map(|st| st.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
+                if sv.iter().any(|v| !v.is_null()) {
+                    Value::Array(sv)
+                } else {
+                    Value::Null
+                }
+            })
+            .collect();
+        if stops_list.iter().any(|v| !v.is_null()) {
+            out.insert(stops_dst.into(), Value::Array(stops_list));
+        }
     }
     let fx: Vec<Value> = rest_import::farr(nc, "effects")
         .iter()
         .map(|e| {
             let mut bound = Map::new();
-            if let Some(a) = e.get("colorVar").and_then(alias) {
-                bound.insert("color".into(), a);
-            }
-            // `Effect.effectOpacityVar`
-            if let Some(a) = e.get("effectOpacityVar").and_then(alias) {
-                bound.insert("opacity".into(), a);
+            for (kiwi_key, rest_key) in [
+                ("colorVar", "color"),
+                ("effectOpacityVar", "opacity"),
+                ("radiusVar", "radius"),
+                ("spreadVar", "spread"),
+                ("xVar", "offsetX"),
+                ("yVar", "offsetY"),
+            ] {
+                if let Some(a) = e.get(kiwi_key).and_then(alias) {
+                    bound.insert(rest_key.into(), a);
+                }
             }
             if bound.is_empty() {
                 Value::Null
@@ -2490,7 +2543,15 @@ fn convert_paint(p: &Value) -> Option<Value> {
     match ty {
         "SOLID" => copy(&mut m, p, "color", "color"),
         t if t.starts_with("GRADIENT") => {
-            let stops: Vec<Value> = rest_import::farr(p, "stops").iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
+            let stops_src = {
+                let s = rest_import::farr(p, "stops");
+                if s.is_empty() {
+                    rest_import::farr(p, "stopsVar")
+                } else {
+                    s
+                }
+            };
+            let stops: Vec<Value> = stops_src.iter().map(|s| json!({"position": s.get("position"), "color": s.get("color")})).collect();
             m.insert("gradientStops".into(), Value::Array(stops));
             let t = p.get("transform");
             let g = |k: &str, d: f32| t.and_then(|t| fnum(t, k)).unwrap_or(d);

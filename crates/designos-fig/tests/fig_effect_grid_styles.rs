@@ -150,7 +150,13 @@ fn style_values_and_metadata_are_imported() {
     assert!(matches!(&d.styles["2:101"], Style::Grid(g) if matches!(g.as_slice(), [LayoutGrid::Columns { count: 12, .. }])));
     assert_eq!(
         d.style_meta["2:100"],
-        StyleMeta { name: "Shadow/Card".into(), key: Some("key-fx".into()), description: "Shadow/Card description".into(), property: StyleProperty::Effect }
+        StyleMeta {
+            name: "Shadow/Card".into(),
+            key: Some("key-fx".into()),
+            description: "Shadow/Card description".into(),
+            property: StyleProperty::Effect,
+            bindings: Default::default(),
+        }
     );
     assert_eq!(d.style_meta["2:101"].property, StyleProperty::Grid);
     assert!(find(&d, "Plain").style_refs.is_empty());
@@ -182,8 +188,10 @@ fn export_then_import_keeps_effect_and_grid_styles_and_their_links() {
     // An effect style no node uses must survive as well.
     let mut d1 = d1;
     d1.styles.insert("Shadow/Unused".into(), Style::Effect(vec![Effect::LayerBlur { radius: 6.0, visible: true }]));
-    d1.style_meta
-        .insert("Shadow/Unused".into(), StyleMeta { name: "Shadow/Unused".into(), key: None, description: String::new(), property: StyleProperty::Effect });
+    d1.style_meta.insert(
+        "Shadow/Unused".into(),
+        StyleMeta { name: "Shadow/Unused".into(), key: None, description: String::new(), property: StyleProperty::Effect, bindings: Default::default() },
+    );
     let d2 = import_fig(&export_fig(&d1).unwrap()).unwrap();
 
     let modern = find(&d2, "Modern");
@@ -318,4 +326,252 @@ fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport
     assert_eq!(styled.effects, expected_style_fx);
     let fx_key = &styled.style_refs["effect"];
     assert_eq!(d2.styles[fx_key], Style::Effect(expected_style_fx));
+}
+
+fn add_two_mode_collection(doc: &mut Document) {
+    doc.variable_collections.insert(
+        "VariableCollectionId:3:1".into(),
+        VariableCollection {
+            id: "VariableCollectionId:3:1".into(),
+            name: "Tokens".into(),
+            modes: vec![
+                VariableMode { id: "3:10".into(), name: "Light".into() },
+                VariableMode { id: "3:11".into(), name: "Dark".into() },
+            ],
+            default_mode: "3:10".into(),
+            variables: vec![],
+            key: None,
+            source_library_key: None,
+        },
+    );
+}
+
+fn insert_var(doc: &mut Document, id: &str, name: &str, kind: VariableKind, light: VariableValue, dark: VariableValue) {
+    doc.variable_collections.get_mut("VariableCollectionId:3:1").unwrap().variables.push(id.into());
+    doc.variables.insert(
+        id.into(),
+        Variable {
+            id: id.into(),
+            name: name.into(),
+            collection: "VariableCollectionId:3:1".into(),
+            kind,
+            values: [("3:10".to_string(), light), ("3:11".to_string(), dark)].into_iter().collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+}
+
+#[test]
+fn fig_style_colorvar_round_trips() {
+    let mut d = Document::new("StyleColorVar");
+    d.add_page("Page");
+    add_two_mode_collection(&mut d);
+    let var_id = "VariableID:3:20".to_string();
+    insert_var(
+        &mut d,
+        &var_id,
+        "surface",
+        VariableKind::Color,
+        VariableValue::Color(Color::rgb(0xFF, 0xFF, 0xFF)),
+        VariableValue::Color(Color::rgb(0x11, 0x11, 0x11)),
+    );
+    d.styles.insert("2:500".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
+    d.style_meta.insert(
+        "2:500".into(),
+        StyleMeta {
+            name: "Card".into(),
+            key: Some("k-card".into()),
+            description: String::new(),
+            property: StyleProperty::Fill,
+            bindings: [("fills/0".to_string(), var_id.clone())].into_iter().collect(),
+        },
+    );
+
+    let bytes = export_fig(&d).unwrap();
+    let d2 = import_fig(&bytes).unwrap();
+    let (key, meta) = d2.style_meta.iter().find(|(_, m)| m.name == "Card").expect("Card style imported");
+    assert_eq!(meta.bindings.get("fills/0"), Some(&var_id), "style bindings on {key}: {:?}", meta.bindings);
+}
+
+#[test]
+fn text_style_paragraph_indent_and_weight_round_trip() {
+    let mut d = Document::new("TextStyleVars");
+    d.add_page("Page");
+    add_two_mode_collection(&mut d);
+    let indent_var = "VariableID:3:21".to_string();
+    let weight_var = "VariableID:3:22".to_string();
+    let style_var = "VariableID:3:23".to_string();
+    insert_var(&mut d, &indent_var, "indent", VariableKind::Number, VariableValue::Number(12.0), VariableValue::Number(24.0));
+    insert_var(&mut d, &weight_var, "weight", VariableKind::Number, VariableValue::Number(400.0), VariableValue::Number(700.0));
+    insert_var(
+        &mut d,
+        &style_var,
+        "fontStyle",
+        VariableKind::String,
+        VariableValue::String("Regular".into()),
+        VariableValue::String("Bold Italic".into()),
+    );
+
+    d.styles.insert(
+        "2:501".into(),
+        Style::Text(TextStyle { font_weight: 400, ..TextStyle::default() }),
+    );
+    d.style_meta.insert(
+        "2:501".into(),
+        StyleMeta {
+            name: "Body".into(),
+            key: Some("k-body".into()),
+            description: String::new(),
+            property: StyleProperty::Text,
+            bindings: [
+                ("paragraphIndent".to_string(), indent_var.clone()),
+                ("fontWeight".to_string(), weight_var.clone()),
+                ("fontStyle".to_string(), style_var.clone()),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    );
+
+    let bytes = export_fig(&d).unwrap();
+    let d2 = import_fig(&bytes).unwrap();
+    let (_, meta) = d2.style_meta.iter().find(|(_, m)| m.name == "Body").expect("Body style imported");
+    assert_eq!(meta.bindings.get("paragraphIndent"), Some(&indent_var));
+    assert_eq!(meta.bindings.get("fontWeight"), Some(&weight_var));
+    assert_eq!(meta.bindings.get("fontStyle"), Some(&style_var));
+}
+
+#[test]
+fn fill_style_gradient_stop_binding_round_trips() {
+    let mut d = Document::new("GradStopVar");
+    let page = d.add_page("Page");
+    add_two_mode_collection(&mut d);
+    let stop_var = "VariableID:3:24".to_string();
+    let light_c = Color::rgb(0xFF, 0x00, 0x00);
+    let dark_c = Color::rgb(0x00, 0xFF, 0x00);
+    insert_var(&mut d, &stop_var, "grad-start", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c));
+
+    let grad = Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+            stops: vec![
+                GradientStop { pos: 0.0, color: light_c },
+                GradientStop { pos: 1.0, color: Color::BLACK },
+            ],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    d.styles.insert("2:502".into(), Style::Fill(vec![grad.clone()]));
+    d.style_meta.insert(
+        "2:502".into(),
+        StyleMeta {
+            name: "HeroGrad".into(),
+            key: Some("k-grad".into()),
+            description: String::new(),
+            property: StyleProperty::Fill,
+            bindings: [("fills/0/stops/0".to_string(), stop_var.clone())].into_iter().collect(),
+        },
+    );
+    let fid = d.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+    frame.name = "DarkFrame".into();
+    frame.variables.modes.insert("VariableCollectionId:3:1".into(), "3:11".into());
+    let fid = d.insert(page, frame).unwrap();
+    let rid = d.alloc_id();
+    let mut rect = Node::rectangle(rid, Rect::new(0.0, 0.0, 50.0, 50.0));
+    rect.name = "GradRect".into();
+    rect.fills = vec![grad];
+    rect.style_refs.insert("fill".into(), "2:502".into());
+    d.insert(fid, rect).unwrap();
+
+    let bytes = export_fig(&d).unwrap();
+    let d2 = import_fig(&bytes).unwrap();
+    let (_, meta) = d2.style_meta.iter().find(|(_, m)| m.name == "HeroGrad").expect("HeroGrad style imported");
+    assert_eq!(meta.bindings.get("fills/0/stops/0"), Some(&stop_var));
+
+    let r2 = find(&d2, "GradRect");
+    let resolved = resolve_node(&d2, r2);
+    let PaintKind::LinearGradient { stops, .. } = &resolved.fills[0].kind else { panic!("expected linear gradient") };
+    assert_eq!(stops[0].color, dark_c);
+}
+
+#[test]
+fn effect_style_shadow_vars_round_trip() {
+    let mut d = Document::new("EffectVars");
+    let page = d.add_page("Page");
+    add_two_mode_collection(&mut d);
+    let c_var = "VariableID:3:25".to_string();
+    let r_var = "VariableID:3:26".to_string();
+    let s_var = "VariableID:3:27".to_string();
+    let x_var = "VariableID:3:28".to_string();
+    let y_var = "VariableID:3:29".to_string();
+    let light_c = Color::rgb(0x22, 0x22, 0x22);
+    let dark_c = Color::rgb(0xEE, 0xEE, 0xEE);
+    insert_var(&mut d, &c_var, "sh-color", VariableKind::Color, VariableValue::Color(light_c), VariableValue::Color(dark_c));
+    insert_var(&mut d, &r_var, "sh-radius", VariableKind::Number, VariableValue::Number(4.0), VariableValue::Number(16.0));
+    insert_var(&mut d, &s_var, "sh-spread", VariableKind::Number, VariableValue::Number(1.0), VariableValue::Number(6.0));
+    insert_var(&mut d, &x_var, "sh-x", VariableKind::Number, VariableValue::Number(2.0), VariableValue::Number(8.0));
+    insert_var(&mut d, &y_var, "sh-y", VariableKind::Number, VariableValue::Number(3.0), VariableValue::Number(12.0));
+
+    let fx = Effect::DropShadow {
+        color: light_c,
+        offset: Vec2::new(2.0, 3.0),
+        radius: 4.0,
+        spread: 1.0,
+        visible: true,
+        show_behind: false,
+    };
+    d.styles.insert("2:503".into(), Style::Effect(vec![fx.clone()]));
+    d.style_meta.insert(
+        "2:503".into(),
+        StyleMeta {
+            name: "Elevation".into(),
+            key: Some("k-elev".into()),
+            description: String::new(),
+            property: StyleProperty::Effect,
+            bindings: [
+                ("effects/0/color".to_string(), c_var.clone()),
+                ("effects/0/radius".to_string(), r_var.clone()),
+                ("effects/0/spread".to_string(), s_var.clone()),
+                ("effects/0/offsetX".to_string(), x_var.clone()),
+                ("effects/0/offsetY".to_string(), y_var.clone()),
+            ]
+            .into_iter()
+            .collect(),
+        },
+    );
+    let fid = d.alloc_id();
+    let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+    frame.name = "DarkFrame".into();
+    frame.variables.modes.insert("VariableCollectionId:3:1".into(), "3:11".into());
+    let fid = d.insert(page, frame).unwrap();
+    let rid = d.alloc_id();
+    let mut rect = Node::rectangle(rid, Rect::new(0.0, 0.0, 50.0, 50.0));
+    rect.name = "Elevated".into();
+    rect.effects = vec![fx];
+    rect.style_refs.insert("effect".into(), "2:503".into());
+    d.insert(fid, rect).unwrap();
+
+    let bytes = export_fig(&d).unwrap();
+    let d2 = import_fig(&bytes).unwrap();
+    let (_, meta) = d2.style_meta.iter().find(|(_, m)| m.name == "Elevation").expect("Elevation style imported");
+    assert_eq!(meta.bindings.get("effects/0/color"), Some(&c_var));
+    assert_eq!(meta.bindings.get("effects/0/radius"), Some(&r_var));
+    assert_eq!(meta.bindings.get("effects/0/spread"), Some(&s_var));
+    assert_eq!(meta.bindings.get("effects/0/offsetX"), Some(&x_var));
+    assert_eq!(meta.bindings.get("effects/0/offsetY"), Some(&y_var));
+
+    let r2 = find(&d2, "Elevated");
+    let resolved = resolve_node(&d2, r2);
+    let Effect::DropShadow { color, offset, radius, spread, .. } = resolved.effects[0] else { panic!("expected drop shadow") };
+    assert_eq!(color, dark_c);
+    assert_eq!(radius, 16.0);
+    assert_eq!(spread, 6.0);
+    assert_eq!(offset, Vec2::new(8.0, 12.0));
 }
