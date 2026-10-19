@@ -79,6 +79,8 @@ pub fn own_overflow(n: &Node) -> (f32, f32, f32, f32) {
 }
 
 fn bounds_of(doc: &Document, n: &Node) -> Rect {
+    let n = designos_doc::resolve_node(doc, n);
+    let n = n.as_ref();
     let is_page = matches!(n.kind, NodeKind::Page { .. });
     let own = if is_page {
         None
@@ -93,10 +95,11 @@ fn bounds_of(doc: &Document, n: &Node) -> Rect {
     if draws_kids && !clips {
         for cid in &n.children {
             let Some(c) = doc.get(*cid) else { continue };
-            if !c.visible {
+            let rc = designos_doc::resolve_node(doc, c);
+            if !rc.visible {
                 continue;
             }
-            let cr = transform_rect(&c.transform, bounds_of(doc, c));
+            let cr = transform_rect(&rc.transform, bounds_of(doc, c));
             acc = Some(match acc {
                 Some(a) => a.union(&cr),
                 None => cr,

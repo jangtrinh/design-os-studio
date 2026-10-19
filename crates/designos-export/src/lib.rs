@@ -38,7 +38,7 @@ pub use compose::compose_for;
 pub use css::{css_for, font_family_css, paint_css, text_style_css};
 pub use language::{CodeLanguage, CodeLanguageOptions};
 pub use pdf::export_pdf;
-pub use raster::{export_jpg, export_png, export_webp, render_export, rgba_bytes, ExportScale};
+pub use raster::{encode_jpg_pixmap, encode_png_pixmap, export_jpg, export_png, export_webp, render_export, rgba_bytes, ExportScale};
 pub use react::{react_for, react_with, ReactOptions};
 pub use svg::{export_svg, SvgOptions};
 pub use swiftui::swiftui_for;
@@ -46,6 +46,7 @@ pub use tailwind::tailwind_for;
 pub use text::register_font;
 pub use uikit::uikit_for;
 pub use util::{css_color, fmt_num};
+pub use {base64, designos_render, image, tiny_skia};
 
 /// Output file format of an export setting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

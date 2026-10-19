@@ -85,6 +85,7 @@ impl Engine {
                 let a: NodeArgs = parse(args)?;
                 Ok(json!({"node":self.node(a.node_id)?}))
             }
+            "designos_get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args),
             "designos_get_variables" => {
                 let a: VariablesArgs = parse(args)?;
                 let effective = if let Some(id) = a.node_id {
@@ -837,6 +838,7 @@ pub fn tools() -> Vec<Value> {
     );
     add("undo", "Undo the latest successful edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
     add("redo", "Redo the most recently undone edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
+    out.push(crate::tools::screenshot::tool_descriptor());
     out
 }
 
