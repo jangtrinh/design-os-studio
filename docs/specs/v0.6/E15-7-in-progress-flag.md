@@ -178,8 +178,8 @@ Clock is injected (`fn now_ms()` trait) so tests do not sleep.
 
 ## 12. Dependencies and build order
 
-After E15-4 (batch op). The `.designos` and `.fig` parts do not wait for #570; only the
-`scene_format_does_not_carry_flag` test needs the #570 scene exporter.
+After E15-4 (batch op) and #570 (scene format exporter, needed only by the omitted-flag report and
+`scene_format_does_not_carry_flag`). The `.designos` and `.fig` parts do not wait for #570.
 
 ## 13. Owner rulings
 

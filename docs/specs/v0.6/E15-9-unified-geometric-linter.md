@@ -99,7 +99,7 @@ are re-specified in E15-11 (`hardcoded-value`, `off-scale`); `hardcoded-color` s
 | Preset | Rules |
 |---|---|
 | `agent` (MCP default) | overflow-parent, clipped-partial, clipped-full, text-truncated, text-unexpected-wrap, text-missing-fill, collapsed-size, sizing-conflict, absolute-in-auto-layout, placeholder-text (every rule this spec defines). Later specs append their rule to this preset in the PR that registers it: E15-10 `contrast`, E15-11 `hardcoded-value` and `off-scale`, E15-2 `slot-non-recommended` |
-| `check-designs` (Studio panel default, Figma parity) | the #158 rule set: hardcoded-value, contrast, detached-instance and the rules #158 adds |
+| `check-designs` (Studio panel default, Figma parity) | the #158 rule set this spec registers: detached-instance and the rules #158 adds. E15-10 appends `contrast` and E15-11 appends `hardcoded-value` in the PR that registers each |
 | `recommended` | `agent` + detached-instance + default-layer-name + empty-container |
 | `strict` | every rule |
 | `layout`, `text`, `tokens`, `accessibility`, `naming`, `structure`, `components`, `content` | by category |
@@ -188,7 +188,9 @@ Errors: `UNKNOWN_RULE` / `UNKNOWN_PRESET` (`valid_options` = ids / presets), `NO
 ## 7. UI
 
 Check designs keeps its panel (`crates/designos-app/src/panels/check_designs.rs`) and its current
-grouping; it now gets findings from the registry with preset `check-designs`. Rows for new rules use
+grouping; it now gets findings from the registry with preset `check-designs`. Until E15-10 and E15-11
+land, the panel's hard-coded-value and contrast groups keep their existing code paths (E15-11 3.4
+deletes the app-side matcher), so no group disappears from the panel. Rows for new rules use
 the same row layout (`ROW_H = 60`, `panels/check_designs.rs:20`). A preset selector is added by #158
 or E15-14, not here. Zero fake UI: no control without a working action.
 

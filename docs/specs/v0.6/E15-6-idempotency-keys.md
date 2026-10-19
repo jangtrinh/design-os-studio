@@ -37,15 +37,16 @@ for a different payload, I get a named error and nothing changes.
    `idempotency_key` removed, prefixed by the tool name. Canonical = `serde_json::to_vec` of the
    key-ordered `Value`.
 3. Lookup happens before any validation or dispatch:
-   - key absent from the ledger → run the call; on success store `{key, seq, tool, hash, reply,
-     created_ms}` (`seq` = next ledger sequence number); errors are not stored (a failed call is
+   - key absent from the ledger → run the call; on success store `{key, tool, hash, undo_depth, reply,
+     created_ms}` (`undo_depth` per item 6); errors are not stored (a failed call is
      retried for real);
-   - key present, same tool and hash, entry not stale (below) → return the stored reply unchanged, run
+   - key present, same tool and hash, write still applied → return the stored reply unchanged, run
      nothing, publish nothing; the result's `_meta` carries `{"designos/idempotent_replay": true}`
      (outside `structuredContent`, so the reply body is identical);
-   - key present, same tool and hash, entry stale → `IDEMPOTENCY_KEY_STALE`, nothing runs,
-     `safe_to_retry: true`; the stored reply is never returned, because it may name nodes that no
-     longer exist;
+   - key present, same tool and hash, entry undone or dead (item 6) → `IDEMPOTENCY_KEY_STALE`,
+     nothing runs, `safe_to_retry: true`, `next_step` "Read the target nodes; this write was undone.
+     Send it again with a new idempotency_key only if you still want it." The stored reply is never
+     returned, because it may name nodes that no longer exist;
    - key present with a different tool or hash → `IDEMPOTENCY_KEY_REUSED`, nothing runs,
      `safe_to_retry: true`.
 4. Lifetime: the ledger belongs to the document session.
@@ -59,20 +60,33 @@ for a different payload, I get a named error and nothing changes.
 5. Capacity: at most 5,000 entries or 16 MiB of stored replies; beyond that the oldest entries are
    dropped. A dropped key behaves as unknown. The cap and the drop count are reported by
    `designos_get_app_state` (E15-16).
-6. Undo and redo make entries stale, they do not clear them: a successful `designos_undo` or
-   `designos_redo` sets `stale_through = <highest seq in the ledger>` (persisted as one
-   `{"stale_through":N}` line). A retry with a key whose `seq ≤ stale_through` gets
-   `IDEMPOTENCY_KEY_STALE` and is not re-applied (the undo was deliberate; re-applying would bring back
-   what the user removed). The agent sends the write again with a new key if it still wants it.
-   Entries stored after the undo stay valid. A canvas reload (item 4) already clears the ledger, and
-   the Studio-side undo reaches the session as that reload. Documented in the tool description ("a key
-   names one logical write").
+6. Undo and redo are tracked per entry through the undo stack, not by clearing the ledger:
+   - Each entry stores `undo_depth` = `History::undo_depth()` right after the call's own commit and
+     before any E15-13 auto-fix entry is pushed on top of it (so undoing only the fixes leaves the key
+     valid).
+   - On lookup the write counts as undone when `history.undo_depth() < entry.undo_depth`. A key whose
+     write is still applied replays. A key whose write was undone gets `IDEMPOTENCY_KEY_STALE` and is
+     not re-applied (the undo was deliberate; re-applying would bring back what the user removed).
+     Undoing the second of two writes leaves the first key valid.
+   - Redo back to the stored depth makes the key valid again (the write is back, the reply is true).
+   - A new undoable write while the redo stack is non-empty discards that redo branch: every entry
+     whose `undo_depth` is above the depth at that moment is marked dead for good (stale even if the
+     depth later grows again).
+   - Each such transition is appended to the ledger file as `{"key":K,"state":"stale"|"valid"}`; on
+     load the earlier process's history is gone, so loaded `valid` entries get `undo_depth = 0` and
+     stale ones stay stale.
+   - Studio-side undo: it changes the canvas snapshot, which the session picks up through the canvas
+     reload (`sync_from_live_canvas_if_newer`). That reload clears the whole ledger (item 4), so a
+     retry after a Studio undo runs as a new write. This differs from an MCP-side `designos_undo` (the
+     retry is refused) and is recorded as an open owner question in the PR.
+   Documented in the tool description ("a key names one logical write").
 
 ## 4. Data model / schema changes
 
-- `struct LedgerEntry { key: String, seq: u64, tool: String, hash: u64, reply: Value,
-  created_ms: u64 }` (serde, one JSON line each).
-- `Session.ledger: Ledger { entries, next_seq, stale_through }` with `lookup`, `store`, `mark_stale`,
+- `struct LedgerEntry { key: String, tool: String, hash: u64, undo_depth: usize, dead: bool,
+  reply: Value, created_ms: u64 }` (serde, one JSON line each; state transitions are extra
+  `{"key","state"}` lines).
+- `Session.ledger: Ledger` with `lookup(key, current_undo_depth)`, `store`, `mark_dead_above(depth)`,
   `clear`, backed by an optional file path.
 - Input schemas of mutating tools add the `idempotency_key` property (declared once for the batch in
   E15-4).
@@ -140,8 +154,12 @@ Seam: `cargo test -p designos-mcp`.
 | `ledger_cleared_on_document_switch` | call, `designos_new_document`, resend | runs again |
 | `errors_not_stored` | first call invalid, fix payload, same key | second call runs and is stored |
 | `undo_then_same_key_is_refused_not_replayed` | batch with key `k1` creates a node; `designos_undo`; resend `k1` | `IDEMPOTENCY_KEY_STALE`; the node stays absent; revision and undo depth unchanged |
-| `key_after_undo_is_valid` | as above, then a new call with key `k2`, resend `k2` | replayed normally |
+| `undo_second_write_keeps_first_key_valid` | writes `k1` then `k2`; `designos_undo`; resend `k1`, then `k2` | `k1` replays (node count unchanged, no duplicate); `k2` is `IDEMPOTENCY_KEY_STALE` |
+| `undo_of_auto_fix_keeps_write_key_valid` | write `k1` that triggers an E15-13 fix; one `designos_undo`; resend `k1` | replay; the agent's write is still present, only the fix is gone |
+| `redo_makes_key_valid_again` | write `k1`; undo; redo; resend `k1` | replay |
+| `new_write_after_undo_kills_undone_key` | write `k1`; undo; write `k2` (discards the redo branch); resend `k1` | `IDEMPOTENCY_KEY_STALE` even if the depth later grows past `k1`'s |
 | `stale_mark_survives_reconnect` | session dir; call `k1`, undo, drop `Session`, new `Session::with_session_dir`, resend `k1` | `IDEMPOTENCY_KEY_STALE` |
+| `ledger_cleared_on_canvas_reload` | session with a live canvas file; call `k1`; replace the canvas file with a newer snapshot; resend `k1` | runs again as a new write |
 
 Fail-before: all fail today (`idempotency_key` is an unknown field).
 

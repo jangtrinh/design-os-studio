@@ -6,7 +6,7 @@
 | Size / priority | M / P2 |
 | Depends on | none (REA step E1-f for Figma's native variables JSON) |
 | Unblocks | part-2 E15-19 (styles compiled to variables), E15-42 (CSS/Tailwind themes to variables) |
-| Touches | `crates/designos-fig/src/variables.rs`, new `crates/designos-fig/src/variables_dtcg.rs`, `crates/designos-app/src/variables/` (import/export menu) |
+| Touches | `crates/designos-doc/src/variables.rs` (the `extensions` fields), `crates/designos-fig/src/variables.rs`, new `crates/designos-fig/src/variables_dtcg.rs`, `crates/designos-app/src/variables/` (import/export menu) |
 
 ## 1. Summary and user story
 
