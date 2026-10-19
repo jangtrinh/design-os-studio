@@ -24,6 +24,10 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 </p>
 
 <p align="center">
+  <a href="https://unikorn.vn/p/designos-studio?ref=embed-designos-studio" target="_blank"><img src="https://unikorn.vn/api/widgets/badge/designos-studio/rank?theme=light&type=daily" alt="DESIGN:OS Studio - Daily" style="width: 250px; height: 64px;" width="250" height="64" /></a>
+</p>
+
+<p align="center">
   <a href="#why-this-exists">Why DESIGN:OS</a> · <a href="#facts-register">Facts</a> · <a href="#quickstart">Quickstart</a> · <a href="#first-safe-use--the-practical-loop">Safe Loop</a> · <a href="#new-in-v030">New in 0.3.0</a> · <a href="#what-it-makes">What it makes</a> · <a href="#100-figma-micro-interactions">Micro-Interactions</a> · <a href="#installation">Install</a> · <a href="#how-it-works">How it works</a> · <a href="#commands--diagnostics">Commands</a> · <a href="#quality-bar--limitations">Limits &amp; FAQ</a>
 </p>
 
