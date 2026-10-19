@@ -45,11 +45,11 @@ As a user, I want a slide with 18 px body text, or a mobile screen with six tab 
 
 6. **Tab bar detection** (mobile): a horizontal auto-layout child whose bottom edge is within 40 px of the frame bottom, at least 75% of the frame width, with ≥ 2 children of equal width (±1 px); or any node whose name or main component name matches `/tab ?bar/i`. When several candidates match, the bottom-most one wins (largest world bottom edge; ties go to the lowest node id), and the finding names it.
 7. **Data regions** (web app, table): a table component instance, a node named `/table|list|grid/i` with ≥ 3 repeated children (same main component or same structure), or a chart. State frames are found as sibling frames named `<Name> / <State>` or as variants of a component property named `State` with values `Loading`, `Empty`, `Error`, `Success`, `Permission` (case-insensitive).
-8. **Profiles** (our own values, written for design:os; `px` at 1×):
+8. **Profiles** (our own values, written for design:os; `px` at 1×, that is at the profile's design size; only `slides` declares a design size and scales, rule 11):
 
 | Surface | Rules |
 |---|---|
-| `slides` | frame 1920×1080; body ≥ 24 (error); title ≥ 40 (error); caption ≥ 18 (warning); edge margin ≥ 96 (error); max 2 font families (error); max line chars 60 body (warning) |
+| `slides` | design size 1920×1080, scaled by width (rule 11); frame 16:9 (error); body ≥ 24 (error); title ≥ 40 (error); caption ≥ 18 (warning); edge margin ≥ 96 (error); max 2 font families (error); max line chars 60 body (warning) |
 | `mobile` | frame width 390 or 393 or 430 (warning); body ≥ 15 (error); caption ≥ 11 (error); edge margin ≥ 16 (error); section gap 24–32 (warning); item gap 8–16 (warning); tab bar 3–5 items (error); title sizes consistent (warning) |
 | `web-app` | body ≥ 13 (error); caption ≥ 11 (error); edge margin ≥ 16 (warning); section gap 24–48 (warning); required states loading/empty/error/success/permission (warning); title sizes consistent (warning) |
 | `landing-page` | body ≥ 16 (error); caption ≥ 12 (error); max line chars 75 body (warning); edge margin ≥ 24 (error); section gap 64–160 (warning); max 3 font families (warning) |
@@ -57,13 +57,15 @@ As a user, I want a slide with 18 px body text, or a mobile screen with six tab 
 | `design-system` | caption ≥ 11 (error); edge margin ≥ 40 (warning); max 3 font families (warning) |
 
 9. **Prose.** Each `prose` is Markdown, 300–1,200 words, our own text built from the ease-design sources, with these sections: Purpose, Structure, Hierarchy, Spacing, Content, States, Checks (the Checks section lists every rule in plain words, generated from `rules` by a test so it cannot drift).
-10. **Findings** use the E15-9 finding row with the rule id, node id, measured value and threshold, for example `surface.slides.body-min-size: Body text 18 px is below 24 px`.
+10. **Findings** use the E15-9 finding row with the rule id, node id, measured value and threshold, for example `surface.slides.body-min-size: Body text 18 px is below 24 px`. When a scale applies (rule 11) the threshold shown is the scaled one and the finding adds `scale`: `surface.slides.body-min-size: Body text 14 px is below 16 px (24 px × 0.667)`.
+11. **Scaling by width (owner ruling 2026-10-19).** A profile may declare `"scale": { "by": "width", "design_width": 1920 }`; `slides` does, the other five do not (k = 1). For a tagged frame, `k = frame world width / design_width`, and every pixel parameter of its rules is multiplied by `k` before the check: `min_font_size.px`, `edge_margin.px`, `gap_range.min` and `max`, `min_row_height.px`. Counts and characters (`max_font_families`, `tab_bar_items`, `max_line_chars`) and `required_states` are not scaled. `frame_size` under a scale does not compare absolute size: it requires the frame's aspect ratio to equal `width : height` of the stated size, that is `|height − width × 1080/1920| ≤ 1 px`, so a 1280×720 deck passes and a 1280×800 deck fails. Comparisons allow 0.01 px of slack so float rounding in `k` cannot flip a result. A deck at exactly 1920×1080 has `k = 1` and behaves as before. Slide contract geometry and type ranges (E15-22) scale by the same `k`.
 
 ## 4. Data model / schema
 
 ```json
 // assets/surfaces/slides.json
 { "schema": 1, "id": "slides", "name": "Slides",
+  "scale": { "by": "width", "design_width": 1920 },
   "prose": "## Purpose\n…\n## Checks\n…",
   "rules": [
     { "id": "frame-size", "kind": "frame_size", "width": 1920, "height": 1080, "severity": "error" },
@@ -82,7 +84,8 @@ pub enum SurfaceKind { WebApp, LandingPage, Mobile, Slides, Table, DesignSystem 
 // node.rs: #[serde(default, skip_serializing_if = "AgentMeta::is_empty")] pub agent: AgentMeta,
 
 // designos-doc/src/lint/surface.rs
-pub struct SurfaceProfile { pub id: SurfaceKind, pub prose: String, pub rules: Vec<SurfaceRule> }
+pub struct SurfaceProfile { pub id: SurfaceKind, pub prose: String, pub rules: Vec<SurfaceRule>, pub scale: Option<SurfaceScale> }
+pub struct SurfaceScale { pub by: ScaleBy /* Width */, pub design_width: f32 }
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SurfaceRuleKind { MinFontSize { role: TextRole, px: f32 }, MaxFontFamilies { count: u32 }, EdgeMargin { px: f32 },
     GapRange { scope: GapScope, min: f32, max: f32 }, TabBarItems { min: u32, max: u32 }, MaxLineChars { role: TextRole, chars: u32 },
@@ -120,6 +123,7 @@ Studio shows the tag in the Inspect panel for a selected frame: a 28 px row `Sur
 6. A slide in a deck with an explicit `surface: mobile` tag: the explicit tag wins over the implicit slides tag.
 7. A frame with no text: text rules produce no findings, not errors.
 8. Two tab bar candidates: the bottom-most wins (rule 6); the finding names it.
+9. A deck mixing frame sizes: `k` is computed per frame; each slide is checked against its own scaled thresholds. `title_size_consistent` compares title size divided by `k`, so a 1280×720 and a 1920×1080 slide with proportional titles are consistent.
 
 ## 9. Non-goals
 
@@ -136,6 +140,11 @@ Fail-before: `slide_with_18px_body_fails` fails on `main`.
 | Test | Input | Expected |
 |---|---|---|
 | `slide_with_18px_body_fails` (AC1) | 1920×1080 frame tagged slides, title 48 px, body text style `Body` at 18 px | one error `surface.slides.body-min-size`, measured 18, threshold 24 |
+| `slide_1280x720_proportional_passes` | 1280×720 frame tagged slides (k = 0.667), title 28 px, body 17 px, caption 13 px, content 70 px from every edge, one font family | no `surface.slides.*` finding (absolute 24 px body would have failed; scaled it is 16 px) |
+| `slide_1280x720_below_scaled_threshold_fails` | same frame, body text 14 px | one error `surface.slides.body-min-size`, measured 14, threshold 16 with `scale` 0.667; the title, caption and margin checks stay silent |
+| `slide_1280x800_fails_aspect` | 1280×800 frame tagged slides, otherwise proportionally correct | one error `surface.slides.frame-size` (height 800, expected 720 ± 1) |
+| `slide_2560x1440_scales_up` | 2560×1440 frame (k = 1.333), body 24 px | error `surface.slides.body-min-size`, threshold 32; body 33 px passes |
+| `non_slide_surface_is_not_scaled` | 390×844 frame tagged mobile, body 14 px | error `surface.mobile.body-min-size`, threshold 15 (k = 1) |
 | `mobile_six_tabs_fails` (AC2) | 390×844 frame tagged mobile, bottom horizontal auto layout 390 wide with 6 equal children | error `surface.mobile.tab-bar-items`, measured 6, max 5 |
 | `mobile_four_tabs_passes` | same with 4 children | no tab-bar finding |
 | `guide_and_profile_share_one_file` (AC3) | `get_guidelines` slides prose and `profiles()` rules | prose bytes equal the file's `prose`; rules equal the file's `rules` |

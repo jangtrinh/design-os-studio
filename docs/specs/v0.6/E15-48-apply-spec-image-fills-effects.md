@@ -44,7 +44,7 @@ As an agent, I want one `apply_spec` call to create a card with an image fill an
    - The changelog for v0.6 lists the change as breaking for agents that relied on ignored keys, with the error example.
    - The agent guide (`designos_guide`, E15-15) states that unknown keys are rejected and lists the allowed keys per object.
 8. **Atomicity.** All of this happens inside the existing trial-document `apply_spec` path (`crates/designos-mcp/src/engine.rs:262-268`): any error leaves the document unchanged (AC3), and success is one undo step (AC1), including image bytes added to `Document.images`.
-9. **Export.** `export_spec` writes `fills` (all paints: solid, image with `asset` key and scale mode, gradients as `{ "type": "gradient", … }` read-only for now) and `effects` (all types, with `var:` for bound fields) whenever the node has more than one paint, a non-solid paint, or any effect; `fill` is kept for the single-solid case so old specs stay identical.
+9. **Export.** `export_spec` writes `fills` (solid paints and image paints with their `asset` key and scale mode) and `effects` (all types, with `var:` for bound fields) whenever the node has more than one exportable paint, a non-solid paint, or any effect; `fill` is kept for the single-solid case so old specs stay identical. **Gradients are omitted** from `export_spec`: `PaintSpec` has only the `Solid` and `Image` variants (strict, rule 7), so a `{ "type": "gradient" }` entry would be an unknown variant that `apply_spec` rejects, and an exported spec must always re-apply. Each omitted gradient is listed in the export notes (`{ node_id, path: "fills[<i>]", reason: "gradient_not_exportable" }`), never dropped silently. If every paint of a node is a gradient the node exports with no `fill` and no `fills` key. A later task that adds a gradient `PaintSpec` variant (parser, validation and export in one PR) lifts the omission.
 
 ## 4. Data model / schema
 
@@ -79,8 +79,8 @@ AC1 example (`designos_apply_spec`):
 { "parent_id": 2, "spec": {
   "kind": "frame", "name": "Card", "width": 320, "height": 360, "corner_radius": 16,
   "layout": { "direction": "column", "gap": 12, "padding": [0, 0, 16, 0] },
-  "fills": [ { "type": "solid", "color": "var:color/card" } ],
-  "effects": [ { "type": "drop_shadow", "color": "var:color/shadow", "y": 8, "blur": 24 } ],
+  "fills": [ { "type": "solid", "color": "var:designos-style:color/color/card" } ],
+  "effects": [ { "type": "drop_shadow", "color": "var:designos-style:color/color/shadow", "y": 8, "blur": 24 } ],
   "children": [
     { "kind": "rectangle", "name": "Cover", "width": 320, "height": 180,
       "fills": [ { "type": "image", "path": "assets/cover.jpg", "scale_mode": "fill" } ] },
@@ -117,13 +117,12 @@ None. Studio shows the result like any node; bound effect fields show the variab
 4. Huge image (8,000 × 8,000 PNG under 64 MiB): stored as is; render uses existing image decoding paths.
 5. `job` paint whose job fails: slot removed in the failure handling and the node keeps the E15-39 failed state; the paint array shrinks by one with a warning in the job status.
 6. Effects on a group: allowed as in Figma (effects apply to the group's composite).
-7. Unknown top-level key during the warning release: applied spec succeeds and the result includes `warnings: [{ name: "spec_unknown_key", path, corrected_example }]`.
 
 ## 9. Non-goals
 
 - Authoring custom shaders (E5-5, #170).
 - Generating images (E15-39/40/41).
-- Gradient authoring in specs (export only, read-only shape).
+- Gradient authoring and gradient export in specs (omitted until a `PaintSpec` variant round-trips them, rule 9).
 
 ## 10. Test plan
 
@@ -138,7 +137,8 @@ Fail-before: `card_with_image_and_shadow_one_undo` fails on `main` (keys ignored
 | `invalid_image_path_refused_unchanged` (AC3) | `"path": "../x.png"` | `image_path_invalid`; document hash unchanged; no image added |
 | `unknown_effect_key_named_error` | `blurr` | `spec_unknown_key` with corrected `blur` |
 | `unknown_top_level_key_rejected` | `{"type":"frame","widht":100}` | `spec_unknown_key`, path `widht`, corrected `width`; document unchanged |
-| `export_spec_reapplies_strict` | export every fixture node from `crates/designos-doc` test fixtures, re-apply | zero `spec_unknown_key` |
+| `export_spec_reapplies_strict` | export every fixture node from `crates/designos-doc` test fixtures that has no gradient paint (nodes with a gradient paint are not in this set, rule 9), re-apply | zero `spec_unknown_key`; equal paints and effects |
+| `export_spec_omits_gradients_and_lists_them` | a rectangle with a gradient fill and a solid fill; a rectangle with only a gradient fill | the first exports its solid paint only, the second exports no `fill` or `fills` key; both gradients appear in the export notes with `gradient_not_exportable` and the paint index; the exported specs re-apply with zero `spec_unknown_key` |
 | `fill_and_fills_conflict` | both keys | `spec_conflicting_keys` |
 | `export_spec_round_trip` | apply §5, export, re-apply into a new doc | equal node paints and effects (image keys equal) |
 | `single_solid_export_unchanged` | old-style spec | export identical to `main` output |

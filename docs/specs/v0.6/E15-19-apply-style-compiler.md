@@ -43,7 +43,7 @@ As a user, I want to switch the whole design to another style in one undo step, 
    `mix(a, b, t)` interpolates in OKLab. A derived alias is written as a real colour value, not an alias, so modes stay independent.
 5. **Names are CSS-custom-property compatible.** Each variable name uses only `[a-z0-9-/]`; `code_syntax[WEB] = "var(--<name with / replaced by ->)"`, for example `var(--color-primary)`, `var(--radius-md)`, `var(--font-heading)`. Code export prints these verbatim (§2 FACT), so names survive export.
 6. **Text styles** (keys `designos-style:text/<Name>`, for example `designos-style:text/Body Large`; the style's `StyleMeta.name` is `<Name>` itself, so `text_style: "Body Large"` resolves by E15-3's exact-name rule): `Display`, `H1`, `H2`, `H3`, `H4`, `Body Large`, `Body`, `Body Strong`, `Caption`, `Data`. Each binds `fontFamily` to the slot variable (heading slot for Display–H4, body for Body*, caption, data), `fontSize` and `lineHeight` to the step variables, `fontWeight` to the slot weight variable (Body Strong uses the body slot's highest weight). Step mapping: `Display`→`display`, `H1`→`h1`, `H2`→`h2`, `H3`→`h3`, `H4`→`h4`, `Body Large`→`body-lg`, `Body` and `Body Strong`→`body`, `Caption`→`caption`; `Data` uses the `body` step (E15-18 §3.8 has no `data` step, so there is no `font-size/data` variable). Line height = `round(size × 1.2)` for Display–H2, `round(size × 1.3)` for H3–H4, `round(size × 1.5)` for body, body-lg, caption and Data.
-7. **Effect styles** (keys `designos-style:effect/elevation-<n>`, `StyleMeta.name` `Elevation/<n>`, so `effect_style: "Elevation/2"` resolves by E15-3's exact-name rule): one per elevation level with at least one layer. Each layer becomes `Effect::DropShadow` or `Effect::InnerShadow` (`paint.rs:284-298`). The colour binds to `color/shadow` with the layer's alpha applied through an alias-with-alpha when #131 supports it; otherwise the colour is written as a value and the style records `bound: false` in the report.
+7. **Effect styles** (keys `designos-style:effect/elevation-<n>`, `StyleMeta.name` `Elevation/<n>`, so `effect_style: "Elevation/2"` resolves by E15-3's exact-name rule): always three, `Elevation/1`, `Elevation/2` and `Elevation/3` (the set's levels `"1"`..`"3"`, E15-18), including a level that has no layers, which is written with an empty effect list (`Style::Effect(vec![])`, so a template that binds `Elevation/2` never meets `UNKNOWN_STYLE`; an empty list renders no shadow). Each layer becomes `Effect::DropShadow` or `Effect::InnerShadow` (`paint.rs:284-298`). The colour binds to `color/shadow` with the layer's alpha applied through an alias-with-alpha when #131 supports it; otherwise the colour is written as a value and the style records `bound: false` in the report.
 8. **Determinism and idempotency.**
    - Collections, variables and styles are written in a fixed order (table order, then name order).
    - Re-applying the same resolved style produces no change: the tool compares the would-be state with the current one and returns `changed: false` with no undo entry (AC1).
@@ -51,7 +51,8 @@ As a user, I want to switch the whole design to another style in one undo step, 
    - Variables the compiler did not create are never touched. A user-made variable whose name collides with a compiler name in a different collection is left alone; the compiler's variable lives in its own collection.
 9. **One undo step.** All writes are one `Command::Batch`. `dry_run: true` returns the full report without changing the document and uses the E15-4 (#589) transaction preview shape.
 10. **Active style record.** `Document.applied_style = Some(AppliedStyle { archetype, params, catalogue_version })` (exactly the §4 struct; no revision or timestamp field, so a re-apply of the same style leaves the document hash unchanged) is written in the same batch. E15-16 bootstrap and E15-20 read it.
-11. **Mode selection.** Optional `mode: "light" | "dark"` sets the explicit mode of the `Style / Color` collection on the given `scope_node_id` (default: the active page) through `NodeVariables.modes` (`variables.rs:135-141`).
+11. **References.** Agents and templates address every name this compiler writes through E15-3's collection-qualified form: the collection id, then `/`, then the variable name. Examples: `var:designos-style:color/color/primary`, `var:designos-style:shape/radius/md`, `var:designos-style:space/space/16`, `var:designos-style:type/font-size/h1`. E15-3 §3.1 step 1 resolves it by collection id and never considers a same-named variable in another collection, so a user variable also called `color/primary` cannot capture the binding (edge case 1). The unqualified `var:color/primary` still works while exactly one collection holds that name; with a user variable of the same name it is `AMBIGUOUS_VARIABLE` (E15-3 step 2).
+12. **Mode selection.** Optional `mode: "light" | "dark"` sets the explicit mode of the `Style / Color` collection on the given `scope_node_id` (default: the active page) through `NodeVariables.modes` (`variables.rs:135-141`).
 
 ## 4. Data model / schema
 
@@ -84,7 +85,7 @@ Output:
 { "changed": true, "dry_run": false,
   "applied": { "archetype": "quiet-editorial", "params": { "…all eight…" }, "catalogue_version": "1.0.0" },
   "report": { "collections": ["designos-style:color", "designos-style:shape", "designos-style:space", "designos-style:type"],
-              "variables_created": 66, "variables_updated": 0, "text_styles": 10, "effect_styles": 2, "unbound_effect_layers": 0 },
+              "variables_created": 66, "variables_updated": 0, "text_styles": 10, "effect_styles": 3, "unbound_effect_layers": 0 },
   "undo_group": 1 }
 ```
 Errors (SC-1): E15-18's `style_archetype_unknown`, `style_param_invalid`, `style_param_unknown`; `style_needs_params` (details: the `open` lists; corrected example fills each open group with its first option; `safe_to_retry: true`); `style_collection_locked` when a `designos-style:*` collection is a subscribed library copy (`VariableCollection::is_library`, `variables.rs:38`), `safe_to_retry: false`.
@@ -101,7 +102,7 @@ None (E15-20 adds the picker). The existing Variables panel shows the four `Styl
 
 ## 8. Edge cases
 
-1. A document already holding user variables named `color/primary` in another collection: both coexist; the report lists the name collision as a warning.
+1. A document already holding user variables named `color/primary` in another collection: both coexist; the report lists the name collision as a warning. Bindings written with the qualified form (rule 11) address the compiler's variable only; an unqualified `var:color/primary` is `AMBIGUOUS_VARIABLE` and the corrected example is the qualified form.
 2. Re-apply after a user edited a compiler variable's value: the compiler overwrites it (the style owns those names) and the report counts it under `variables_updated`.
 3. Archetype switch where the new radius scale lacks a key: impossible by schema (fixed key set); a test enforces it.
 4. Font not installed locally: variables still written; `designos-fonts` fetches on render. The report lists fonts not yet cached.
@@ -124,7 +125,9 @@ Fail-before: `apply_twice_is_identical` fails on `main` (no compiler).
 | Test | Input | Expected |
 |---|---|---|
 | `apply_twice_is_identical` (AC1) | apply A, hash; apply A again | hashes equal (zero-allocation document hash), second call `changed: false`, undo depth +1 total |
-| `frame_rethemes_on_switch` (AC2) | frame with `fill: "var:color/primary"`, apply A then B | resolved fill equals B's `primary`; render snapshot differs from A's at the frame |
+| `frame_rethemes_on_switch` (AC2) | frame with `fill: "var:designos-style:color/color/primary"`, apply A then B | resolved fill equals B's `primary`; render snapshot differs from A's at the frame |
+| `qualified_ref_ignores_user_variable_with_same_name` | document with a user collection holding `color/primary` (another colour); frame binds `var:designos-style:color/color/primary`; apply A then B | the binding points at the compiler variable (id `designos-style/color/primary`), the frame re-themes, the user variable is untouched; unqualified `var:color/primary` returns `AMBIGUOUS_VARIABLE` |
+| `empty_elevation_level_still_has_a_style` | archetype whose elevation set has `"1": []` and `"3": []`; apply, then bind `effect_style: "Elevation/1"` through `apply_spec` | `Elevation/1`, `Elevation/2`, `Elevation/3` all exist; level 1 has an empty effect list; the bind succeeds and draws no shadow; `effect_styles` is 3 |
 | `dtcg_export_validates` (AC3) | apply A, export DTCG (#138) | validates against the DTCG schema fixture used by #138 |
 | `derivation_fills_every_role` | palette with only required roles | every role of E15-18 §3.6 (27 names, `shadow` included) present in both modes |
 | `muted_foreground_reaches_aa` | derived roles | `muted-foreground/muted ≥ 4.5` |
@@ -142,7 +145,7 @@ Visual evidence: render snapshot PNGs of one sample frame under two archetypes, 
 
 ## 12. Dependencies and build order
 
-- Needs E15-18 (#604), #131 (E1-4), #138 (E1-9), E15-4 (#589, dry-run shape), E15-3 (#588; AC2 binds a fill with `var:color/primary`, and the text and effect style links resolve by E15-3's name rule).
+- Needs E15-18 (#604), #131 (E1-4), #138 (E1-9), E15-4 (#589, dry-run shape), E15-3 (#588; AC2 binds a fill with the qualified `var:designos-style:color/color/primary`, and the text and effect style links resolve by E15-3's name rule).
 - Unblocks E15-20 (#608), E15-22 (#610), E15-36.
 
 ## 13. Owner rulings that apply

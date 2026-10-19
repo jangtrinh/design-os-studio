@@ -14,7 +14,7 @@ The judge library is shared: E15-37 ranks variants with it inside `designos-mcp`
 
 - FACT: no judge exists. The ease-design taste rubric (MIT, owner's own) defines seven axes (Layout, Typography, Spacing, Motion, Iconography, Depth / Surface, Consistency) scored 0–10 with a pass floor of 7 per axis (`ease-design/knowledge/taste-rubric.md` §"The Critique Gate", §"Pass thresholds"), and states "the maker never grades its own work" (§"The Excellence Tier" 2).
 - FACT: the agent CLIs available through the Studio terminal are Claude Code, Codex CLI, Antigravity, Grok Build (`crates/designos-app/src/terminal.rs:62-101`); E15-25 runs any configured command.
-- FACT: UIClip weights are published under an MIT tag and are approved in the E15-23 register as `eval-only-cache` (owner ruling 2026-10-19): downloaded at run time into the user cache, never committed or shipped, so E15-25 accepts them as a source.
+- FACT: UIClip weights are published under an MIT tag and are approved in the E15-23 register as `eval-only-cache` (owner ruling 2026-10-19): downloaded at run time into the user cache, never committed or shipped, so E15-25 accepts them as a source. The CLIP ViT-B/32 weights (register id `clip-vit-b32`, consumer E15-27) are approved on the same terms by the owner ruling of the same date.
 
 ## 3. Behaviour rules
 

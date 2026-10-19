@@ -21,7 +21,7 @@ As the owner, I want every dataset, model weight, design kit and skill used by `
 | WebSight (`HuggingFaceM4/WebSight`) | revision `b11f8172f89c992b56ac702319e02c428cca4a4e` | `cc-by-4.0` | synthetic pages; check the source of embedded photos |
 | UICrit (`google-research-datasets/uicrit`) | pin a commit at implementation | CC BY 4.0 (README) | screenshots come from the RICO dataset, which has its own terms |
 | UIClip weights (`biglab/uiclip_jitteredwebsites-2-224-paraphrased` and siblings) | pin a revision | `mit` (model tag) | check training-data terms |
-| CLIP code and weights (`openai/CLIP`) | pin a commit | MIT (repository) | ViT-B/32 weights |
+| CLIP ViT-B/32 weights (Hugging Face `openai/clip-vit-base-patch32`; code `openai/CLIP`) | revision `3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268` (field `sha` of `https://huggingface.co/api/models/openai/clip-vit-base-patch32`, read 2026-10-19; last modified 2024-02-29) | MIT (GitHub licence of `openai/CLIP`, read through the API 2026-10-19); the Hugging Face model carries no licence tag | owner-approved `eval-only-cache` 2026-10-19, same terms as UIClip; the implementer re-reads the revision before the first fetch and records any change |
 | shadcn/ui (`shadcn-ui/ui`) | pin a commit | MIT | open kit for S2 and the generator (owner ruling 2026-10-19: S2 uses shadcn/ui + IBM Carbon) |
 | IBM Carbon (`carbon-design-system/carbon`) | pin a commit | Apache-2.0 | open kit for S2 |
 | `jakubkrehel/skills` | commit `4c66b1fa86e9ab70187b43d7da9b6fdb29f2ef63` (pushed 2026-10-13) | MIT | adopted by E15-46 |
@@ -38,12 +38,12 @@ As the owner, I want every dataset, model weight, design kit and skill used by `
    - `ship-in-app` / `ship-in-skills`: files go into the app bundle or the skills folder with the licence text and attribution in `THIRD_PARTY_LICENSES.md`.
    - `excluded`: no task may reference it.
 4. **Exclusion rule.** `licence = "NONE"` forces `use = "excluded"` (owner ruling). A `pending` review blocks every consumer except the review itself: `designos-eval` refuses to fetch or run a task whose source is `pending` or `rejected` (E15-25 reads this file).
-5. **Licence review required before `approved`:** Owner ruling 2026-10-19: Design2Code, UICrit, RICO screenshots and UIClip weights are approved as `eval-only-cache` only: downloaded at run time into the user cache by `designos-eval fetch`, never committed, never shipped. Their entries are filed with `review = "approved"`, `reviewer = "owner"`, `reviewed_on = "2026-10-19"`, and the RICO terms are still recorded verbatim in `notes`. Derived metadata (S1 reference blocks) stays in the cache too. Other sources still need the review below.
+5. **Licence review required before `approved`:** Owner ruling 2026-10-19: Design2Code, UICrit, RICO screenshots, UIClip weights and CLIP ViT-B/32 weights are approved as `eval-only-cache` only: downloaded at run time into the user cache by `designos-eval fetch`, never committed, never shipped. Their entries are filed with `review = "approved"`, `reviewer = "owner"`, `reviewed_on = "2026-10-19"`, and the RICO terms are still recorded verbatim in `notes`. Derived metadata (S1 reference blocks) stays in the cache too. Other sources still need the review below.
    - Design2Code: ODC-BY covers the dataset; page text and images are third-party web content. Required: confirm eval use of the screenshots and HTML; attribution text; no redistribution of pages in this repo (class `eval-only-cache`). Our committed artefacts are task ids only: page screenshots, HTML and derived block metadata (S1 reference blocks) stay in the user cache and are never committed (owner ruling above).
    - WebSight: CC BY 4.0 allows redistribution with attribution; confirm the licence of any embedded photos before committing rendered fixtures.
    - UICrit: CC BY 4.0 for critiques and ratings; RICO screenshot terms must be read and recorded separately (separate entry `rico-screenshots`). If RICO terms do not allow redistribution, screenshots stay `eval-only-cache`.
    - UIClip weights: MIT tag; record the paper citation as attribution; class `eval-only-cache` (weights never enter the app, R4.13).
-   - CLIP weights: MIT; class `eval-only-cache`.
+   - CLIP ViT-B/32 weights: approved by the owner on 2026-10-19 as `eval-only-cache`, the same terms as UIClip (`review = "approved"`, `reviewer = "owner"`, `reviewed_on = "2026-10-19"`); MIT; weights never enter the app, R4.13. Pin: a real Hugging Face revision, never a made-up one. The entry takes the `sha` that `https://huggingface.co/api/models/openai/clip-vit-base-patch32` returns (`3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268` on 2026-10-19). If that call cannot be made when the entry is written, `pinned` stays `"to be pinned by the implementer"` and the register check treats that literal as unpinned (`schema` fails for an `approved` entry until it is a revision).
    - shadcn/ui (MIT) and Carbon (Apache-2.0): we re-create tokens and component structures as our own design documents; record attribution; Apache-2.0 requires keeping the NOTICE text if any file is copied.
    - `jakubkrehel/skills`: MIT; class `ship-in-skills`; full licence text in `skills/vendor/` (E15-46) and in `THIRD_PARTY_LICENSES.md`.
    - Fonts used by E15-18 archetypes: one `font` entry per family with its licence (OFL-1.1 etc.), class `ship-in-app` only for Inter (bundled); others are fetched by `designos-fonts`.
@@ -70,6 +70,21 @@ review = "approved"
 reviewer = "owner"
 reviewed_on = "2026-10-19"
 notes = "Pages derive from third-party websites. Owner ruling 2026-10-19: eval-only-cache, never committed or shipped."
+consumers = ["E15-27"]
+
+[[source]]
+id = "clip-vit-b32"
+name = "CLIP ViT-B/32 weights"
+kind = "weights"
+url = "https://huggingface.co/openai/clip-vit-base-patch32"
+pinned = "3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268"
+licence = "MIT"
+use = "eval-only-cache"
+attribution = "CLIP (Radford et al., 2021), OpenAI, MIT."
+review = "approved"
+reviewer = "owner"
+reviewed_on = "2026-10-19"
+notes = "Owner ruling 2026-10-19: eval-only-cache, same terms as UIClip. Licence is that of the openai/CLIP repository; the Hugging Face model has no licence tag. Revision read from the Hugging Face API on 2026-10-19."
 consumers = ["E15-27"]
 
 [ban]
@@ -120,6 +135,7 @@ Fail-before: running the script on `main` exits 2 (no register).
 | `home_path_fails` | `path = "/Users/x/Downloads/kit.fig"` | exit 1 |
 | `word_containing_pcp_passes` | `specs/pcpx.md` | exit 0 |
 | `hyphenated_pcp_token_fails` | `specs/pcp-free.md` | exit 1 `client-file-ban` |
+| `unpinned_approved_entry_fails` | entry `clip-vit-b32` with `review = "approved"` and `pinned = "to be pinned by the implementer"` | exit 1 `schema` (an approved entry needs a commit SHA or revision) |
 | `third_party_file_stale` | edit an attribution | exit 1 `third-party-current` |
 
 Visual evidence: terminal capture of a passing run and of the three failing fixtures.
