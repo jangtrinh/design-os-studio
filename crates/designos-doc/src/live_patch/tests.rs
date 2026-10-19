@@ -425,9 +425,238 @@ fn a_variable_op_without_an_id_is_refused() {
 
 #[test]
 fn edits_the_editor_cannot_replay_are_refused() {
-    let (doc, _, _) = full_doc(1, 0);
-    let err = live_ops_for_command(&doc, &Command::SetFlows { flows: Default::default() }).unwrap_err();
-    assert!(err.contains("prototype flows"), "{err}");
+    page_flow_library_commands_are_still_refused();
+}
+
+#[test]
+fn page_flow_library_commands_are_still_refused() {
+    let (doc, page, _) = full_doc(1, 0);
+    for (cmd, expected) in [
+        (Command::InsertPage { index: 0, nodes: Vec::new() }, "Adding a page"),
+        (Command::RemovePage { id: page }, "Removing a page"),
+        (Command::SetFlows { flows: Vec::new() }, "Editing prototype flows"),
+        (Command::SetGuides { page, guides: Vec::new() }, "Editing guides"),
+        (Command::SetPrototypeDevice { device: Default::default() }, "Editing the prototype device"),
+        (Command::SetCheckDesignsSettings(Default::default()), "Editing check designs settings"),
+    ] {
+        let err = live_ops_for_command(&doc, &cmd).unwrap_err();
+        assert!(err.contains(expected), "expected '{expected}' in '{err}'");
+    }
+}
+
+#[test]
+fn a_bind_on_the_scoped_canvas_merges_with_unchanged_ids() {
+    let (mut full, page, tops) = full_doc(2, 2);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 2);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.variables.bindings.insert("fills/0".into(), "col:user/v".into());
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::Update { node: Box::new(frame) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(full.get(tops[0]).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("col:user/v"));
+    assert_eq!(full.get(tops[0]).unwrap().children.len(), 2, "frame kept its children");
+}
+
+#[test]
+fn a_variable_edit_on_the_scoped_canvas_merges_without_duplicates() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(42.0));
+    let colls = agent.variable_collections.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetVariables { variables: vars, collections: colls });
+
+    let mut state = LivePatchState::default();
+    let report = replay(&mut full, ops, &mut state);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.tokens_applied, 1);
+    assert_eq!(full.variables.len(), 1);
+    assert_eq!(full.variables["col:user/v"].values.get("m"), Some(&crate::VariableValue::Number(42.0)));
+}
+
+#[test]
+fn a_style_edit_on_the_scoped_canvas_merges_without_duplicates() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.style_meta.insert("S:1".into(), crate::StyleMeta { name: "Brand/Primary".into(), ..Default::default() });
+    let mut agent = scoped(&full, page, 1);
+    agent.styles = full.styles.clone();
+    agent.style_meta = full.style_meta.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut styles = agent.styles.clone();
+    styles.insert("S:1".into(), Style::Fill(vec![crate::Paint::solid(crate::Color::rgb(10, 20, 30))]));
+    let mut meta = agent.style_meta.clone();
+    meta.get_mut("S:1").unwrap().description = "Updated by agent".into();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetStyles { styles, style_meta: meta });
+
+    let mut state = LivePatchState::default();
+    let report = replay(&mut full, ops, &mut state);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.tokens_applied, 1);
+    assert_eq!(full.styles.len(), 1);
+    assert_eq!(full.styles["S:1"], Style::Fill(vec![crate::Paint::solid(crate::Color::rgb(10, 20, 30))]));
+    assert_eq!(full.style_meta["S:1"].description, "Updated by agent");
+}
+
+#[test]
+fn replaying_a_token_patch_twice_changes_nothing() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    agent.styles = full.styles.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(7.0));
+    let mut styles = agent.styles.clone();
+    styles.insert("S:2".into(), Style::Fill(Vec::new()));
+    let colls = agent.variable_collections.clone();
+    let meta = agent.style_meta.clone();
+    agent_exec(
+        &mut agent,
+        &mut hist,
+        &mut ops,
+        Command::Batch(vec![Command::SetVariables { variables: vars, collections: colls }, Command::SetStyles { styles, style_meta: meta }]),
+    );
+
+    let mut state = LivePatchState::default();
+    let first = replay(&mut full, ops.clone(), &mut state);
+    assert_eq!(first.tokens_applied, 2);
+    let snapshot = (full.variables.clone(), full.styles.clone());
+
+    let second = replay(&mut full, ops, &mut state);
+    assert_eq!(second.applied, 0);
+    assert_eq!(second.duplicates, 2);
+    assert_eq!(second.tokens_duplicates, 2);
+    assert_eq!((full.variables, full.styles), snapshot);
+}
+
+#[test]
+fn a_bind_to_a_deleted_variable_is_skipped_with_a_reason() {
+    let (mut full, page, tops) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    // User deletes the variable in the editor before the agent's bind replays.
+    full.variables.remove("col:user/v");
+
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.variables.bindings.insert("fills/0".into(), "col:user/v".into());
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::Update { node: Box::new(frame) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.duplicates, 0);
+    assert_eq!(report.skipped.len(), 1);
+    assert!(report.skipped[0].contains("variable 'col:user/v' not found"), "{:?}", report.skipped);
+    assert!(full.get(tops[0]).unwrap().variables.bindings.is_empty(), "no dangling binding may land");
+}
+
+#[test]
+fn token_ops_are_one_undo_step_with_their_patch() {
+    let (mut full, page, tops) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    agent.styles = full.styles.clone();
+    let mut agent_hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(12.0));
+    let mut styles = agent.styles.clone();
+    styles.insert("S:new".into(), Style::Fill(Vec::new()));
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.name = "Tokenized Frame".into();
+    frame.variables.bindings.insert("width".into(), "col:user/v".into());
+    frame.style_refs.insert("fill".into(), "S:new".into());
+    let colls = agent.variable_collections.clone();
+    let meta = agent.style_meta.clone();
+    agent_exec(
+        &mut agent,
+        &mut agent_hist,
+        &mut ops,
+        Command::Batch(vec![
+            Command::SetVariables { variables: vars, collections: colls },
+            Command::SetStyles { styles, style_meta: meta },
+            Command::Update { node: Box::new(frame) },
+        ]),
+    );
+
+    let mut state = LivePatchState::default();
+    let mut cmds = Vec::new();
+    let report = replay_live_patch(&mut full, &LivePatch::new(ops), &mut state, &mut |d, c| {
+        cmds.push(c.clone());
+        c.apply(d).map(|_| ())
+    })
+    .unwrap();
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.applied, 3);
+    assert_eq!(report.tokens_applied, 2);
+
+    // Committing the patch as a single batch creates 1 undo entry.
+    let mut full_before = full_doc(1, 0).0;
+    full_before.variable_collections.insert("col:user".into(), collection("col:user"));
+    full_before.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut editor_hist = History::default();
+    editor_hist.exec(&mut full_before, Command::Batch(cmds)).unwrap();
+    assert!(editor_hist.can_undo());
+    assert!(editor_hist.undo(&mut full_before).unwrap());
+    assert!(!editor_hist.can_undo());
+    assert_eq!(full_before.variables["col:user/v"].values.get("m"), Some(&crate::VariableValue::Number(1.0)));
+    assert!(!full_before.styles.contains_key("S:new"));
+}
+
+#[test]
+fn old_reader_reports_the_new_op_as_unreadable() {
+    #[allow(dead_code)]
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum OldLiveOp {
+        Insert { parent: NodeId },
+        Update { id: NodeId },
+        Reparent { id: NodeId },
+        Remove { id: NodeId },
+        Comments { removed: Vec<String> },
+    }
+    #[allow(dead_code)]
+    #[derive(serde::Deserialize)]
+    struct OldLivePatch {
+        ops: Vec<OldLiveOp>,
+    }
+
+    let mut styles_set = std::collections::BTreeMap::new();
+    styles_set.insert("S:1".to_string(), Style::Fill(Vec::new()));
+    let patch = LivePatch::new(vec![LiveOp::Styles { styles_set, styles_removed: Vec::new(), meta_set: Default::default(), meta_removed: Vec::new() }]);
+    let line = serde_json::to_vec(&patch).unwrap();
+    let old_res = serde_json::from_slice::<OldLivePatch>(&line);
+    assert!(old_res.is_err(), "an older reader without the Styles variant must reject the line as unreadable");
 }
 
 #[test]

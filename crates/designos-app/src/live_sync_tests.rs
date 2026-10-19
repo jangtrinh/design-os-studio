@@ -410,3 +410,115 @@ fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
     let _ = std::fs::remove_dir_all(&session_dir);
     let _ = std::fs::remove_dir_all(&workspace);
 }
+
+#[test]
+fn bind_then_merge_then_export_spec_round_trips() {
+    use designos_doc::{Color, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+
+    let Fixture { mut doc, screens, .. } = big_fixture();
+    doc.variable_collections.insert(
+        "col:brand".into(),
+        VariableCollection {
+            id: "col:brand".into(),
+            name: "Brand".into(),
+            modes: vec![VariableMode { id: "m:default".into(), name: "Default".into() }],
+            default_mode: "m:default".into(),
+            variables: vec!["var:brand-primary".into(), "var:card-pad".into()],
+            key: None,
+            source_library_key: None,
+        },
+    );
+    doc.variables.insert(
+        "var:brand-primary".into(),
+        Variable {
+            id: "var:brand-primary".into(),
+            name: "brand/primary".into(),
+            collection: "col:brand".into(),
+            kind: VariableKind::Color,
+            values: [("m:default".to_string(), VariableValue::Color(Color::rgb(0xFF, 0x6A, 0x3D)))].into(),
+            description: String::new(),
+            scopes: vec!["ALL_FILLS".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+    doc.variables.insert(
+        "var:card-pad".into(),
+        Variable {
+            id: "var:card-pad".into(),
+            name: "space/card-pad".into(),
+            collection: "col:brand".into(),
+            kind: VariableKind::Number,
+            values: [("m:default".to_string(), VariableValue::Number(24.0))].into(),
+            description: String::new(),
+            scopes: vec!["CORNER_RADIUS".into(), "GAP".into()],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+    doc.styles.insert("S:heading".into(), Style::Text(TextStyle { font_size: 28.0, font_weight: 700, ..Default::default() }));
+    doc.style_meta.insert("S:heading".into(), StyleMeta { name: "Heading/H1".into(), property: StyleProperty::Text, ..Default::default() });
+    assert!(doc.nodes.len() > 25_000, "must take the scoped canvas path");
+
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-bind-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+
+    // 1. Editor publishes the scoped canvas (which now carries variables & styles).
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+
+    // 2. Agent binds `var:brand/primary`, `var:space/card-pad`, and `text_style: "Heading/H1"` on the scoped canvas.
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let applied = session
+        .call(
+            "designos_apply_spec",
+            json!({
+                "spec": {
+                    "kind": "frame",
+                    "name": "Token Bound Card",
+                    "fill": "var:brand/primary",
+                    "corner_radius": "var:space/card-pad",
+                    "layout": { "direction": "column", "gap": "var:space/card-pad", "padding": [16.0, 16.0, 16.0, 16.0] },
+                    "children": [
+                        { "kind": "text", "name": "Hero Title", "text": "Scoped Tokens", "text_style": "Heading/H1" }
+                    ]
+                }
+            }),
+        )
+        .expect("apply_spec with var: and text_style on scoped canvas");
+    assert_eq!(applied["bindings_created"], 6);
+    assert_eq!(applied["styles_linked"], 1);
+    assert_eq!(applied["warnings"], json!([]));
+    let card = NodeId(applied["root_node_id"].as_u64().expect("root_node_id"));
+
+    // 3. Editor replays the live patch into the full 25,000+ node document.
+    let actions = app.terminal.poll_live_agent_bridge();
+    assert!(!actions.is_empty());
+    crate::shell::execute_terminal_actions(&mut app, actions);
+
+    // 4. Verify unchanged token ids, no duplicates, and round-trip via export_spec.
+    let d = &app.doc;
+    assert_eq!(d.variable_collections.len(), 1);
+    assert_eq!(d.variables.len(), 2);
+    assert_eq!(d.styles.len(), 1);
+    assert_eq!(d.get(screens[0]).map(|n| n.children.len()), Some(RECTS_PER_SCREEN));
+    let card_node = d.get(card).expect("merged card node");
+    assert_eq!(card_node.variables.bindings.get("fills/0").map(String::as_str), Some("var:brand-primary"));
+    assert_eq!(card_node.variables.bindings.get("topLeftRadius").map(String::as_str), Some("var:card-pad"));
+    assert_eq!(card_node.variables.bindings.get("itemSpacing").map(String::as_str), Some("var:card-pad"));
+    let title_id = card_node.children[0];
+    let title_node = d.get(title_id).expect("merged title node");
+    assert_eq!(title_node.style_refs.get("text").map(String::as_str), Some("S:heading"));
+
+    let exported = d.export_spec(card).expect("export_spec");
+    assert_eq!(exported.fill.as_deref(), Some("var:Brand/brand/primary"));
+    assert_eq!(exported.children[0].text_style.as_deref(), Some("Heading/H1"));
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}

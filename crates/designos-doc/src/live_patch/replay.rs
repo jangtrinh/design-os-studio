@@ -1,6 +1,7 @@
 //! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
 
 use super::replay_comments::{resolve_comments, CommentRemap};
+use super::replay_tokens::{filter_missing_token_links_on_insert, filter_missing_token_links_on_update};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
@@ -94,6 +95,10 @@ pub struct LivePatchReport {
     pub applied: usize,
     /// Ops already reflected in the document (a repeated delivery).
     pub duplicates: usize,
+    /// Token ops (`Variables` / `Styles`) that turned into commands.
+    pub tokens_applied: usize,
+    /// Token ops (`Variables` / `Styles`) already reflected in the document.
+    pub tokens_duplicates: usize,
     /// Ops that could not be replayed, with the reason.
     pub skipped: Vec<String>,
 }
@@ -146,7 +151,13 @@ pub fn replay_live_patch(
     Ok(report)
 }
 
-fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
+fn resolve(
+    doc: &mut Document,
+    op: &LiveOp,
+    is_spec_undo: bool,
+    state: &mut LivePatchState,
+    report: &mut LivePatchReport,
+) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
@@ -175,15 +186,18 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
             };
-            let merged = match merge_fields(cur, set, unset) {
+            let mut merged = match merge_fields(cur, set, unset) {
                 Ok(n) => n,
                 Err(e) => {
                     report.skipped.push(format!("update of node {}: {e}", id.0));
                     return None;
                 }
             };
+            let skipped_links = filter_missing_token_links_on_update(doc, cur, &mut merged, report);
             if merged == *cur {
-                report.duplicates += 1;
+                if skipped_links == 0 {
+                    report.duplicates += 1;
+                }
                 return None;
             }
             let is_page = |n: &Node| matches!(n.kind, NodeKind::Page { .. });
@@ -274,18 +288,20 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             }
             None
         }
-        LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
+        LiveOp::Styles { styles_set, styles_removed, meta_set, meta_removed } => {
             let mut styles = doc.styles.clone();
             let mut style_meta = doc.style_meta.clone();
-            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, upserted, removed, is_spec_undo, "style", report);
+            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, styles_set, styles_removed, is_spec_undo, "style", report);
             let refused_meta =
-                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, upserted_meta, removed_meta, is_spec_undo, "style metadata", report);
+                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, meta_set, meta_removed, is_spec_undo, "style metadata", report);
             if styles == doc.styles && style_meta == doc.style_meta {
                 if !(refused_styles || refused_meta) {
                     report.duplicates += 1;
+                    report.tokens_duplicates += 1;
                 }
                 None
             } else {
+                report.tokens_applied += 1;
                 Some(Command::SetStyles { styles, style_meta })
             }
         }
@@ -485,9 +501,11 @@ fn resolve_variables(
     if merged_vars == doc.variables && merged_colls == doc.variable_collections {
         if !refused {
             report.duplicates += 1;
+            report.tokens_duplicates += 1;
         }
         return None;
     }
+    report.tokens_applied += 1;
     Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
 }
 
@@ -562,6 +580,7 @@ fn resolve_insert(
     for n in &mut nodes {
         n.children.retain(|c| ids.contains(c));
     }
+    filter_missing_token_links_on_insert(doc, &mut nodes, report);
     nodes[0].parent = Some(parent);
     let siblings = &doc.get(parent)?.children;
     let index = remap_hint(at, state).index_in(siblings);
