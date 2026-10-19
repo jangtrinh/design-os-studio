@@ -233,7 +233,17 @@ def publish_job_succeeded(run: dict, name: str = PUBLISH_JOB) -> bool:
 
 def run(args: argparse.Namespace) -> int:
     if args.publish_job_ok:
-        return 0 if publish_job_succeeded(json.load(sys.stdin)) else 1
+        # Exit 0 = succeeded, 1 = did not, 2 = no usable answer (empty stdout, a 403 body).
+        # The caller must fail on 2, never treat it as "skip".
+        try:
+            data = json.load(sys.stdin)
+        except ValueError as err:
+            print(f"error: stdin is not JSON ({err}); did `gh run view` fail?", file=sys.stderr)
+            return 2
+        if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+            print("error: stdin has no 'jobs' list; did `gh run view` fail?", file=sys.stderr)
+            return 2
+        return 0 if publish_job_succeeded(data) else 1
     if not args.version:
         raise SyncError("version is required")
     version = args.version.removeprefix("v")

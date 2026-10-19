@@ -213,6 +213,19 @@ class PublishJobTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPT), "--publish-job-ok"], input=json.dumps(payload),
                               capture_output=True, text=True).returncode
 
+    def run_cli_raw(self, stdin):
+        return subprocess.run([sys.executable, str(SCRIPT), "--publish-job-ok"], input=stdin,
+                              capture_output=True, text=True)
+
+    def test_cli_unusable_answer_exits_2_not_skip(self):
+        # gh prints nothing on a 403; an API error body has no "jobs". Both must be distinguishable
+        # from "publish job did not succeed" (exit 1), or a token problem would skip every sync.
+        for stdin in ("", "not json", '{"message": "Resource not accessible by personal access token"}', "[]"):
+            out = self.run_cli_raw(stdin)
+            self.assertEqual(out.returncode, 2, stdin)
+            self.assertNotIn("Traceback", out.stderr)
+            self.assertIn("gh run view", out.stderr)
+
     def test_cli_exit_code_matches(self):
         self.assertEqual(self.run_cli(self.jobs(windows_leg="failure", Publish_release="success")), 0)
         self.assertEqual(self.run_cli(self.jobs(windows_leg="success", Publish_release="skipped")), 1)
