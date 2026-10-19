@@ -1251,3 +1251,100 @@ fn vsf_pcp_fig_slot_counts_are_the_measured_ones() {
     let measured = SlotCounts { node_changes: 155_297, prop_defs: 4_481, ..Default::default() };
     assert_eq!(counts, measured, "VSF - PCP.fig changed; re-measure and apply #160 AC2/AC3");
 }
+
+#[test]
+fn fig_instance_slot_with_custom_children_survives_main_edit() {
+    let mut doc = Document::new("slots");
+    let page = doc.add_page("Page");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Card".into();
+    comp.size = Vec2::new(200.0, 120.0);
+    doc.insert(page, comp).unwrap();
+
+    let slot_id = doc.alloc_id();
+    let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot.name = "BodySlot".into();
+    doc.insert(comp_id, slot).unwrap();
+    convert_to_slot(&mut doc, slot_id).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, comp_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "CardInst".into();
+    let inst_slot = doc.get(inst_id).unwrap().children[0];
+    doc.get_mut(inst_slot).unwrap().name = "InstBodySlot".into();
+
+    // Insert a custom child (`component.source == None`) into the instance slot and export to `.fig`.
+    let custom_id = doc.alloc_id();
+    let mut custom = Node::rectangle(custom_id, Rect::new(4.0, 4.0, 80.0, 32.0));
+    custom.name = "CustomBadge".into();
+    doc.insert(inst_slot, custom).unwrap();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let mut rt = import_fig(&bytes).expect("import_fig");
+
+    let rt_inst_slot = find(&rt, "InstBodySlot").id;
+    assert!(
+        rt.get(rt_inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "imported instance slot with a custom child must carry OverrideField::SlotContent"
+    );
+
+    // Edit the main component and sync instances: the custom child inside the imported instance slot must survive.
+    let rt_comp = find(&rt, "Card").id;
+    rt.get_mut(rt_comp).unwrap().size.x = 240.0;
+    sync_instances(&mut rt, rt_comp).apply(&mut rt).unwrap();
+
+    let children_after = &rt.get(rt_inst_slot).unwrap().children;
+    assert_eq!(children_after.len(), 1);
+    assert_eq!(rt.get(children_after[0]).unwrap().name, "CustomBadge");
+}
+
+#[test]
+fn fig_mirror_only_slot_is_not_marked() {
+    let mut doc = Document::new("slots");
+    let page = doc.add_page("Page");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Card".into();
+    comp.size = Vec2::new(200.0, 120.0);
+    doc.insert(page, comp).unwrap();
+
+    let slot_id = doc.alloc_id();
+    let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot.name = "BodySlot".into();
+    doc.insert(comp_id, slot).unwrap();
+
+    let def_id = doc.alloc_id();
+    let mut def = Node::rectangle(def_id, Rect::new(4.0, 4.0, 60.0, 24.0));
+    def.name = "DefaultChip".into();
+    doc.insert(slot_id, def).unwrap();
+    convert_to_slot(&mut doc, slot_id).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, comp_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "CardInst".into();
+    let inst_slot = doc.get(inst_id).unwrap().children[0];
+    doc.get_mut(inst_slot).unwrap().name = "InstBodySlot".into();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let mut rt = import_fig(&bytes).expect("import_fig");
+
+    let rt_inst_slot = find(&rt, "InstBodySlot").id;
+    assert!(
+        !rt.get(rt_inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "mirror-only instance slot must NOT carry OverrideField::SlotContent after import"
+    );
+
+    // Adding a new default child to the main component slot must propagate to the unmarked instance slot on sync.
+    let rt_comp = find(&rt, "Card").id;
+    let rt_main_slot = rt.get(rt_comp).unwrap().children[0];
+    let extra_id = rt.alloc_id();
+    let mut extra = Node::rectangle(extra_id, Rect::new(4.0, 32.0, 60.0, 24.0));
+    extra.name = "SecondDefaultChip".into();
+    rt.insert(rt_main_slot, extra).unwrap();
+
+    sync_instances(&mut rt, rt_comp).apply(&mut rt).unwrap();
+    assert_eq!(rt.get(rt_inst_slot).unwrap().children.len(), 2, "unmarked mirror-only slot must receive new default children from main component sync");
+}

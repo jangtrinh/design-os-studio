@@ -235,7 +235,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             report.needs_layout.extend(node.parent);
             report.needs_layout.extend([parent, id]);
             report.touched.push((id, TouchKind::Moved));
-            Some(Command::Reparent { id, parent, index })
+            Some(crate::writer_command(doc, Command::Reparent { id, parent, index }).cmd)
         }
         LiveOp::Remove { id } => {
             let id = state.target(doc, *id);
@@ -250,7 +250,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             report.needs_layout.push(parent);
             report.removed_parents.insert(id, parent);
             report.touched.push((id, TouchKind::Removed));
-            Some(Command::Remove { id })
+            Some(crate::writer_command(doc, Command::Remove { id }).cmd)
         }
         LiveOp::Variables { collections, variables, removed_collections, removed_variables } => {
             resolve_variables(doc, collections, variables, removed_collections, removed_variables, is_spec_undo, state, report)
@@ -568,7 +568,7 @@ fn resolve_insert(
     report.inserted_roots.push(nodes[0].id);
     report.touched.push((nodes[0].id, TouchKind::Inserted));
     report.needs_layout.push(parent);
-    Some(Command::Insert { parent, index, nodes })
+    Some(crate::writer_command(doc, Command::Insert { parent, index, nodes }).cmd)
 }
 
 /// `cur` with the changed top-level fields of `set` / `unset` applied; structure is kept.
