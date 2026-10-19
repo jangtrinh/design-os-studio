@@ -15,8 +15,7 @@ Code baseline: `origin/main@01d48f2` (0.5.0). The issue cites `upgrade_owner_pro
 
 As a designer migrating an instance region inside a variant of a component set to a slot, I never end
 up with a slot property on the whole set that exists on only one variant. For an unbound region in one
-variant, the migration either takes the matching regions of the other variants along or keeps the new
-slot scoped to the variant I started in (see the owner question for which).
+variant, the new slot stays scoped to the variant I started in.
 
 ## 2. Current state (FACT)
 
@@ -52,71 +51,53 @@ slot scoped to the variant I started in (see the owner question for which).
 
 ## 3. Behaviour rules
 
-The two outcomes the issue accepts (A and B) are both specified, plus a refusal option (C) the issue does not mention; the owner picks one (see Open questions). Common rules:
+Owner ruling 2026-10-19: the new slot belongs to that variant only (what earlier drafts called outcome A). Rules:
 
 1. Applies only to an `InstanceLayer` region with no `MainComponent` and no `Visible` binding whose
    component sits in a component set.
-2. After the migration there is no slot property on the set that is bound in fewer variants than the
-   set has variants, unless the property was already defined on the set before the migration (existing
+2. The invented property name makes the variant the property's owner (`owner = comp`), the same owner the `defined_on_variant` branch picks (`components.rs:1656-1657`). Only the selected variant's region
+   migrates; no property lands on the set; other variants and their instances are untouched. The toast stays "Migrated to slot".
+3. After the migration there is no slot property on the set that is bound in fewer variants than the set has variants, unless the property was already defined on the set before the migration (existing
    shared-property behaviour, unchanged).
-3. A region that is bound, or any region of a component that is not in a set, behaves as today.
-4. One undo step, as today.
-
-Outcome A (scoped, recommended): the invented name makes the variant the property's owner (`owner = comp`),
-the same owner the `defined_on_variant` branch picks. Only the selected variant's region migrates; no
-property lands on the set; other variants and their instances are untouched. The toast stays
-"Migrated to slot".
-
-Outcome B (all matching variants): for an unbound instance region, the matching region of each other
-variant is the single unbound `Instance` region whose layer name and component equal the selected one's.
-Exactly one match per variant migrates with it under one shared property on the set; zero or several
-matches in any variant refuse the migration before anything changes (the existing message at
-`components.rs:1686-1687` is reused).
-
-Outcome C (refuse): an unbound region in a set variant is not migratable; `classify_slot_region` returns
-`Err("Bind this region to an instance-swap property first, then migrate it")` and the panel hides the
-action (`can_migrate_region_to_slot` is false).
+4. A region that is bound, or any region of a component that is not in a set, behaves as today.
+5. One undo step, as today.
 
 ## 4. Data model / schema changes
 
-None. Outcome A writes the property into the variant's `component.props`, a place the model and the
+None. The migration writes the property into the variant's `component.props`, a place the model and the
 `.fig` exporter already handle (variant-level properties, see #605 and `prop_defs`,
 `components.rs:359-370`).
 
 ## 5. Contracts
 
 No signature change. `migrate_region_to_slot` and `can_migrate_region_to_slot` keep their types; the
-result for the unbound set case changes per the chosen outcome.
+result for the unbound set case is the variant-scoped slot of rule 2.
 
 ## 6. File-format mapping
 
 | Format | Mapping |
 |---|---|
-| `.designos` | outcome A: `Slot` property in the variant node's `component.props`; B: on the set node |
+| `.designos` | `Slot` property in the variant node's `component.props` |
 | `.fig` | slot properties already export per owner (`fig_export.rs`, `componentPropDefs`); no new mapping |
 
 ## 7. UI
 
 No new control. The existing "Migrate to slot" row appears or hides per `can_migrate_region_to_slot`
-and shows its toast. Outcome A needs no new copy. Outcome C adds one refusal sentence (above), shown in
-the existing toast. Follow `design/principles.md`; no visual change otherwise.
+and shows its toast. No new copy. Follow `design/principles.md`; no visual change otherwise.
 
 ## 8. Edge cases
 
-1. A set of three variants, unbound instance named "Icon" in each, migrate in the first (outcome A):
-   variant 1 gets the slot property and slot; variants 2 and 3 keep their instances.
-2. Same with outcome B: all three migrate; zero or two "Icon" regions in a variant refuse with the
-   existing message.
-3. The variant is not in a set: unchanged; the property lives on the component.
-4. The invented name collides with a set property of another kind: `unique_slot_prop_name` already
+1. A set of three variants, unbound instance named "Icon" in each, migrate in the first: variant 1 gets the slot property and slot; variants 2 and 3 keep their instances.
+2. The variant is not in a set: unchanged; the property lives on the component.
+3. The invented name collides with a set property of another kind: `unique_slot_prop_name` already
    suffixes (`Icon 2`); the owner is chosen after the name is final.
-5. Instances of other variants (outcome A): their `component.values` and children are byte-identical
+4. Instances of other variants: their `component.values` and children are byte-identical
    before and after (the assertion of the existing test at `:3223`).
-6. Undo restores the variant's props, the region and every instance (existing one-step guarantee).
+5. Undo restores the variant's props, the region and every instance (existing one-step guarantee).
 
 ## 9. Non-goals
 
-- Heuristic matching of unbound regions across variants other than the exact rule of outcome B.
+- Heuristic matching of unbound regions across variants (none is attempted).
 - Moving an existing variant property to the set.
 - Bound regions and boolean containers (unchanged).
 
@@ -128,21 +109,16 @@ property bindings, plus one instance of each variant on the page).
 
 | Case | Steps | Expected (fails before) |
 |---|---|---|
-| `unbound_region_in_one_variant_creates_no_set_level_slot` (A) | migrate the small variant's icon | `set.component.props` has no `Slot` entry; small variant has exactly one; large variant region and its instance unchanged |
-| `unbound_region_in_one_variant_migrates_all_matching_variants` (B) | same | both variants bound to one `Slot` property on the set; instances keep content |
-| `unbound_region_with_two_matches_in_a_variant_is_refused` (B) | add a second same-named region | `Err` and no document change |
-| `unbound_region_is_not_migratable` (C) | `can_migrate_region_to_slot` | false; `migrate_region_to_slot` returns the new message |
+| `unbound_region_in_one_variant_creates_no_set_level_slot` | migrate the small variant's icon | `set.component.props` has no `Slot` entry; the small variant has exactly one; the large variant's region and its instance are unchanged |
 | `unbound_region_in_a_standalone_component_unchanged` | component without a set | property on the component, as today |
 | `undo_restores_everything` | undo after the migration | previous props and regions |
 
-Only the cases of the chosen outcome are implemented; the others are deleted from the PR. Run:
 `cargo test -p designos-doc`. Evidence: red/green terminal capture; a Properties-panel screenshot of the
 small variant after the migration (Components panel, Dev capture at 1440).
 
 ## 11. Performance budgets
 
-Outcome B scans each sibling variant's subtree once (`subtree_ids`), the same cost as the existing
-shared-property path; outcome A adds none.
+No added cost: only the selected variant is touched.
 
 ## 12. Dependencies and build order
 
@@ -151,17 +127,11 @@ hand-merge.
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`): the slot belongs to that variant only.
 - #533: migration keeps instance content and is one undo step; a shared property migrates every
   variant that holds a matching region.
 - Nothing vanishes silently: a refusal names the next action.
 
 ## Open questions for the owner
 
-1. **Which outcome for an unbound instance region inside one variant of a set?**
-   - A (recommended): the new slot belongs to that variant only. It needs no matching heuristics, never
-     touches the other variants, and uses the owner rule the code already has for properties a variant defines itself.
-   - B: migrate the same-named unbound instance in every variant under one shared slot. This
-     fits a design system where "Icon" is a set-wide concept, but it depends on names matching exactly
-     and refuses when they do not.
-   - C: do not offer the migration until the region is bound to an instance-swap property. It is the
-     safest and the least helpful: the user must bind first.
+None. The question of the first draft was answered by the owner on 2026-10-19: the slot belongs to that variant only.

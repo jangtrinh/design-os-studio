@@ -6,7 +6,7 @@
 | Size / priority | L / P1 |
 | Depends on | #653 (session folder), #651 (a live tab to attach to); E15-4 (batch writes become one agent step, optional); T10.2 three-way diff (optional, only if the owner wants property-level revert) |
 | Unblocks | none |
-| Touches | `crates/designos-doc/src/live_patch/mod.rs` (`LiveLogLine::TurnMark`), new `crates/designos-app/src/agent_turn_ledger.rs` (turns, fingerprints, revert plan), new `crates/designos-app/src/agent_turn_card.rs` (UI), `crates/designos-app/src/live_patch_apply.rs` (`apply_one`, `:112-132`), `crates/designos-app/src/live_patch_log.rs` (`poll`, `:92-120`), `crates/designos-app/src/terminal.rs` (hot spot: hook files `:2194-2233`, status polling `:1328-1338`), `crates/designos-doc/src/history.rs` (read the last undo step, `peek_undo` exists), tests |
+| Touches | new `crates/designos-app/src/agent_turn_marks.rs` (reader of `turn-marks.jsonl`), new `crates/designos-app/src/agent_turn_ledger.rs` (turns, fingerprints, revert plan), new `crates/designos-app/src/agent_turn_card.rs` (UI), `crates/designos-app/src/live_patch_apply.rs` (`apply_one`, `:112-132`), `crates/designos-app/src/live_patch_log.rs` (`poll`, `:92-120`: expose each line's start offset), `crates/designos-app/src/terminal.rs` (hot spot: hook files `:2194-2233`, status polling `:1328-1338`), `crates/designos-doc/src/history.rs` (read the last undo step, `peek_undo` exists), tests |
 
 Code baseline: `origin/main@01d48f2` (0.5.0). Hook facts: Claude from its hooks page (code.claude.com/docs/en/hooks, 2026-10-19), Grok from its bundled user
 guide (`~/.grok/docs/user-guide/10-hooks.md`, grok 1.0.62), Antigravity from Studio's own hook file (`agy_session_hooks`, `terminal.rs:2225-2233`; no agy
@@ -48,11 +48,13 @@ offers Keep or Revert for the whole turn. Revert undoes exactly what the agent d
 
 ## 3. Behaviour rules
 
-1. **Turn marks in the one ordered log.** A new log line `{"v":1,"turn_mark":"start"|"end","cli":"claude"}` is a third `LiveLogLine` variant,
-   `TurnMark`. The session hooks append it with a one-line `printf '...\n' >> '<absolute log path>'` on the start and end events of the table. It
-   goes into `doc-patch.jsonl` because that file already fixes the order between edits and other markers (the `DocEpoch` precedent): patches
-   between a start and an end belong to that turn. Both writers append a short line to a file opened in append mode, and the file is only ever appended to (section 2), so no line is lost.
-   Every `match` on `LiveLogLine` gains a `TurnMark` arm (the compiler lists them); an unmarked old Studio reading a newer log reports the line as unreadable and goes on.
+1. **Turn marks in their own file, ordered by byte offset.** The session hooks append one line to a **separate** file, `<session folder>/turn-marks.jsonl`, on the start and end events of the table:
+   `{"v":1,"turn_mark":"start"|"end","cli":"claude","patch_bytes":N}`, where `N` is the size in bytes of `doc-patch.jsonl` at that moment (`wc -c < '<log path>'` inside the hook command, literal absolute paths). Hooks are the
+   only writers of `turn-marks.jsonl`, and `designos-mcp` stays the only writer of `doc-patch.jsonl`, so no file has two writers and a large patch line can never be interleaved with a mark (the earlier idea of
+   appending marks to `doc-patch.jsonl` was dropped for that reason: two processes appending to one file are not guaranteed to keep a long line whole). Studio reads both files; the log reader reports each parsed
+   line's start offset (the reader already tracks `offset`, `live_patch_log.rs:92-120`), and a patch belongs to the turn whose `start.patch_bytes <= patch.start_offset < end.patch_bytes` (an open turn has no end yet).
+   A patch that lands between the hook's `wc -c` and its `printf` is assigned to the side where it started, which is the correct side for a start mark (the turn began before it) and, for an end mark, a patch that
+   finished after the CLI's `Stop` cannot belong to the turn. `designos-mcp` and `designos-doc` need no change, and no `LiveLogLine` variant is added, so older readers are unaffected.
 2. **Ledger.** `agent_turn_ledger` keeps, per agent tab, the last N turns (open question 4; the text assumes the recommended 10). A turn records: its number, CLI, start and end time, and for each
    patch applied inside it the inverse command taken from `peek_undo` right after `apply_one` commits, the ids of the layers it inserted,
    updated, removed or moved, and a fingerprint (the zero-allocation node hash) of each touched layer right after that patch. Memory per tab
@@ -80,16 +82,14 @@ offers Keep or Revert for the whole turn. Revert undoes exactly what the agent d
 
 ## 4. Data model / schema changes
 
-- `LiveLogLine::TurnMark(TurnMark { v, turn_mark: Phase, cli: Option<String> })`; `LiveLogLine::parse` probes the `turn_mark` key like it
-  probes `doc_epoch` (`mod.rs:84-97`). An older Studio reading a newer log reports an unreadable line (`poll` already returns such lines as errors), so
-  the format version stays `LIVE_PATCH_VERSION = 1` for patches and a mark carries `v: 1`.
+- `TurnMarkLine { v, turn_mark: Phase, cli: Option<String>, patch_bytes: u64 }` read from `turn-marks.jsonl` by the new reader (app crate); `doc-patch.jsonl` and `LIVE_PATCH_VERSION` are untouched.
 - Ledger types live in the app crate (`TurnRecord`, `LedgerStep`); nothing is saved in the document or the file.
 
 ## 5. Contracts
 
-- Hook scripts: the Claude and Grok hook files gain a `UserPromptSubmit` entry and a `Stop` entry that run the append command; agy's file gets the
+- Hook scripts: the Claude and Grok hook files gain a `UserPromptSubmit` entry and a `Stop` entry that run the mark command (`wc -c` of the log, then `printf >>` to `turn-marks.jsonl`); agy's file gets the
   same for `PreInvocation` and `Stop`. The existing status writes stay (the status file is unchanged).
-- `designos-mcp` does not write turn marks and needs no change; its test helper that parses every log line (`designos-mcp/tests/live_doc_epoch.rs:38-41`) only runs MCP, which writes no marks.
+- `designos-mcp` is unchanged and never sees `turn-marks.jsonl`.
 
 ## 6. File-format mapping
 
@@ -135,9 +135,10 @@ patches (the harness of `live_sync_tests.rs`).
 
 | Case | Expected (fails before) |
 |---|---|
-| `turn_mark_line_parses_and_orders_with_patches` | a log of start, patch, patch, end yields the four lines in order; `LiveLogLine::parse` reads `turn_mark` |
-| `old_reader_reports_the_mark_as_an_error_not_a_patch` | the unknown line is returned in `poll`'s errors |
-| `hook_command_appends_one_line` | run the hook command text with `DESIGNOS_LIVE_DOC_PATCH` set to a temp file: one valid line appended |
+| `marks_assign_patches_by_byte_offset` | a log of two patches, a start mark with `patch_bytes` = 0 and an end mark with `patch_bytes` = the size after the second patch: both patches belong to the turn; a third patch after the end belongs to none |
+| `a_large_patch_and_a_mark_never_interleave` | a stub writer appends a 1 MiB patch line to `doc-patch.jsonl` while the hook command runs repeatedly against `turn-marks.jsonl`: every patch line parses and every mark line parses |
+| `hook_command_writes_the_current_log_size` | run the hook command text against a temp log of known size: one valid mark line with that `patch_bytes` |
+| `log_reader_reports_line_start_offsets` | offsets of three lines equal their positions |
 | `ledger_groups_patches_between_marks` | two turns, three patches: grouped 2 + 1 |
 | `summary_lists_changed_layers_and_selects_on_click` | card rows equal the touched layers; click selects the layer |
 | `revert_restores_the_document_in_one_step` | hash of the document equals the hash before the turn; the history grew by one step; undo reapplies the turn |

@@ -52,7 +52,7 @@ and preserved instead of dropped.
   - *Unknown node kinds.* Any other `type` falls into the last match arm and becomes a `Frame` (or `Component` when `reusable`) (`:821-827`): `prompt`, `context`, `script` and `browser`
     nodes silently turn into empty frames, and their own fields are lost. `NodeKind::Unknown { type_name }` exists for exactly this ("kept so nothing is silently lost",
     `designos-doc/src/node.rs:500-506`) and is unused by this module.
-- **Warnings.** The only warning is the clone-budget message (`import_pen_json_with_warnings` returns `Option<String>`, `:37`); everything else is dropped without a record.
+- **Warnings.** The only warning is the clone-budget message (`import_pen_json_with_warnings` returns `Result<(Document, Option<String>), String>`, `pen.rs:37`); everything else is dropped without a record.
 - **Limits already in place** (must stay): `MAX_PEN_REF_CLONES = 2_000_000` (`:896`), iterative cloning and deep-tree safety (`clone_component_subtree`, `:974-991`; `serde_json` feature
   `unbounded_depth`), ref cycle errors (`:913-915`). Tests: `pen_component_depth_limits.rs`; unit tests in `pen.rs:1357-1589` (round trip, ref depth, budgets).
 - Document model homes that already exist: `Node.source_id` (the file's own id, `node.rs:69`), `Node.plugin_data` (survives `.fig` round trips, `node.rs:146`),
@@ -101,8 +101,8 @@ Legend: **[issue]** names the key or behaviour in the issue text. **[coordinator
       `node.variables.bindings` (keys of `variables_apply.rs:26`). A font-family binding has no bindable key in the model: it is imported as the resolved family and reported as a warning
       (keeping the `$name` in `plugin_data["pen:bindings"]` for round trip).
    2. The default theme value is the **first** theme value in the file's own order, never alphabetical: the importer parses `themes` and `variables` values with an order-preserving reader
-      (the map is read as `Vec<(String, Value)>` using `serde_json::value::RawValue` or a streaming pass, or the crate enables `serde_json/preserve_order` for this module's parse only;
-      the choice is technical and recorded in the PR).
+      (the map is read as `Vec<(String, Value)>` using `serde_json::value::RawValue` or a streaming pass; the `serde_json/preserve_order` crate feature is not an option, because it would change the key order of every `Map` in the process;
+      the exact reader is a technical choice recorded in the PR).
    3. Multi-axis themes (several axes such as `mode` and `density`) are one variable collection per axis, in file order, each with its own default mode; a variable value that names several
       axes applies to the matching combination. Node-level `theme` selects the mode per axis for that subtree (`node.variables.modes`, as `:878-882` does for one axis). The exact value shape
       of a multi-axis value and of a node-level `theme` are **[coordinator]**.
@@ -116,7 +116,7 @@ Legend: **[issue]** names the key or behaviour in the issue text. **[coordinator
     - `reusable` on any node type: a rectangle, ellipse, text and so on with `reusable: true` becomes a component whose single child is that node (the model's `NodeKind::Component` carries frame
       props only), exported back as the same node with `reusable: true`.
     - `slot` lists and `placeholder`: a frame with a `slot` list defines slot properties (`ComponentPropDef` with `PropKind::Slot`, `is_slot`) whose preferred components come from the list;
-      `placeholder: true` maps to the in-progress marker of E15-7 (`Document.in_progress`, `run_id: None`). List and flag shapes: **[coordinator]**.
+      `placeholder: true` is stored as `plugin_data["pen:placeholder"] = "true"` on the node (`Document` has no `in_progress` field on `origin/main@01d48f2`, `designos-doc/src/lib.rs:142-195`; E15-7 adds it). E15-7 then maps `pen:placeholder` to its marker with `run_id: None`; this task does not wait for that field and adds no `Document` field. List and flag shapes: **[coordinator]**.
     - Ellipse arcs: to `ArcData { start, end, inner_radius }` (units and key names **[coordinator]**).
     - Path `viewBox`: path data is scaled from the viewBox to the node's box (today `geometry` is used unscaled, `:726-732`).
     - `layoutPosition: absolute` -> `layout_child.absolute = true`; exported when set.
@@ -133,7 +133,7 @@ Legend: **[issue]** names the key or behaviour in the issue text. **[coordinator
 
 ## 4. Data model / schema changes
 
-- No new `Document` or `Node` field is required: every target above has a home in section 2 (`plugin_data` for what has none: `pen:raw`, `pen:icon`, `pen:bindings`, `pen:image-url`).
+- No new `Document` or `Node` field is required: every target above has a home in section 2 (`plugin_data` for what has none: `pen:raw`, `pen:icon`, `pen:bindings`, `pen:image-url`, `pen:placeholder`, `pen:root`). `Node.plugin_data` is a `BTreeMap<String, String>` (`node.rs:146`), so every `pen:*` value is a **string**: JSON text for structured values (`pen:raw`, `pen:icon`, `pen:bindings`), the literal `true` for `pen:placeholder`.
   `plugin_data` is a `.fig` round-trip carrier (`node.rs:146`), so these survive an export to `.fig` and back (checked by the round-trip tests).
 - New: `PenImportOptions`, `PenImport`, `PenWarning` (public, in `designos-fig`).
 - If the coordinator's schema notes show a field with no home (for example gradient geometry richer than three handles), the worker stops and asks; no field is invented here.
@@ -164,7 +164,8 @@ Legend: **[issue]** names the key or behaviour in the issue text. **[coordinator
 | `reusable` on other types | component wrapping the node | ignored | 10 |
 | `type: ref`, `ref`, `descendants` | `NodeKind::Instance`, `component_key`, overrides | `:806-811`, `:993-1030` | 3 |
 | `descendants[..].children` | slot content | absent | 3.2 |
-| `slot` list, `placeholder` | slot props, `Document.in_progress` | absent | 10 |
+| `slot` list | slot props | absent | 10 |
+| `placeholder` | `plugin_data["pen:placeholder"]` (E15-7 maps it to its marker) | absent | 10 |
 | `imports` | resolved library files | absent | 9 |
 | `type: icon_font`, `iconFontName`, `iconFontFamily` | glyph node | text of the name (`:734-737`) | 7 |
 | `type: ellipse` arc fields | `ArcData` | default only | 10 |
@@ -184,7 +185,7 @@ comparison, see section 10.)
 ## 8. Edge cases
 
 1. A file with no `version`: treated as 1.0 with a warning.
-2. `version: "2.21"` with a hand-edited unknown top-level key: kept in `plugin_data["pen:root"]`, reported.
+2. `version: "2.21"` with a hand-edited unknown top-level key: kept as JSON text in the first page node's `plugin_data["pen:root"]` (the root has no node of its own), reported.
 3. An instance of a component defined later in the file: resolved after the whole tree is read (as today, `pending_refs`).
 4. Two nodes with the same `id`: the later one wins in the id map (as today) and a warning names the duplicate.
 5. A `ref` to itself or to an ancestor: error, as today (`:913-915`).
@@ -232,7 +233,7 @@ unit tests per migration hop, the shape check for the exported file.
 | `multi_axis_themes_one_collection_per_axis` | two axes in order; node-level `theme` selects per axis |
 | `library_imports_resolve_present_and_report_missing` | present file: instances expand; missing: unexpanded plus one warning; cycle: refused |
 | `reusable_on_any_node_type` | rectangle with `reusable` becomes a component wrapping it, exported back |
-| `slot_lists_and_placeholder` | slot props created; `placeholder: true` marks in-progress |
+| `slot_lists_and_placeholder` | slot props created; `placeholder: true` stored in `plugin_data["pen:placeholder"]` and exported back as `placeholder: true` |
 | `ellipse_arc_viewbox_absolute_flip_text_decorations_href_blend` | one case each |
 | `unsupported_kinds_are_preserved_and_listed` | `prompt`, `context`, `script`, `browser` round trip byte-equal (JSON-equal) and appear in `warnings` (fail-before: empty frames, no warning) |
 | `existing_pen_tests_and_depth_limits_still_pass` | `pen_component_depth_limits.rs`, `stack_wrap_and_text_wrap.rs`, the moved unit tests |

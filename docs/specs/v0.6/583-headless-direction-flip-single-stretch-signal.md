@@ -52,9 +52,9 @@ restores only the parent would leave rewritten children behind. #582 reached the
 step to it; #582 adds the slot-mark step. Whichever task lands first creates the file; the other adds its step.
 
 1. **Direction step.** For a `Command::Update { node }` whose target frame's `auto_layout` changes horizontality (`AutoLayout::primary_is_horizontal` differs between the stored node and `node`), the
-   function returns `Command::Batch([Command::Update { parent }, Command::Update { child' } ...])`: the parent's update first, then one explicit `Update` per direct child that
+   function returns `WriterCommand { cmd: Command::Batch([Command::Update { parent }, Command::Update { child' } ...]), parts: [the same updates un-batched] }` (type shared with #582): the parent's update first, then one explicit `Update` per direct child that
    `apply_parent_direction_change(old_horiz, new_horiz)` changes, for the children whose `stretched.last_parent_horiz` is `None` (children with `Some(..)` are handled by the solver as today, so
-   nothing is applied twice). The child updates are ordinary full-node updates, so `Command::apply`, its inverse, undo, redo and sync see plain commands.
+   nothing is applied twice). The child updates are ordinary full-node updates, so `Command::apply`, its inverse, undo, redo and sync see plain commands. The parts are independent (each touches a different node and none reads another's changed fields), so `Engine::exec` records live ops with `live_ops_for_independent(&doc, &parts)` and never takes the document clone that `live_ops_for_command` makes for a `Batch` (`live_patch/record.rs:42-48`); for 10,000 children this is 10,000 per-node `field_changes` calls and no scene-graph copy.
 2. **Same result as the inspector.** For a child with Fill on the old counter axis and `AlignSelf::Stretch`, Stretch is cleared; Fill stays; `last_parent_horiz` ends consistent with the new
    direction (`layout_solver_types.rs:134-146`).
 3. A flip between two directions with the same horizontality (Horizontal to Grid) returns the command unchanged.
@@ -109,6 +109,7 @@ Seams: `designos-doc` unit test with a hand-built document; one replay test thro
 | `redo_after_undo_matches_the_first_flip` | undo then redo | same final state as the first apply, history depth unchanged |
 | `solved_child_not_double_rewritten` | solve once, then flip | same final state as the unsolved case |
 | `live_patch_update_flip` | replay a `LiveOp::Update { set: kind with direction }` | same final state as the direct flip |
+| `engine_exec_does_not_clone_the_document_for_a_flip` | flip a frame with 10,000 children on a 100,000-node document through `Engine::exec` | live ops equal the batch path's; no document clone; under the budget |
 | `engine_exec_applies_the_boundary` | `Engine::exec` with a direction `Update` | recorded live ops include the child updates; replaying them gives the same document |
 | `sync_after_a_main_direction_flip_is_unaffected` | flip the main component's frame through the boundary, then `sync_instances` | instance children equal the main's; no extra rewrite; sync's own batch unchanged |
 | `same_horizontality_untouched` | Horizontal to Grid | command returned unchanged |
@@ -119,8 +120,8 @@ width after a flip applied through a live patch (`designos --screenshot`).
 
 ## 11. Performance budgets
 
-O(children of the changed frame) per direction change; nothing on writes that do not change the
-direction.
+O(children of the changed frame) per direction change, with no document clone while recording live ops (rule 3.1); nothing on writes that do not change the direction. Budget: a flip of a frame with 10,000 children
+through `Engine::exec` stays under 100 ms in a release build (record the number).
 
 ## 12. Dependencies and build order
 

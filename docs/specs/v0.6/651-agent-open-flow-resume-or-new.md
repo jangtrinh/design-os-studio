@@ -9,7 +9,7 @@
 | Touches | `crates/designos-app/src/terminal.rs` (hot spot: `ensure_default_tab`, `show_left`, `render_terminal_surface`; thin edits), new `crates/designos-app/src/agent_open_flow.rs` (decision and sessions dropdown), `crates/designos-app/src/panels/rail.rs` (`:116-125`, `:134-144`, `:166-174`), `crates/designos-app/src/shell.rs` (`:268-300`, `:697-702`, `:1141-1144`, `:1349-1355`), `crates/designos-app/src/home/mod.rs` (`:690-696`), `crates/designos-app/src/tabs.rs` (`:1772`), tests |
 
 Code baseline: `origin/main@01d48f2` (0.5.0). Owner rulings that bind this spec are in section 13; the
-details the rulings do not fix are listed under "Open questions for the owner" and are not decided here.
+details the rulings do not fix are not decided here; the questions of the first draft were all answered on 2026-10-19 and are rules 5, 6, 9, 10 and 11.
 
 ## 1. Summary and user story
 
@@ -46,27 +46,32 @@ switch. A file with no sessions yet shows the new-session picker; Studio never s
    per-frame call at `shell.rs:1141-1144` is deleted, a frame never starts a process).
 2. Decision, in order:
    1. a live agent tab exists: show the panel, do nothing else;
-   2. no live tab and the file's registry (#653) has sessions: resume the one with the largest `last_active_ms`
-      (any CLI) in a new tab, with that CLI's resume command (#653 rule 6);
-   3. no live tab and no sessions: start nothing; the panel's center shows the new-session picker (#652).
+   2. no live tab and the file's registry (#653) has a resumable session: resume the one with the largest `last_active_ms` among entries that have a resume command (#653 rule 6) in a new tab. The registry
+      only holds agent CLI sessions (a Shell tab is never registered, #653 rule 4) and an entry whose CLI has no resume command (a custom "Other CLI...") is not resumable, so the newest entry is never
+      one that cannot be run;
+   3. no live tab and no resumable session: start nothing; the panel's center shows the new-session picker (#652).
 3. Never spawn a Shell on open. A Shell tab starts only when the user picks Shell in the `+` menu or the picker
    (as today) or when a flow that needs one asks for it explicitly: the chat-mode composer starts its one-shot
    shell on the first submit, not on open.
 4. A tab opened by rule 2 behaves like any other tab: it can be closed, it shows the live status dot, and the
    registry entry's `last_active_ms` updates.
-5. **Sessions dropdown.** The issue fixes a dropdown that lists the file's other sessions with CLI, title, last
-   active and status. Its form and placement are proposed in section 7 (open question 4). It lists the file's registry
+5. **Sessions popover (owner ruling 2026-10-19).** The Sessions control is a ghost button next to `+` that opens a popover listing the file's other sessions with CLI, title, last
+   active and status. It lists the file's registry
    entries, newest first, one row each: the CLI (icon and name), the label (rename target), last active as
    a relative time, and a status. Status is the live tab's `AgentTabStatus` for a running tab
    (`Working`, `WaitingForInput`, `Done`, `Idle`, `terminal.rs:357-364`) and `Not running` for the rest;
    `Missing` when #653 marked the entry's session as gone. Choosing a row focuses its live tab, or resumes it
    in a new tab.
-6. **Rename.** The issue requires that sessions can be renamed; the interaction is proposed in section 7. The new label is stored in the registry (#653) and shown on the tab title; it does not rename the
+6. **Rename and Remove from list (owner ruling).** A row renames in place and has a "Remove from list" action: it forgets Studio's registry entry and leaves the CLI's own conversation untouched. The new label is stored in the registry (#653) and shown on the tab title; it does not rename the
    conversation inside the CLI. Empty labels revert to the default (`<CLI> <date>`).
 7. A resume that fails within the five-second window shows the existing start-failure panel
    (`agent_start_failure`) with the added fix "Start a new session" (#653 rule 8), which opens the picker.
 8. Skip-permissions stays the default for resumed sessions; ask mode is the optional setting of #656.
-9. `Done`/`Idle` tabs are not closed by opening the panel again. Opening the panel for a second file never
+9. **Closing the last tab (owner ruling)** shows the new-session picker (#652), as for a file with no resumable session; the panel is never left blank.
+10. **Cmd+K design actions with no live tab (owner ruling).** `dispatch_figma_ai_prompt` (`terminal.rs:1368-1375`) no longer starts the first installed CLI: it resumes the file's last resumable session
+    (rule 2.2) and sends the prompt there; with no resumable session it opens the picker and holds the prompt until a CLI is chosen.
+11. **The `>_` dock and the backtick key (owner ruling)** follow exactly the same rules as the panel (rules 1 to 3 and 9 to 10): resume, or the picker, never a plain shell.
+12. `Done`/`Idle` tabs are not closed by opening the panel again. Opening the panel for a second file never
    touches the first file's tabs (each document tab owns its `TerminalState`).
 
 ## 4. Data model / schema changes
@@ -87,7 +92,7 @@ None.
 
 Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-**Proposal only:** the issue fixes the behaviour of section 3, not these control details; the owner confirms them through open question 4 before anyone builds.
+The form is the one the owner ruled on 2026-10-19 (ghost button + popover, rename in place, Remove from list); the sizes and tokens below are the principle-checked values.
 
 - **Sessions control**: a ghost button labelled "Sessions" with a chevron, `CONTROL_DENSE` high, `RADIUS_CONTROL`, between the tab strip and `+`, `SPACE_INLINE` from each.
 - **Popover**: `RADIUS_FRAME`, surface `BG_MENU` with a `BORDER_MENU` hairline, inset `INSET_POPOVER`, a caption heading "Sessions for this file" in `TEXT_SECONDARY` with `SPACE_FACT` below it and a `BORDER` hairline; rows are `CONTROL_ROW` high with two lines: line one the CLI name (body-medium) and the label (body), line two the last-active time and the status in caption; hover `BG_MENU_HOVER`; the row whose tab is focused uses the neutral `BG_SELECTED` fill. The status shown in a row uses the same dot as the tab (`paint_orca_tab_status_and_provider`, `terminal.rs:1983-2058`); no new colour is introduced.
@@ -131,7 +136,11 @@ that print their argv and stay alive, `spawn_exiting_stub_agent` pattern, `termi
 | `live_tab_is_not_duplicated` | open twice: one tab |
 | `sessions_dropdown_lists_cli_label_time_status` | rows match registry; status of the live tab follows `agent_status` |
 | `rename_persists_across_restart` | rename, rebuild the state from disk, label kept |
-| `closing_the_last_tab_shows_the_picker` | (per the owner's answer to question 1) |
+| `closing_the_last_tab_shows_the_picker` | close the only tab: picker shown, no tab, no Shell |
+| `cmdk_with_no_live_tab_resumes_the_last_session` | `dispatch_figma_ai_prompt` with a registry entry: the stub records the resume argv and then the prompt |
+| `dock_and_backtick_follow_the_panel_rules` | `>_` and backtick with and without a session: resume or picker, never a Shell |
+| `shell_is_never_registered_or_resumed` | a Shell tab started and closed: no registry entry; the newest agent entry is the one resumed |
+| `remove_from_list_forgets_only_the_registry_entry` | after Remove, the row is gone and the stub CLI's own store is untouched |
 | `chat_submit_starts_its_shell_lazily` | composer submit with no tab: one shell tab starts then |
 | `resume_failure_offers_a_new_session` | stub exits at once: failure card with the new fix; click opens the picker |
 
@@ -158,24 +167,9 @@ call-site changes and put the logic in `agent_open_flow.rs`; serialize with #652
   picker and never auto-spawns a Shell. Sessions can be renamed. (Issue text, 2026-10-19.)
 - Skip-permissions stays the default; ask mode is optional (#656).
 - Codex tabs keep the heuristic status for now.
+- Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`): closing the last tab shows the new-session picker; Cmd+K with no live tab resumes the last session; the `>_` dock and the
+  backtick key follow the same rules; Sessions is a ghost button next to `+` that opens a popover with rename in place and "Remove from list".
 
 ## Open questions for the owner
 
-1. **Closing the last tab.** After the user closes the only tab, what does the panel show?
-   - A (recommended): the new-session picker, the same as a file with no sessions. The panel is never a blank area
-     and the next click already does something useful.
-   - B: an empty panel with only the tab bar (`+` and Sessions). Quieter, but the user must open a menu to start.
-2. **Cmd+K design actions with no live tab.** `dispatch_figma_ai_prompt` starts the first installed CLI today
-   (`terminal.rs:1368-1375`). With resume in place, what should it do?
-   - A (recommended): resume the file's last session and send the prompt there, so the conversation keeps its context.
-   - B: keep today's behaviour: start a new session with the first installed CLI.
-   - C: open the picker and wait for a choice before sending.
-3. **The `>_` dock and the backtick key.** They open the same agent terminal in a bottom dock.
-   - A (recommended): the same rules as the panel (resume, or the picker), so there is one meaning of "open the agent".
-   - B: the dock stays a plain shell, the way a terminal usually behaves.
-4. **Form of the Sessions dropdown (section 7 is the proposal).**
-   - A (recommended): a ghost "Sessions" button beside `+` that opens a popover list; a row renames in place and has a
-     "Remove from list" action (forgets Studio's entry, leaves the CLI's conversation). It keeps tabs and sessions in one
-     bar and lets a stale row go.
-   - B: the same popover with rename only, no remove.
-   - C: sessions as a section at the top of the existing `+` menu, so there is one menu instead of two.
+None. The four questions of the first draft were answered by the owner on 2026-10-19 and are rules 5, 6, 9, 10 and 11 above.

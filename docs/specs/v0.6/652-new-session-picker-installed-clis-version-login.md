@@ -51,36 +51,39 @@ to install them. The picker remembers my last choice for this file, and "Other C
    and refreshed on each open (stale values shown at once, replaced when the probe returns). Version =
    the first dotted number in the output (`2.1.302`, `0.163.0`, `1.0.62`, `1.4.2`).
 3. **Row states.** Each CLI row shows: name, version, and one sign-in state:
-   - `Signed in` / `Not signed in` where the CLI has a status command (Claude, Codex);
-   - `Sign-in not checked` where it has none (Grok, Antigravity), see the open question;
+   - Claude: `Signed in` / `Not signed in` from the boolean `loggedIn` of `claude auth status` (a field of its documented JSON output, seen with `true`; the `false` case has not been captured, so a missing or non-boolean
+     field is `Sign-in not checked`, never a guess);
+   - Codex: `Signed in` only when `codex login status` prints a line starting `Logged in` (captured: "Logged in using ChatGPT") and exits 0. The signed-out output and exit code have **not been captured**, so every
+     other result is `Sign-in not checked` and the Codex `Not signed in` label is added only after a live check records the signed-out text; that live check gates the Codex sign-in part of this task (a signed-out run must be captured
+     on a test account; an agent never logs out the owner's account);
+   - `Sign-in not checked` for Grok and Antigravity, which have no status command (owner ruling 2026-10-19);
    - `Checking...` while a probe runs;
    - `Not installed` for a missing binary: the row is greyed (text `TEXT_DISABLED`), not selectable, and shows
      an "Install" link that opens the CLI's install page (`FixAction::OpenInstallPage`).
 4. **Order.** Installed CLIs first, in the fixed order Claude, Codex, Grok, Antigravity, with the file's last
-   choice first when there is one; uninstalled CLIs after them, greyed; then the "Other CLI..." entry.
+   choice first when there is one; uninstalled CLIs after them, greyed; then saved custom entries, "Other CLI...", and the Shell row last.
 5. **Choosing a CLI** starts a new session tab with that CLI's launch command (#653), records the choice as
    the file's last choice, and registers the session. A `Not signed in` row is still selectable; the CLI then
    shows its own sign-in screen, and the existing failure panel offers "Run login" if it exits.
 6. **Remembers the last choice per file**: `last_cli` in the file's registry (#653), used only for the order in
    rule 4 and for highlighting; it never starts anything by itself.
 7. **Other CLI...** opens an inline form: a command line (one text field) and an optional label. On confirm the
-   command is saved as a custom entry and started in a tab. Custom entries run in the file's session folder with the
-   `DESIGNOS_*` environment, like every tab, and are listed in the picker afterwards (scope in the open
-   question). Studio does not know a custom CLI's MCP or hook configuration, so its `designos_*` tools are
-   not registered for it (see the open question for the wording).
-8. **Shell** stays available (open question) and is never the default.
+   command is saved as a custom entry **for all files** (a Studio setting, `custom_clis` in `settings.json`, the store of `comments/settings.rs`) and started in a tab. Custom entries run in the file's session folder with the
+   `DESIGNOS_*` environment, like every tab, and are listed in the picker afterwards. Studio does not know a custom CLI's MCP or hook configuration, so its `designos_*` tools are not registered for it, and its row
+   says "Plain command: Studio tools not connected" (owner ruling 2026-10-19). A custom entry is never registered as a resumable session (#653 rule 4).
+8. **Shell** is a row at the end of the list (owner ruling) and is never the default.
 9. **Permissions caption (proposal).** The picker's footer states the current permission mode (`Skip permissions` by default;
    `Ask` when #656's setting is on) so the old header text "LAUNCH CLI (SKIP PERMISSIONS)" is not lost. The rows
    no longer show raw flags.
 10. Probes never run a CLI's login flow and never send a prompt; they cost no tokens.
-11. The same component is used by the empty-state of #651 and by the `+` menu (open question 3).
+11. The same list is used by the empty-state of #651 and by the `+` menu, which shows it in compact form so versions, sign-in state and greyed rows are visible everywhere (owner ruling).
 
 ## 4. Data model / schema changes
 
 - `CliDescriptor` and `CliProbe { installed, version: Option<String>, signed_in: SignIn }` in memory;
   `SignIn::{Yes, No, Unknown, Checking}`.
 - Per file: `last_cli: Option<String>` in `sessions.json` (#653). Custom entries: `custom_clis: Vec<{label, command}>`
-  in the scope the owner chooses (a Studio settings file, or the file's registry).
+  in Studio's `settings.json` (all files).
 
 ## 5. Contracts
 
@@ -131,8 +134,12 @@ the `Sim` harness.
 |---|---|
 | `version_parsing_for_the_four_real_outputs` | the four captured version strings parse to `2.1.302`, `0.163.0`, `1.0.62`, `1.4.2` |
 | `installed_cli_row_shows_version_and_state` | fake runner: Claude status JSON `loggedIn: true` -> `Signed in` |
-| `signed_out_json_and_text` | Claude `loggedIn: false` and a Codex non-zero exit -> `Not signed in` |
-| `cli_without_status_command_is_not_checked` | Grok and agy rows are `Unknown` |
+| `claude_signed_out_json` | Claude `{"loggedIn": false}` -> `Not signed in`; a missing field -> `Sign-in not checked` |
+| `codex_only_the_captured_signed_in_phrase_counts` | `Logged in using ChatGPT` exit 0 -> `Signed in`; any other output or exit -> `Sign-in not checked` (the signed-out phrase is added with its live capture) |
+| `cli_without_status_command_is_not_checked` | Grok and agy rows are `Unknown` (shown as "Sign-in not checked") |
+| `shell_row_is_last_and_other_cli_row_says_studio_tools_not_connected` | order and wording |
+| `plus_menu_shows_the_same_list_compactly` | the `+` menu rows equal the picker's rows (name, version, state) |
+| `custom_cli_is_saved_for_all_files` | add in file A; listed in file B; not in any registry |
 | `missing_binary_is_greyed_with_an_install_link` | `Not installed`, not selectable, link action present |
 | `probe_runs_off_the_ui_thread` | the picker's first frame returns before the fake runner's blocking call finishes |
 | `probe_timeout_degrades_to_unknown` | fake runner sleeps past 3 s -> `Unknown` |
@@ -161,21 +168,8 @@ new file; `terminal.rs` loses `render_runtime_dropdown_menu` to it (a move, not 
   last choice per file, "Other CLI..." for a custom command (issue text).
 - Skip-permissions stays the default; `GROK_FOLDER_TRUST=0` stays.
 - The picker reflects real install and login state; no guessing.
+- Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`): Grok and Antigravity show "Sign-in not checked"; "Other CLI..." is saved for all files with the "Studio tools not connected" warning; the `+` menu shows the same list in compact form; a Shell row comes at the end.
 
 ## Open questions for the owner
 
-1. **Sign-in state for Grok and Antigravity**, which have no status command.
-   - A (recommended): show `Sign-in not checked` and let the failure panel's "Run login" handle it. It is honest and needs no
-     undocumented files.
-   - B: infer it from a credential file (Grok keeps `~/.grok/auth.json` on this machine; an undocumented path that can be stale),
-     labelled `Looks signed in`.
-2. **"Other CLI..." entries.**
-   - Scope: A (recommended) all files (a Studio setting), so a custom CLI is added once; B this file only.
-   - Wording for what a custom command gets: it runs in the file's folder with the `DESIGNOS_*` variables but Studio's MCP tools
-     are not registered for it. A (recommended): say so on the row ("Plain command: Studio tools not connected"); B: say nothing.
-3. **Does the `+` menu show the same list?**
-   - A (recommended): yes, the same component in compact form, so versions, sign-in and greyed rows are visible everywhere.
-   - B: the `+` menu stays the short fixed list and only the empty-state picker is rich.
-4. **Shell in the picker.**
-   - A (recommended): a "Shell" row at the end (today's `+` menu has it).
-   - B: no Shell row; "Other CLI..." with `$SHELL` covers it.
+None. The four questions of the first draft were answered by the owner on 2026-10-19 and are rules 3, 7, 8 and 11. One live check remains before the Codex sign-in label is Ready (rule 3).

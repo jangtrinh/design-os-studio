@@ -62,27 +62,26 @@ ones as before the restart.
    the same key gets a lock file `session.lock` (pid + start time) and falls back to a per-process folder with
    a one-line status "Another window owns this file's agent session" (no resume there). A stale lock
    (pid not running) is taken over.
-4. **Registry.** `agent-sessions/<key>/sessions.json` lists the sessions Studio started for the file:
+4. **Registry.** `agent-sessions/<key>/sessions.json` lists the **agent CLI** sessions Studio started for the file. Only CLIs with a resume command are registered (Claude, Codex, Grok, Antigravity); a Shell tab and a custom
+   "Other CLI..." command are never registered, so the newest entry is always one that can be resumed (#651 rule 2.2). Each entry:
    `{ id, cli, label, created_ms, last_active_ms, last_status }`, newest first, at most 50 entries per file
    (older ones are dropped from the registry; the CLI's own store is never touched). The registry is
    written atomically (`atomic_write_session_file`, `terminal.rs:2184-2191`) whenever a tab starts, changes
    status to done/idle, or is renamed.
 5. **Session ids.** Claude and Grok sessions get an id chosen by Studio (a UUID passed with `--session-id`
-   / `-s` on a new session) so the registry knows the id without reading the CLI's files. For Codex and
-   Antigravity, which have no flag to pre-assign an id in `--help`, the registry stores the id only if it can be
-   read back from the CLI (Codex: the newest `~/.codex/sessions/**/rollout-*.jsonl` whose `session_meta`
-   `cwd` equals the folder, observed on disk and undocumented; agy: not grounded, see "Could not ground"). Without
-   a known id the entry resumes by "most recent in this folder" (rule 6).
+   / `-s` on a new session) so the registry knows the id without reading the CLI's files. Codex and
+   Antigravity have no flag to pre-assign an id in `--help`, and Studio does **not** look an id up in their private stores: their entries carry no id and resume by "most recent in this folder"
+   (`resume --last`, `--continue`; rule 6). A rollout-file lookup for Codex was considered and rejected: a newer conversation started outside Studio in the same folder would be picked up and resume the wrong one.
 6. **Resume commands** (all run through `build_agent_shell_cmd`, `terminal.rs:2112-2127`, with the same
    flags as today plus):
    - Claude: `--resume <id>` (known id) or `--continue`;
-   - Codex: `resume <id>` or `resume --last`, followed by today's `-c mcp_servers.designos...` overrides
+   - Codex: `resume --last` (no id is known), followed by today's `-c mcp_servers.designos...` overrides
      (the `codex_mcp_overrides!` macro, `terminal.rs:63-73`) and the bypass flag;
    - Grok: `--resume <id>` or `--continue`, keeping `--cwd "$DESIGNOS_SESSION_DIR"` and `--always-approve`;
-   - Antigravity: `--conversation <id>` or `--continue`, keeping `--add-dir "$DESIGNOS_SESSION_DIR"`.
-   Because the cwd is the stable folder, "most recent" means "most recent for this file" for Claude, Codex and
-   Grok. For agy the same holds only if agy scopes by cwd, which is unverified; until verified, agy resumes only
-   by a known id.
+   - Antigravity: `--continue` only when its cwd scoping has been shown by a live check (below); `--conversation <id>` is used only with an id Studio can obtain without reading agy's private files, which none of agy's `--help` offers. Until the live check passes, an agy entry is not resumable and is not registered, the new-session picker shows instead (#651).
+   Because the cwd is the stable folder, "most recent" means "most recent for this file" for Claude and Grok (both state cwd scoping in their own documentation or `--help`). For Codex, the `--all` option's help text
+   ("disables cwd filtering") implies the picker is cwd-filtered by default, but `--last` itself says only "continue the most recent session": **whether `--last` is cwd-scoped needs a live check before the Codex part of this task is
+   Ready**; if it is not scoped, Codex entries are not registered and Codex always starts new. The same live check applies to agy's `--continue`.
 7. **Every resume refreshes the provisioned files** (context, canvas, MCP config, hooks, skill) before the CLI
    starts, exactly as a new tab does (`spawn_tab_running` calls `provision_session_agent_files`, `:1225`).
 8. **Failure to resume** (the CLI exits within the five-second window, for example because the session was
@@ -156,7 +155,9 @@ record their argv (the pattern of `spawn_exiting_stub_agent`, `terminal.rs:544-5
 | `session_dir_is_keyed_by_library_file_id` | two `TerminalState`s for the same `LibFile.id` in different "processes" (different pid inputs) have the same folder under the library root |
 | `registry_round_trip_keeps_unknown_fields` | write, add an unknown field, rewrite: field kept |
 | `claude_new_start_passes_a_session_id_and_registers_it` | stub `claude` receives `--session-id <uuid>`; the registry holds that uuid |
-| `resume_commands_per_cli` | table-driven: argv of the stub for Claude (`--resume id`, `--continue`), Codex (`resume id`, `resume --last` plus the MCP overrides), Grok (`--resume id`, `--continue`, `--cwd`), agy (`--conversation id`) |
+| `resume_commands_per_cli` | table-driven: argv of the stub for Claude (`--resume id`, `--continue`), Codex (`resume --last` plus the MCP overrides; never an id), Grok (`--resume id`, `--continue`, `--cwd`), agy (`--continue` only when its live check passed) |
+| `shell_and_custom_cli_tabs_are_never_registered` | start a Shell tab and a custom command: `sessions.json` unchanged |
+| `codex_has_no_id_lookup` | a newer rollout file for the same folder created by another process does not change the Codex resume argv |
 | `restart_resumes_the_previous_session` | start stub, record entry, drop the state, build a new state for the same key: the resume argv carries the recorded id |
 | `second_window_does_not_share_the_folder` | lock held: the second state gets a different folder and the status line |
 | `stale_lock_is_taken_over` | dead pid in the lock: taken over |
@@ -212,6 +213,6 @@ the call sites (see README-part3).
 
 - Antigravity: whether `--continue` is scoped to the working directory, how to learn a new conversation's id
   (`~/.gemini/antigravity-cli/conversations/<uuid>.db` files exist, observed 2026-10-19, but nothing ties a file
-  to a folder), and any flag to pre-assign an id. Until a live check answers these, agy resumes only by an id Studio
-  read back, or not at all.
-- Codex: the rollout-file lookup for an id is observed on disk, not documented; no official source found.
+  to a folder), and any flag to pre-assign an id. Until a live check shows that `--continue` is cwd-scoped, agy is not resumable and not registered (rule 6). The live check is
+  a gate before the agy part of this task is Ready.
+- Codex: whether `resume --last` is limited to the working directory (the help text of `--all` implies a cwd filter for the picker; `--last` is not stated). Live check before Ready: start Codex in two folders, resume `--last` in each.

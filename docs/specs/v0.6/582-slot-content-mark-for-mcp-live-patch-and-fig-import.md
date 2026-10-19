@@ -52,17 +52,20 @@ main-component sync.
 
 ## 3. Behaviour rules
 
-1. New pure function in `designos-doc`: `slot_content_marked(doc: &Document, cmd: Command) -> Command`, one step of the shared writer-boundary function `writer_command(doc, cmd)` (`writer_command.rs`, shared with #583's direction step; whichever task merges first creates the file).
+1. New pure function in `designos-doc`: `slot_content_marked(doc: &Document, cmd: Command) -> WriterCommand`, one step of the shared writer-boundary function `writer_command(doc, cmd) -> WriterCommand` (`writer_command.rs`, shared with #583's direction step; whichever task merges first creates the file). `WriterCommand { cmd: Command, parts: Vec<Command> }`: `cmd` is what is applied and put on the undo stack (a `Command::Batch` when a step added work, else the original command), and `parts` lists the same commands un-batched, in order, **each independent of the others** (see rule 2).
    For `Command::Insert { parent }`, `Command::Reparent { id, parent }` (destination `parent` and the
    source slot `doc.get(id).parent`) and `Command::Remove { id }` (the removed node's parent), when the
    affected node is an instance slot (the predicate of `ops.rs:427`, moved into `designos-doc` and
    called by the app as well) and does not carry the mark yet, it returns
-   `Command::Batch([Command::Update { slot with SlotContent override }, cmd])`. Otherwise it returns
-   `cmd` unchanged. The inverse of the batch restores the slot's previous overrides, so an undo of the
+   `cmd = Command::Batch([Command::Update { slot with SlotContent override }, original])` and
+   `parts = [Update, original]`. Otherwise it returns the original as `cmd` with `parts = [original]`. The inverse of the batch restores the slot's previous overrides, so an undo of the
    insert also removes the mark (the plain `Insert` inverse is `Remove`, which would not).
 2. Call sites: `Engine::exec` (MCP) wraps every command before `live_ops_for` and `history.exec`, so the
-   recorded live ops contain the mark as an `Update` op (`live_ops_for_command` handles `Batch` and
-   `Update`, `live_patch/record.rs:29-42`). The replay functions wrap the `Insert`, `Reparent` and
+   recorded live ops contain the mark as an `Update` op. **Recording must not clone the document.** `live_ops_for_command` handles a `Batch` by cloning the whole `Document` as a
+   scratch copy so later commands see earlier ones (`live_patch/record.rs:42-48`), which on a large file would copy the scene graph for one insert. A new `live_ops_for_independent(doc, parts)` in `record.rs` records
+   each part against the unmodified `doc` and concatenates the ops; this is correct because the parts are independent by construction: the slot `Update` changes only the slot node's `component.overrides`
+   (an `Update` keeps the node's `children`, `history.rs:118-124`), so the `Insert` / `Reparent` / `Remove` that follows reads the same sibling list either way. `Engine::exec` records with
+   `live_ops_for_independent(&doc, &w.parts)` and executes `w.cmd`; the general `Batch` path with the scratch clone stays for batches that are not built by `writer_command`. The replay functions wrap the `Insert`, `Reparent` and
    `Remove` they produce, so a patch from an older MCP build is marked in Studio as well. Marking an
    already-marked slot is a no-op.
 3. The existing app call sites keep working unchanged (idempotent). They are not removed in this task.
@@ -140,6 +143,7 @@ already does).
 | `live_patch_insert_is_marked_in_studio` | replay a `LiveOp::Insert` (no mark op) into an instance slot | slot marked; survives sync |
 | `undo_of_marked_insert_clears_the_mark` | insert via wrapper, undo | slot back to its old overrides |
 | `idempotent_second_insert` | two inserts in one batch | one `Update` only |
+| `recording_a_marked_insert_does_not_clone_the_document` | MCP insert into an instance slot of a 100,000-node synthetic document | ops equal those of the batch path (`live_ops_for_command` on the same batch) and no document clone is made |
 | `fig_instance_slot_with_custom_children_survives_main_edit` | import a fixture whose instance slot carries custom children, edit the main, sync | custom children kept (first, run it as-is to learn if import already marks; the test stays either way) |
 | `fig_mirror_only_slot_is_not_marked` | fixture with mirrors only | slot unmarked; main edit propagates |
 | `sync_does_not_mark` | run `sync_instances` on a marked-free instance | no slot gains the mark |
@@ -150,7 +154,7 @@ instance slot after a main-component edit (use the stub agent harness in `live_s
 
 ## 11. Performance budgets
 
-The wrapper does one `HashSet`/`BTreeSet` lookup and one node lookup per command, O(1). The `.fig`
+The wrapper does one `HashSet`/`BTreeSet` lookup and one node lookup per command, O(1), and recording does not clone the document (rule 2); a test asserts that no `Document` clone happens on an MCP insert into a 100,000-node document (clone counter in the test build, or a timing bound of under 5 ms). The `.fig`
 pass visits instance slot containers once: O(instances) with an early exit per slot; no measurable
 change on the large fixture import (record the import time before and after in the PR, budget +1%).
 

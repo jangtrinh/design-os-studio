@@ -53,17 +53,19 @@ background. The default stays as today: agents run with permissions skipped.
 
 ## 3. Behaviour rules
 
-1. **Setting.** The issue says "Settings -> Agents", but no Settings window exists (section 2); the proposal is a Preferences entry (open question 5). Preferences gets "Agent permissions..." with two choices: `Skip permissions` (default, today's behaviour) and `Ask`.
+What the owner has ruled ships: skip stays the default, ask is optional, a waiting tab shows "Needs approval", the approval is offered in the panel, and an OS notification is sent when Studio is unfocused. Rules tagged **(ruled)** are that behaviour; rules tagged **(pending Qn)** are written as the recommended answer so the shape is visible, are **not built and not covered by a required test until the owner answers question n**, and pre-allow (rule 3) additionally needs a live run before it can be Ready.
+
+1. **Setting (ruled; surface pending Q5 and Q1).** The issue says "Settings -> Agents", but no Settings window exists (section 2); the proposal is a Preferences entry (open question 5). Preferences gets "Agent permissions..." with two choices: `Skip permissions` (default, today's behaviour) and `Ask`.
    Stored as `agent_permission_mode` in `settings.json` (`comments/settings.rs` store, key preserved by its `read`/`save`
    helpers). It applies to tabs started after the change; running tabs keep their mode and show it in their tooltip. (Granularity:
    open question 1.)
-2. **Launch commands.** In `Skip` mode nothing changes. In `Ask` mode each CLI's launch command loses its skip flag
+2. **Launch commands (ruled).** In `Skip` mode nothing changes. In `Ask` mode each CLI's launch command loses its skip flag
    (the table above) and keeps everything else (MCP config, hooks, skill, cwd, resume flags from #653). A test pins both command
    strings against the captured `--help` flag sets.
-3. **Pre-allowed design tools (Claude).** In Ask mode the session settings file adds
+3. **Pre-allowed design tools (pending Q3; not built, no required test, live check first).** In Ask mode the session settings file adds
    `"permissions": {"allow": ["mcp__designos__*"]}` so Studio's own design tools do not prompt on every canvas edit; every other tool
-   asks. (Whether to pre-allow: open question 3.)
-4. **Claude in-panel approval.** In Ask mode the session `PermissionRequest` hook (added to `hooks.json`) runs a small script that:
+   asks. Whether to pre-allow is the owner's call (open question 3), and no run has shown that a `permissions.allow` rule inside a `--settings` file takes effect for the session (section "Could not ground"): until the owner answers A and a live run shows Claude honouring the rule (an MCP call to a `designos_*` tool runs without a prompt while a shell command still prompts), the settings file carries no allow list and every tool asks. Auto-approving all Studio tools (including delete and apply-spec) before that answer is explicitly out.
+4. **Claude in-panel approval (ruled: approval offered in the panel; mechanism documented for Claude).** In Ask mode the session `PermissionRequest` hook (added to `hooks.json`) runs a small script that:
    1. reads the hook JSON from stdin and writes it to `<session folder>/approvals/<id>.request.json` (`id` = a counter plus the
       tool name; the file holds `tool_name`, a truncated `tool_input` summary, and a timestamp);
    2. waits until `<id>.answer` appears (polling every 200 ms) for at most the hook's `timeout` (initial value 300 s);
@@ -71,15 +73,15 @@ background. The default stays as today: agents run with permissions skipped.
    4. on timeout, or when Studio writes `withdrawn`, prints nothing, so Claude falls back to its own prompt in the terminal.
    Studio's bridge (`poll_live_agent_bridge`) lists new request files each frame, shows the approval card (rule 6) and writes
    the answer file when the user clicks. Requests queue per tab in arrival order.
-5. **Status.** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
+5. **Status (ruled; buttons for other CLIs pending Q2).** A tab with a pending request shows `Needs approval` (a new label for `WaitingForInput` with a request attached). For
    Codex, Grok and Antigravity, which have no waiting hook, the label comes from their existing status path: Grok's passive
    `Notification` hook (`permission_prompt`) is added to its hook file; Codex and agy keep the heuristic. In those tabs the card has no
    Approve or Deny buttons (Studio cannot answer for them); it offers "Open tab" so the user answers in the terminal. (Scope:
    open question 2.)
-6. **The card.** For a Claude request the panel shows, above the terminal viewport: the tool name, a one-line summary of the input
+6. **The card (ruled for Claude).** For a Claude request the panel shows, above the terminal viewport: the tool name, a one-line summary of the input
    (the command, or the file path; at most 200 characters, ellipsised), and the buttons Approve and Deny. Esc does not
    answer; closing the card leaves the request pending. Only one card is visible; the rest wait in the queue with a count.
-7. **OS notification.** When a request arrives and the window is not focused (`ViewportInfo.focused == Some(false)`), Studio sends one
+7. **OS notification (ruled; wording pending Q4).** When a request arrives and the window is not focused (`ViewportInfo.focused == Some(false)`), Studio sends one
    OS notification: "<CLI> needs approval" with the file name; the notification never contains the command or path text. Clicking it
    (where the platform supports it) focuses the window and the tab. (Content: open question 4.)
 8. **Cleanup.** When the tab closes or exits, pending requests are written `withdrawn`; stale request files older than 24 h are
@@ -88,7 +90,7 @@ background. The default stays as today: agents run with permissions skipped.
    short evaluation of the two candidates, with a live check of each on the installed Codex: (a) hooks passed so that they run
    without forging trust, if the CLI offers a supported way; (b) `--dangerously-bypass-hook-trust`, which the help text calls
    dangerous. Studio does not use (b). The outcome goes to the owner as a decision (open question 2), not into code.
-10. Skip mode behaves exactly as today, including no pre-allow rule and no approvals folder.
+10. Skip mode behaves exactly as today, including no allow list and no approvals folder.
 
 ## 4. Data model / schema changes
 
@@ -148,15 +150,16 @@ test for the card.
 |---|---|
 | `skip_mode_launch_commands_unchanged` | the four strings equal today's (`cli_launch_command`) |
 | `ask_mode_drops_each_skip_flag` | no `--dangerously-skip-permissions`, no `--dangerously-bypass-approvals-and-sandbox`, no `--always-approve` in the four strings; flags checked against the captured `--help` sets |
-| `ask_mode_session_settings_pre_allow_designos_tools` | `hooks.json` has `permissions.allow == ["mcp__designos__*"]` and the `PermissionRequest` entry with `timeout` |
+| `ask_mode_session_settings_have_the_permission_request_hook_with_a_timeout` | `hooks.json` has the `PermissionRequest` entry with `timeout` and **no** `permissions.allow` |
+| (pending Q3, live check first) `ask_mode_pre_allows_designos_tools` | only after the owner answers A and a live run shows the rule works: `hooks.json` has `permissions.allow == ["mcp__designos__*"]` |
 | `hook_script_allow_prints_the_documented_decision` | run the script with a PermissionRequest JSON on stdin, write `allow`: stdout equals the documented JSON |
 | `hook_script_deny_carries_a_message` | `deny`: `behavior: "deny"` and `message` |
 | `hook_script_timeout_prints_nothing` | no answer within a 1 s test timeout: empty stdout, exit 0 |
 | `request_file_holds_only_a_summary` | a 5,000-character command: stored summary at most 200 characters |
 | `bridge_surfaces_a_request_and_writes_the_answer` | write a request file; the poll shows the card; a click writes `answer` |
 | `status_becomes_needs_approval` | pending request: tab label; cleared after the answer |
-| `grok_and_agy_cards_have_no_buttons` | "Open tab" only |
-| `unfocused_window_sends_one_notification_without_the_command_text` | fake notifier records one call; text lacks the tool input |
+| (pending Q2) `grok_and_agy_cards_have_no_buttons` | "Open tab" only |
+| `unfocused_window_sends_one_notification` (ruled) and, pending Q4, `..._without_the_command_text` | fake notifier records one call; text lacks the tool input |
 | `default_mode_is_skip` | fresh settings file: `skip` |
 | `claude_real_run_in_ask_mode` (owner-manual) | a real Claude tab asks, the card appears, Approve lets the tool run, Deny blocks it (screenshots) |
 

@@ -63,6 +63,8 @@ the same result.
    height keeps the stored value). No new aspect-ratio logic.
 5. Everything stays one undo step per user action (the drag's `Tx`, the drop's `Tx`).
 6. A slot without the stretch setting, and any non-slot container, behaves exactly as today.
+7. **Drawn layers keep their drawn size (owner ruling 2026-10-19).** A rectangle, ellipse, text or any other layer created with a draw tool inside a slot is not stretched: the user chose its size by drawing it.
+   The helper is not called from the draw-tool paths (`text_press` and the shape tools in `canvas/interact.rs`).
 
 ## 4. Data model / schema changes
 
@@ -99,7 +101,7 @@ Size and Layout overrides on instances. The slot setting toggle already exists
 
 ## 9. Non-goals
 
-- Shapes and text created by draw tools inside a slot (see the owner question).
+- Shapes and text created by draw tools inside a slot: they keep their drawn size (rule 7).
 - Changing the stretch rule itself or its setting.
 - Stretching on reorder inside the same slot.
 
@@ -117,6 +119,7 @@ case, as `shell/tests/libraries.rs:510` does for `insert_into_slot`). Synthetic 
 | `image_place_into_stretch_slot` | `place_image_bytes` over the slot (small PNG built in the test) | Fill, slot width |
 | `video_place_into_stretch_slot` | `place_video_bytes` with the tiny synthetic video fixture used by `place_video_makes_a_poster_layer_with_a_video_sidecar` (`interact.rs:2423`) | Fill, slot width |
 | `svg_place_into_stretch_slot` | `place_svg` | Fill, slot width |
+| `drawn_layers_keep_their_size` | draw a rectangle and a text layer inside a stretch slot | size and sizing unchanged (no Fill, no slot width) |
 | `no_stretch_when_setting_off` | same drags with `stretch_child_on_insert: None` | sizes untouched |
 | `one_undo_step_per_action` | each case then `undo` | state before the action |
 
@@ -136,14 +139,10 @@ the new helper, and rebase rather than hand-merge.
 ## 13. Owner rulings
 
 - #508 ruling: a slot configured to stretch gives inserted content the slot width.
+- Owner ruling 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`): drawn layers keep their drawn size and are not stretched.
 - Figma-first (2026-10-13): UI change rendered locally goes to Figma before gates; here the capture is
   the evidence, there is no new frame.
 
 ## Open questions for the owner
 
-1. **Draw tools in a slot.** A rectangle, ellipse or text layer drawn with a tool inside a stretch slot
-   has the size the user dragged. Should it stretch to the slot width too?
-   - A (recommended): No. The user chose that size by drawing it; the issue lists only drag, library drop and
-     media placement.
-   - B: Yes, stretch every new layer that lands in the slot.
-   - C: Stretch only text layers (so a new label spans the slot like the picker's content).
+None. The one question of the first draft was answered by the owner on 2026-10-19: drawn layers keep their drawn size (rule 7).

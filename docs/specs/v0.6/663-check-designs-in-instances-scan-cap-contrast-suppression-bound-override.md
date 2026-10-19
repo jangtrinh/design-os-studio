@@ -73,15 +73,13 @@ has a test that proves a raw value replacing a bound property is listed.
      never exceeds it;
    - a new `MAX_VISITED_LAYERS` caps the work: layers examined, mirrors included. It exists so a page
      of mirrors cannot stall the UI thread. Hitting it also sets `truncated`.
-2. Mirrors are skipped before the expensive checks when they cannot produce a row: a visible layer inside an
-   instance with `component.source` set, an empty `component.overrides`, and whose ancestors up to the
-   instance root are all un-overridden and fully opaque, counts only toward `visited` (cheap
-   lookup), not through `hardcoded::check` / `contrast::check` / `detached::check`. A layer whose
-   backdrop can diverge (the contrast case in 3.2) still runs the contrast check: the cheap skip applies
-   to the hard-coded and detached checks only. (Implementation note: today every visited layer runs all
-   three checks; this step is what makes a large `MAX_VISITED_LAYERS` affordable.)
-3. `MAX_VISITED_LAYERS` is set by measurement (section 11), initial value 100,000 pending that
-   measurement.
+2. **One predicate for the cheap skip.** A visible layer is a *quiet mirror* when it sits inside an instance, has `component.source` set, an empty `component.overrides`, and every ancestor up to the instance root is
+   un-overridden (`overrides` empty) and fully opaque (`opacity >= 1.0`, normal blend). A quiet mirror counts only toward `visited` (a cheap lookup) and skips **all three** checks (`hardcoded::check`,
+   `contrast::check`, `detached::check`): with no override of its own and no ancestor that can change its backdrop or its text alpha, none of them can produce a row that the main component does not already produce.
+   Every other layer runs all three checks, contrast included, exactly as today; in particular a layer under an ancestor whose opacity, blend or fills were overridden in the instance is not a quiet mirror, so the
+   ancestor-opacity contrast row of 3.2 is still found. (Today every visited layer runs all three checks; this predicate is what makes a large `MAX_VISITED_LAYERS` affordable.)
+3. `MAX_VISITED_LAYERS` is set by measurement (section 11), initial value 100,000 pending that measurement, and never below `2 * MAX_SCANNED_LAYERS`. A quiet mirror costs one lookup, so 40,000 of them are far under the
+   UI-thread budget; if the measurement shows otherwise, the cheap-skip design is insufficient and the task stops and reports instead of lowering the cap.
 4. The truncation note names which limit was hit (checked layers or work) in one sentence; copy in
    section 7.
 
@@ -104,7 +102,7 @@ has a test that proves a raw value replacing a bound property is listed.
    with a raw colour equal to the value of another variable W; the audit lists the instance child with
    `Fix::BindVariable` to W, applied as an override (`OverrideField::Fills`), main untouched, one undo step
    (same assertions as `:103-147`).
-3. A raw colour that matches no variable stays unreported (see the owner question).
+3. A raw colour that matches no variable stays unreported (owner ruling 2026-10-19): the same raw colour on a normal layer is not listed either, and the Bind fix needs a variable to bind.
 
 ## 4. Data model / schema changes
 
@@ -146,7 +144,7 @@ forms (use a synthetic page built by the test generator); responsive SKIPPED (ow
 
 - Moving the audit off the UI thread (E3-12 / #157 owns that).
 - Changing which rules exist or their messages.
-- Reporting raw values that match no variable (owner question).
+- Reporting raw values that match no variable (ruled out by the owner, 2026-10-19).
 
 ## 10. Test plan (red first)
 
@@ -155,10 +153,11 @@ data only.
 
 | Case | Steps | Expected (fails before) |
 |---|---|---|
-| `mirror_heavy_page_still_reaches_the_later_frame` | page: frame A holds one component with 30,000 mirror text/rect children via instances (or one instance of a 30,000-layer component), frame B holds a failing text; `audit` | B's contrast row present; `scanned` small; not truncated by the work cap |
+| `mirror_heavy_page_still_reaches_the_later_frame` | page: frame A holds `MAX_SCANNED_LAYERS + 5_000` quiet mirrors (25,000 today), frame B holds a failing text; `audit` | B's contrast row present; `scanned` small; not truncated. The fixture size is tied to `MAX_SCANNED_LAYERS`, and rule 3 requires `MAX_VISITED_LAYERS >= 2 * MAX_SCANNED_LAYERS`, so it always fits under the work cap |
+| `quiet_mirror_predicate_keeps_the_ancestor_opacity_row` | the 3.2 fixture inside a mirror-heavy page | the instance text row is still reported (the layer is not a quiet mirror) |
 | `cheap_skip_changes_no_findings` | run the existing `tests/instances.rs` fixtures and the library and covering-sibling fixtures with the cheap skip on and off (a `#[cfg(test)]` switch) | identical `findings` and `scanned` in every fixture |
 | `meaningful_layer_cap_still_truncates` | existing `an_oversized_page_is_cut_off_and_says_so` | unchanged |
-| `work_cap_truncates_and_says_which` | page of `MAX_VISITED_LAYERS + 5` mirrors | `truncated`, `truncated_by == Work` |
+| `work_cap_truncates_and_says_which` | page of `MAX_VISITED_LAYERS + 5` quiet mirrors (the assertion applies only to a fixture that exceeds the chosen cap) | `truncated`, `truncated_by == Work` |
 | `ancestor_opacity_override_reports_contrast_on_the_instance_text` | main text passes; in the instance set the text's parent frame opacity 0.4 with an override; `audit` | one `Rule::Contrast` row on the instance text (suppressed before) |
 | `same_opacity_on_the_main_is_reported_once_on_the_main` | set opacity on the main's frame | one row, on the main |
 | `bound_main_property_replaced_by_raw_value_is_listed_with_bind_fix` | main swatch binds `fills/0` to `Color/Primary`; instance child gets raw colour = `Color/Accent` value, `OverrideField::Fills`; `audit`; `check_designs_fix_all` | one `HardCodedValue` row on the instance child; fix binds `Color/Accent`; main snapshot unchanged; undo restores |
@@ -190,9 +189,4 @@ rather than hand-merge. The three items can ship as three commits of one PR.
 
 ## Open questions for the owner
 
-1. **A raw override that matches no variable.** When the main component binds a property to a variable
-   and the instance replaces it with a raw colour that equals no variable, should Check designs list it?
-   - A (recommended): no. The same raw colour on a normal layer is not listed either, and the Bind fix needs
-     a variable to bind. The test pins that.
-   - B: yes, list it as "Overrides {variable}" with a "Reset to {variable}" fix, because the override
-     un-binds a token the main component uses.
+None. The one question of the first draft was answered by the owner on 2026-10-19: a raw override that matches no variable is not listed (rule 3.3.3).

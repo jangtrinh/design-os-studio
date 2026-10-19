@@ -58,11 +58,14 @@ A CLI I do not have shows an install hint, never a broken tab.
    5. the `designos-studio` skill (or `AGENTS.md`-style context) is found from the session folder in a fresh tab;
    6. resume works in the stable session folder (#653);
    7. its start failures classify (#673): unknown flag and signed-out outputs are recognised from the CLI's real messages.
-4. **Gemini CLI (first candidate).** Plan, to be proven by the checklist: start `gemini` with cwd = the session folder; register `designos` with
-   `gemini mcp add --scope project designos <designos-mcp> --workspace <dir>` equivalent written as the project file in the session folder (so the user's
-   `~/.gemini/settings.json` is untouched); permissions: `Skip` -> `--approval-mode yolo` (or `-y`), `Ask` -> `--approval-mode default`; resume
-   `--resume latest` (cwd-scoping not verified); sign-in command and usage source: none found; hooks: `gemini hooks` exists but its event names and file format
-   were not read, so status is heuristic until item 4 is shown.
+4. **Gemini CLI (first candidate).** Plan, to be proven by the checklist; nothing below is stated as fact about Gemini's behaviour until its live check passes. Start `gemini` with cwd = the session folder. Registering the
+   `designos` server uses only flags listed by `gemini mcp add --help` (captured in `cli-help-261019/gemini-mcp-add-help.txt`: `-s, --scope <user|project>` with `project` the default, `-t/--transport`, `-e/--env`,
+   `--trust`, positionals `<name> <commandOrUrl> [args...]`), for example `gemini mcp add -s project -e KEY=value designos <designos-mcp> <args...>`; the `--workspace <dir>` argument belongs to `designos-mcp`, not to
+   `gemini`, and goes in the trailing `[args...]`; how Gemini parses a dash-prefixed argument there (a `--` separator may be needed) is **unverified** and is settled by running the command in a scratch folder. Whether the
+   result is the project file `<session folder>/.gemini/settings.json` with an `mcpServers` object is known only from third-party mirrors; Studio writes that file itself only after a live run shows Gemini reads that path, otherwise
+   it runs the `gemini mcp add` command in the session folder before the tab starts. Permissions: `Skip` -> `--approval-mode yolo` (or `-y`), `Ask` -> `--approval-mode default` (both listed in `gemini --help`). Resume
+   `--resume latest` (cwd scoping not verified: a live check, as for Codex and agy in #653). Sign-in command and usage source: none found. Hooks: `gemini hooks` exists but its event names and file format were not read, so status is
+   heuristic until checklist item 4 is shown.
 5. **OpenCode (second candidate).** Plan: start `opencode <session folder>`; resume `--continue` or `--session <id>`; usage from `opencode stats` (verify per #678's rules
    before showing anything); MCP registration, hooks and skills are unknown: no feature is claimed until the checklist shows it, and until then OpenCode appears as
    "Plain CLI: Studio tools not connected" if the owner wants it listed at all (open question 1).
