@@ -5510,6 +5510,7 @@ Done!
             assert!(std::time::Instant::now() < deadline, "stub agent must print unauthorized and exit");
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
         st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
         let _ = st.poll_live_agent_bridge();
         let failure = st.active_tab().and_then(|t| t.start_failure.clone()).expect("start failure recorded");
