@@ -408,6 +408,9 @@ pub enum TerminalAction {
     /// `selection.spec.json` and pipes its path + node summary +
     /// unresolved Canvas Pin-Comments directly into the active PTY stdin.
     ExportSelectionToTerminal,
+    /// Writes the whole selection (`nodes` array, first 10 inline specs, <= 256 KB) to
+    /// `selection.spec.json` and pastes one fixed sentence into the active agent tab without Enter.
+    SendSelectionToAgent,
 }
 
 /// Orca 3-tier live agent execution status (`Working` / `WaitingForInput` / `Done` / `Idle`).
@@ -1031,7 +1034,8 @@ impl TerminalState {
              - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio in order, with a mark wherever you open another document)\n\n\
              ## Automatic Current-Page Delivery Rules\n\
              1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
-             2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n",
+             2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\
+             3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n",
             doc_name = self.doc_name,
             page_name = self.current_page_name,
             session_id = self.session_id,
@@ -1041,6 +1045,7 @@ impl TerminalState {
             spec = self.live_spec_path.display(),
             doc_sync = self.live_doc_sync_path.display(),
             doc_patch = self.live_patch.path.display(),
+            sel = self.selection_spec_path.display(),
         );
         let _ = atomic_write_session_file(&self.session_dir.join("SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
@@ -2654,11 +2659,50 @@ pub fn export_selection_and_comments_to_pty(
     Ok(state.selection_spec_path.clone())
 }
 
+/// Sends the current selection from the live selection chip (`#654`):
+/// writes `selection.spec.json` (`{ page, count, nodes }`, inline `spec` for the first 10 layers
+/// under 256 KB) and pastes one fixed sentence into the active agent tab without pressing Enter.
+/// When no live agent tab is open, writes nothing to the PTY and sets `status_msg` to
+/// `"No agent tab open - nothing sent"`.
+pub fn send_selection_to_agent_pty(state: &mut TerminalState, doc: &Document, page: NodeId, selection: &[NodeId]) -> Result<Option<PathBuf>, String> {
+    let Some((json, count)) = crate::agent_selection_chip::build_selection_spec_json(doc, page, selection)? else {
+        return Ok(None);
+    };
+    let has_live_agent = state.active_tab_mut().is_some_and(|t| t.accepts_agent_input());
+    if !has_live_agent {
+        state.status_msg = Some("No agent tab open - nothing sent".to_string());
+        let _ = atomic_write_session_file(&state.selection_spec_path, json.as_bytes());
+        return Ok(Some(state.selection_spec_path.clone()));
+    }
+    let _ = atomic_write_session_file(&state.selection_spec_path, json.as_bytes());
+    let sentence =
+        format!("Read the design:os selection at {} (use designos_export_spec for layers without an inline spec).", state.selection_spec_path.display());
+    if state.paste_into_agent_tab(&sentence) {
+        state.status_msg = Some(format!("Sent {count} selected to {}", state.selection_spec_path.display()));
+    } else {
+        state.status_msg = Some("No agent tab open - nothing sent".to_string());
+    }
+    Ok(Some(state.selection_spec_path.clone()))
+}
+
 /// Renders the 1:1 Figma Desktop `126.9.13` `Agents` Left Side Panel (`New chat / Shared` header,
 /// dismissible AI credits banner, CLI Runtime Selector Bar (`Claude` | `Codex` | `Antigravity` | `Shell`),
 /// pure Chat UI wrapper over the live PTY shell (`DIR-21`), `What's next?` empty state, bottom
 /// `"Ask for changes"` blue-bordered composer box, and toggleable in-panel live VT100 PTY viewport).
 pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
+    let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
+    show_left_with_selection(state, ui, rect, file_path, &summary)
+}
+
+/// Renders the `Agents` Left Side Panel with the live [`crate::agent_selection_chip::SelectionSummary`]
+/// computed in the current frame from `app`.
+pub fn show_left_with_selection(
+    state: &mut TerminalState,
+    ui: &mut Ui,
+    rect: Rect,
+    file_path: Option<&Path>,
+    selection_summary: &crate::agent_selection_chip::SelectionSummary,
+) -> Vec<TerminalAction> {
     state.ensure_default_tab(file_path);
     state.sync_chat_from_pty();
     let mut actions = state.poll_live_agent_bridge();
@@ -2789,15 +2833,20 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
         }
 
-        // Active File + Page Context Strip (20px) so the user & agent always see the bound Page
-        let ctx_h = 20.0;
+        // Header strip (`CONTROL_DENSE` = 24px) hosting the live selection chip (#654)
+        let ctx_h = theme::CONTROL_DENSE;
         let ctx_r = Rect::from_min_size(Pos2::new(rect.left(), bar_r.bottom()), Vec2::new(rect.width(), ctx_h));
-        p.rect_filled(ctx_r, 0.0, TERM_BG_ELEVATED);
-        widgets::hline(&p, ctx_r.left(), ctx_r.right(), ctx_r.bottom() - 1.0, TERM_BORDER);
-        let ctx_badge = format!("{} · {}", state.doc_name, state.current_page_name);
-        let ctx_elided = widgets::elide(&p, &ctx_badge, &theme::font_caption(), (ctx_r.width() - 24.0).max(40.0));
-        p.circle_filled(Pos2::new(ctx_r.left() + 10.0, ctx_r.center().y), 2.5, STATUS_INFO_TEXT);
-        p.text(Pos2::new(ctx_r.left() + 17.0, ctx_r.center().y), Align2::LEFT_CENTER, ctx_elided, theme::font_caption(), STATUS_INFO_TEXT);
+        p.rect_filled(ctx_r, 0.0, theme::BG_PRIMARY);
+        widgets::hline(&p, ctx_r.left(), ctx_r.right(), ctx_r.bottom() - theme::BORDER_WIDTH, theme::BORDER);
+        let chip_bounds = Rect::from_min_max(
+            Pos2::new(ctx_r.left() + theme::INSET_CONTROL, ctx_r.top()),
+            Pos2::new((ctx_r.right() - theme::INSET_CONTROL).max(ctx_r.left() + theme::INSET_CONTROL + theme::TARGET_MIN), ctx_r.bottom()),
+        );
+        let (_chip_rect, chip_clicked) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false);
+        if chip_clicked {
+            actions.push(TerminalAction::SendSelectionToAgent);
+        }
 
         // Live VT100 PTY Terminal Viewport (full height)
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), rect.max);
@@ -3500,14 +3549,28 @@ pub fn show_workspace(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_p
 /// Renders the full-canvas Agent Terminal view (`RailItem::Terminal`).
 #[allow(dead_code)]
 pub fn show_full(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    render_terminal_surface(state, ui, rect, file_path, "full")
+    let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
+    render_terminal_surface(state, ui, rect, file_path, "full", &summary)
 }
 
 /// Renders the docked bottom split-view Agent Terminal (`Ctrl+\`` / `dock_open`).
 pub fn show_dock(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
+    let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
+    show_dock_with_selection(state, ui, rect, file_path, &summary)
+}
+
+/// Renders the docked bottom split-view Agent Terminal (`Ctrl+\`` / `dock_open`) with the live
+/// [`crate::agent_selection_chip::SelectionSummary`] computed in the current frame from `app`.
+pub fn show_dock_with_selection(
+    state: &mut TerminalState,
+    ui: &mut Ui,
+    rect: Rect,
+    file_path: Option<&Path>,
+    selection_summary: &crate::agent_selection_chip::SelectionSummary,
+) -> Vec<TerminalAction> {
     let grip_rect = Rect::from_min_size(Pos2::new(rect.left(), rect.top() - 3.0), Vec2::new(rect.width(), 6.0));
     widgets::record(ui, "dock-resize-grip", grip_rect);
-    let actions = render_terminal_surface(state, ui, rect, file_path, "dock");
+    let actions = render_terminal_surface(state, ui, rect, file_path, "dock", selection_summary);
     let p = ui.painter().clone();
     let pill_r = Rect::from_center_size(Pos2::new(rect.center().x, rect.top() + 2.0), Vec2::new(36.0, 3.0));
     p.rect_filled(pill_r, CornerRadius::same(2), Color32::from_rgb(0x52, 0x52, 0x5B));
@@ -3540,7 +3603,14 @@ fn resolve_apply_spec_action(state: &mut TerminalState) -> Option<TerminalAction
     Some(TerminalAction::ApplySpecFile(fallback))
 }
 
-fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>, surface_id: &'static str) -> Vec<TerminalAction> {
+fn render_terminal_surface(
+    state: &mut TerminalState,
+    ui: &mut Ui,
+    rect: Rect,
+    file_path: Option<&Path>,
+    surface_id: &'static str,
+    selection_summary: &crate::agent_selection_chip::SelectionSummary,
+) -> Vec<TerminalAction> {
     state.ensure_default_tab(file_path);
     let mut actions = state.poll_live_agent_bridge();
     let p = ui.painter().clone();
@@ -3611,9 +3681,22 @@ fn render_terminal_surface(state: &mut TerminalState, ui: &mut Ui, rect: Rect, f
         STATUS_INFO_BORDER,
         STATUS_INFO_TEXT,
     );
-    right_x = send_r.left() - 8.0;
+    right_x = send_r.left() - theme::SPACE_INLINE;
     if ui.interact(send_r, Id::new((surface_id, "term-bar-send-sel")), Sense::click()).clicked() {
         actions.push(TerminalAction::ExportSelectionToTerminal);
+    }
+
+    // Live selection chip at the left of the bar's right-hand button group (#654)
+    let min_tabs_left = tab_bar_rect.left() + 148.0;
+    if right_x - min_tabs_left >= theme::TARGET_MIN {
+        let chip_max_w = (right_x - min_tabs_left).min(260.0);
+        let chip_bounds = Rect::from_min_max(Pos2::new(right_x - chip_max_w, tab_bar_rect.top()), Pos2::new(right_x, tab_bar_rect.bottom()));
+        let (chip_rect, chip_clicked) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true);
+        right_x = chip_rect.left() - theme::SPACE_INLINE;
+        if chip_clicked {
+            actions.push(TerminalAction::SendSelectionToAgent);
+        }
     }
 
     // Left side of Tab Bar: Session Tabs + Quick-Launch Preset Buttons
@@ -6151,5 +6234,219 @@ Done!
             assert!(!t.text.contains("Audit the selected frame against the PRD"), "painted text must not contain fake voice prompt: {:?}", t.text);
         }
         kill_tabs(&mut st);
+    }
+
+    fn make_three_layer_doc() -> (Document, NodeId, [NodeId; 3]) {
+        let mut doc = Document::new("Chip Test Doc");
+        let page = doc.add_page("Page 1");
+        let mut ids = [NodeId(0); 3];
+        for (idx, name) in ["A", "B", "C"].into_iter().enumerate() {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new((idx as f32) * 100.0, 0.0, 80.0, 60.0));
+            f.name = name.to_string();
+            doc.insert(page, f).unwrap();
+            ids[idx] = id;
+        }
+        (doc, page, ids)
+    }
+
+    #[test]
+    fn chip_updates_in_the_same_frame() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65401);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+
+        let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> String {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                crate::agent_selection_chip::with_selection_summary(&doc, page, sel, |summary| {
+                    let _ = show_left_with_selection(st, ui, panel_rect, None, summary);
+                });
+            });
+            ctx.data(|d| d.get_temp::<String>(Id::new(("test-text", "agent-selection-chip-left".to_string())))).expect("chip text recorded in the same frame")
+        };
+
+        assert_eq!(run_one_frame(&mut st, &[]), "Page 1 · none selected");
+        assert_eq!(run_one_frame(&mut st, &[ids[0]]), "Page 1 · 1 selected · A");
+        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]), "Page 1 · 3 selected · A, B +1");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn selection_change_writes_nothing_to_the_pty() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65402);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+
+        let selections: [&[NodeId]; 5] = [&[], &[ids[0]], &[ids[0], ids[1]], &[ids[0], ids[1], ids[2]], &[]];
+        for sel in selections {
+            st.sync_live_file_context(&doc, page, sel, None);
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                crate::agent_selection_chip::with_selection_summary(&doc, page, sel, |summary| {
+                    let actions = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                    assert!(actions.is_empty(), "merely changing selection must emit no send action: {actions:?}");
+                });
+            });
+        }
+
+        assert!(rec.lock().unwrap().is_empty(), "selection changes must write zero bytes to the PTY");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn click_pastes_one_sentence_without_enter() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let sel = [ids[0], ids[1]];
+        let mut st = TerminalState::for_tab(65403);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+
+        // Frame 1: paint to record chip rect.
+        let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+            });
+        });
+        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip-left".to_string())))).expect("chip rect recorded");
+        let click_pos = chip_rect.center();
+
+        // Frame 2: click the chip.
+        let mut emitted = Vec::new();
+        let raw_click = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            events: vec![
+                egui::Event::PointerMoved(click_pos),
+                egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_click, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                emitted = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+            });
+        });
+        assert_eq!(emitted, vec![TerminalAction::SendSelectionToAgent]);
+
+        send_selection_to_agent_pty(&mut st, &doc, page, &sel).expect("send selection");
+        let bytes = rec.lock().unwrap().clone();
+        assert!(bytes.starts_with(b"\x1b[200~") && bytes.ends_with(b"\x1b[201~"), "expected bracketed paste: {bytes:?}");
+        assert!(!bytes.contains(&b'\r') && !bytes.contains(&b'\n'), "click must not press Enter: {bytes:?}");
+        let inner = String::from_utf8_lossy(&bytes[6..bytes.len() - 6]);
+        assert!(inner.contains(&st.selection_spec_path.display().to_string()), "paste must reference selection.spec.json: {inner}");
+        assert!(inner.contains("designos_export_spec"), "paste must mention designos_export_spec: {inner}");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn file_covers_the_whole_selection() {
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65404);
+        let path = send_selection_to_agent_pty(&mut st, &doc, page, &ids).expect("send selection").expect("selection path written");
+        let val = read_json(&path);
+        assert_eq!(val["page"]["id"].as_u64(), Some(page.0));
+        assert_eq!(val["page"]["name"].as_str(), Some("Page 1"));
+        assert_eq!(val["count"].as_u64(), Some(3));
+        let nodes = val["nodes"].as_array().expect("nodes array");
+        assert_eq!(nodes.len(), 3);
+        for (i, expected_name) in ["A", "B", "C"].into_iter().enumerate() {
+            assert_eq!(nodes[i]["node_id"].as_u64(), Some(ids[i].0));
+            assert_eq!(nodes[i]["name"].as_str(), Some(expected_name));
+            assert_eq!(nodes[i]["kind"].as_str(), Some("frame"));
+            assert!(nodes[i].get("spec").is_some());
+        }
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn empty_selection_chip_is_inert() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, _ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65405);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+        let _ = std::fs::remove_file(&st.selection_spec_path);
+
+        let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+            });
+        });
+        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip-left".to_string())))).expect("chip rect recorded");
+        let click_pos = chip_rect.center();
+
+        let mut emitted = Vec::new();
+        let raw_click = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            events: vec![
+                egui::Event::PointerMoved(click_pos),
+                egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_click, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                emitted = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+            });
+        });
+
+        assert!(emitted.is_empty(), "clicking empty selection chip must raise no action: {emitted:?}");
+        assert!(rec.lock().unwrap().is_empty(), "empty selection chip must write nothing to PTY");
+        assert!(!st.selection_spec_path.exists(), "empty selection chip must write no selection.spec.json");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn no_agent_tab_sends_nothing() {
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65406);
+        // 1. No tabs open at all:
+        send_selection_to_agent_pty(&mut st, &doc, page, &[ids[0]]).expect("send with no tab");
+        assert_eq!(st.status_msg.as_deref(), Some("No agent tab open - nothing sent"));
+
+        // 2. Only a Shell tab open:
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.status_msg = None;
+        send_selection_to_agent_pty(&mut st, &doc, page, &[ids[0]]).expect("send with shell tab");
+        assert_eq!(st.status_msg.as_deref(), Some("No agent tab open - nothing sent"));
+        assert!(rec.lock().unwrap().is_empty(), "shell tab must receive zero bytes");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn context_reply_still_excludes_the_selection() {
+        prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection();
     }
 }

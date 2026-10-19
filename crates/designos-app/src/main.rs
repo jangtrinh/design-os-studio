@@ -1,3 +1,4 @@
+mod agent_selection_chip;
 mod agent_start_failure;
 mod app;
 mod board;

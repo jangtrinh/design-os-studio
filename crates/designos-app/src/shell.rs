@@ -1219,7 +1219,9 @@ impl Shell {
             }
             if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
                 let file_path = self.app.file_path.clone();
-                let term_actions = crate::terminal::show_dock(&mut self.app.terminal, ui, dock_rect, file_path.as_deref());
+                let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
+                    crate::terminal::show_dock_with_selection(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary)
+                });
                 execute_terminal_actions(&mut self.app, term_actions);
                 let dock_handle_rect =
                     Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
@@ -1364,6 +1366,11 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
                     Ok(p) => app.show_toast(format!("Sent selection & comments -> {}", p.display()), false),
                     Err(e) => app.show_toast(e, true),
+                }
+            }
+            crate::terminal::TerminalAction::SendSelectionToAgent => {
+                if let Err(e) = crate::terminal::send_selection_to_agent_pty(&mut app.terminal, &app.doc, app.page, &app.selection) {
+                    app.show_toast(e, true);
                 }
             }
         }
