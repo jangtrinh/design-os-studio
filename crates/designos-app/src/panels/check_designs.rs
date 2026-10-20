@@ -327,7 +327,8 @@ fn rules_popover(ui: &mut Ui, settings: &designos_doc::CheckDesignsSettings) -> 
         if resp.hovered() {
             p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        let enabled = !settings.disabled_rules.contains(rule.figma_id());
+        let enabled = !settings.disabled_rules.contains(rule.figma_id())
+            && (*rule != Rule::HardCodedValue || !settings.disabled_rules.contains(Rule::Contrast.figma_id()));
         let box_rect = Rect::from_center_size(Pos2::new(r.left() + POPOVER_CHECK_X, r.center().y), Vec2::splat(14.0));
         if enabled {
             p.rect_filled(box_rect, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);

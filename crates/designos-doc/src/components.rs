@@ -851,6 +851,41 @@ fn copy_style_ref_key(key: &str, from: &Node, to: &mut Node) {
     }
 }
 
+fn binding_override_field(key: &str, is_text: bool) -> Option<OverrideField> {
+    if key.starts_with("fills/") {
+        Some(if is_text { OverrideField::TextStyle } else { OverrideField::Fills })
+    } else if key.starts_with("strokes/") || matches!(key, "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight")
+    {
+        Some(OverrideField::Stroke)
+    } else if matches!(key, "fontSize" | "fontFamily" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent") {
+        Some(OverrideField::TextStyle)
+    } else if matches!(key, "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" | "cornerRadius") {
+        Some(OverrideField::CornerRadii)
+    } else if matches!(key, "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") {
+        Some(OverrideField::Layout)
+    } else if matches!(key, "width" | "height") {
+        Some(OverrideField::Size)
+    } else if key == "opacity" {
+        Some(OverrideField::Opacity)
+    } else if key == "visible" {
+        Some(OverrideField::Visible)
+    } else if key == "characters" {
+        Some(OverrideField::Characters)
+    } else {
+        None
+    }
+}
+
+fn copy_variable_bindings_for_field(f: OverrideField, from: &Node, to: &mut Node) {
+    let is_text = matches!(to.kind, NodeKind::Text(_));
+    to.variables.bindings.retain(|k, _| binding_override_field(k, is_text) != Some(f));
+    for (k, v) in &from.variables.bindings {
+        if binding_override_field(k, is_text) == Some(f) {
+            to.variables.bindings.insert(k.clone(), v.clone());
+        }
+    }
+}
+
 fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
     match f {
         OverrideField::Name => to.name = from.name.clone(),
@@ -912,6 +947,7 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         }
         OverrideField::MainComponent | OverrideField::SlotContent => {}
     }
+    copy_variable_bindings_for_field(f, from, to);
 }
 
 /// Text whose characters differ from the main `r` (overridden, or driven by a bound property that

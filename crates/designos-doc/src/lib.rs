@@ -481,6 +481,37 @@ impl Document {
         self.is_lint_property_ignored(rule_id, node, "")
     }
 
+    /// Check whether a finding on `(rule_id, node, property)` is suppressed in `check_designs.ignored`.
+    pub fn is_lint_ignored_property(&self, rule_id: &str, node: NodeId, property: Option<&str>) -> bool {
+        let target_canonical = crate::lint::canonical_rule_id(rule_id);
+        let prop = property.unwrap_or("").trim();
+        self.check_designs.ignored.iter().any(|k| {
+            if k.node != node {
+                return false;
+            }
+            // A legacy Contrast ignore stored `{rule: "RECOMMEND_VARIABLES", property: ""}`:
+            // it suppresses `low-contrast-text` / `CONTRAST` (empty property), never token properties on `hardcoded-value`.
+            if k.rule.eq_ignore_ascii_case("RECOMMEND_VARIABLES") && k.property.is_empty() {
+                return prop.is_empty() && (rule_id.eq_ignore_ascii_case("CONTRAST") || target_canonical == Some("low-contrast-text"));
+            }
+            let rule_matches = k.rule.eq_ignore_ascii_case(rule_id)
+                || target_canonical.is_some_and(|tc| crate::lint::canonical_rule_id(&k.rule) == Some(tc))
+                || (target_canonical == Some("hardcoded-value") && prop == "text" && k.rule.eq_ignore_ascii_case("REQUIRE_TEXT_STYLES"));
+            if !rule_matches {
+                return false;
+            }
+            if k.property.is_empty() {
+                return true;
+            }
+            if prop.is_empty() {
+                return false;
+            }
+            k.property == prop
+                || (k.property == "cornerRadius" && matches!(prop, "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius"))
+                || (k.property == "padding" && matches!(prop, "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft"))
+        })
+    }
+
     #[inline]
     pub fn runtime_id(&self) -> u64 {
         self.dirty.runtime_id

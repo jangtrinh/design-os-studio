@@ -645,9 +645,10 @@ fn fail_and_clean_inconsistent_radius() {
     let (mut fail_doc, fail_page) = new_doc_with_page("Fail");
     let bad = add_rect(&mut fail_doc, fail_page, "OddRadius", Rect::new(0.0, 0.0, 80.0, 40.0));
     fail_doc.get_mut(bad).unwrap().corner_radii = [7.0, 7.0, 7.0, 7.0];
+    // `off-scale` reports each off-scale corner as its own property finding.
     let f = lint_single_rule(&fail_doc, "inconsistent-radius");
-    assert_eq!(f.len(), 1);
-    assert_eq!(f[0].node, bad);
+    assert_eq!(f.len(), 4);
+    assert!(f.iter().all(|x| x.node == bad && x.rule == "off-scale"));
 
     let (mut clean_doc, clean_page) = new_doc_with_page("Clean");
     let clean = add_rect(&mut clean_doc, clean_page, "ScaleRadius", Rect::new(0.0, 0.0, 80.0, 40.0));

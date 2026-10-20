@@ -1,6 +1,7 @@
-//! Evaluation of all 27 registered design lint rules.
+//! Evaluation of all registered design lint rules.
 
 pub mod detached;
+pub mod scale;
 
 use super::config::LintConfig;
 use super::finding::{Finding, FixSuggestion};
@@ -8,12 +9,8 @@ use super::registry::{Category, Severity};
 use super::LintEnv;
 use crate::openpencil::{infer_role_hint, node_to_xpath};
 use crate::{Affine, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, Sizing, TextAutoResize, Vec2};
+pub use scale::{FONT_SCALE, RADIUS_SCALE, SPACING_SCALE};
 use serde_json::json;
-
-pub const SPACING_SCALE: [f32; 15] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 80.0, 96.0];
-pub const FONT_SCALE: [f32; 22] =
-    [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 18.0, 20.0, 24.0, 28.0, 30.0, 32.0, 36.0, 40.0, 48.0, 56.0, 60.0, 64.0, 72.0, 80.0, 96.0];
-pub const RADIUS_SCALE: [f32; 14] = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0, 24.0, 32.0, 999.0, 1000.0, 9999.0];
 
 pub fn on_scale(v: f32, scale: &[f32]) -> bool {
     scale.iter().any(|&s| (v - s).abs() < 0.05)
@@ -120,7 +117,6 @@ pub struct ActiveRules {
     pub collapsed_size: bool,
     pub sizing_conflict: bool,
     pub absolute_in_auto_layout: bool,
-    pub inconsistent_spacing: bool,
     pub unbalanced_padding: bool,
     pub missing_auto_layout: bool,
     pub misaligned_siblings: bool,
@@ -129,7 +125,6 @@ pub struct ActiveRules {
     pub placeholder_text: bool,
     pub text_truncated: bool,
     pub text_unexpected_wrap: bool,
-    pub non_scale_font_size: bool,
     pub tiny_text: bool,
     pub detached_text_style: bool,
     pub detached_instance: bool,
@@ -138,7 +133,6 @@ pub struct ActiveRules {
     pub empty_container: bool,
     pub non_4px_grid: bool,
     pub hardcoded_color: bool,
-    pub inconsistent_radius: bool,
     pub small_touch_target: bool,
 }
 
@@ -151,7 +145,6 @@ impl ActiveRules {
             collapsed_size: config.is_enabled("collapsed-size"),
             sizing_conflict: config.is_enabled("sizing-conflict"),
             absolute_in_auto_layout: config.is_enabled("absolute-in-auto-layout"),
-            inconsistent_spacing: config.is_enabled("inconsistent-spacing"),
             unbalanced_padding: config.is_enabled("unbalanced-padding"),
             missing_auto_layout: config.is_enabled("missing-auto-layout"),
             misaligned_siblings: config.is_enabled("misaligned-siblings"),
@@ -160,7 +153,6 @@ impl ActiveRules {
             placeholder_text: config.is_enabled("placeholder-text"),
             text_truncated: config.is_enabled("text-truncated"),
             text_unexpected_wrap: config.is_enabled("text-unexpected-wrap"),
-            non_scale_font_size: config.is_enabled("non-scale-font-size"),
             tiny_text: config.is_enabled("tiny-text"),
             detached_text_style: config.is_enabled("detached-text-style"),
             detached_instance: config.is_enabled("detached-instance"),
@@ -169,7 +161,6 @@ impl ActiveRules {
             empty_container: config.is_enabled("empty-container"),
             non_4px_grid: config.is_enabled("non-4px-grid"),
             hardcoded_color: config.is_enabled("hardcoded-color"),
-            inconsistent_radius: config.is_enabled("inconsistent-radius"),
             small_touch_target: config.is_enabled("small-touch-target"),
         }
     }
@@ -196,6 +187,8 @@ pub struct NodeEvalCtx<'a> {
     pub active: &'a ActiveRules,
     pub env: &'a dyn LintEnv,
     pub components: &'a detached::Components,
+    pub scales: &'a scale::Scales,
+    pub token_index: &'a super::token_match::Index,
 }
 
 /// Evaluates all enabled rules on `ctx.node` and appends any findings to `out`.
@@ -205,6 +198,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
     let config = ctx.config;
     let active = ctx.active;
     let tol = config.thresholds.geometry_tolerance;
+    let node_xpath = scale::LazyXPath::new(doc, n.id);
 
     let mut emit = |rule_id: &'static str,
                     category: Category,
@@ -216,17 +210,24 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
         let Some(severity) = config.rule_severity(rule_id) else {
             return;
         };
+        let xpath = if target.id == n.id { node_xpath.get().to_string() } else { node_to_xpath(doc, target.id) };
         out.push(Finding {
             rule: rule_id,
             category,
             severity,
             node: target.id,
             node_name: target.name.clone(),
-            xpath: node_to_xpath(doc, target.id),
+            xpath,
             bounds: target_bounds,
             message,
             suggested_fix,
             fixable,
+            safe: rule_id == "sizing-conflict" && fixable,
+            property: None,
+            value: None,
+            nearest: None,
+            scale_source: None,
+            candidates: None,
             ignored: false,
         });
     };
@@ -405,23 +406,11 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
     }
 
     // ------------------------------------------------------------------
-    // 5. Container rules: `sibling-overlap`, `inconsistent-spacing`, `unbalanced-padding`,
+    // 5. Container rules: `sibling-overlap`, `unbalanced-padding`,
     //    `missing-auto-layout`, `misaligned-siblings`
     // ------------------------------------------------------------------
     if let Some(fp) = n.kind.frame_props() {
         if let Some(al) = &fp.auto_layout {
-            if active.inconsistent_spacing && !on_scale(al.item_spacing, &SPACING_SCALE) {
-                let snapped = nearest_on_scale(al.item_spacing, &SPACING_SCALE);
-                emit(
-                    "inconsistent-spacing",
-                    Category::Layout,
-                    n,
-                    ctx.page_bounds,
-                    format!("item_spacing {} is off the spacing scale", al.item_spacing),
-                    Some(FixSuggestion { kind: "set".into(), property: "itemSpacing".into(), from: json!(al.item_spacing), to: json!(snapped) }),
-                    true,
-                );
-            }
             if active.unbalanced_padding && ((al.padding[0] - al.padding[2]).abs() > 0.1 || (al.padding[1] - al.padding[3]).abs() > 0.1) {
                 let v = nearest_on_scale((al.padding[0] + al.padding[2]) * 0.5, &SPACING_SCALE);
                 let h = nearest_on_scale((al.padding[1] + al.padding[3]) * 0.5, &SPACING_SCALE);
@@ -478,7 +467,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
 
     // ------------------------------------------------------------------
     // 6. Text rules: `text-missing-fill`, `placeholder-text`, `text-truncated`,
-    //    `text-unexpected-wrap`, `non-scale-font-size`, `tiny-text`, `detached-text-style`,
+    //    `text-unexpected-wrap`, `tiny-text`, `detached-text-style`,
     //    `low-contrast-text`
     // ------------------------------------------------------------------
     if let Some(tp) = n.kind.any_text() {
@@ -586,19 +575,6 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
             }
         }
 
-        if active.non_scale_font_size && !on_scale(tp.style.font_size, &FONT_SCALE) {
-            let snapped = nearest_on_scale(tp.style.font_size, &FONT_SCALE);
-            emit(
-                "non-scale-font-size",
-                Category::Tokens,
-                n,
-                ctx.page_bounds,
-                format!("Font size {}px is not on the typographic scale", tp.style.font_size),
-                Some(FixSuggestion { kind: "set".into(), property: "fontSize".into(), from: json!(tp.style.font_size), to: json!(snapped) }),
-                true,
-            );
-        }
-
         if active.tiny_text && tp.style.font_size < config.thresholds.min_font_size {
             emit(
                 "tiny-text",
@@ -646,7 +622,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
     }
 
     // ------------------------------------------------------------------
-    // 8. Naming, structure, token, and accessibility rules
+    // 8. Naming, structure, token, scale, and accessibility rules
     // ------------------------------------------------------------------
     if active.default_layer_name && is_default_layer_name(&n.name) {
         emit("default-layer-name", Category::Naming, n, ctx.page_bounds, format!("Layer '{}' uses a generic default name", n.name), None, true);
@@ -752,28 +728,6 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
         }
     }
 
-    if active.inconsistent_radius && n.corner_radii != [0.0; 4] {
-        let r0 = n.corner_radii[0];
-        let uniform = n.corner_radii.iter().all(|&r| (r - r0).abs() < 0.05);
-        if !uniform || !on_scale(r0, &RADIUS_SCALE) {
-            let snapped = nearest_on_scale(r0, &RADIUS_SCALE);
-            emit(
-                "inconsistent-radius",
-                Category::Tokens,
-                n,
-                ctx.page_bounds,
-                format!("Corner radii {:?} are non-uniform or off the radius scale", n.corner_radii),
-                Some(FixSuggestion {
-                    kind: "set".into(),
-                    property: "cornerRadii".into(),
-                    from: json!(n.corner_radii),
-                    to: json!([snapped, snapped, snapped, snapped]),
-                }),
-                true,
-            );
-        }
-    }
-
     if active.small_touch_target {
         let role = infer_role_hint(doc, n);
         let min_t = config.thresholds.min_touch_target;
@@ -800,6 +754,8 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
             f.ignored = true;
         }
     }
+    let suppressed_props = scale::evaluate_hardcoded_value(doc, ctx.token_index, config, n, ctx.page_bounds, &node_xpath, out);
+    scale::evaluate_off_scale(doc, ctx.scales, config, n, ctx.page_bounds, &node_xpath, &suppressed_props, out);
 }
 
 /// Sweep-and-prune sibling overlap detector (`O(n log n + k)`, `k` capped at 1,000 pairs per container).

@@ -1345,7 +1345,7 @@ pub fn tools() -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::Rect;
+    use designos_doc::{NodeKind, Rect};
 
     #[test]
     fn variable_inspection_and_codegen_resolve_inherited_cross_collection_aliases() {
@@ -2051,9 +2051,43 @@ mod tests {
 
     #[test]
     fn mcp_lint_returns_full_rule_set() {
-        use designos_doc::{AutoLayout, Color, FrameProps, LayoutChild, LayoutDirection, Paint, Sizing, TextAutoResize, TextStyle};
+        use designos_doc::{
+            AutoLayout, Color, FrameProps, LayoutChild, LayoutDirection, Paint, Sizing, TextAutoResize, TextStyle, Variable, VariableCollection, VariableKind,
+            VariableMode, VariableValue,
+        };
         let mut e = Engine::default();
         let page = e.resolve_default_page().unwrap();
+
+        e.doc.variable_collections.insert(
+            "c1".into(),
+            VariableCollection {
+                id: "c1".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["v1".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        e.doc.variables.insert(
+            "v1".into(),
+            Variable {
+                id: "v1".into(),
+                name: "Color/Primary".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: [("default".to_string(), VariableValue::Color(Color::rgb(12, 34, 56)))].into_iter().collect(),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
 
         // 1. overflow-parent: non-clipping frame with overflowing child
         let ov_parent = e.doc.alloc_id();
@@ -2064,7 +2098,7 @@ mod tests {
         let ov_child = e.doc.alloc_id();
         let mut ov_c = Node::rectangle(ov_child, Rect::new(60.0, 0.0, 80.0, 40.0));
         ov_c.name = "OverflowChild".into();
-        ov_c.fills = vec![Paint::solid(Color::rgb(12, 34, 56))]; // also hardcoded-color
+        ov_c.fills = vec![Paint::solid(Color::rgb(12, 34, 56))]; // also hardcoded-color + hardcoded-value
         e.doc.insert(ov_parent, ov_c).unwrap();
 
         // 2 & 3. clipped-partial and clipped-full inside clipping frame

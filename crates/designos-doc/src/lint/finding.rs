@@ -6,6 +6,27 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Source of the active scale for an `off-scale` finding (`archetype`, `variables`, `styles`, or `default`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScaleSource {
+    Archetype,
+    Variables,
+    Styles,
+    Default,
+}
+
+impl ScaleSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Archetype => "archetype",
+            Self::Variables => "variables",
+            Self::Styles => "styles",
+            Self::Default => "default",
+        }
+    }
+}
+
 /// Structured fix suggestion attached to a [`Finding`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FixSuggestion {
@@ -34,6 +55,26 @@ pub struct Finding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fix: Option<FixSuggestion>,
     pub fixable: bool,
+    /// Safe-fix tier (`true` for safe-tier findings: `hardcoded-value` with a single constant
+    /// variable or whole-list style match, `sizing-conflict`; `false` for `off-scale`,
+    /// mode-dependent `hardcoded-value`, and ambiguous matches).
+    #[serde(default)]
+    pub safe: bool,
+    /// Optional target property key (e.g. `"itemSpacing"`, `"fills/0"`, `"fontSize"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub property: Option<String>,
+    /// Optional raw value inspected on the node (number or `#RRGGBB` string).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
+    /// Optional nearest step (number) or equidistant steps (`[a, b]`) for `off-scale`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nearest: Option<Value>,
+    /// Optional scale source for `off-scale`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale_source: Option<ScaleSource>,
+    /// Optional candidate variable names when `hardcoded-value` is ambiguous.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ignored: bool,
 }

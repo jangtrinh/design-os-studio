@@ -230,6 +230,8 @@ fn scan_stack_slice<'a>(
     active: &ActiveRules,
     env: &dyn LintEnv,
     components: &detached::Components,
+    scales: &super::rules::scale::Scales,
+    token_index: &super::token_match::Index,
     max_nodes: usize,
     max_duration: Option<Duration>,
     raw_findings: &mut Vec<Finding>,
@@ -280,6 +282,8 @@ fn scan_stack_slice<'a>(
                 active,
                 env,
                 components,
+                scales,
+                token_index,
             };
             evaluate_node(&ctx, raw_findings);
         }
@@ -325,24 +329,27 @@ pub fn lint_subtree_with_components(
         &owned_components
     };
 
+    let scales = super::rules::scale::scales_for(doc, config.archetype.as_ref());
+    let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
+
     let active_cursor = budget.cursor.as_deref().or(config.cursor.as_deref());
     let mut page_offset = 0usize;
     let mut stack = build_initial_stack(doc, roots, active_cursor, &active, &mut page_offset);
 
     let mut raw_findings: Vec<Finding> = Vec::new();
     let (scanned, complete, mut next_cursor) =
-        scan_stack_slice(doc, &mut stack, config, &active, env, components, budget.max_nodes, budget.max_duration, &mut raw_findings);
+        scan_stack_slice(doc, &mut stack, config, &active, env, components, &scales, &token_index, budget.max_nodes, budget.max_duration, &mut raw_findings);
 
     // Filter or mark ignored findings in place when ignores exist.
     if !doc.check_designs.ignored.is_empty() {
         if config.include_ignored {
             for f in &mut raw_findings {
-                if !f.ignored && doc.is_lint_ignored(&f.rule, f.node) {
+                if !f.ignored && doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()) {
                     f.ignored = true;
                 }
             }
         } else {
-            raw_findings.retain(|f| !f.ignored && !doc.is_lint_ignored(&f.rule, f.node));
+            raw_findings.retain(|f| !f.ignored && !doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()));
         }
     }
     let mut filtered = raw_findings;
@@ -465,6 +472,8 @@ pub fn lint_in_slices_with_budget(
     }
 
     let components = if active.detached_instance { detached::Components::new(doc) } else { detached::Components::default() };
+    let scales = super::rules::scale::scales_for(doc, config.archetype.as_ref());
+    let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
 
     let initial_cursor = total_budget.cursor.as_deref().or_else(|| config.cursor.as_deref().filter(|c| c.starts_with("stack:")));
     let mut unused_offset = 0usize;
@@ -486,8 +495,19 @@ pub fn lint_in_slices_with_budget(
         slices += 1;
         let slice_nodes = max_nodes_per_slice.max(1).min(remaining_nodes);
         let t_slice = Instant::now();
-        let (step_scanned, step_complete, step_cursor) =
-            scan_stack_slice(doc, &mut stack, config, &active, env, &components, slice_nodes, Some(max_slice_duration), &mut raw_findings);
+        let (step_scanned, step_complete, step_cursor) = scan_stack_slice(
+            doc,
+            &mut stack,
+            config,
+            &active,
+            env,
+            &components,
+            &scales,
+            &token_index,
+            slice_nodes,
+            Some(max_slice_duration),
+            &mut raw_findings,
+        );
         worst_slice_duration = worst_slice_duration.max(t_slice.elapsed());
         total_scanned += step_scanned;
         cursor = step_cursor;
@@ -505,12 +525,12 @@ pub fn lint_in_slices_with_budget(
     if !doc.check_designs.ignored.is_empty() {
         if config.include_ignored {
             for f in &mut raw_findings {
-                if !f.ignored && doc.is_lint_ignored(&f.rule, f.node) {
+                if !f.ignored && doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()) {
                     f.ignored = true;
                 }
             }
         } else {
-            raw_findings.retain(|f| !f.ignored && !doc.is_lint_ignored(&f.rule, f.node));
+            raw_findings.retain(|f| !f.ignored && !doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()));
         }
     }
     let mut all_findings = raw_findings;

@@ -83,7 +83,8 @@ impl Rule {
     /// and `IgnoreKey::rule`.
     pub fn figma_id(self) -> &'static str {
         match self {
-            Rule::HardCodedValue | Rule::Contrast => "RECOMMEND_VARIABLES",
+            Rule::HardCodedValue => "RECOMMEND_VARIABLES",
+            Rule::Contrast => "CONTRAST",
             Rule::DetachedInstance => "REQUIRE_NO_DETACHED_COMPONENTS",
             Rule::LibraryAssets => "REQUIRE_ASSETS_FROM_SELECTED_LIBRARIES",
             Rule::TextStyles => "REQUIRE_TEXT_STYLES",
@@ -270,7 +271,13 @@ impl ScanCursor {
             unreadable_libraries: self.unreadable_libraries,
         };
         for f in self.partial {
-            if doc.check_designs.ignored.contains(&f.ignore_key()) {
+            let legacy_contrast_ignore = f.rule == Rule::Contrast
+                && doc.check_designs.ignored.contains(&designos_doc::IgnoreKey {
+                    node: f.node,
+                    rule: Rule::HardCodedValue.figma_id().to_string(),
+                    property: String::new(),
+                });
+            if doc.check_designs.ignored.contains(&f.ignore_key()) || legacy_contrast_ignore {
                 report.ignored.push(f);
             } else {
                 report.findings.push(f);
@@ -348,7 +355,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
             cur.prep_stack.extend(n.children.iter().rev().copied());
         }
 
-        cur.index = Some(hardcoded::Index::with_libraries(doc, &cur.libs));
+        cur.index = Some(hardcoded::Index::with_libraries(doc, &cur.libs.libs));
         cur.phase = Phase::Walk;
         if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
             return false;
@@ -356,7 +363,8 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
     }
 
     if cur.phase == Phase::Walk {
-        let contrast_on = !doc.check_designs.disabled_rules.contains(Rule::Contrast.figma_id());
+        let contrast_on = !doc.check_designs.disabled_rules.contains(Rule::Contrast.figma_id())
+            && !doc.check_designs.disabled_rules.contains(Rule::HardCodedValue.figma_id());
         let detached_on = !doc.check_designs.disabled_rules.contains(Rule::DetachedInstance.figma_id());
         loop {
             if let Some(mut job) = cur.detach.take() {

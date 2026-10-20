@@ -2,9 +2,10 @@
 
 use super::config::LintConfig;
 use super::registry::{resolve_rule, LintPreset};
-use super::rules::{is_default_layer_name, nearest_on_scale, on_scale, FONT_SCALE, RADIUS_SCALE, SPACING_SCALE};
+use super::rules::{is_default_layer_name, nearest_on_scale, SPACING_SCALE};
+use super::token_match::{number_inherited, Index as TokenIndex, Match, Slot, PADDING_KEYS};
 use crate::openpencil::{infer_role_hint, xpath_type_name};
-use crate::{Command, DocError, Document, History, LayoutDirection, NodeId, NodeKind};
+use crate::{set_bound_property, Command, DocError, Document, History, LayoutDirection, NodeId, NodeKind, PaintKind};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> (Vec<Command>, Value) {
     let allow = |rule: &str, node_id: NodeId| -> bool { cfg.is_enabled(rule) && (cfg.include_ignored || !doc.is_lint_ignored(rule, node_id)) };
 
+    let token_index = TokenIndex::new(doc);
     let mut visit_ids = Vec::new();
     let mut seen = BTreeSet::new();
     for &r in roots {
@@ -55,6 +57,9 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             let children = orig_node.kind.frame_props().filter(|f| f.auto_layout.is_none()).map(|_| orig_node.children.clone()).unwrap_or_default();
             for i in 0..children.len() {
                 for j in (i + 1)..children.len() {
+                    if !cfg.include_ignored && doc.is_lint_ignored("misaligned-siblings", children[j]) {
+                        continue;
+                    }
                     let a_tx_ty = updated_nodes.get(&children[i]).or_else(|| doc.get(children[i])).map(|n| (n.transform.tx, n.transform.ty));
                     let b_node = updated_nodes.get(&children[j]).cloned().or_else(|| doc.get(children[j]).cloned());
                     let (Some((atx, aty)), Some(mut bm)) = (a_tx_ty, b_node) else {
@@ -90,6 +95,8 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
 
         let mut n = updated_nodes.remove(&id).unwrap_or_else(|| orig_node.clone());
         let mut modified = false;
+        let src_resolved = n.component.source.and_then(|s| crate::resolved_node(doc, s));
+        let src = src_resolved.as_deref();
 
         if allow("default-layer-name", id) && is_default_layer_name(&n.name) {
             let new_name = match &n.kind {
@@ -127,7 +134,7 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             }));
         }
 
-        if allow("tiny-text", id) {
+        if allow("tiny-text", id) && !number_inherited(&n, src, "fontSize") {
             if let Some(t) = n.kind.any_text_mut() {
                 if t.style.font_size < 12.0 {
                     t.style.font_size = 12.0;
@@ -136,21 +143,6 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
                         "rule": "tiny-text",
                         "node_id": id.0,
                         "action": "bumped font_size to 12px",
-                    }));
-                }
-            }
-        }
-
-        if allow("non-scale-font-size", id) {
-            if let Some(t) = n.kind.any_text_mut() {
-                if !on_scale(t.style.font_size, &FONT_SCALE) {
-                    let snapped = nearest_on_scale(t.style.font_size, &FONT_SCALE);
-                    t.style.font_size = snapped;
-                    modified = true;
-                    changes.push(json!({
-                        "rule": "non-scale-font-size",
-                        "node_id": id.0,
-                        "action": format!("snapped font_size to {snapped}px"),
                     }));
                 }
             }
@@ -184,32 +176,14 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             }
         }
 
-        if allow("inconsistent-radius", id) && n.corner_radii != [0.0; 4] {
-            let r0 = nearest_on_scale(n.corner_radii[0], &RADIUS_SCALE);
-            if n.corner_radii != [r0; 4] {
-                n.corner_radii = [r0; 4];
-                modified = true;
-                changes.push(json!({
-                    "rule": "inconsistent-radius",
-                    "node_id": id.0,
-                    "action": format!("normalized corner_radii to {r0}px"),
-                }));
-            }
-        }
-
+        let padding_inherited = PADDING_KEYS.iter().all(|k| number_inherited(&n, src, k));
         if let Some(fp) = n.kind.frame_props_mut() {
             if let Some(al) = &mut fp.auto_layout {
-                if allow("inconsistent-spacing", id) && !on_scale(al.item_spacing, &SPACING_SCALE) {
-                    let snapped = nearest_on_scale(al.item_spacing, &SPACING_SCALE);
-                    al.item_spacing = snapped;
-                    modified = true;
-                    changes.push(json!({
-                        "rule": "inconsistent-spacing",
-                        "node_id": id.0,
-                        "action": format!("snapped item_spacing to {snapped}px"),
-                    }));
-                }
-                if allow("unbalanced-padding", id) && ((al.padding[0] - al.padding[2]).abs() > 0.1 || (al.padding[1] - al.padding[3]).abs() > 0.1) {
+                if allow("unbalanced-padding", id)
+                    && !padding_inherited
+                    && !PADDING_KEYS.iter().any(|k| n.variables.bindings.contains_key(*k))
+                    && ((al.padding[0] - al.padding[2]).abs() > 0.1 || (al.padding[1] - al.padding[3]).abs() > 0.1)
+                {
                     let v = nearest_on_scale((al.padding[0] + al.padding[2]) * 0.5, &SPACING_SCALE);
                     let h = nearest_on_scale((al.padding[1] + al.padding[3]) * 0.5, &SPACING_SCALE);
                     al.padding = [v, h, v, h];
@@ -223,17 +197,96 @@ pub fn lint_fix_commands(doc: &Document, roots: &[NodeId], cfg: &LintConfig) -> 
             }
         }
 
+        let orphaned_mirror = n.component.source.is_some() && src.is_none();
+        if allow("hardcoded-value", id) && !orphaned_mirror && !token_index.by_rgb.is_empty() && !n.style_refs.contains_key("fill") {
+            let slot = Slot::Fill;
+            let paints = slot.paints(&n);
+            let slot_inherited = src.is_some_and(|s| {
+                slot.paints(s) == paints
+                    && s.style_refs.get(slot.ref_key()) == n.style_refs.get(slot.ref_key())
+                    && (0..paints.len()).all(|i| {
+                        let key = format!("{}/{i}", slot.prefix());
+                        s.variables.bindings.get(&key) == n.variables.bindings.get(&key)
+                    })
+            });
+            let mut to_bind = Vec::new();
+            if !slot_inherited {
+                for (i, p) in paints.iter().enumerate() {
+                    let PaintKind::Solid(c) = &p.kind else { continue };
+                    let key = format!("{}/{i}", slot.prefix());
+                    if !p.visible || n.variables.bindings.contains_key(&key) || doc.is_lint_ignored_property("hardcoded-value", id, Some(&key)) {
+                        continue;
+                    }
+                    if src.is_some_and(|s| slot.paints(s).get(i) == Some(p) && s.variables.bindings.get(&key) == n.variables.bindings.get(&key)) {
+                        continue;
+                    }
+                    if let Match::One(entry) = token_index.find(doc, &n, &key, c) {
+                        if entry.constant {
+                            to_bind.push((key, entry.fix_id.clone(), entry.token_name()));
+                        }
+                    }
+                }
+            }
+            for (key, fix_id, token_name) in to_bind {
+                n.variables.bindings.insert(key.clone(), fix_id.clone());
+                if let Some(val) = doc.resolve_variable(id, &fix_id) {
+                    set_bound_property(&mut n, &key, &val);
+                }
+                modified = true;
+                changes.push(json!({
+                    "rule": "hardcoded-value",
+                    "node_id": id.0,
+                    "action": format!("bound {key} to variable '{token_name}'"),
+                }));
+            }
+        }
+
         if modified || doc.get(id).is_some_and(|orig| &n != orig) {
+            if n.component.source.is_some() {
+                if let Some(orig) = doc.get(id) {
+                    let ov = crate::record_override(orig, &n);
+                    n.component.overrides.extend(ov);
+                }
+            }
             updated_nodes.insert(id, n);
         }
     }
 
+    let mut touched_ids: Vec<NodeId> = updated_nodes.keys().copied().chain(to_remove.iter().copied()).collect();
     let mut cmds = Vec::new();
     for (_, node) in updated_nodes {
         cmds.push(Command::Update { node: Box::new(node) });
     }
     for rem_id in to_remove {
         cmds.push(Command::Remove { id: rem_id });
+    }
+
+    if !cmds.is_empty() {
+        let mut queue: Vec<NodeId> = touched_ids.iter().filter_map(|&id| crate::enclosing_component(doc, id)).collect();
+        if !queue.is_empty() {
+            let mut scratch = doc.clone();
+            if Command::Batch(cmds.clone()).apply(&mut scratch).is_ok() {
+                queue.extend(touched_ids.drain(..).filter_map(|id| crate::enclosing_component(&scratch, id)));
+                queue.sort();
+                queue.dedup();
+                let mut rounds = 0;
+                while let Some(owner) = queue.pop() {
+                    rounds += 1;
+                    if rounds > 16 {
+                        break;
+                    }
+                    let sync_cmd = crate::sync_instances(&mut scratch, owner);
+                    if matches!(&sync_cmd, Command::Batch(v) if v.is_empty()) {
+                        continue;
+                    }
+                    let _ = sync_cmd.clone().apply(&mut scratch);
+                    match sync_cmd {
+                        Command::Batch(sub) => cmds.extend(sub),
+                        other => cmds.push(other),
+                    }
+                }
+            }
+        }
     }
 
     let summary = json!({
