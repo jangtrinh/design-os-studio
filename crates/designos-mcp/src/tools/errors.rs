@@ -74,6 +74,20 @@ pub enum ErrorCode {
     InvalidSelector,
     UnknownLanguage,
     OutsideOwnedFrames,
+
+    // Codes owned by other specs' tools (lint, guidelines, design-system search, screenshot, prompts) (12)
+    UnknownPreset,
+    UnknownRule,
+    ExactlyOneScope,
+    InvalidCursor,
+    UnknownTopic,
+    TopicNotAvailable,
+    UnknownPropertyKey,
+    ExactlyOneTarget,
+    InvalidRegion,
+    ImageTooLarge,
+    NodesOnDifferentPages,
+    UnknownPrompt,
 }
 
 #[allow(non_upper_case_globals)]
@@ -113,7 +127,7 @@ impl ErrorCode {
     pub const IoError: Self = Self::InternalError;
     pub const SessionUnavailable: Self = Self::InternalError;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3 plus 3 active pack codes).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes and the 12 codes owned by other specs' tools).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -168,6 +182,18 @@ impl ErrorCode {
         Self::InvalidSelector,
         Self::UnknownLanguage,
         Self::OutsideOwnedFrames,
+        Self::UnknownPreset,
+        Self::UnknownRule,
+        Self::ExactlyOneScope,
+        Self::InvalidCursor,
+        Self::UnknownTopic,
+        Self::TopicNotAvailable,
+        Self::UnknownPropertyKey,
+        Self::ExactlyOneTarget,
+        Self::InvalidRegion,
+        Self::ImageTooLarge,
+        Self::NodesOnDifferentPages,
+        Self::UnknownPrompt,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -225,6 +251,18 @@ impl ErrorCode {
             Self::InvalidSelector => "INVALID_SELECTOR",
             Self::UnknownLanguage => "UNKNOWN_LANGUAGE",
             Self::OutsideOwnedFrames => "OUTSIDE_OWNED_FRAMES",
+            Self::UnknownPreset => "UNKNOWN_PRESET",
+            Self::UnknownRule => "UNKNOWN_RULE",
+            Self::ExactlyOneScope => "EXACTLY_ONE_SCOPE",
+            Self::InvalidCursor => "INVALID_CURSOR",
+            Self::UnknownTopic => "UNKNOWN_TOPIC",
+            Self::TopicNotAvailable => "TOPIC_NOT_AVAILABLE",
+            Self::UnknownPropertyKey => "UNKNOWN_PROPERTY_KEY",
+            Self::ExactlyOneTarget => "EXACTLY_ONE_TARGET",
+            Self::InvalidRegion => "INVALID_REGION",
+            Self::ImageTooLarge => "IMAGE_TOO_LARGE",
+            Self::NodesOnDifferentPages => "NODES_ON_DIFFERENT_PAGES",
+            Self::UnknownPrompt => "UNKNOWN_PROMPT",
         }
     }
 
@@ -242,6 +280,8 @@ impl ErrorCode {
             Self::UnknownVariable | Self::AmbiguousVariable => "Call designos_get_variables or pick one of valid_options.",
             Self::UnknownStyle | Self::StyleTypeMismatch => "Call designos_get_document to inspect shared styles or use one of valid_options.",
             Self::BatchTooLarge => "Split the batch into chunks of at most 200 operations.",
+            Self::ExactlyOneScope | Self::ExactlyOneTarget => "Remove the extra scope or target arguments so exactly one remains, then retry.",
+            Self::TopicNotAvailable => "Call designos_get_guidelines without a topic to list the available topics.",
             Self::InternalError => "Call designos_get_document to inspect current state before retrying.",
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
@@ -302,6 +342,18 @@ impl ErrorCode {
             "INVALID_SELECTOR" => Some(Self::InvalidSelector),
             "UNKNOWN_LANGUAGE" => Some(Self::UnknownLanguage),
             "OUTSIDE_OWNED_FRAMES" => Some(Self::OutsideOwnedFrames),
+            "UNKNOWN_PRESET" => Some(Self::UnknownPreset),
+            "UNKNOWN_RULE" => Some(Self::UnknownRule),
+            "EXACTLY_ONE_SCOPE" => Some(Self::ExactlyOneScope),
+            "INVALID_CURSOR" => Some(Self::InvalidCursor),
+            "UNKNOWN_TOPIC" => Some(Self::UnknownTopic),
+            "TOPIC_NOT_AVAILABLE" => Some(Self::TopicNotAvailable),
+            "UNKNOWN_PROPERTY_KEY" => Some(Self::UnknownPropertyKey),
+            "EXACTLY_ONE_TARGET" => Some(Self::ExactlyOneTarget),
+            "INVALID_REGION" => Some(Self::InvalidRegion),
+            "IMAGE_TOO_LARGE" => Some(Self::ImageTooLarge),
+            "NODES_ON_DIFFERENT_PAGES" => Some(Self::NodesOnDifferentPages),
+            "UNKNOWN_PROMPT" => Some(Self::UnknownPrompt),
             _ => None,
         }
     }
@@ -486,11 +538,21 @@ impl ToolError {
 }
 
 impl ToolError {
-    /// Wraps a plain-text failure from a helper that has not been migrated to [`ToolError`] yet.
-    /// A leading `CODE:` token naming a known [`ErrorCode`] and a trailing `(safe_to_retry: ...)`
-    /// marker are honoured; anything else becomes `INVALID_ARGUMENTS`.
+    /// Wraps a failure from a helper that still returns a plain string.
+    ///
+    /// Three shapes are understood, so no tool loses its catalogue code or structured fields:
+    /// - a JSON error envelope (`{"code": ..., "message": ..., "valid_options": [...], ...}`, as the
+    ///   screenshot and design-context helpers return), parsed by [`ToolError::from_json_envelope`];
+    /// - a leading `CODE:` token naming a known [`ErrorCode`];
+    /// - a trailing `(safe_to_retry: ...)` marker, and a trailing `valid_options: [...]` JSON array,
+    ///   which becomes the `valid_options` field and is removed from the message.
+    ///
+    /// Anything else becomes `INVALID_ARGUMENTS`.
     pub fn from_plain_message(msg: impl Into<String>) -> Self {
         let msg: String = msg.into();
+        if let Some(parsed) = serde_json::from_str::<Value>(&msg).ok().and_then(|v| Self::from_json_envelope(&v)) {
+            return parsed;
+        }
         let (head, rest) = match msg.split_once(':') {
             Some((h, r)) if !h.is_empty() && h.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') => (Some(h), r.trim_start()),
             _ => (None, msg.as_str()),
@@ -501,8 +563,55 @@ impl ToolError {
             Some((t, tail)) if tail.ends_with(')') => (t, !tail.starts_with("false")),
             _ => (body, true),
         };
-        ToolError::new(known.unwrap_or(ErrorCode::InvalidArguments), "", text).with_safe_to_retry(safe)
+        let (text, options) = split_trailing_valid_options(text);
+        let err = ToolError::new(known.unwrap_or(ErrorCode::InvalidArguments), "", text).with_safe_to_retry(safe);
+        if options.is_empty() {
+            err
+        } else {
+            err.with_valid_options(options)
+        }
     }
+
+    /// Builds a [`ToolError`] from a JSON error envelope with a string `code`. Returns `None` when
+    /// `value` is not such an object. An unknown `code` becomes `INVALID_ARGUMENTS`; `valid_options`
+    /// entries that are not strings (for example `{"max_long_edge": 1024}`) keep their compact JSON text.
+    pub fn from_json_envelope(value: &Value) -> Option<Self> {
+        let obj = value.as_object()?;
+        let code_str = obj.get("code")?.as_str()?;
+        let code = ErrorCode::from_code_str(code_str).unwrap_or(ErrorCode::InvalidArguments);
+        let text = |key: &str| obj.get(key).and_then(Value::as_str);
+        // Helpers repeat the code at the start of the message ("NODE_NOT_FOUND: ..."); the code has its own field.
+        let message = text("message").map(|m| m.strip_prefix(code_str).and_then(|rest| rest.strip_prefix(": ")).unwrap_or(m)).unwrap_or(code_str);
+        let mut err =
+            ToolError::new(code, text("path").unwrap_or(""), message).with_safe_to_retry(obj.get("safe_to_retry").and_then(Value::as_bool).unwrap_or(true));
+        if let Some(next_step) = text("next_step") {
+            err = err.with_next_step(next_step);
+        }
+        if let Some(expected) = text("expected") {
+            err = err.with_expected(expected);
+        }
+        if let Some(received) = obj.get("received") {
+            err = err.with_received(received.clone());
+        }
+        if let Some(example) = obj.get("corrected_example") {
+            err = err.with_corrected_example(example.clone());
+        }
+        if let Some(options) = obj.get("valid_options").and_then(Value::as_array) {
+            err = err.with_valid_options(options.iter().map(|o| o.as_str().map_or_else(|| o.to_string(), str::to_string)));
+        }
+        Some(err)
+    }
+}
+
+/// Splits a trailing `valid_options: ["a", "b"]` JSON array off `text` (with the `; ` or ` (` that
+/// introduced it). Returns `text` unchanged and no options when the tail is not a string array.
+fn split_trailing_valid_options(text: &str) -> (&str, Vec<String>) {
+    const KEY: &str = "valid_options: ";
+    let Some(at) = text.rfind(KEY) else { return (text, Vec::new()) };
+    let tail = text[at + KEY.len()..].trim_end().trim_end_matches(')');
+    let Ok(options) = serde_json::from_str::<Vec<String>>(tail) else { return (text, Vec::new()) };
+    let head = text[..at].trim_end().trim_end_matches(['(', ';', ',']).trim_end();
+    (head, options)
 }
 
 impl From<String> for ToolError {
@@ -999,11 +1108,52 @@ mod plain_message_tests {
 
     #[test]
     fn an_unknown_prefix_keeps_the_whole_message_as_invalid_arguments() {
-        let e = ToolError::from("EXACTLY_ONE_SCOPE: provide at most one of page_id or node_ids (safe_to_retry: true)");
+        let e = ToolError::from("NOT_A_CATALOGUE_CODE: provide at most one of page_id or node_ids (safe_to_retry: true)");
         assert_eq!(e.code, ErrorCode::InvalidArguments);
-        assert_eq!(e.message, "EXACTLY_ONE_SCOPE: provide at most one of page_id or node_ids");
+        assert_eq!(e.message, "NOT_A_CATALOGUE_CODE: provide at most one of page_id or node_ids");
         assert!(e.safe_to_retry);
-        assert!(e.contains("EXACTLY_ONE_SCOPE"));
+    }
+
+    #[test]
+    fn codes_owned_by_other_tools_keep_their_own_code() {
+        let e = ToolError::from("EXACTLY_ONE_SCOPE: provide at most one of page_id or node_ids (safe_to_retry: true)");
+        assert_eq!(e.code, ErrorCode::ExactlyOneScope);
+        assert_eq!(e.message, "provide at most one of page_id or node_ids");
+        for code in ErrorCode::ALL {
+            assert_eq!(ErrorCode::from_code_str(code.as_str()), Some(*code), "{} must round-trip", code.as_str());
+        }
+    }
+
+    #[test]
+    fn a_trailing_valid_options_array_becomes_the_field() {
+        let e = ToolError::from("UNKNOWN_PRESET: unknown lint preset 'x'; valid_options: [\"agent\", \"strict\"] (safe_to_retry: true)".to_string());
+        assert_eq!(e.code, ErrorCode::UnknownPreset);
+        assert_eq!(e.message, "unknown lint preset 'x'");
+        assert_eq!(e.valid_options, vec!["agent", "strict"]);
+        assert!(e.safe_to_retry);
+
+        let loose = ToolError::from("INVALID_ARGUMENTS: odd valid_options: not an array");
+        assert!(loose.valid_options.is_empty());
+        assert!(loose.message.contains("valid_options: not an array"));
+    }
+
+    #[test]
+    fn a_json_envelope_is_parsed_instead_of_embedded() {
+        let raw = json!({
+            "code": "IMAGE_TOO_LARGE",
+            "message": "IMAGE_TOO_LARGE: too big",
+            "path": "/scale",
+            "valid_options": [{"largest_allowed_scale": 1.5}, "x"],
+            "safe_to_retry": true,
+            "next_step": "Lower scale."
+        })
+        .to_string();
+        let e = ToolError::from(raw);
+        assert_eq!(e.code, ErrorCode::ImageTooLarge);
+        assert_eq!(e.message, "too big");
+        assert_eq!(e.path, "/scale");
+        assert_eq!(e.valid_options, vec!["{\"largest_allowed_scale\":1.5}".to_string(), "x".to_string()]);
+        assert_eq!(e.next_step, "Lower scale.");
     }
 
     #[test]

@@ -752,7 +752,8 @@ impl Session {
                 }
                 let rendered = crate::tools::screenshot::render_target(&self.engine.doc, crate::tools::screenshot::ScreenshotTarget::Node(id), a.scale, 0)
                     .map_err(|e| match e.code {
-                        "IMAGE_TOO_LARGE" => ToolError::new(ErrorCode::ValueOutOfRange, "/scale", format!("IMAGE_TOO_LARGE: {}", e.message)),
+                        "IMAGE_TOO_LARGE" => ToolError::from_json_envelope(&e.to_json_value())
+                            .unwrap_or_else(|| ToolError::new(ErrorCode::ImageTooLarge, "/scale", e.message.clone())),
                         _ => ToolError::new(ErrorCode::InvalidArguments, "/node_id", format!("Node {} produced an empty image", a.node_id))
                             .with_received(json!(a.node_id)),
                     })?;
@@ -942,11 +943,21 @@ impl DesignOSServer {
             .call(name, args)
     }
 
-    pub fn get_prompt(&self, name: &str, args: Option<&JsonObject>) -> Result<GetPromptResult, String> {
-        let mut session = self.session.lock().map_err(|_| "Session unavailable; restart the MCP server".to_string())?;
+    pub fn get_prompt(&self, name: &str, args: Option<&JsonObject>) -> Result<GetPromptResult, ToolError> {
+        let mut session = self
+            .session
+            .lock()
+            .map_err(|_| ToolError::new(ErrorCode::InternalError, "", "Session unavailable; restart the MCP server").with_safe_to_retry(false))?;
         session.sync_from_live_canvas_if_newer();
         session.engine.settle_layout();
-        crate::prompts::get_prompt(&session.engine.doc, name, args)
+        crate::prompts::get_prompt(&session.engine.doc, name, args).map_err(|e| {
+            let err = ToolError::from(e);
+            if err.code == ErrorCode::UnknownPrompt {
+                err.with_path("/name")
+            } else {
+                err
+            }
+        })
     }
 }
 
@@ -1111,7 +1122,9 @@ impl ServerHandler for DesignOSServer {
         Ok(ListPromptsResult { prompts: crate::prompts::prompts(), ..Default::default() })
     }
     async fn get_prompt(&self, request: GetPromptRequestParams, _: RequestContext<RoleServer>) -> Result<GetPromptResponse, ErrorData> {
-        self.get_prompt(&request.name, request.arguments.as_ref()).map(Into::into).map_err(|e| ErrorData::invalid_params(e, None))
+        self.get_prompt(&request.name, request.arguments.as_ref())
+            .map(Into::into)
+            .map_err(|e| ErrorData::invalid_params(e.message.clone(), Some(e.to_json_value())))
     }
 }
 
@@ -1464,16 +1477,116 @@ mod tests {
                         "kind": "frame",
                         "name": "Hero",
                         "layout": {
-                            "dir": "row"
+                            "dirr": "row"
                         }
                     }
                 }),
             )
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::UnknownField);
-        assert_eq!(err.path, "/spec/layout/dir");
+        assert_eq!(err.path, "/spec/layout/dirr");
         assert!(err.valid_options.contains(&"direction".to_string()), "valid_options: {:?}", err.valid_options);
         assert!(err.safe_to_retry);
+
+        let _ = fs::remove_dir_all(&ws_dir);
+    }
+
+    #[test]
+    fn layout_dir_alias_builds_the_frame_and_a_typo_is_still_named() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-590-dir-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let mut session = Session::new(&ws_dir).unwrap();
+
+        for (alias, expected) in [("row", designos_doc::LayoutDirection::Horizontal), ("column", designos_doc::LayoutDirection::Vertical)] {
+            let out = session.call("designos_apply_spec", json!({"spec": {"kind": "frame", "name": "Aliased", "layout": {"dir": alias}}})).unwrap();
+            let id = designos_doc::NodeId(out["root_node_id"].as_u64().unwrap());
+            let al = session.engine.doc.get(id).unwrap().kind.frame_props().and_then(|f| f.auto_layout.clone()).expect("auto layout");
+            assert_eq!(al.direction, expected, "`dir: {alias}` must set the direction");
+        }
+
+        let err = session.call("designos_apply_spec", json!({"spec": {"kind": "frame", "layout": {"dirr": "row"}}})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::UnknownField);
+        assert_eq!(err.path, "/spec/layout/dirr");
+        assert!(err.valid_options.contains(&"direction".to_string()), "valid_options: {:?}", err.valid_options);
+
+        let _ = fs::remove_dir_all(&ws_dir);
+    }
+
+    #[test]
+    fn release_tool_errors_keep_their_own_code_and_valid_options() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-mcp-ws-590-rel-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let mut s = Session::new(&ws_dir).unwrap();
+        let page = s.engine.doc.pages[0];
+        let frame = s.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame", "name": "F"})).unwrap()["node"]["id"].as_u64().unwrap();
+
+        let check = |label: &str, err: ToolError, code: ErrorCode, option: Option<&str>| {
+            assert_eq!(err.code, code, "{label}: {err:?}");
+            assert!(!err.message.trim_start().starts_with('{'), "{label}: the envelope must not be embedded in the message: {}", err.message);
+            if let Some(option) = option {
+                assert!(err.valid_options.iter().any(|o| o.contains(option)), "{label}: valid_options {:?} lack {option}", err.valid_options);
+            }
+        };
+
+        let e = s.call("designos_get_design_context", json!({"node_id": 999_999})).unwrap_err();
+        assert_eq!(e.path, "/node_id");
+        check("design_context node", e, ErrorCode::NodeNotFound, None);
+        check(
+            "design_context language",
+            s.call("designos_get_design_context", json!({"node_id": frame, "language": "cobol"})).unwrap_err(),
+            ErrorCode::UnknownLanguage,
+            Some("react"),
+        );
+        for tool in ["designos_lint", "designos_lint_fix"] {
+            check(tool, s.call(tool, json!({"preset": "nope"})).unwrap_err(), ErrorCode::UnknownPreset, Some("strict"));
+        }
+        check("lint rules", s.call("designos_lint", json!({"rules": ["nope"]})).unwrap_err(), ErrorCode::UnknownRule, None);
+        check("lint scope", s.call("designos_lint", json!({"page_id": page.0, "node_ids": [frame]})).unwrap_err(), ErrorCode::ExactlyOneScope, None);
+        check("lint cursor", s.call("designos_lint", json!({"cursor": "bogus"})).unwrap_err(), ErrorCode::InvalidCursor, None);
+        check("guidelines unknown", s.call("designos_get_guidelines", json!({"topic": "nope"})).unwrap_err(), ErrorCode::UnknownTopic, Some("design-system"));
+        check("guidelines unavailable", s.call("designos_get_guidelines", json!({"topic": "rules"})).unwrap_err(), ErrorCode::TopicNotAvailable, None);
+        check(
+            "search property",
+            s.call("designos_search_design_system", json!({"query": "x", "property": "nope"})).unwrap_err(),
+            ErrorCode::UnknownPropertyKey,
+            Some("itemSpacing"),
+        );
+        check("screenshot target", s.call("designos_get_screenshot", json!({})).unwrap_err(), ErrorCode::ExactlyOneTarget, None);
+        check(
+            "screenshot region",
+            s.call("designos_get_screenshot", json!({"region": {"page_id": page.0, "x": 0, "y": 0, "width": 0, "height": 5}})).unwrap_err(),
+            ErrorCode::InvalidRegion,
+            None,
+        );
+        let big = s.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame", "width": 16000, "height": 16000})).unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+        check(
+            "screenshot size",
+            s.call("designos_get_screenshot", json!({"node_id": big, "scale": 4.0, "max_long_edge": 0})).unwrap_err(),
+            ErrorCode::ImageTooLarge,
+            Some("largest_allowed_scale"),
+        );
+        check(
+            "render_png size",
+            s.call("designos_render_png", json!({"path": "big.png", "node_id": big, "scale": 4.0})).unwrap_err(),
+            ErrorCode::ImageTooLarge,
+            Some("largest_allowed_scale"),
+        );
+        let on_first = s.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame"})).unwrap()["node"]["id"].as_u64().unwrap();
+        let other_page = s.engine.doc.add_page("Other");
+        let on_other = s.call("designos_create_node", json!({"parent_id": other_page.0, "kind": "frame"})).unwrap()["node"]["id"].as_u64().unwrap();
+        check(
+            "screenshot pages",
+            s.call("designos_get_screenshot", json!({"node_ids": [on_first, on_other]})).unwrap_err(),
+            ErrorCode::NodesOnDifferentPages,
+            None,
+        );
+
+        let server = DesignOSServer::new(&ws_dir).unwrap();
+        check("prompt", server.get_prompt("nope", None).unwrap_err(), ErrorCode::UnknownPrompt, Some("create_design_system_rules"));
 
         let _ = fs::remove_dir_all(&ws_dir);
     }
@@ -1532,7 +1645,7 @@ mod tests {
         // 1. InvalidArguments
         record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::InvalidArguments, true);
         // 2. UnknownField
-        record(s.call("designos_apply_spec", json!({"spec": {"kind": "frame", "layout": {"dir": "row"}}})).unwrap_err(), ErrorCode::UnknownField, true);
+        record(s.call("designos_apply_spec", json!({"spec": {"kind": "frame", "layout": {"dirr": "row"}}})).unwrap_err(), ErrorCode::UnknownField, true);
         // 3. MissingField
         record(s.call("designos_get_node", json!({})).unwrap_err(), ErrorCode::MissingField, true);
         // 4. ValueOutOfRange
@@ -1990,6 +2103,29 @@ mod tests {
         s.engine.owned_frames = Some(vec![designos_doc::NodeId(owned_f)]);
         record(s.call("designos_update_node", json!({"node_id": other_f, "name": "Blocked"})).unwrap_err(), ErrorCode::OutsideOwnedFrames, true);
         s.engine.owned_frames = None;
+
+        // 54-65. Codes owned by other specs' tools: lint, guidelines, design-system search, screenshot, prompts
+        record(s.call("designos_lint", json!({"preset": "nope"})).unwrap_err(), ErrorCode::UnknownPreset, true);
+        record(s.call("designos_lint", json!({"rules": ["nope"]})).unwrap_err(), ErrorCode::UnknownRule, true);
+        record(s.call("designos_lint", json!({"page_id": tok_page.0, "node_ids": [rect_id]})).unwrap_err(), ErrorCode::ExactlyOneScope, true);
+        record(s.call("designos_lint", json!({"cursor": "bogus"})).unwrap_err(), ErrorCode::InvalidCursor, true);
+        record(s.call("designos_get_guidelines", json!({"topic": "nope"})).unwrap_err(), ErrorCode::UnknownTopic, true);
+        record(s.call("designos_get_guidelines", json!({"topic": "rules"})).unwrap_err(), ErrorCode::TopicNotAvailable, true);
+        record(s.call("designos_search_design_system", json!({"query": "x", "property": "nope"})).unwrap_err(), ErrorCode::UnknownPropertyKey, true);
+        record(s.call("designos_get_screenshot", json!({})).unwrap_err(), ErrorCode::ExactlyOneTarget, true);
+        record(
+            s.call("designos_get_screenshot", json!({"region": {"page_id": tok_page.0, "x": 0, "y": 0, "width": 0, "height": 5}})).unwrap_err(),
+            ErrorCode::InvalidRegion,
+            true,
+        );
+        let huge = s.call("designos_create_node", json!({"parent_id": tok_page.0, "kind": "frame", "width": 16000, "height": 16000})).unwrap()["node"]["id"]
+            .as_u64()
+            .unwrap();
+        record(s.call("designos_get_screenshot", json!({"node_id": huge, "scale": 4.0, "max_long_edge": 0})).unwrap_err(), ErrorCode::ImageTooLarge, true);
+        let second_page = s.engine.doc.add_page("Second");
+        let on_second = s.call("designos_create_node", json!({"parent_id": second_page.0, "kind": "frame"})).unwrap()["node"]["id"].as_u64().unwrap();
+        record(s.call("designos_get_screenshot", json!({"node_ids": [rect_id, on_second]})).unwrap_err(), ErrorCode::NodesOnDifferentPages, true);
+        record(DesignOSServer::new(&ws_dir).unwrap().get_prompt("nope", None).unwrap_err(), ErrorCode::UnknownPrompt, true);
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());

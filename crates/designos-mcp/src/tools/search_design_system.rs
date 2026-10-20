@@ -189,7 +189,8 @@ fn validate_args(args: &SearchDesignSystemArgs) -> Result<(), String> {
     }
     if let Some(prop) = &args.property {
         if property_kind(prop).is_none() {
-            return Err(format!("UNKNOWN_PROPERTY_KEY: '{prop}' is not a bindable property key (valid_options: {})", VALID_PROPERTY_KEYS.join(", ")));
+            let options = serde_json::to_string(VALID_PROPERTY_KEYS).unwrap_or_default();
+            return Err(format!("UNKNOWN_PROPERTY_KEY: '{prop}' is not a bindable property key; valid_options: {options}"));
         }
     }
     Ok(())

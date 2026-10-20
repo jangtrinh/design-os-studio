@@ -302,7 +302,11 @@ impl Engine {
                 let _: Empty = parse(args)?;
                 Ok(crate::tools::libraries::get_libraries(&self.doc))
             }
-            "designos_search_design_system" => crate::tools::search_design_system::search_design_system(&self.doc, args).map_err(ToolError::from),
+            "designos_search_design_system" => crate::tools::search_design_system::search_design_system(&self.doc, args).map_err(|e| {
+                let err = ToolError::from(e);
+                let path = if err.code == ErrorCode::UnknownPropertyKey { "/property" } else { "" };
+                err.with_path(path)
+            }),
             "designos_list_nodes" => {
                 let a: ListArgs = parse(args)?;
                 if a.limit == 0 || a.limit > 500 {
@@ -332,21 +336,7 @@ impl Engine {
                 let a: NodeArgs = parse(args)?;
                 Ok(json!({"node":self.node(a.node_id)?}))
             }
-            "designos_get_screenshot" | "get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args).map_err(|s| {
-                if let Ok(val) = serde_json::from_str::<Value>(&s) {
-                    let code = val.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str).unwrap_or(ErrorCode::InvalidArguments);
-                    let path = val.get("path").and_then(Value::as_str).unwrap_or("");
-                    let message = val.get("message").and_then(Value::as_str).unwrap_or(&s);
-                    let safe = val.get("safe_to_retry").and_then(Value::as_bool).unwrap_or(true);
-                    let mut err = ToolError::new(code, path, message).with_safe_to_retry(safe);
-                    if let Some(ns) = val.get("next_step").and_then(Value::as_str) {
-                        err = err.with_next_step(ns);
-                    }
-                    err
-                } else {
-                    ToolError::new(ErrorCode::InvalidArguments, "", s)
-                }
-            }),
+            "designos_get_screenshot" | "get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args).map_err(ToolError::from),
             "designos_get_design_context" | "get_design_context" => {
                 crate::tools::design_context::execute_get_design_context(&self.doc, args).map_err(ToolError::from)
             }
@@ -688,20 +678,11 @@ impl Engine {
                 let total = matches.len();
                 Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
             }
-            "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(|e| {
-                let code = if e.starts_with("VALUE_OUT_OF_RANGE") {
-                    ErrorCode::ValueOutOfRange
-                } else if e.starts_with("NODE_NOT_FOUND") {
-                    ErrorCode::NodeNotFound
-                } else {
-                    ErrorCode::InvalidArguments
-                };
-                ToolError::new(code, "", e)
-            }),
+            "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from),
             "designos_lint" | "check_design" | "designos_lint_fix" => {
                 let a: LintArgs = parse(args)?;
                 if (a.page_id.is_some() && (a.node_ids.is_some() || a.node_id.is_some())) || (a.node_id.is_some() && a.node_ids.is_some()) {
-                    return Err("EXACTLY_ONE_SCOPE: provide at most one of page_id or node_ids (safe_to_retry: true)".into());
+                    return Err(ToolError::new(ErrorCode::ExactlyOneScope, "", "provide at most one of page_id, node_id or node_ids"));
                 }
                 let limit = a.limit.unwrap_or(100);
                 if !(1..=500).contains(&limit) {
@@ -737,11 +718,11 @@ impl Engine {
                 };
                 let default_preset = if name == "designos_lint_fix" { designos_doc::lint::LintPreset::Strict } else { designos_doc::lint::LintPreset::Agent };
                 let mut cfg = match a.preset.as_deref() {
-                    Some(p) => designos_doc::lint::LintConfig::from_preset_str(p).map_err(|e| e.to_string())?,
+                    Some(p) => designos_doc::lint::LintConfig::from_preset_str(p).map_err(|e| ToolError::from(e.to_string()).with_path("/preset"))?,
                     None => designos_doc::lint::LintConfig::from_preset(default_preset),
                 };
                 if let Some(rules) = &a.rules {
-                    cfg = cfg.with_rules(rules).map_err(|e| e.to_string())?;
+                    cfg = cfg.with_rules(rules).map_err(|e| ToolError::from(e.to_string()).with_path("/rules"))?;
                 }
                 cfg.include_ignored = a.include_ignored.unwrap_or(false);
                 cfg.limit = Some(limit);
@@ -765,26 +746,30 @@ impl Engine {
                 }
 
                 let (stack_cursor, offset_cursor) = if let Some(cur) = a.cursor.as_deref() {
+                    let bad_cursor = |what: &str| {
+                        ToolError::new(ErrorCode::InvalidCursor, "/cursor", format!("{what} '{cur}'"))
+                            .with_expected("offset:<n>, stack:<id> or stack:<id>+offset:<n>, as returned in the previous reply cursor")
+                    };
                     if let Some(off_str) = cur.strip_prefix("offset:") {
-                        let off = off_str.parse::<usize>().map_err(|_| format!("INVALID_CURSOR: malformed offset cursor '{cur}' (safe_to_retry: true)"))?;
+                        let off = off_str.parse::<usize>().map_err(|_| bad_cursor("malformed offset cursor"))?;
                         (None, Some(off))
                     } else if let Some(rest) = cur.strip_prefix("stack:") {
                         if let Some((id_str, off_str)) = rest.split_once("+offset:") {
-                            let id = id_str.parse::<u64>().map_err(|_| format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"))?;
+                            let id = id_str.parse::<u64>().map_err(|_| bad_cursor("malformed stack cursor"))?;
                             if id == 0 {
-                                return Err(format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)").into());
+                                return Err(bad_cursor("malformed stack cursor"));
                             }
-                            let off = off_str.parse::<usize>().map_err(|_| format!("INVALID_CURSOR: malformed offset cursor '{cur}' (safe_to_retry: true)"))?;
+                            let off = off_str.parse::<usize>().map_err(|_| bad_cursor("malformed offset cursor"))?;
                             (Some(format!("stack:{id}")), Some(off))
                         } else {
-                            let id = rest.parse::<u64>().map_err(|_| format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"))?;
+                            let id = rest.parse::<u64>().map_err(|_| bad_cursor("malformed stack cursor"))?;
                             if id == 0 {
-                                return Err(format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)").into());
+                                return Err(bad_cursor("malformed stack cursor"));
                             }
                             (Some(format!("stack:{id}")), None)
                         }
                     } else {
-                        return Err(format!("INVALID_CURSOR: cursor '{cur}' must start with 'offset:' or 'stack:' (safe_to_retry: true)").into());
+                        return Err(bad_cursor("cursor must start with 'offset:' or 'stack:'"));
                     }
                 } else {
                     (None, None)
@@ -889,9 +874,11 @@ impl Engine {
                     "changed": true
                 }))
             }
-            "designos_get_guidelines" | "get_guidelines" => {
-                crate::tools::guidelines::call_get_guidelines(&self.doc, args).map_err(|e| ToolError::new(ErrorCode::InvalidArguments, "/topic", e))
-            }
+            "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args).map_err(|e| {
+                let err = ToolError::from(e);
+                let path = if matches!(err.code, ErrorCode::UnknownTopic | ErrorCode::TopicNotAvailable) { "/topic" } else { "" };
+                err.with_path(path)
+            }),
             "designos_undo" | "designos_redo" => {
                 let _: Empty = parse(args)?;
                 let undo = name == "designos_undo";
