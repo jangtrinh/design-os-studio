@@ -22,7 +22,7 @@ use variables::{apply_pen_bound_variables, import_pen_variables};
 /// `.pen` import. A crafted file can chain components (`c0` has two `ref`s to `c1`, `c1` two to `c2`, ...) so the
 /// expanded tree grows as $2^k$ in the input size; once this budget is spent, remaining `ref` nodes keep their link
 /// to the target component without cloning its subtree, and a warning is returned.
-pub const MAX_PEN_REF_CLONES: usize = 100_000;
+pub const MAX_PEN_REF_CLONES: usize = 2_000_000;
 
 /// Options controlling `.pen` scene import (such as `base_dir` for resolving relative `imports` and image paths).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

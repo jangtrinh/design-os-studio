@@ -735,29 +735,56 @@ pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_
 }
 
 pub fn export_stroke_value(stroke: &Stroke, variables: &NodeVariables, plugin_data: &BTreeMap<String, String>) -> Option<Value> {
-    if stroke.paints.is_empty() {
+    export_stroke_value_filtered(stroke, variables, plugin_data, false)
+}
+
+pub fn export_stroke_value_filtered(
+    stroke: &Stroke,
+    variables: &NodeVariables,
+    plugin_data: &BTreeMap<String, String>,
+    only_explicit_fields: bool,
+) -> Option<Value> {
+    let explicit_filter = if only_explicit_fields {
+        plugin_data.get("pen:explicit_stroke_fields").map(|s| super::node::ExplicitStrokeFields::from_plugin_data_str(s)).filter(|sf| sf.any)
+    } else {
+        None
+    };
+
+    if explicit_filter.is_none() && stroke.paints.is_empty() {
         return None;
     }
+
+    let write_paints = explicit_filter.map_or(true, |sf| sf.paints);
+    let write_width = explicit_filter.map_or(true, |sf| sf.width);
+    let write_align = explicit_filter.map_or(stroke.align != StrokeAlign::Inside, |sf| sf.align);
+    let write_cap = explicit_filter.map_or(stroke.cap != StrokeCap::None, |sf| sf.cap);
+    let write_join = explicit_filter.map_or(stroke.join != StrokeJoin::Miter, |sf| sf.join);
+    let write_dashes = explicit_filter.map_or(!stroke.dashes.is_empty(), |sf| sf.dashes);
+
     let mut sobj = Map::new();
-    if let Some(fill_val) = export_paints_value(&stroke.paints, variables.bindings.get("strokes/0"), plugin_data) {
-        sobj.insert("fill".into(), fill_val);
+    if write_paints {
+        if let Some(fill_val) = export_paints_value(&stroke.paints, variables.bindings.get("strokes/0"), plugin_data) {
+            sobj.insert("fill".into(), fill_val);
+        }
     }
-    if let Some([t, r, b, l]) = stroke.side_weights {
-        sobj.insert(
-            "thickness".into(),
-            json!({
-                "top": t,
-                "right": r,
-                "bottom": b,
-                "left": l,
-            }),
-        );
-    } else if let Some(wv) = variables.bindings.get("strokeWeight") {
-        sobj.insert("thickness".into(), json!(format!("${wv}")));
-    } else {
-        sobj.insert("thickness".into(), json!(stroke.weight));
+    if write_width {
+        if let Some([t, r, b, l]) = stroke.side_weights {
+            sobj.insert(
+                "thickness".into(),
+                json!({
+                    "top": t,
+                    "right": r,
+                    "bottom": b,
+                    "left": l,
+                }),
+            );
+        } else if let Some(wv) = variables.bindings.get("strokeWeight") {
+            sobj.insert("thickness".into(), json!(format!("${wv}")));
+        } else {
+            sobj.insert("thickness".into(), json!(stroke.weight));
+        }
     }
-    if stroke.align != StrokeAlign::Inside {
+    if write_align {
         let align_str = match stroke.align {
             StrokeAlign::Inside => "inside",
             StrokeAlign::Center => "center",
@@ -766,7 +793,7 @@ pub fn export_stroke_value(stroke: &Stroke, variables: &NodeVariables, plugin_da
         sobj.insert("align".into(), json!(align_str));
         sobj.insert("strokeAlignment".into(), json!(align_str));
     }
-    if stroke.cap != StrokeCap::None {
+    if write_cap {
         let cap_str = match stroke.cap {
             StrokeCap::None => "none",
             StrokeCap::Round => "round",
@@ -774,7 +801,7 @@ pub fn export_stroke_value(stroke: &Stroke, variables: &NodeVariables, plugin_da
         };
         sobj.insert("cap".into(), json!(cap_str));
     }
-    if stroke.join != StrokeJoin::Miter {
+    if write_join {
         let join_str = match stroke.join {
             StrokeJoin::Miter => "miter",
             StrokeJoin::Bevel => "bevel",
@@ -782,8 +809,12 @@ pub fn export_stroke_value(stroke: &Stroke, variables: &NodeVariables, plugin_da
         };
         sobj.insert("join".into(), json!(join_str));
     }
-    if !stroke.dashes.is_empty() {
+    if write_dashes {
         sobj.insert("dashPattern".into(), json!(stroke.dashes));
     }
-    Some(Value::Object(sobj))
+    if sobj.is_empty() {
+        None
+    } else {
+        Some(Value::Object(sobj))
+    }
 }

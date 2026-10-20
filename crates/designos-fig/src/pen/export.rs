@@ -1,7 +1,7 @@
 //! Exporter from [`Document`] to `.pen` schema `2.21` JSON.
 
 use super::migrate::CURRENT_PEN_VERSION;
-use super::paint::{blend_mode_to_pen_str, export_paints_value, export_stroke_value, format_pen_color};
+use super::paint::{blend_mode_to_pen_str, export_paints_value, export_stroke_value_filtered, format_pen_color};
 use super::variables::{export_themes_and_variables, splice_ordered_themes_and_variables};
 use crate::svgpath::write_path;
 use designos_doc::*;
@@ -288,7 +288,7 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
     // Stroke
     let should_write_stroke = !is_instance || n.component.overrides.contains(&OverrideField::Stroke);
     if should_write_stroke {
-        if let Some(stroke_val) = export_stroke_value(&n.stroke, &n.variables, &n.plugin_data) {
+        if let Some(stroke_val) = export_stroke_value_filtered(&n.stroke, &n.variables, &n.plugin_data, is_instance) {
             obj.insert("stroke".into(), stroke_val);
         }
     }
@@ -671,7 +671,7 @@ fn collect_instance_descendant_overrides(doc: &Document, inst_node: &Node, out: 
                     }
                 }
                 if cn.component.overrides.contains(&OverrideField::Stroke) {
-                    if let Some(sval) = export_stroke_value(&cn.stroke, &cn.variables, &cn.plugin_data) {
+                    if let Some(sval) = export_stroke_value_filtered(&cn.stroke, &cn.variables, &cn.plugin_data, true) {
                         ov.insert("stroke".into(), sval);
                     }
                 }

@@ -1347,6 +1347,25 @@ fn instance_root_partial_stroke_override_preserves_component_stroke_paints() {
     assert_eq!(inst.stroke.align, StrokeAlign::Outside, "instance setting only strokeWidth must inherit stroke align");
     assert_eq!(inst.stroke.cap, StrokeCap::Round, "instance setting only strokeWidth must inherit stroke cap");
     assert_eq!(inst.stroke.join, StrokeJoin::Bevel, "instance setting only strokeWidth must inherit stroke join");
+
+    let exported_str = export_pen_json(&doc).expect("export partial stroke override");
+    let exported: Value = serde_json::from_str(&exported_str).unwrap();
+    let exp_inst_stroke = &exported["children"][1]["stroke"];
+    assert_eq!(exp_inst_stroke.get("thickness").and_then(Value::as_f64), Some(4.0), "explicit stroke thickness must be exported");
+    assert!(exp_inst_stroke.get("fill").is_none(), "inherited stroke fill must not be exported as an explicit override: {exp_inst_stroke}");
+
+    let mut rt = import_pen_json(&exported_str).expect("reimport partial stroke override");
+    let comp_id = find_by_source_id(&rt, "stroke-comp").id;
+    let inst_id = find_by_source_id(&rt, "stroke-inst").id;
+    rt.get_mut(comp_id).unwrap().stroke.paints = vec![Paint::solid(Color::from_hex("#EF4444").unwrap())];
+    sync_instances(&mut rt, comp_id).apply(&mut rt).expect("sync_instances on stroke-comp");
+    let synced_inst = rt.get(inst_id).unwrap();
+    assert_eq!(synced_inst.stroke.weight, 4.0, "explicit stroke weight override must survive sync_instances");
+    assert_eq!(
+        synced_inst.stroke.paints,
+        vec![Paint::solid(Color::from_hex("#EF4444").unwrap())],
+        "after round-trip, component stroke paint change must propagate to instance that only overrode strokeWidth"
+    );
 }
 
 // 28. multi_axis_variable_stores_all_combinations_outside_key_and_resolves_with_node_theme
@@ -1536,4 +1555,74 @@ fn connection_node_roundtrips_endpoints_and_label() {
     let exported = export_pen_json(&doc).expect("export connection node");
     let rt = import_pen_json(&exported).expect("reimport connection node");
     assert_documents_pen_field_equal(&doc, &rt, "connection_roundtrip");
+}
+
+// 31. multi_page_library_import_resolves_components_from_all_pages
+#[test]
+fn multi_page_library_import_resolves_components_from_all_pages() {
+    let tmp_dir = std::env::temp_dir().join(format!("designos_pen_multipage_lib_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+
+    let lib_pen = r##"{
+        "version": "2.21",
+        "pages": [
+            {
+                "id": "lib-page-1",
+                "name": "Tokens",
+                "children": [
+                    {
+                        "id": "cover-comp",
+                        "type": "frame",
+                        "reusable": true,
+                        "name": "CoverComp",
+                        "width": 120,
+                        "height": 40
+                    }
+                ]
+            },
+            {
+                "id": "lib-page-2",
+                "name": "Components",
+                "children": [
+                    {
+                        "id": "page2-btn",
+                        "type": "frame",
+                        "reusable": true,
+                        "name": "Page2Button",
+                        "width": 180,
+                        "height": 52,
+                        "fill": "#10B981"
+                    }
+                ]
+            }
+        ]
+    }"##;
+    std::fs::write(tmp_dir.join("multipage_lib.pen"), lib_pen).unwrap();
+
+    let main_pen = r##"{
+        "version": "2.21",
+        "imports": {
+            "ui": "multipage_lib.pen"
+        },
+        "children": [
+            {
+                "id": "use-page2-btn",
+                "type": "ref",
+                "ref": "ui:page2-btn"
+            }
+        ]
+    }"##;
+
+    let report = import_pen_json_report(main_pen, &PenImportOptions { base_dir: Some(tmp_dir.clone()) }).expect("import main with multi-page library");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    assert!(
+        !report.warnings.iter().any(|w| w.code == "unresolved_ref"),
+        "expected 0 unresolved_ref warnings when referencing component on page 2 of library, got: {:?}",
+        report.warnings
+    );
+    let inst = find_by_source_id(&report.doc, "use-page2-btn");
+    assert_eq!(inst.size, Vec2::new(180.0, 52.0), "instance must inherit dimensions from page-2 library component");
+    assert_eq!(inst.fills, vec![Paint::solid(Color::from_hex("#10B981").unwrap())]);
 }

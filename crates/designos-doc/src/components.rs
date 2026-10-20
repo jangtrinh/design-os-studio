@@ -650,14 +650,24 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     let mut c = Ctx::new(doc);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let before = (n.component.overrides.len(), n.component.grid_align_overrides);
+        let before = (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len());
         for f in fields {
             n.component.overrides.remove(f);
-            if *f == OverrideField::Layout {
-                n.component.grid_align_overrides = [false, false];
+            match f {
+                OverrideField::Layout => {
+                    n.component.grid_align_overrides = [false, false];
+                }
+                OverrideField::Size => {
+                    n.plugin_data.remove("pen:explicit_width");
+                    n.plugin_data.remove("pen:explicit_height");
+                }
+                OverrideField::Stroke => {
+                    n.plugin_data.remove("pen:explicit_stroke_fields");
+                }
+                _ => {}
             }
         }
-        if (n.component.overrides.len(), n.component.grid_align_overrides) != before {
+        if (n.component.overrides.len(), n.component.grid_align_overrides, n.plugin_data.len()) != before {
             c.update(n);
         }
     }
@@ -680,6 +690,9 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
         if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
+            n.plugin_data.remove("pen:explicit_width");
+            n.plugin_data.remove("pen:explicit_height");
+            n.plugin_data.remove("pen:explicit_stroke_fields");
             c.update(n);
         }
     }
@@ -788,6 +801,18 @@ fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>)
     let target_align = (to.layout_child.grid_align_h, to.layout_child.grid_align_v);
     for f in fields {
         copy_field(*f, from, to);
+    }
+    if fields.contains(&OverrideField::Size) {
+        for key in ["pen:explicit_width", "pen:explicit_height"] {
+            if let Some(v) = from.plugin_data.get(key) {
+                to.plugin_data.insert(key.into(), v.clone());
+            }
+        }
+    }
+    if fields.contains(&OverrideField::Stroke) {
+        if let Some(v) = from.plugin_data.get("pen:explicit_stroke_fields") {
+            to.plugin_data.insert("pen:explicit_stroke_fields".into(), v.clone());
+        }
     }
     if fields.contains(&OverrideField::Layout) {
         if !from.component.grid_align_overrides[0] {
@@ -919,6 +944,32 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
                 n.layout_child.vertical = r.layout_child.vertical;
                 n.layout_child.min_h = r.layout_child.min_h;
                 n.layout_child.max_h = r.layout_child.max_h;
+            }
+            continue;
+        }
+        if f == OverrideField::Stroke && ov.contains(&OverrideField::Stroke) {
+            if let Some(raw_fields) = n.plugin_data.get("pen:explicit_stroke_fields").cloned() {
+                let has_field = |name: &str| raw_fields.split(',').map(str::trim).any(|p| p == name);
+                if !has_field("paints") {
+                    n.stroke.paints = r.stroke.paints.clone();
+                    copy_style_ref_key("stroke", r, n);
+                }
+                if !has_field("width") {
+                    n.stroke.weight = r.stroke.weight;
+                    n.stroke.side_weights = r.stroke.side_weights;
+                }
+                if !has_field("align") {
+                    n.stroke.align = r.stroke.align;
+                }
+                if !has_field("cap") {
+                    n.stroke.cap = r.stroke.cap;
+                }
+                if !has_field("join") {
+                    n.stroke.join = r.stroke.join;
+                }
+                if !has_field("dashes") {
+                    n.stroke.dashes = r.stroke.dashes.clone();
+                }
             }
             continue;
         }

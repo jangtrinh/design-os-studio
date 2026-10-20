@@ -35,6 +35,75 @@ impl ExplicitStrokeFields {
         let any = stroke_val.is_some() || width || align || cap || join || dashes;
         Self { any, paints, width, align, cap, join, dashes }
     }
+
+    pub fn to_plugin_data_string(self) -> String {
+        let mut parts = Vec::new();
+        if self.paints {
+            parts.push("paints");
+        }
+        if self.width {
+            parts.push("width");
+        }
+        if self.align {
+            parts.push("align");
+        }
+        if self.cap {
+            parts.push("cap");
+        }
+        if self.join {
+            parts.push("join");
+        }
+        if self.dashes {
+            parts.push("dashes");
+        }
+        parts.join(",")
+    }
+
+    pub fn from_plugin_data_str(raw: &str) -> Self {
+        let mut out = Self::default();
+        for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match part {
+                "paints" => {
+                    out.paints = true;
+                    out.any = true;
+                }
+                "width" => {
+                    out.width = true;
+                    out.any = true;
+                }
+                "align" => {
+                    out.align = true;
+                    out.any = true;
+                }
+                "cap" => {
+                    out.cap = true;
+                    out.any = true;
+                }
+                "join" => {
+                    out.join = true;
+                    out.any = true;
+                }
+                "dashes" => {
+                    out.dashes = true;
+                    out.any = true;
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            any: self.any || other.any,
+            paints: self.paints || other.paints,
+            width: self.width || other.width,
+            align: self.align || other.align,
+            cap: self.cap || other.cap,
+            join: self.join || other.join,
+            dashes: self.dashes || other.dashes,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

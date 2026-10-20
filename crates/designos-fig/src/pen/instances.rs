@@ -140,17 +140,24 @@ pub fn resolve_pen_library_imports(root: &Value, doc: &mut Document, page_id: No
 
         resolve_pen_library_imports(&lib_root, doc, lib_page, ctx, visited_paths, depth + 1);
 
-        if let Some(children) = lib_root.get("children").and_then(Value::as_array) {
-            for ch in children {
-                let before_id = ch.get("id").and_then(Value::as_str).map(String::from);
-                if let Some(imported_id) = import_pen_node(ch, doc, lib_page, ctx) {
-                    if let Some(raw_id) = before_id {
-                        let is_comp = matches!(doc.get(imported_id).map(|n| &n.kind), Some(NodeKind::Component(_)));
-                        if is_comp {
-                            ctx.components_by_source_id.insert(format!("{alias}:{raw_id}"), imported_id);
-                            ctx.components_by_source_id.entry(raw_id).or_insert(imported_id);
+        let lib_children: Vec<&Value> = if let Some(pages) = lib_root.get("pages").and_then(Value::as_array).filter(|p| !p.is_empty()) {
+            pages.iter().filter_map(|p| p.get("children").and_then(Value::as_array)).flatten().collect()
+        } else {
+            lib_root.get("children").and_then(Value::as_array).map(|arr| arr.iter().collect()).unwrap_or_default()
+        };
+        for ch in lib_children {
+            if let Some(imported_id) = import_pen_node(ch, doc, lib_page, ctx) {
+                let mut imported_comps = Vec::new();
+                doc.walk(imported_id, |n, _| {
+                    if matches!(n.kind, NodeKind::Component(_)) {
+                        if let Some(raw_id) = n.source_id.as_ref() {
+                            imported_comps.push((raw_id.clone(), n.id));
                         }
                     }
+                });
+                for (raw_id, comp_id) in imported_comps {
+                    ctx.components_by_source_id.insert(format!("{alias}:{raw_id}"), comp_id);
+                    ctx.components_by_source_id.entry(raw_id).or_insert(comp_id);
                 }
             }
         }
@@ -423,6 +430,7 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         if !pending.stroke_fields.dashes {
             inst.stroke.dashes = comp.stroke.dashes.clone();
         }
+        inst.plugin_data.insert("pen:explicit_stroke_fields".into(), pending.stroke_fields.to_plugin_data_string());
         inst.component.overrides.insert(OverrideField::Stroke);
     }
 
@@ -616,6 +624,9 @@ fn apply_descendant_overrides(
             if sf.dashes {
                 n.stroke.dashes = parsed_stroke.dashes;
             }
+            let merged_sf =
+                n.plugin_data.get("pen:explicit_stroke_fields").map(|s| ExplicitStrokeFields::from_plugin_data_str(s)).unwrap_or_default().union(sf);
+            n.plugin_data.insert("pen:explicit_stroke_fields".into(), merged_sf.to_plugin_data_string());
             n.component.overrides.insert(OverrideField::Stroke);
         }
     }
