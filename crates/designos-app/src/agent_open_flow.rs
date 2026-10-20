@@ -1140,10 +1140,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save registry");
 
         st.open_for_agent_use(None);
-        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
-            let _ = st.poll_live_agent_bridge();
-            st.active_tab().is_some_and(|t| t.start_failure.is_some())
-        });
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let fix = st.active_tab().and_then(|t| t.start_failure.as_ref()).map(|f| f.fix.clone()).expect("start_failure must be recorded");
         assert_eq!(fix, FixAction::StartNewSession(AgentCliPreset::Claude));
