@@ -40,6 +40,8 @@ fn publish_design_system_with_dark(root: &Path, name: &str, dark: Color) -> Stri
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     let mut app = f.app();

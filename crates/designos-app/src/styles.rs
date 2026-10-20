@@ -205,6 +205,58 @@ impl App {
         self.run_style_op(op)
     }
 
+    /// Applies `bind_style_property` inside an existing transaction `tx` and reflows linked text layers.
+    pub(crate) fn bind_style_variable_in(&mut self, tx: &mut crate::edit::Tx, key: &str, property: &str, var: &str) -> Result<(), String> {
+        let op = bind_style_property(&self.doc, key, property, var);
+        let linked = linked_style_nodes(&self.doc, key);
+        let cmd = op.map_err(|e| e.to_string())?;
+        tx.cmd(&mut self.doc, cmd).map_err(|e| e.to_string())?;
+        for id in linked {
+            if size_comes_from_main(&self.doc, id) {
+                continue;
+            }
+            if let Some(n) = tx.ed.node(&mut self.doc, id) {
+                if let NodeKind::Text(t) = &mut n.kind {
+                    n.size = layout::fit_text(t, n.size);
+                }
+            }
+            layout::relayout_around(&mut self.doc, &mut tx.ed, id);
+        }
+        Ok(())
+    }
+
+    /// Binds `property` of style `key` to variable `var` and pushes the updated style to linked
+    /// layers as one undo step.
+    pub fn bind_style_variable(&mut self, key: &str, property: &str, var: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == key {
+                st.pending = None;
+            }
+        }
+        let mut tx = crate::edit::Tx::new();
+        match self.bind_style_variable_in(&mut tx, key, property, var) {
+            Ok(()) => self.run_tx(tx),
+            Err(e) => {
+                tx.cancel(&mut self.doc);
+                self.show_toast(format!("Style not changed: {e}"), true);
+                false
+            }
+        }
+    }
+
+    /// Removes the variable binding on `property` of style `key`, keeping its current fallback value.
+    pub fn unbind_style_variable(&mut self, key: &str, property: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == key {
+                st.pending = None;
+            }
+        }
+        let op = unbind_style_property(&self.doc, key, property);
+        self.run_style_op(op)
+    }
+
     /// Replaces solid colour `old` by `new` in the whole subtree of the selection (one undo step).
     pub fn replace_selection_color(&mut self, sel: &[NodeId], old: Color, new: Color) {
         let mut tx = crate::edit::Tx::new();

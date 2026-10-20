@@ -45,15 +45,14 @@ agent. Nothing is sent when I merely select things, so it costs no tokens until 
 ## 3. Behaviour rules
 
 1. **The chip** shows `page · N selected · first names`, where `page` is the current page name, `N` is
-   `app.selection.len()`, and `first names` is the names of the first K selected layers in selection order. It is
+   `app.selection.len()`, and `first names` is the names of the first K = 2 selected layers in selection order, joined with commas, followed by `, +M` when more than 2 layers are selected (owner ruling 2026-10-19). It replaces the existing `doc · page` strip in the panel header (the document name stays visible in the tab and file header). It is
    computed from `app` at paint time and passed to the painters (a `SelectionSummary { page, count, names }` argument), so
    it changes in the same frame as the selection and involves no file round trip. A change of selection, page or layer
    name is visible on the next painted frame.
 2. **No tokens until clicked.** Computing or painting the chip writes nothing to the PTY. The existing file mirroring
    (`context.json`) is unchanged and is not a prompt.
 3. **Click sends.** Clicking the chip raises a new action `TerminalAction::SendSelectionToAgent`. It writes
-   `selection.spec.json` and pastes one fixed sentence into the active **agent** tab. This text assumes the recommended answer to open question 5:
-   no Enter, like today's export (`paste_into_agent_tab`); the user can add a request and press Enter.
+   `selection.spec.json` and pastes one fixed sentence into the active **agent** tab without pressing Enter (`paste_into_agent_tab`; owner ruling 2026-10-19), so the user can add a request and press Enter.
 4. **What the file contains.** For the whole selection, not only the first layer:
    `{ "page": {id, name}, "count": N, "nodes": [ {node_id, name, kind, spec?} ] }`, one entry per selected layer in selection
    order. `spec` (the `doc.export_spec` NodeSpec) is included for the first 10 layers; for the rest only
@@ -62,18 +61,16 @@ agent. Nothing is sent when I merely select things, so it costs no tokens until 
    confirms them on the synthetic large fixture and records the sizes.)
 5. **Where the tab is missing.** If there is no live agent tab, nothing is written to a PTY; the status line says
    "No agent tab open - nothing sent" (the existing wording style, `:2462`).
-6. **Empty selection.** The chip is shown with `none selected` and is inert (no click action). Today's fallback of
-   exporting the first top-level frame is not used by the chip. (Presentation: open question 1.)
+6. **Empty selection (owner ruling 2026-10-19).** When nothing is selected (`app.selection.is_empty()`), the chip is hidden (`Option C`). Today's fallback of
+   exporting the first top-level frame is not used by the chip.
 7. **Shell tabs and dead agents** receive nothing (existing `accepts_agent_input`).
-8. The existing "Send Selection & Comments" pill and the composer `+` keep their behaviour; whether the pill is removed
-   or kept beside the chip is open question 3.
+8. **Dock pill (owner ruling 2026-10-19).** The existing "Send Selection & Comments" pill in the dock bar and the composer `+` keep their behaviour as is (`Option A`; it also sends open comments, which the chip does not).
 9. Applies to every CLI tab (Claude, Codex, Grok, Antigravity): the paste is the same text for all.
 
 ## 4. Data model / schema changes
 
 - `SelectionSummary` (in memory).
-- `selection.spec.json` gains the `nodes` array shape of rule 4; the old single-spec shape produced by
-  `export_selection_and_comments_to_pty` stays for the existing pill until open question 3 is answered.
+- `selection.spec.json` gains the `nodes` array shape of rule 4; the existing `export_selection_and_comments_to_pty` path stays for the dock's "Send Selection & Comments" pill.
 
 ## 5. Contracts
 
@@ -90,17 +87,15 @@ None.
 
 Described in words. Checked against `design/principles.md` (P1 to P10) and `design/soul.md`; the rules used, with the `theme.rs` constants, are recapped in README-part3 under "UI rules checked for part 3". In short: every colour, gap, inset, control height and radius below is a `crates/designos-app/src/theme.rs` constant (the panel's own `TERM_*` / `STATUS_*` constants at `terminal.rs:29-55` stay for the terminal viewport and the existing tab status dots and are not extended); selected and active rows use the neutral fill `BG_SELECTED`; the brand orange is the view's one primary action; counts sit in their own pill, not in a label.
 
-The issue fixes the chip text and the click behaviour; the rest is a proposal for the owner's confirmation:
-
-- A pill `CONTROL_DENSE` (24) high with `radius_full(24)`, in the panel's header strip (the strip's height changes from today's 20 px literal at `terminal.rs:2603` to `CONTROL_DENSE`, a move onto the control family) and, in the dock, at the left of the bar's right-hand button group, `SPACE_INLINE` from its neighbours. Caption type (`font_caption`), `TEXT` on a neutral `BG_SELECTED` fill with no outline when there is a selection (selection is a neutral fill, P2; the pill is not blue); `TEXT_SECONDARY` on `BG_SECONDARY` with a `BORDER` outline when nothing is selected. Hover steps the fill to `BG_SELECTED_HOVER` or `BG_HOVER`. The 24 px pill is its own pointer target.
+- When at least one layer is selected, a pill `CONTROL_DENSE` (24) high with `radius_full(24)` replaces the `doc · page` strip in the panel's header strip (`CONTROL_DENSE` height) and, in the dock, sits at the left of the bar's right-hand button group, `SPACE_INLINE` from its neighbours. Caption type (`font_caption`), `TEXT` on a neutral `BG_SELECTED` fill with no outline (selection is a neutral fill, P2; the pill is not blue). Hover steps the fill to `BG_SELECTED_HOVER`. The 24 px pill is its own pointer target. When nothing is selected, the chip is hidden.
 - Long text is elided with `widgets::elide` to the strip width; the names part shrinks first, then the page name.
-- A tooltip: "Send the selection to the agent" (selection) or "Select layers to send them" (none).
+- A tooltip: "Send the selection to the agent".
 - No animation, no timers (idle CPU invariant). Zero fake UI (P6): the chip renders only from the real selection.
-- Desktop captures at 1440 for: one layer, three layers, many layers, none selected, elided; responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first (owner rule).
+- Desktop captures at 1440 for: one layer, three layers, many layers, none selected (hidden), elided; responsive SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first (owner rule).
 
 ## 8. Edge cases
 
-1. 10,000 layers selected (select all): `count` is `len()`, only K names are read; the click writes at most 10 specs.
+1. 10,000 layers selected (select all): `count` is `len()`, only K = 2 names are read (`A, B, +9998`); the click writes at most 10 specs.
 2. A selected layer is deleted by the agent between paint and click: the file lists only layers that still exist at click time.
 3. Selection includes a page node or a hidden layer: listed like any layer.
 4. A layer name with newlines or very long text: the chip shows its first line, elided; the file keeps the full name.
@@ -122,13 +117,13 @@ Seams: pure-function tests for the chip text; `Sim` harness tests for the live u
 
 | Case | Expected (fails before) |
 |---|---|
-| `chip_text_formats` | `selection_chip_text("Page 1", 3, ["A","B","C"])` equals the ruled shape `Page 1 · 3 selected · A, B, C` once the owner fixes K and the overflow style; `0` gives the none-selected form |
+| `chip_text_formats` | `selection_chip_text("Page 1", 3, ["A","B","C"])` equals `"Page 1 · 3 selected · A, B, +1"`; `0` returns `None` (hidden) |
 | `chip_updates_in_the_same_frame` | change `app.selection`, run one frame: the chip's recorded rect/text reflects it (no second frame) |
 | `selection_change_writes_nothing_to_the_pty` | select, change, clear for N frames with a stub agent: zero bytes received (the token-cost guard) |
 | `click_pastes_one_sentence_without_enter` | click: the stub receives one bracketed paste, no trailing `\r` |
 | `file_covers_the_whole_selection` | select 3 layers: `selection.spec.json.nodes.len() == 3`, ids and names match |
 | `large_selection_is_capped` | 200 layers: specs for the first 10, ids for all, file under 256 KB |
-| `empty_selection_chip_is_inert` | no action raised, nothing written |
+| `empty_selection_hides_the_chip` | when `selection.is_empty()`, the chip is not drawn and raises no action |
 | `no_agent_tab_sends_nothing` | status line text, no PTY write |
 | `context_reply_still_excludes_the_selection` | the existing assertion (`terminal.rs:5607`) stays green |
 | `chip_elides_to_width` | narrow strip: text ends with an ellipsis, names shrink first |
@@ -138,7 +133,7 @@ token-cost guard test output pasted in the PR.
 
 ## 11. Performance budgets
 
-- Per frame: one pass over at most K selected ids (K small) and one string format; under 0.05 ms; nothing allocated when the
+- Per frame: one pass over at most K = 2 selected ids and one string format; under 0.05 ms; nothing allocated when the
   selection, page and names are unchanged (cache the last summary by `(selection hash, page, doc mutation epoch)`).
 - Click: writing the file for 10 specs is O(10 layers) `export_spec`; budget under 20 ms on the large synthetic fixture,
   measured and recorded. No UI-thread `to_json` of the whole document (CLAUDE.md invariant 1): only the selected layers are
@@ -159,24 +154,13 @@ call sites. Serialize with the other agent-panel PRs (README-part3).
   (owner decision 4 in `plans/261017-epics-full-scope/owner-decisions-and-cross-check.md`). The chip controls what is pasted into the prompt; it does not replace the tool default.
 - Design standard rulings of 2026-10-18 (`plans/reports/design-std-580-evidence/owner-rulings.md`): R3 chips are pills, R4 selection is a neutral fill, R10 control heights 24/28/32/40; the chip follows them.
 - Skip-permissions stays the default; Codex tabs keep the heuristic status.
+- Owner rulings 2026-10-19 (`plans/reports/release-060-evidence/owner-rulings-v06.md`):
+  1. Chip with nothing selected: **Option C** — hide the chip when nothing is selected.
+  2. Existing `doc · page` strip: **Option A** — the chip replaces it.
+  3. Dock's "Send Selection & Comments" pill: **Option A** — keep it as is.
+  4. Names and overflow: **Option A** — first 2 names joined with commas, then `+N`.
+  5. Click Enter behaviour: **Option A** — paste without pressing Enter.
 
 ## Open questions for the owner
 
-1. **Chip with nothing selected.**
-   - A (recommended): show `page · none selected`, greyed and not clickable, so the chip's place never jumps.
-   - B: show only the page name, no selection part, not clickable.
-   - C: hide the chip.
-2. **The existing `doc · page` strip.**
-   - A (recommended): the chip replaces it; the document name stays visible in the tab and the file header.
-   - B: keep the strip and put the chip beside it, which uses more width in a narrow panel.
-3. **The dock's "Send Selection & Comments" pill.**
-   - A (recommended): keep it as is; it also sends open comments, which the chip does not.
-   - B: remove it; the chip is the one way to send the selection.
-   - C: fold the comments into the chip's click as well (selection plus comments pinned to the selected layers).
-4. **How many names, and how an overflow reads.**
-   - A (recommended): the first 2 names, joined with commas, then `+N`.
-   - B: the first 3 names, then `+N`.
-   - C: only the first name.
-5. **Does the click press Enter?**
-   - A (recommended): no; the sentence is pasted and the user adds a request and presses Enter, as the existing export does.
-   - B: yes; the agent starts reading at once.
+None. All five questions of the first draft were answered by the owner on 2026-10-19 and are reflected in §3, §7, §10 and §13 above.

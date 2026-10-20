@@ -4,7 +4,7 @@
 |---|---|
 | Issue | #682 (parent #585; owner ruling 2026-10-19: default cursor size Small, labelled with the agent name) |
 | Size | L |
-| Depends on | #592 (in-progress flag), #572 (agent identity per run); soft: #653 (session identity), #683 (tab status carries the tab id) |
+| Depends on | #592 (in-progress flag); soft: #572 (agent identity per run, v0.6.1), #653 (session identity), #683 (tab status carries the tab id) |
 | Unblocks | #695 (the chip takes the agent colour), #693 (names the agent) |
 | Touches | new `crates/designos-app/src/agent_presence.rs` (state, follow and envelope math), new `crates/designos-app/src/canvas/agent_overlay.rs` (painting), `crates/designos-doc/src/live_patch/replay.rs` (report of touched ids), `crates/designos-app/src/live_patch_apply.rs` (`apply_live_patches` `:81-110`), `crates/designos-app/src/canvas/mod.rs` (one call after `draw::overlays`, `:387`), `crates/designos-app/src/comments/settings.rs` (one choice value), `crates/designos-app/src/theme.rs` (agent colours, if ratified) |
 
@@ -37,7 +37,7 @@ As a designer, I want to see that an agent is working and what it just changed, 
    - Fade-in 200 ms with ease-out-cubic. After 5 s with no write it fades out over 1.5 s and the session's cursor is gone.
    - Size setting: Hidden, Small 24 px, Medium 40 px, Large 56 px. Default Small, labelled with the agent name. Hidden draws nothing and requests no frame.
 4. **Write flash.** Every Insert, Update, Move or replace flashes the node's outline in the session colour. Envelope: attack 200 ms, hold 400 ms, release 300 ms. Stroke 2 px, 1 px for inserts. Top-level frames are not flashed. If the cursor had to travel, the flash starts 300 ms later. A removed node cannot flash; its parent flashes instead.
-5. **Several agents.** Each session has its own colour and cursor. Cursors never share a colour while fewer than four sessions are active.
+5. **Several agents (`#572` follow-up in `v0.6.1`).** In `v0.6.0`, the file has one active agent session and uses one colour (`agent-1`). When `#572` (`RD-3`) lands in `v0.6.1`, each concurrent `run_id` session gets its own colour and cursor and cursors never share a colour while fewer than four sessions are active.
 6. **Idle.** A frame is requested only while a cursor or flash is moving (`request_repaint()`), plus one one-shot `request_repaint_after` for the start of the fade-out at last write plus 5 s. There is no periodic timer. Nothing calls `app.changed()` or bumps `TileView::rev`.
 7. **Fade-in of new top-level nodes** from opacity 0 with decay 5/s. Spike S1 first: if a runtime-only opacity multiplier cannot be animated without a recompile per frame or a `rev` bump, stop, report the measurement, and ask the owner (open question 3). Do not fake the fade with a cover shape.
 8. **Headless.** Renders and exports (CPU, GPU, `--screenshot`, MCP export) never draw cursors or flashes: they live only in `canvas/agent_overlay.rs`.
@@ -66,7 +66,7 @@ Described in words; checked against `design/principles.md` and `design/soul.md`.
 - The flash is a 2 px (1 px for inserts) outline of the node's world bounds, drawn above the canvas, below the cursor. It is not clickable and takes no input.
 - Colours. The agent colours must not be cyan (components), purple (banned), orange (primary action), `info` blue (selection) or the guide red (`GUIDE_COLOR`, `theme.rs:99`). Recommended set of four: amber `#FFA629`, emerald `#14AE5C`, pink `#EE46BC` (all already in `AVATAR_COLORS`) and a fourth chosen by the owner. They become tokens in `theme.rs` and `design/design.tokens.json` (P1). The panel's "running" dot (#683) uses the `info` colour, which is a different job.
 - The size setting lives with the Agents settings of #656 (open question 2).
-- Desktop capture at 1440: one cursor mid-travel with its flash, two agents in two colours, Hidden. Plus a short screen recording. Responsive: SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
+- Desktop capture at 1440: one cursor mid-travel with its flash, Hidden (and in the `#572` `v0.6.1` follow-up, two agents in two colours). Plus a short screen recording. Responsive: SKIPPED (owner default). Load es-designer before UI code; update the Figma frames from the captures first.
 
 ## 8. Edge cases
 
@@ -76,7 +76,7 @@ Described in words; checked against `design/principles.md` and `design/soul.md`.
 4. A burst of 300 patches in one poll: one flash per touched node, capped at 64; the cursor goes to the last node.
 5. The agent switches document (`DocEpoch`): sessions reset; no cursor on the new document until its first write.
 6. A comment-only patch: no cursor movement.
-7. Two agents write the same node in one frame: both flashes draw, in two colours.
+7. Two agents write the same node in one frame (`#572` `v0.6.1` follow-up): in `v0.6.0` all writes share the single active session (`agent-1`, rule 5); once `#572` lands in `v0.6.1`, both flashes draw in their respective session colours.
 8. Window unfocused: animations still end; no extra wake-ups.
 
 ## 9. Non-goals
@@ -96,12 +96,12 @@ Seams: pure functions in `agent_presence.rs` for follow, fade and envelope; the 
 | `three_writes_show_one_cursor_and_three_flashes` | recorded rects: one cursor, three flash outlines in the session colour | yes |
 | `flash_waits_300_ms_when_the_cursor_travels` | start time of the flash | yes |
 | `top_level_frames_do_not_flash` | no outline for a frame insert | yes |
-| `two_agents_two_colours` | two session colours differ | yes |
 | `cursor_is_gone_five_seconds_after_the_last_write` | no cursor at t = 5 s + 1.5 s | yes |
 | `hidden_draws_nothing_and_asks_for_no_frame` | no rects; no repaint request | yes |
 | `overlay_never_bumps_the_tile_revision` | `canvas.tiles.rev()` equal before and after the animation | yes |
 | `cpu_export_is_pixel_identical_with_and_without_an_active_agent` | equal RGBA | guard |
 | idle measurement | 20 s window after the cursor is gone: `ps -p <pid> -o time=` delta 0.00 s | yes (method of CLAUDE.md section 4) |
+| `two_agents_two_colours` (`#572` `v0.6.1` follow-up) | once `#572` attaches `run_id`, two concurrent session ids receive distinct colours from `agent-1`…`agent-4` | deferred to `#572` |
 
 Run: `cargo test -p designos-app agent_presence`, `cargo test -p designos-doc live_patch`. Evidence: red/green capture, the 1440 captures, the recording, the idle measurement output. Owner-manual: a run with a real agent tab.
 
@@ -113,10 +113,11 @@ Run: `cargo test -p designos-app agent_presence`, `cargo test -p designos-doc li
 
 ## 12. Dependencies and build order
 
-After #592 and #572 (part 1, E15-7 and RD-3). The `touched` field lands with whichever of #677, #682 or #695 is first. New files hold all logic; `canvas/mod.rs`, `live_patch_apply.rs` and `replay.rs` get call sites only. Serialize `replay.rs` with part 3's #677 and part 1's RD-3.
+After #592 (part 1, E15-7). In v0.6.0 this ships for one active agent per file; #572 (RD-3, v0.6.1) is a soft follow-up that adds `run_id` for distinct per-agent colours when multiple agents write concurrently. The `touched` field lands with whichever of #677, #682 or #695 is first. New files hold all logic; `canvas/mod.rs`, `live_patch_apply.rs` and `replay.rs` get call sites only. Serialize `replay.rs` with part 3's #677 and part 1's RD-3.
 
 ## 13. Owner rulings
 
+- Owner ruling 2026-10-19 (`#698`, ruling 3): keep `#682` (`G1`) in `v0.6.0` for a single agent; per-agent multi-session colours wait for `#572` in `v0.6.1`.
 - Owner ruling 2026-10-19: four agent colours, added as tokens `agent-1`…`agent-4`: amber, emerald, pink, sky. They avoid purple (Purple Ban), cyan (components) and orange (primary actions). A fifth concurrent agent reuses `agent-1` and is told apart by its label.
 
 - Default cursor size Small, labelled with the agent name (2026-10-19). The behaviour numbers in the issue are the owner's and are used verbatim.

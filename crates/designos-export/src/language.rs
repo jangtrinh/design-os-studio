@@ -1,5 +1,10 @@
-//! Shared Dev Mode and MCP code-generation language list.
+//! Shared code-generation target language enum (`T7.3` / `T7.29`).
+//!
+//! [`CodeLanguage`] is the single source of truth for codegen targets shared across
+//! `designos-export`, the Dev Mode inspect panel (`designos-app`), the headless CLI
+//! (`--dev` / `--codegen`), and the MCP `generate_code` tool (`designos-mcp`).
 
+use crate::{android_xml_for, compose_for, css_for, html_for, react_with, swiftui_for, tailwind_for, uikit_for, ReactOptions};
 use designos_doc::{Document, NodeId};
 
 /// Options passed to [`CodeLanguage::generate`].
@@ -27,7 +32,7 @@ impl From<&crate::ReactOptions> for CodeLanguageOptions {
     }
 }
 
-/// Code languages of the Inspect panel and MCP `designos_generate_code`.
+/// Target language for code generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CodeLanguage {
     #[default]
@@ -38,35 +43,15 @@ pub enum CodeLanguage {
     Compose,
     AndroidXml,
     React,
+    Html,
 }
 
 impl CodeLanguage {
-    /// Dropdown order: Figma's groups (CSS, iOS: SwiftUI + UIKit, Android: Compose + XML), then the web frameworks.
-    pub const ALL: [CodeLanguage; 7] = [
-        CodeLanguage::Css,
-        CodeLanguage::Tailwind,
-        CodeLanguage::SwiftUi,
-        CodeLanguage::UiKit,
-        CodeLanguage::Compose,
-        CodeLanguage::AndroidXml,
-        CodeLanguage::React,
-    ];
+    /// Every supported code-generation language in canonical UI / schema order.
+    pub const ALL: [Self; 8] = [Self::Css, Self::Tailwind, Self::SwiftUi, Self::UiKit, Self::Compose, Self::AndroidXml, Self::React, Self::Html];
 
-    /// Human-readable UI label for the Dev Mode dropdown.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Css => "CSS",
-            Self::Tailwind => "Tailwind",
-            Self::SwiftUi => "SwiftUI",
-            Self::UiKit => "UIKit",
-            Self::Compose => "Compose",
-            Self::AndroidXml => "Android XML",
-            Self::React => "React",
-        }
-    }
-
-    /// Canonical machine identifier used by MCP tools (`css`, `tailwind`, `swiftui`, `uikit`, `compose`, `android-xml`, `react`).
-    pub fn id(self) -> &'static str {
+    /// Stable machine identifier used by CLI flags and the MCP `generate_code` schema.
+    pub const fn id(self) -> &'static str {
         match self {
             Self::Css => "css",
             Self::Tailwind => "tailwind",
@@ -75,25 +60,42 @@ impl CodeLanguage {
             Self::Compose => "compose",
             Self::AndroidXml => "android-xml",
             Self::React => "react",
+            Self::Html => "html",
         }
     }
 
-    /// Resolve a language from its MCP/CLI identifier.
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|l| l.id() == id)
+    /// Human-readable label shown in the Dev Mode language dropdown.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Css => "CSS",
+            Self::Tailwind => "Tailwind",
+            Self::SwiftUi => "SwiftUI",
+            Self::UiKit => "UIKit",
+            Self::Compose => "Compose",
+            Self::AndroidXml => "Android XML",
+            Self::React => "React",
+            Self::Html => "HTML",
+        }
     }
 
-    /// Code for `node`. `opts` may be a `bool` (`react_tailwind`) or [`CodeLanguageOptions`].
+    /// Parses a machine identifier (case-insensitive) into a [`CodeLanguage`].
+    pub fn from_id(s: &str) -> Option<Self> {
+        let lower = s.trim().to_ascii_lowercase();
+        Self::ALL.into_iter().find(|lang| lang.id() == lower)
+    }
+
+    /// Generates code for `node` in `doc` using this target language.
     pub fn generate(self, doc: &Document, node: NodeId, opts: impl Into<CodeLanguageOptions>) -> String {
         let opts = opts.into();
         match self {
-            Self::Css => crate::css_for(doc, node),
-            Self::Tailwind => crate::tailwind_for(doc, node),
-            Self::SwiftUi => crate::swiftui_for(doc, node),
-            Self::UiKit => crate::uikit_for(doc, node),
-            Self::Compose => crate::compose_for(doc, node),
-            Self::AndroidXml => crate::android_xml_for(doc, node),
-            Self::React => crate::react_with(doc, node, &crate::ReactOptions { tailwind: opts.react_tailwind }),
+            Self::Css => css_for(doc, node),
+            Self::Tailwind => tailwind_for(doc, node),
+            Self::SwiftUi => swiftui_for(doc, node),
+            Self::UiKit => uikit_for(doc, node),
+            Self::Compose => compose_for(doc, node),
+            Self::AndroidXml => android_xml_for(doc, node),
+            Self::React => react_with(doc, node, &ReactOptions { tailwind: opts.react_tailwind }),
+            Self::Html => html_for(doc, node),
         }
     }
 }
@@ -104,7 +106,7 @@ mod tests {
 
     #[test]
     fn language_ids_round_trip_in_dropdown_order() {
-        assert_eq!(CodeLanguage::ALL.map(CodeLanguage::id), ["css", "tailwind", "swiftui", "uikit", "compose", "android-xml", "react"]);
+        assert_eq!(CodeLanguage::ALL.map(CodeLanguage::id), ["css", "tailwind", "swiftui", "uikit", "compose", "android-xml", "react", "html"]);
         for lang in CodeLanguage::ALL {
             assert_eq!(CodeLanguage::from_id(lang.id()), Some(lang));
         }

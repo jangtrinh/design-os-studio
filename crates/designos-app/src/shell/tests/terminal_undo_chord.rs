@@ -19,6 +19,7 @@ fn live_terminal_sim(preset: AgentCliPreset) -> (Sim, designos_mcp::server::Sess
     let session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
     s.shell.app.terminal.dock_open = true;
     s.shell.app.terminal.viewport_focused = true;
+    s.shell.app.terminal.ensure_default_tab(None);
     s.frame(vec![]);
     if let Some(tab) = s.shell.app.terminal.active_tab_mut() {
         tab.preset = preset;

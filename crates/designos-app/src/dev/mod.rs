@@ -14,8 +14,8 @@ use crate::app::App;
 use crate::home::dialog::{Dialog, Intent};
 use designos_doc::*;
 
-/// Code languages of the Inspect panel, shared with MCP via `designos_export::language::CodeLanguage`.
-pub type Language = designos_export::language::CodeLanguage;
+/// Code languages of the Inspect panel (re-exported from `designos-export`).
+pub use designos_export::CodeLanguage as Language;
 
 /// Which list the Dev mode left panel shows under the pages.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -313,7 +313,7 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
         AgentCliPreset::Claude => {
             p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, Color32::from_rgb(0xD9, 0x77, 0x57));
         }
-        AgentCliPreset::Codex => {
+        AgentCliPreset::Codex | AgentCliPreset::OpenCode => {
             p.circle_stroke(provider_center, PROVIDER_BADGE_RADIUS, Stroke::new(theme::BORDER_WIDTH, Color32::from_rgb(0xFA, 0xFA, 0xFA)));
         }
         AgentCliPreset::Grok => {
@@ -325,7 +325,7 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
                 Stroke::new(theme::BORDER_WIDTH, Color32::from_rgb(0xE4, 0xE4, 0xE7)),
             );
         }
-        AgentCliPreset::Antigravity => {
+        AgentCliPreset::Antigravity | AgentCliPreset::Gemini => {
             p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, Color32::from_rgb(0x60, 0xA5, 0xFA));
         }
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {

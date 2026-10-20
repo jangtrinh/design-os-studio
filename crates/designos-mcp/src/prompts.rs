@@ -622,6 +622,8 @@ pub fn sanitize_token_name(name: &str, platform_label: &str) -> String {
             hidden_from_publishing: false,
             key: None,
             code_syntax: BTreeMap::new(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         return designos_export::css_variable_reference(&dummy);
     }
@@ -953,6 +955,7 @@ mod tests {
                 variables: vec!["v_blue".into(), "v_space_md".into(), "v_secret".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
 
@@ -977,6 +980,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: blue_syntax,
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -994,6 +999,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -1011,6 +1018,8 @@ mod tests {
                 hidden_from_publishing: true,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -1026,6 +1035,7 @@ mod tests {
                 variables: vec!["v_primary".into()],
                 key: Some("col_lib_key".into()),
                 source_library_key: Some("lib_brand".into()),
+                extensions: Default::default(),
             },
         );
 
@@ -1044,18 +1054,24 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: primary_syntax,
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
         // 3 Styles: Fill, Text, Effect
         doc.styles.insert("Fill/Surface".into(), Style::Fill(vec![Paint::solid(Color::rgb(0xFF, 0xFF, 0xFF))]));
-        doc.style_meta
-            .insert("Fill/Surface".into(), StyleMeta { name: "Fill/Surface".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+        doc.style_meta.insert(
+            "Fill/Surface".into(),
+            StyleMeta { name: "Fill/Surface".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+        );
 
         doc.styles
             .insert("Text/Heading".into(), Style::Text(TextStyle { font_family: "Inter".into(), font_weight: 700, font_size: 24.0, ..TextStyle::default() }));
-        doc.style_meta
-            .insert("Text/Heading".into(), StyleMeta { name: "Text/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text });
+        doc.style_meta.insert(
+            "Text/Heading".into(),
+            StyleMeta { name: "Text/Heading".into(), key: None, description: String::new(), property: StyleProperty::Text, bindings: Default::default() },
+        );
 
         doc.styles.insert(
             "Effect/CardShadow".into(),
@@ -1070,7 +1086,13 @@ mod tests {
         );
         doc.style_meta.insert(
             "Effect/CardShadow".into(),
-            StyleMeta { name: "Effect/CardShadow".into(), key: Some("lib_brand".into()), description: String::new(), property: StyleProperty::Effect },
+            StyleMeta {
+                name: "Effect/CardShadow".into(),
+                key: Some("lib_brand".into()),
+                description: String::new(),
+                property: StyleProperty::Effect,
+                bindings: Default::default(),
+            },
         );
 
         // 1 ComponentSet ("Button") with a variant child and a slot recommending an Icon component
@@ -1146,6 +1168,7 @@ mod tests {
                 variables: vec!["v_lib_prim".into()],
                 key: None,
                 source_library_key: Some("lib_brand".into()),
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -1161,6 +1184,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -1216,6 +1241,8 @@ mod tests {
                     hidden_from_publishing: false,
                     key: None,
                     code_syntax: BTreeMap::new(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
                 },
             );
         }
@@ -1253,6 +1280,7 @@ mod tests {
                 variables: vec!["v_surface".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -1273,6 +1301,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -1287,6 +1317,7 @@ mod tests {
                 variables: vec!["v_bg".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -1304,6 +1335,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 

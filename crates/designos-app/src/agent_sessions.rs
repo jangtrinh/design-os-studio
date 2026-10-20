@@ -249,60 +249,104 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// True only for the four supported agent CLIs (`claude`, `codex`, `grok`, `agy`).
-/// `Shell` and `DesignOsHelp` tabs are never written to `sessions.json` (`Rule 5`).
+/// Validates that `s` is a canonical 36-character ASCII hexadecimal UUID (`8-4-4-4-12`) so a
+/// corrupted or tampered `session_id` in `sessions.json` can never inject shell tokens into
+/// `zsh -lc` launch or resume commands.
+pub fn is_valid_session_uuid(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        if matches!(i, 8 | 13 | 18 | 23) {
+            if b != b'-' {
+                return false;
+            }
+        } else if !b.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
+}
+
+/// True for the built-in agent CLIs (`claude`, `codex`, `grok`, `agy`, `gemini`, `opencode`) that can be remembered
+/// as `last_cli` in `sessions.json` (`#652` §3 rule 4, `#679` §3). `Shell` and `DesignOsHelp` are excluded.
+pub fn is_agent_cli_preset(preset: AgentCliPreset) -> bool {
+    matches!(
+        preset,
+        AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity | AgentCliPreset::Gemini | AgentCliPreset::OpenCode
+    )
+}
+
+/// True only for agent CLIs whose resume command is verified to be scoped to the session folder (`#653` §3 rules 4 & 6).
+/// `Codex` (`codex resume --last`) and `Antigravity` (`agy --continue`) are gated on `codex_cwd_scoped`
+/// and `agy_cwd_scoped` respectively; `Shell` and `DesignOsHelp` are never registered.
+pub fn is_registrable_cli_scoped(preset: AgentCliPreset, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> bool {
+    match preset {
+        AgentCliPreset::Claude | AgentCliPreset::Grok | AgentCliPreset::Gemini | AgentCliPreset::OpenCode => true,
+        AgentCliPreset::Codex => codex_cwd_scoped,
+        AgentCliPreset::Antigravity => agy_cwd_scoped,
+        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => false,
+    }
+}
+
+/// Default registrability check when neither `codex_cwd_scoped` nor `agy_cwd_scoped` has been verified.
 pub fn is_registrable_cli(preset: AgentCliPreset) -> bool {
-    matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity)
+    is_registrable_cli_scoped(preset, false, false)
 }
 
 /// True for CLIs that accept `--session-id <uuid>` on new start (`Claude` and `Grok`).
-/// `Codex` and `Antigravity` record `session_id: None` (`Rule 6`).
+/// `Codex`, `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`).
 pub fn uses_preassigned_session_id(preset: AgentCliPreset) -> bool {
     matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Grok)
 }
 
 /// Builds the interactive launch command for a brand-new session of `preset`.
-/// For `Claude` and `Grok`, `session_uuid` is passed via `--session-id <uuid>`.
+/// For `Claude` and `Grok`, `session_uuid` is passed via `--session-id <uuid>` when it is a valid UUID.
 pub fn build_new_session_command(preset: AgentCliPreset, session_uuid: Option<&str>) -> String {
+    let valid_uuid = session_uuid.map(str::trim).filter(|s| is_valid_session_uuid(s));
     match preset {
-        AgentCliPreset::Claude => match session_uuid.filter(|s| !s.trim().is_empty()) {
+        AgentCliPreset::Claude => match valid_uuid {
             Some(uuid) => format!(
                 "claude --session-id {uuid} --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             ),
             None => AgentCliPreset::Claude.cli_launch_command().to_string(),
         },
-        AgentCliPreset::Grok => match session_uuid.filter(|s| !s.trim().is_empty()) {
+        AgentCliPreset::Grok => match valid_uuid {
             Some(uuid) => format!("grok --session-id {uuid} --always-approve --cwd \"$DESIGNOS_SESSION_DIR\""),
             None => AgentCliPreset::Grok.cli_launch_command().to_string(),
         },
-        AgentCliPreset::Codex | AgentCliPreset::Antigravity | AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-            preset.cli_launch_command().to_string()
-        }
+        AgentCliPreset::Codex
+        | AgentCliPreset::Antigravity
+        | AgentCliPreset::Gemini
+        | AgentCliPreset::OpenCode
+        | AgentCliPreset::Shell
+        | AgentCliPreset::DesignOsHelp => preset.cli_launch_command().to_string(),
     }
 }
 
-/// Maps a recorded `cli` binary string (`"claude"`, `"codex"`, `"grok"`, `"agy"`) back to [`AgentCliPreset`].
+/// Maps a recorded `cli` binary string (`"claude"`, `"codex"`, `"grok"`, `"agy"`, `"gemini"`, `"opencode"`) back to [`AgentCliPreset`].
 pub fn preset_from_cli_name(cli: &str) -> Option<AgentCliPreset> {
     match cli.trim() {
         "claude" => Some(AgentCliPreset::Claude),
         "codex" => Some(AgentCliPreset::Codex),
         "grok" => Some(AgentCliPreset::Grok),
         "agy" => Some(AgentCliPreset::Antigravity),
+        "gemini" => Some(AgentCliPreset::Gemini),
+        "opencode" => Some(AgentCliPreset::OpenCode),
         _ => None,
     }
 }
 
-/// Builds the CLI resume command for `entry` according to §6 of `#653`.
-///
-/// For `agy` (`AgentCliPreset::Antigravity`), `agy --continue` is only returned when `agy_cwd_scoped`
-/// is `true` (i.e. `agy --continue` has been verified to scope to the current directory); otherwise
-/// returns `None` so no unsafe global resume is offered.
-pub fn build_resume_command(entry: &SessionEntry, agy_cwd_scoped: bool) -> Option<String> {
+/// Builds the CLI resume command for `entry` with explicit `codex_cwd_scoped` and `agy_cwd_scoped` gates (`#653` §3 rule 6, `#679` §3).
+/// Rejects any non-empty `entry.session_id` that is not a valid 36-char UUID (`is_valid_session_uuid`) for Claude/Grok.
+pub fn build_resume_command_scoped(entry: &SessionEntry, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> Option<String> {
     let preset = preset_from_cli_name(&entry.cli)?;
     match preset {
         AgentCliPreset::Claude => {
-            let resume_flag = match entry.session_id.as_deref().filter(|s| !s.trim().is_empty()) {
-                Some(uuid) => format!("--resume {uuid}"),
+            let resume_flag = match entry.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(uuid) if is_valid_session_uuid(uuid) => format!("--resume {uuid}"),
+                Some(_) => return None,
                 None => "--continue".to_string(),
             };
             Some(format!(
@@ -310,13 +354,17 @@ pub fn build_resume_command(entry: &SessionEntry, agy_cwd_scoped: bool) -> Optio
             ))
         }
         AgentCliPreset::Codex => {
+            if !codex_cwd_scoped {
+                return None;
+            }
             let base = AgentCliPreset::Codex.cli_launch_command();
             let overrides = base.strip_prefix("codex --dangerously-bypass-approvals-and-sandbox").unwrap_or("");
             Some(format!("codex resume --last --dangerously-bypass-approvals-and-sandbox{overrides}"))
         }
         AgentCliPreset::Grok => {
-            let resume_flag = match entry.session_id.as_deref().filter(|s| !s.trim().is_empty()) {
-                Some(uuid) => format!("--resume {uuid}"),
+            let resume_flag = match entry.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(uuid) if is_valid_session_uuid(uuid) => format!("--resume {uuid}"),
+                Some(_) => return None,
                 None => "--continue".to_string(),
             };
             Some(format!("grok {resume_flag} --always-approve --cwd \"$DESIGNOS_SESSION_DIR\""))
@@ -327,8 +375,25 @@ pub fn build_resume_command(entry: &SessionEntry, agy_cwd_scoped: bool) -> Optio
             }
             Some("agy --continue --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"".to_string())
         }
+        AgentCliPreset::Gemini => {
+            let resume_target = entry.session_id.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or("latest");
+            Some(format!("gemini --resume {resume_target} --approval-mode yolo --include-directories \"$DESIGNOS_SESSION_DIR\""))
+        }
+        AgentCliPreset::OpenCode => {
+            let resume_flag = match entry.session_id.as_deref().filter(|s| !s.trim().is_empty()) {
+                Some(id) => format!("--session {id}"),
+                None => "--continue".to_string(),
+            };
+            Some(format!("opencode {resume_flag}"))
+        }
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => None,
     }
+}
+
+/// Builds the CLI resume command for `entry` according to §6 of `#653`, gating `Codex` and `Antigravity`
+/// on `cwd_scoped`.
+pub fn build_resume_command(entry: &SessionEntry, cwd_scoped: bool) -> Option<String> {
+    build_resume_command_scoped(entry, cwd_scoped, cwd_scoped)
 }
 
 #[cfg(test)]
@@ -485,7 +550,8 @@ mod tests {
             "claude --continue --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt "
         ));
 
-        let codex = build_resume_command(&mk("codex", None), false).unwrap();
+        assert!(build_resume_command(&mk("codex", None), false).is_none(), "codex resume must be suppressed unless codex_cwd_scoped is verified");
+        let codex = build_resume_command(&mk("codex", None), true).unwrap();
         assert!(codex.starts_with("codex resume --last --dangerously-bypass-approvals-and-sandbox -c 'mcp_servers.designos.command="));
 
         let grok_with_id = build_resume_command(&mk("grok", Some("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")), false).unwrap();
@@ -497,6 +563,15 @@ mod tests {
         assert!(build_resume_command(&mk("agy", None), false).is_none(), "agy resume must be suppressed unless agy_cwd_scoped is verified");
         let agy_scoped = build_resume_command(&mk("agy", None), true).unwrap();
         assert_eq!(agy_scoped, "agy --continue --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"");
+
+        let gemini_latest = build_resume_command(&mk("gemini", None), false).unwrap();
+        assert_eq!(gemini_latest, "gemini --resume latest --approval-mode yolo --include-directories \"$DESIGNOS_SESSION_DIR\"");
+
+        let opencode_last = build_resume_command(&mk("opencode", None), false).unwrap();
+        assert_eq!(opencode_last, "opencode --continue");
+
+        let opencode_with_id = build_resume_command(&mk("opencode", Some("ses_12345")), false).unwrap();
+        assert_eq!(opencode_with_id, "opencode --session ses_12345");
     }
 
     // 5. `shell_and_custom_cli_tabs_are_never_registered`
@@ -527,6 +602,7 @@ mod tests {
         let mut st = TerminalState::for_tab(1);
         st.bind_library_file(&dir, "file-codex-1", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
+        st.codex_cwd_scoped = true;
         st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex");
 
         assert_eq!(st.session_registry.sessions.len(), 1);
@@ -559,9 +635,9 @@ mod tests {
             st1.path_prepend.push(bin_dir.clone());
             st1.spawn_tab(AgentCliPreset::Claude, None).expect("spawn first claude");
             let uuid = st1.tabs[0].session_uuid.clone().expect("uuid");
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             while std::time::Instant::now() < deadline {
-                if st1.session_dir.join("argv.log").is_file() {
+                if std::fs::read_to_string(st1.session_dir.join("argv.log")).map(|s| s.lines().count() >= 1).unwrap_or(false) {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(25));
@@ -760,7 +836,7 @@ mod tests {
             status: SessionEntryStatus::Exited,
             extra: BTreeMap::new(),
         };
-        check_flags(&build_resume_command(&codex_entry, false).unwrap(), CODEX_HELP, codex_flags);
+        check_flags(&build_resume_command(&codex_entry, true).unwrap(), CODEX_HELP, codex_flags);
 
         let grok_flags = &["--session-id", "--resume", "--continue", "--always-approve", "--cwd"];
         check_flags(&build_new_session_command(AgentCliPreset::Grok, Some("019a0102-0304-7506-8708-090a0b0c0d0e")), GROK_HELP, grok_flags);
@@ -789,5 +865,48 @@ mod tests {
             extra: BTreeMap::new(),
         };
         check_flags(&build_resume_command(&agy_entry, true).unwrap(), AGY_HELP, agy_flags);
+    }
+
+    // 13. `malformed_session_id_is_rejected_by_resume_command`
+    #[test]
+    fn malformed_session_id_is_rejected_by_resume_command() {
+        for bad_id in ["019a0102-0304-7506-8708-090a0b0c0d0e; touch /tmp/pwn", "$(touch /tmp/pwn)", "not-a-uuid", "019a0102-0304-7506-8708-090a0b0c0d0z"] {
+            let claude_bad = SessionEntry {
+                tab_id: 1,
+                title: "Claude".into(),
+                cli: "claude".into(),
+                session_id: Some(bad_id.into()),
+                created_at: 1,
+                last_active_at: 1,
+                status: SessionEntryStatus::Exited,
+                extra: BTreeMap::new(),
+            };
+            assert!(build_resume_command(&claude_bad, false).is_none(), "malformed session_id '{bad_id}' must be rejected for claude");
+
+            let grok_bad = SessionEntry { cli: "grok".into(), ..claude_bad };
+            assert!(build_resume_command(&grok_bad, false).is_none(), "malformed session_id '{bad_id}' must be rejected for grok");
+        }
+    }
+
+    // 14. `codex_registration_is_gated_on_cwd_scope`
+    #[test]
+    fn codex_registration_is_gated_on_cwd_scope() {
+        assert!(!is_registrable_cli(AgentCliPreset::Codex), "Codex must not register until cwd scope is verified");
+        assert!(!is_registrable_cli(AgentCliPreset::Antigravity), "Antigravity must not register until cwd scope is verified");
+        assert!(is_registrable_cli(AgentCliPreset::Claude));
+        assert!(is_registrable_cli(AgentCliPreset::Grok));
+
+        let codex_entry = SessionEntry {
+            tab_id: 1,
+            title: "Codex".into(),
+            cli: "codex".into(),
+            session_id: None,
+            created_at: 1,
+            last_active_at: 1,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        };
+        assert!(build_resume_command(&codex_entry, false).is_none(), "codex resume --last must not be offered when cwd scoping is unverified");
+        assert!(build_resume_command(&codex_entry, true).is_some(), "codex resume --last is offered once cwd scoping is verified");
     }
 }

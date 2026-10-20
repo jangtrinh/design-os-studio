@@ -1,8 +1,10 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
-use designos_doc::live_patch::{live_ops_for_command, LiveOp};
+use designos_doc::live_patch::{live_ops_for_command, live_ops_for_independent, LiveOp};
 use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
+
+pub type LintRulesMap = std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>>;
 
 pub struct Engine {
     pub doc: Document,
@@ -15,17 +17,64 @@ pub struct Engine {
     pub live_patch_label: Option<String>,
     /// Optional RD-3 frame ownership lock: when `Some`, writes outside these root frames are refused.
     pub owned_frames: Option<Vec<NodeId>>,
+    /// Per-node lint issue counts cached for `(runtime_id, mutation_epoch)`.
+    pub lint_cache: Option<((u64, u64), std::collections::HashMap<NodeId, u16>)>,
+    /// Per-node active lint rule IDs cached for `(runtime_id, mutation_epoch)`, allowing
+    /// partial passes (`lint: true` vs `designos_lint`) to merge without clobbering disjoint rules.
+    pub lint_rules_cache: Option<((u64, u64), LintRulesMap)>,
 }
 
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
-        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None, live_patch_label: None, owned_frames: None }
+        Self {
+            doc,
+            history: History::default(),
+            active_page_id: Some(page),
+            live_ops: None,
+            live_patch_label: None,
+            owned_frames: None,
+            lint_cache: None,
+            lint_rules_cache: None,
+        }
     }
 }
 
 impl Engine {
+    /// Updates the per-node lint cache for `rev` by replacing `recomputed_rules` on `checked_nodes`
+    /// with `fresh_hits` while preserving any other rule hits or unchecked nodes from the same revision.
+    pub fn update_lint_cache(
+        &mut self,
+        rev: (u64, u64),
+        checked_nodes: &[NodeId],
+        recomputed_rules: &[&'static str],
+        fresh_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>>,
+    ) {
+        let mut rules_map = match self.lint_rules_cache.take() {
+            Some((cached_rev, existing)) if cached_rev == rev => existing,
+            _ => std::collections::HashMap::new(),
+        };
+        for &id in checked_nodes {
+            if let Some(set) = rules_map.get_mut(&id) {
+                for &rule in recomputed_rules {
+                    set.remove(rule);
+                }
+                if set.is_empty() {
+                    rules_map.remove(&id);
+                }
+            }
+        }
+        for (id, hits) in fresh_hits {
+            if !hits.is_empty() {
+                rules_map.entry(id).or_default().extend(hits);
+            }
+        }
+        let counts: std::collections::HashMap<NodeId, u16> =
+            rules_map.iter().filter_map(|(&id, set)| (!set.is_empty()).then_some((id, set.len().min(u16::MAX as usize) as u16))).collect();
+        self.lint_rules_cache = Some((rev, rules_map));
+        self.lint_cache = Some((rev, counts));
+    }
     /// Resolves the target page when a tool call omits `parent_id` / `page_id`:
     /// prefers `self.active_page_id` (the user's currently selected page in `design:os studio`)
     /// if valid in `self.doc.pages`, falling back to `self.doc.pages.first()`.
@@ -51,8 +100,10 @@ impl Engine {
                     "style_count":self.doc.styles.len(),
                     "styles":self.doc.styles.iter().map(|(key,values)|{
                         let meta=self.doc.style_meta.get(key);
+                        let empty = std::collections::BTreeMap::new();
                         json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
-                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),"values":values})
+                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
+                            "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
                     }).collect::<Vec<_>>(),
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
@@ -120,13 +171,17 @@ impl Engine {
                 let a: CodeArgs = parse(args)?;
                 let id = self.node(a.node_id)?.id;
                 let doc = designos_doc::apply_bound_variables(&self.doc);
-                let code = if let Some(lang) = designos_export::language::CodeLanguage::from_id(a.language.as_str()) {
-                    lang.generate(&doc, id, false)
-                } else if a.language == "svg" {
+                let code = if a.language == "svg" {
                     designos_export::export_svg(&doc, id, &Default::default())
+                } else if let Some(lang) = designos_export::CodeLanguage::from_id(&a.language) {
+                    if lang == designos_export::CodeLanguage::Html {
+                        designos_export::html_with(&doc, id, &designos_export::HtmlOptions { fragment: a.fragment })
+                    } else {
+                        lang.generate(&doc, id, false)
+                    }
                 } else {
-                    let ids: Vec<&str> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id()).collect();
-                    return Err(format!("language must be {}, or svg", ids.join(", ")));
+                    let allowed: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
+                    return Err(format!("language must be one of: {}", allowed.join(", ")));
                 };
                 Ok(json!({"node_id":id,"language":a.language,"code":code}))
             }
@@ -258,6 +313,9 @@ impl Engine {
                 Ok(json!({"thread_id": a.thread_id, "resolved": a.resolved, "changed": changed}))
             }
             "designos_apply_spec" => {
+                if let Some(raw_spec) = args.get("spec") {
+                    designos_doc::validate_raw_spec_slots(raw_spec).map_err(|e| e.to_string())?;
+                }
                 let a: ApplySpecArgs = parse(args)?;
                 let parent = a
                     .parent_id
@@ -282,6 +340,7 @@ impl Engine {
                     "name_to_id": report.name_to_id,
                     "instances": report.instances,
                     "imported_assets": report.imported_assets,
+                    "issues": report.issues,
                 });
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
@@ -323,9 +382,9 @@ impl Engine {
                 if path.extension().and_then(|x| x.to_str()) != Some("fig") {
                     return Err("output_path must end in .fig".into());
                 }
-                let bytes = designos_fig::export_fig(&self.doc).map_err(|e| format!("Failed to export .fig: {e}"))?;
+                let (bytes, omitted) = designos_fig::export_fig_with_report(&self.doc).map_err(|e| format!("Failed to export .fig: {e}"))?;
                 std::fs::write(path, &bytes).map_err(|e| format!("Cannot write .fig file: {e}"))?;
-                Ok(json!({"output_path": a.output_path, "path": a.output_path, "bytes": bytes.len(), "saved": true}))
+                Ok(json!({"output_path": a.output_path, "path": a.output_path, "bytes": bytes.len(), "saved": true, "omitted_extensions": omitted}))
             }
             "designos_query_xpath" | "query_nodes" => {
                 let a: QueryXpathArgs = parse(args)?;
@@ -370,20 +429,28 @@ impl Engine {
                 let total = matches.len();
                 Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
             }
+            "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args),
             "designos_lint" | "check_design" => {
                 let a: LintArgs = parse(args)?;
                 let root = a.page_id.map(NodeId).or_else(|| self.resolve_default_page().ok());
                 let mut findings = Vec::new();
+                let mut checked_nodes = Vec::new();
+                let mut fresh_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
                 let mut check_node = |n: &Node| {
                     if matches!(n.kind, NodeKind::Page { .. }) {
                         return;
                     }
-                    if n.size.x <= 0.0 || n.size.y <= 0.0 {
+                    checked_nodes.push(n.id);
+                    if (n.size.x <= 0.0 || n.size.y <= 0.0) && !designos_export::is_lint_rule_ignored(n, "zero-bounds") {
                         findings.push(json!({"rule": "zero-bounds", "severity": "error", "node_id": n.id.0, "name": n.name, "message": "Layer has zero or negative width/height"}));
+                        fresh_hits.entry(n.id).or_default().insert("zero-bounds");
                     }
                     let trimmed = n.name.trim();
-                    if matches!(trimmed, "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group") {
+                    if matches!(trimmed, "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group")
+                        && !designos_export::is_lint_rule_ignored(n, "default-layer-name")
+                    {
                         findings.push(json!({"rule": "default-layer-name", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Give layer a semantic name"}));
+                        fresh_hits.entry(n.id).or_default().insert("default-layer-name");
                     }
                 };
                 if let Some(r) = root {
@@ -391,6 +458,36 @@ impl Engine {
                 } else {
                     for n in self.doc.nodes.values() {
                         check_node(n);
+                    }
+                }
+                let (structural, structural_checked) =
+                    designos_export::structural_lint_rules_for_nodes(&self.doc, &checked_nodes, std::time::Duration::from_millis(50));
+                let mut structural_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
+                for (id, rules) in structural {
+                    if rules.contains("clipped-text") {
+                        if let Some(n) = self.doc.get(id) {
+                            findings.push(json!({"rule": "clipped-text", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Fixed-size text layer clips its content"}));
+                        }
+                        structural_hits.entry(id).or_default().insert("clipped-text");
+                    }
+                }
+                let rev = (self.doc.runtime_id(), self.doc.mutation_epoch());
+                self.update_lint_cache(rev, &checked_nodes, &["zero-bounds", "default-layer-name"], fresh_hits);
+                self.update_lint_cache(rev, &structural_checked, &["clipped-text"], structural_hits);
+                for (style_key, meta) in &self.doc.style_meta {
+                    for (prop, vid) in &meta.bindings {
+                        if !self.doc.variables.contains_key(vid) {
+                            findings.push(json!({
+                                "rule": "broken-style-binding",
+                                "category": "tokens",
+                                "severity": "warning",
+                                "style_key": style_key,
+                                "name": meta.name,
+                                "property": prop,
+                                "variable_id": vid,
+                                "message": format!("Style '{}' binds '{}' to missing variable '{}'", meta.name, prop, vid),
+                            }));
+                        }
                     }
                 }
                 let count = findings.len();
@@ -437,9 +534,10 @@ impl Engine {
         self.doc.get(NodeId(id)).ok_or_else(|| format!("node {id} not found"))
     }
 
-    pub(crate) fn exec(&mut self, command: Command) -> Result<(), String> {
-        let ops = self.live_ops_for(&command)?;
-        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
+    pub fn exec(&mut self, command: Command) -> Result<(), String> {
+        let w = designos_doc::writer_command(&self.doc, command);
+        let ops = self.live_ops_for_parts(&w.parts)?;
+        self.history.exec(&mut self.doc, w.cmd).map_err(|e| e.to_string())?;
         self.record(ops);
         Ok(())
     }
@@ -449,7 +547,21 @@ impl Engine {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
+        if let Command::Batch(cmds) = command {
+            if designos_doc::live_patch::is_independent_batch(&self.doc, cmds) {
+                return live_ops_for_independent(&self.doc, cmds);
+            }
+        }
         live_ops_for_command(&self.doc, command)
+    }
+
+    /// Records independent command parts (from [`designos_doc::writer_command`]) without cloning
+    /// the document when `parts` came from a boundary-expanded batch.
+    fn live_ops_for_parts(&self, parts: &[Command]) -> Result<Vec<LiveOp>, String> {
+        if self.live_ops.is_none() {
+            return Ok(Vec::new());
+        }
+        live_ops_for_independent(&self.doc, parts)
     }
 
     pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
@@ -582,6 +694,8 @@ struct VariablesArgs {
 struct CodeArgs {
     node_id: u64,
     language: String,
+    #[serde(default)]
+    fragment: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -725,6 +839,14 @@ pub fn tools() -> Vec<Value> {
         true,
     );
     add(
+        "get_metadata",
+        "Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree.",
+        crate::tools::metadata::properties_schema(),
+        vec![],
+        true,
+        true,
+    );
+    add(
         "list_nodes",
         "List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate.",
         json!({"parent_id":id,"query":{"type":"string","maxLength":1024},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}}),
@@ -741,11 +863,11 @@ pub fn tools() -> Vec<Value> {
         true,
         true,
     );
-    let generate_code_langs: Vec<&str> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id()).chain(["svg"]).collect();
+    let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
         "generate_code",
         "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
-        json!({"node_id":id,"language":{"type":"string","enum":generate_code_langs}}),
+        json!({"node_id":id,"language":{"type":"string","enum":code_langs},"fragment":{"type":"boolean","default":false,"description":"When language is html, emit only <style> and the root element without <!doctype html>, <html>, <head>, or <body>."}}),
         vec!["node_id", "language"],
         true,
         true,
@@ -866,6 +988,7 @@ mod tests {
                     variables: vec![],
                     key: None,
                     source_library_key: None,
+                    extensions: Default::default(),
                 },
             );
         }
@@ -887,6 +1010,8 @@ mod tests {
                     key: None,
 
                     code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
                 },
             );
         }
@@ -918,7 +1043,7 @@ mod tests {
         e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
         e.doc.styles.insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))]));
         for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {
-            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property });
+            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property, bindings: Default::default() });
         }
         e.doc.get_mut(NodeId(id)).unwrap().style_refs.insert("effect".into(), "Shadow/Card".into());
         let doc = e.call("designos_get_document", json!({})).unwrap();
@@ -988,13 +1113,17 @@ mod tests {
             let output = e.call("designos_generate_code", json!({"node_id":id,"language":language})).unwrap();
             assert!(!output["code"].as_str().unwrap().is_empty());
         }
+        let html_doc = e.call("designos_generate_code", json!({"node_id":id,"language":"html"})).unwrap();
+        assert!(html_doc["code"].as_str().unwrap().starts_with("<!doctype html>"), "{html_doc}");
+        let html_frag = e.call("designos_generate_code", json!({"node_id":id,"language":"html","fragment":true})).unwrap();
+        assert!(html_frag["code"].as_str().unwrap().starts_with("<style>"), "{html_frag}");
         let uikit = e.call("designos_generate_code", json!({"node_id":id,"language":"uikit"})).unwrap();
         assert!(uikit["code"].as_str().unwrap().starts_with("let card = "), "{uikit}");
         let android_id = designos_export::language::CodeLanguage::AndroidXml.id();
         let xml = e.call("designos_generate_code", json!({"node_id":id,"language":android_id})).unwrap();
         assert!(xml["code"].as_str().unwrap().starts_with("<!-- res/layout/card.xml -->"), "{xml}");
         let err = e.call("designos_generate_code", json!({"node_id":id,"language":"vue"})).unwrap_err();
-        assert!(err.contains("uikit") && err.contains(android_id), "{err}");
+        assert!(err.contains("uikit") && err.contains(android_id) && err.contains("html"), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
     }
@@ -1257,6 +1386,8 @@ mod tests {
             live_ops: None,
             live_patch_label: None,
             owned_frames: None,
+            lint_cache: None,
+            lint_rules_cache: None,
         };
         let page = e.doc.pages[0];
         e.active_page_id = Some(page);
@@ -1323,5 +1454,230 @@ mod tests {
         e.call("designos_undo", json!({})).unwrap();
         assert!(e.doc.get(root2).is_none());
         assert!(e.doc.get(root_id).is_some());
+    }
+
+    #[test]
+    fn engine_exec_applies_the_boundary() {
+        use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchState};
+        use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
+
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+        let fid = e.doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 120.0));
+        let mut al = AutoLayout::v1();
+        al.direction = LayoutDirection::Horizontal;
+        al.primary_sizing = Sizing::Fixed;
+        al.counter_sizing = Sizing::Fixed;
+        frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), grids: Vec::new() });
+        e.doc.insert(page, frame).unwrap();
+
+        let cid = e.doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 50.0, 30.0));
+        child.layout_child.horizontal = Sizing::Fixed;
+        child.layout_child.vertical = Sizing::Fill;
+        child.layout_child.align_self = AlignSelf::Stretch;
+        e.doc.insert(fid, child).unwrap();
+
+        let mut mirror_doc = e.doc.clone();
+        e.live_ops = Some(Vec::new());
+
+        let mut flipped = e.doc.get(fid).unwrap().clone();
+        flipped.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().direction = LayoutDirection::Vertical;
+        e.exec(Command::Update { node: Box::new(flipped) }).unwrap();
+        e.relayout(fid);
+
+        let ops = e.take_live_ops();
+        assert_eq!(ops.len(), 2, "recorded live ops must include parent update and child update");
+        assert!(matches!(&ops[0], LiveOp::Update { id, .. } if *id == fid));
+        match &ops[1] {
+            LiveOp::Update { id, set, .. } => {
+                assert_eq!(*id, cid);
+                assert_eq!(
+                    set.get("layout_child"),
+                    Some(&json!({"align_self": "Auto"})),
+                    "child LiveOp::Update must carry only the changed layout_child subfields"
+                );
+            }
+            other => panic!("expected child LiveOp::Update, got {other:?}"),
+        }
+
+        // Simulate a concurrent editor edit to the child's margin before the agent patch arrives.
+        mirror_doc.get_mut(cid).unwrap().layout_child.margin = [4.0, 8.0, 4.0, 8.0];
+
+        let report = replay_live_patch(&mut mirror_doc, &LivePatch::new(ops), &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        assert_eq!(
+            mirror_doc.get(cid).unwrap().layout_child.margin,
+            [4.0, 8.0, 4.0, 8.0],
+            "replaying the child update must preserve concurrent editor layout_child subfields"
+        );
+        mirror_doc.get_mut(cid).unwrap().layout_child.margin = [0.0; 4];
+        mirror_doc.relayout_subtree(fid);
+        mirror_doc.flush_pending_relayout();
+
+        assert_eq!(mirror_doc.get(fid).unwrap(), e.doc.get(fid).unwrap());
+        assert_eq!(mirror_doc.get(cid).unwrap(), e.doc.get(cid).unwrap());
+        assert_eq!(e.doc.get(cid).unwrap().layout_child.align_self, AlignSelf::Auto);
+        assert_eq!(e.doc.get(cid).unwrap().layout_child.vertical, Sizing::Fill);
+    }
+
+    #[test]
+    fn engine_exec_does_not_clone_the_document_for_a_flip() {
+        use designos_doc::live_patch::batch_doc_clones;
+        use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
+        use std::time::Instant;
+
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+
+        let fid = e.doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0));
+        let mut al = AutoLayout::v1();
+        al.direction = LayoutDirection::Horizontal;
+        al.primary_sizing = Sizing::Fixed;
+        al.counter_sizing = Sizing::Fixed;
+        frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), grids: Vec::new() });
+        e.doc.insert(page, frame).unwrap();
+
+        // Populate 10,000 direct children under `fid` with the duplicate stretch pair.
+        let mut child_ids = Vec::with_capacity(10_000);
+        for i in 0..10_000usize {
+            let cid = e.doc.alloc_id();
+            let mut c = Node::rectangle(cid, Rect::new((i % 100) as f32 * 4.0, (i / 100) as f32 * 4.0, 20.0, 10.0));
+            c.parent = Some(fid);
+            c.layout_child.horizontal = Sizing::Fixed;
+            c.layout_child.vertical = Sizing::Fill;
+            c.layout_child.align_self = AlignSelf::Stretch;
+            e.doc.nodes.insert(cid, c);
+            child_ids.push(cid);
+        }
+        e.doc.get_mut(fid).unwrap().children = child_ids;
+
+        // Populate the remaining nodes on `page` so total document size is 100,000 nodes.
+        let existing = e.doc.nodes.len();
+        let remaining = 100_000usize.saturating_sub(existing);
+        let mut page_extra = Vec::with_capacity(remaining);
+        for i in 0..remaining {
+            let id = e.doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new((i % 200) as f32 * 6.0, (i / 200) as f32 * 6.0, 4.0, 4.0));
+            n.parent = Some(page);
+            e.doc.nodes.insert(id, n);
+            page_extra.push(id);
+        }
+        e.doc.get_mut(page).unwrap().children.extend(page_extra);
+        assert_eq!(e.doc.nodes.len(), 100_000);
+
+        let mut flipped = e.doc.get(fid).unwrap().clone();
+        flipped.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().direction = LayoutDirection::Vertical;
+        let update_cmd = Command::Update { node: Box::new(flipped) };
+
+        // Compute the reference batch ops via `live_ops_for_command` on the batch BEFORE mutating `e.doc`.
+        let w_ref = designos_doc::writer_command(&e.doc, update_cmd.clone());
+        let clones_before_batch = batch_doc_clones();
+        let batch_ops = live_ops_for_command(&e.doc, &w_ref.cmd).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_batch + 1, "batch path clones the document once");
+
+        // Now run through `Engine::exec` and verify zero document clones and identical live ops.
+        e.live_ops = Some(Vec::new());
+        let clones_before_exec = batch_doc_clones();
+        let t0 = Instant::now();
+        e.exec(update_cmd).unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(batch_doc_clones(), clones_before_exec, "Engine::exec must not clone the document");
+
+        let exec_ops = e.take_live_ops();
+        assert_eq!(exec_ops.len(), 10_001);
+        assert_eq!(exec_ops, batch_ops);
+
+        // Undo and redo must also record live ops without cloning the 100k-node document.
+        e.live_ops = Some(Vec::new());
+        let clones_before_undo = batch_doc_clones();
+        e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_undo, "designos_undo must not clone the document");
+        assert_eq!(e.take_live_ops().len(), 10_001);
+
+        e.live_ops = Some(Vec::new());
+        let clones_before_redo = batch_doc_clones();
+        e.call("designos_redo", json!({})).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_redo, "designos_redo must not clone the document");
+        assert_eq!(e.take_live_ops().len(), 10_001);
+
+        let budget_ms: u128 = if cfg!(debug_assertions) { 2_500 } else { 100 };
+        eprintln!("[#583 bench] 10k-children on 100k-node doc Engine::exec={}ms (budget={}ms)", elapsed.as_secs_f64() * 1000.0, budget_ms);
+        assert!(elapsed.as_millis() <= budget_ms, "Engine::exec took {}ms > {}ms budget", elapsed.as_millis(), budget_ms);
+    }
+
+    #[test]
+    fn apply_spec_slots_issues_and_fig_round_trip() {
+        let mut e =
+            Engine { doc: designos_doc::fixtures::card_with_slots(), history: History::default(), active_page_id: None, live_ops: None, ..Engine::default() };
+        let page = e.doc.pages[0];
+        e.active_page_id = Some(page);
+
+        // Passing `"footer": true` fails with structured INVALID_SLOT_VALUE and does not mutate doc/history
+        let err_str = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Card",
+                        "slots": { "footer": true }
+                    }
+                }),
+            )
+            .unwrap_err();
+        let parsed_err: designos_doc::SpecError = serde_json::from_str(&err_str).unwrap();
+        assert_eq!(parsed_err.code, "INVALID_SLOT_VALUE");
+        assert!(!e.history.can_undo());
+
+        // Filling `body` with a recommended FormRow + a non-recommended raw frame succeeds and returns `issues`
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "SettingsCard",
+                        "component": "Card",
+                        "slots": {
+                            "header": [
+                                { "kind": "instance", "name": "Hdr", "component": "CardHeader" }
+                            ],
+                            "body": [
+                                { "kind": "instance", "name": "RowA", "component": "FormRow" },
+                                { "kind": "frame", "name": "CustomBanner", "height": 32 }
+                            ],
+                            "footer": false
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let issues = res["issues"].as_array().unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0]["rule"], "slot-non-recommended");
+        assert_eq!(issues[0]["severity"], "warning");
+        assert_eq!(issues[0]["node_name"], "CustomBanner");
+
+        // .fig binary round-trip preserves filled slot children
+        let fig_bytes = designos_fig::export_fig(&e.doc).unwrap();
+        let from_fig = designos_fig::import_fig(&fig_bytes).unwrap();
+        let fig_card = from_fig
+            .nodes
+            .values()
+            .find(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.name == "SettingsCard")
+            .expect("SettingsCard must survive .fig round-trip");
+        let fig_body = designos_doc::resolve_override_path(&from_fig, fig_card.id, "body").unwrap();
+        assert_eq!(from_fig.get(fig_body).unwrap().children.len(), 2);
+
+        // Undo removes the placed Card and all its slot children in 1 step
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root_id).is_none());
     }
 }

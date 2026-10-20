@@ -432,6 +432,10 @@ impl App {
     pub fn attach_library(&mut self, root: PathBuf) {
         // Shared libraries use the same root as the projects library.
         self.libs.set_root(root.clone());
+        self.terminal.library_root = Some(root.clone());
+        for entry in &mut self.tabs.entries {
+            entry.terminal.library_root = Some(root.clone());
+        }
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {

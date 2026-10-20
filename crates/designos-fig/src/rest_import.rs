@@ -1620,6 +1620,7 @@ impl<'a> Ctx<'a> {
             .copied()
             .or_else(|| self.library_keys.iter().find_map(|(&nid, (k, _))| (k == pref_key).then_some(nid)))
             .or_else(|| self.component_keys.iter().find_map(|(sid, k)| (k == pref_key).then(|| self.ids.get(sid).copied()).flatten()))
+            .or_else(|| crate::fig::strip_fallback_comp_key(pref_key).and_then(|g| self.ids.get(&g).copied()))
     }
 
     fn resolve_swaps(&mut self) {
@@ -2976,14 +2977,30 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 }
 
-/// Effect and grid styles whose values the file states on the style node (`.fig` imports put them
-/// in the `styles` map): the node's values replace the copy seeded from the first consumer, and a
-/// style no node uses is kept too. REST JSON carries no values there, so it is left as seeded.
+/// Style values that the file states on the style node (`.fig` imports put them in the `styles`
+/// map): the node's values replace the copy seeded from the first consumer, and a style no node
+/// uses is kept too. REST JSON carries no values there, so it is left as seeded.
 fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
     let Some(map) = styles.and_then(Value::as_object) else { return };
     for (id, m) in map {
         let style = match fstr(m, "styleType") {
+            Some("FILL" | "STROKE") if m.get("fills").is_some() => Style::Fill(parse_paints(m.get("fills"))),
+            Some("FILL" | "STROKE") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Fill(Vec::new()),
+            Some("TEXT") if m.get("style").is_some() || m.get("fills").is_some() || (!doc.styles.contains_key(id) && m.get("boundVariables").is_some()) => {
+                let mut ts = match doc.styles.get(id) {
+                    Some(Style::Text(existing)) => existing.clone(),
+                    _ => TextStyle::default(),
+                };
+                if let Some(st) = m.get("style") {
+                    apply_type_style(&mut ts, st);
+                }
+                if m.get("fills").is_some() {
+                    ts.fills = parse_paints(m.get("fills"));
+                }
+                Style::Text(ts)
+            }
             Some("EFFECT") if m.get("effects").is_some() => Style::Effect(farr(m, "effects").iter().filter_map(parse_effect).collect()),
+            Some("EFFECT") if !doc.styles.contains_key(id) && m.get("boundVariables").is_some() => Style::Effect(Vec::new()),
             Some("GRID") if m.get("layoutGrids").is_some() => Style::Grid(farr(m, "layoutGrids").iter().filter_map(parse_grid).collect()),
             _ => continue,
         };
@@ -3025,6 +3042,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,
         };
+        let bindings = crate::variables::parse_node_variables(m).bindings;
         out.insert(
             id.clone(),
             StyleMeta {
@@ -3032,6 +3050,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
                 key: fstr(m, "key").map(String::from).filter(|k| !k.is_empty()),
                 description: fstr(m, "description").unwrap_or("").to_string(),
                 property,
+                bindings,
             },
         );
     }

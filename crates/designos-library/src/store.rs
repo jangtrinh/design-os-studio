@@ -1024,15 +1024,16 @@ impl Library {
     pub fn empty_trash(&self) -> Result<()> {
         let dir = self.path("trash");
         if dir.exists() {
+            let mut session_file_ids: Vec<String> = Vec::new();
             for item in self.list_trash() {
                 match item.kind {
-                    TrashKind::File => self.remove_agent_sessions(&item.id),
+                    TrashKind::File => session_file_ids.push(item.id),
                     TrashKind::Project => {
                         let proj_manifest = self.trash_dir(&item.id).join("project").join(MANIFEST);
                         if let Ok(text) = std::fs::read_to_string(proj_manifest) {
                             if let Ok(m) = serde_json::from_str::<Manifest>(&text) {
                                 for f in m.files {
-                                    self.remove_agent_sessions(&f.id);
+                                    session_file_ids.push(f.id);
                                 }
                             }
                         }
@@ -1040,6 +1041,9 @@ impl Library {
                 }
             }
             std::fs::remove_dir_all(&dir)?;
+            for file_id in session_file_ids {
+                self.remove_agent_sessions(&file_id);
+            }
         }
         Ok(())
     }

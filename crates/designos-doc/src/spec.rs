@@ -63,6 +63,9 @@ pub struct NodeSpec {
     /// Ordered descendant overrides applied inside an `"instance"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<OverrideSpec>,
+    /// Slot fills or disable flags `{slot_name: [NodeSpec...] | false}` on an `"instance"` root (E15-2).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, SlotFillSpec>,
     /// Optional EaseUI BrainWave 2.0 preset:
     /// `"easeui-screen"`, `"easeui-panel"`, `"easeui-card"`, `"easeui-button-primary"`,
     /// `"easeui-button-secondary"`, `"easeui-input"`, `"easeui-badge"`, `"easeui-row"`, `"easeui-column"`.
@@ -135,6 +138,35 @@ pub struct NodeSpec {
     pub children: Vec<NodeSpec>,
 }
 
+/// Literal `false` used by [`SlotFillSpec::Disabled`] (`slots: {"Actions": false}`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FalseLiteral;
+
+impl Serialize for FalseLiteral {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(false)
+    }
+}
+
+impl<'de> Deserialize<'de> for FalseLiteral {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let b = bool::deserialize(deserializer)?;
+        if !b {
+            Ok(FalseLiteral)
+        } else {
+            Err(serde::de::Error::custom("INVALID_SLOT_VALUE: slot value must be false or [NodeSpec...]"))
+        }
+    }
+}
+
+/// Slot fill or disable specification in `NodeSpec::slots` / `OverrideSpec::slots` (E15-2).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SlotFillSpec {
+    Disabled(FalseLiteral),
+    Fill(Vec<NodeSpec>),
+}
+
 /// Descendant override specification inside a `NodeSpec` of `kind: "instance"`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -159,6 +191,8 @@ pub struct OverrideSpec {
     pub variant: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub props: BTreeMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, SlotFillSpec>,
 }
 
 /// A canvas comment thread enriched with its resolved world position and the
@@ -423,6 +457,9 @@ impl Document {
         if kind_str.eq_ignore_ascii_case("instance") {
             return self.build_instance_spec_node(parent, spec, ctx);
         }
+        if !spec.slots.is_empty() {
+            return Err(crate::spec_instance::SpecError::plain("slots can only be set on instance nodes"));
+        }
 
         let id = self.try_alloc_id().ok_or_else(|| crate::spec_instance::SpecError::plain("Document has exhausted node IDs"))?;
         let w = spec.width.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 120.0 } else { 200.0 });
@@ -659,7 +696,7 @@ impl Document {
         self.export_spec_inner(root, &all_comments)
     }
 
-    fn export_spec_inner(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
+    pub(crate) fn export_spec_inner(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
         let n = self.get(id).ok_or_else(|| format!("Node {} not found", id.0))?;
         if matches!(n.kind, NodeKind::Instance { .. }) {
             return self.export_instance_spec_node(id, all_comments);
@@ -723,6 +760,7 @@ impl Document {
             variant: BTreeMap::new(),
             props: BTreeMap::new(),
             overrides: Vec::new(),
+            slots: BTreeMap::new(),
             preset: None,
             x: n.transform.tx,
             y: n.transform.ty,

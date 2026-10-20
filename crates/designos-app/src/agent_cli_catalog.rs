@@ -69,7 +69,7 @@ impl CliProbe {
     }
 }
 
-/// Static descriptor for a built-in agent CLI (`#652` §3 rule 1).
+/// Static descriptor for a built-in agent CLI (`#652` §3 rule 1, `#679` §2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CliDescriptor {
     pub preset: AgentCliPreset,
@@ -80,6 +80,7 @@ pub struct CliDescriptor {
     pub sign_in_cmd: Option<&'static [&'static str]>,
     pub install_url: &'static str,
     pub login_command: &'static str,
+    pub caption: Option<&'static str>,
 }
 
 /// Saved custom CLI command in Studio's `settings.json` (`#652` §4).
@@ -89,10 +90,13 @@ pub struct CustomCliEntry {
     pub command: String,
 }
 
-/// Fixed catalog order of the four built-in agent CLIs (`#652` §3 rules 1 & 4).
-pub const CATALOG_PRESETS: [AgentCliPreset; 4] = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity];
+/// Fixed catalog order of the five MCP-verified built-in agent CLIs (`#652` §3 rules 1 & 4, `#679` §3 rule 3 & §13).
+pub const CATALOG_PRESETS: [AgentCliPreset; 5] =
+    [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini];
 
-/// Returns the catalog of built-in CLI descriptors in fixed order (`Claude`, `Codex`, `Grok`, `Antigravity`).
+/// Returns the catalog of built-in CLI descriptors in fixed order (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`).
+/// Per `#679` §3 rule 3 & §13 (and Open Question 2A), only CLIs with a verified per-session Studio MCP
+/// registration path are admitted to the default catalog; other CLIs can be run via `"Other CLI..."`.
 pub fn catalog() -> Vec<CliDescriptor> {
     vec![
         CliDescriptor {
@@ -104,6 +108,7 @@ pub fn catalog() -> Vec<CliDescriptor> {
             sign_in_cmd: Some(&["claude", "auth", "status"]),
             install_url: install_url(AgentCliPreset::Claude),
             login_command: login_command(AgentCliPreset::Claude),
+            caption: None,
         },
         CliDescriptor {
             preset: AgentCliPreset::Codex,
@@ -114,6 +119,7 @@ pub fn catalog() -> Vec<CliDescriptor> {
             sign_in_cmd: Some(&["codex", "login", "status"]),
             install_url: install_url(AgentCliPreset::Codex),
             login_command: login_command(AgentCliPreset::Codex),
+            caption: None,
         },
         CliDescriptor {
             preset: AgentCliPreset::Grok,
@@ -124,6 +130,7 @@ pub fn catalog() -> Vec<CliDescriptor> {
             sign_in_cmd: None,
             install_url: install_url(AgentCliPreset::Grok),
             login_command: login_command(AgentCliPreset::Grok),
+            caption: None,
         },
         CliDescriptor {
             preset: AgentCliPreset::Antigravity,
@@ -134,6 +141,18 @@ pub fn catalog() -> Vec<CliDescriptor> {
             sign_in_cmd: None,
             install_url: install_url(AgentCliPreset::Antigravity),
             login_command: login_command(AgentCliPreset::Antigravity),
+            caption: None,
+        },
+        CliDescriptor {
+            preset: AgentCliPreset::Gemini,
+            name: "Gemini CLI",
+            binary: "gemini",
+            install_folders: AgentCliPreset::Gemini.install_dirs(),
+            version_cmd: &["gemini", "--version"],
+            sign_in_cmd: None,
+            install_url: install_url(AgentCliPreset::Gemini),
+            login_command: login_command(AgentCliPreset::Gemini),
+            caption: None,
         },
     ]
 }
@@ -403,31 +422,71 @@ pub fn probe_descriptor(desc: &CliDescriptor, runner: &Arc<dyn RunCommand>, time
 #[derive(Clone)]
 pub struct CatalogProbeCache {
     probes: Arc<Mutex<HashMap<AgentCliPreset, CliProbe>>>,
+    pinned: Arc<Mutex<HashMap<AgentCliPreset, CliProbe>>>,
     in_flight: Arc<Mutex<bool>>,
     runner: Arc<dyn RunCommand>,
     timeout: Duration,
 }
 
+#[cfg(test)]
+struct DefaultTestRunner;
+
+#[cfg(test)]
+impl RunCommand for DefaultTestRunner {
+    fn is_installed(&self, _binary: &str, _install_folders: &[PathBuf]) -> bool {
+        true
+    }
+
+    fn run(&self, argv: &[&str], _install_folders: &[PathBuf], _timeout: Duration) -> CommandOutput {
+        match argv {
+            ["claude", "--version"] => CommandOutput::ok("2.1.302 (Claude Code)\n"),
+            ["codex", "--version"] => CommandOutput::ok("codex-cli 0.163.0\n"),
+            ["grok", "--version"] => CommandOutput::ok("grok 1.0.62\n"),
+            ["agy", "--version"] => CommandOutput::ok("1.4.2\n"),
+            ["claude", "auth", "status"] => CommandOutput::ok(r#"{"loggedIn": true}"#),
+            ["codex", "login", "status"] => CommandOutput::ok("Logged in using ChatGPT\n"),
+            _ => CommandOutput::exited(1, "", ""),
+        }
+    }
+}
+
 impl Default for CatalogProbeCache {
     fn default() -> Self {
-        Self::new(Arc::new(SystemCommandRunner), PROBE_TIMEOUT)
+        #[cfg(test)]
+        {
+            Self::new(Arc::new(DefaultTestRunner), PROBE_TIMEOUT)
+        }
+        #[cfg(not(test))]
+        {
+            Self::new(Arc::new(SystemCommandRunner), PROBE_TIMEOUT)
+        }
     }
 }
 
 impl CatalogProbeCache {
     pub fn new(runner: Arc<dyn RunCommand>, timeout: Duration) -> Self {
-        Self { probes: Arc::new(Mutex::new(HashMap::new())), in_flight: Arc::new(Mutex::new(false)), runner, timeout }
+        Self {
+            probes: Arc::new(Mutex::new(HashMap::new())),
+            pinned: Arc::new(Mutex::new(HashMap::new())),
+            in_flight: Arc::new(Mutex::new(false)),
+            runner,
+            timeout,
+        }
     }
 
     /// Triggers an asynchronous background refresh of all catalog descriptors off the UI thread.
     /// Existing cached probes remain visible immediately; if no probe has been cached yet for a
-    /// preset, seeds `Checking...` so the first UI frame returns immediately without blocking.
+    /// preset, seeds `installed: false` + `SignIn::Checking` so no CLI is selectable until
+    /// `is_installed` returns (`#679` §3 rule 2).
     pub fn refresh_async(&self) {
+        if self.is_probing() {
+            return;
+        }
         let descriptors = catalog();
         {
             let mut map = self.probes.lock().unwrap();
             for desc in &descriptors {
-                map.entry(desc.preset).or_insert_with(|| CliProbe { installed: true, version: None, signed_in: SignIn::Checking });
+                map.entry(desc.preset).or_insert_with(|| CliProbe { installed: false, version: None, signed_in: SignIn::Checking });
             }
         }
         if let Ok(mut active) = self.in_flight.lock() {
@@ -435,6 +494,7 @@ impl CatalogProbeCache {
         }
 
         let probes_ref = Arc::clone(&self.probes);
+        let pinned_ref = Arc::clone(&self.pinned);
         let in_flight_ref = Arc::clone(&self.in_flight);
         let runner = Arc::clone(&self.runner);
         let timeout = self.timeout;
@@ -444,7 +504,16 @@ impl CatalogProbeCache {
             for desc in descriptors {
                 let r = Arc::clone(&runner);
                 let p_map = Arc::clone(&probes_ref);
+                let pin_map = Arc::clone(&pinned_ref);
                 handles.push(std::thread::spawn(move || {
+                    if let Ok(pinned) = pin_map.lock() {
+                        if let Some(existing) = pinned.get(&desc.preset).cloned() {
+                            if let Ok(mut guard) = p_map.lock() {
+                                guard.insert(desc.preset, existing);
+                            }
+                            return;
+                        }
+                    }
                     let res = probe_descriptor(&desc, &r, timeout);
                     if let Ok(mut guard) = p_map.lock() {
                         guard.insert(desc.preset, res);
@@ -485,6 +554,9 @@ impl CatalogProbeCache {
 
     /// Overwrites a single preset's cached probe (useful for UI tests and captures).
     pub fn set_probe(&self, preset: AgentCliPreset, probe: CliProbe) {
+        if let Ok(mut pinned) = self.pinned.lock() {
+            pinned.insert(preset, probe.clone());
+        }
         if let Ok(mut guard) = self.probes.lock() {
             guard.insert(preset, probe);
         }
@@ -525,7 +597,7 @@ pub struct PickerRow {
 }
 
 /// Builds the ordered list of picker rows according to `#652` §3 rules 3, 4, 6, 7, 8:
-/// 1. Installed CLIs first in fixed catalog order (`Claude`, `Codex`, `Grok`, `Antigravity`),
+/// 1. Installed CLIs first in fixed catalog order (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`),
 ///    with the file's `last_cli` ordered first when present and installed;
 /// 2. Uninstalled CLIs after them, greyed (`Not installed`, `selectable: false`) with `FixAction::OpenInstallPage`;
 /// 3. Saved `custom_clis` entries (with caption `"Plain command: Studio tools not connected"`);
@@ -539,15 +611,14 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
     let mut uninstalled_rows: Vec<PickerRow> = Vec::new();
 
     for desc in descriptors {
-        let probe = probes.get(&desc.preset).cloned().unwrap_or_else(|| {
-            let inst = cfg!(test) || runtime_binary_available(desc.binary);
-            CliProbe::checking(inst)
-        });
+        let probe = probes.get(&desc.preset).cloned().unwrap_or_else(|| CliProbe::checking(false));
         let id = match desc.preset {
             AgentCliPreset::Claude => "agents-dropdown-claude".to_string(),
             AgentCliPreset::Codex => "agents-dropdown-codex".to_string(),
             AgentCliPreset::Grok => "agents-dropdown-grok".to_string(),
             AgentCliPreset::Antigravity => "agents-dropdown-antigravity".to_string(),
+            AgentCliPreset::Gemini => "agents-dropdown-gemini".to_string(),
+            AgentCliPreset::OpenCode => "agents-dropdown-opencode".to_string(),
             _ => format!("agents-dropdown-{}", desc.binary),
         };
 
@@ -558,7 +629,7 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
                 label: desc.name.to_string(),
                 version: probe.version.clone(),
                 state_label: Some(probe.signed_in.label().to_string()),
-                caption: None,
+                caption: desc.caption.map(str::to_string),
                 selectable: true,
                 is_last_choice: is_last,
                 install_action: None,
@@ -573,24 +644,28 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
                 },
             });
         } else {
-            let action = FixAction::OpenInstallPage(desc.install_url);
+            let (state_lbl, install_act) = if probe.signed_in == SignIn::Checking {
+                (SignIn::Checking.label().to_string(), None)
+            } else {
+                (String::from("Not installed"), Some(FixAction::OpenInstallPage(desc.install_url)))
+            };
             uninstalled_rows.push(PickerRow {
                 id,
                 label: desc.name.to_string(),
                 version: None,
-                state_label: Some("Not installed".to_string()),
-                caption: None,
+                state_label: Some(state_lbl),
+                caption: desc.caption.map(str::to_string),
                 selectable: false,
                 is_last_choice: false,
-                install_action: Some(action.clone()),
+                install_action: install_act.clone(),
                 kind: PickerRowKind::CatalogCli {
                     preset: desc.preset,
                     binary: desc.binary,
                     installed: false,
                     version: None,
-                    signed_in: SignIn::Unknown,
+                    signed_in: probe.signed_in,
                     is_last_choice: false,
-                    install_action: Some(action),
+                    install_action: install_act,
                 },
             });
         }
@@ -667,13 +742,15 @@ mod tests {
     impl FakeRunner {
         fn with_all_installed() -> Self {
             let mut r = Self::default();
-            for bin in ["claude", "codex", "grok", "agy"] {
+            for bin in ["claude", "codex", "grok", "agy", "gemini", "opencode"] {
                 r.installed.insert(bin.to_string(), true);
             }
             r.responses.insert(vec!["claude".into(), "--version".into()], CommandOutput::ok("2.1.302 (Claude Code)\n"));
             r.responses.insert(vec!["codex".into(), "--version".into()], CommandOutput::ok("codex-cli 0.163.0\n"));
             r.responses.insert(vec!["grok".into(), "--version".into()], CommandOutput::ok("grok 1.0.62 (1474f9cbdd91) [stable]\n"));
             r.responses.insert(vec!["agy".into(), "--version".into()], CommandOutput::ok("1.4.2\n"));
+            r.responses.insert(vec!["gemini".into(), "--version".into()], CommandOutput::ok("0.38.2\n"));
+            r.responses.insert(vec!["opencode".into(), "--version".into()], CommandOutput::ok("1.14.19\n"));
             r.responses
                 .insert(vec!["claude".into(), "auth".into(), "status".into()], CommandOutput::ok(r#"{"loggedIn": true, "email": "do-not-store@example.com"}"#));
             r.responses.insert(vec!["codex".into(), "login".into(), "status".into()], CommandOutput::ok("Logged in using ChatGPT\n"));
@@ -715,6 +792,8 @@ mod tests {
         assert_eq!(parse_version("codex-cli 0.163.0").as_deref(), Some("0.163.0"));
         assert_eq!(parse_version("grok 1.0.62 (1474f9cbdd91) [stable]").as_deref(), Some("1.0.62"));
         assert_eq!(parse_version("1.4.2").as_deref(), Some("1.4.2"));
+        assert_eq!(parse_version("0.38.2").as_deref(), Some("0.38.2"));
+        assert_eq!(parse_version("1.14.19").as_deref(), Some("1.14.19"));
     }
 
     // 2. `installed_cli_row_shows_version_and_state`
@@ -729,6 +808,13 @@ mod tests {
         assert_eq!(claude_row.state_label.as_deref(), Some("Signed in"));
         assert!(claude_row.selectable);
         assert!(!format!("{claude_row:?}").contains("do-not-store@example.com"), "account details must never be stored");
+
+        let gemini_row = rows.iter().find(|r| r.label == "Gemini CLI").expect("Gemini CLI row");
+        assert_eq!(gemini_row.version.as_deref(), Some("0.38.2"));
+        assert_eq!(gemini_row.state_label.as_deref(), Some("Sign-in not checked"));
+        assert_eq!(gemini_row.caption, None);
+        assert!(gemini_row.selectable);
+        assert!(rows.iter().all(|r| r.label != "OpenCode"), "OpenCode stays out of default catalog until MCP path is verified");
     }
 
     // 3. `claude_signed_out_json`
@@ -762,12 +848,11 @@ mod tests {
         let cache = CatalogProbeCache::new(runner, PROBE_TIMEOUT);
         cache.refresh_blocking();
         let snap = cache.snapshot();
-        let grok = snap.get(&AgentCliPreset::Grok).expect("grok probe");
-        let agy = snap.get(&AgentCliPreset::Antigravity).expect("agy probe");
-        assert_eq!(grok.signed_in, SignIn::Unknown);
-        assert_eq!(grok.signed_in.label(), "Sign-in not checked");
-        assert_eq!(agy.signed_in, SignIn::Unknown);
-        assert_eq!(agy.signed_in.label(), "Sign-in not checked");
+        for preset in [AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini] {
+            let probe = snap.get(&preset).expect("probe");
+            assert_eq!(probe.signed_in, SignIn::Unknown);
+            assert_eq!(probe.signed_in.label(), "Sign-in not checked");
+        }
     }
 
     // 6. `shell_row_is_last_and_other_cli_row_says_studio_tools_not_connected`
@@ -828,11 +913,11 @@ mod tests {
         cache.refresh_blocking();
         let rows = build_picker_rows(&cache.snapshot(), None, &[]);
 
-        // Installed CLIs (Claude, Codex, Antigravity) come before uninstalled (Grok)
+        // Installed CLIs (Claude, Codex, Antigravity, Gemini CLI) come before uninstalled (Grok)
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(&labels[..4], &["Claude", "Codex", "Antigravity", "Grok"]);
+        assert_eq!(&labels[..5], &["Claude", "Codex", "Antigravity", "Gemini CLI", "Grok"]);
 
-        let grok_row = &rows[3];
+        let grok_row = &rows[4];
         assert_eq!(grok_row.state_label.as_deref(), Some("Not installed"));
         assert!(!grok_row.selectable, "missing binary row must not be selectable");
         assert_eq!(grok_row.install_action, Some(FixAction::OpenInstallPage(install_url(AgentCliPreset::Grok))));
@@ -867,10 +952,12 @@ mod tests {
 
         let t0 = Instant::now();
         cache.refresh_async();
-        // First frame snapshot returns immediately before the blocking runner finishes
+        // First frame snapshot returns immediately before the blocking runner finishes, and no catalog CLI is selectable before `is_installed` finishes.
         let first_frame_rows = build_picker_rows(&cache.snapshot(), None, &[]);
         assert!(t0.elapsed() < Duration::from_millis(200), "refresh_async must not block the UI thread");
-        assert!(first_frame_rows.iter().any(|r| r.label == "Claude" && r.state_label.as_deref() == Some("Checking...")));
+        let claude_first = first_frame_rows.iter().find(|r| r.label == "Claude").expect("Claude row");
+        assert_eq!(claude_first.state_label.as_deref(), Some("Checking..."));
+        assert!(!claude_first.selectable, "unprobed CLI must not be selectable before is_installed completes");
 
         // Wait for background worker to enter `run`, then release it
         let _ = started_rx.recv_timeout(Duration::from_secs(2));
@@ -883,6 +970,7 @@ mod tests {
         let updated_rows = build_picker_rows(&cache.snapshot(), None, &[]);
         let claude = updated_rows.iter().find(|r| r.label == "Claude").unwrap();
         assert_eq!(claude.version.as_deref(), Some("2.1.302"));
+        assert!(claude.selectable);
     }
 
     // 11. `probe_timeout_degrades_to_unknown`
@@ -930,5 +1018,57 @@ mod tests {
         file_a.shutdown();
         file_b.shutdown();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // 13. `first_frame_uninstalled_last_cli_is_not_selectable_or_ordered_first`
+    #[test]
+    fn first_frame_uninstalled_last_cli_is_not_selectable_or_ordered_first() {
+        let mut fake = FakeRunner::with_all_installed();
+        fake.installed.insert("grok".to_string(), false);
+        fake.delay = Duration::from_millis(80);
+        let runner: Arc<dyn RunCommand> = Arc::new(fake);
+        let cache = CatalogProbeCache::new(runner, PROBE_TIMEOUT);
+
+        // Even with an empty probe map, an unverified CLI must not be selectable or promoted to #1.
+        let empty_rows = build_picker_rows(&HashMap::new(), Some("grok"), &[]);
+        let empty_grok = empty_rows.iter().find(|r| r.label == "Grok").expect("Grok row");
+        assert!(!empty_grok.selectable, "unprobed CLI must not be selectable before install check");
+
+        // Trigger async probe and inspect the very first frame snapshot before background worker completes.
+        cache.refresh_async();
+        let first_frame_rows = build_picker_rows(&cache.snapshot(), Some("grok"), &[]);
+        let first_grok = first_frame_rows.iter().find(|r| r.label == "Grok").expect("Grok row on frame 1");
+        assert!(!first_grok.selectable, "uninstalled last_cli must not be selectable on frame 1");
+        assert_ne!(first_frame_rows[0].label, "Grok", "uninstalled last_cli must not be ordered first on frame 1");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while cache.is_probing() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let settled_rows = build_picker_rows(&cache.snapshot(), Some("grok"), &[]);
+        let settled_grok = settled_rows.iter().find(|r| r.label == "Grok").expect("Grok row after probe");
+        assert!(!settled_grok.selectable);
+        assert_eq!(settled_grok.state_label.as_deref(), Some("Not installed"));
+        assert_ne!(settled_rows[0].label, "Grok");
+    }
+
+    // #679 3. `available_only_when_the_probe_finds_the_binary`
+    #[test]
+    fn available_only_when_the_probe_finds_the_binary() {
+        let runner: Arc<dyn RunCommand> = Arc::new(FakeRunner::default());
+        let cache = CatalogProbeCache::new(runner, PROBE_TIMEOUT);
+        cache.refresh_blocking();
+        let rows = build_picker_rows(&cache.snapshot(), None, &[]);
+
+        let catalog_rows: Vec<&PickerRow> = rows.iter().filter(|r| matches!(r.kind, PickerRowKind::CatalogCli { .. })).collect();
+        assert_eq!(catalog_rows.len(), 5);
+        for row in &catalog_rows {
+            assert!(!row.selectable, "catalog row '{}' must not be selectable when binary is not found", row.label);
+            assert_eq!(row.state_label.as_deref(), Some("Not installed"));
+            assert!(row.install_action.is_some());
+        }
+
+        let gemini_row = rows.iter().find(|r| r.label == "Gemini CLI").expect("Gemini CLI row");
+        assert_eq!(gemini_row.install_action, Some(FixAction::OpenInstallPage("https://github.com/google-gemini/gemini-cli")));
     }
 }

@@ -188,15 +188,7 @@ impl Shell {
         if let Some(l) = &opts.dev {
             app.ui.dev_mode = true;
             app.ui.right_tab = Some(crate::app::RightTab::Design);
-            app.dev.lang = match l.as_str() {
-                "tailwind" => crate::dev::Language::Tailwind,
-                "swiftui" => crate::dev::Language::SwiftUi,
-                "uikit" => crate::dev::Language::UiKit,
-                "compose" => crate::dev::Language::Compose,
-                "android-xml" => crate::dev::Language::AndroidXml,
-                "react" => crate::dev::Language::React,
-                _ => crate::dev::Language::Css,
-            };
+            app.dev.lang = crate::dev::Language::from_id(l).unwrap_or(crate::dev::Language::Css);
             if opts.dev_demo {
                 crate::dev::preset::apply(&mut app);
             }
@@ -1220,7 +1212,9 @@ impl Shell {
             }
             if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
                 let file_path = self.app.file_path.clone();
-                let term_actions = crate::terminal::show_dock(&mut self.app.terminal, ui, dock_rect, file_path.as_deref());
+                let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
+                    crate::terminal::show_dock_with_selection(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary)
+                });
                 execute_terminal_actions(&mut self.app, term_actions);
                 let dock_handle_rect =
                     Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
@@ -1368,6 +1362,11 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                     Err(e) => app.show_toast(e, true),
                 }
             }
+            crate::terminal::TerminalAction::SendSelectionToAgent => {
+                if let Err(e) = crate::terminal::send_selection_to_agent_pty(&mut app.terminal, &app.doc, app.page, &app.selection) {
+                    app.show_toast(e, true);
+                }
+            }
         }
     }
 }
@@ -1406,10 +1405,11 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
         }
         crate::cmdk::CmdKAction::ExportFig => {
             let out_path = app.file_path.as_ref().map(|p| p.with_extension("fig")).unwrap_or_else(|| std::path::PathBuf::from("/tmp/designos-export.fig"));
-            match designos_fig::export_fig(&app.doc) {
-                Ok(bytes) => {
+            match designos_fig::export_fig_with_report(&app.doc) {
+                Ok((bytes, omitted)) => {
                     if std::fs::write(&out_path, bytes).is_ok() {
-                        app.show_toast(format!("Exported Figma .fig to {}", out_path.display()), false);
+                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
+                        app.show_toast(format!("Exported Figma .fig to {}{note}", out_path.display()), false);
                     }
                 }
                 Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),
@@ -2801,6 +2801,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
                 crate::dev::Language::UiKit => "UIKit",
                 crate::dev::Language::Compose => "Jetpack Compose",
                 crate::dev::Language::AndroidXml => "Android XML",
+                crate::dev::Language::Html => "HTML5 + CSS3",
             };
             hud.badge_text = format!("Dev Mode · Box Model · {lang_name}");
             hud.keycap = "⇧D".into();

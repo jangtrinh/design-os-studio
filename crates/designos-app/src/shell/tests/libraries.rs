@@ -301,11 +301,10 @@ fn publish_red(root: &Path) -> (Sim, String) {
     store.set_value(&n, &mode, VariableValue::Number(8.0));
     assert!(a.shell.app.commit_store(store, &[], &[]));
     a.shell.app.doc.styles.insert("Brand/Red".into(), Style::Fill(vec![Paint::solid(Color::rgb(255, 0, 0))]));
-    a.shell
-        .app
-        .doc
-        .style_meta
-        .insert("Brand/Red".into(), StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+    a.shell.app.doc.style_meta.insert(
+        "Brand/Red".into(),
+        StyleMeta { name: "Brand/Red".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+    );
     assert!(a.shell.app.publish_file());
     let lib_id = a.app().doc.library.published.clone().unwrap().library_id;
     (a, lib_id)
@@ -370,6 +369,62 @@ fn library_variables_bind_through_the_picker_in_one_undo_step() {
     b.key(Key::Z);
     b.mods = egui::Modifiers::NONE;
     assert_eq!(box_pixel(&b, id), [255, 0, 0]);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn library_variables_bind_to_a_style_through_the_picker_in_one_undo_step() {
+    let root = tmp("stylevarpick");
+    let (_a, lib_id) = publish_red(&root);
+    let (mut b, id) = consumer_with_rect(&root, &lib_id);
+    b.shell.app.doc.styles.insert("Card/Fill".into(), designos_doc::Style::Fill(vec![designos_doc::Paint::solid(designos_doc::Color::WHITE)]));
+    b.shell.app.doc.style_meta.insert(
+        "Card/Fill".into(),
+        designos_doc::StyleMeta {
+            name: "Card/Fill".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Fill,
+            bindings: Default::default(),
+        },
+    );
+    b.shell.app.apply_style(&[id], "Card/Fill");
+    b.shell.app.selection.clear();
+    frames(&mut b, 2);
+
+    b.scroll_inspector_down();
+    let row = b.rect_of("style:Card/Fill");
+    b.mv(row.center());
+    b.frame(vec![]);
+    let edit_btn = b.rect_of("style-edit:Card/Fill");
+    b.click(edit_btn.center());
+    b.frame(vec![]);
+
+    // Open the style variable picker for `fills/0` and pick the enabled library's `Brand/Red` variable.
+    let anchor = egui::Rect::from_min_size(Pos2::new(900.0, 200.0), Vec2::new(120.0, 24.0));
+    b.shell.app.vars.bind_picker = Some(crate::variables::BindPicker {
+        keys: vec!["fills/0".into()],
+        kind: designos_doc::VariableKind::Color,
+        nodes: Vec::new(),
+        style_key: Some("Card/Fill".into()),
+        anchor,
+        query: String::new(),
+    });
+    b.frame(vec![]);
+    let pick_rect = b.rect_of("pick:Brand/Red");
+    b.click(pick_rect.center());
+    b.frame(vec![]);
+
+    let local = b.app().doc.style_meta["Card/Fill"].bindings.get("fills/0").cloned().expect("style bound to imported library variable");
+    assert!(b.app().doc.variables.contains_key(&local), "imported local variable id {local} exists in doc.variables");
+    assert_eq!(b.app().doc.variables[&local].name, "Brand/Red");
+    assert_eq!(box_pixel(&b, id), [255, 0, 0], "linked layer renders the library variable's colour");
+
+    // One undo removes the style binding and the imported variable copy together.
+    b.cmd_key(Key::Z);
+    assert!(b.app().doc.style_meta["Card/Fill"].bindings.is_empty());
+    assert!(b.app().doc.variables.is_empty() && b.app().doc.variable_collections.is_empty());
+    assert_eq!(box_pixel(&b, id), [255, 255, 255]);
     let _ = std::fs::remove_dir_all(root);
 }
 

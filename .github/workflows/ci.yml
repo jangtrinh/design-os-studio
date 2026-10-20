@@ -129,3 +129,33 @@ jobs:
 
       - name: Test scripts/release-sync-pages.py
         run: python3 -m unittest discover -s scripts/tests -v
+
+  codegen-validators:
+    name: Codegen Validators
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libwayland-dev libx11-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            libfontconfig1-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install html-validate
+        run: npm install -g html-validate
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Validate HTML codegen with html-validate
+        run: cargo test -p designos-export --lib html::tests::card_passes_html_validate --locked -- --ignored --exact

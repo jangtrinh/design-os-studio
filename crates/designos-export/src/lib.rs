@@ -11,6 +11,7 @@
 //! vector PDF 1.4 pages, one page per frame. Pages preserve frame dimensions,
 //! vector paths, gradients, clipping masks, and selectable text runs.
 
+pub mod agent_context;
 mod android_xml;
 mod bounds;
 mod codegen;
@@ -18,6 +19,7 @@ mod compose;
 mod css;
 pub mod design_context;
 mod geo;
+pub mod html;
 pub mod language;
 mod pdf;
 mod raster;
@@ -30,12 +32,17 @@ mod text;
 mod uikit;
 pub mod util;
 
+pub use agent_context::{
+    emitted_metadata_nodes, escape_xml_attr, fmt_f32_2, is_lint_rule_ignored, metadata_xml, structural_lint_counts, structural_lint_rules_for_nodes,
+    xml_tag_name, MetadataOptions, MetadataXml,
+};
 pub use android_xml::android_xml_for;
 pub use bounds::render_bounds;
 pub use codegen::css_var_display as css_variable_reference;
 pub use codegen::{is_vector_asset, vector_assets};
 pub use compose::compose_for;
 pub use css::{css_for, font_family_css, paint_css, text_style_css};
+pub use html::{html_for, html_with, HtmlOptions};
 pub use language::{CodeLanguage, CodeLanguageOptions};
 pub use pdf::export_pdf;
 pub use raster::{encode_jpg_pixmap, encode_png_pixmap, export_jpg, export_png, export_webp, render_export, rgba_bytes, ExportScale};

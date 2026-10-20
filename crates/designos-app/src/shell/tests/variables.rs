@@ -828,3 +828,44 @@ fn an_imported_library_collection_reusing_a_local_collection_id_does_not_replace
     assert!(app.edit_variables(|s| (s.delete_collection(mine), vec![mine.to_string()])), "it still deletes");
     assert!(!app.doc.variable_collections.contains_key(mine));
 }
+
+#[test]
+fn file_import_protects_local_records_and_does_not_count_existing_library_variables_as_skipped() {
+    let (mine, theirs, clash) = ("VariableCollectionId:1:6", "VariableCollectionId:2:3", "VariableID:1:8");
+    let mut app = app_owning(mine, clash);
+    let variable_before = app.doc.variables[clash].clone();
+
+    let tmp_dir = std::env::temp_dir().join(format!("designos_var_import_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let clash_path = tmp_dir.join("clash.json");
+    std::fs::write(&clash_path, library_payload(theirs, clash)).unwrap();
+    app.import_variables_files_with_format(&[clash_path], designos_fig::VariablesFormat::FigmaRest);
+    assert_eq!(app.doc.variables[clash], variable_before, "file import must not overwrite a local variable with a library one");
+    let rep = app.vars.last_import_report.as_ref().unwrap();
+    assert_eq!((rep.added, rep.skipped_library_count()), (0, 1));
+
+    // Add 3 variables in a subscribed library collection, then import a clean Light.tokens.json file.
+    let mut store = designos_doc::VariableStore::from_doc(&app.doc);
+    let lib_coll = "VariableCollectionId:9:1";
+    insert_collection(&mut store, lib_coll, "Shared Library", None);
+    for name in ["Lib/A", "Lib/B", "Lib/C"] {
+        store.add_variable(lib_coll, name, VariableKind::Color).unwrap();
+    }
+    store.collections.get_mut(lib_coll).unwrap().source_library_key = Some("lk-9".into());
+    app.doc.variable_collections = store.collections;
+    app.doc.variables = store.variables;
+
+    let light_path = tmp_dir.join("Light.tokens.json");
+    std::fs::write(
+        &light_path,
+        r##"{"brand":{"primary":{"$type":"color","$value":{"colorSpace":"srgb","components":[0.1,0.2,0.3],"alpha":1.0,"hex":"#1A334D"}}}}"##,
+    )
+    .unwrap();
+    app.import_variables_files_with_format(&[light_path], designos_fig::VariablesFormat::FigmaNative);
+    let rep2 = app.vars.last_import_report.as_ref().unwrap();
+    assert_eq!(rep2.added, 1);
+    assert!(rep2.skipped.is_empty(), "existing library variables must not be reported as skipped: {:?}", rep2.skipped);
+    assert!(!app.vars.show_skipped_details);
+    assert_eq!(app.doc.variable_collections[lib_coll].variables.len(), 3, "existing library variables remain intact");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

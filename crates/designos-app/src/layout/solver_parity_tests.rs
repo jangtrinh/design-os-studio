@@ -1323,6 +1323,7 @@ fn add_space_variables(d: &mut Document, vars: &[(&str, f32, f32)]) {
             variables: vars.iter().map(|(id, ..)| (*id).to_string()).collect(),
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     for &(id, compact, spacious) in vars {
@@ -1341,6 +1342,8 @@ fn add_space_variables(d: &mut Document, vars: &[(&str, f32, f32)]) {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
     }
@@ -1559,6 +1562,7 @@ fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_do
                     variables: vec!["v-stroke".into()],
                     key: None,
                     source_library_key: None,
+                    extensions: Default::default(),
                 },
             );
             d.variables.insert(
@@ -1579,6 +1583,8 @@ fn solve_everywhere_with_stroke(al: AutoLayout, frame: Vec2, stroke: designos_do
                     code_syntax: Default::default(),
                     hidden_from_publishing: false,
                     key: None,
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
                 },
             );
             f.variables.bindings.insert("strokeWeight".into(), "v-stroke".into());

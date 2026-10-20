@@ -156,7 +156,7 @@ Seams: designos-doc unit tests for `plan_fixes`; MCP fixture tests for execution
 | `bind_unchanged_value_applied` | fill equal to exactly one mode-constant variable | `applied` has `hardcoded-value`; resolved fill unchanged in every mode |
 | `binding_never_overwritten` | gap bound to a variable whose value is off-scale | no fix |
 | `instance_mirror_skipped` | exact-match hard-coded fill inside an instance's mirrored child | no fix; finding still reported |
-| `undo_of_auto_fix_keeps_write_key_valid` | write with idempotency key `k1` (E15-6) that triggers an applied fix; one `designos_undo`; resend `k1` | replay (`designos/idempotent_replay`); the agent's write is still present, only the fix is gone; E15-6 stores `undo_depth` before the fix entry |
+| `undo_of_auto_fix_keeps_write_key_valid` | write with idempotency key `k1` (E15-6) that triggers an applied fix; one `designos_undo`; resend `k1` | replay (`designos/idempotent_replay`); the agent's write is still present, only the fix is gone; E15-6 stores `undo_depth` and `pre_auto_fix_reply` before the fix entry, and the replayed reply omits `auto_fix.applied` and the post-fix issues so it does not claim fixes that were undone |
 | `two_pass_limit` | `plan_fixes` driven by a test rule that reports a new safe finding after every pass (the shipped safe rules cannot reliably chain, so the cap is tested with an injected rule) | `passes: 2`, no third pass |
 
 Fail-before: `fill_child_without_layout_parent_fixed` fails today (no `auto_fix` key).

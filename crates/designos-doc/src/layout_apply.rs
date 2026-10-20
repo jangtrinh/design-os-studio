@@ -345,6 +345,7 @@ mod tests {
                 variables: vec!["var-root-w".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -360,6 +361,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 
@@ -681,6 +684,7 @@ mod tests {
                 variables: vec!["v-stroke".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -696,6 +700,8 @@ mod tests {
                 code_syntax: Default::default(),
                 hidden_from_publishing: false,
                 key: None,
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 

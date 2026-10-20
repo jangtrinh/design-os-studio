@@ -450,6 +450,9 @@ impl TabsState {
                 self.entries.push(tab);
                 self.active_idx = self.entries.len() - 1;
                 app.terminal = crate::terminal::TerminalState::for_tab(id);
+                if let Some(lib) = &app.lib {
+                    app.terminal.library_root = Some(lib.root().to_path_buf());
+                }
                 app.terminal.bind_session(&sid);
                 if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
                     app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
@@ -467,6 +470,9 @@ impl TabsState {
                     app.image_jobs = std::mem::take(&mut tab.image_jobs);
                 }
                 self.hist_in_app = true;
+                if let Some(lib) = &app.lib {
+                    app.terminal.library_root = Some(lib.root().to_path_buf());
+                }
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
                 if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
@@ -479,6 +485,9 @@ impl TabsState {
         self.sync_from_app(app);
         if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
             let sid = self.session_id_for_tab(tab_id);
+            if let Some(lib) = &app.lib {
+                app.terminal.library_root = Some(lib.root().to_path_buf());
+            }
             app.terminal.bind_session(&sid);
             if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
                 if app.terminal.tabs.is_empty() {
@@ -505,6 +514,9 @@ impl TabsState {
         let id = self.alloc_id();
         let sid = self.session_id_for_tab(id);
         let mut terminal = crate::terminal::TerminalState::for_tab(id);
+        if let Some(lib) = &app.lib {
+            terminal.library_root = Some(lib.root().to_path_buf());
+        }
         terminal.bind_session(&sid);
         let tab = ProjectTab {
             id,
@@ -531,6 +543,9 @@ impl TabsState {
         app.hist = History::default();
         app.terminal = std::mem::take(&mut self.entries[new_idx].terminal);
         app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
+        if let Some(lib) = &app.lib {
+            app.terminal.library_root = Some(lib.root().to_path_buf());
+        }
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         self.hist_in_app = true;

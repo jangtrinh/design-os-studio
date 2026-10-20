@@ -1911,9 +1911,15 @@ impl App {
                     self.changed();
                 }
                 let notice = io::non_finite_notice_once(&p, replaced);
+                let fig_omitted = if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
+                    designos_fig::collect_omitted_extensions(&self.doc).len()
+                } else {
+                    0
+                };
+                let fig_note = if fig_omitted == 0 { String::new() } else { format!(" ({fig_omitted} extension keys not carried)") };
                 match notice {
-                    Some(w) => self.show_toast(format!("Saved {} ({w})", p.display()), true),
-                    None => self.show_toast(format!("Saved {}", p.display()), false),
+                    Some(w) => self.show_toast(format!("Saved {} ({w}){fig_note}", p.display()), true),
+                    None => self.show_toast(format!("Saved {}{fig_note}", p.display()), false),
                 }
                 if self.lib_file.is_none() {
                     if let Some(old) = self.file_path.replace(p.clone()) {

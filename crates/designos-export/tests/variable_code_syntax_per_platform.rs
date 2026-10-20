@@ -19,6 +19,7 @@ fn doc_with_syntax(platform: CodeSyntaxPlatform, brand: &str, gap: &str) -> (Doc
             variables: vec!["brand".into(), "gap".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let var = |id: &str, name: &str, kind, value, code: &str| Variable {
@@ -32,6 +33,8 @@ fn doc_with_syntax(platform: CodeSyntaxPlatform, brand: &str, gap: &str) -> (Doc
         hidden_from_publishing: false,
         key: None,
         code_syntax: [(platform, code.to_string())].into_iter().collect(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
     };
     d.variables.insert("brand".into(), var("brand", "Color/Brand", VariableKind::Color, VariableValue::Color(Color::rgb(0x33, 0x66, 0x99)), brand));
     d.variables.insert("gap".into(), var("gap", "Spacing/Gap", VariableKind::Number, VariableValue::Number(12.0), gap));

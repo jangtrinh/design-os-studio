@@ -63,6 +63,7 @@ mod variables_apply;
 mod variables_edit;
 pub mod vector;
 mod vector_fit;
+mod writer_command;
 
 pub use board::*;
 pub use branch_diff::{diff3, Conflict, ConflictKind, Diff3, DiffStats, EntityChange, EntityConflict, EntityKey, Group, SideChanges};
@@ -96,6 +97,7 @@ pub use variables_apply::*;
 pub use variables_edit::*;
 pub use vector::{HandleMirror, VectorNetwork};
 pub use vector_fit::{fit_polyline, Anchor};
+pub use writer_command::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -861,6 +863,9 @@ pub struct StyleMeta {
     pub description: String,
     /// Property the style is used for (a `Style::Fill` can be a stroke style).
     pub property: StyleProperty,
+    /// Property key -> variable id bound on this style.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.
