@@ -442,18 +442,37 @@ impl AgentTurnLedger {
             }
         }
         let turn = &mut self.turns[turn_idx];
+        let contiguous_with_last = turn.steps.last().is_none_or(|prev| step.hist_depth == prev.hist_depth + 1);
 
         // Edge case 2: if the user edited a layer `id` during the turn (between an earlier agent
-        // step in this turn and the current agent step), `pre_fingerprints[id]` before this step
-        // will differ from `summary.post_fingerprint` recorded after the earlier step. Drop the
-        // earlier steps' inverses for `id` so reverting this turn restores the state right before
-        // the agent's latest write (preserving the user's mid-turn edit).
+        // step in this turn and the current agent step), a non-ledger history step landed between
+        // those two touches AND `pre_fingerprints[id]` before this step differs from
+        // `summary.post_fingerprint`. Drop the earlier steps' inverses for `id` so reverting this
+        // turn restores the state right before the agent's latest write (preserving the user's
+        // mid-turn edit). Fingerprint changes caused solely by auto-layout reflow from intervening
+        // agent patches in the same turn must keep earlier inverses.
         for &(id, _, _) in &step.touched {
-            if let Some(summary) = turn.touched_layers.iter().find(|s| s.id == id) {
-                if let Some(&pre_fp) = step.pre_fingerprints.get(&id) {
-                    if pre_fp != summary.post_fingerprint {
-                        for prev_step in &mut turn.steps {
-                            prev_step.atomic_inverses.retain(|(tid, _)| *tid != Some(id));
+            let non_ledger_intervened = if let Some(last_pos) = turn.steps.iter().rposition(|s| s.touched.iter().any(|(tid, _, _)| *tid == id)) {
+                let mut expected = turn.steps[last_pos].hist_depth;
+                let mut had_gap = false;
+                for s in &turn.steps[last_pos + 1..] {
+                    if s.hist_depth != expected + 1 {
+                        had_gap = true;
+                        break;
+                    }
+                    expected = s.hist_depth;
+                }
+                had_gap || step.hist_depth != expected + 1
+            } else {
+                false
+            };
+            if non_ledger_intervened {
+                if let Some(summary) = turn.touched_layers.iter().find(|s| s.id == id) {
+                    if let Some(&pre_fp) = step.pre_fingerprints.get(&id) {
+                        if pre_fp != summary.post_fingerprint {
+                            for prev_step in &mut turn.steps {
+                                prev_step.atomic_inverses.retain(|(tid, _)| *tid != Some(id));
+                            }
                         }
                     }
                 }
@@ -476,6 +495,14 @@ impl AgentTurnLedger {
                 existing.post_children = post_children;
             } else {
                 turn.touched_layers.push(TouchedLayerSummary { id: *id, name: name.clone(), kind: *kind, post_fingerprint: post_fp, post_children });
+            }
+        }
+
+        if contiguous_with_last {
+            for existing in &mut turn.touched_layers {
+                if existing.kind != TouchKind::Removed && !step.touched.iter().any(|(id, _, _)| *id == existing.id) {
+                    existing.post_fingerprint = doc_after.get(existing.id).map(node_fingerprint);
+                }
             }
         }
 
@@ -1401,5 +1428,93 @@ mod tests {
         agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::SelectLayer(card));
         assert_eq!(r.app.selection, vec![card]);
         assert!(!r.app.canvas.dirty, "SelectLayer must not call app.changed() or mark canvas.dirty");
+    }
+
+    #[test]
+    fn revert_undoes_earlier_step_after_intervening_auto_layout_reflow() {
+        let mut r = rig();
+        let page = r.app.page;
+        let container = r.app.doc.alloc_id();
+        let mut container_node = Node::frame(container, Rect::new(0.0, 0.0, 800.0, 200.0));
+        container_node.name = "Auto Container".into();
+        if let designos_doc::NodeKind::Frame(fp) = &mut container_node.kind {
+            let mut al = designos_doc::AutoLayout::v1();
+            al.item_spacing = 16.0;
+            fp.auto_layout = Some(al);
+        }
+        r.app.doc.insert(page, container_node).unwrap();
+
+        let card = r.card;
+        let hero = r.hero;
+        r.app.doc.reparent(card, container, 0).unwrap();
+        r.app.doc.reparent(hero, container, 1).unwrap();
+        r.app.doc.get_mut(hero).unwrap().fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(25, 50, 75))];
+        r.app.doc.relayout_subtree(container);
+        let orig_hero_tx = r.app.doc.get(hero).unwrap().transform.tx;
+        let orig_hash = doc_hash(&r.app.doc);
+
+        // Re-sync MCP session with the auto-layout container state.
+        r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
+        r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
+
+        r.run_hook("start", "claude");
+        // Step 1: rename Hero.
+        r.agent_rename(hero, "Hero Renamed");
+        // Step 2: resize Card so parent auto-layout reflows and moves Hero.
+        r.session.call("designos_update_node", json!({ "node_id": card.0, "width": 320.0 })).expect("resize card");
+        // Step 3: change Hero's opacity after parent auto-layout moved Hero.
+        r.session.call("designos_update_node", json!({ "node_id": hero.0, "opacity": 0.5 })).expect("update hero opacity");
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero Renamed");
+        assert!(r.app.doc.get(hero).unwrap().transform.tx > orig_hero_tx, "auto-layout reflow must have moved Hero");
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero", "Revert must restore Hero's original name even after intervening auto-layout reflow");
+        assert_eq!(r.app.doc.get(card).unwrap().size.x, 200.0);
+        assert_eq!(r.app.doc.get(hero).unwrap().transform.tx, orig_hero_tx);
+        assert_eq!(doc_hash(&r.app.doc), orig_hash, "Revert must restore exact pre-turn document");
+        let report = r.app.terminal.active_turn_ledger().turns.last().unwrap().last_revert_report.as_ref().unwrap();
+        assert!(report.kept_user_changed.is_empty(), "Hero was not edited by user: {:?}", report.kept_user_changed);
+    }
+
+    #[test]
+    fn reverted_card_shows_removed_with_frame_without_kept_zero() {
+        let mut r = rig();
+        r.run_hook("start", "claude");
+        let added_frame = r.agent_create_frame("Agent Frame", 40.0, 40.0);
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        // User inserts a child inside `added_frame` after the turn finishes.
+        let user_child = r.app.doc.alloc_id();
+        let mut child_node = Node::frame(user_child, Rect::new(8.0, 8.0, 40.0, 20.0));
+        child_node.name = "User Badge".into();
+        let mut tx = Tx::new();
+        tx.cmd(&mut r.app.doc, Command::Insert { parent: added_frame, index: 0, nodes: vec![child_node] }).unwrap();
+        tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(900.0, 400.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| {
+            let h = agent_turn_card::desired_card_height(&mut r.app, 0);
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(800.0, h + 16.0));
+            agent_turn_card::show_in_rect(ui, &mut r.app, 0, rect);
+        });
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        let joined: String = texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(!joined.contains("Kept 0"), "reverted card must not say 'Kept 0': {joined}");
+        assert!(
+            joined.contains("removed with the frame") && joined.contains("User Badge"),
+            "reverted card must mention children removed with the frame: {joined}"
+        );
     }
 }

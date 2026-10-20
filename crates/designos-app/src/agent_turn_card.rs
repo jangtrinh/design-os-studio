@@ -164,16 +164,30 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
 
 fn draw_reverted_caption(p: &egui::Painter, pos: Pos2, max_w: f32, report: &RevertReport) {
     let kept = report.kept_user_changed.len();
-    if kept == 0 && report.removed_with_frame.is_empty() {
+    let extra = report.removed_with_frame.len();
+    if kept == 0 && extra == 0 {
         let elided = widgets::elide(p, "Reverted", &theme::font_caption(), max_w);
         p.text(pos, Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
         return;
     }
     let mut job = egui::text::LayoutJob::default();
-    job.append("Reverted · Kept ", 0.0, egui::TextFormat { font_id: theme::font_caption(), color: theme::TEXT_SECONDARY, ..Default::default() });
-    job.append(&kept.to_string(), 0.0, egui::TextFormat { font_id: theme::font_mono(), color: theme::TEXT, ..Default::default() });
-    let noun = if kept == 1 { " layer you changed afterwards" } else { " layers you changed afterwards" };
-    job.append(noun, 0.0, egui::TextFormat { font_id: theme::font_caption(), color: theme::TEXT_SECONDARY, ..Default::default() });
+    let cap_fmt = egui::TextFormat { font_id: theme::font_caption(), color: theme::TEXT_SECONDARY, ..Default::default() };
+    let mono_fmt = egui::TextFormat { font_id: theme::font_mono(), color: theme::TEXT, ..Default::default() };
+    job.append("Reverted", 0.0, cap_fmt.clone());
+    if kept > 0 {
+        job.append(" · Kept ", 0.0, cap_fmt.clone());
+        job.append(&kept.to_string(), 0.0, mono_fmt.clone());
+        let noun = if kept == 1 { " layer" } else { " layers" };
+        let names: Vec<&str> = report.kept_user_changed.iter().map(|(_, n)| n.as_str()).collect();
+        job.append(&format!("{noun} you changed afterwards ({})", names.join(", ")), 0.0, cap_fmt.clone());
+    }
+    if extra > 0 {
+        job.append(" · ", 0.0, cap_fmt.clone());
+        job.append(&extra.to_string(), 0.0, mono_fmt);
+        let noun = if extra == 1 { " child" } else { " children" };
+        let names: Vec<&str> = report.removed_with_frame.iter().map(|(_, n)| n.as_str()).collect();
+        job.append(&format!("{noun} removed with the frame ({})", names.join(", ")), 0.0, cap_fmt);
+    }
     let galley = p.layout_job(job);
     if galley.rect.width() <= max_w {
         p.galley(Pos2::new(pos.x, pos.y - galley.rect.height() * 0.5), galley, theme::TEXT_SECONDARY);
