@@ -85,15 +85,24 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
     let mut committed_any = false;
     let mut failures = Vec::new();
     let (default_sid, default_label) = app.terminal.active_agent_session_identity();
+    let mut batch_turns: Vec<(String, u64)> = Vec::new();
     for patch in patches {
         match apply_one(app, patch) {
             Ok((report, committed)) => {
                 if committed {
                     let sid = patch.session_id.as_deref().unwrap_or(&default_sid);
+                    let clean_sid = if sid.trim().is_empty() { "default" } else { sid.trim() };
+                    let turn_id = if let Some((_, t)) = batch_turns.iter().find(|(s, _)| s == clean_sid) {
+                        *t
+                    } else {
+                        let t = app.agent_changes_chip.begin_next_turn(clean_sid);
+                        batch_turns.push((clean_sid.to_string(), t));
+                        t
+                    };
                     let label = patch.agent_label.as_deref().unwrap_or(&default_label);
                     app.agent_presence.record_patch(sid, label, &app.doc, None, &report, app.now);
-                    let colour_idx = app.agent_presence.sessions.iter().find(|s| s.id == sid.trim()).map(|s| s.colour_index).unwrap_or(0);
-                    app.agent_changes_chip.record_patch(sid, colour_idx, None, &app.doc, &report, app.view, app.canvas_rect);
+                    let colour_idx = app.agent_presence.sessions.iter().find(|s| s.id == clean_sid).map(|s| s.colour_index).unwrap_or(0);
+                    app.agent_changes_chip.record_patch(clean_sid, colour_idx, Some(turn_id), &app.doc, &report, app.view, app.canvas_rect);
                 }
                 committed_any |= committed;
                 merge(&mut total, report);

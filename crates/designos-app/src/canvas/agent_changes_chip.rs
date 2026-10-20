@@ -202,7 +202,6 @@ impl AgentChangesChips {
     }
 
     /// Starts a new turn for `session_id`, clearing any chip from its previous turn (`§3.6`).
-    #[allow(dead_code)]
     pub fn begin_turn(&mut self, session_id: &str, turn_id: u64) {
         let clean = if session_id.trim().is_empty() { "default" } else { session_id.trim() };
         self.chips.retain(|c| c.session_id != clean);
@@ -212,6 +211,15 @@ impl AgentChangesChips {
         } else {
             self.session_turns.push((clean.to_string(), turn_id));
         }
+    }
+
+    /// Advances `session_id` to its next monotonically increasing turn id, clearing any chip and
+    /// layer list from its previous turn (`§3.6`), and returns the new `turn_id`.
+    pub fn begin_next_turn(&mut self, session_id: &str) -> u64 {
+        let clean = if session_id.trim().is_empty() { "default" } else { session_id.trim() };
+        let next_turn = self.session_turns.iter().find(|(s, _)| s == clean).map(|(_, t)| t.saturating_add(1)).unwrap_or(1);
+        self.begin_turn(clean, next_turn);
+        next_turn
     }
 
     fn current_turn_for(&mut self, clean_id: &str, explicit_turn: Option<u64>) -> u64 {
@@ -365,6 +373,17 @@ fn hover_tone(c: Color32) -> Color32 {
     Color32::from_rgba_unmultiplied(r.saturating_add(16), g.saturating_add(16), b.saturating_add(16), a)
 }
 
+/// Returns the directional icon pointing toward the off-screen changes (`None` for `ChipEdge::Left`,
+/// which renders the left-pointing arrow glyph `"←"`).
+pub fn edge_arrow_icon(edge: ChipEdge) -> Option<Icon> {
+    match edge {
+        ChipEdge::Right => Some(Icon::ChevronRight),
+        ChipEdge::Top => Some(Icon::ChevronUp),
+        ChipEdge::Bottom => Some(Icon::ChevronDown),
+        ChipEdge::Left => None,
+    }
+}
+
 /// Paints any active off-screen agent change chips and handles click activation.
 pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
     if app.canvas.tiles.unlimited_budget || app.agent_changes_chip.chips.is_empty() {
@@ -455,14 +474,13 @@ pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
         cursor_x += show_galley.size().x + theme::SPACE_FACT;
         painter.galley(show_pos, show_galley, theme::AGENT_LABEL_TEXT);
 
-        let arrow_icon = match edge {
-            ChipEdge::Left => Icon::ChevronDown,
-            ChipEdge::Right => Icon::ChevronRight,
-            ChipEdge::Top => Icon::ChevronDown,
-            ChipEdge::Bottom => Icon::ChevronDown,
-        };
         let icon_center = Pos2::new(cursor_x + icon_w * 0.5, center_y);
-        icons::paint(&painter, arrow_icon, icon_center, icon_w, theme::AGENT_LABEL_TEXT);
+        if let Some(arrow_icon) = edge_arrow_icon(edge) {
+            icons::paint(&painter, arrow_icon, icon_center, icon_w, theme::AGENT_LABEL_TEXT);
+        } else {
+            let left_galley = painter.layout_no_wrap("←".to_string(), theme::font_caption_medium(), theme::AGENT_LABEL_TEXT);
+            painter.galley(icon_center - left_galley.size() * 0.5, left_galley, theme::AGENT_LABEL_TEXT);
+        }
 
         widgets::record(ui, &format!("agent-changes-chip-{idx}"), pill_rect);
         widgets::record(ui, &format!("agent-changes-chip-{}", chip.session_id), pill_rect);
@@ -772,5 +790,47 @@ mod tests {
         let r0 = ctx.data_mut(|d| d.get_temp::<ERect>(Id::new(("test-rect", "agent-changes-chip-0".to_string())))).expect("chip 0 rect");
         let r1 = ctx.data_mut(|d| d.get_temp::<ERect>(Id::new(("test-rect", "agent-changes-chip-1".to_string())))).expect("chip 1 rect");
         assert!(!r0.intersects(r1), "two chips at the same edge must stack without overlapping: {r0:?} vs {r1:?}");
+    }
+
+    #[test]
+    fn second_turn_with_only_on_screen_edits_clears_first_turns_off_screen_chip() {
+        let (doc, on_children, off_children) = make_doc_with_on_and_off_screen_layers();
+        let mut app = App::new(doc);
+        let canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        app.canvas_rect = canvas_rect;
+        app.view = View { offset: DV::ZERO, zoom: 1.0 };
+
+        // Turn 1: off-screen edits show a chip.
+        apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(off_children[0], "Turn 1 Off")]).with_agent("s1", "Claude")]);
+        assert_eq!(app.agent_changes_chip.chips.len(), 1);
+        assert_eq!(app.agent_changes_chip.chips[0].off_screen_count, 1);
+
+        // Turn 2: on-screen-only edits in the next apply_live_patches call must advance the turn
+        // and clear Turn 1's off-screen chip without manual begin_turn calls.
+        apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(on_children[0], "Turn 2 On")]).with_agent("s1", "Claude")]);
+        assert!(app.agent_changes_chip.chips.is_empty(), "turn 1 off-screen chip must clear when turn 2 edits only on-screen layers");
+    }
+
+    #[test]
+    fn edge_arrow_points_toward_changes_and_tab_switch_clears_chips() {
+        assert_eq!(edge_arrow_icon(ChipEdge::Top), Some(Icon::ChevronUp));
+        assert_eq!(edge_arrow_icon(ChipEdge::Bottom), Some(Icon::ChevronDown));
+        assert_eq!(edge_arrow_icon(ChipEdge::Right), Some(Icon::ChevronRight));
+        assert_eq!(edge_arrow_icon(ChipEdge::Left), None);
+
+        let (doc, _on_children, off_children) = make_doc_with_on_and_off_screen_layers();
+        let mut app = App::new(doc);
+        app.canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        app.view = View { offset: DV::ZERO, zoom: 1.0 };
+
+        apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(off_children[0], "Off 0")])]);
+        assert_eq!(app.agent_changes_chip.chips.len(), 1);
+
+        // Opening a new project tab calls `ProjectTabs::apply_to_app`, which must clear chips and agent presence.
+        let mut tabs = crate::tabs::ProjectTabs::new();
+        tabs.sync_from_app(&app);
+        tabs.open_new_design_tab(&mut app);
+        assert!(app.agent_changes_chip.chips.is_empty(), "switching/opening project tab must clear off-screen chips");
+        assert!(app.agent_presence.sessions.is_empty(), "switching/opening project tab must reset agent presence");
     }
 }
