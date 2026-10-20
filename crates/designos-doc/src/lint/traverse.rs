@@ -241,6 +241,9 @@ fn scan_stack_slice<'a>(
     contrast_bounds: &contrast::SubtreeBounds,
     max_nodes: usize,
     max_duration: Option<Duration>,
+    // The call has no later slice to carry the contrast warm-up over to: do it whole while nothing
+    // has been scanned yet, so a call always makes progress.
+    warm_whole_first: bool,
     raw_findings: &mut Vec<Finding>,
 ) -> (usize, bool, Option<String>) {
     let mut scanned = 0usize;
@@ -277,7 +280,7 @@ fn scan_stack_slice<'a>(
         if active.contrast
             && matches!(n.kind, NodeKind::Text(_))
             && (!is_instance_mirror || config.include_instances)
-            && !contrast_bounds.warm_for_text(doc, n.id, max_duration.map(|d| loop_start + d))
+            && !contrast_bounds.warm_for_text(doc, n.id, max_duration.filter(|_| !(warm_whole_first && scanned == 0)).map(|d| loop_start + d))
         {
             stack.push(item);
             complete = false;
@@ -387,6 +390,7 @@ pub fn lint_subtree_with_components(
         &contrast_bounds,
         budget.max_nodes,
         budget.max_duration,
+        true,
         &mut raw_findings,
     );
 
@@ -563,6 +567,7 @@ pub fn lint_in_slices_with_budget(
             &contrast_bounds,
             slice_nodes,
             Some(max_slice_duration),
+            false,
             &mut raw_findings,
         );
         worst_slice_duration = worst_slice_duration.max(t_slice.elapsed());
@@ -573,7 +578,9 @@ pub fn lint_in_slices_with_budget(
             cursor = None;
             break;
         }
-        if total_scanned >= total_budget.max_nodes || total_budget.max_duration.is_some_and(|max_d| start.elapsed() >= max_d) {
+        // The warm-up of the contrast rule is kept from one slice to the next only within this call, so
+        // a call that ran out of time before scanning anything would be resumed from the same place.
+        if total_scanned >= total_budget.max_nodes || (total_scanned > 0 && total_budget.max_duration.is_some_and(|max_d| start.elapsed() >= max_d)) {
             complete = false;
             break;
         }

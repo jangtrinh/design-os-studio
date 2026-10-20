@@ -161,6 +161,9 @@ pub fn lint(doc: &Document, config: &LintConfig, env: &dyn LintEnv) -> LintRepor
 }
 
 #[cfg(test)]
+mod progress_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{AutoLayout, Color, Document, FrameProps, History, LayoutDirection, Node, NodeKind, Paint, Rect, Sizing, TextAutoResize, TextStyle};
