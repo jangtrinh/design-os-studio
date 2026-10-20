@@ -1626,3 +1626,84 @@ fn multi_page_library_import_resolves_components_from_all_pages() {
     assert_eq!(inst.size, Vec2::new(180.0, 52.0), "instance must inherit dimensions from page-2 library component");
     assert_eq!(inst.fills, vec![Paint::solid(Color::from_hex("#10B981").unwrap())]);
 }
+
+// 32. user_stroke_and_size_edits_on_pen_instance_survive_sync_and_pen_round_trip
+#[test]
+fn user_stroke_and_size_edits_on_pen_instance_survive_sync_and_pen_round_trip() {
+    let raw = r##"{
+        "version": "2.21",
+        "children": [
+            {
+                "id": "btn-comp",
+                "type": "frame",
+                "reusable": true,
+                "name": "Button",
+                "width": 120,
+                "height": 40,
+                "stroke": { "fill": "#EF4444", "thickness": 1 }
+            },
+            {
+                "id": "btn-inst",
+                "type": "ref",
+                "ref": "btn-comp",
+                "width": 200,
+                "stroke": { "thickness": 4 }
+            },
+            {
+                "id": "btn-empty-stroke",
+                "type": "ref",
+                "ref": "btn-comp",
+                "stroke": {}
+            }
+        ]
+    }"##;
+
+    let mut doc = import_pen_json(raw).expect("import partial stroke/size instance");
+    let comp_id = find_by_source_id(&doc, "btn-comp").id;
+    let inst_id = find_by_source_id(&doc, "btn-inst").id;
+    let empty_id = find_by_source_id(&doc, "btn-empty-stroke").id;
+
+    // Empty `stroke: {}` must not write an empty `pen:explicit_stroke_fields` marker or mark Stroke overridden.
+    let empty_inst = doc.get(empty_id).unwrap();
+    assert!(!empty_inst.plugin_data.contains_key("pen:explicit_stroke_fields"), "empty stroke object must not record pen:explicit_stroke_fields");
+    assert!(!empty_inst.component.overrides.contains(&OverrideField::Stroke), "empty stroke object must not mark OverrideField::Stroke");
+
+    // Before user edits, `btn-inst` has partial `.pen` markers from import:
+    assert_eq!(doc.get(inst_id).unwrap().plugin_data.get("pen:explicit_stroke_fields").map(String::as_str), Some("width"));
+    assert_eq!(doc.get(inst_id).unwrap().plugin_data.get("pen:explicit_width").map(String::as_str), Some("true"));
+    assert!(!doc.get(inst_id).unwrap().plugin_data.contains_key("pen:explicit_height"));
+
+    // Simulate a Studio user edit changing the instance's stroke color to blue (#3B82F6) and height to 64.
+    let before = doc.get(inst_id).unwrap().clone();
+    let blue = Paint::solid(Color::from_hex("#3B82F6").unwrap());
+    {
+        let inst_mut = doc.get_mut(inst_id).unwrap();
+        inst_mut.stroke.paints = vec![blue.clone()];
+        inst_mut.size.y = 64.0;
+    }
+    let after_snapshot = doc.get(inst_id).unwrap().clone();
+    let recorded = record_override(&before, &after_snapshot);
+    assert!(recorded.contains(&OverrideField::Stroke));
+    assert!(recorded.contains(&OverrideField::Size));
+    {
+        let inst_mut = doc.get_mut(inst_id).unwrap();
+        clear_stale_pen_override_markers(inst_mut, &recorded);
+        inst_mut.component.overrides.extend(recorded);
+    }
+
+    // Syncing instances against `btn-comp` must preserve BOTH the user's blue stroke color + 64 height
+    // AND the previously overridden thickness 4 + width 200.
+    sync_instances(&mut doc, comp_id).apply(&mut doc).expect("sync_instances after user edit");
+    let synced = doc.get(inst_id).unwrap();
+    assert_eq!(synced.stroke.paints, vec![blue.clone()], "user-edited stroke color must survive sync_instances");
+    assert_eq!(synced.stroke.weight, 4.0, "instance stroke thickness must survive sync_instances");
+    assert_eq!(synced.size, Vec2::new(200.0, 64.0), "user-edited height and instance width must survive sync_instances");
+
+    // Exporting to `.pen` and re-importing must preserve both the blue stroke color, thickness 4, and 200x64 size.
+    let exported = export_pen_json(&doc).expect("export after user edit");
+    let rt = import_pen_json(&exported).expect("reimport after user edit");
+    let rt_inst = find_by_source_id(&rt, "btn-inst");
+    assert_eq!(rt_inst.stroke.paints, vec![blue], "user-edited stroke color must survive .pen export/import round trip");
+    assert_eq!(rt_inst.stroke.weight, 4.0, "instance stroke thickness must survive .pen export/import round trip");
+    assert_eq!(rt_inst.size, Vec2::new(200.0, 64.0), "user-edited size must survive .pen export/import round trip");
+}

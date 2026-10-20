@@ -754,8 +754,8 @@ pub fn export_stroke_value_filtered(
         return None;
     }
 
-    let write_paints = explicit_filter.map_or(true, |sf| sf.paints);
-    let write_width = explicit_filter.map_or(true, |sf| sf.width);
+    let write_paints = explicit_filter.is_none_or(|sf| sf.paints);
+    let write_width = explicit_filter.is_none_or(|sf| sf.width);
     let write_align = explicit_filter.map_or(stroke.align != StrokeAlign::Inside, |sf| sf.align);
     let write_cap = explicit_filter.map_or(stroke.cap != StrokeCap::None, |sf| sf.cap);
     let write_join = explicit_filter.map_or(stroke.join != StrokeJoin::Miter, |sf| sf.join);

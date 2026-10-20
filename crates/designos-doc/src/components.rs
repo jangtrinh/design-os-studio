@@ -510,6 +510,20 @@ pub fn record_grid_align_overrides(before: &Node, after: &Node) -> [bool; 2] {
     [before.layout_child.grid_align_h != after.layout_child.grid_align_h, before.layout_child.grid_align_v != after.layout_child.grid_align_v]
 }
 
+/// Clears partial `.pen` override markers (`pen:explicit_stroke_fields`,
+/// `pen:explicit_width`, `pen:explicit_height`) when a user edit records `Stroke`
+/// or `Size` overrides on `node`, so all user-edited stroke/size subfields survive
+/// `sync_instances` and `.pen` export.
+pub fn clear_stale_pen_override_markers(node: &mut Node, fields: &BTreeSet<OverrideField>) {
+    if fields.contains(&OverrideField::Stroke) {
+        node.plugin_data.remove("pen:explicit_stroke_fields");
+    }
+    if fields.contains(&OverrideField::Size) {
+        node.plugin_data.remove("pen:explicit_width");
+        node.plugin_data.remove("pen:explicit_height");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Create component / instance
 // ---------------------------------------------------------------------------

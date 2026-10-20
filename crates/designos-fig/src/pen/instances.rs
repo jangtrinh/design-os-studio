@@ -430,8 +430,11 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         if !pending.stroke_fields.dashes {
             inst.stroke.dashes = comp.stroke.dashes.clone();
         }
-        inst.plugin_data.insert("pen:explicit_stroke_fields".into(), pending.stroke_fields.to_plugin_data_string());
-        inst.component.overrides.insert(OverrideField::Stroke);
+        let fields_str = pending.stroke_fields.to_plugin_data_string();
+        if !fields_str.is_empty() {
+            inst.plugin_data.insert("pen:explicit_stroke_fields".into(), fields_str);
+            inst.component.overrides.insert(OverrideField::Stroke);
+        }
     }
 
     if !pending.explicit_corner_radius {
@@ -626,8 +629,11 @@ fn apply_descendant_overrides(
             }
             let merged_sf =
                 n.plugin_data.get("pen:explicit_stroke_fields").map(|s| ExplicitStrokeFields::from_plugin_data_str(s)).unwrap_or_default().union(sf);
-            n.plugin_data.insert("pen:explicit_stroke_fields".into(), merged_sf.to_plugin_data_string());
-            n.component.overrides.insert(OverrideField::Stroke);
+            let fields_str = merged_sf.to_plugin_data_string();
+            if !fields_str.is_empty() {
+                n.plugin_data.insert("pen:explicit_stroke_fields".into(), fields_str);
+                n.component.overrides.insert(OverrideField::Stroke);
+            }
         }
     }
 
