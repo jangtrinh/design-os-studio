@@ -378,6 +378,7 @@ impl Engine {
                     a.lint,
                     &baseline,
                     self.lint_env(),
+                    &[],
                     &mut out,
                 );
                 Ok(out)
@@ -532,21 +533,16 @@ impl Engine {
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
                 }
-                crate::tools::issues::attach_issues_block(&self.doc, &[root_id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut resp);
-                if !report.issues.is_empty() {
-                    if let Some(arr) = resp.get_mut("issues").and_then(Value::as_array_mut) {
-                        for spec_issue in &report.issues {
-                            if let Ok(v) = serde_json::to_value(spec_issue) {
-                                arr.push(v);
-                            }
-                        }
-                        if let Some(tot) = resp.get("issues_total").and_then(Value::as_u64) {
-                            resp["issues_total"] = json!(tot + report.issues.len() as u64);
-                        }
-                    } else {
-                        resp["issues"] = json!(report.issues);
-                    }
-                }
+                crate::tools::issues::attach_issues_block(
+                    &self.doc,
+                    &[root_id],
+                    &self.session_options.issues,
+                    a.lint,
+                    &baseline,
+                    self.lint_env(),
+                    &report.issues,
+                    &mut resp,
+                );
                 Ok(resp)
             }
             "designos_export_spec" => {
@@ -927,7 +923,7 @@ impl Engine {
             self.relayout(page_id);
         }
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
-        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut out);
+        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
@@ -961,7 +957,7 @@ impl Engine {
             }
         }
         let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
-        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut out);
+        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }

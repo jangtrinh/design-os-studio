@@ -2,7 +2,7 @@
 
 use crate::tools::session_options::{IssuesMode, IssuesOptions, PerCallLintOverride};
 use designos_doc::lint::{lint_subtree, Budget, Finding, LintConfig, LintEnv, Severity, RULES};
-use designos_doc::{Document, NodeId, NodeKind};
+use designos_doc::{Document, NodeId, NodeKind, SpecIssue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -296,6 +296,14 @@ fn severity_rank(s: Severity) -> u8 {
     }
 }
 
+fn spec_severity_rank(s: &str) -> u8 {
+    match s {
+        "error" => 0,
+        "warning" => 1,
+        _ => 2,
+    }
+}
+
 fn rule_order_index(rule_id: &str) -> usize {
     RULES.iter().position(|r| r.id == rule_id).unwrap_or(RULES.len())
 }
@@ -307,8 +315,13 @@ fn is_safe_tier_auto_fixable(f: &Finding) -> bool {
 /// Evaluates the per-call lint `issues` block on `doc` for `touched_roots` and inserts the
 /// `issues*` fields into `reply` (`E15-12` §3.1–§3.5, §4, §5, §8).
 ///
+/// `extra` carries findings produced outside the lint pass (`apply_spec` slot issues, `E15-2`); they
+/// follow the same mode filter, severity sort, `max_items` cap and `issues_total`/`issues_truncated`
+/// accounting as lint findings. Pass `&[]` when there are none.
+///
 /// When effective mode is `Off` (via session options or per-call `lint: false`), `reply` is left
 /// untouched with no `issues*` keys.
+#[allow(clippy::too_many_arguments)]
 pub fn attach_issues_block(
     doc: &Document,
     touched_roots: &[NodeId],
@@ -316,6 +329,7 @@ pub fn attach_issues_block(
     per_call_override: Option<PerCallLintOverride>,
     baseline: &PreCallBaseline,
     env: &dyn LintEnv,
+    extra: &[SpecIssue],
     reply: &mut Value,
 ) {
     let mode = PerCallLintOverride::resolve(per_call_override, options.mode);
@@ -356,17 +370,35 @@ pub fn attach_issues_block(
     // Sort by severity, then rule order in the registry/preset, then paint order (stable sort).
     findings.sort_by_key(|f| (severity_rank(f.severity), rule_order_index(f.rule)));
 
-    let issues_total = findings.len();
+    let mut extras: Vec<&SpecIssue> = extra
+        .iter()
+        .filter(|i| match mode {
+            IssuesMode::ErrorsOnly => i.severity == "error",
+            IssuesMode::Preset | IssuesMode::Off => true,
+        })
+        .collect();
+    extras.sort_by_key(|i| spec_severity_rank(&i.severity));
+
+    let issues_total = findings.len() + extras.len();
     let issues_truncated = issues_total > max_items || !report.complete;
 
-    let items: Vec<IssueItem> = findings
-        .into_iter()
-        .take(max_items)
-        .map(|f| {
+    // Merge the two severity-sorted lists; lint findings win ties.
+    let mut items: Vec<Value> = Vec::with_capacity(max_items.min(issues_total));
+    let mut lint_iter = findings.into_iter().peekable();
+    let mut extra_iter = extras.into_iter().peekable();
+    while items.len() < max_items {
+        let take_lint = match (lint_iter.peek(), extra_iter.peek()) {
+            (Some(f), Some(x)) => severity_rank(f.severity) <= spec_severity_rank(&x.severity),
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        if take_lint {
+            let Some(f) = lint_iter.next() else { break };
             let preexisting = baseline.contains(f.rule, f.node);
             let auto_fixable = is_safe_tier_auto_fixable(&f);
             let fix = f.suggested_fix.map(|s| CompactFix { kind: s.kind, property: s.property, to: s.to });
-            IssueItem {
+            let item = IssueItem {
                 rule: f.rule.to_string(),
                 severity: f.severity,
                 node_id: f.node.0,
@@ -376,12 +408,15 @@ pub fn attach_issues_block(
                 fix,
                 auto_fixable,
                 preexisting,
-            }
-        })
-        .collect();
+            };
+            items.push(serde_json::to_value(item).unwrap_or(Value::Null));
+        } else if let Some(x) = extra_iter.next() {
+            items.push(serde_json::to_value(x).unwrap_or(Value::Null));
+        }
+    }
 
     if let Some(obj) = reply.as_object_mut() {
-        obj.insert("issues".into(), serde_json::to_value(items).unwrap_or_else(|_| json!([])));
+        obj.insert("issues".into(), Value::Array(items));
         obj.insert("issues_total".into(), json!(issues_total));
         obj.insert("issues_truncated".into(), json!(issues_truncated));
         if !report.complete {
@@ -1009,5 +1044,63 @@ mod tests {
             skipped.iter().any(|s| s["rule"] == "text-truncated" && s["reason"] == "no_text_engine"),
             "expected text-truncated in issues_skipped_rules: {skipped:?}"
         );
+    }
+
+    fn slot_engine() -> (Engine, u64) {
+        let mut e =
+            Engine { doc: designos_doc::fixtures::card_with_slots(), history: Default::default(), active_page_id: None, live_ops: None, ..Engine::default() };
+        let page = e.doc.pages[0];
+        e.active_page_id = Some(page);
+        (e, page.0)
+    }
+
+    fn slot_fill_args(page: u64, extra: Value) -> Value {
+        let frames: Vec<Value> = (0..4).map(|i| json!({ "kind": "frame", "name": format!("Adhoc{i}"), "height": 32 })).collect();
+        let mut args = json!({
+            "parent_id": page,
+            "spec": { "kind": "instance", "name": "Card1", "component": "Card", "slots": { "body": frames } }
+        });
+        for (k, v) in extra.as_object().unwrap() {
+            args[k] = v.clone();
+        }
+        args
+    }
+
+    #[test]
+    fn slot_issues_absent_when_mode_off_or_lint_false() {
+        let (mut e, page) = slot_engine();
+        e.call("designos_configure_session", json!({ "issues": { "mode": "off" } })).unwrap();
+        let reply = e.call("designos_apply_spec", slot_fill_args(page, json!({}))).unwrap();
+        for k in ["issues", "issues_total", "issues_truncated", "issues_partial", "issues_scanned", "issues_skipped_rules"] {
+            assert!(reply.get(k).is_none(), "{k} must be absent in off mode: {reply}");
+        }
+
+        let (mut e, page) = slot_engine();
+        let reply = e.call("designos_apply_spec", slot_fill_args(page, json!({ "lint": false }))).unwrap();
+        assert!(reply.get("issues").is_none() && reply.get("issues_total").is_none(), "lint:false must omit issues: {reply}");
+    }
+
+    #[test]
+    fn slot_issues_warnings_dropped_in_errors_only_mode() {
+        let (mut e, page) = slot_engine();
+        e.call("designos_configure_session", json!({ "issues": { "mode": "errors_only" } })).unwrap();
+        let reply = e.call("designos_apply_spec", slot_fill_args(page, json!({}))).unwrap();
+        let items = reply["issues"].as_array().expect("issues array");
+        assert!(items.iter().all(|i| i["severity"] == "error"), "warnings leaked in errors_only: {items:?}");
+        assert_eq!(reply["issues_total"], items.len());
+    }
+
+    #[test]
+    fn slot_issues_capped_with_total_and_truncated() {
+        let (mut e, page) = slot_engine();
+        e.call("designos_configure_session", json!({ "issues": { "max_items": 2 } })).unwrap();
+        let reply = e.call("designos_apply_spec", slot_fill_args(page, json!({}))).unwrap();
+        let items = reply["issues"].as_array().expect("issues array");
+        assert_eq!(items.len(), 2, "{reply}");
+        assert_eq!(reply["issues_total"], 4);
+        assert_eq!(reply["issues_truncated"], true);
+        assert!(items.iter().all(|i| i["rule"] == "slot-non-recommended" && i["severity"] == "warning"));
+        // Recommended components stay visible on the capped slot items.
+        assert!(items[0]["recommended"].is_array());
     }
 }

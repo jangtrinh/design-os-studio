@@ -1535,6 +1535,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
         batch_args.lint,
         &baseline,
         engine.lint_env(),
+        &[],
         &mut reply,
     );
     Ok(reply)
