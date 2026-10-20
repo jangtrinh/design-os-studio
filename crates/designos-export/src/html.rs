@@ -243,7 +243,10 @@ impl<'a> HtmlBuilder<'a> {
 
     fn emit_text(&mut self, t: &TextProps, cls: &str, style_attr: &str, indent: usize, out: &mut Vec<String>) {
         let pad = "  ".repeat(indent);
-        let parent_style_decls = text_style_css(&t.style);
+        let mut parent_style_decls = text_style_css(&t.style);
+        for d in &mut parent_style_decls {
+            append_generic_font_fallback(d);
+        }
 
         let paragraphs = split_paragraphs_with_ranges(&t.content);
         if paragraphs.len() <= 1 {
@@ -252,6 +255,7 @@ impl<'a> HtmlBuilder<'a> {
             let inner = self.render_runs(&t.content, p_start, p_end, &t.runs, &parent_style_decls);
             out.push(format!("{pad}<p class=\"{cls}\"{dir_attr}{style_attr}>{inner}</p>"));
         } else {
+            self.rules.push((format!("{cls} p"), vec!["margin: 0;".to_string()]));
             out.push(format!("{pad}<div class=\"{cls}\"{style_attr}>"));
             let child_pad = "  ".repeat(indent + 1);
             for (p_start, p_end, p_text) in paragraphs {
@@ -314,7 +318,29 @@ impl<'a> HtmlBuilder<'a> {
         let mut lines: Vec<String> = raw.lines().map(String::from).collect();
 
         if is_root && self.root_id == n.id {
-            lines.retain(|l| !l.starts_with("position: absolute;") && !l.starts_with("left: ") && !l.starts_with("top: "));
+            lines.retain(|l| {
+                !l.starts_with("position: absolute;")
+                    && !l.starts_with("left: ")
+                    && !l.starts_with("top: ")
+                    && !l.starts_with("flex: ")
+                    && !l.starts_with("flex-shrink: ")
+                    && !l.starts_with("align-self: ")
+                    && !l.starts_with("justify-self: ")
+                    && !l.starts_with("grid-column: ")
+                    && !l.starts_with("grid-row: ")
+            });
+            let root_sz = web_sizes(n, Parent::root());
+            let mut insert_idx = lines.iter().position(|l| l.starts_with("display: ")).map(|i| i + 1).unwrap_or(0);
+            if matches!(root_sz.w, Dim::Fixed(_)) && !lines.iter().any(|l| l.starts_with("width: ")) {
+                lines.insert(insert_idx, format!("width: {}px;", num(n.size.x)));
+                insert_idx += 1;
+            } else if let Some(w_idx) = lines.iter().position(|l| l.starts_with("width: ")) {
+                insert_idx = w_idx + 1;
+            }
+            if (matches!(root_sz.h, Dim::Fixed(_)) || matches!(n.kind, NodeKind::Line)) && !lines.iter().any(|l| l.starts_with("height: ")) {
+                let h = if matches!(n.kind, NodeKind::Line) { 0.0 } else { n.size.y };
+                lines.insert(insert_idx, format!("height: {}px;", num(h)));
+            }
         } else if parent.al.is_none() && !parent.root && !lines.iter().any(|l| l.starts_with("position: ")) {
             let top_decl = format!("top: {}px;", num(n.transform.ty));
             let left_decl = format!("left: {}px;", num(n.transform.tx));
@@ -354,6 +380,9 @@ impl<'a> HtmlBuilder<'a> {
         }
 
         if let NodeKind::Text(t) = &n.kind {
+            for line in &mut lines {
+                append_generic_font_fallback(line);
+            }
             if !lines.iter().any(|l| l.starts_with("margin: ")) {
                 lines.insert(0, "margin: 0;".into());
             }
@@ -384,19 +413,24 @@ impl<'a> HtmlBuilder<'a> {
         }
 
         // Upgrade bare `codeSyntax.WEB = var(--name)` references to include the resolved fallback
-        // `var(--name, <fallback>)` per T7.29 §3.6 / §10.
+        // `var(--name, <fallback>)` per T7.29 §3.6 / §10, matching whole `var(--ident)` tokens only.
         if !n.variables.bindings.is_empty() {
-            for (key, var_id) in &n.variables.bindings {
+            let mut keys: Vec<&String> = n.variables.bindings.keys().collect();
+            keys.sort();
+            let mut upgraded_idents = HashSet::new();
+            for key in keys {
+                let Some(var_id) = n.variables.bindings.get(key) else { continue };
                 let Some(v) = self.doc.variables.get(var_id) else { continue };
                 let Some(code) = v.code_syntax_for(CodeSyntaxPlatform::Web) else { continue };
                 if let Some(ident) = bare_css_var_ident(code) {
+                    if !upgraded_idents.insert(ident.to_string()) {
+                        continue;
+                    }
                     if let Some(resolved) = self.doc.resolve_variable(n.id, &v.id) {
                         if let Some(fb) = format_var_value(&resolved, key) {
                             let with_fb = format!("var(--{ident}, {fb})");
                             for line in &mut lines {
-                                if line.contains(code) {
-                                    *line = line.replace(code, &with_fb);
-                                }
+                                *line = replace_whole_var_token(line, ident, &with_fb);
                             }
                         }
                     }
@@ -580,6 +614,24 @@ fn is_rtl_paragraph(text: &str) -> bool {
     false
 }
 
+fn append_generic_font_fallback(decl: &mut String) {
+    if let Some(val) = decl.strip_prefix("font-family: ").and_then(|s| s.strip_suffix(';')) {
+        if !val.contains(',') {
+            let lower = val.trim_matches('"').to_ascii_lowercase();
+            if !matches!(lower.as_str(), "sans-serif" | "serif" | "monospace" | "system-ui" | "cursive" | "fantasy") {
+                let generic = if lower.contains("mono") || lower.contains("code") || lower.contains("courier") {
+                    "monospace"
+                } else if lower.contains("serif") && !lower.contains("sans") {
+                    "serif"
+                } else {
+                    "sans-serif"
+                };
+                *decl = format!("font-family: {val}, {generic};");
+            }
+        }
+    }
+}
+
 fn diff_run_style(parent_decls: &[String], run_style: &TextStyle) -> Vec<String> {
     let mut run_decls = Vec::new();
     if let Some(p) = run_style.fills.iter().find(|p| p.visible && p.opacity > 0.0) {
@@ -587,7 +639,10 @@ fn diff_run_style(parent_decls: &[String], run_style: &TextStyle) -> Vec<String>
             run_decls.push(format!("color: {};", css_color(c, p.opacity)));
         }
     }
-    run_decls.extend(text_style_css(run_style));
+    for mut d in text_style_css(run_style) {
+        append_generic_font_fallback(&mut d);
+        run_decls.push(d);
+    }
     run_decls.into_iter().filter(|d| !parent_decls.contains(d)).collect()
 }
 
@@ -598,8 +653,43 @@ fn bare_css_var_ident(code: &str) -> Option<&str> {
         if !ident.is_empty() && !ident.contains(',') && ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             return Some(ident);
         }
+    } else if let Some(ident) = trimmed.strip_prefix("--") {
+        let ident = ident.trim();
+        if !ident.is_empty() && ident.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Some(ident);
+        }
     }
     None
+}
+
+/// Replaces a whole `var(--<ident>)` token (not followed by an identifier character or comma)
+/// with `replacement`, at most once per declaration line.
+fn replace_whole_var_token(line: &str, ident: &str, replacement: &str) -> String {
+    let is_ident_char = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let prefix = format!("var(--{ident}");
+    let mut search_from = 0;
+    while let Some(rel) = line[search_from..].find(&prefix) {
+        let start = search_from + rel;
+        let after_ident = start + prefix.len();
+        let rest = &line[after_ident..];
+        if let Some(next_ch) = rest.chars().next() {
+            if is_ident_char(next_ch) || next_ch == ',' {
+                search_from = after_ident;
+                continue;
+            }
+            let trimmed_rest = rest.trim_start_matches([' ', '\t']);
+            if let Some(after_paren) = trimmed_rest.strip_prefix(')') {
+                let consumed = line.len() - after_paren.len();
+                let mut out = String::with_capacity(line.len() + replacement.len());
+                out.push_str(&line[..start]);
+                out.push_str(replacement);
+                out.push_str(&line[consumed..]);
+                return out;
+            }
+        }
+        search_from = after_ident;
+    }
+    line.to_string()
 }
 
 fn custom_prop_name(v: &Variable) -> String {
@@ -709,7 +799,7 @@ mod tests {
     .title {
       margin: 0;
       color: #111;
-      font-family: Inter;
+      font-family: Inter, sans-serif;
       font-size: 20px;
       font-style: normal;
       font-weight: 600;
@@ -719,7 +809,7 @@ mod tests {
       margin: 0;
       align-self: stretch;
       color: var(--Color-Text-Muted, #666);
-      font-family: Inter;
+      font-family: Inter, sans-serif;
       font-size: 14px;
       font-style: normal;
       font-weight: 400;
@@ -768,43 +858,59 @@ mod tests {
     }
 
     #[test]
-    fn card_passes_html_validate() {
+    fn card_html_structure_is_well_formed() {
         let (d, id) = fixture::card();
         let html = html_for(&d, id);
         assert!(html.starts_with("<!doctype html>\n<html lang=\"en\">\n"));
         assert!(html.contains("<meta charset=\"utf-8\">"));
         assert!(html.contains("<title>Card</title>"));
         assert!(html.ends_with("</body>\n</html>"));
-
-        // Verify balanced non-void HTML tags and absence of XML-style self-closing void elements.
         assert!(!html.contains("/>"), "HTML5 output should not use XML self-closing syntax: {html}");
         assert_eq!(html.matches("<div ").count(), html.matches("</div>").count());
         assert_eq!(html.matches("<p ").count(), html.matches("</p>").count());
+    }
 
-        // When `html-validate` is installed on PATH (e.g. in the `codegen-validators` CI job),
-        // pipe the generated document to `html-validate --stdin` and assert zero errors.
-        if let Ok(status) =
-            std::process::Command::new("html-validate").arg("--version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status()
-        {
-            if status.success() {
-                use std::io::Write;
-                let mut child = std::process::Command::new("html-validate")
-                    .arg("--stdin")
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
+    /// Validates the generated card HTML with `html-validate` using the `html-validate:recommended`
+    /// preset (T7.29 §10). Run locally with:
+    /// `cargo test -p designos-export --lib card_passes_html_validate -- --ignored`
+    #[test]
+    #[ignore = "needs html-validate (cargo test -p designos-export --lib card_passes_html_validate -- --ignored)"]
+    fn card_passes_html_validate() {
+        use std::io::Write;
+        use std::process::{Command as Proc, Stdio};
+
+        let (d, id) = fixture::card();
+        let html = html_for(&d, id);
+
+        let cfg_path = std::env::temp_dir().join(format!("designos-htmlvalidate-{}.json", std::process::id()));
+        std::fs::write(&cfg_path, r#"{"extends":["html-validate:recommended"],"rules":{"doctype-style":["error",{"style":"lowercase"}]}}"#)
+            .expect("write html-validate config");
+        let cfg_arg = cfg_path.to_str().expect("utf-8 temp path");
+
+        let mut child = Proc::new("html-validate")
+            .args(["--config", cfg_arg, "--stdin"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .or_else(|_| {
+                Proc::new("npx")
+                    .args(["--yes", "html-validate", "--config", cfg_arg, "--stdin"])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .spawn()
-                    .expect("spawn html-validate");
-                child.stdin.as_mut().unwrap().write_all(html.as_bytes()).expect("write html to stdin");
-                let out = child.wait_with_output().expect("wait html-validate");
-                assert!(
-                    out.status.success(),
-                    "html-validate failed:\nstdout: {}\nstderr: {}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-            }
-        }
+            })
+            .expect("html-validate or npx must be installed when running card_passes_html_validate");
+        child.stdin.take().unwrap().write_all(html.as_bytes()).expect("write html to stdin");
+        let out = child.wait_with_output().expect("wait html-validate");
+        let _ = std::fs::remove_file(&cfg_path);
+        assert!(
+            out.status.success(),
+            "html-validate failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 
     #[test]
@@ -934,6 +1040,8 @@ mod tests {
         assert!(frag.contains(&format!(".n-{} {{", root_id.0)), "{frag}");
         assert!(frag.contains("position: relative;"), "{frag}");
         assert!(frag.contains(".n-123-copy {"), "{frag}");
+        assert!(frag.contains(".n-123-copy p {\n    margin: 0;\n  }"), "expected inner <p> margin reset in:\n{frag}");
+        assert!(frag.contains("font-family: Inter, sans-serif;"), "expected generic font fallback in:\n{frag}");
         assert!(frag.contains("<span class=\"run-1\">bold</span>"), "{frag}");
         assert!(frag.contains("<p dir=\"rtl\">שלום</p>"), "{frag}");
         assert!(frag.contains("transform-origin: top left;"), "{frag}");
@@ -942,5 +1050,60 @@ mod tests {
         assert!(frag.contains(".hero-photo-2 {"), "{frag}");
         assert!(frag.contains("background-repeat: repeat;"), "{frag}");
         assert!(!frag.contains("secret-ghost") && !frag.contains("SecretGhost"), "{frag}");
+    }
+
+    #[test]
+    fn root_fill_layer_emits_solved_size_and_drops_parent_flex_or_grid_placement() {
+        let (d, card_id) = fixture::card();
+        let card = d.get(card_id).unwrap();
+        let actions_id = *card.children.iter().find(|&&cid| d.get(cid).unwrap().name == "Actions").unwrap();
+
+        let html = html_with(&d, actions_id, &HtmlOptions { fragment: true });
+        let actions_rule_end = html.find(".button {").unwrap_or(html.len());
+        let actions_rule = &html[..actions_rule_end];
+        assert!(actions_rule.contains("width: 280px;"), "root Fill-width layer must emit solved width in px:\n{actions_rule}");
+        assert!(!actions_rule.contains("align-self:"), "root layer must not emit parent-relative align-self:\n{actions_rule}");
+        assert!(!actions_rule.contains("flex:"), "root layer must not emit parent-relative flex:\n{actions_rule}");
+    }
+
+    #[test]
+    fn web_code_syntax_prefix_and_shared_bindings_do_not_corrupt_var_references() {
+        let (mut d, card_id) = fixture::card();
+        // Add a second variable `color_short` whose web syntax `var(--color)` is a prefix of `var(--color-primary)`.
+        d.variables.insert(
+            "color_short".into(),
+            Variable {
+                id: "color_short".into(),
+                name: "Color".into(),
+                collection: "c1".into(),
+                kind: VariableKind::Color,
+                values: [("light".into(), VariableValue::Color(Color::rgb(0x11, 0x22, 0x33)))].into(),
+                description: String::new(),
+                scopes: Vec::new(),
+                key: None,
+                code_syntax: [(CodeSyntaxPlatform::Web, "var(--color)".into())].into(),
+                hidden_from_publishing: false,
+            },
+        );
+        d.variables.get_mut("primary").unwrap().code_syntax.insert(CodeSyntaxPlatform::Web, "var(--color-primary)".into());
+
+        let actions_id = *d.get(card_id).unwrap().children.iter().find(|&&cid| d.get(cid).unwrap().name == "Actions").unwrap();
+        {
+            let actions = d.get_mut(actions_id).unwrap();
+            actions.stroke.paints = vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))];
+            actions.stroke.weight = 1.0;
+            actions.variables.bindings.insert("strokes/0".into(), "color_short".into());
+        }
+
+        let html = html_with(&d, actions_id, &HtmlOptions { fragment: true });
+        assert!(html.contains("background: var(--color-primary, #0D99FF);"), "prefix variable var(--color) must not corrupt var(--color-primary):\n{html}");
+        assert!(html.contains("border: 1px solid var(--color, #123);"), "expected var(--color, #123) on border:\n{html}");
+
+        // Now bind both fills/0 and strokes/0 to the same variable `primary` and verify no double fallback.
+        d.get_mut(actions_id).unwrap().variables.bindings.insert("strokes/0".into(), "primary".into());
+        let html_shared = html_with(&d, actions_id, &HtmlOptions { fragment: true });
+        assert!(!html_shared.contains("#0D99FF, #0D99FF"), "shared variable binding must not duplicate fallback:\n{html_shared}");
+        assert!(html_shared.contains("background: var(--color-primary, #0D99FF);"), "{html_shared}");
+        assert!(html_shared.contains("border: 1px solid var(--color-primary, #0D99FF);"), "{html_shared}");
     }
 }
