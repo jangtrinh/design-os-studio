@@ -364,6 +364,7 @@ impl AgentTurnLedger {
     pub fn record_step(
         &mut self,
         doc_after: &Document,
+        hist: &History,
         patch_offset: u64,
         hist_depth: usize,
         committed_inverse: Command,
@@ -445,28 +446,28 @@ impl AgentTurnLedger {
         let contiguous_with_last = turn.steps.last().is_none_or(|prev| step.hist_depth == prev.hist_depth + 1);
 
         // Edge case 2: if the user edited a layer `id` during the turn (between an earlier agent
-        // step in this turn and the current agent step), a non-ledger history step landed between
-        // those two touches AND `pre_fingerprints[id]` before this step differs from
-        // `summary.post_fingerprint`. Drop the earlier steps' inverses for `id` so reverting this
-        // turn restores the state right before the agent's latest write (preserving the user's
-        // mid-turn edit). Fingerprint changes caused solely by auto-layout reflow from intervening
-        // agent patches in the same turn must keep earlier inverses.
+        // step in this turn and the current agent step), a non-ledger history command directly
+        // targeting `id` landed between those two touches AND `pre_fingerprints[id]` before this
+        // step differs from `summary.post_fingerprint`. Drop the earlier steps' inverses for `id`
+        // so reverting this turn restores the state right before the agent's latest write
+        // (preserving the user's mid-turn edit). Layout-only fingerprint changes on `id` caused by
+        // auto-layout reflow (either from intervening agent patches or from a user edit on a
+        // sibling/ancestor layer) must keep earlier inverses.
         for &(id, _, _) in &step.touched {
-            let non_ledger_intervened = if let Some(last_pos) = turn.steps.iter().rposition(|s| s.touched.iter().any(|(tid, _, _)| *tid == id)) {
-                let mut expected = turn.steps[last_pos].hist_depth;
-                let mut had_gap = false;
-                for s in &turn.steps[last_pos + 1..] {
-                    if s.hist_depth != expected + 1 {
-                        had_gap = true;
-                        break;
-                    }
-                    expected = s.hist_depth;
+            let user_targeted_id = if let Some(last_pos) = turn.steps.iter().rposition(|s| s.touched.iter().any(|(tid, _, _)| *tid == id)) {
+                let prev_depth = turn.steps[last_pos].hist_depth;
+                let cur_depth = step.hist_depth;
+                if cur_depth <= prev_depth {
+                    true
+                } else {
+                    ((prev_depth + 1)..cur_depth)
+                        .filter(|&d| !turn.steps[last_pos + 1..].iter().any(|s| s.hist_depth == d))
+                        .any(|d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(id)))
                 }
-                had_gap || step.hist_depth != expected + 1
             } else {
                 false
             };
-            if non_ledger_intervened {
+            if user_targeted_id {
                 if let Some(summary) = turn.touched_layers.iter().find(|s| s.id == id) {
                     if let Some(&pre_fp) = step.pre_fingerprints.get(&id) {
                         if pre_fp != summary.post_fingerprint {
@@ -642,6 +643,22 @@ impl AgentTurnLedger {
                     skip_all_steps_for.insert(id);
                 }
                 Some(_) => {
+                    let last_id_depth = turn
+                        .steps
+                        .iter()
+                        .rev()
+                        .filter(|s| !cmd_z_into_turn || s.hist_depth <= undo_depth)
+                        .find(|s| s.touched.iter().any(|(tid, _, _)| *tid == id))
+                        .map(|s| s.hist_depth);
+                    let layout_only_reflow = if let Some(ld) = last_id_depth {
+                        let non_ledger_depths: Vec<usize> = ((ld + 1)..=undo_depth).filter(|&d| !turn.steps.iter().any(|s| s.hist_depth == d)).collect();
+                        !non_ledger_depths.is_empty() && !non_ledger_depths.iter().any(|&d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(id)))
+                    } else {
+                        false
+                    };
+                    if layout_only_reflow {
+                        continue;
+                    }
                     let cur_name = doc.get(id).map(|n| n.name.clone()).unwrap_or_else(|| summary.name.clone());
                     report.kept_user_changed.push((id, cur_name));
                     skip_all_steps_for.insert(id);
@@ -1516,5 +1533,64 @@ mod tests {
             joined.contains("removed with the frame") && joined.contains("User Badge"),
             "reverted card must mention children removed with the frame: {joined}"
         );
+    }
+
+    #[test]
+    fn user_resizes_sibling_between_two_agent_writes_to_same_child_still_reverts_both_agent_writes() {
+        let mut r = rig();
+        let page = r.app.page;
+        let container = r.app.doc.alloc_id();
+        let mut container_node = Node::frame(container, Rect::new(0.0, 0.0, 800.0, 200.0));
+        container_node.name = "Auto Container".into();
+        if let designos_doc::NodeKind::Frame(fp) = &mut container_node.kind {
+            let mut al = designos_doc::AutoLayout::v1();
+            al.item_spacing = 16.0;
+            fp.auto_layout = Some(al);
+        }
+        r.app.doc.insert(page, container_node).unwrap();
+
+        let card = r.card;
+        let hero = r.hero;
+        r.app.doc.reparent(card, container, 0).unwrap();
+        r.app.doc.reparent(hero, container, 1).unwrap();
+        r.app.doc.get_mut(hero).unwrap().fills = vec![designos_doc::Paint::solid(designos_doc::Color::rgb(25, 50, 75))];
+        r.app.doc.relayout_subtree(container);
+
+        r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
+        r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
+
+        r.run_hook("start", "claude");
+        // Agent step 1: rename Hero.
+        r.agent_rename(hero, "Hero Renamed");
+        r.deliver();
+
+        // Mid-turn, user resizes sibling `card` (which moves `hero` via auto-layout reflow).
+        let mut tx = Tx::new();
+        tx.ed.node(&mut r.app.doc, card).unwrap().size.x = 340.0;
+        tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
+        r.app.doc.relayout_subtree(container);
+        let hero_tx_after_user_card_resize = r.app.doc.get(hero).unwrap().transform.tx;
+
+        // Agent step 2: set Hero's opacity to 0.5.
+        r.session.call("designos_update_node", json!({ "node_id": hero.0, "opacity": 0.5 })).expect("update hero opacity");
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero Renamed");
+        assert!((r.app.doc.get(hero).unwrap().opacity - 0.5).abs() < 1e-5);
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero", "Revert must undo the earlier agent rename on Hero");
+        assert!((r.app.doc.get(hero).unwrap().opacity - 1.0).abs() < 1e-5, "Revert must undo the later agent opacity write on Hero");
+        assert_eq!(r.app.doc.get(card).unwrap().size.x, 340.0, "Revert must preserve the user's width edit on sibling Card");
+        assert_eq!(
+            r.app.doc.get(hero).unwrap().transform.tx,
+            hero_tx_after_user_card_resize,
+            "Hero layout position must reflect sibling Card's user-edited width"
+        );
+        let report = r.app.terminal.active_turn_ledger().turns.last().unwrap().last_revert_report.as_ref().unwrap();
+        assert!(report.kept_user_changed.is_empty(), "Hero was not edited by the user: {:?}", report.kept_user_changed);
     }
 }

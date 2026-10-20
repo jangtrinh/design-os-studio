@@ -213,6 +213,24 @@ impl Command {
             }
         })
     }
+
+    /// Returns `true` when this command (or its inverse stored on the undo stack) directly targets `id`.
+    pub fn targets_node(&self, id: NodeId) -> bool {
+        match self {
+            Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => nodes.iter().any(|n| n.id == id),
+            Command::Remove { id: rid } | Command::Reparent { id: rid, .. } | Command::RemovePage { id: rid } => *rid == id,
+            Command::Update { node } => node.id == id,
+            Command::Batch(cmds) => cmds.iter().any(|c| c.targets_node(id)),
+            Command::SetFlows { .. }
+            | Command::SetStyles { .. }
+            | Command::SetComments { .. }
+            | Command::SetLibraryState { .. }
+            | Command::SetGuides { .. }
+            | Command::SetPrototypeDevice { .. }
+            | Command::SetVariables { .. }
+            | Command::SetImages { .. } => false,
+        }
+    }
 }
 
 impl Document {
@@ -269,6 +287,10 @@ impl History {
     /// The command [`Self::undo`] would apply next.
     pub fn peek_undo(&self) -> Option<&Command> {
         self.undo.last()
+    }
+    /// The undo command stored at 1-based depth `depth` (`self.undo[depth - 1]`).
+    pub fn undo_at_depth(&self, depth: usize) -> Option<&Command> {
+        depth.checked_sub(1).and_then(|i| self.undo.get(i))
     }
     /// The command [`Self::redo`] would apply next.
     pub fn peek_redo(&self) -> Option<&Command> {
