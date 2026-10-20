@@ -374,7 +374,8 @@ pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: 
         state.sessions_popover_open = !state.sessions_popover_open;
         if state.sessions_popover_open {
             state.runtime_dropdown_open = false;
-            ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-opened-pass"), ui.ctx().cumulative_pass_nr()));
+            let pass_nr = ui.ctx().cumulative_pass_nr();
+            ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-opened-pass"), pass_nr));
         } else {
             state.cancel_rename_session();
         }
@@ -1199,8 +1200,8 @@ mod tests {
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
             render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
         });
-        let rename_r = crate::widgets::rect(&ctx, "agents-session-rename-1").expect("rename button rect");
-        let remove_r = crate::widgets::rect(&ctx, "agents-session-remove-1").expect("remove button rect");
+        let rename_r = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-session-rename-1".to_string())))).expect("rename button rect");
+        let remove_r = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-session-remove-1".to_string())))).expect("remove button rect");
 
         // Click Rename (press + release on rename_r.center()) -> must start inline rename, NOT select/resume row
         let rename_pos = rename_r.center();
@@ -1291,7 +1292,7 @@ mod tests {
         write_stub_cli(&bin_dir, "claude", "cat");
 
         // Case A: no resumable session -> execute_cmdk_action opens picker and holds pending_prompt
-        let mut app = crate::app::App::new();
+        let mut app = crate::app::App::new(designos_doc::Document::new("Test"));
         app.terminal = TerminalState::new_for_session("doc-shell-cmdk-a", "Landing", Some(&dir));
         app.terminal.path_prepend.push(bin_dir.clone());
         assert!(app.terminal.tabs.is_empty());
@@ -1304,7 +1305,7 @@ mod tests {
         assert_eq!(app.terminal.pending_prompt, Some(("Make Design".to_string(), spec_name)));
 
         // Case B: resumable session exists -> execute_cmdk_action resumes it and dispatches the prompt
-        let mut app_resumable = crate::app::App::new();
+        let mut app_resumable = crate::app::App::new(designos_doc::Document::new("Test"));
         app_resumable.terminal = TerminalState::new_for_session("doc-shell-cmdk-b", "Landing", Some(&dir));
         app_resumable.terminal.path_prepend.push(bin_dir);
         app_resumable.terminal.session_registry.sessions.push(make_session_entry(

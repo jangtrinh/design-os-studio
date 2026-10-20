@@ -686,8 +686,12 @@ mod tests {
             self.installed.get(binary).copied().unwrap_or(false)
         }
 
-        fn run(&self, argv: &[&str], _install_folders: &[PathBuf], _timeout: Duration) -> CommandOutput {
+        fn run(&self, argv: &[&str], _install_folders: &[PathBuf], timeout: Duration) -> CommandOutput {
             if !self.delay.is_zero() {
+                if self.delay > timeout {
+                    std::thread::sleep(timeout);
+                    return CommandOutput::timeout();
+                }
                 std::thread::sleep(self.delay);
             }
             let key: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
