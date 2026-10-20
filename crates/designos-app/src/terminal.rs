@@ -581,6 +581,8 @@ pub struct TerminalTab {
     pub stop_state: Option<crate::agent_stop::StopState>,
     /// Shared flag so the PTY reader thread ignores OSC status updates while a stop sequence is in flight (`#684`).
     pub stop_in_flight: Arc<std::sync::atomic::AtomicBool>,
+    /// When the first interrupt key of the latest stop went out; kept after the stop closes so the ledger can tell the stopped turn from the next one.
+    pub stop_sent_instant: Option<std::time::Instant>,
     /// Keys sent by the stop sequence or Esc forwarding on this tab (for deterministic test inspection, `#684`).
     pub stop_sent_keys: Vec<u8>,
     /// Timestamp (`ms`) when the current turn started (`#684`).
@@ -821,6 +823,7 @@ impl TerminalTab {
             pending_approvals: Vec::new(),
             stop_state: None,
             stop_in_flight,
+            stop_sent_instant: None,
             stop_sent_keys: Vec::new(),
             turn_started_at_ms: None,
             turn_start_undo_depth: 0,
@@ -855,10 +858,10 @@ impl TerminalTab {
         }
     }
 
-    /// True for a tool or notification hook event that was already in flight when the user stopped this tab. Such a
+    /// True for a tool, notification or failure hook event that was already in flight when the user stopped this tab. Such a
     /// straggler must not revive the stopped turn; only a new prompt does (`#684`).
     pub fn is_stale_event_after_stop(&self, event: &str) -> bool {
-        matches!(event, "PreToolUse" | "PostToolUse" | "PermissionRequest" | "Notification")
+        matches!(event, "PreToolUse" | "PostToolUse" | "PermissionRequest" | "Notification" | "StopFailure")
             && matches!(self.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
     }
 
@@ -2513,6 +2516,14 @@ impl TerminalState {
             if let Some(tab_idx) = crate::agent_turn_status::route_record_to_tab(&record, &tabs_info) {
                 if self.tabs[tab_idx].is_stale_event_after_stop(&record.e) {
                     continue;
+                }
+                // A new prompt ends a stop that never saw a closing hook (Claude Code skips Stop on an interrupt). The
+                // stopped turn closes first, with its own start depth, so the new turn never folds with it.
+                if matches!(record.e.as_str(), "UserPromptSubmit" | "PreInvocation") {
+                    let session_id = self.session_id.clone();
+                    if let Some(action) = crate::agent_stop::close_pending_stop(&mut self.tabs[tab_idx], &session_id, designos_doc::now_ms()) {
+                        actions.push(action);
+                    }
                 }
                 let tab_visible = self.surface_visible && tab_idx == self.active_tab;
                 let effect = self.tabs[tab_idx].turn_tracker.on_event(&record);
@@ -9542,6 +9553,32 @@ Done!
         for h in handles {
             h.join().expect("stress worker must not panic");
         }
+    }
+
+    #[test]
+    fn a_late_stop_failure_does_not_overwrite_the_stopped_receipt() {
+        let mut st = isolated_683_state(68462);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stop-failure"));
+        let events_path = st.session_dir.join("agent-events.jsonl");
+        std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stop-failure\"}}\n").unwrap();
+        let _ = st.poll_live_agent_bridge();
+
+        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Stopped;
+        st.tabs[idx].turn_tracker.stop_by_user(400.5);
+
+        let mut f = std::fs::OpenOptions::new().append(true).open(&events_path).unwrap();
+        std::io::Write::write_all(&mut f, b"{\"t\":401.0,\"e\":\"StopFailure\",\"p\":{\"session_id\":\"sid-stop-failure\",\"error\":\"rate_limit\"}}\n")
+            .unwrap();
+        let _ = st.poll_live_agent_bridge();
+
+        assert_eq!(st.tabs[idx].effective_status(), AgentTabStatus::Stopped, "a late StopFailure must not turn the stopped tab into an error");
+        assert_eq!(
+            st.tabs[idx].turn_tracker.last_turn_receipt.as_ref().map(|r| r.outcome.clone()),
+            Some(crate::agent_turn_status::TurnOutcome::StoppedByUser),
+            "the stopped receipt stays"
+        );
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]

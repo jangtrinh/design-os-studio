@@ -1224,10 +1224,8 @@ impl Document {
 
     /// Like [`Document::to_json`], also returning how many non-finite numbers were replaced.
     pub fn to_json_counted(&self) -> serde_json::Result<(String, usize)> {
-        // Ignore keys of deleted layers are written as they are and dropped when the file is read
-        // back (`from_json_with_report`): pruning here would clone the whole document, images
-        // included, on every save after an ignored layer was deleted.
         let now = now_ms();
+        // Flags of deleted layers and stale flags never reach the file: serialize through a view that filters them.
         if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
             #[derive(Serialize)]
             struct DocumentSerializeView<'a> {
@@ -1281,6 +1279,9 @@ impl Document {
             };
             return finite_json::to_string_finite(&view);
         }
+        // Ignore keys of deleted layers are written as they are and dropped when the file is read
+        // back (`from_json_with_report`): pruning here would clone the whole document, images
+        // included, on every save after an ignored layer was deleted.
         finite_json::to_string_finite(self)
     }
 

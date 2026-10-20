@@ -21,6 +21,11 @@ pub const SECOND_KEY_DELAY_MS: u64 = 3_000;
 /// Notice shown when a CLI ignores both interrupt keys (`§8.1`).
 pub const STILL_RUNNING_NOTICE: &str = "Still running. Close the tab to end it.";
 
+/// How long the PTY must stay silent after the first interrupt key before the stop counts as taken (`§3.3`).
+/// A CLI that does not fire a hook for a user interrupt (Claude Code skips its Stop hook) never reports the end
+/// of the turn, so the quiet prompt is the only signal. Same window as the Codex output-burst heuristic.
+pub const STOP_QUIET_CLOSE_MS: u64 = 600;
+
 /// ASCII `ESC` (`0x1b`).
 pub const KEY_ESC: u8 = 0x1b;
 
@@ -35,6 +40,9 @@ pub struct InterruptKeyRow {
     pub second_key: u8,
     pub source: &'static str,
     pub grounded: bool,
+    /// True when the CLI reports an interrupted turn through a hook record (Grok `StopCancelled`), so the
+    /// hook, not a quiet PTY, closes the stop.
+    pub fires_interrupt_hook: bool,
 }
 
 /// Canonical interrupt key table (`§3.2`). The keys live only in this table.
@@ -45,6 +53,7 @@ pub const INTERRUPT_KEY_TABLE: &[InterruptKeyRow] = &[
         second_key: KEY_CTRL_C,
         source: "~/.grok/docs/user-guide/10-hooks.md:478 (Ctrl+C interrupts a turn; Esc never cancels a running turn)",
         grounded: true,
+        fires_interrupt_hook: true,
     },
     InterruptKeyRow {
         cli: AgentCliPreset::Claude,
@@ -52,14 +61,23 @@ pub const INTERRUPT_KEY_TABLE: &[InterruptKeyRow] = &[
         second_key: KEY_CTRL_C,
         source: "issue #684 default (Esc then Ctrl+C)",
         grounded: false,
+        fires_interrupt_hook: false,
     },
-    InterruptKeyRow { cli: AgentCliPreset::Codex, first_key: KEY_ESC, second_key: KEY_CTRL_C, source: "issue #684 default (Esc then Ctrl+C)", grounded: false },
+    InterruptKeyRow {
+        cli: AgentCliPreset::Codex,
+        first_key: KEY_ESC,
+        second_key: KEY_CTRL_C,
+        source: "issue #684 default (Esc then Ctrl+C)",
+        grounded: false,
+        fires_interrupt_hook: false,
+    },
     InterruptKeyRow {
         cli: AgentCliPreset::Antigravity,
         first_key: KEY_ESC,
         second_key: KEY_CTRL_C,
         source: "issue #684 default (Esc then Ctrl+C)",
         grounded: false,
+        fires_interrupt_hook: false,
     },
 ];
 
@@ -77,6 +95,8 @@ pub struct StopState {
     pub second_sent: bool,
     /// Index into [`INTERRUPT_KEY_TABLE`].
     pub key_table_row: usize,
+    /// Monotonic time of the first key, to measure how long the PTY has been quiet since.
+    pub sent_instant: std::time::Instant,
 }
 
 impl StopState {
@@ -137,7 +157,9 @@ pub fn start_stop_on_tab(tab: &mut TerminalTab, now_ms: u64) -> bool {
     tab.stop_in_flight.store(true, std::sync::atomic::Ordering::Relaxed);
     tab.write_bytes(&[row.first_key]);
     tab.stop_sent_keys.push(row.first_key);
-    tab.stop_state = Some(StopState { sent_at: now_ms, second_sent: false, key_table_row: row_idx });
+    let sent_instant = std::time::Instant::now();
+    tab.stop_sent_instant = Some(sent_instant);
+    tab.stop_state = Some(StopState { sent_at: now_ms, second_sent: false, key_table_row: row_idx, sent_instant });
     true
 }
 
@@ -162,41 +184,56 @@ pub fn stop_all(state: &mut TerminalState, now_ms: u64) -> usize {
     started
 }
 
+/// True when the tab's PTY has produced no output for [`STOP_QUIET_CLOSE_MS`] since the first interrupt key.
+fn pty_quiet_since_stop(tab: &TerminalTab, sent_instant: std::time::Instant) -> bool {
+    let last_output = tab.last_output_at.lock().ok().and_then(|g| *g).filter(|ts| *ts > sent_instant).unwrap_or(sent_instant);
+    last_output.elapsed() >= std::time::Duration::from_millis(STOP_QUIET_CLOSE_MS)
+}
+
+/// Ends the pending stop on `tab` at `now_ms`: records the receipt `"Stopped by you after <N>s"`, latches
+/// [`AgentTabStatus::Stopped`], releases `stop_in_flight`, and returns the action that folds the turn. Returns
+/// `None` when no stop is pending.
+pub fn close_pending_stop(tab: &mut TerminalTab, session_id: &str, now_ms: u64) -> Option<TerminalAction> {
+    let sent_at = tab.stop_state.as_ref()?.sent_at;
+    let started_ms = tab.turn_started_at_ms.take().unwrap_or(sent_at);
+    let depth = tab.turn_start_undo_depth;
+    tab.stop_state = None;
+    tab.stop_in_flight.store(false, std::sync::atomic::Ordering::Relaxed);
+    tab.was_working = false;
+    tab.still_running_notice = None;
+    tab.last_receipt = Some(format_stopped_receipt(started_ms, now_ms));
+    // The receipt row and header status of a hooked CLI read the turn tracker: it must say "stopped" too (`#683`).
+    tab.turn_tracker.adopt_stop_by_user(sent_at as f64 / 1000.0, now_ms as f64 / 1000.0);
+    if let Ok(mut status) = tab.agent_status.lock() {
+        *status = AgentTabStatus::Stopped;
+    }
+    Some(TerminalAction::CloseStoppedTurn {
+        tab_id: tab.id,
+        turn_start_depth: depth,
+        run_id: Some(session_id.to_string()),
+        agent: Some(tab.spawn_preset.binary_name().to_string()),
+    })
+}
+
 /// Advances the stop sequence on `tab` at `now_ms` (`§3.3`, `§3.4`, `§3.8`, `§8.1`).
 ///
 /// - If `tab.stop_state` is active and the turn has ended (`!is_tab_turn_running(tab)` or `!tab.is_alive()`),
-///   closes the stopped turn, records the receipt `"Stopped by you after <N>s"`, sets status to
-///   [`AgentTabStatus::Stopped`], and returns `Some(TerminalAction::CloseStoppedTurn { .. })`.
+///   or the CLI fires no interrupt hook and its PTY has been quiet for [`STOP_QUIET_CLOSE_MS`] since the first
+///   key, closes the stopped turn through [`close_pending_stop`].
 /// - If the turn is still running at `now_ms >= sent_at + 3_000` and `!second_sent`, sends the second
 ///   interrupt key (`Ctrl+C`) once and sets `second_sent = true`.
 /// - If still running after the second key was sent, sets `tab.still_running_notice` to [`STILL_RUNNING_NOTICE`].
 pub fn tick_stop_on_tab(tab: &mut TerminalTab, session_id: &str, now_ms: u64) -> Option<TerminalAction> {
     let alive = tab.is_alive();
     let running = alive && is_tab_turn_running(tab);
-    let (sent_at, second_sent, key_table_row) = {
+    let (sent_at, second_sent, key_table_row, sent_instant) = {
         let st = tab.stop_state.as_ref()?;
-        (st.sent_at, st.second_sent, st.key_table_row)
+        (st.sent_at, st.second_sent, st.key_table_row, st.sent_instant)
     };
+    let quiet_after_interrupt = running && !INTERRUPT_KEY_TABLE[key_table_row].fires_interrupt_hook && pty_quiet_since_stop(tab, sent_instant);
 
-    if !running {
-        let started_ms = tab.turn_started_at_ms.take().unwrap_or(sent_at);
-        let depth = tab.turn_start_undo_depth;
-        tab.stop_state = None;
-        tab.stop_in_flight.store(false, std::sync::atomic::Ordering::Relaxed);
-        tab.was_working = false;
-        tab.still_running_notice = None;
-        tab.last_receipt = Some(format_stopped_receipt(started_ms, now_ms));
-        // The receipt row and header status of a hooked CLI read the turn tracker: it must say "stopped" too (`#683`).
-        tab.turn_tracker.adopt_stop_by_user(sent_at as f64 / 1000.0, now_ms as f64 / 1000.0);
-        if let Ok(mut status) = tab.agent_status.lock() {
-            *status = AgentTabStatus::Stopped;
-        }
-        return Some(TerminalAction::CloseStoppedTurn {
-            tab_id: tab.id,
-            turn_start_depth: depth,
-            run_id: Some(session_id.to_string()),
-            agent: Some(tab.spawn_preset.binary_name().to_string()),
-        });
+    if !running || quiet_after_interrupt {
+        return close_pending_stop(tab, session_id, now_ms);
     }
 
     if !second_sent && now_ms.saturating_sub(sent_at) >= SECOND_KEY_DELAY_MS {
@@ -267,6 +304,8 @@ pub struct PendingStopClose {
     pub pre_close_patch_count: usize,
     pub run_id: Option<String>,
     pub agent: Option<String>,
+    /// When the stop key was sent. A ledger turn opened after it belongs to the next prompt, not to the stop.
+    pub stop_sent: Option<std::time::Instant>,
 }
 
 /// Clears `Document::in_progress` flags owned by the stopped agent run (`§3.4`).
@@ -280,20 +319,28 @@ pub fn clear_stopped_in_progress(app: &mut App, run_id: Option<&str>, agent: Opt
     }
 }
 
-/// Folds the stopped turn's agent undo steps (`depth..`) into one [`STOP_UNDO_LABEL`] step, keeps the turn
-/// ledger's recorded history depths valid across the fold, ends the tab's open ledger turn at
+/// Folds the stopped turn's agent undo steps (`depth..`) into one [`STOP_UNDO_LABEL`] step, keeps every
+/// recorded history depth valid across the fold, ends the stopped tab's open ledger turn at
 /// `end_patch_offset`, and clears the stopped run's `Document::in_progress` flags (`§3.4`).
+///
+/// Every tab's ledger and running-turn start depth index the one shared `app.hist`, so all of them are
+/// remapped, not only the stopped tab's.
 pub fn fold_stopped_turn(app: &mut App, depth: usize, close: Option<&PendingStopClose>) {
     let fold = app.hist.fold_since_range(depth, STOP_UNDO_LABEL);
     app.terminal.current_undo_depth = app.hist.undo_depth();
+    if let Some((start, end)) = fold {
+        app.terminal.turn_ledger.on_history_fold(start, end);
+        for tab in &mut app.terminal.tabs {
+            tab.turn_ledger.on_history_fold(start, end);
+            // A turn that began before the fold ran (the next prompt closes the stop) started above the folded range.
+            tab.turn_start_undo_depth = crate::agent_turn_ledger::depth_after_fold(tab.turn_start_undo_depth, start, end);
+        }
+    }
     let tab_idx = close.and_then(|c| app.terminal.tabs.iter().position(|t| t.id == c.tab_id));
     if let Some(idx) = tab_idx {
         let end_offset = close.map_or_else(|| app.terminal.live_patch.current_offset(), |c| c.end_patch_offset);
-        let ledger = app.terminal.ledger_for_tab_mut(idx);
-        if let Some((start, end)) = fold {
-            ledger.on_history_fold(start, end);
-        }
-        ledger.on_turn_stopped(end_offset, std::time::Instant::now());
+        let stop_sent = close.and_then(|c| c.stop_sent);
+        app.terminal.ledger_for_tab_mut(idx).on_turn_stopped(end_offset, std::time::Instant::now(), stop_sent);
     }
     clear_stopped_in_progress(app, close.and_then(|c| c.run_id.as_deref()), close.and_then(|c| c.agent.as_deref()));
 }
@@ -322,6 +369,7 @@ pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth:
         pre_close_patch_count: app.terminal.live_patch.pending.len(),
         run_id: run_id.map(str::to_string),
         agent: agent.map(str::to_string),
+        stop_sent: app.terminal.tabs.iter().find(|t| t.id == tab_id).and_then(|t| t.stop_sent_instant),
     };
     if crate::live_patch_apply::user_edit_in_progress(app) {
         app.terminal.pending_stop_fold_depth = Some(turn_start_depth);
@@ -410,14 +458,11 @@ mod tests {
         App::new(doc)
     }
 
-    fn spawn_looping_stub_tab(id: usize, preset: AgentCliPreset, ignore_first_key: bool) -> TerminalTab {
-        let reads = if ignore_first_key { 2 } else { 1 };
-        let script = format!(
-            "python3 -u -c 'import sys, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nfor _ in range({reads}):\n    sys.stdin.buffer.read(1)\nsys.exit(0)\n'"
-        );
+    /// Spawns `script` in a PTY-backed tab that reports `READY`, then marks the tab as running a turn.
+    fn spawn_script_stub_tab(id: usize, preset: AgentCliPreset, script: &str) -> TerminalTab {
         let mut cmd = CommandBuilder::new("sh");
         cmd.arg("-c");
-        cmd.arg(&script);
+        cmd.arg(script);
         let mut tab = TerminalTab::spawn_test_stub(id, preset, cmd).expect("spawn stub tab");
         let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < ready_deadline {
@@ -431,6 +476,30 @@ mod tests {
         }
         tab.turn_started_at_ms = Some(1_000);
         tab
+    }
+
+    /// A silent CLI: exits after reading `1` (or, with `ignore_first_key`, `2`) raw bytes.
+    fn spawn_looping_stub_tab(id: usize, preset: AgentCliPreset, ignore_first_key: bool) -> TerminalTab {
+        let reads = if ignore_first_key { 2 } else { 1 };
+        let script = format!(
+            "python3 -u -c 'import sys, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nfor _ in range({reads}):\n    sys.stdin.buffer.read(1)\nsys.exit(0)\n'"
+        );
+        spawn_script_stub_tab(id, preset, &script)
+    }
+
+    /// A CLI that keeps painting (a dot every 50 ms, like a spinner) and exits after reading `reads` raw bytes.
+    fn spawn_chatty_stub_tab(id: usize, preset: AgentCliPreset, reads: usize) -> TerminalTab {
+        let script = format!(
+            "python3 -u -c 'import os, select, sys, time, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\ngot = 0\nend = time.time() + 30\nwhile time.time() < end:\n    r, _, _ = select.select([0], [], [], 0.05)\n    if r:\n        os.read(0, 1)\n        got += 1\n        if got >= {reads}:\n            sys.exit(0)\n    sys.stdout.write(\".\")\n    sys.stdout.flush()\n'"
+        );
+        spawn_script_stub_tab(id, preset, &script)
+    }
+
+    /// A Claude-like CLI after Esc: it interrupts, repaints its prompt once, then stays alive and goes quiet.
+    /// The Stop hook does not fire for a user interrupt, so no end-of-turn record is ever written.
+    fn spawn_quiet_after_interrupt_stub_tab(id: usize, preset: AgentCliPreset) -> TerminalTab {
+        let script = "python3 -u -c 'import sys, time, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nsys.stdin.buffer.read(1)\nsys.stdout.write(\"\\r\\n> \")\nsys.stdout.flush()\ntime.sleep(20)\n'";
+        spawn_script_stub_tab(id, preset, script)
     }
 
     #[test]
@@ -459,8 +528,8 @@ mod tests {
 
     #[test]
     fn second_key_is_sent_only_if_still_running() {
-        // Case A: Stub ignores the first key (Esc) -> gets Ctrl+C at t = 3s, and no third key.
-        let mut tab_ignores = spawn_looping_stub_tab(1, AgentCliPreset::Claude, true);
+        // Case A: a stub that keeps painting and ignores the first key (Esc) -> gets Ctrl+C at t = 3s, and no third key.
+        let mut tab_ignores = spawn_chatty_stub_tab(1, AgentCliPreset::Claude, 2);
         assert!(start_stop_on_tab(&mut tab_ignores, 1_000));
         assert_eq!(tab_ignores.stop_sent_keys, vec![KEY_ESC]);
         assert_eq!(tab_ignores.stop_state.as_ref().unwrap().button_label(), "Stopping…");
@@ -1073,5 +1142,171 @@ mod tests {
         let report = app.terminal.ledger_for_tab_mut(0).revert_turn(&mut app.doc, &mut app.hist, turn.id).unwrap();
         assert_eq!(report.reverted_steps, 3);
         assert!(ids.iter().all(|id| app.doc.get(*id).is_none()), "every layer of the stopped turn is reverted");
+    }
+
+    fn append_hook_event(path: &std::path::Path, t: f64, event: &str) {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        writeln!(f, "{}", serde_json::json!({ "t": t, "e": event, "p": { "session_id": "sess-684" } })).unwrap();
+    }
+
+    fn poll_and_execute(app: &mut App) {
+        let actions = app.terminal.poll_live_agent_bridge();
+        crate::shell::execute_terminal_actions(app, actions);
+    }
+
+    /// An app whose only tab is `tab`, with a hooked turn started by a `UserPromptSubmit` record.
+    fn app_with_hooked_turn(tab: TerminalTab) -> (App, std::path::PathBuf) {
+        let mut app = new_test_app();
+        let _ = std::fs::create_dir_all(&app.terminal.session_dir);
+        let events = app.terminal.session_dir.join("agent-events.jsonl");
+        let _ = std::fs::remove_file(&events);
+        if let Ok(mut st) = tab.agent_status.lock() {
+            *st = AgentTabStatus::Idle;
+        }
+        app.terminal.tabs.push(tab);
+        app.terminal.active_tab = 0;
+        crate::live_patch_apply::publish_live_context(&mut app);
+        append_hook_event(&events, 1.0, "UserPromptSubmit");
+        poll_and_execute(&mut app);
+        assert!(app.terminal.tabs[0].turn_tracker.in_turn, "the prompt hook starts a turn");
+        (app, events)
+    }
+
+    fn apply_agent_rects(app: &mut App, ids: &[u64]) {
+        let page = app.page;
+        let patches: Vec<LivePatch> = ids
+            .iter()
+            .map(|id| {
+                let node = Node::rectangle(NodeId(*id), DocRect::new(*id as f32, 0.0, 20.0, 20.0));
+                LivePatch::new(vec![LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![node] }])
+            })
+            .collect();
+        crate::live_patch_apply::apply_live_patches(app, &patches);
+    }
+
+    fn stopped_steps(app: &App) -> usize {
+        app.hist.undo_labels().filter(|l| *l == Some(STOP_UNDO_LABEL)).count()
+    }
+
+    #[test]
+    fn stop_closes_when_the_cli_fires_no_interrupt_hook_and_goes_quiet() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let (mut app, _events) = app_with_hooked_turn(spawn_quiet_after_interrupt_stub_tab(1, AgentCliPreset::Claude));
+        let page = app.page;
+        let start_depth = app.hist.undo_depth();
+        assert_eq!(app.terminal.tabs[0].turn_start_undo_depth, start_depth);
+
+        let fid = NodeId(900);
+        let frame = Node::frame(fid, DocRect::new(0.0, 0.0, 300.0, 200.0));
+        let in_progress =
+            InProgress { run_id: None, agent: Some("claude".into()), since_ms: 10_000, stale_after_s: Some(300), status: Some("Working...".into()) };
+        crate::live_patch_apply::apply_live_patches(
+            &mut app,
+            &[LivePatch::new(vec![
+                LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![frame] },
+                LiveOp::SetInProgress { node: fid, state: Some(in_progress) },
+            ])],
+        );
+        apply_agent_rects(&mut app, &[701, 702]);
+        assert_eq!(app.hist.undo_depth(), start_depth + 3);
+        assert!(app.doc.get_in_progress(fid).is_some());
+
+        assert!(start_stop_active(&mut app.terminal, 10_000));
+        assert_eq!(app.terminal.tabs[0].stop_sent_keys, vec![KEY_ESC]);
+
+        // No Stop record is ever written and the process stays alive: only the quiet PTY can end the stop.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline && stopped_steps(&app) == 0 {
+            poll_and_execute(&mut app);
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(app.terminal.tabs[0].is_alive(), "the CLI stays alive at its prompt");
+        assert_eq!(stopped_steps(&app), 1, "the turn folds once");
+        assert_eq!(app.hist.undo_depth(), start_depth + 1);
+        assert!(app.doc.in_progress.is_empty(), "in-progress flags clear");
+        let tab = &app.terminal.tabs[0];
+        assert_eq!(tab.last_turn_receipt().map(|r| r.outcome.clone()), Some(crate::agent_turn_status::TurnOutcome::StoppedByUser));
+        assert_eq!(tab.effective_status(), AgentTabStatus::Stopped);
+        assert!(tab.still_running_notice.is_none(), "the header must not say Still running");
+        assert!(tab.stop_state.is_none());
+        assert!(!tab.stop_in_flight.load(std::sync::atomic::Ordering::Relaxed), "stop_in_flight releases");
+
+        // Past the 3 s retry point nothing is sent to the idle prompt.
+        designos_doc::set_mock_now_ms(Some(20_000));
+        poll_and_execute(&mut app);
+        assert_eq!(app.terminal.tabs[0].stop_sent_keys, vec![KEY_ESC], "no Ctrl+C reaches the idle prompt");
+        assert_eq!(stopped_steps(&app), 1);
+        let _ = app.terminal.tabs[0].child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn a_new_prompt_closes_the_pending_stop_so_the_next_turn_never_folds_with_it() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let (mut app, events) = app_with_hooked_turn(spawn_chatty_stub_tab(1, AgentCliPreset::Claude, 99));
+        let start_depth = app.hist.undo_depth();
+        apply_agent_rects(&mut app, &[701, 702]);
+        assert_eq!(app.hist.undo_depth(), start_depth + 2);
+
+        // Stop turn N. The CLI keeps painting, so only the next prompt can close the stop here.
+        assert!(start_stop_active(&mut app.terminal, 10_000));
+        designos_doc::set_mock_now_ms(Some(11_000));
+        append_hook_event(&events, 11.0, "UserPromptSubmit");
+        poll_and_execute(&mut app);
+
+        assert_eq!(stopped_steps(&app), 1, "turn N folds when the next prompt arrives");
+        assert_eq!(app.hist.undo_depth(), start_depth + 1);
+        assert!(app.terminal.tabs[0].stop_state.is_none());
+        assert!(!app.terminal.tabs[0].stop_in_flight.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(matches!(app.terminal.tabs[0].effective_status(), AgentTabStatus::Working(_)), "the new prompt starts turn N+1");
+        assert_eq!(app.terminal.tabs[0].turn_start_undo_depth, start_depth + 1, "turn N+1 starts on top of the folded step");
+        assert_eq!(app.terminal.tabs[0].stop_sent_keys, vec![KEY_ESC]);
+
+        // Turn N+1 edits and ends with a real Stop hook.
+        apply_agent_rects(&mut app, &[801, 802]);
+        designos_doc::set_mock_now_ms(Some(20_000));
+        append_hook_event(&events, 20.0, "Stop");
+        poll_and_execute(&mut app);
+
+        assert_eq!(stopped_steps(&app), 1, "exactly one stopped step, for turn N");
+        assert_eq!(app.hist.undo_depth(), start_depth + 3, "turn N+1 keeps its two single steps");
+        let receipt = app.terminal.tabs[0].last_turn_receipt().expect("turn N+1 receipt").clone();
+        assert_eq!(receipt.outcome, crate::agent_turn_status::TurnOutcome::Completed);
+        assert_eq!(app.terminal.tabs[0].effective_status(), AgentTabStatus::Done);
+        let _ = app.terminal.tabs[0].child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn a_receipt_of_a_turn_that_started_after_the_stop_is_not_adopted() {
+        let mut tracker = crate::agent_turn_status::TabTurnTracker::default();
+        tracker.on_event(&hook_record(200.0, "UserPromptSubmit"));
+        tracker.on_event(&hook_record(210.0, "Stop"));
+        assert!(tracker.adopt_stop_by_user(150.0, 211.0).is_none(), "a later turn is not the stopped one");
+        assert_eq!(tracker.last_turn_receipt.as_ref().map(|r| r.outcome.clone()), Some(crate::agent_turn_status::TurnOutcome::Completed));
+    }
+
+    #[test]
+    fn folding_a_stopped_turn_remaps_the_ledger_of_every_tab() {
+        let mut app = new_test_app();
+        app.terminal.tabs.push(spawn_looping_stub_tab(1, AgentCliPreset::Claude, true));
+        app.terminal.tabs.push(spawn_looping_stub_tab(2, AgentCliPreset::Claude, true));
+        let start_depth = app.hist.undo_depth();
+
+        // The user watches tab 1 while tab 0's agent edits: the steps land in the active tab's ledger.
+        app.terminal.active_tab = 1;
+        apply_agent_rects(&mut app, &[701, 702, 703]);
+        let before: Vec<usize> = app.terminal.tabs[1].turn_ledger.turns.iter().flat_map(|t| t.steps.iter().map(|s| s.hist_depth)).collect();
+        assert_eq!(before, vec![start_depth + 1, start_depth + 2, start_depth + 3]);
+
+        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-all-tabs"), Some("claude"));
+
+        assert_eq!(app.hist.undo_depth(), start_depth + 1);
+        let after: Vec<usize> = app.terminal.tabs[1].turn_ledger.turns.iter().flat_map(|t| t.steps.iter().map(|s| s.hist_depth)).collect();
+        assert_eq!(after, vec![start_depth + 1; 3], "the other tab's recorded depths follow the fold");
+        for tab in &mut app.terminal.tabs {
+            let _ = tab.child.kill();
+        }
     }
 }
