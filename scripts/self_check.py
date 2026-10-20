@@ -22,8 +22,6 @@ REQUIRED_FILES = (
     "Cargo.toml",
     "README.md",
     "LICENSE",
-    "LICENSE-MIT",
-    "LICENSE-APACHE",
     "PRIVACY.md",
     "SECURITY.md",
     "CONTRIBUTING.md",

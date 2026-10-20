@@ -745,7 +745,7 @@
         {
           "name": "Footer",
           "kind": "text",
-          "text": "design:os studio  ·  MIT or Apache-2.0  ·  local only",
+          "text": "design:os studio  ·  PolyForm Shield 1.0.0  ·  local only",
           "width": 1280.0,
           "font_size": 14.0,
           "font_weight": 500,

@@ -3,7 +3,7 @@ name = "designos-library"
 description = "On-disk projects library: files, folders, thumbnails, trash, version history and published libraries"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 designos-doc.workspace = true

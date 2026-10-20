@@ -23,5 +23,5 @@ Run a read-only diagnostic check of the `design-os-studio` installation, Cargo w
    - Cargo workspace integrity (`Cargo.toml` and 11 crates under `crates/`)
    - Plugin manifest integrity (`.claude-plugin`, `.codex-plugin`, `.agents/plugins`, `.factory-plugin`)
    - Canonical skill (`skills/design-os-studio/SKILL.md`)
-   - Trust & privacy governance (`PRIVACY.md`, `SECURITY.md`, `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`)
+   - Trust & privacy governance (`PRIVACY.md`, `SECURITY.md`, `LICENSE`)
    - Visual proof gallery (`docs/images/designos-*.png`)

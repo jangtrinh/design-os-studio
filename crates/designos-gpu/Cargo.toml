@@ -3,7 +3,7 @@ name = "designos-gpu"
 description = "GPU canvas renderer (wgpu + lyon) for designos documents; the CPU renderer stays the deterministic reference"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }

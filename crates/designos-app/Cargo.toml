@@ -3,7 +3,7 @@ name = "designos-app"
 description = "DESIGN:OS Studio desktop editor"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 default-run = "designos-studio"
 
 [[bin]]

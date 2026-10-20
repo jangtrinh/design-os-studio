@@ -13,7 +13,7 @@
 Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.5s with `0.0%` idle CPU on Metal, DirectX 12, and Vulkan (`wgpu` + `tiny-skia`). Execute all **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)** natively on canvas, run **Claude Code (`claude`)**, **OpenAI Codex (`codex`)**, **Antigravity CLI (`agy`)**, **Gemini CLI (`gemini`)**, and **Grok CLI (`grok`)** directly inside the native **Agentic PTY Chat UI** with zero paid external API keys, switch live Design Variables across `Light` and `Dark` modes with Multi-Edit (`Q`) and Suggest Auto-Layout (`⇧A`), generate multi-target Dev Mode code (React, Tailwind, CSS, SwiftUI, Jetpack Compose, Flutter, Rust `egui`), and automate headless GPU visual QA from any terminal or CI pipeline.
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT_%2F_Apache--2.0-202020?style=flat-square&labelColor=202020&color=444444" alt="Dual MIT OR Apache-2.0 License" height="28"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_Shield_1.0.0-202020?style=flat-square&labelColor=202020&color=444444" alt="Dual MIT OR Apache-2.0 License" height="28"></a>
   <img src="https://img.shields.io/badge/engine-Rust_%C2%B7_wgpu_%2B_tiny--skia-202020?style=flat-square&labelColor=202020&color=444444" alt="Rust wgpu and tiny-skia engine" height="28">
   <img src="https://img.shields.io/badge/Figma_.fig_v106-Native_Read_%2F_Write-202020?style=flat-square&labelColor=202020&color=444444" alt="Figma .fig v106 native read and write" height="28">
   <img src="https://img.shields.io/badge/Claude_Code_%C2%B7_Codex_%C2%B7_Antigravity_%C2%B7_Grok-MCP_%2B_PTY_Chat-202020?style=flat-square&labelColor=202020&color=444444" alt="Compatible AI coding agents via MCP and PTY Chat" height="28">
@@ -64,7 +64,7 @@ Browser-wrapped Electron design tools choke on very large enterprise files, lock
 | **Figma Interop** | Native `.fig` v106 read and write | `crates/designos-fig` roundtrip tests · more than `2,800` automated tests pass in macOS CI |
 | **Agent Surface** | `22` MCP Tools + Native PTY Chat UI | `Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` |
 | **Telemetry / Privacy** | Zero Tracking (`0` network calls) | 100% offline local-first ([`PRIVACY.md`](PRIVACY.md)) |
-| **License** | Dual `MIT OR Apache-2.0` | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
+| **License** | `PolyForm Shield 1.0.0` (source-available) | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
 
 ---
 
@@ -498,9 +498,7 @@ design-os-studio/
 ├── CODE_OF_CONDUCT.md              # Contributor Covenant code of conduct
 ├── CHANGELOG.md                    # Release history
 ├── llms.txt                        # Root LLM indexing manifest
-├── LICENSE                         # Dual MIT / Apache-2.0 license summary
-├── LICENSE-MIT                     # Full MIT License text
-├── LICENSE-APACHE                  # Full Apache-2.0 License text
+├── LICENSE                         # PolyForm Shield 1.0.0
 └── README.md
 ```
 
@@ -548,7 +546,7 @@ Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Appl
 
 ## DESIGN:OS Ecosystem
 
-`design-os-studio` is the flagship native Rust/GPU studio in the **`DESIGN:OS`** open-source ecosystem:
+`design-os-studio` is the flagship native Rust/GPU studio in the **`DESIGN:OS`** source-available ecosystem:
 
 | Engine | Live Docs | Repository | Layer |
 | :--- | :--- | :--- | :--- |
@@ -575,7 +573,7 @@ Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Appl
 - **[Cross-Platform Installation Guide (`docs/install.md`)](docs/install.md)** — macOS `.dmg`, Windows `.zip`, Linux `.deb`, and agent skill setup.
 - **[Prompt & CLI Cookbook (`docs/cookbook.md`)](docs/cookbook.md)** — Copy-paste `NodeSpec` roundtrips, PTY Chat workflows, and headless GPU QA recipes.
 - **[Release Engineering (`docs/releasing.md`)](docs/releasing.md)** — Cross-platform packaging and the release checklist.
-- **[Dual MIT OR Apache-2.0 License (`LICENSE`)](LICENSE)** — Permissive open-source licensing and third-party notices.
+- **[PolyForm Shield 1.0.0 License (`LICENSE`)](LICENSE)** — Source-available licensing: free to use and modify, including for paid work; you may not resell it or ship a competing product from it.
 
 ---
 
@@ -585,10 +583,10 @@ Pre-built packages are available for macOS (`.dmg` + `.tar.gz`, verified on Appl
 - **Code of Conduct**: Governed by [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 - **Security & Privacy**: Zero telemetry — see [`SECURITY.md`](SECURITY.md) and [`PRIVACY.md`](PRIVACY.md).
 - **Changelog & LLM Index**: Track releases in [`CHANGELOG.md`](CHANGELOG.md) and machine-readable index in [`llms.txt`](llms.txt).
-- **License**: Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) ([`LICENSE`](LICENSE)) © [Jang Trinh](https://github.com/jangtrinh).
+- **License**: [PolyForm Shield 1.0.0](LICENSE) © [Jang Trinh](https://github.com/jangtrinh). Free to use and modify, including for paid client work; you may not resell it or build a competing product from it.
   - **Bundled Fonts**: Inter is © The Inter Project Authors under the SIL Open Font License 1.1 (`crates/designos-fonts/assets/inter/OFL.txt`). Roboto Mono is © The Roboto Mono Project Authors under the SIL Open Font License 1.1 (`crates/designos-fonts/assets/roboto-mono/OFL.txt`).
   - **Icons**: Studio UI3 chrome and canvas tool icons use official Phosphor Icons under the MIT License (`crates/designos-app/assets/icons/phosphor/`) alongside Lucide under the ISC License (`crates/designos-app/assets/icons/lucide/LICENSE`).
-  - **Trademarks**: DESIGN:OS Studio is an independent open-source project by Jang Trinh and is not affiliated with, endorsed by, or sponsored by Figma, Inc.
+  - **Trademarks**: DESIGN:OS Studio is an independent, source-available project by Jang Trinh and is not affiliated with, endorsed by, or sponsored by Figma, Inc.
 
 ---
 

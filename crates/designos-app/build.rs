@@ -13,7 +13,7 @@ fn main() {
     res.set("ProductName", "designos");
     res.set("FileDescription", "designos");
     res.set("CompanyName", "designos contributors");
-    res.set("LegalCopyright", "MIT OR Apache-2.0");
+    res.set("LegalCopyright", "Copyright (c) 2026 Jang Trinh. PolyForm Shield 1.0.0");
     res.set("OriginalFilename", "designos.exe");
     res.set("ProductVersion", &version);
     res.set("FileVersion", &version);

@@ -3,7 +3,7 @@ name = "designos-doc"
 description = "Document model: scene graph, styles, undo/redo"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 regex = "1"

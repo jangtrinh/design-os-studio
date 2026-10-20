@@ -13,7 +13,7 @@ Native GPU-accelerated interface design studio (`wgpu` with a `tiny-skia` CPU re
 - **Quality gates**: `14 / 14` Zero-Fake-UI invariants (`python3 scripts/zero_fake_ui_gate.py`) and more than `2,800` automated tests (`cargo test --workspace`, passing in macOS CI)
 - **Enterprise Scale (`VSF - PCP.fig`)**: Reference benchmark file with `112,474` scene nodes (`723,136` Kiwi records). The GPU canvas culls with a uniform spatial grid and zoom-based level of detail, and re-blits the cached frame without requesting repaints while the view is idle
 - **Release packages**: macOS `.dmg` + `.tar.gz` (Apple Silicon and Intel, verified), Windows `.zip` with `install.ps1`, Linux `.deb` + `.tar.gz` (x64). Windows and Linux packages are tested by their users. Every package bundles all 4 binaries (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`)
-- **Privacy & License**: Zero telemetry. The Studio uses the network only to download missing fonts, import from the Figma REST API with your own token, and install plugins (`PRIVACY.md`). Dual-licensed under MIT OR Apache-2.0 (`LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`)
+- **Privacy & License**: Zero telemetry. The Studio uses the network only to download missing fonts, import from the Figma REST API with your own token, and install plugins (`PRIVACY.md`). Source-available under PolyForm Shield 1.0.0 (`LICENSE`): free to use and modify; no resale or competing products
 
 ## Core Documentation
 

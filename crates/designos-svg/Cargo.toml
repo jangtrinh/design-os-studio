@@ -3,7 +3,7 @@ name = "designos-svg"
 description = "SVG import for designos: maps a usvg tree onto designos nodes"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 
 [dependencies]
 designos-doc.workspace = true

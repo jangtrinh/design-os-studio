@@ -2,7 +2,7 @@
 name = "designos-mcp"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 default-run = "designos-mcp"
 
 [[bin]]

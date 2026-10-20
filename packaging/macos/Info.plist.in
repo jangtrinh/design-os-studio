@@ -27,7 +27,7 @@
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.graphics-design</string>
   <key>NSHumanReadableCopyright</key>
-  <string>MIT OR Apache-2.0, design:os studio &amp; designos contributors</string>
+  <string>Copyright (c) 2026 Jang Trinh. PolyForm Shield 1.0.0.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

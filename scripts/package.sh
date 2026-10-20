@@ -52,7 +52,7 @@ for bin in "${BINARIES[@]}"; do
   cp "$bin_dir/$bin$exe" "$stage/"
 done
 
-cp LICENSE-MIT LICENSE-APACHE README.md "$stage/"
+cp LICENSE README.md "$stage/"
 mkdir -p "$stage/licenses"
 cp "$root/crates/designos-fonts/assets/inter/OFL.txt" "$stage/licenses/Inter-OFL.txt"
 cp "$root/crates/designos-fonts/assets/roboto-mono/OFL.txt" "$stage/licenses/RobotoMono-OFL.txt"
@@ -132,7 +132,7 @@ case "$target" in
       chmod 644 "$deb_root/usr/share/applications/designos.desktop"
 
       install -m 644 "$root/packaging/linux/designos-mime.xml" "$deb_root/usr/share/mime/packages/designos.xml"
-      install -m 644 LICENSE-MIT LICENSE-APACHE README.md "$deb_root/usr/share/doc/designos/"
+      install -m 644 LICENSE README.md "$deb_root/usr/share/doc/designos/"
       install -m 644 "$stage/licenses/"* "$deb_root/usr/share/doc/designos/licenses/"
 
       for size in 16 32 48 64 128 256 512; do
@@ -153,7 +153,7 @@ Depends: libc6, libgl1, libx11-6, libwayland-client0, libxkbcommon0, libfontconf
 Maintainer: design:os studio contributors <opensource@designos.dev>
 Homepage: https://github.com/jangtrinh/design-os-studio
 Description: design:os studio — vector, UI, and spec design studio
- Fast, open-source Figma-compatible vector and UI design studio in Rust,
+ Fast, source-available Figma-compatible vector and UI design studio in Rust,
  shipping the GUI studio (designos-studio), headless CLI (designos),
  MCP server (designos-mcp), and visual diff tool (designos-diff).
 EOF
