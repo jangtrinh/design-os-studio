@@ -274,11 +274,11 @@ impl ImageJobsState {
 
 const AGENT_CLI_PRESETS: [AgentCliPreset; 4] = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok];
 
-fn is_preset_installed(app: &App, preset: AgentCliPreset) -> bool {
+fn is_preset_installed(image_jobs: &ImageJobsState, preset: AgentCliPreset) -> bool {
     if !matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Antigravity | AgentCliPreset::Grok) {
         return false;
     }
-    if let Some(ov) = app.image_jobs.override_agent_installed {
+    if let Some(ov) = image_jobs.override_agent_installed {
         return ov;
     }
     runtime_binary_available(preset.binary_name())
@@ -288,32 +288,37 @@ fn tab_is_usable_for_preset(tab: &crate::terminal::TerminalTab, preset: AgentCli
     tab.preset == preset && tab.start_failure.is_none() && !tab.exited_notice_shown
 }
 
-fn preset_has_failed_tab(app: &App, preset: AgentCliPreset) -> bool {
-    app.terminal.tabs.iter().any(|t| (t.preset == preset || t.spawn_preset == preset) && (t.start_failure.is_some() || t.exited_notice_shown))
-        && !app.terminal.tabs.iter().any(|t| tab_is_usable_for_preset(t, preset))
+fn preset_has_failed_tab(terminal: &crate::terminal::TerminalState, preset: AgentCliPreset) -> bool {
+    terminal.tabs.iter().any(|t| (t.preset == preset || t.spawn_preset == preset) && (t.start_failure.is_some() || t.exited_notice_shown))
+        && !terminal.tabs.iter().any(|t| tab_is_usable_for_preset(t, preset))
 }
 
-/// Resolves the agent CLI preset to use for this file: prefers an already-running usable agent tab,
-/// then `app.terminal.active_runtime` if it is an installed agent CLI that can be started, then the
-/// first installed agent CLI preset whose tab is running or can be started (`E5-10` §3 rule 2).
-pub fn preferred_agent_cli_preset(app: &App) -> Option<AgentCliPreset> {
-    if app.terminal.session_dir.as_os_str().is_empty() {
+/// Resolves the agent CLI preset to use for `terminal` and `image_jobs`: prefers an already-running
+/// usable agent tab, then `terminal.active_runtime` if it is an installed agent CLI that can be started,
+/// then the first installed agent CLI preset whose tab is running or can be started (`E5-10` §3 rule 2).
+pub fn preferred_agent_cli_preset_for(terminal: &crate::terminal::TerminalState, image_jobs: &ImageJobsState) -> Option<AgentCliPreset> {
+    if terminal.session_dir.as_os_str().is_empty() {
         return None;
     }
-    if let Some(active) = app.terminal.active_tab() {
-        if is_preset_installed(app, active.preset) && tab_is_usable_for_preset(active, active.preset) {
+    if let Some(active) = terminal.active_tab() {
+        if is_preset_installed(image_jobs, active.preset) && tab_is_usable_for_preset(active, active.preset) {
             return Some(active.preset);
         }
     }
-    if is_preset_installed(app, app.terminal.active_runtime) && !preset_has_failed_tab(app, app.terminal.active_runtime) {
-        return Some(app.terminal.active_runtime);
+    if is_preset_installed(image_jobs, terminal.active_runtime) && !preset_has_failed_tab(terminal, terminal.active_runtime) {
+        return Some(terminal.active_runtime);
     }
-    for tab in &app.terminal.tabs {
-        if is_preset_installed(app, tab.preset) && tab_is_usable_for_preset(tab, tab.preset) {
+    for tab in &terminal.tabs {
+        if is_preset_installed(image_jobs, tab.preset) && tab_is_usable_for_preset(tab, tab.preset) {
             return Some(tab.preset);
         }
     }
-    AGENT_CLI_PRESETS.into_iter().find(|&p| is_preset_installed(app, p) && !preset_has_failed_tab(app, p))
+    AGENT_CLI_PRESETS.into_iter().find(|&p| is_preset_installed(image_jobs, p) && !preset_has_failed_tab(terminal, p))
+}
+
+/// Resolves the agent CLI preset to use for the active file (`E5-10` §3 rule 2).
+pub fn preferred_agent_cli_preset(app: &App) -> Option<AgentCliPreset> {
+    preferred_agent_cli_preset_for(&app.terminal, &app.image_jobs)
 }
 
 /// Returns true when at least one agent CLI (`Claude`, `Codex`, `Antigravity`, `Grok`) is installed
@@ -799,7 +804,6 @@ impl App {
             self.changed();
         }
 
-        let default_preset = preferred_agent_cli_preset(self).unwrap_or(AgentCliPreset::Claude);
         let tab_len = self.tabs.entries.len();
         for idx in 0..tab_len {
             let is_parked = self.tabs.parked_in_home || self.home.is_some() || !self.tabs.is_hist_in_app() || idx != self.tabs.active_idx;
@@ -827,7 +831,7 @@ impl App {
                                         tab.selection = vec![new_id];
                                         tab.dirty = true;
                                         if let (Some(lib), Some(lf)) = (&self.lib, &tab.lib_file) {
-                                            let _ = lib.save_file(&lf.id, &tab.doc);
+                                            let _ = Self::save_doc_to_library(lib, lf, &mut tab.doc, &mut tab.hist);
                                         }
                                         let msg = warning.unwrap_or_else(|| format!("Applied {}", job.op.layer_suffix()));
                                         toast_to_show = Some((msg, false));
@@ -852,7 +856,8 @@ impl App {
                     }
                 }
                 let fp = tab.file_path.clone();
-                pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), default_preset);
+                let tab_preset = preferred_agent_cli_preset_for(&tab.terminal, &tab.image_jobs).unwrap_or(AgentCliPreset::Claude);
+                pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), tab_preset);
             }
             if let Some((msg, is_err)) = toast_to_show {
                 self.show_toast(msg, is_err);
@@ -1995,5 +2000,110 @@ mod tests {
         assert!(tabs.close_tab(0, &mut app), "closing last tab succeeds");
         app.tabs = tabs;
         assert!(!tab_b_jobs_dir.exists(), "closing Tab B removes Tab B's image-jobs dir");
+    }
+
+    #[test]
+    fn job_completing_while_at_home_survives_reopening_same_library_file_with_one_undo() {
+        let tmp = TestDir::new("home-reopen-same");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+
+        let lib_dir = tmp.path().join("library");
+        let lib = designos_library::Library::open(&lib_dir).unwrap();
+        let proj = lib.create_project("Project").unwrap();
+        let entry_a = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        app.lib = Some(lib.clone());
+
+        app.open_library_file(&entry_a.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        let stub_png = tmp.path().join("home_a_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on File A");
+        app.go_home();
+        assert!(app.home.is_some(), "Home screen is shown after Back to files");
+
+        wait_for_job_completion(&mut app);
+        assert_eq!(
+            lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(),
+            2,
+            "completed job at Home must be saved to File A on disk"
+        );
+
+        // Reopen File A from the Home grid (`open_library_file`).
+        app.open_library_file(&entry_a.id);
+        assert!(app.home.is_none(), "opening File A leaves Home");
+        let children = &app.doc.get(app.page).unwrap().children;
+        assert_eq!(children.len(), 2, "File A in editor must contain the completed result layer");
+        let new_id = children[1];
+        assert!(!app.doc.get(orig_id).unwrap().visible, "original layer must be hidden");
+        assert_eq!(app.selection, vec![new_id], "completed result layer must be selected");
+
+        // One Undo removes the result layer and restores the original layer's visibility.
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![orig_id]);
+        assert!(app.doc.get(orig_id).unwrap().visible);
+
+        assert!(app.close_tab(0));
+    }
+
+    #[test]
+    fn job_on_file_a_completes_after_go_home_and_opening_file_b_from_home() {
+        let tmp = TestDir::new("home-open-other");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+
+        let mut doc_b = Document::new("File B");
+        let page_b = doc_b.add_page("Page 1");
+        let nid_b = doc_b.alloc_id();
+        assert_eq!(nid_b, orig_id, "File B uses colliding NodeId");
+        let mut node_b = Node::rectangle(nid_b, DRect::new(0.0, 0.0, 100.0, 100.0));
+        node_b.name = "File B Rect".to_string();
+        doc_b.insert(page_b, node_b).unwrap();
+
+        let lib_dir = tmp.path().join("library");
+        let lib = designos_library::Library::open(&lib_dir).unwrap();
+        let proj = lib.create_project("Project").unwrap();
+        let entry_a = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        let entry_b = lib.create_file(&proj.id, None, "File B", &doc_b).unwrap();
+        app.lib = Some(lib.clone());
+
+        app.open_library_file(&entry_a.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+
+        let stub_png = tmp.path().join("home_b_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on File A");
+        app.go_home();
+        app.open_library_file(&entry_b.id);
+        assert_eq!(app.tabs.entries.len(), 2, "File A stays parked in tab 0 and File B opens in tab 1");
+        assert_eq!(app.tabs.active_idx, 1);
+
+        wait_for_job_completion(&mut app);
+
+        // File B (currently active) must remain untouched.
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![orig_id], "File B must not receive File A's output layer");
+        assert!(app.doc.get(orig_id).unwrap().visible);
+        assert!(!app.hist.can_undo(), "File B undo stack must remain clean");
+
+        // File A on disk and in Tab 0 must have the result layer and revert in one undo step.
+        assert_eq!(lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(), 2);
+        app.switch_tab(0);
+        assert_eq!(app.doc.get(app.page).unwrap().children.len(), 2, "File A must have the completed output layer");
+        assert!(!app.doc.get(orig_id).unwrap().visible);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![orig_id]);
+        assert!(app.doc.get(orig_id).unwrap().visible);
+
+        assert!(app.close_tab(1));
+        assert!(app.close_tab(0));
     }
 }

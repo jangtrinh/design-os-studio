@@ -1082,7 +1082,7 @@ impl Shell {
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
         self.app.poll_image_jobs();
-        if self.app.image_jobs.has_active_jobs() {
+        if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.drive_screenshot(&ctx);

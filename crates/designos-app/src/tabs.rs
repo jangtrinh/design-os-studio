@@ -242,7 +242,7 @@ impl TabsState {
     }
 
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
-    fn park_active_from_app(&mut self, app: &mut App) {
+    pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
@@ -267,7 +267,10 @@ impl TabsState {
                 let active_id = self.entries[self.active_idx].id;
                 let sid = self.session_id_for_tab(active_id);
                 app.terminal.bind_session(&sid);
-                if self.entries[self.active_idx].doc.nodes.is_empty() {
+                if !app.doc.nodes.is_empty() {
+                    self.entries[self.active_idx].page = app.page;
+                    self.entries[self.active_idx].selection = app.selection.clone();
+                    self.entries[self.active_idx].view = app.view;
                     self.entries[self.active_idx].doc = Self::take_live_doc(app);
                 }
                 self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
@@ -393,6 +396,7 @@ impl TabsState {
             return;
         }
         if self.entries.is_empty() {
+            self.parked_in_home = false;
             self.sync_from_app(app);
             if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
                 let sid = self.session_id_for_tab(tab_id);
@@ -666,7 +670,13 @@ impl TabsState {
             self.parked_in_home = true;
             if !was_home {
                 if app.lib.is_some() {
-                    // Saves the file being left, so it must still be attached to the app here.
+                    // Saves the file being left before detaching it so `go_home` does not re-park a closed tab.
+                    crate::decks::ui::flush_notes(app);
+                    app.save_close_version();
+                    app.stop_plugin();
+                    app.flush_autosave();
+                    app.file_path = None;
+                    app.lib_file = None;
                     app.go_home();
                 } else {
                     app.home = Some(crate::home::Home::new());
