@@ -3361,4 +3361,56 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn apply_spec_library_instance_into_slot_replays_imported_main_component_in_live_patch() {
+        let dir = std::env::temp_dir().join(format!("designos_pr721_lib_live_patch_{}", designos_library::new_id()));
+        let lib = designos_library::Library::open(&dir).unwrap();
+        let lib_doc = designos_doc::fixtures::button_library();
+        lib.publish_library("lib-buttons", &lib_doc, "v1").unwrap();
+        crate::tools::library_source::set_test_library_root(Some(dir.clone()));
+
+        let mut e = Engine::default();
+        let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+        e.doc.library.enabled.push(designos_doc::LibraryRef { id: "lib-buttons".into(), name: "Button Kit".into(), version: 1 });
+
+        let mut editor_doc = e.doc.clone();
+        e.live_ops = Some(Vec::new());
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "Slot Arrow Icon",
+                        "component": "Icon/Arrow"
+                    }
+                }),
+            )
+            .unwrap();
+        crate::tools::library_source::set_test_library_root(None);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let ops = e.take_live_ops();
+        let report = designos_doc::live_patch::replay_live_patch(
+            &mut editor_doc,
+            &designos_doc::live_patch::LivePatch::new(ops),
+            &mut designos_doc::live_patch::LivePatchState::default(),
+            &mut |d, c| c.apply(d).map(|_| ()),
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "live patch replay must not skip any op: {:?}", report.skipped);
+        assert!(
+            editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent),
+            "replayed instance slot must be marked with OverrideField::SlotContent"
+        );
+        let replayed_inst = editor_doc.get(root_id).expect("placed library instance must exist in replayed document");
+        let main_comp_id = designos_doc::instance_component(replayed_inst).expect("placed library instance must reference its main component");
+        let replayed_main = editor_doc.get(main_comp_id).expect("imported library main component must exist in replayed document");
+        assert_eq!(replayed_main.name, "Icon/Arrow");
+        assert_eq!(replayed_main.parent, editor_doc.library_page);
+    }
 }

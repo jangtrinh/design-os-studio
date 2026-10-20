@@ -46,15 +46,19 @@ pub fn slot_content_marked(doc: &Document, cmd: Command) -> WriterCommand {
     let mut marked = BTreeSet::new();
     match cmd {
         Command::Batch(cmds) => {
-            let mut parts = Vec::with_capacity(cmds.len());
-            for sub in cmds {
-                append_slot_marked_single(doc, sub, &mut marked, &mut parts);
+            let mut slot_updates = Vec::new();
+            let mut expanded = Vec::with_capacity(cmds.len());
+            for sub in &cmds {
+                append_slot_marked_single(doc, sub.clone(), &mut marked, &mut slot_updates, &mut expanded);
             }
-            WriterCommand { cmd: Command::Batch(parts.clone()), parts }
+            let mut parts = slot_updates;
+            parts.push(Command::Batch(cmds));
+            WriterCommand { cmd: Command::Batch(expanded), parts }
         }
         other => {
+            let mut slot_updates = Vec::new();
             let mut parts = Vec::with_capacity(2);
-            append_slot_marked_single(doc, other, &mut marked, &mut parts);
+            append_slot_marked_single(doc, other, &mut marked, &mut slot_updates, &mut parts);
             if parts.len() == 1 {
                 let single = parts.pop().unwrap();
                 WriterCommand::single(single)
@@ -65,22 +69,22 @@ pub fn slot_content_marked(doc: &Document, cmd: Command) -> WriterCommand {
     }
 }
 
-fn append_slot_marked_single(doc: &Document, cmd: Command, marked: &mut BTreeSet<NodeId>, out: &mut Vec<Command>) {
+fn append_slot_marked_single(doc: &Document, cmd: Command, marked: &mut BTreeSet<NodeId>, slot_updates: &mut Vec<Command>, out: &mut Vec<Command>) {
     match cmd {
         Command::Insert { ref parent, .. } => {
-            maybe_mark_slot(doc, *parent, marked, out);
+            maybe_mark_slot(doc, *parent, marked, slot_updates, out);
             out.push(cmd);
         }
         Command::Reparent { ref id, ref parent, .. } => {
             if let Some(src_parent) = doc.get(*id).and_then(|n| n.parent) {
-                maybe_mark_slot(doc, src_parent, marked, out);
+                maybe_mark_slot(doc, src_parent, marked, slot_updates, out);
             }
-            maybe_mark_slot(doc, *parent, marked, out);
+            maybe_mark_slot(doc, *parent, marked, slot_updates, out);
             out.push(cmd);
         }
         Command::Remove { ref id } => {
             if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
-                maybe_mark_slot(doc, parent, marked, out);
+                maybe_mark_slot(doc, parent, marked, slot_updates, out);
             }
             out.push(cmd);
         }
@@ -92,14 +96,14 @@ fn append_slot_marked_single(doc: &Document, cmd: Command, marked: &mut BTreeSet
         }
         Command::Batch(cmds) => {
             for sub in cmds {
-                append_slot_marked_single(doc, sub, marked, out);
+                append_slot_marked_single(doc, sub, marked, slot_updates, out);
             }
         }
         other => out.push(other),
     }
 }
 
-fn maybe_mark_slot(doc: &Document, slot_id: NodeId, marked: &mut BTreeSet<NodeId>, out: &mut Vec<Command>) {
+fn maybe_mark_slot(doc: &Document, slot_id: NodeId, marked: &mut BTreeSet<NodeId>, slot_updates: &mut Vec<Command>, out: &mut Vec<Command>) {
     if marked.contains(&slot_id) || !is_instance_slot(doc, slot_id) {
         return;
     }
@@ -111,7 +115,9 @@ fn maybe_mark_slot(doc: &Document, slot_id: NodeId, marked: &mut BTreeSet<NodeId
     marked.insert(slot_id);
     let mut updated = Node { children: Vec::new(), ..slot.clone() };
     updated.component.overrides.insert(OverrideField::SlotContent);
-    out.push(Command::Update { node: Box::new(updated) });
+    let update = Command::Update { node: Box::new(updated) };
+    slot_updates.push(update.clone());
+    out.push(update);
 }
 
 /// Direction-flip normalization (#583): when a `Command::Update` changes a frame's auto-layout
@@ -548,7 +554,9 @@ mod tests {
         let w = writer_command(&doc, batch);
         let update_count = w.parts.iter().filter(|c| matches!(c, Command::Update { node } if node.id == inst_slot)).count();
         assert_eq!(update_count, 1, "two inserts in one batch must emit only one slot Update");
-        assert_eq!(w.parts.len(), 3);
+        assert_eq!(w.parts.len(), 2, "parts must hold the slot Update followed by Command::Batch(original sub-commands)");
+        assert!(matches!(&w.parts[1], Command::Batch(sub) if sub.len() == 2));
+        assert!(matches!(&w.cmd, Command::Batch(all) if all.len() == 3));
         w.cmd.apply(&mut doc).unwrap();
 
         // A subsequent insert into the already-marked slot emits no Update at all.

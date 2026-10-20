@@ -18,8 +18,22 @@ fn doc_roots() -> &'static Mutex<HashMap<u64, PathBuf>> {
     ROOTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+#[cfg(test)]
+thread_local! {
+    static TEST_LIBRARY_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub fn set_test_library_root(root: Option<PathBuf>) {
+    TEST_LIBRARY_ROOT.with(|cell| *cell.borrow_mut() = root);
+}
+
 /// Resolves the active library root directory (`$DESIGNOS_LIBRARY`, `$DESIGNOS_LIBRARY_DIR`, or platform default).
 pub fn resolve_library_root() -> PathBuf {
+    #[cfg(test)]
+    if let Some(root) = TEST_LIBRARY_ROOT.with(|cell| cell.borrow().clone()) {
+        return root;
+    }
     Library::default_root()
 }
 
