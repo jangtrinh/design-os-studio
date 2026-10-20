@@ -347,6 +347,7 @@ fn apply_spec_library_import_with_styles_variables_images_and_slots_replays_and_
         variables: vec!["v1".into()],
         key: None,
         source_library_key: None,
+        extensions: Default::default(),
     };
     lib_doc.variable_collections.insert("c1".into(), coll);
     lib_doc.variables.insert(
@@ -362,6 +363,8 @@ fn apply_spec_library_import_with_styles_variables_images_and_slots_replays_and_
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     lib_doc.images.insert("dot_hash".into(), vec![0x89, 0x50, 0x4E, 0x47]);

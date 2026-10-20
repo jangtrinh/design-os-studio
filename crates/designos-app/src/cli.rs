@@ -82,6 +82,12 @@ pub struct Options {
     pub import_capture: Option<PathBuf>,
     /// Output `.designos` / `.fig` path for `--import-capture <path> --out <out.designos>` (`T8.27` §7).
     pub out: Option<PathBuf>,
+    /// Headless CLI: import variables from a file (`.json` or `.zip`) into the document (`E1-9` §5).
+    pub import_variables: Option<PathBuf>,
+    /// Headless CLI: export variables from the document to a directory or file (`E1-9` §5).
+    pub export_variables: Option<PathBuf>,
+    /// Variable format for `--import-variables` / `--export-variables`: `auto`, `figma-rest`, `figma-native`, or `dtcg`.
+    pub format: Option<String>,
     /// With `--panel micro-<slug>:seq:<N>`: drop the top shortcut caption bar from recorded frames
     /// (pointer, drag ring and live metric pill stay), for footage that carries its own titles.
     pub no_caption: bool,
@@ -103,6 +109,8 @@ impl Options {
             || self.export_fig.is_some()
             || self.codegen.is_some()
             || (self.import_capture.is_some() && self.screenshot.is_none() && (self.out.is_some() || self.file.is_some() || self.open_id.is_some()))
+            || self.import_variables.is_some()
+            || self.export_variables.is_some()
     }
 
     /// Whether a launch with these options starts on the home screen: explicitly
@@ -288,6 +296,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--export-fig" => o.export_fig = Some(it.next().ok_or("--export-fig needs an output .fig path")?.into()),
             "--import-capture" | "--import-web-capture" => o.import_capture = Some(it.next().ok_or("--import-capture needs a capture JSON path")?.into()),
             "--out" => o.out = Some(it.next().ok_or("--out needs an output path")?.into()),
+            "--import-variables" => o.import_variables = Some(it.next().ok_or("--import-variables needs a file path")?.into()),
+            "--export-variables" => o.export_variables = Some(it.next().ok_or("--export-variables needs a directory or file path")?.into()),
+            "--format" => {
+                let f = it.next().ok_or("--format needs auto, figma-rest, figma-native or dtcg")?;
+                if designos_fig::VariablesFormat::parse_label(&f).is_none() {
+                    return Err(format!("unknown format '{f}' (expected auto, figma-rest, figma-native or dtcg)"));
+                }
+                o.format = Some(f);
+            }
             "-h" | "--help" => o.help = true,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             _ => {

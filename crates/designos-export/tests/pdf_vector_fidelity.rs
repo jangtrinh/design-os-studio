@@ -177,6 +177,8 @@ fn variable(id: &str, kind: VariableKind, light: VariableValue, dark: VariableVa
         hidden_from_publishing: false,
         key: None,
         code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
     }
 }
 
@@ -193,6 +195,7 @@ fn variable_doc() -> (Document, NodeId) {
             variables: vec![],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let teal = Color::rgb(20, 120, 140);

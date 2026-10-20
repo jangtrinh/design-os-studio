@@ -174,7 +174,16 @@ pub fn import_pen_variables(raw: &str, root: &Value, doc: &mut Document) {
             let col_id = format!("pen:axis:{idx:04}:{axis}");
             doc.variable_collections.insert(
                 col_id.clone(),
-                VariableCollection { id: col_id.clone(), name: axis.clone(), modes, default_mode, variables: Vec::new(), key: None, source_library_key: None },
+                VariableCollection {
+                    id: col_id.clone(),
+                    name: axis.clone(),
+                    modes,
+                    default_mode,
+                    variables: Vec::new(),
+                    key: None,
+                    source_library_key: None,
+                    extensions: Default::default(),
+                },
             );
             axis_to_col_id.insert(axis.clone(), col_id.clone());
             ordered_col_ids.push(col_id);
@@ -227,6 +236,7 @@ pub fn import_pen_variables(raw: &str, root: &Value, doc: &mut Document) {
                             variables: Vec::new(),
                             key: None,
                             source_library_key: None,
+                            extensions: Default::default(),
                         },
                     );
                     axis_to_col_id.insert(axis.clone(), cid.clone());
@@ -255,6 +265,7 @@ pub fn import_pen_variables(raw: &str, root: &Value, doc: &mut Document) {
                 variables: Vec::new(),
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         ordered_col_ids.push(col_id);
@@ -353,6 +364,8 @@ pub fn import_pen_variables(raw: &str, root: &Value, doc: &mut Document) {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
 

@@ -339,6 +339,7 @@ fn add_two_mode_collection(doc: &mut Document) {
             variables: vec![],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
 }
@@ -358,6 +359,8 @@ fn insert_var(doc: &mut Document, id: &str, name: &str, kind: VariableKind, ligh
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 }

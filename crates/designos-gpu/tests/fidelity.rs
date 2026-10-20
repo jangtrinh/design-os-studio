@@ -221,6 +221,7 @@ fn translucent_color_variable_with_stored_paint_opacity_matches_cpu() {
             variables: vec!["alpha-white-20".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
@@ -237,6 +238,8 @@ fn translucent_color_variable_with_stored_paint_opacity_matches_cpu() {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 
@@ -283,6 +286,7 @@ fn text_drop_shadow_uses_the_bound_colour_alpha_like_cpu() {
             variables: vec!["alpha-white-20".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     t.doc.variables.insert(
@@ -298,6 +302,8 @@ fn text_drop_shadow_uses_the_bound_colour_alpha_like_cpu() {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 

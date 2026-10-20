@@ -666,6 +666,7 @@ mod tests {
                 variables: vec!["surface".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         doc.variables.insert(
@@ -681,6 +682,8 @@ mod tests {
                 hidden_from_publishing: false,
                 key: None,
                 code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         doc.styles.insert("Text/Primary".into(), Style::Fill(vec![Paint::solid(light_c)]));

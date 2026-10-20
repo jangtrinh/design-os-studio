@@ -815,6 +815,7 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 variables: vars_list,
                 key: c_in.key.clone().or_else(|| existing.as_ref().and_then(|e| e.key.clone())),
                 source_library_key: c_in.source_library_key.clone().or_else(|| existing.as_ref().and_then(|e| e.source_library_key.clone())),
+                extensions: existing.as_ref().map(|e| e.extensions.clone()).unwrap_or_default(),
             },
         );
     }
@@ -841,6 +842,7 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                         variables: Vec::new(),
                         key: None,
                         source_library_key: None,
+                        extensions: Default::default(),
                     });
                     default_col
                 },
@@ -864,7 +866,9 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
             scopes: v_in.scopes.clone().or_else(|| existing.as_ref().map(|e| e.scopes.clone())).unwrap_or_default(),
             hidden_from_publishing: v_in.hidden_from_publishing.or_else(|| existing.as_ref().map(|e| e.hidden_from_publishing)).unwrap_or(false),
             key: v_in.key.clone().or_else(|| existing.as_ref().and_then(|e| e.key.clone())),
-            code_syntax: existing.map(|e| e.code_syntax).unwrap_or_default(),
+            code_syntax: existing.as_ref().map(|e| e.code_syntax.clone()).unwrap_or_default(),
+            extensions: existing.as_ref().map(|e| e.extensions.clone()).unwrap_or_default(),
+            mode_extensions: existing.map(|e| e.mode_extensions).unwrap_or_default(),
         };
         variables.insert(v_in.id.clone(), var);
         if let Some(col) = collections.get_mut(&collection_id) {

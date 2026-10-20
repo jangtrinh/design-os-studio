@@ -245,6 +245,10 @@ fn build_rows(app: &App, ctx: &Context, view: &VariableStore, coll: &VariableCol
 /// of the rail, used by the full view; the floating panel positions itself on the screen.
 pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
     let ctx = ui.ctx().clone();
+    app.poll_variables_io();
+    if app.vars.pending_io.is_some() {
+        ctx.request_repaint();
+    }
     if !app.vars.open {
         crate::panels::var_bind::bind_picker(app, &ctx);
         return;
@@ -1410,6 +1414,7 @@ fn run_popups(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     run_menu(app, ctx, fr);
     run_alias_picker(app, ctx, fr);
     run_cell_picker(app, ctx);
+    run_skipped_details_popover(app, ctx, *g);
     super::popover::show(app, ctx, g, fr);
     crate::panels::var_bind::bind_picker(app, ctx);
 }
@@ -1429,6 +1434,7 @@ fn unique_group_name(fr: &Frame, coll: &str, parent: &str) -> String {
 fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
     let Some(menu) = app.vars.menu.clone() else { return };
     let cid = app.vars.collection.clone().unwrap_or_default();
+    let has_skipped = app.vars.last_import_report.as_ref().is_some_and(|r| !r.skipped.is_empty());
     let items: Vec<MenuItem> = match &menu.kind {
         VarMenuKind::Create => ["Color", "Number", "String", "Boolean"].iter().map(|s| MenuItem::new(*s)).collect(),
         VarMenuKind::Row(_) => {
@@ -1455,13 +1461,32 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
             vec![MenuItem::new("Rename").disabled(read_only), MenuItem::new("Duplicate"), MenuItem::new("Delete").disabled(read_only)]
         }
         VarMenuKind::Folder(..) => vec![MenuItem::new("Rename group")],
-        VarMenuKind::Settings => vec![MenuItem::new("Import variables..."), MenuItem::new("Export variables...")],
+        VarMenuKind::Settings => {
+            let io_busy = app.vars.pending_io.is_some();
+            let mut list = vec![
+                MenuItem::new("Import variables (Figma)…").disabled(io_busy),
+                MenuItem::new("Import variables (Design tokens / DTCG)…").disabled(io_busy),
+                MenuItem::new("Import variables (Figma REST)…").disabled(io_busy).sep(),
+                MenuItem::new("Export variables (Figma)…").disabled(io_busy),
+                MenuItem::new("Export variables (Design tokens / DTCG)…").disabled(io_busy),
+                if has_skipped {
+                    MenuItem::new("Export variables (Figma REST)…").disabled(io_busy).sep()
+                } else {
+                    MenuItem::new("Export variables (Figma REST)…").disabled(io_busy)
+                },
+            ];
+            if has_skipped {
+                list.push(MenuItem::new("Skipped import details…"));
+            }
+            list
+        }
         VarMenuKind::Filter => [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean]
             .iter()
             .map(|k| MenuItem::new(kind_name(*k)).checked(!app.vars.hidden_kinds.contains(k)))
             .collect(),
     };
-    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, 168.0, &items, Some(menu.anchor)) {
+    let menu_w = if matches!(menu.kind, VarMenuKind::Settings) { 248.0 } else { 168.0 };
+    match popup_menu(ctx, Id::new("vars-menu"), menu.pos, menu_w, &items, Some(menu.anchor)) {
         MenuResult::Open => {}
         MenuResult::Closed => app.vars.menu = None,
         MenuResult::Picked(i) => {
@@ -1548,15 +1573,28 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                     app.vars.renaming = Some(('f', folded_key(c, f)));
                     app.vars.rename_frames = 0;
                 }
-                (VarMenuKind::Settings, 0) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).pick_file() {
-                        app.import_variables_file(&path);
+                (VarMenuKind::Settings, 0..=2) => {
+                    let fmt = match i {
+                        0 => designos_fig::VariablesFormat::FigmaNative,
+                        1 => designos_fig::VariablesFormat::Dtcg,
+                        _ => designos_fig::VariablesFormat::FigmaRest,
+                    };
+                    if let Some(paths) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", &["json", "zip"]).pick_files() {
+                        app.spawn_import_variables_files_with_format(paths, fmt);
+                    }
+                }
+                (VarMenuKind::Settings, 3..=5) => {
+                    let (fmt, default_name, exts) = match i {
+                        3 => (designos_fig::VariablesFormat::FigmaNative, "tokens.zip", &["zip", "json"][..]),
+                        4 => (designos_fig::VariablesFormat::Dtcg, "tokens.zip", &["zip", "json"][..]),
+                        _ => (designos_fig::VariablesFormat::FigmaRest, "variables.json", &["json"][..]),
+                    };
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables / Design Tokens", exts).set_file_name(default_name).save_file() {
+                        app.spawn_export_variables_with_format(path, fmt);
                     }
                 }
                 (VarMenuKind::Settings, _) => {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("Variables JSON", &["json"]).set_file_name("variables.json").save_file() {
-                        app.export_variables_file(&path);
-                    }
+                    app.vars.show_skipped_details = true;
                 }
                 (VarMenuKind::Filter, i) => {
                     let k = [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean][i];
@@ -1570,6 +1608,68 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
                 }
             }
         }
+    }
+}
+
+fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
+    if !app.vars.show_skipped_details {
+        return;
+    }
+    let Some(rep) = app.vars.last_import_report.clone() else {
+        app.vars.show_skipped_details = false;
+        return;
+    };
+    if rep.skipped.is_empty() {
+        app.vars.show_skipped_details = false;
+        return;
+    }
+    let size = Vec2::new(360.0, 260.0);
+    let pos = Pos2::new((g.panel.right() - size.x - theme::INSET_POPOVER).max(g.panel.left() + theme::INSET_CONTROL), g.head_top() + theme::SPACE_INLINE);
+    let mut close = false;
+    let area = egui::Area::new(Id::new("vars-skipped-details")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        let (rect, _) = ui.allocate_exact_size(size, Sense::click());
+        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
+        let p = ui.painter();
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
+        p.text(
+            Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
+            Align2::LEFT_CENTER,
+            format!("Skipped variables ({})", rep.skipped.len()),
+            egui::FontId::proportional(theme::FONT_SIZE_BODY),
+            theme::TEXT,
+        );
+        let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_DENSE));
+        let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());
+        cross_glyph(p, close_rect.center(), 4.5, if close_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        if close_resp.clicked() {
+            close = true;
+        }
+        p.hline(rect.x_range(), head.bottom(), Stroke::new(1.0, theme::BORDER));
+        let body = Rect::from_min_max(
+            Pos2::new(rect.left() + theme::SPACE_GROUP, head.bottom() + theme::SPACE_INLINE),
+            Pos2::new(rect.right() - theme::SPACE_GROUP, rect.bottom() - theme::SPACE_INLINE),
+        );
+        ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| {
+            egui::ScrollArea::vertical().id_salt("vars-skipped-scroll").max_height(220.0).show(ui, |ui| {
+                for item in &rep.skipped {
+                    let (row_r, _) = ui.allocate_exact_size(Vec2::new(body.width(), theme::CONTROL_DENSE), Sense::hover());
+                    widgets::record(ui, &format!("vars-skipped-item:{}", item.path), row_r);
+                    ui.painter().text(
+                        Pos2::new(row_r.left(), row_r.center().y),
+                        Align2::LEFT_CENTER,
+                        format!("{}: {}", item.path, item.reason),
+                        egui::FontId::proportional(theme::FONT_SIZE_BODY),
+                        theme::TEXT_SECONDARY,
+                    );
+                }
+            });
+        });
+        rect
+    });
+    let esc = ctx.input(|i| i.key_pressed(Key::Escape));
+    let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|pt| !area.inner.contains(pt)));
+    if close || esc || outside {
+        app.vars.show_skipped_details = false;
     }
 }
 
@@ -1644,6 +1744,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
         let c = from_c32(pk.color);
         if let Some(v) = app.doc.variables.get_mut(&pk.var) {
             v.values.insert(pk.mode.clone(), VariableValue::Color(c));
+            v.clear_derived_mode_extensions(&pk.mode);
         }
         app.changed();
     }
@@ -1673,8 +1774,9 @@ mod tests {
             description: String::new(),
             scopes: vec!["CORNER_RADIUS".into()],
             hidden_from_publishing: false,
-
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         assert!(matches_scope_filter(&var, 0)); // All
         assert!(!matches_scope_filter(&var, 1)); // Fills
@@ -1687,5 +1789,28 @@ mod tests {
         for idx in 0..SCOPE_FILTERS.len() {
             assert!(matches_scope_filter(&var, idx));
         }
+    }
+
+    #[test]
+    fn skipped_details_popover_renders_beyond_eight_items() {
+        let doc = Document::new("d");
+        let mut app = App::new(doc);
+        let skipped: Vec<designos_fig::SkippedVariable> = (1..=12)
+            .map(|i| designos_fig::SkippedVariable { path: format!("Token/Item{i}"), reason: "cross-collection-alias-kept-as-literal".into() })
+            .collect();
+        app.vars.last_import_report =
+            Some(designos_fig::ImportReport { format: designos_fig::VariablesFormat::FigmaNative, added: 12, updated: 0, unchanged: 0, skipped });
+        app.vars.show_skipped_details = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let g = Geom { panel: Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)), floating: false, sidebar: true };
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            run_skipped_details_popover(&mut app, ui.ctx(), g);
+        });
+        let has_item = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some();
+        assert!(has_item("vars-skipped-item:Token/Item9"), "expected 9th skipped item to be rendered in ScrollArea");
+        assert!(has_item("vars-skipped-item:Token/Item12"), "expected 12th skipped item to be rendered in ScrollArea");
     }
 }

@@ -129,6 +129,14 @@ pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
     Ok(container::write_zip(&canvas, &doc.images, Some(&meta)))
 }
 
+/// Serializes `doc` into a `.fig` binary archive and returns a sibling report of any variable or
+/// collection `extensions` / `mode_extensions` that `.fig` `VARIABLE_SET` / `VARIABLE` nodes do not carry (`E1-9` §4, §10).
+pub fn export_fig_with_report(doc: &Document) -> Result<(Vec<u8>, Vec<crate::variables_dtcg::SkippedVariable>), FigError> {
+    let bytes = export_fig(doc)?;
+    let omitted = crate::variables_dtcg::collect_omitted_extensions(doc);
+    Ok((bytes, omitted))
+}
+
 // ------------------------------------------------------------------ state & IDs
 
 struct ExportCtx<'a> {

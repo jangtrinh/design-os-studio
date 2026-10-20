@@ -1557,10 +1557,11 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
         }
         crate::cmdk::CmdKAction::ExportFig => {
             let out_path = app.file_path.as_ref().map(|p| p.with_extension("fig")).unwrap_or_else(|| std::path::PathBuf::from("/tmp/designos-export.fig"));
-            match designos_fig::export_fig(&app.doc) {
-                Ok(bytes) => {
+            match designos_fig::export_fig_with_report(&app.doc) {
+                Ok((bytes, omitted)) => {
                     if std::fs::write(&out_path, bytes).is_ok() {
-                        app.show_toast(format!("Exported Figma .fig to {}", out_path.display()), false);
+                        let note = if omitted.is_empty() { String::new() } else { format!(" ({} extension keys not carried)", omitted.len()) };
+                        app.show_toast(format!("Exported Figma .fig to {}{note}", out_path.display()), false);
                     }
                 }
                 Err(e) => app.show_toast(format!("Export .fig failed: {e}"), true),

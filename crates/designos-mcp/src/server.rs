@@ -577,11 +577,11 @@ impl Session {
                 let a: crate::engine::ExportFigArgs = parse(args)?;
                 let path = self.fig_output_path(&a.output_path)?;
                 self.engine.settle_layout();
-                let bytes = designos_fig::export_fig(&self.engine.doc).map_err(|e| format!("Failed to export .fig: {e}"))?;
+                let (bytes, omitted) = designos_fig::export_fig_with_report(&self.engine.doc).map_err(|e| format!("Failed to export .fig: {e}"))?;
                 let mut file =
                     fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path).map_err(|e| format!("Cannot write .fig file: {e}"))?;
                 file.write_all(&bytes).and_then(|_| file.sync_all()).map_err(|e| format!("Cannot write .fig file: {e}"))?;
-                Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true}))
+                Ok(json!({"output_path": path, "path": path, "bytes": bytes.len(), "saved": true, "omitted_extensions": omitted}))
             }
             _ => {
                 let mut args = args;

@@ -30,6 +30,7 @@ fn themed() -> (T, NodeId, NodeId) {
             variables: vec!["bg".into(), "w".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let mk = |id: &str, kind, l, dk| Variable {
@@ -44,6 +45,8 @@ fn themed() -> (T, NodeId, NodeId) {
         key: None,
 
         code_syntax: Default::default(),
+        extensions: Default::default(),
+        mode_extensions: Default::default(),
     };
     d.variables.insert("bg".into(), mk("bg", VariableKind::Color, VariableValue::Color(LIGHT), VariableValue::Color(DARK)));
     d.variables.insert("w".into(), mk("w", VariableKind::Number, VariableValue::Number(60.0), VariableValue::Number(30.0)));
@@ -131,6 +134,7 @@ fn per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding() {
             variables: vec!["vis".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     t.doc.variables.insert(
@@ -147,6 +151,8 @@ fn per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding() {
             key: None,
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 
@@ -183,6 +189,7 @@ fn white_paint_with_stored_opacity_bound_to_translucent_color_variable_composite
             variables: vec!["alpha-white-20".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let alpha_white_20 = Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 };
@@ -199,6 +206,8 @@ fn white_paint_with_stored_opacity_bound_to_translucent_color_variable_composite
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 
@@ -244,6 +253,7 @@ fn translucent_text_with_shadow_scene() -> (T, f32) {
             variables: vec!["alpha-white-20".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     t.doc.variables.insert(
@@ -259,6 +269,8 @@ fn translucent_text_with_shadow_scene() -> (T, f32) {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     (t, SHADOW_DX)

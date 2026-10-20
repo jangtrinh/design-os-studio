@@ -547,6 +547,7 @@ mod tests {
                 variables: vec!["base".into(), "bg".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let var = |id: &str, vals: Vec<(&str, VariableValue)>| Variable {
@@ -560,6 +561,8 @@ mod tests {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert("base".into(), var("base", vec![("l", VariableValue::Color(Color::WHITE)), ("d", VariableValue::Color(Color::BLACK))]));
         d.variables.insert("bg".into(), var("bg", vec![("l", VariableValue::Alias("base".into())), ("d", VariableValue::Alias("base".into()))]));

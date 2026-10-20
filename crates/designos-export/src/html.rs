@@ -1083,6 +1083,8 @@ mod tests {
                 key: None,
                 code_syntax: [(CodeSyntaxPlatform::Web, "var(--color)".into())].into(),
                 hidden_from_publishing: false,
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
             },
         );
         d.variables.get_mut("primary").unwrap().code_syntax.insert(CodeSyntaxPlatform::Web, "var(--color-primary)".into());
