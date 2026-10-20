@@ -120,6 +120,10 @@ impl ExportBundle {
 /// Collects every collection-level and variable/mode-level extension in `doc` that non-native formats
 /// (`dtcg`, `figma-rest`, `.fig`) omit (`E1-9` §4, §10).
 pub fn collect_omitted_extensions(doc: &Document) -> Vec<SkippedVariable> {
+    collect_omitted_extensions_excluding(doc, &[])
+}
+
+fn collect_omitted_extensions_excluding(doc: &Document, excluded_mode_keys: &[&str]) -> Vec<SkippedVariable> {
     let mut out = Vec::new();
     for coll in doc.variable_collections.values() {
         for k in coll.extensions.keys() {
@@ -135,6 +139,9 @@ pub fn collect_omitted_extensions(doc: &Document) -> Vec<SkippedVariable> {
         let mut mode_key_counts: BTreeMap<&str, usize> = BTreeMap::new();
         for mext in v.mode_extensions.values() {
             for k in mext.keys() {
+                if excluded_mode_keys.contains(&k.as_str()) {
+                    continue;
+                }
                 *mode_key_counts.entry(k.as_str()).or_insert(0) += 1;
             }
         }
@@ -969,7 +976,7 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     files.insert(0, ("tokens.manifest.json".to_string(), manifest_bytes));
 
-    Ok(ExportBundle { format: VariablesFormat::Dtcg, files, omitted_extensions: collect_omitted_extensions(doc) })
+    Ok(ExportBundle { format: VariablesFormat::Dtcg, files, omitted_extensions: collect_omitted_extensions_excluding(doc, &["$deprecated"]) })
 }
 
 // ============================================================================
@@ -1188,15 +1195,40 @@ fn merge_staged_into_doc(doc: &mut Document, staging: Document, replace: bool, r
             existing.name = staged_var.name;
             existing.kind = staged_var.kind;
             for (m, v) in staged_var.values {
-                if let Some(mext) = staged_var.mode_extensions.remove(&m) {
-                    existing.mode_extensions.insert(m.clone(), mext);
+                if report.format == VariablesFormat::FigmaNative {
+                    if let Some(mext) = staged_var.mode_extensions.remove(&m) {
+                        existing.mode_extensions.insert(m.clone(), mext);
+                    } else {
+                        existing.clear_derived_mode_extensions(&m);
+                    }
                 } else {
+                    if report.format == VariablesFormat::Dtcg {
+                        let mut incoming = staged_var.mode_extensions.remove(&m).unwrap_or_default();
+                        if let Some(dep) = incoming.remove("$deprecated") {
+                            existing.mode_extensions.entry(m.clone()).or_default().insert("$deprecated".into(), dep);
+                        } else if let Some(ext) = existing.mode_extensions.get_mut(&m) {
+                            ext.remove("$deprecated");
+                        }
+                        if !incoming.is_empty() {
+                            let map = existing.mode_extensions.entry(m.clone()).or_default();
+                            for (k, val) in incoming {
+                                map.insert(k, val);
+                            }
+                        }
+                    }
                     existing.clear_derived_mode_extensions(&m);
                 }
                 existing.values.insert(m, v);
             }
             for (m, mext) in staged_var.mode_extensions {
-                existing.mode_extensions.insert(m, mext);
+                if report.format == VariablesFormat::FigmaNative {
+                    existing.mode_extensions.insert(m, mext);
+                } else {
+                    let map = existing.mode_extensions.entry(m).or_default();
+                    for (k, val) in mext {
+                        map.insert(k, val);
+                    }
+                }
             }
             for (k, v) in staged_var.extensions {
                 existing.extensions.insert(k, v);
@@ -3130,5 +3162,73 @@ mod tests {
         let ratio = large / small;
         eprintln!("dtcg_import_scaling small_ms={small:.1} large_ms={large:.1} ratio={ratio:.2}");
         assert!(ratio < 9.0, "4x variables cost {ratio:.1}x import time ({small:.1}ms -> {large:.1}ms); linear is ~4x, quadratic ~16x");
+    }
+
+    #[test]
+    fn dtcg_merge_preserves_mode_extensions_and_excludes_deprecated_from_omitted() {
+        let mut doc = Document::new("d");
+        let opts = ImportVariablesOptions {
+            collection_name: Some("Theme".into()),
+            additional_files: vec![("Dark.tokens.json".into(), sample_figma_native_dark_json().as_bytes().to_vec())],
+            ..Default::default()
+        };
+        import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, opts).unwrap();
+
+        // Seed VariableID:10:6 (Color/Semantic/Surface) with $deprecated, com.figma.isOverride, com.figma.paint, and com.acme.contrast
+        {
+            let surface = doc.variables.get_mut("VariableID:10:6").unwrap();
+            let light_ext = surface.mode_extensions.entry("Light".into()).or_default();
+            light_ext.insert("$deprecated".into(), Value::Bool(true));
+            light_ext.insert("com.figma.isOverride".into(), Value::Bool(true));
+            light_ext.insert("com.figma.paint".into(), json!({"paintType": "SOLID"}));
+
+            let dark_ext = surface.mode_extensions.entry("Dark".into()).or_default();
+            dark_ext.insert("$deprecated".into(), Value::String("Use SurfaceNew in Dark".into()));
+            dark_ext.insert("com.acme.contrast".into(), Value::String("AA".into()));
+            dark_ext.insert("com.figma.isOverride".into(), Value::Bool(true));
+            dark_ext.insert("com.figma.paint".into(), json!({"paintType": "SOLID"}));
+        }
+
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        assert!(
+            !bundle.omitted_extensions.iter().any(|s| s.reason.contains("$deprecated")),
+            "DTCG export writes $deprecated so omitted_extensions must not report it: {:?}",
+            bundle.omitted_extensions
+        );
+        assert!(
+            bundle.omitted_extensions.iter().any(|s| s.reason.contains("com.figma.isOverride")),
+            "DTCG export should still report omitted com.figma.isOverride"
+        );
+
+        // Single-mode DTCG re-import for Dark with default Merge (replace: false)
+        let dark_file = bundle.files.iter().find(|(n, _)| n.ends_with(".Dark.tokens.json")).unwrap();
+        let dark_text = std::str::from_utf8(&dark_file.1).unwrap();
+        import_variables(
+            &mut doc,
+            dark_text,
+            VariablesFormat::Dtcg,
+            ImportVariablesOptions { replace: false, mode_name: Some("Dark".into()), ..Default::default() },
+        )
+        .unwrap();
+
+        let dark_ext = &doc.variables["VariableID:10:6"].mode_extensions["Dark"];
+        assert_eq!(dark_ext.get("$deprecated"), Some(&Value::String("Use SurfaceNew in Dark".into())));
+        assert_eq!(dark_ext.get("com.acme.contrast"), Some(&Value::String("AA".into())));
+        assert_eq!(dark_ext.get("com.figma.isOverride"), Some(&Value::Bool(true)));
+        assert_eq!(dark_ext.get("com.figma.paint"), Some(&json!({"paintType": "SOLID"})));
+
+        // Full zip DTCG re-import into the same document with default Merge
+        let zip_bytes = bundle.to_zip_bytes().unwrap();
+        import_variables_bytes(&mut doc, &zip_bytes, Some("tokens.zip"), VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
+
+        let surface_after = &doc.variables["VariableID:10:6"];
+        assert_eq!(surface_after.mode_extensions["Light"].get("$deprecated"), Some(&Value::Bool(true)));
+        assert_eq!(surface_after.mode_extensions["Light"].get("com.figma.isOverride"), Some(&Value::Bool(true)));
+        assert_eq!(surface_after.mode_extensions["Light"].get("com.figma.paint"), Some(&json!({"paintType": "SOLID"})));
+        assert!(!surface_after.mode_extensions["Light"].contains_key("com.figma.aliasData"));
+        assert_eq!(surface_after.mode_extensions["Dark"].get("$deprecated"), Some(&Value::String("Use SurfaceNew in Dark".into())));
+        assert_eq!(surface_after.mode_extensions["Dark"].get("com.acme.contrast"), Some(&Value::String("AA".into())));
+        assert_eq!(surface_after.mode_extensions["Dark"].get("com.figma.isOverride"), Some(&Value::Bool(true)));
+        assert_eq!(surface_after.mode_extensions["Dark"].get("com.figma.paint"), Some(&json!({"paintType": "SOLID"})));
     }
 }
