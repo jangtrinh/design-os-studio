@@ -2047,6 +2047,7 @@ impl Document {
         let opacity = if n.component.overrides.contains(&OverrideField::Opacity) { n.opacity } else { 1.0 };
         let dev_status = n.dev.status.map(|s| s.label().to_string());
         let annotations: Vec<String> = n.dev.annotations.iter().map(|a| a.text.clone()).collect();
+        let in_progress = self.get_in_progress(id).cloned().map(InProgressSpec::Detailed);
         let comments: Vec<ResolvedCommentThread> = all_comments
             .iter()
             .filter(|c| c.target_node_id == Some(id.0) || (c.target_node_id.is_none() && c.target_frame_id == Some(id.0)))
@@ -2096,6 +2097,7 @@ impl Document {
             dev_status,
             annotation: None,
             annotations,
+            in_progress,
             comments,
             children: Vec::new(),
         })
