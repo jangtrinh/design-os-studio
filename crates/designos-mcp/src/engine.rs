@@ -262,7 +262,7 @@ impl Engine {
                 }
                 let snapshots = crate::tools::library_source::load_enabled_snapshots(&self.doc);
                 let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots).map_err(|e| e.to_string())?;
-                self.exec_apply_spec(cmd)?;
+                self.exec(cmd)?;
                 self.relayout(parent);
                 let root_id = report.root_node_id;
                 let mut resp = json!({
@@ -428,26 +428,6 @@ impl Engine {
         self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
         self.record(ops);
         Ok(())
-    }
-
-    fn exec_apply_spec(&mut self, command: Command) -> Result<(), String> {
-        let ops = if self.live_ops.is_some() {
-            let filtered = Self::filter_live_command(&command);
-            self.live_ops_for(&filtered)?
-        } else {
-            Vec::new()
-        };
-        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
-        self.record(ops);
-        Ok(())
-    }
-
-    fn filter_live_command(cmd: &Command) -> Command {
-        match cmd {
-            Command::SetLibraryState { .. } => Command::Batch(Vec::new()),
-            Command::Batch(cmds) => Command::Batch(cmds.iter().map(Self::filter_live_command).collect()),
-            other => other.clone(),
-        }
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.

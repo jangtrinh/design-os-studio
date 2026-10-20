@@ -209,8 +209,8 @@ fn hist_peek(h: &History) -> Command {
 #[test]
 fn edits_the_editor_cannot_replay_are_refused() {
     let (doc, _, _) = full_doc(1, 0);
-    let err = live_ops_for_command(&doc, &Command::SetStyles { styles: Default::default(), style_meta: Default::default() }).unwrap_err();
-    assert!(err.contains("shared styles"), "{err}");
+    let err = live_ops_for_command(&doc, &Command::SetFlows { flows: Default::default() }).unwrap_err();
+    assert!(err.contains("prototype flows"), "{err}");
 }
 
 #[test]

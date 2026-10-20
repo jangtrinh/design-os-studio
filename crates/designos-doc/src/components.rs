@@ -810,9 +810,10 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         OverrideField::Transform => to.transform = from.transform,
         OverrideField::Fills => {
             to.fills = from.fills.clone();
-            if !matches!(to.kind, NodeKind::Text(_)) {
-                copy_style_ref_key("fill", from, to);
+            if let (NodeKind::Text(a), NodeKind::Text(b)) = (&from.kind, &mut to.kind) {
+                b.style.fills = a.style.fills.clone();
             }
+            copy_style_ref_key("fill", from, to);
         }
         OverrideField::Stroke => {
             to.stroke = from.stroke.clone();
@@ -885,6 +886,14 @@ pub fn size_comes_from_main(doc: &Document, id: NodeId) -> bool {
 fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, PropValue>) {
     let ov = n.component.overrides.clone();
     let own_text = keeps_own_text_size(r, n, values);
+    let keep_text_fill = matches!(n.kind, NodeKind::Text(_)) && (ov.contains(&OverrideField::Fills) || ov.contains(&OverrideField::TextStyle));
+    let saved_text_fill = keep_text_fill.then(|| {
+        let fills = match &n.kind {
+            NodeKind::Text(tp) => tp.style.fills.clone(),
+            _ => Vec::new(),
+        };
+        (fills, n.style_refs.get("fill").cloned())
+    });
     for f in OverrideField::ALL {
         if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
             continue;
@@ -911,6 +920,19 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
             continue;
         }
         copy_field(f, r, n);
+    }
+    if let Some((fills, fill_ref)) = saved_text_fill {
+        if let NodeKind::Text(tp) = &mut n.kind {
+            tp.style.fills = fills;
+        }
+        match fill_ref {
+            Some(v) => {
+                n.style_refs.insert("fill".into(), v);
+            }
+            None => {
+                n.style_refs.remove("fill");
+            }
+        }
     }
     // Fields that are never overridden.
     if !top {

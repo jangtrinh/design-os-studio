@@ -858,10 +858,16 @@ impl<'a> Trial<'a> {
         for id in ids {
             image_refs_of(&self.snap.nodes[id], &mut refs);
         }
+        let mut add = BTreeMap::new();
         for r in refs {
-            if let Some(b) = self.snap.images.get(&r) {
-                self.doc.images.entry(r).or_insert_with(|| b.clone());
+            if !self.doc.images.contains_key(&r) {
+                if let Some(b) = self.snap.images.get(&r) {
+                    add.insert(r, b.clone());
+                }
             }
+        }
+        if !add.is_empty() {
+            self.push(Command::SetImages { add, remove: Vec::new() });
         }
     }
 
@@ -871,6 +877,8 @@ impl<'a> Trial<'a> {
             self.import(d);
         }
         let page = ensure_library_page(self.doc);
+        let st = self.doc.library.clone();
+        self.push(Command::SetLibraryState { state: st, library_page: Some(page) });
         let ids = subtree(&self.snap.nodes, sroot);
         self.import_refs(&ids);
         self.copy_images(&ids);

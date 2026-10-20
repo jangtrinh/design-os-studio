@@ -156,10 +156,21 @@ impl Command {
                 doc.bump_mutation_epoch();
                 Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
             }
-            Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
-                state: std::mem::replace(&mut doc.library, state),
-                library_page: std::mem::replace(&mut doc.library_page, library_page),
-            },
+            Command::SetLibraryState { state, library_page } => {
+                if let Some(lp_id) = library_page {
+                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp_id) {
+                        let mut n = Node::new(lp_id, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
+                        n.name = "Library".into();
+                        e.insert(n);
+                        doc.bump_ids();
+                    }
+                }
+                doc.mark_full_dirty();
+                Command::SetLibraryState {
+                    state: std::mem::replace(&mut doc.library, state),
+                    library_page: std::mem::replace(&mut doc.library_page, library_page),
+                }
+            }
             Command::SetGuides { page, guides } => {
                 let old = if guides.is_empty() { doc.guides.remove(&page) } else { doc.guides.insert(page, guides) };
                 Command::SetGuides { page, guides: old.unwrap_or_default() }

@@ -1,13 +1,14 @@
 //! Agent side: turn a command about to be executed into the [`LiveOp`]s it performs.
 
 use super::{LiveOp, SiblingHint, ThreadChange, STRUCTURAL_FIELDS};
-use crate::{Command, CommentThread, Document, Node};
+use crate::{Command, CommentThread, Document, LibraryState, Node, NodeId, Style, StyleMeta, Variable, VariableCollection};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 /// The [`LiveOp`]s `cmd` performs when applied to `doc`, read from the state before it runs.
 ///
 /// Errors for commands whose effect cannot be replayed on a document the agent only partly
-/// holds (page, style, variable, flow, library, guide and device edits); the caller should
+/// holds (page, flow, guide and device edits); the caller should
 /// refuse to run them while a live editor is attached instead of letting them vanish.
 pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>, String> {
     let mut out = Vec::new();
@@ -37,6 +38,26 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
         Command::SetComments { comments } => {
             if let Some(op) = comment_changes(&doc.comments, comments) {
                 out.push(op);
+            }
+        }
+        Command::SetStyles { styles, style_meta } => {
+            if let Some(op) = style_changes(&doc.styles, &doc.style_meta, styles, style_meta) {
+                out.push(op);
+            }
+        }
+        Command::SetVariables { variables, collections } => {
+            if let Some(op) = variable_changes(&doc.variables, &doc.variable_collections, variables, collections) {
+                out.push(op);
+            }
+        }
+        Command::SetLibraryState { state, library_page } => {
+            if let Some(op) = library_state_changes(&doc.library, doc.library_page, state, *library_page) {
+                out.push(op);
+            }
+        }
+        Command::SetImages { add, remove } => {
+            if !add.is_empty() || !remove.is_empty() {
+                out.push(LiveOp::Images { add: add.clone(), remove: remove.clone() });
             }
         }
         Command::Batch(cmds) => {
@@ -90,17 +111,64 @@ fn thread_change(before: &CommentThread, after: &CommentThread) -> ThreadChange 
     }
 }
 
+fn style_changes(
+    before_styles: &BTreeMap<String, Style>,
+    before_meta: &BTreeMap<String, StyleMeta>,
+    after_styles: &BTreeMap<String, Style>,
+    after_meta: &BTreeMap<String, StyleMeta>,
+) -> Option<LiveOp> {
+    let upserted: BTreeMap<_, _> = after_styles.iter().filter(|(k, v)| before_styles.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let upserted_meta: BTreeMap<_, _> = after_meta.iter().filter(|(k, v)| before_meta.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let removed: Vec<_> = before_styles.keys().filter(|k| !after_styles.contains_key(*k)).cloned().collect();
+    let removed_meta: Vec<_> = before_meta.keys().filter(|k| !after_meta.contains_key(*k)).cloned().collect();
+    (!upserted.is_empty() || !upserted_meta.is_empty() || !removed.is_empty() || !removed_meta.is_empty()).then_some(LiveOp::Styles {
+        upserted,
+        upserted_meta,
+        removed,
+        removed_meta,
+    })
+}
+
+fn variable_changes(
+    before_vars: &BTreeMap<String, Variable>,
+    before_colls: &BTreeMap<String, VariableCollection>,
+    after_vars: &BTreeMap<String, Variable>,
+    after_colls: &BTreeMap<String, VariableCollection>,
+) -> Option<LiveOp> {
+    let upserted_collections: BTreeMap<_, _> =
+        after_colls.iter().filter(|(k, v)| before_colls.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let removed_collections: Vec<_> = before_colls.keys().filter(|k| !after_colls.contains_key(*k)).cloned().collect();
+    let upserted_variables: BTreeMap<_, _> = after_vars.iter().filter(|(k, v)| before_vars.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let removed_variables: Vec<_> = before_vars.keys().filter(|k| !after_vars.contains_key(*k)).cloned().collect();
+    (!upserted_collections.is_empty() || !removed_collections.is_empty() || !upserted_variables.is_empty() || !removed_variables.is_empty())
+        .then_some(LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables })
+}
+
+fn library_state_changes(before: &LibraryState, before_page: Option<NodeId>, after: &LibraryState, after_page: Option<NodeId>) -> Option<LiveOp> {
+    let published = (before.published != after.published).then(|| after.published.clone());
+    let upserted_enabled: Vec<_> = after.enabled.iter().filter(|r| !before.enabled.contains(r)).cloned().collect();
+    let removed_enabled: Vec<_> = before.enabled.iter().filter(|b| !after.enabled.iter().any(|a| a.id == b.id)).map(|b| b.id.clone()).collect();
+    let upserted_external: BTreeMap<_, _> =
+        after.external.iter().filter(|(k, v)| before.external.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    let removed_external: Vec<_> = before.external.keys().filter(|k| !after.external.contains_key(*k)).cloned().collect();
+    let library_page = (before_page != after_page).then_some(after_page);
+    (published.is_some()
+        || !upserted_enabled.is_empty()
+        || !removed_enabled.is_empty()
+        || !upserted_external.is_empty()
+        || !removed_external.is_empty()
+        || library_page.is_some())
+    .then_some(LiveOp::LibraryState { published, upserted_enabled, removed_enabled, upserted_external, removed_external, library_page })
+}
+
 fn command_name(cmd: &Command) -> &'static str {
     match cmd {
         Command::InsertPage { .. } => "Adding a page",
         Command::RemovePage { .. } => "Removing a page",
         Command::SetFlows { .. } => "Editing prototype flows",
-        Command::SetStyles { .. } => "Editing shared styles",
-        Command::SetLibraryState { .. } => "Editing library state",
         Command::SetGuides { .. } => "Editing guides",
         Command::SetPrototypeDevice { .. } => "Editing the prototype device",
         Command::SetCheckDesignsSettings(_) => "Editing check designs settings",
-        Command::SetVariables { .. } => "Editing variables",
         _ => "This edit",
     }
 }

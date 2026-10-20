@@ -336,14 +336,25 @@ impl<'a> SpecBuildCtx<'a> {
                 let target_id = NodeId(raw_id);
                 if let Some(hint) = lib_hint {
                     if hint != "local" {
+                        if let Some(ext) =
+                            self.ext_by_full_key.values().find(|e| (e.library_name == hint || e.library_id == hint) && e.node_id == target_id).cloned()
+                        {
+                            if ext.stale {
+                                self.record_stale(&ext.raw_key);
+                            }
+                            return Ok(ext.node_id);
+                        }
                         if let Some(s) =
                             self.snap_list.iter().find(|s| (s.library_name == hint || s.library_id == hint) && s.snap_node == Some(target_id)).cloned()
                         {
                             return self.ensure_snap_imported(doc, &s);
                         }
+                    } else if let Some(n) = doc.get(target_id) {
+                        if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+                            return Ok(target_id);
+                        }
                     }
-                }
-                if let Some(n) = doc.get(target_id) {
+                } else if let Some(n) = doc.get(target_id) {
                     if matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
                         return Ok(target_id);
                     }
@@ -524,8 +535,8 @@ impl ResolvedLibraryHit {
     }
     fn ambiguous_option(&self) -> String {
         match self {
-            Self::External(e) => format!("{}/{}", e.library_name, e.name),
-            Self::Snapshot(s) => format!("{}/{}", s.library_name, s.asset_name),
+            Self::External(e) => format!("node:{} ({})", e.node_id.0, e.library_name),
+            Self::Snapshot(s) => format!("node:{} ({})", s.snap_node.unwrap_or(NodeId(0)).0, s.library_name),
         }
     }
 }
@@ -572,7 +583,7 @@ pub fn resolve_variant_component(
             let variants = components_of(doc, resolved_id);
             if variants.is_empty() {
                 return Err(SpecError::named(
-                    "NO_SUCH_VARIANT",
+                    "UNKNOWN_VARIANT_PROPERTY",
                     format!("Component set '{}' has no variant components", node.name),
                     Some("variant".into()),
                     Vec::new(),
@@ -1655,23 +1666,9 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     let mut name_to_id = BTreeMap::new();
     populate_name_to_id(&trial, root_id, "", &mut name_to_id);
 
-    // If library assets were imported during the trial, ensure `doc` has the empty library page
-    // container and any copied images so `import_cmds` apply cleanly on `doc`.
     let final_cmd = if ctx.import_cmds.is_empty() {
         insert_cmd
     } else {
-        if let Some(lp_id) = trial.library_page {
-            if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp_id) {
-                let mut lp_node = Node::new(lp_id, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
-                lp_node.name = "Library".into();
-                e.insert(lp_node);
-                doc.library_page = Some(lp_id);
-                doc.bump_ids();
-            }
-        }
-        for (k, v) in &trial.images {
-            doc.images.entry(k.clone()).or_insert_with(|| v.clone());
-        }
         let mut cmds = ctx.import_cmds;
         cmds.push(insert_cmd);
         Command::Batch(cmds)
@@ -2080,14 +2077,21 @@ mod tests {
         .unwrap();
 
         let err = doc.apply_spec_with_libraries(page, &spec, &[]).unwrap_err();
-        assert_eq!(err.code, "NO_SUCH_VARIANT");
+        assert_eq!(err.code, "UNKNOWN_VARIANT_PROPERTY");
+        assert!(err.valid_options.is_empty());
     }
 
     #[test]
     fn ambiguous_across_two_libraries() {
         let lib1_doc = fixtures::button_library();
         let snap1 = snapshot(&lib1_doc, "lib_a", "Library A", 1);
-        let lib2_doc = fixtures::button_library();
+        let mut lib2_doc = fixtures::button_library();
+        // Also add a second "Button" component in Library B so two components share a name in one library
+        let page_b = lib2_doc.pages[0];
+        let dup_id = lib2_doc.alloc_id();
+        let mut dup_comp = Node::new(dup_id, NodeKind::Component(FrameProps::default()));
+        dup_comp.name = "Button".into();
+        lib2_doc.insert(page_b, dup_comp).unwrap();
         let snap2 = snapshot(&lib2_doc, "lib_b", "Library B", 1);
 
         let mut consumer = Document::new("Consumer");
@@ -2101,21 +2105,188 @@ mod tests {
         }))
         .unwrap();
 
-        let err = consumer.apply_spec_with_libraries(page, &spec, &[snap1, snap2]).unwrap_err();
+        let err = consumer.apply_spec_with_libraries(page, &spec, &[snap1.clone(), snap2.clone()]).unwrap_err();
         assert_eq!(err.code, "AMBIGUOUS_COMPONENT");
-        assert!(err.valid_options.contains(&"Library A/Button".to_string()));
-        assert!(err.valid_options.contains(&"Library B/Button".to_string()));
+        assert!(
+            err.valid_options.iter().all(|o| o.starts_with("node:") && o.contains('(')),
+            "valid_options must use node:<id> (<library>): {:?}",
+            err.valid_options
+        );
+        assert!(err.valid_options.iter().any(|o| o.ends_with("(Library A)")));
+        assert!(err.valid_options.iter().any(|o| o.ends_with("(Library B)")));
 
-        // Qualified with library name succeeds
+        // Ambiguous within Library B (two components named "Button") produces distinct retryable options
+        let lib_b_ambig: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Library B/Button"
+        }))
+        .unwrap();
+        let err_b = consumer.apply_spec_with_libraries(page, &lib_b_ambig, &[snap1.clone(), snap2.clone()]).unwrap_err();
+        assert_eq!(err_b.code, "AMBIGUOUS_COMPONENT");
+        assert_eq!(err_b.valid_options.len(), 2);
+        assert_ne!(err_b.valid_options[0], err_b.valid_options[1]);
+        let retry_spec: NodeSpec = serde_json::from_value(err_b.corrected_example.unwrap()).unwrap();
+        let retry_report = consumer.apply_spec_with_libraries(page, &retry_spec, &[snap1.clone(), snap2.clone()]).unwrap();
+        assert_eq!(retry_report.instances.len(), 1);
+
+        // Qualified with Library A (only 1 Button) succeeds
         let qualified: NodeSpec = serde_json::from_value(json!({
             "kind": "instance",
             "component": "Library A/Button"
         }))
         .unwrap();
-        let snap1_again = snapshot(&lib1_doc, "lib_a", "Library A", 1);
-        let snap2_again = snapshot(&lib2_doc, "lib_b", "Library B", 1);
-        let report = consumer.apply_spec_with_libraries(page, &qualified, &[snap1_again, snap2_again]).unwrap();
+        let report = consumer.apply_spec_with_libraries(page, &qualified, &[snap1, snap2]).unwrap();
         assert_eq!(report.instances.len(), 1);
+    }
+
+    #[test]
+    fn text_fill_override_survives_instance_sync() {
+        let mut doc = fixtures::button_library();
+        let page = doc.pages[0];
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Button",
+            "overrides": [
+                { "path": "Label", "fill": "#123456" }
+            ]
+        }))
+        .unwrap();
+
+        let inst_id = doc.apply_spec(page, &spec).unwrap();
+        // Switch variant on the instance via set_instance_prop (which triggers sync)
+        set_instance_prop(&mut doc, inst_id, "State", Some(PropValue::Variant("hover".into()))).apply(&mut doc).unwrap();
+
+        let label_id = resolve_override_path(&doc, inst_id, "Label").unwrap();
+        let label = doc.get(label_id).unwrap();
+        let NodeKind::Text(tp) = &label.kind else { panic!("expected Text") };
+        assert_eq!(tp.style.fills, vec![Paint::solid(Color::rgb(0x12, 0x34, 0x56))], "text fill override must survive variant switch / instance sync");
+    }
+
+    #[test]
+    fn library_import_with_styles_vars_and_images_is_atomic_and_replays_to_live_editor() {
+        let mut lib_doc = fixtures::button_library();
+        lib_doc.styles.insert("s_btn_fill".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
+        lib_doc
+            .style_meta
+            .insert("s_btn_fill".into(), StyleMeta { name: "Button/Fill".into(), description: String::new(), key: None, property: StyleProperty::Fill });
+        lib_doc.variable_collections.insert(
+            "c_brand".into(),
+            VariableCollection {
+                id: "c_brand".into(),
+                name: "Brand".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["v_radius".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        lib_doc.variables.insert(
+            "v_radius".into(),
+            Variable {
+                id: "v_radius".into(),
+                name: "Radius".into(),
+                collection: "c_brand".into(),
+                kind: VariableKind::Number,
+                values: BTreeMap::from([("m1".to_string(), VariableValue::Number(8.0))]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+            },
+        );
+        lib_doc.images.insert("img_hash_1".into(), vec![1, 2, 3, 4]);
+
+        let sm_def = find_variant_id(&lib_doc, "Button", "Size=sm, State=default");
+        {
+            let vnode = lib_doc.get_mut(sm_def).unwrap();
+            vnode.style_refs.insert("fill".into(), "s_btn_fill".into());
+            vnode.variables.bindings.insert("cornerRadius".into(), "v_radius".into());
+            vnode.fills.push(Paint {
+                visible: true,
+                opacity: 1.0,
+                blend: BlendMode::Normal,
+                kind: PaintKind::Image { image_ref: "img_hash_1".into(), scale_mode: ImageScaleMode::Fill },
+            });
+        }
+        let mut snap = snapshot(&lib_doc, "lib_ui", "UI Kit", 1);
+        snap.assets.iter_mut().find(|a| a.name == "Button").unwrap().key = "k_btn".into();
+
+        // 1. Atomic rollback when a second sibling fails after the first sibling imports the library component
+        let mut consumer = Document::new("Consumer");
+        let page = consumer.add_page("Page 1");
+        consumer.library.enabled.push(LibraryRef { id: "lib_ui".into(), name: "UI Kit".into(), version: 1 });
+        let before_json = consumer.to_json().unwrap();
+        let before_next_id = consumer.next_id;
+
+        let bad_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "frame",
+            "name": "Root",
+            "children": [
+                { "kind": "instance", "component": "k_btn" },
+                { "kind": "instance", "component": "k_btn", "variant": { "Size": "xl" } }
+            ]
+        }))
+        .unwrap();
+        assert!(apply_spec_command(&mut consumer, page, &bad_spec, std::slice::from_ref(&snap)).is_err());
+        assert_eq!(consumer.to_json().unwrap(), before_json, "failed apply_spec_command must leave consumer untouched");
+        assert!(consumer.library_page.is_none());
+        assert!(consumer.images.is_empty());
+        assert_eq!(consumer.next_id, before_next_id);
+
+        // 2. Valid spec produces a Command whose live_ops mirror styles, variables, images, library page, and component to the editor
+        let good_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "PlacedBtn",
+            "component": "k_btn"
+        }))
+        .unwrap();
+        let mut editor_doc = consumer.clone();
+        let (cmd, report) = apply_spec_command(&mut consumer, page, &good_spec, std::slice::from_ref(&snap)).unwrap();
+        // Before executing `cmd`, `consumer` is still untouched!
+        assert_eq!(consumer.to_json().unwrap(), before_json, "apply_spec_command must not mutate doc before cmd is executed");
+
+        let ops =
+            crate::live_patch::live_ops_for_command(&consumer, &cmd).expect("live_ops_for_command must succeed for library import with styles/vars/images");
+        let mut hist = History::default();
+        hist.exec(&mut consumer, cmd).unwrap();
+
+        let mut patch_state = crate::live_patch::LivePatchState::default();
+        let patch = crate::live_patch::LivePatch::new(ops);
+        let mut editor_hist = History::default();
+        let replay_report = crate::live_patch::replay_live_patch(&mut editor_doc, &patch, &mut patch_state, &mut |d, c| editor_hist.exec(d, c)).unwrap();
+        assert!(replay_report.skipped.is_empty(), "replay must not skip any op: {:?}", replay_report.skipped);
+
+        let editor_inst_id = NodeId(report.root_node_id.0);
+        let editor_inst = editor_doc.get(editor_inst_id).expect("placed instance must exist on editor");
+        assert!(is_linked(editor_inst), "instance on editor must be linked");
+        let editor_comp_id = instance_component(editor_inst).expect("instance on editor must have component id");
+        assert!(editor_doc.get(editor_comp_id).is_some(), "referenced library component must exist on editor");
+        assert!(editor_doc.library_page.is_some());
+        assert!(!editor_doc.styles.is_empty());
+        assert!(!editor_doc.variables.is_empty());
+        assert!(editor_doc.images.contains_key("img_hash_1"));
+
+        // Undo on agent and replay undo onto editor
+        let undo_cmd = hist.peek_undo().cloned().unwrap();
+        let undo_ops = crate::live_patch::live_ops_for_command(&consumer, &undo_cmd).unwrap();
+        hist.undo(&mut consumer).unwrap();
+        assert!(consumer.get(page).unwrap().children.is_empty());
+        assert!(consumer.library.external.is_empty());
+        assert!(consumer.styles.is_empty());
+        assert!(consumer.variables.is_empty());
+        assert!(consumer.images.is_empty());
+
+        let undo_patch = crate::live_patch::LivePatch::new(undo_ops);
+        let undo_report = crate::live_patch::replay_live_patch(&mut editor_doc, &undo_patch, &mut patch_state, &mut |d, c| editor_hist.exec(d, c)).unwrap();
+        assert!(undo_report.skipped.is_empty(), "undo replay must not skip any op: {:?}", undo_report.skipped);
+        assert!(editor_doc.get(editor_inst_id).is_none());
+        assert!(editor_doc.library.external.is_empty());
+        assert!(editor_doc.styles.is_empty());
+        assert!(editor_doc.variables.is_empty());
+        assert!(editor_doc.images.is_empty());
     }
 
     #[test]
