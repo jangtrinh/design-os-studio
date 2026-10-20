@@ -4,7 +4,7 @@
 use super::migrate::migrate_to_current;
 use super::node::{
     builtin_icon_svg_path, extract_icon_family_and_name, import_pen_node, parse_font_weight, parse_frame_props, parse_pen_align, parse_pen_padding,
-    parse_pen_sizing, PenImportCtx, PendingInstance,
+    parse_pen_sizing, ExplicitStrokeFields, PenImportCtx, PendingInstance,
 };
 use super::paint::{parse_corner_radius, parse_paints, parse_stroke, resolve_num_or_var};
 use super::variables::{import_pen_variables, resolve_doc_var_string};
@@ -362,6 +362,8 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         if let Some(wv) = comp.variables.bindings.get("width") {
             inst.variables.bindings.insert("width".into(), wv.clone());
         }
+    } else {
+        inst.plugin_data.insert("pen:explicit_width".into(), "true".into());
     }
     if !pending.explicit_height {
         inst.size.y = comp.size.y;
@@ -371,6 +373,8 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         if let Some(hv) = comp.variables.bindings.get("height") {
             inst.variables.bindings.insert("height".into(), hv.clone());
         }
+    } else {
+        inst.plugin_data.insert("pen:explicit_height".into(), "true".into());
     }
     if pending.explicit_width || pending.explicit_height {
         inst.component.overrides.insert(OverrideField::Size);
@@ -385,7 +389,7 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         inst.component.overrides.insert(OverrideField::Fills);
     }
 
-    if !pending.explicit_stroke {
+    if !pending.stroke_fields.any {
         inst.stroke = comp.stroke.clone();
         if let Some(sv) = comp.variables.bindings.get("strokes/0") {
             inst.variables.bindings.insert("strokes/0".into(), sv.clone());
@@ -394,6 +398,31 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
             inst.variables.bindings.insert("strokeWeight".into(), swv.clone());
         }
     } else {
+        if !pending.stroke_fields.paints {
+            inst.stroke.paints = comp.stroke.paints.clone();
+            if let Some(sv) = comp.variables.bindings.get("strokes/0") {
+                inst.variables.bindings.insert("strokes/0".into(), sv.clone());
+            }
+        }
+        if !pending.stroke_fields.width {
+            inst.stroke.weight = comp.stroke.weight;
+            inst.stroke.side_weights = comp.stroke.side_weights;
+            if let Some(swv) = comp.variables.bindings.get("strokeWeight") {
+                inst.variables.bindings.insert("strokeWeight".into(), swv.clone());
+            }
+        }
+        if !pending.stroke_fields.align {
+            inst.stroke.align = comp.stroke.align;
+        }
+        if !pending.stroke_fields.cap {
+            inst.stroke.cap = comp.stroke.cap;
+        }
+        if !pending.stroke_fields.join {
+            inst.stroke.join = comp.stroke.join;
+        }
+        if !pending.stroke_fields.dashes {
+            inst.stroke.dashes = comp.stroke.dashes.clone();
+        }
         inst.component.overrides.insert(OverrideField::Stroke);
     }
 
@@ -404,6 +433,14 @@ fn apply_instance_inheritance(doc: &mut Document, inst_id: NodeId, comp_id: Node
         }
     } else {
         inst.component.overrides.insert(OverrideField::CornerRadii);
+    }
+
+    if !pending.explicit_layout {
+        for k in ["itemSpacing", "counterAxisSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"] {
+            if let Some(bv) = comp.variables.bindings.get(k) {
+                inst.variables.bindings.insert(k.into(), bv.clone());
+            }
+        }
     }
 
     let comp_fp = comp.kind.frame_props().cloned().unwrap_or_default();
@@ -543,30 +580,41 @@ fn apply_descendant_overrides(
     }
 
     // 3. Stroke override
-    if ov_map.contains_key("stroke")
-        || ov_map.contains_key("strokeWidth")
-        || ov_map.contains_key("strokeAlignment")
-        || ov_map.contains_key("strokeCap")
-        || ov_map.contains_key("strokeJoin")
-    {
+    let sf = ExplicitStrokeFields::from_pen_json(&ov_val);
+    if sf.any {
         let mut pdata = doc.get(target_id).map(|n| n.plugin_data.clone()).unwrap_or_default();
-        let (stroke, scv, swv) =
+        let (parsed_stroke, scv, swv) =
             parse_stroke(&ov_val, doc, target_source_id.as_deref(), base_dir_ref.as_deref(), &mut ctx.total_image_bytes, &mut pdata, &mut ctx.warnings);
         if let Some(n) = doc.get_mut(target_id) {
             n.plugin_data = pdata;
-            if stroke.paints.is_empty() && !ov_map.contains_key("stroke") {
-                // Only width/align/cap/join were overridden; keep existing stroke paints.
-                let existing_paints = n.stroke.paints.clone();
-                n.stroke = stroke;
-                n.stroke.paints = existing_paints;
-            } else {
-                n.stroke = stroke;
+            if sf.paints {
+                n.stroke.paints = parsed_stroke.paints;
+                if let Some(cv) = scv {
+                    n.variables.bindings.insert("strokes/0".into(), cv);
+                } else {
+                    n.variables.bindings.remove("strokes/0");
+                }
             }
-            if let Some(cv) = scv {
-                n.variables.bindings.insert("strokes/0".into(), cv);
+            if sf.width {
+                n.stroke.weight = parsed_stroke.weight;
+                n.stroke.side_weights = parsed_stroke.side_weights;
+                if let Some(wv) = swv {
+                    n.variables.bindings.insert("strokeWeight".into(), wv);
+                } else {
+                    n.variables.bindings.remove("strokeWeight");
+                }
             }
-            if let Some(wv) = swv {
-                n.variables.bindings.insert("strokeWeight".into(), wv);
+            if sf.align {
+                n.stroke.align = parsed_stroke.align;
+            }
+            if sf.cap {
+                n.stroke.cap = parsed_stroke.cap;
+            }
+            if sf.join {
+                n.stroke.join = parsed_stroke.join;
+            }
+            if sf.dashes {
+                n.stroke.dashes = parsed_stroke.dashes;
             }
             n.component.overrides.insert(OverrideField::Stroke);
         }
@@ -581,6 +629,7 @@ fn apply_descendant_overrides(
             if let Some((w, ws, wv)) = w_parsed {
                 n.size.x = w;
                 n.layout_child.horizontal = ws;
+                n.plugin_data.insert("pen:explicit_width".into(), "true".into());
                 if let Some(v) = wv {
                     n.variables.bindings.insert("width".into(), v);
                 }
@@ -588,6 +637,7 @@ fn apply_descendant_overrides(
             if let Some((h, hs, hv)) = h_parsed {
                 n.size.y = h;
                 n.layout_child.vertical = hs;
+                n.plugin_data.insert("pen:explicit_height".into(), "true".into());
                 if let Some(v) = hv {
                     n.variables.bindings.insert("height".into(), v);
                 }

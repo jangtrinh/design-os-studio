@@ -82,8 +82,22 @@ type NodeVisitorFn = dyn FnMut(&mut Map<String, Value>, &mut Vec<PenWarning>);
 
 fn walk_nodes_mut(root: &mut Value, f: &mut NodeVisitorFn, warnings: &mut Vec<PenWarning>) {
     let mut stack: Vec<&mut Value> = Vec::new();
-    if let Some(children) = root.get_mut("children").and_then(Value::as_array_mut) {
-        stack.extend(children.iter_mut().rev());
+    if let Some(root_obj) = root.as_object_mut() {
+        for (k, v) in root_obj.iter_mut() {
+            if k == "children" {
+                if let Some(children) = v.as_array_mut() {
+                    stack.extend(children.iter_mut().rev());
+                }
+            } else if k == "pages" {
+                if let Some(pages) = v.as_array_mut() {
+                    for page in pages.iter_mut().rev() {
+                        if let Some(children) = page.get_mut("children").and_then(Value::as_array_mut) {
+                            stack.extend(children.iter_mut().rev());
+                        }
+                    }
+                }
+            }
+        }
     }
     while let Some(node) = stack.pop() {
         let Some(obj) = node.as_object_mut() else { continue };

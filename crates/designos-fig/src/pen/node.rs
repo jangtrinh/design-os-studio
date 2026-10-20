@@ -9,6 +9,34 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExplicitStrokeFields {
+    pub any: bool,
+    pub paints: bool,
+    pub width: bool,
+    pub align: bool,
+    pub cap: bool,
+    pub join: bool,
+    pub dashes: bool,
+}
+
+impl ExplicitStrokeFields {
+    pub fn from_pen_json(v: &Value) -> Self {
+        let stroke_val = v.get("stroke");
+        let stroke_obj = stroke_val.and_then(Value::as_object);
+        let paints = stroke_val.is_some_and(|sv| sv.is_string() || sv.is_array())
+            || stroke_obj.is_some_and(|o| o.contains_key("fill") || o.contains_key("fills") || o.contains_key("color"));
+        let width = v.get("strokeWidth").is_some()
+            || stroke_obj.is_some_and(|o| o.contains_key("thickness") || o.contains_key("strokeWidth") || o.contains_key("width"));
+        let align = v.get("strokeAlignment").is_some() || stroke_obj.is_some_and(|o| o.contains_key("align") || o.contains_key("strokeAlignment"));
+        let cap = v.get("strokeCap").is_some() || stroke_obj.is_some_and(|o| o.contains_key("cap") || o.contains_key("strokeCap"));
+        let join = v.get("strokeJoin").is_some() || stroke_obj.is_some_and(|o| o.contains_key("join") || o.contains_key("strokeJoin"));
+        let dashes = stroke_obj.is_some_and(|o| o.contains_key("dashPattern"));
+        let any = stroke_val.is_some() || width || align || cap || join || dashes;
+        Self { any, paints, width, align, cap, join, dashes }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PendingInstance {
     pub inst_id: NodeId,
@@ -17,7 +45,7 @@ pub struct PendingInstance {
     pub explicit_width: bool,
     pub explicit_height: bool,
     pub explicit_fill: bool,
-    pub explicit_stroke: bool,
+    pub stroke_fields: ExplicitStrokeFields,
     pub explicit_corner_radius: bool,
     pub explicit_layout: bool,
     pub explicit_content: Option<String>,
@@ -246,7 +274,7 @@ fn import_single_pen_node(v: &Value, doc: &mut Document, parent_id: NodeId, ctx:
                 explicit_width: v.get("width").is_some(),
                 explicit_height: v.get("height").is_some(),
                 explicit_fill: v.get("fill").is_some(),
-                explicit_stroke: v.get("stroke").is_some() || v.get("strokeWidth").is_some(),
+                stroke_fields: ExplicitStrokeFields::from_pen_json(v),
                 explicit_corner_radius: v.get("cornerRadius").is_some(),
                 explicit_layout: v.get("layout").is_some()
                     || v.get("gap").is_some()
@@ -376,6 +404,11 @@ fn import_single_pen_node(v: &Value, doc: &mut Document, parent_id: NodeId, ctx:
     if let Some(hv) = h_var {
         node.variables.bindings.insert("height".into(), hv);
     }
+    if let Some(gap_var) = v.get("gap").and_then(Value::as_str).and_then(|s| s.strip_prefix('$')) {
+        node.variables.bindings.insert("itemSpacing".into(), gap_var.to_string());
+        node.variables.bindings.insert("counterAxisSpacing".into(), gap_var.to_string());
+    }
+    bind_padding_variables(v.get("padding"), &mut node.variables);
 
     // Spec §5: placeholder and slot flags
     if v.get("placeholder").and_then(Value::as_bool).unwrap_or(false) {
@@ -590,6 +623,46 @@ pub fn parse_pen_padding(v: Option<&Value>, doc: &Document) -> [f32; 4] {
         return [top, right, bottom, left];
     }
     [0.0; 4]
+}
+
+pub fn bind_padding_variables(v: Option<&Value>, nv: &mut NodeVariables) {
+    let Some(val) = v else { return };
+    let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
+    if let Some(vn) = val.as_str().and_then(|s| s.strip_prefix('$')) {
+        for k in keys {
+            nv.bindings.insert(k.into(), vn.to_string());
+        }
+        return;
+    }
+    if let Some(arr) = val.as_array() {
+        match arr.len() {
+            1 => {
+                if let Some(vn) = arr[0].as_str().and_then(|s| s.strip_prefix('$')) {
+                    for k in keys {
+                        nv.bindings.insert(k.into(), vn.to_string());
+                    }
+                }
+            }
+            2 => {
+                if let Some(vn) = arr[0].as_str().and_then(|s| s.strip_prefix('$')) {
+                    nv.bindings.insert("paddingTop".into(), vn.to_string());
+                    nv.bindings.insert("paddingBottom".into(), vn.to_string());
+                }
+                if let Some(vn) = arr[1].as_str().and_then(|s| s.strip_prefix('$')) {
+                    nv.bindings.insert("paddingRight".into(), vn.to_string());
+                    nv.bindings.insert("paddingLeft".into(), vn.to_string());
+                }
+            }
+            4 => {
+                for (i, k) in keys.into_iter().enumerate() {
+                    if let Some(vn) = arr[i].as_str().and_then(|s| s.strip_prefix('$')) {
+                        nv.bindings.insert(k.into(), vn.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn parse_pen_align(s: Option<&str>) -> LayoutAlign {

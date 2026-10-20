@@ -175,13 +175,46 @@ impl Document {
             let v = self.variables.get(&id)?;
             let mode = self.variable_mode(node, &v.collection)?;
             let coll = self.variable_collections.get(&v.collection)?;
-            let value = v.values.get(&mode).or_else(|| v.values.get(&coll.default_mode))?;
+            let value = self.resolve_multi_axis_value(node, v, &mode).or_else(|| v.values.get(&mode)).or_else(|| v.values.get(&coll.default_mode))?;
             match value {
                 VariableValue::Alias(next) => id = next.clone(),
                 other => return Some(other.clone()),
             }
         }
         None
+    }
+
+    fn resolve_multi_axis_value<'a>(&self, node: NodeId, v: &'a Variable, primary_mode: &str) -> Option<&'a VariableValue> {
+        if self.variable_collections.len() <= 1 && !v.values.keys().any(|k| k.contains('+')) {
+            return None;
+        }
+        let active_modes: Vec<String> = self.variable_collections.keys().filter_map(|cid| self.variable_mode(node, cid)).collect();
+        let default_modes: Vec<String> = self.variable_collections.values().map(|c| c.default_mode.clone()).collect();
+
+        let mut best: Option<(usize, bool, &'a VariableValue)> = None;
+        for (k, val) in &v.values {
+            let parts: Vec<&str> = k.split('+').collect();
+            if parts.iter().all(|p| active_modes.iter().any(|am| am == p)) {
+                let has_primary = parts.contains(&primary_mode);
+                let score = (parts.len(), has_primary);
+                if best.as_ref().is_none_or(|(blen, bprim, _)| score > (*blen, *bprim)) {
+                    best = Some((parts.len(), has_primary, val));
+                }
+            }
+        }
+        if let Some((_, _, val)) = best {
+            return Some(val);
+        }
+
+        // Fallback to combination matching default modes across collections.
+        let mut best_def: Option<(usize, &'a VariableValue)> = None;
+        for (k, val) in &v.values {
+            let parts: Vec<&str> = k.split('+').collect();
+            if parts.iter().all(|p| default_modes.iter().any(|dm| dm == p)) && best_def.as_ref().is_none_or(|(blen, _)| parts.len() > *blen) {
+                best_def = Some((parts.len(), val));
+            }
+        }
+        best_def.map(|(_, val)| val)
     }
 
     /// Resolves the variable bound to `property` on `node`, if any.

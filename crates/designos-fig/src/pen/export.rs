@@ -2,7 +2,7 @@
 
 use super::migrate::CURRENT_PEN_VERSION;
 use super::paint::{blend_mode_to_pen_str, export_paints_value, export_stroke_value, format_pen_color};
-use super::variables::export_themes_and_variables;
+use super::variables::{export_themes_and_variables, splice_ordered_themes_and_variables};
 use crate::svgpath::write_path;
 use designos_doc::*;
 use serde_json::{json, Map, Value};
@@ -28,19 +28,32 @@ pub fn export_pen_json(doc: &Document) -> Result<String, String> {
 
     export_themes_and_variables(doc, &mut root);
 
-    let mut top_children = Vec::new();
-    for &page_id in &doc.pages {
-        if let Some(page) = doc.get(page_id) {
-            for &cid in &page.children {
-                if let Some(val) = export_pen_node(doc, cid) {
-                    top_children.push(val);
+    let first_page_children: Vec<Value> =
+        doc.pages.first().and_then(|&pid| doc.get(pid)).map(|p| p.children.iter().filter_map(|&cid| export_pen_node(doc, cid)).collect()).unwrap_or_default();
+    root.insert("children".into(), Value::Array(first_page_children));
+
+    if doc.pages.len() > 1 {
+        let mut pages_arr = Vec::with_capacity(doc.pages.len());
+        for &page_id in &doc.pages {
+            if let Some(page) = doc.get(page_id) {
+                let mut pobj = Map::new();
+                pobj.insert("id".into(), Value::String(node_pen_id(page)));
+                pobj.insert("name".into(), Value::String(page.name.clone()));
+                if let NodeKind::Page { background } = page.kind {
+                    if background != Color::rgb(0xF5, 0xF5, 0xF5) {
+                        pobj.insert("background".into(), Value::String(format_pen_color(background)));
+                    }
                 }
+                let pchildren: Vec<Value> = page.children.iter().filter_map(|&cid| export_pen_node(doc, cid)).collect();
+                pobj.insert("children".into(), Value::Array(pchildren));
+                pages_arr.push(Value::Object(pobj));
             }
         }
+        root.insert("pages".into(), Value::Array(pages_arr));
     }
-    root.insert("children".into(), Value::Array(top_children));
 
-    serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| format!("Failed to serialize .pen JSON: {e}"))
+    let pretty = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| format!("Failed to serialize .pen JSON: {e}"))?;
+    Ok(splice_ordered_themes_and_variables(doc, pretty))
 }
 
 pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
@@ -194,10 +207,36 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
         }
     }
 
-    // Sizing / dimensions
-    let should_write_size = !is_instance || n.component.overrides.contains(&OverrideField::Size);
+    // Sizing / dimensions (skip default dimensions on Connector nodes)
+    let is_connector = matches!(n.kind, NodeKind::Connector(_));
+    let should_write_size = !is_connector && (!is_instance || n.component.overrides.contains(&OverrideField::Size));
     if should_write_size {
-        write_node_dimensions(n, is_frame_like, &mut obj);
+        let has_explicit_w = n.plugin_data.get("pen:explicit_width").map(String::as_str) == Some("true");
+        let has_explicit_h = n.plugin_data.get("pen:explicit_height").map(String::as_str) == Some("true");
+        let (write_w, write_h) = if !is_instance {
+            (true, true)
+        } else if has_explicit_w || has_explicit_h {
+            (has_explicit_w, has_explicit_h)
+        } else {
+            (true, true)
+        };
+        write_node_dimensions(n, is_frame_like, &mut obj, write_w, write_h);
+    }
+
+    // Node-level theme override (`theme: { axis: val }`)
+    if !n.variables.modes.is_empty() {
+        let mut theme_obj = Map::new();
+        for (col_id, mode_id) in &n.variables.modes {
+            if let Some((axis, val)) = mode_id.split_once(':') {
+                theme_obj.insert(axis.to_string(), Value::String(val.to_string()));
+            } else if let Some(col) = doc.variable_collections.get(col_id) {
+                let mname = col.modes.iter().find(|m| m.id == *mode_id).map(|m| m.name.clone()).unwrap_or_else(|| mode_id.clone());
+                theme_obj.insert(col.name.clone(), Value::String(mname));
+            }
+        }
+        if !theme_obj.is_empty() {
+            obj.insert("theme".into(), Value::Object(theme_obj));
+        }
     }
 
     // AutoLayout for Frame / Component (or overridden Instance)
@@ -217,15 +256,13 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
                 if al.wrap {
                     obj.insert("wrap".into(), Value::Bool(true));
                 }
-                if al.item_spacing > 0.0 {
+                if let Some(g_var) = n.variables.bindings.get("itemSpacing") {
+                    obj.insert("gap".into(), json!(format!("${g_var}")));
+                } else if al.item_spacing > 0.0 {
                     obj.insert("gap".into(), json!(al.item_spacing));
                 }
-                if al.padding != [0.0; 4] {
-                    if al.padding[0] == al.padding[1] && al.padding[1] == al.padding[2] && al.padding[2] == al.padding[3] {
-                        obj.insert("padding".into(), json!(al.padding[0]));
-                    } else {
-                        obj.insert("padding".into(), json!(al.padding));
-                    }
+                if let Some(pad_val) = export_padding_value(&al.padding, &n.variables) {
+                    obj.insert("padding".into(), pad_val);
                 }
                 if al.primary_align != LayoutAlign::Start {
                     obj.insert("justifyContent".into(), json!(align_to_pen_str(al.primary_align)));
@@ -335,6 +372,15 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
             NodeKind::Sticky(s) => {
                 obj.insert("content".into(), json!(s.text.content));
             }
+            NodeKind::Connector(conn) => {
+                obj.insert("from".into(), export_connector_end(doc, &conn.start));
+                obj.insert("to".into(), export_connector_end(doc, &conn.end));
+                if let Some(lbl) = &conn.label {
+                    if !lbl.content.is_empty() {
+                        obj.insert("content".into(), json!(lbl.content));
+                    }
+                }
+            }
             NodeKind::Instance { component, component_key, .. } => {
                 let ref_id = component_key.clone().or_else(|| component.and_then(|cid| doc.get(cid)).map(node_pen_id)).unwrap_or_default();
                 obj.insert("ref".into(), json!(ref_id));
@@ -357,7 +403,48 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
     Some(Value::Object(obj))
 }
 
-fn write_node_dimensions(n: &Node, is_frame_like: bool, obj: &mut Map<String, Value>) {
+fn export_padding_value(padding: &[f32; 4], nv: &NodeVariables) -> Option<Value> {
+    let pt = nv.bindings.get("paddingTop");
+    let pr = nv.bindings.get("paddingRight");
+    let pb = nv.bindings.get("paddingBottom");
+    let pl = nv.bindings.get("paddingLeft");
+    if let (Some(t), Some(r), Some(b), Some(l)) = (pt, pr, pb, pl) {
+        if t == r && r == b && b == l {
+            return Some(json!(format!("${t}")));
+        }
+    }
+    if *padding != [0.0; 4] {
+        if padding[0] == padding[1] && padding[1] == padding[2] && padding[2] == padding[3] {
+            return Some(json!(padding[0]));
+        }
+        return Some(json!(padding));
+    }
+    None
+}
+
+fn export_connector_end(doc: &Document, end: &ConnectorEnd) -> Value {
+    if let Some(target_id) = end.node {
+        let sid = doc.get(target_id).map(node_pen_id).unwrap_or_else(|| format!("n{}", target_id.0));
+        match end.magnet {
+            Magnet::Auto => Value::String(sid),
+            m => {
+                let m_str = match m {
+                    Magnet::Top => "top",
+                    Magnet::Right => "right",
+                    Magnet::Bottom => "bottom",
+                    Magnet::Left => "left",
+                    Magnet::Center => "center",
+                    Magnet::Auto => "auto",
+                };
+                json!({ "id": sid, "magnet": m_str })
+            }
+        }
+    } else {
+        json!({ "x": end.point.x, "y": end.point.y })
+    }
+}
+
+fn write_node_dimensions(n: &Node, is_frame_like: bool, obj: &mut Map<String, Value>, write_w: bool, write_h: bool) {
     let is_text = matches!(n.kind, NodeKind::Text(_));
     let mut h_sizing = n.layout_child.horizontal;
     let mut v_sizing = n.layout_child.vertical;
@@ -371,41 +458,45 @@ fn write_node_dimensions(n: &Node, is_frame_like: bool, obj: &mut Map<String, Va
         }
     }
 
-    if let Some(w_var) = n.variables.bindings.get("width") {
-        obj.insert("width".into(), json!(format!("${w_var}")));
-    } else {
-        match h_sizing {
-            Sizing::Fill => {
-                obj.insert("width".into(), json!("fill_container"));
-            }
-            Sizing::Hug => {
-                if !is_text || is_frame_like {
-                    obj.insert("width".into(), json!("fit_content"));
+    if write_w {
+        if let Some(w_var) = n.variables.bindings.get("width") {
+            obj.insert("width".into(), json!(format!("${w_var}")));
+        } else {
+            match h_sizing {
+                Sizing::Fill => {
+                    obj.insert("width".into(), json!("fill_container"));
                 }
-            }
-            Sizing::Fixed => {
-                if (!is_text || is_frame_like) && n.size.x > 0.0 {
-                    obj.insert("width".into(), json!(n.size.x));
+                Sizing::Hug => {
+                    if !is_text || is_frame_like {
+                        obj.insert("width".into(), json!("fit_content"));
+                    }
+                }
+                Sizing::Fixed => {
+                    if (!is_text || is_frame_like) && n.size.x > 0.0 {
+                        obj.insert("width".into(), json!(n.size.x));
+                    }
                 }
             }
         }
     }
 
-    if let Some(h_var) = n.variables.bindings.get("height") {
-        obj.insert("height".into(), json!(format!("${h_var}")));
-    } else {
-        match v_sizing {
-            Sizing::Fill => {
-                obj.insert("height".into(), json!("fill_container"));
-            }
-            Sizing::Hug => {
-                if !is_text || is_frame_like {
-                    obj.insert("height".into(), json!("fit_content"));
+    if write_h {
+        if let Some(h_var) = n.variables.bindings.get("height") {
+            obj.insert("height".into(), json!(format!("${h_var}")));
+        } else {
+            match v_sizing {
+                Sizing::Fill => {
+                    obj.insert("height".into(), json!("fill_container"));
                 }
-            }
-            Sizing::Fixed => {
-                if (!is_text || is_frame_like) && n.size.y > 0.0 {
-                    obj.insert("height".into(), json!(n.size.y));
+                Sizing::Hug => {
+                    if !is_text || is_frame_like {
+                        obj.insert("height".into(), json!("fit_content"));
+                    }
+                }
+                Sizing::Fixed => {
+                    if (!is_text || is_frame_like) && n.size.y > 0.0 {
+                        obj.insert("height".into(), json!(n.size.y));
+                    }
                 }
             }
         }
@@ -585,7 +676,10 @@ fn collect_instance_descendant_overrides(doc: &Document, inst_node: &Node, out: 
                     }
                 }
                 if cn.component.overrides.contains(&OverrideField::Size) {
-                    write_node_dimensions(cn, cn.kind.frame_props().is_some(), &mut ov);
+                    let has_explicit_w = cn.plugin_data.get("pen:explicit_width").map(String::as_str) == Some("true");
+                    let has_explicit_h = cn.plugin_data.get("pen:explicit_height").map(String::as_str) == Some("true");
+                    let (write_w, write_h) = if has_explicit_w || has_explicit_h { (has_explicit_w, has_explicit_h) } else { (true, true) };
+                    write_node_dimensions(cn, cn.kind.frame_props().is_some(), &mut ov, write_w, write_h);
                 }
                 if cn.component.overrides.contains(&OverrideField::Visible) {
                     ov.insert("enabled".into(), json!(cn.visible));

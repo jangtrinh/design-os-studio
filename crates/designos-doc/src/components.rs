@@ -903,6 +903,25 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     let ov = n.component.overrides.clone();
     let own_text = keeps_own_text_size(r, n, values);
     for f in OverrideField::ALL {
+        if f == OverrideField::Size
+            && ov.contains(&OverrideField::Size)
+            && !own_text
+            && (n.plugin_data.contains_key("pen:explicit_width") || n.plugin_data.contains_key("pen:explicit_height"))
+        {
+            if n.plugin_data.get("pen:explicit_width").map(String::as_str) != Some("true") {
+                n.size.x = r.size.x;
+                n.layout_child.horizontal = r.layout_child.horizontal;
+                n.layout_child.min_w = r.layout_child.min_w;
+                n.layout_child.max_w = r.layout_child.max_w;
+            }
+            if n.plugin_data.get("pen:explicit_height").map(String::as_str) != Some("true") {
+                n.size.y = r.size.y;
+                n.layout_child.vertical = r.layout_child.vertical;
+                n.layout_child.min_h = r.layout_child.min_h;
+                n.layout_child.max_h = r.layout_child.max_h;
+            }
+            continue;
+        }
         if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
             continue;
         }

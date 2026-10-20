@@ -16,7 +16,7 @@ use migrate::migrate_to_current;
 use node::{import_pen_node, PenImportCtx};
 use serde_json::Value;
 use std::path::PathBuf;
-use variables::import_pen_variables;
+use variables::{apply_pen_bound_variables, import_pen_variables};
 
 /// Upper bound on the total number of nodes cloned across all `ref` (component instance) expansions in a single
 /// `.pen` import. A crafted file can chain components (`c0` has two `ref`s to `c1`, `c1` two to `c2`, ...) so the
@@ -84,28 +84,73 @@ fn import_pen_json_report_budgeted(raw: &str, opts: &PenImportOptions, clone_bud
 
     let doc_name = root.get("name").and_then(Value::as_str).unwrap_or("Pencil Document");
     let mut doc = Document::new(doc_name);
-    let page_id = doc.add_page("Page 1");
 
     // 1. Parse `themes` and `variables` into Document variable collections and tokens (preserving file key order).
     import_pen_variables(raw, &root, &mut doc);
 
     let mut ctx = PenImportCtx::new(opts.base_dir.clone(), warnings);
 
-    // 2. Resolve external library `imports` if present.
-    let mut visited_paths = Vec::new();
-    resolve_pen_library_imports(&root, &mut doc, page_id, &mut ctx, &mut visited_paths, 0);
+    // 2. Import multi-page `pages` array when present; otherwise import single-page `children`.
+    let has_pages = root.get("pages").and_then(Value::as_array).map(|a| !a.is_empty()).unwrap_or(false);
+    if has_pages {
+        let pages_arr = root.get("pages").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut page_ids = Vec::with_capacity(pages_arr.len());
+        for (idx, pval) in pages_arr.iter().enumerate() {
+            let default_name = format!("Page {}", idx + 1);
+            let pname = pval.get("name").and_then(Value::as_str).unwrap_or(&default_name);
+            let pid = doc.add_page(pname);
+            if let Some(page) = doc.get_mut(pid) {
+                if let Some(sid) = pval.get("id").and_then(Value::as_str) {
+                    page.source_id = Some(sid.to_string());
+                }
+                if let Some(bg_hex) = pval.get("background").and_then(Value::as_str) {
+                    if let Some(c) = Color::from_hex(bg_hex) {
+                        if let NodeKind::Page { background } = &mut page.kind {
+                            *background = c;
+                        }
+                    }
+                }
+            }
+            page_ids.push(pid);
+        }
+        let first_page_id = page_ids[0];
+        let mut visited_paths = Vec::new();
+        resolve_pen_library_imports(&root, &mut doc, first_page_id, &mut ctx, &mut visited_paths, 0);
+        for (pval, pid) in pages_arr.iter().zip(page_ids.into_iter()) {
+            if let Some(children) = pval.get("children").and_then(Value::as_array) {
+                for ch in children {
+                    import_pen_node(ch, &mut doc, pid, &mut ctx);
+                }
+            }
+        }
+    } else {
+        let page_id = doc.add_page("Page 1");
+        if let Some(bg_hex) = root.get("background").and_then(Value::as_str) {
+            if let Some(c) = Color::from_hex(bg_hex) {
+                if let Some(page) = doc.get_mut(page_id) {
+                    if let NodeKind::Page { background } = &mut page.kind {
+                        *background = c;
+                    }
+                }
+            }
+        }
+        let mut visited_paths = Vec::new();
+        resolve_pen_library_imports(&root, &mut doc, page_id, &mut ctx, &mut visited_paths, 0);
 
-    // 3. Import top-level `children` onto `page_id`.
-    if let Some(children) = root.get("children").and_then(Value::as_array) {
-        for ch in children {
-            import_pen_node(ch, &mut doc, page_id, &mut ctx);
+        if let Some(children) = root.get("children").and_then(Value::as_array) {
+            for ch in children {
+                import_pen_node(ch, &mut doc, page_id, &mut ctx);
+            }
         }
     }
 
     // 4. Resolve component instances (`type: "ref"`) and `descendants` overrides.
     resolve_pen_instances(&mut doc, &mut ctx, clone_budget)?;
 
-    // 5. Resolve board connectors (`type: "connection"`).
+    // 5. Apply variable bindings using each node's effective theme modes (including multi-axis).
+    apply_pen_bound_variables(&mut doc);
+
+    // 6. Resolve board connectors (`type: "connection"`).
     let pending_connections = std::mem::take(&mut ctx.pending_connections);
     resolve_pen_connections(&mut doc, &pending_connections);
 

@@ -19,6 +19,99 @@ fn find_by_source_id<'a>(doc: &'a Document, sid: &str) -> &'a Node {
     doc.nodes.values().find(|n| n.source_id.as_deref() == Some(sid)).unwrap_or_else(|| panic!("no node with source_id '{sid}'"))
 }
 
+fn assert_nodes_pen_field_equal(a: &Document, na_id: NodeId, b: &Document, nb_id: NodeId, ctx: &str) {
+    let na = a.get(na_id).expect("node a");
+    let nb = b.get(nb_id).expect("node b");
+    let path = format!("{ctx}/{:?}", na.source_id.as_deref().unwrap_or(&na.name));
+    assert_eq!(na.source_id, nb.source_id, "{path}: source_id");
+    assert_eq!(na.name, nb.name, "{path}: name");
+    assert_eq!(na.visible, nb.visible, "{path}: visible");
+    assert!((na.opacity - nb.opacity).abs() < 1e-4, "{path}: opacity {} vs {}", na.opacity, nb.opacity);
+    assert_eq!(na.blend, nb.blend, "{path}: blend");
+    assert_eq!(na.hyperlink, nb.hyperlink, "{path}: hyperlink");
+    assert!((na.size.x - nb.size.x).abs() < 1e-2 && (na.size.y - nb.size.y).abs() < 1e-2, "{path}: size {:?} vs {:?}", na.size, nb.size);
+    assert!(
+        (na.transform.a - nb.transform.a).abs() < 1e-3
+            && (na.transform.b - nb.transform.b).abs() < 1e-3
+            && (na.transform.c - nb.transform.c).abs() < 1e-3
+            && (na.transform.d - nb.transform.d).abs() < 1e-3
+            && (na.transform.tx - nb.transform.tx).abs() < 1e-3
+            && (na.transform.ty - nb.transform.ty).abs() < 1e-3,
+        "{path}: transform {:?} vs {:?}",
+        na.transform,
+        nb.transform
+    );
+    assert_eq!(na.layout_child, nb.layout_child, "{path}: layout_child");
+    assert_eq!(na.fills, nb.fills, "{path}: fills");
+    assert_eq!(na.stroke, nb.stroke, "{path}: stroke");
+    assert_eq!(na.corner_radii, nb.corner_radii, "{path}: corner_radii");
+    assert_eq!(na.effects, nb.effects, "{path}: effects");
+    assert_eq!(na.variables, nb.variables, "{path}: variables");
+    assert_eq!(na.component.overrides, nb.component.overrides, "{path}: component.overrides");
+    assert_eq!(na.component.is_slot, nb.component.is_slot, "{path}: component.is_slot");
+    assert_eq!(na.component.is_slot_content, nb.component.is_slot_content, "{path}: component.is_slot_content");
+    assert_eq!(na.component.props.len(), nb.component.props.len(), "{path}: component.props.len()");
+    match (&na.kind, &nb.kind) {
+        (NodeKind::Frame(fa), NodeKind::Frame(fb))
+        | (NodeKind::Component(fa), NodeKind::Component(fb))
+        | (NodeKind::ComponentSet(fa), NodeKind::ComponentSet(fb)) => {
+            assert_eq!(fa, fb, "{path}: frame_props");
+        }
+        (NodeKind::Instance { frame: fa, component: ca, component_key: ka }, NodeKind::Instance { frame: fb, component: cb, component_key: kb }) => {
+            assert_eq!(fa, fb, "{path}: instance frame_props");
+            assert_eq!(ka, kb, "{path}: instance component_key");
+            let ca_sid = ca.and_then(|id| a.get(id)).and_then(|n| n.source_id.clone());
+            let cb_sid = cb.and_then(|id| b.get(id)).and_then(|n| n.source_id.clone());
+            assert_eq!(ca_sid, cb_sid, "{path}: instance target component source_id");
+        }
+        (NodeKind::Text(ta), NodeKind::Text(tb)) => {
+            assert_eq!(ta.content, tb.content, "{path}: text content");
+            assert_eq!(ta.style, tb.style, "{path}: text style");
+            assert_eq!(ta.runs, tb.runs, "{path}: text runs");
+        }
+        (NodeKind::Ellipse(ea), NodeKind::Ellipse(eb)) => {
+            assert!(
+                (ea.start - eb.start).abs() < 1e-3 && (ea.end - eb.end).abs() < 1e-3 && (ea.inner_radius - eb.inner_radius).abs() < 1e-3,
+                "{path}: ellipse arc"
+            );
+        }
+        (NodeKind::Vector { paths: pa, .. }, NodeKind::Vector { paths: pb, .. }) => {
+            assert_eq!(pa, pb, "{path}: vector paths");
+        }
+        (NodeKind::Connector(ca), NodeKind::Connector(cb)) => {
+            let sa_sid = ca.start.node.and_then(|id| a.get(id)).and_then(|n| n.source_id.clone());
+            let sb_sid = cb.start.node.and_then(|id| b.get(id)).and_then(|n| n.source_id.clone());
+            let ea_sid = ca.end.node.and_then(|id| a.get(id)).and_then(|n| n.source_id.clone());
+            let eb_sid = cb.end.node.and_then(|id| b.get(id)).and_then(|n| n.source_id.clone());
+            assert_eq!((sa_sid, ca.start.magnet, ca.start.point), (sb_sid, cb.start.magnet, cb.start.point), "{path}: connector start");
+            assert_eq!((ea_sid, ca.end.magnet, ca.end.point), (eb_sid, cb.end.magnet, cb.end.point), "{path}: connector end");
+            assert_eq!(ca.label.as_ref().map(|l| &l.content), cb.label.as_ref().map(|l| &l.content), "{path}: connector label");
+        }
+        (ka, kb) => assert_eq!(ka, kb, "{path}: kind"),
+    }
+    assert_eq!(na.children.len(), nb.children.len(), "{path}: children count");
+    for (&ca, &cb) in na.children.iter().zip(nb.children.iter()) {
+        assert_nodes_pen_field_equal(a, ca, b, cb, &path);
+    }
+}
+
+fn assert_documents_pen_field_equal(a: &Document, b: &Document, ctx: &str) {
+    assert_eq!(a.name, b.name, "{ctx}: doc.name");
+    assert_eq!(a.variable_collections, b.variable_collections, "{ctx}: variable_collections");
+    assert_eq!(a.variables, b.variables, "{ctx}: variables");
+    assert_eq!(a.pages.len(), b.pages.len(), "{ctx}: pages.len()");
+    for (idx, (&pa_id, &pb_id)) in a.pages.iter().zip(b.pages.iter()).enumerate() {
+        let pa = a.get(pa_id).expect("page a");
+        let pb = b.get(pb_id).expect("page b");
+        assert_eq!(pa.name, pb.name, "{ctx}: page[{idx}].name");
+        assert_eq!(pa.kind, pb.kind, "{ctx}: page[{idx}].kind");
+        assert_eq!(pa.children.len(), pb.children.len(), "{ctx}: page[{idx}].children.len()");
+        for (&ca, &cb) in pa.children.iter().zip(pb.children.iter()) {
+            assert_nodes_pen_field_equal(a, ca, b, cb, &format!("{ctx}/page[{idx}]"));
+        }
+    }
+}
+
 // 1. migrates_1_0_through_2_21_fixtures
 #[test]
 fn migrates_1_0_through_2_21_fixtures() {
@@ -33,7 +126,7 @@ fn migrates_1_0_through_2_21_fixtures() {
 
         let reimported = import_pen_json_report(&exported, &PenImportOptions::default()).unwrap_or_else(|e| panic!("failed to reimport {file}: {e}"));
         assert_eq!(reimported.source_version, "2.21");
-        assert_eq!(reimported.doc.name, report.doc.name);
+        assert_documents_pen_field_equal(&report.doc, &reimported.doc, file);
     }
 
     // Check specific migration outcomes on v1_0, v2_8, v2_13, v2_17:
@@ -1166,4 +1259,281 @@ fn export_always_writes_explicit_layout_and_dimensions() {
     assert_eq!(f["width"].as_str(), Some("fit_content"));
     assert_eq!(f["height"].as_str(), Some("fit_content"));
     assert_eq!(json!(exported["version"]), json!("2.21"));
+}
+
+// 26. instance_single_axis_width_override_preserves_inherited_height_across_roundtrip_and_sync
+#[test]
+fn instance_single_axis_width_override_preserves_inherited_height_across_roundtrip_and_sync() {
+    let raw = r##"{
+        "version": "2.21",
+        "children": [
+            {
+                "id": "card-comp",
+                "type": "frame",
+                "reusable": true,
+                "name": "Card",
+                "width": 260,
+                "height": 140
+            },
+            {
+                "id": "inst-width-only",
+                "type": "ref",
+                "ref": "card-comp",
+                "name": "Width Only Instance",
+                "width": 320
+            }
+        ]
+    }"##;
+
+    let doc = import_pen_json(raw).expect("import single-axis width override");
+    let exported_str = export_pen_json(&doc).expect("export single-axis width override");
+    let exported: Value = serde_json::from_str(&exported_str).unwrap();
+    let exp_inst = &exported["children"][1];
+    assert_eq!(exp_inst.get("width").and_then(Value::as_f64), Some(320.0), "explicit width must be exported");
+    assert!(exp_inst.get("height").is_none(), "omitted height on instance must NOT be exported as explicit: {exp_inst}");
+
+    // Re-import and change component height: instance must still inherit the new height!
+    let mut rt = import_pen_json(&exported_str).expect("reimport single-axis width override");
+    let comp_id = find_by_source_id(&rt, "card-comp").id;
+    let inst_id = find_by_source_id(&rt, "inst-width-only").id;
+    rt.get_mut(comp_id).unwrap().size.y = 220.0;
+    sync_instances(&mut rt, comp_id).apply(&mut rt).expect("sync_instances");
+    assert_eq!(
+        rt.get(inst_id).unwrap().size,
+        Vec2::new(320.0, 220.0),
+        "after round-trip, component height change must reach instance that only overrode width"
+    );
+}
+
+// 27. instance_root_partial_stroke_override_preserves_component_stroke_paints
+#[test]
+fn instance_root_partial_stroke_override_preserves_component_stroke_paints() {
+    let raw = r##"{
+        "version": "2.21",
+        "children": [
+            {
+                "id": "stroke-comp",
+                "type": "frame",
+                "reusable": true,
+                "name": "StrokedBox",
+                "width": 200,
+                "height": 100,
+                "stroke": {
+                    "fill": "#38BDF8",
+                    "thickness": 1,
+                    "align": "outside",
+                    "cap": "round",
+                    "join": "bevel"
+                }
+            },
+            {
+                "id": "stroke-inst",
+                "type": "ref",
+                "ref": "stroke-comp",
+                "name": "WiderStrokeInstance",
+                "strokeWidth": 4
+            }
+        ]
+    }"##;
+
+    let doc = import_pen_json(raw).expect("import partial stroke override on instance root");
+    let inst = find_by_source_id(&doc, "stroke-inst");
+    assert_eq!(inst.stroke.weight, 4.0, "strokeWidth override on instance root must apply");
+    assert_eq!(
+        inst.stroke.paints,
+        vec![Paint::solid(Color::from_hex("#38BDF8").unwrap())],
+        "instance setting only strokeWidth must inherit stroke paints from component"
+    );
+    assert_eq!(inst.stroke.align, StrokeAlign::Outside, "instance setting only strokeWidth must inherit stroke align");
+    assert_eq!(inst.stroke.cap, StrokeCap::Round, "instance setting only strokeWidth must inherit stroke cap");
+    assert_eq!(inst.stroke.join, StrokeJoin::Bevel, "instance setting only strokeWidth must inherit stroke join");
+}
+
+// 28. multi_axis_variable_stores_all_combinations_outside_key_and_resolves_with_node_theme
+#[test]
+fn multi_axis_variable_stores_all_combinations_outside_key_and_resolves_with_node_theme() {
+    let raw = r##"{
+        "version": "2.21",
+        "themes": {
+            "ZetaTheme": ["Light", "Dark"],
+            "AlphaDensity": ["Cozy", "Compact"]
+        },
+        "variables": {
+            "combo-pad": {
+                "type": "number",
+                "value": [
+                    { "theme": { "ZetaTheme": "Light", "AlphaDensity": "Cozy" }, "value": 24 },
+                    { "theme": { "ZetaTheme": "Light", "AlphaDensity": "Compact" }, "value": 12 },
+                    { "theme": { "ZetaTheme": "Dark", "AlphaDensity": "Cozy" }, "value": 32 },
+                    { "theme": { "ZetaTheme": "Dark", "AlphaDensity": "Compact" }, "value": 16 }
+                ]
+            }
+        },
+        "children": [
+            {
+                "id": "box-default",
+                "type": "rectangle",
+                "width": "$combo-pad",
+                "height": 40
+            },
+            {
+                "id": "box-compact",
+                "type": "rectangle",
+                "theme": { "AlphaDensity": "Compact" },
+                "width": "$combo-pad",
+                "height": 40
+            },
+            {
+                "id": "box-dark-compact",
+                "type": "rectangle",
+                "theme": { "ZetaTheme": "Dark", "AlphaDensity": "Compact" },
+                "width": "$combo-pad",
+                "height": 40
+            }
+        ]
+    }"##;
+
+    let mut doc = import_pen_json(raw).expect("import multi-axis matrix variable");
+    let var = &doc.variables["combo-pad"];
+    assert_eq!(var.key, None, "Variable.key is the Figma library key and must not hold pen:multi data");
+    assert_eq!(var.values.len(), 4, "all 4 multi-axis combinations must be stored in Variable.values");
+
+    let def_node = find_by_source_id(&doc, "box-default");
+    assert_eq!(def_node.size.x, 24.0, "default theme (Light + Cozy) must resolve to 24");
+
+    let compact_node = find_by_source_id(&doc, "box-compact");
+    assert_eq!(compact_node.size.x, 12.0, "node with AlphaDensity=Compact (and default ZetaTheme=Light) must resolve to 12");
+
+    let dark_compact_node = find_by_source_id(&doc, "box-dark-compact");
+    assert_eq!(dark_compact_node.size.x, 16.0, "node with ZetaTheme=Dark + AlphaDensity=Compact must resolve to 16");
+
+    // Switching the second axis on `box-default` via Document variable modes must change the resolved number!
+    let def_id = def_node.id;
+    let alpha_col_id = doc.variable_collections.values().find(|c| c.name == "AlphaDensity").unwrap().id.clone();
+    doc.get_mut(def_id).unwrap().variables.modes.insert(alpha_col_id, "AlphaDensity:Compact".into());
+    assert_eq!(
+        doc.resolve_variable(def_id, "combo-pad"),
+        Some(VariableValue::Number(12.0)),
+        "switching the second theme axis on a node must update resolve_variable"
+    );
+}
+
+// 29. multi_page_pen_migrates_imports_and_exports_all_pages
+#[test]
+fn multi_page_pen_migrates_imports_and_exports_all_pages() {
+    let raw = r##"{
+        "version": "1.0",
+        "name": "MultiPage Book",
+        "children": [
+            {
+                "id": "p1-card",
+                "type": "frame",
+                "name": "Page 1 Card",
+                "fillColor": "#112233"
+            }
+        ],
+        "pages": [
+            {
+                "id": "page-1",
+                "name": "Cover",
+                "background": "#1E1E1E",
+                "children": [
+                    {
+                        "id": "p1-card",
+                        "type": "frame",
+                        "name": "Page 1 Card",
+                        "fillColor": "#112233"
+                    }
+                ]
+            },
+            {
+                "id": "page-2",
+                "name": "Details",
+                "background": "#F8FAFC",
+                "children": [
+                    {
+                        "id": "p2-box",
+                        "type": "frame",
+                        "name": "Page 2 Box",
+                        "padding": { "top": 6, "right": 12, "bottom": 6, "left": 12 },
+                        "fillColor": "#445566"
+                    }
+                ]
+            }
+        ]
+    }"##;
+
+    let doc = import_pen_json(raw).expect("import multi-page .pen");
+    assert_eq!(doc.pages.len(), 2, "both pages must be imported");
+    assert_eq!(doc.get(doc.pages[0]).unwrap().name, "Cover");
+    assert_eq!(doc.get(doc.pages[1]).unwrap().name, "Details");
+
+    let p2_box = find_by_source_id(&doc, "p2-box");
+    assert_eq!(
+        p2_box.kind.frame_props().unwrap().auto_layout.as_ref().unwrap().padding,
+        [6.0, 12.0, 6.0, 12.0],
+        "migration chain must walk nodes inside pages[]"
+    );
+
+    let exported = export_pen_json(&doc).expect("export multi-page .pen");
+    let rt = import_pen_json(&exported).expect("reimport multi-page .pen");
+    assert_eq!(rt.pages.len(), 2, "exported multi-page document must preserve page boundaries on re-import");
+    assert_eq!(rt.get(rt.pages[0]).unwrap().name, "Cover");
+    assert_eq!(rt.get(rt.pages[1]).unwrap().name, "Details");
+    assert_eq!(rt.get(rt.pages[0]).unwrap().children.len(), 1);
+    assert_eq!(rt.get(rt.pages[1]).unwrap().children.len(), 1);
+    assert_documents_pen_field_equal(&doc, &rt, "multi_page_roundtrip");
+}
+
+// 30. connection_node_roundtrips_endpoints_and_label
+#[test]
+fn connection_node_roundtrips_endpoints_and_label() {
+    let raw = r##"{
+        "version": "2.21",
+        "children": [
+            {
+                "id": "node-a",
+                "type": "rectangle",
+                "x": 0,
+                "y": 0,
+                "width": 100,
+                "height": 60
+            },
+            {
+                "id": "node-b",
+                "type": "rectangle",
+                "x": 240,
+                "y": 0,
+                "width": 100,
+                "height": 60
+            },
+            {
+                "id": "conn-1",
+                "type": "connection",
+                "name": "Flow Arrow",
+                "from": { "id": "node-a", "magnet": "right" },
+                "to": { "id": "node-b", "magnet": "left" },
+                "content": "approves"
+            }
+        ]
+    }"##;
+
+    let doc = import_pen_json(raw).expect("import connection node");
+    let a_id = find_by_source_id(&doc, "node-a").id;
+    let b_id = find_by_source_id(&doc, "node-b").id;
+    let conn = find_by_source_id(&doc, "conn-1");
+    match &conn.kind {
+        NodeKind::Connector(cp) => {
+            assert_eq!(cp.start.node, Some(a_id));
+            assert_eq!(cp.start.magnet, Magnet::Right);
+            assert_eq!(cp.end.node, Some(b_id));
+            assert_eq!(cp.end.magnet, Magnet::Left);
+            assert_eq!(cp.label.as_ref().map(|l| l.content.as_str()), Some("approves"));
+        }
+        other => panic!("expected Connector, got {other:?}"),
+    }
+
+    let exported = export_pen_json(&doc).expect("export connection node");
+    let rt = import_pen_json(&exported).expect("reimport connection node");
+    assert_documents_pen_field_equal(&doc, &rt, "connection_roundtrip");
 }
