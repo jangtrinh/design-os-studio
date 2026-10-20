@@ -178,6 +178,8 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => "Codex",
             AgentCliPreset::Antigravity => "Antigravity",
             AgentCliPreset::Grok => "Grok",
+            AgentCliPreset::Gemini => "Gemini",
+            AgentCliPreset::OpenCode => "OpenCode",
             AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "Claude",
         }
     }
