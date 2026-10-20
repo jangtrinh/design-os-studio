@@ -368,10 +368,9 @@ pub fn lint_subtree_with_components(
     let scales = super::rules::scale::scales_for(doc, config.archetype.as_ref());
     let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
 
+    // No `prepare_pass` here: this runs one slice, often over a single layer, and the environment
+    // builds what it needs on the first pixel-path text, once per call.
     let contrast_bounds = contrast::SubtreeBounds::default();
-    if active.contrast {
-        env.prepare_pass(doc, roots, contrast_bounds.pass());
-    }
     let active_cursor = budget.cursor.as_deref().or(config.cursor.as_deref());
     let mut page_offset = 0usize;
     let mut stack = build_initial_stack(doc, roots, active_cursor, &active, &mut page_offset);

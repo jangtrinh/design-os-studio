@@ -73,9 +73,10 @@ pub trait LintEnv {
         None
     }
 
-    /// Called once before a lint pass over `roots` of `doc`, so an environment can build what
-    /// [`LintEnv::backdrop_in_pass`] will reuse for every node (kept in `pass`) ahead of the first
-    /// time slice. Does nothing by default.
+    /// Called once before a sliced lint run ([`lint_in_slices_with_budget`]) over `roots` of `doc`, so
+    /// an environment can build what [`LintEnv::backdrop_in_pass`] will reuse for every node (kept
+    /// in `pass`) ahead of the first time slice. A single-call lint does not call it: the first
+    /// [`LintEnv::backdrop_in_pass`] builds the same on demand. Does nothing by default.
     fn prepare_pass(&self, _doc: &Document, _roots: &[NodeId], _pass: &PassCache) {}
 
     /// [`LintEnv::backdrop`] for a node of the pass that owns `pass`. An environment may keep
