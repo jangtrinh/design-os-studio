@@ -110,6 +110,7 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
 
     // 1. The editor publishes its live canvas for the agent.
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
 
     // 2. The real MCP session edits that canvas: one apply_spec and one update_node.
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
@@ -235,6 +236,7 @@ fn agent_comments_never_overwrite_user_threads() {
     let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
     let replay = |app: &mut App| {
         let actions = app.terminal.poll_live_agent_bridge();
@@ -311,6 +313,7 @@ fn agent_undo_after_a_canvas_reload_never_touches_user_layers() {
     let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
     let replay = |app: &mut App| {
         let actions = app.terminal.poll_live_agent_bridge();
@@ -397,26 +400,30 @@ fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back(
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
     let before = std::fs::read(&canvas).unwrap();
     let before_mtime = std::fs::metadata(&canvas).unwrap().modified().unwrap();
-    let key_before = app.terminal.last_synced_key;
 
-    // The log is empty when the publish starts, so both checks before the rename pass; the agent
-    // appends once the temporary canvas file is complete.
-    crate::terminal::set_before_rename_test_hook(Box::new(move || {
-        session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Late agent layer", "width": 20.0, "height": 20.0 })).expect("create");
-    }));
+    // The log is empty when the publish is queued, so the check before queueing passes; the agent
+    // appends on the writer thread once the temporary canvas file is complete.
+    crate::terminal::set_before_rename_test_hook(
+        &canvas,
+        Box::new(move || {
+            session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Late agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+        }),
+    );
     app.selection = vec![frame];
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    let queued_key = app.terminal.last_synced_key;
+    app.terminal.flush_live_sync();
 
     assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
     assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
-    assert_eq!(app.terminal.last_synced_key, key_before, "the publish is retried on a later frame");
+    assert_ne!(app.terminal.last_synced_key, queued_key, "the held publish is not recorded as published, so a later frame retries it");
     // Only the canvas' own temporary files count: the background bootstrap build writes its own `bootstrap.*.tmp.*`
     // files into the same session dir while this runs.
-    let canvas_tmp_prefix = format!("{}.tmp.", canvas.file_name().unwrap().to_string_lossy());
+    let canvas_tmp_marker = format!("{}.tmp.", canvas.file_name().unwrap().to_string_lossy());
     let leftovers: Vec<_> = std::fs::read_dir(canvas.parent().unwrap())
         .unwrap()
         .filter_map(Result::ok)
-        .filter(|e| e.file_name().to_string_lossy().starts_with(&canvas_tmp_prefix))
+        .filter(|e| e.file_name().to_string_lossy().contains(&canvas_tmp_marker))
         .collect();
     assert!(leftovers.is_empty(), "the temporary canvas file is removed: {leftovers:?}");
 
@@ -466,6 +473,7 @@ fn mcp_apply_spec_on_a_real_file_keeps_every_screen() {
     let workspace = std::env::temp_dir().join(format!("designos-live-sync-real-{}", unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
     let applied = session
         .call(

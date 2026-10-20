@@ -231,13 +231,14 @@ fn try_create_lock_exclusively(lock_path: &Path, bytes: &[u8]) -> std::io::Resul
 
 fn fallback_lock_outcome(fallback_id: &str) -> LockOutcome {
     let fallback_dir = std::env::temp_dir().join("designos-sessions").join(fallback_id);
-    let _ = std::fs::create_dir_all(&fallback_dir);
+    let _ = crate::agent_session_files::ensure_session_dir(&fallback_dir);
     LockOutcome::Fallback { dir: fallback_dir, message: ANOTHER_WINDOW_OWNS_SESSION_MSG.to_string() }
 }
 
 /// Acquires `<lib_root>/agent-sessions/<file_id>/session.lock` for `window`, taking over stale locks
-/// whose `pid` is no longer alive (tested via `pid_alive`), or returns a fallback `/tmp/designos-sessions/<fallback_id>`
-/// directory if another live window already owns the folder.
+/// whose `pid` is no longer alive (tested via `pid_alive`) or whose `started_at` does not match the
+/// running process, or returns a fallback `/tmp/designos-sessions/<fallback_id>` directory if another
+/// live window already owns the folder.
 pub fn acquire_stable_session_dir_with<F>(lib_root: &Path, file_id: &str, window: &str, fallback_id: &str, pid_alive: F) -> LockOutcome
 where
     F: Fn(u32) -> bool,
@@ -246,7 +247,8 @@ where
     let _ = std::fs::create_dir_all(&dir);
     let lock_path = dir.join("session.lock");
     let my_pid = std::process::id();
-    let lock = SessionLock { pid: my_pid, window: window.to_string(), started_at: unix_timestamp_secs() };
+    let started_at = (crate::agent_session_files::current_process_started_ms() / 1000).max(1);
+    let lock = SessionLock { pid: my_pid, window: window.to_string(), started_at };
     let bytes = serde_json::to_vec_pretty(&lock).unwrap_or_default();
 
     if try_create_lock_exclusively(&lock_path, &bytes).is_ok() {
@@ -258,7 +260,7 @@ where
             if existing.pid == my_pid && existing.window == window {
                 return LockOutcome::Acquired(dir);
             }
-            if pid_alive(existing.pid) {
+            if pid_alive(existing.pid) && crate::agent_session_files::is_pid_start_time_matching(existing.pid, existing.started_at) {
                 return fallback_lock_outcome(fallback_id);
             }
         }
@@ -325,26 +327,6 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// Validates that `s` is a canonical 36-character ASCII hexadecimal UUID (`8-4-4-4-12`) so a
-/// corrupted or tampered `session_id` in `sessions.json` can never inject shell tokens into
-/// `zsh -lc` launch or resume commands.
-pub fn is_valid_session_uuid(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    if bytes.len() != 36 {
-        return false;
-    }
-    for (i, &b) in bytes.iter().enumerate() {
-        if matches!(i, 8 | 13 | 18 | 23) {
-            if b != b'-' {
-                return false;
-            }
-        } else if !b.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-    true
-}
-
 /// True for the built-in agent CLIs (`claude`, `codex`, `grok`, `agy`, `gemini`, `opencode`) that can be remembered
 /// as `last_cli` in `sessions.json` (`#652` §3 rule 4, `#679` §3). `Shell` and `DesignOsHelp` are excluded.
 pub fn is_agent_cli_preset(preset: AgentCliPreset) -> bool {
@@ -375,6 +357,30 @@ pub fn is_registrable_cli(preset: AgentCliPreset) -> bool {
 /// `Codex`, `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`).
 pub fn uses_preassigned_session_id(preset: AgentCliPreset) -> bool {
     matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Grok)
+}
+
+/// Returns `true` iff `s` (after trimming whitespace) is a strict 36-character hex UUID
+/// (`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` with ASCII hex digits and hyphens).
+pub fn is_valid_session_uuid(s: &str) -> bool {
+    let bytes = s.trim().as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    for (i, &b) in bytes.iter().enumerate() {
+        match i {
+            8 | 13 | 18 | 23 => {
+                if b != b'-' {
+                    return false;
+                }
+            }
+            _ => {
+                if !b.is_ascii_hexdigit() {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// Builds the interactive launch command for a brand-new session of `preset`.
@@ -969,24 +975,38 @@ mod tests {
     }
 
     // 8. `second_window_does_not_share_the_folder`
+    #[cfg(unix)]
     #[test]
     fn second_window_does_not_share_the_folder() {
         let dir = temp_test_dir("second-window-lock");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+
         let mut st1 = TerminalState::for_tab(1);
         st1.bind_library_file(&dir, "shared-file", "p1-w1-tab-1");
         assert_eq!(st1.session_dir, stable_session_dir(&dir, "shared-file"));
         assert!(st1.session_dir.join("session.lock").is_file());
 
         let mut st2 = TerminalState::for_tab(1);
+        st2.path_prepend.push(bin_dir);
         st2.bind_library_file(&dir, "shared-file", "p1-w2-tab-1");
+        let st2_fallback_dir = st2.session_dir.clone();
         assert_ne!(st2.session_dir, st1.session_dir);
         assert_eq!(st2.session_dir, std::env::temp_dir().join("designos-sessions").join("p1-w2-tab-1"));
         assert_eq!(st2.status_msg.as_deref(), Some(ANOTHER_WINDOW_OWNS_SESSION_MSG));
 
-        st1.shutdown();
+        // Spawn a tab in the fallback window and shut it down while st1 has not written sessions.json yet.
+        st2.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude in fallback window");
         st2.shutdown();
+        assert!(
+            !st1.session_dir.join("sessions.json").exists(),
+            "fallback window must never write sessions.json into the stable folder owned by another window"
+        );
+        assert!(!st2_fallback_dir.exists(), "fallback window's ephemeral dir must be removed on shutdown");
+
+        st1.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_dir_all(&st2.session_dir);
     }
 
     // 9. `stale_lock_is_taken_over`
@@ -1346,6 +1366,236 @@ mod tests {
         assert!(!kill_zero_indicates_alive(false, b"kill: (99999): No such process\n"));
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resumed_cli_failing_from_auth_or_flag_stays_exited_and_keeps_login_or_shell_fix() {
+        let dir = temp_test_dir("resume-auth-and-flag");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\necho 'Error: not logged in — please sign in'\nexit 1\n");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-auth-resume", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir.clone());
+        st.session_registry.sessions.push(SessionEntry {
+            tab_id: 1,
+            title: "Claude CLI #1".to_string(),
+            cli: "claude".to_string(),
+            session_id: Some("019a0102-0304-7506-8708-090a0b0c0d0e".to_string()),
+            created_at: 100,
+            last_active_at: 200,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        });
+        save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
+
+        st.resume_last_session(None).expect("spawn resume");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        while std::time::Instant::now() < deadline {
+            let _ = st.poll_live_agent_bridge();
+            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
+        assert_eq!(failure.cause, crate::agent_start_failure::StartFailureCause::NotLoggedIn);
+        assert_eq!(failure.fix, crate::agent_start_failure::FixAction::RunLogin("claude auth login"));
+
+        let on_disk = load_or_init_registry(&st.session_dir);
+        assert_eq!(
+            on_disk.sessions[0].status,
+            SessionEntryStatus::Exited,
+            "resumed session that failed due to NotLoggedIn must remain Exited so it can still be resumed after login"
+        );
+        assert_eq!(st.resumable_sessions().len(), 1);
+
+        // Now test UnknownFlag on resume: must keep OpenShell fix and Exited status.
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\necho 'error: unknown option --bad-flag'\nexit 1\n");
+        st.resume_last_session(None).expect("spawn resume for unknown flag");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        while std::time::Instant::now() < deadline {
+            let _ = st.poll_live_agent_bridge();
+            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let failure2 = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card for unknown flag");
+        assert_eq!(failure2.cause, crate::agent_start_failure::StartFailureCause::UnknownFlag);
+        assert_eq!(failure2.fix, crate::agent_start_failure::FixAction::OpenShell);
+        let on_disk2 = load_or_init_registry(&st.session_dir);
+        assert_eq!(on_disk2.sessions[0].status, SessionEntryStatus::Exited);
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_to_library_as_with_open_agent_tab_binds_stable_dir_and_keeps_session_on_close() {
+        let dir = temp_test_dir("save-to-library-open-tab");
+        let lib_root = dir.join("lib");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+
+        let lib = Library::open(&lib_root).expect("open library");
+        let proj = lib.create_project("Test Project").expect("create project");
+
+        let mut doc = Document::new("Unsaved");
+        let page = doc.add_page("Page 1");
+        let target_node = doc.alloc_id();
+        doc.insert(page, designos_doc::Node::frame(target_node, designos_doc::Rect::new(0.0, 0.0, 120.0, 80.0))).expect("insert frame");
+
+        let mut app = App::new(doc);
+        app.lib = Some(lib.clone());
+        app.terminal.path_prepend.push(bin_dir);
+
+        // Start a Claude tab while the document is still unsaved (on Fallback session dir).
+        app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude on unsaved doc");
+        let spawned_uuid = app.terminal.tabs[0].session_uuid.clone().expect("claude session uuid");
+        let scratch_dir = app.terminal.session_dir.clone();
+        let tab_patch_path = app.terminal.live_patch.path.clone();
+        assert!(crate::agent_session_files::is_ephemeral_session_dir(&scratch_dir), "initial session_dir must be ephemeral scratch dir");
+
+        // Save into the library while the agent tab is still open.
+        app.save_to_library_as(&proj.id, None, "Saved With Running Agent");
+        let lf = app.lib_file.clone().expect("lib_file set after save_to_library_as");
+        let expected_stable_dir = lib.agent_session_dir(&lf.id);
+        assert!(expected_stable_dir.join("sessions.json").is_file(), "sessions.json must exist in stable session dir after save_to_library_as");
+        assert_eq!(
+            app.terminal.session_dir, scratch_dir,
+            "while agent tab is still running, session_dir must remain on the scratch folder so the running CLI is not cut off from the canvas"
+        );
+        assert_eq!(
+            app.terminal.live_patch.path, tab_patch_path,
+            "while agent tab is still running, live_patch path must still match the tab's DESIGNOS_LIVE_DOC_PATCH"
+        );
+
+        // Verify a doc-patch.jsonl line written by the running agent to its DESIGNOS_LIVE_DOC_PATCH is still applied after save_to_library_as.
+        let patch_line = serde_json::to_string(&designos_doc::live_patch::LivePatch::new(vec![designos_doc::live_patch::LiveOp::Remove { id: target_node }]))
+            .expect("serialize patch")
+            + "\n";
+        std::fs::write(&tab_patch_path, patch_line.as_bytes()).expect("write doc-patch.jsonl to tab's DESIGNOS_LIVE_DOC_PATCH");
+        for action in app.terminal.poll_live_agent_bridge() {
+            if let crate::terminal::TerminalAction::ApplyLiveLog(lines) = action {
+                let _ = app.terminal.live_patch.ingest(lines);
+                crate::live_patch_apply::apply_pending_live_patches(&mut app);
+            }
+        }
+        assert!(
+            app.doc.get(target_node).is_none(),
+            "doc-patch.jsonl written to the running tab's DESIGNOS_LIVE_DOC_PATCH must still be applied after save_to_library_as"
+        );
+
+        // Closing the last open tab completes the deferred rebind to the stable dir and removes the scratch dir.
+        app.terminal.close_tab(0);
+        assert_eq!(app.terminal.session_dir, expected_stable_dir, "closing the last open tab must rebind session_dir to the stable dir");
+        assert!(!scratch_dir.exists(), "closing the last open tab must remove the old scratch folder so it does not leak");
+        assert!(expected_stable_dir.join("sessions.json").is_file(), "closing the tab must keep sessions.json in stable dir");
+        assert_eq!(app.terminal.resumable_sessions().len(), 1, "session must remain resumable in the open window after closing the tab");
+
+        // Shut down the first window (releasing session.lock) and reopen the library file in a new TerminalState.
+        app.terminal.shutdown();
+
+        let mut reopened = TerminalState::for_tab(2);
+        reopened.bind_library_file(lib.root(), &lf.id, "p1-w2-tab-1");
+        let resumable = reopened.resumable_sessions();
+        assert_eq!(resumable.len(), 1, "reopened library file must have 1 resumable session");
+        assert_eq!(resumable[0].session_id.as_deref(), Some(spawned_uuid.as_str()));
+
+        reopened.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_resume_command_rejects_non_uuid_session_id() {
+        let mk = |cli: &str, session_id: Option<&str>| SessionEntry {
+            tab_id: 1,
+            title: format!("{cli} #1"),
+            cli: cli.to_string(),
+            session_id: session_id.map(|s| s.to_string()),
+            created_at: 100,
+            last_active_at: 200,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        };
+
+        for bad_id in ["x; open -a Calculator", "x; open /Applications/Calculator.app; #", "not-a-uuid", "11111111-2222-4333-8444-55555555555g"] {
+            assert!(
+                build_resume_command(&mk("claude", Some(bad_id)), false).is_none(),
+                "claude build_resume_command must reject non-UUID session_id: {bad_id}"
+            );
+            assert!(build_resume_command(&mk("grok", Some(bad_id)), false).is_none(), "grok build_resume_command must reject non-UUID session_id: {bad_id}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_start_with_empty_output_does_not_sleep_on_ui_thread() {
+        let dir = temp_test_dir("fast-silent-exit");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nexit 1\n");
+
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-silent-exit", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn silent exiting claude");
+
+        let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        while st.active_tab_mut().unwrap().is_alive() {
+            assert!(std::time::Instant::now() < wait_deadline, "silent stub must exit");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // Give the background PTY reader thread a moment to observe EOF on the closed slave fd.
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
+
+        let t0 = std::time::Instant::now();
+        let _ = st.poll_live_agent_bridge();
+        let elapsed = t0.elapsed();
+        assert!(st.active_tab().unwrap().start_failure.is_some(), "start_failure must be recorded");
+        assert!(
+            elapsed < std::time::Duration::from_millis(25),
+            "poll_live_agent_bridge must not sleep 100ms on the UI thread when raw_log is empty (took {elapsed:?})"
+        );
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_pid_alive_treats_eperm_as_alive_and_lock_takeover_checks_start_time() {
+        assert!(is_pid_alive(1), "PID 1 (launchd/init) exists even when kill -0 returns EPERM");
+
+        // Spawn a live child process so `pid != std::process::id()` exercises the external `ps` start-time query.
+        let mut child = std::process::Command::new("sleep").arg("30").spawn().expect("spawn sleep child");
+        let child_pid = child.id();
+        assert_ne!(child_pid, std::process::id());
+
+        let dir = temp_test_dir("recycled-pid-lock");
+        let target_dir = stable_session_dir(&dir, "recycled-file");
+        std::fs::create_dir_all(&target_dir).expect("create session dir");
+        // Write a lock with the live child's PID (simulating OS PID recycling) but a stale start timestamp from days ago.
+        let recycled_lock = SessionLock { pid: child_pid, window: "crashed-window-from-yesterday".to_string(), started_at: 1_000_000 };
+        std::fs::write(target_dir.join("session.lock"), serde_json::to_vec_pretty(&recycled_lock).unwrap()).expect("write recycled lock");
+
+        let outcome = acquire_stable_session_dir(&dir, "recycled-file", "current-window", "fallback-win");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(
+            outcome,
+            LockOutcome::Acquired(target_dir.clone()),
+            "lock whose non-self PID is alive but whose started_at does not match the process start time must be taken over"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -225,7 +225,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
         section: "Development",
         icon: Icon::Comment,
         title: "Send Selection & Pin-Comments to Agent Terminal",
-        subtitle: "Exports selected frame to /tmp/designos-live-selection.spec.json and pipes into PTY stdin",
+        subtitle: "Exports selected frame to the session selection.spec.json and pipes into PTY stdin",
         badge: "Development",
         shortcut: "⇧⌘E",
         tab_mask: 0b0100,

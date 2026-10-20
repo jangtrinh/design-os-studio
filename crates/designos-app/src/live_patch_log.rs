@@ -27,6 +27,14 @@ fn identity(meta: &std::fs::Metadata) -> FileIdentity {
     (ino, meta.created().ok())
 }
 
+fn read_range(path: &Path, start: u64, len: u64) -> Option<Vec<u8>> {
+    let mut buf = Vec::new();
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(start)).ok()?;
+    f.take(len).read_to_end(&mut buf).ok()?;
+    Some(buf)
+}
+
 /// Read position in a session's patch log, plus replay state across patches.
 #[derive(Debug)]
 pub struct LivePatchLog {
@@ -67,42 +75,20 @@ pub struct LivePatchLog {
     load_failed: bool,
 }
 
-impl LivePatchLog {
-    pub fn bind(path: PathBuf) -> Self {
-        let meta = std::fs::metadata(&path).ok();
-        let mut log = Self {
-            offset: meta.as_ref().map_or(0, |m| m.len()),
-            identity: meta.as_ref().map(identity),
-            head: Vec::new(),
-            skipping: false,
-            max_poll_bytes: MAX_POLL_BYTES,
-            max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
-            state: LivePatchState::default(),
-            pending: Vec::new(),
-            pending_offsets: Vec::new(),
-            last_polled_offsets: std::collections::VecDeque::new(),
-            pending_epoch_switch: false,
-            pending_doc: None,
-            doc_sync_path: path.with_file_name("doc-sync.designos"),
-            dropped_old_epoch: 0,
-            discarding: false,
-            load_failed: false,
-            path,
-        };
-        log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
-        log
-    }
+/// The read position of a [`LivePatchLog`] at one moment (`#690` §6): enough to tell, later and from
+/// another thread, whether the agent has appended a complete line since.
+#[derive(Clone, Debug)]
+pub struct UnreadProbe {
+    path: PathBuf,
+    offset: u64,
+    identity: Option<FileIdentity>,
+    head: Vec<u8>,
+    skipping: bool,
+    max_poll_bytes: u64,
+    max_line_bytes: usize,
+}
 
-    /// Current byte offset read in `doc-patch.jsonl`.
-    pub fn current_offset(&self) -> u64 {
-        self.offset
-    }
-
-    /// Agent changes wait for the canvas to go idle.
-    pub fn has_held(&self) -> bool {
-        !self.pending.is_empty() || self.pending_doc.is_some()
-    }
-
+impl UnreadProbe {
     /// A complete line (ending in a newline) was appended that no poll has read yet. A line still
     /// being written, or left behind by a crashed writer, has no newline and does not count: it
     /// would hold the editor's canvas back until the next append. While an oversized line is being
@@ -153,6 +139,67 @@ impl LivePatchLog {
             }
         }
         false
+    }
+
+    fn head_unchanged(&self) -> bool {
+        self.head.is_empty() || read_range(&self.path, 0, self.head.len() as u64).is_some_and(|now| now == self.head)
+    }
+}
+
+impl LivePatchLog {
+    pub fn bind(path: PathBuf) -> Self {
+        let meta = std::fs::metadata(&path).ok();
+        let mut log = Self {
+            offset: meta.as_ref().map_or(0, |m| m.len()),
+            identity: meta.as_ref().map(identity),
+            head: Vec::new(),
+            skipping: false,
+            max_poll_bytes: MAX_POLL_BYTES,
+            max_line_bytes: MAX_LIVE_PATCH_LINE_BYTES,
+            state: LivePatchState::default(),
+            pending: Vec::new(),
+            pending_offsets: Vec::new(),
+            last_polled_offsets: std::collections::VecDeque::new(),
+            pending_epoch_switch: false,
+            pending_doc: None,
+            doc_sync_path: path.with_file_name("doc-sync.designos"),
+            dropped_old_epoch: 0,
+            discarding: false,
+            load_failed: false,
+            path,
+        };
+        log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
+        log
+    }
+
+    /// Current byte offset read in `doc-patch.jsonl`.
+    pub fn current_offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Agent changes wait for the canvas to go idle.
+    pub fn has_held(&self) -> bool {
+        !self.pending.is_empty() || self.pending_doc.is_some()
+    }
+
+    /// A complete line (ending in a newline) was appended that no poll has read yet; see
+    /// [`UnreadProbe::has_unread_complete_line`].
+    pub fn has_unread_complete_line(&self) -> bool {
+        self.unread_probe().has_unread_complete_line()
+    }
+
+    /// A frozen copy of the read position, so a writer thread can ask the same question
+    /// ([`UnreadProbe::has_unread_complete_line`]) a moment later without touching this log.
+    pub fn unread_probe(&self) -> UnreadProbe {
+        UnreadProbe {
+            path: self.path.clone(),
+            offset: self.offset,
+            identity: self.identity,
+            head: self.head.clone(),
+            skipping: self.skipping,
+            max_poll_bytes: self.max_poll_bytes,
+            max_line_bytes: self.max_line_bytes,
+        }
     }
 
     /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
@@ -319,11 +366,7 @@ impl LivePatchLog {
     }
 
     fn read_range(&self, start: u64, len: u64) -> Option<Vec<u8>> {
-        let mut buf = Vec::new();
-        let mut f = std::fs::File::open(&self.path).ok()?;
-        f.seek(SeekFrom::Start(start)).ok()?;
-        f.take(len).read_to_end(&mut buf).ok()?;
-        Some(buf)
+        read_range(&self.path, start, len)
     }
 }
 
