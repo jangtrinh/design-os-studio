@@ -1507,6 +1507,25 @@ impl TerminalState {
         }
     }
 
+    /// Test helper: polls the bridge until the active tab records a start failure or `budget` passes.
+    ///
+    /// A start only counts as failed when the CLI exits within `START_FAILURE_WINDOW` of its spawn. A
+    /// loaded parallel run can take longer than that window just to start the stub's shell, so each
+    /// poll restarts the clock of every tab that is still running: the exit is then judged on how long
+    /// ago the tab was last seen alive, which is what these tests mean by "exits at once".
+    #[cfg(test)]
+    pub(crate) fn poll_until_start_failure(&mut self, budget: std::time::Duration) -> bool {
+        crate::test_timing::poll_until(budget, || {
+            for tab in &mut self.tabs {
+                if matches!(tab.child.try_wait(), Ok(None)) {
+                    tab.spawned_at = std::time::Instant::now();
+                }
+            }
+            let _ = self.poll_live_agent_bridge();
+            self.active_tab().is_some_and(|t| t.start_failure.is_some())
+        })
+    }
+
     /// Runs the fix the user clicked on a tab's "failed to start" panel.
     pub fn apply_start_fix(&mut self, fix: FixAction, file_path: Option<&Path>) {
         match fix {
