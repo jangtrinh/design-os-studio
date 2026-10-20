@@ -25,7 +25,7 @@ mod text_styles;
 pub use fixture::FIXTURE;
 pub use state::CheckDesignsState;
 
-use designos_doc::{CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind};
+use designos_doc::{BlendMode, CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind};
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -161,7 +161,7 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Findings in the audited scope that were suppressed by `doc.check_designs.ignored`.
     pub ignored: Vec<Finding>,
-    /// Layers examined.
+    /// Meaningful layers examined.
     pub scanned: usize,
     /// Whether the scan has finished visiting every layer in the scope.
     pub complete: bool,
@@ -221,6 +221,8 @@ pub struct ScanCursor {
     pub(super) unreadable_libraries: Vec<String>,
     pub(super) full_key: Option<(u64, Scope, Vec<LibraryRef>, CheckDesignsSettings)>,
     pub(super) updating: bool,
+    #[cfg(test)]
+    pub(super) cheap_skip: bool,
 }
 
 impl ScanCursor {
@@ -253,6 +255,8 @@ impl ScanCursor {
             unreadable_libraries: Vec::new(),
             full_key: None,
             updating: false,
+            #[cfg(test)]
+            cheap_skip: true,
         }
     }
 
@@ -373,6 +377,19 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
             if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
                 continue;
             }
+            #[cfg(test)]
+            let allow_quiet_skip = cur.cheap_skip;
+            #[cfg(not(test))]
+            let allow_quiet_skip = true;
+            if allow_quiet_skip && is_quiet_mirror(doc, n) {
+                cur.scanned += 1;
+                steps += 1;
+                cur.stack.extend(n.children.iter().rev().copied());
+                if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
+                    return false;
+                }
+                continue;
+            }
             if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, start + budget) {
                 cur.stack.push(id);
                 return false;
@@ -407,16 +424,83 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
     cur.phase == Phase::Done
 }
 
-/// Scans `scope` to the end in one go, with the document's own variables and styles only (the app
-/// audits incrementally with its enabled libraries through [`ScanCursor`] and [`audit_step`]).
-/// Hidden layers are skipped; layers inside an instance are audited only where their effective
-/// properties or backdrop diverge from their main component.
+fn same_own_as_source(n: &Node, src: &Node) -> bool {
+    std::mem::discriminant(&n.kind) == std::mem::discriminant(&src.kind)
+        && n.opacity == src.opacity
+        && n.blend == src.blend
+        && n.fills == src.fills
+        && n.stroke == src.stroke
+        && n.effects == src.effects
+        && n.corner_radii == src.corner_radii
+        && n.style_refs == src.style_refs
+        && n.variables == src.variables
+        && n.detached_symbol_id == src.detached_symbol_id
+        && n.component.detached_symbol_id == src.component.detached_symbol_id
+        && match (&n.kind, &src.kind) {
+            (NodeKind::Text(a), NodeKind::Text(b)) => a.style == b.style && a.runs == b.runs,
+            (NodeKind::Instance { frame: fa, component: ca, component_key: ka }, NodeKind::Instance { frame: fb, component: cb, component_key: kb }) => {
+                fa == fb && ca == cb && ka == kb
+            }
+            _ => n.kind.frame_props() == src.kind.frame_props(),
+        }
+}
+
+/// Whether `n` is an un-overridden non-text mirror layer inside an instance whose ancestors up to
+/// the instance root are also un-overridden and fully opaque (`opacity >= 1.0`, normal blend).
+/// Text mirrors always run the checkers so covering siblings and out-of-frame backdrops are audited.
+fn is_quiet_mirror(doc: &Document, n: &Node) -> bool {
+    if matches!(n.kind, NodeKind::Text(_)) {
+        return false;
+    }
+    let Some(src_id) = n.component.source else { return false };
+    if !n.component.overrides.is_empty() || !n.variables.modes.is_empty() {
+        return false;
+    }
+    let Some(src) = doc.get(src_id) else { return false };
+    if !same_own_as_source(n, src) {
+        return false;
+    }
+    let mut cur = n.parent;
+    while let Some(pid) = cur {
+        let Some(anc) = doc.get(pid) else { return false };
+        if anc.component.source.is_none() {
+            break;
+        }
+        if !anc.component.overrides.is_empty()
+            || !anc.variables.modes.is_empty()
+            || anc.opacity < 1.0
+            || !matches!(anc.blend, BlendMode::Normal | BlendMode::PassThrough)
+        {
+            return false;
+        }
+        if let Some(anc_src) = anc.component.source.and_then(|s| doc.get(s)) {
+            if anc.fills != anc_src.fills || anc.opacity != anc_src.opacity || anc.blend != anc_src.blend {
+                return false;
+            }
+        }
+        cur = anc.parent;
+    }
+    true
+}
+
+/// Scans `scope` with the document's own variables and styles only (the app always audits with
+/// its enabled libraries through [`audit_with_libraries`]). Hidden layers are skipped; layers inside
+/// an instance are audited only where their effective properties or backdrop diverge from their
+/// main component.
 #[cfg(test)]
 pub fn audit(doc: &Document, scope: &Scope) -> Report {
     audit_with_libraries(doc, scope, &LibrarySources::default())
 }
 
-/// Scans `scope` to the end in one go and includes variables and styles from enabled `libs` snapshots.
+#[cfg(test)]
+pub(super) fn audit_with_cheap_skip(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
+    let mut cur = ScanCursor::with_libraries(doc, scope.clone(), libs.clone());
+    cur.cheap_skip = cheap_skip;
+    while !audit_step(doc, &mut cur, Duration::from_secs(3600)) {}
+    cur.into_report(doc)
+}
+
+/// Scans `scope` and includes variables and styles from enabled `libs` snapshots.
 #[cfg(test)]
 pub fn audit_with_libraries(doc: &Document, scope: &Scope, libs: &LibrarySources) -> Report {
     let mut cur = ScanCursor::with_libraries(doc, scope.clone(), libs.clone());
