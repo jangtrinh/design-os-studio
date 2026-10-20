@@ -6,6 +6,68 @@ use serde_json::{json, Value};
 
 pub type LintRulesMap = std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>>;
 
+pub struct CachedLintReport {
+    runtime_id: u64,
+    mutation_epoch: u64,
+    node_count: usize,
+    roots: Vec<NodeId>,
+    preset: Option<String>,
+    rules: Option<Vec<String>>,
+    include_ignored: bool,
+    stack_cursor: Option<String>,
+    report: designos_doc::lint::LintReport,
+    /// Document-level findings (no owning node) appended after `report.findings`; only the
+    /// first chunk of a scan carries them.
+    extra_findings: Vec<Value>,
+}
+
+/// One page over `report.findings` followed by `extras` (JSON findings with no owning node).
+/// `total`, `by_rule` and `by_severity` include the extras; the page never exceeds `limit`.
+fn page_with_extras(
+    report: &designos_doc::lint::LintReport,
+    extras: &[Value],
+    offset: usize,
+    limit: usize,
+    cached_hit: bool,
+    stack_prefix: Option<&str>,
+) -> Value {
+    let mut value = report.paginate_with_prefix(offset, limit, cached_hit, stack_prefix).to_value();
+    if extras.is_empty() {
+        return value;
+    }
+    let own = report.findings.len();
+    let all = own + extras.len();
+    let start = offset.min(all);
+    let end = (start + limit).min(all);
+    let mut page: Vec<Value> = report
+        .findings
+        .iter()
+        .skip(start)
+        .take(end.saturating_sub(start).min(own.saturating_sub(start)))
+        .map(|f| serde_json::to_value(f).unwrap_or(Value::Null))
+        .collect();
+    page.extend(extras.iter().skip(start.saturating_sub(own)).take(end.saturating_sub(start.max(own))).cloned());
+    let page_len = page.len();
+    value["findings"] = Value::Array(page);
+    value["total"] = json!(report.total + extras.len());
+    value["truncated"] = json!(!report.complete || page_len < report.total + extras.len());
+    value["cursor"] = if end < all {
+        match stack_prefix {
+            Some(prefix) => json!(format!("{prefix}+offset:{end}")),
+            None => json!(format!("offset:{end}")),
+        }
+    } else if !report.complete {
+        json!(report.cursor)
+    } else {
+        Value::Null
+    };
+    for (map, key) in [("by_rule", "broken-style-binding"), ("by_severity", "warning")] {
+        let n = value[map].get(key).and_then(Value::as_u64).unwrap_or(0) + extras.len() as u64;
+        value[map][key] = json!(n);
+    }
+    value
+}
+
 pub struct Engine {
     pub doc: Document,
     pub history: History,
@@ -22,6 +84,10 @@ pub struct Engine {
     /// Per-node active lint rule IDs cached for `(runtime_id, mutation_epoch)`, allowing
     /// partial passes (`lint: true` vs `designos_lint`) to merge without clobbering disjoint rules.
     pub lint_rules_cache: Option<((u64, u64), LintRulesMap)>,
+    /// Per-call node budget for `designos_lint` worker slices (`100_000` by default).
+    pub lint_call_max_nodes: usize,
+    #[doc(hidden)]
+    pub lint_report_cache: Option<CachedLintReport>,
 }
 
 impl Default for Engine {
@@ -35,8 +101,10 @@ impl Default for Engine {
             live_ops: None,
             live_patch_label: None,
             owned_frames: None,
+            lint_call_max_nodes: 100_000,
             lint_cache: None,
             lint_rules_cache: None,
+            lint_report_cache: None,
         }
     }
 }
@@ -75,6 +143,7 @@ pub const DISPATCHED: &[&str] = &[
     "designos_query_xpath",
     "query_nodes",
     "designos_lint",
+    "designos_lint_fix",
     "check_design",
     "designos_undo",
     "designos_redo",
@@ -121,6 +190,39 @@ impl Engine {
             rules_map.iter().filter_map(|(&id, set)| (!set.is_empty()).then_some((id, set.len().min(u16::MAX as usize) as u16))).collect();
         self.lint_rules_cache = Some((rev, rules_map));
         self.lint_cache = Some((rev, counts));
+    }
+
+    /// Refreshes the per-node issue counts that `designos_get_metadata` badges read after a complete
+    /// `designos_lint` run: `zero-bounds` and `default-layer-name` are recomputed for every node
+    /// under `roots`, independent of the preset, leaving other cached rules untouched.
+    fn refresh_node_lint_cache(&mut self, roots: &[NodeId]) {
+        let mut checked = Vec::new();
+        let mut hits: LintRulesMap = LintRulesMap::new();
+        for &root in roots {
+            self.doc.walk(root, |n, _| {
+                if matches!(n.kind, NodeKind::Page { .. }) {
+                    return;
+                }
+                checked.push(n.id);
+                if (n.size.x <= 0.0 || n.size.y <= 0.0) && !designos_export::is_lint_rule_ignored(n, "zero-bounds") {
+                    hits.entry(n.id).or_default().insert("zero-bounds");
+                }
+                if matches!(n.name.trim(), "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group")
+                    && !designos_export::is_lint_rule_ignored(n, "default-layer-name")
+                {
+                    hits.entry(n.id).or_default().insert("default-layer-name");
+                }
+            });
+        }
+        let rev = (self.doc.runtime_id(), self.doc.mutation_epoch());
+        self.update_lint_cache(rev, &checked, &["zero-bounds", "default-layer-name"], hits);
+    }
+
+    /// Clears the cached lint report (e.g. when the session swaps `self.doc`).
+    pub fn clear_lint_cache(&mut self) {
+        self.lint_cache = None;
+        self.lint_rules_cache = None;
+        self.lint_report_cache = None;
     }
 
     /// Resolves the target page when a tool call omits `parent_id` / `page_id`:
@@ -480,68 +582,151 @@ impl Engine {
                 Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
             }
             "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args),
-            "designos_lint" | "check_design" => {
+            "designos_lint" | "check_design" | "designos_lint_fix" => {
                 let a: LintArgs = parse(args)?;
-                let root = a.page_id.map(NodeId).or_else(|| self.resolve_default_page().ok());
-                let mut findings = Vec::new();
-                let mut checked_nodes = Vec::new();
-                let mut fresh_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
-                let mut check_node = |n: &Node| {
-                    if matches!(n.kind, NodeKind::Page { .. }) {
-                        return;
+                if (a.page_id.is_some() && (a.node_ids.is_some() || a.node_id.is_some())) || (a.node_id.is_some() && a.node_ids.is_some()) {
+                    return Err("EXACTLY_ONE_SCOPE: provide at most one of page_id or node_ids (safe_to_retry: true)".into());
+                }
+                let limit = a.limit.unwrap_or(100);
+                if !(1..=500).contains(&limit) {
+                    return Err("limit must be between 1 and 500 (safe_to_retry: true)".into());
+                }
+                let roots: Vec<NodeId> = if let Some(pid) = a.page_id {
+                    if pid == 0 || self.doc.get(NodeId(pid)).is_none() {
+                        return Err(format!("NODE_NOT_FOUND: page {pid} not found (safe_to_retry: true)"));
                     }
-                    checked_nodes.push(n.id);
-                    if (n.size.x <= 0.0 || n.size.y <= 0.0) && !designos_export::is_lint_rule_ignored(n, "zero-bounds") {
-                        findings.push(json!({"rule": "zero-bounds", "severity": "error", "node_id": n.id.0, "name": n.name, "message": "Layer has zero or negative width/height"}));
-                        fresh_hits.entry(n.id).or_default().insert("zero-bounds");
+                    vec![NodeId(pid)]
+                } else if let Some(nid) = a.node_id {
+                    if nid == 0 || self.doc.get(NodeId(nid)).is_none() {
+                        return Err(format!("NODE_NOT_FOUND: node {nid} not found (safe_to_retry: true)"));
                     }
-                    let trimmed = n.name.trim();
-                    if matches!(trimmed, "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group")
-                        && !designos_export::is_lint_rule_ignored(n, "default-layer-name")
-                    {
-                        findings.push(json!({"rule": "default-layer-name", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Give layer a semantic name"}));
-                        fresh_hits.entry(n.id).or_default().insert("default-layer-name");
+                    vec![NodeId(nid)]
+                } else if let Some(ids) = &a.node_ids {
+                    if ids.is_empty() || ids.len() > 500 {
+                        return Err("node_ids must contain 1..=500 IDs (safe_to_retry: true)".into());
+                    }
+                    let mut out = Vec::with_capacity(ids.len());
+                    for &nid in ids {
+                        if nid == 0 || self.doc.get(NodeId(nid)).is_none() {
+                            return Err(format!("NODE_NOT_FOUND: node {nid} not found (safe_to_retry: true)"));
+                        }
+                        out.push(NodeId(nid));
+                    }
+                    out
+                } else {
+                    match self.resolve_default_page() {
+                        Ok(p) => vec![p],
+                        Err(_) => self.doc.pages.clone(),
                     }
                 };
-                if let Some(r) = root {
-                    self.doc.walk(r, |n, _| check_node(n));
+                let default_preset = if name == "designos_lint_fix" { designos_doc::lint::LintPreset::Strict } else { designos_doc::lint::LintPreset::Agent };
+                let mut cfg = match a.preset.as_deref() {
+                    Some(p) => designos_doc::lint::LintConfig::from_preset_str(p).map_err(|e| e.to_string())?,
+                    None => designos_doc::lint::LintConfig::from_preset(default_preset),
+                };
+                if let Some(rules) = &a.rules {
+                    cfg = cfg.with_rules(rules).map_err(|e| e.to_string())?;
+                }
+                cfg.include_ignored = a.include_ignored.unwrap_or(false);
+                cfg.limit = Some(limit);
+                cfg.cursor = a.cursor.clone();
+
+                self.settle_layout();
+                if name == "designos_lint_fix" {
+                    let (cmds, fix_payload) = designos_doc::lint::lint_fix_commands(&self.doc, &roots, &cfg);
+                    let fixed_count = fix_payload.get("fixed_count").and_then(Value::as_u64).unwrap_or(0);
+                    let changes = fix_payload.get("changes").cloned().unwrap_or_else(|| json!([]));
+                    if !cmds.is_empty() {
+                        self.exec(Command::Batch(cmds))?;
+                        for &r in &roots {
+                            if let Some(p) = self.doc.page_of(r) {
+                                self.relayout(p);
+                            }
+                        }
+                        self.settle_layout();
+                    }
+                    return Ok(json!({ "changed": fixed_count > 0, "fixed_count": fixed_count, "changes": changes }));
+                }
+
+                let (stack_cursor, offset_cursor) = if let Some(cur) = a.cursor.as_deref() {
+                    if let Some(off_str) = cur.strip_prefix("offset:") {
+                        let off = off_str.parse::<usize>().map_err(|_| format!("INVALID_CURSOR: malformed offset cursor '{cur}' (safe_to_retry: true)"))?;
+                        (None, Some(off))
+                    } else if let Some(rest) = cur.strip_prefix("stack:") {
+                        if let Some((id_str, off_str)) = rest.split_once("+offset:") {
+                            let id = id_str.parse::<u64>().map_err(|_| format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"))?;
+                            if id == 0 {
+                                return Err(format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"));
+                            }
+                            let off = off_str.parse::<usize>().map_err(|_| format!("INVALID_CURSOR: malformed offset cursor '{cur}' (safe_to_retry: true)"))?;
+                            (Some(format!("stack:{id}")), Some(off))
+                        } else {
+                            let id = rest.parse::<u64>().map_err(|_| format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"))?;
+                            if id == 0 {
+                                return Err(format!("INVALID_CURSOR: malformed stack cursor '{cur}' (safe_to_retry: true)"));
+                            }
+                            (Some(format!("stack:{id}")), None)
+                        }
+                    } else {
+                        return Err(format!("INVALID_CURSOR: cursor '{cur}' must start with 'offset:' or 'stack:' (safe_to_retry: true)"));
+                    }
                 } else {
-                    for n in self.doc.nodes.values() {
-                        check_node(n);
+                    (None, None)
+                };
+
+                if let Some(offset) = offset_cursor {
+                    if let Some(cached) = self.lint_report_cache.as_ref().filter(|c| {
+                        c.runtime_id == self.doc.runtime_id()
+                            && c.mutation_epoch == self.doc.mutation_epoch()
+                            && c.node_count == self.doc.nodes.len()
+                            && c.roots == roots
+                            && c.preset == a.preset
+                            && c.rules == a.rules
+                            && c.include_ignored == cfg.include_ignored
+                            && c.stack_cursor == stack_cursor
+                    }) {
+                        return Ok(page_with_extras(&cached.report, &cached.extra_findings, offset, limit, true, stack_cursor.as_deref()));
                     }
                 }
-                let (structural, structural_checked) =
-                    designos_export::structural_lint_rules_for_nodes(&self.doc, &checked_nodes, std::time::Duration::from_millis(50));
-                let mut structural_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
-                for (id, rules) in structural {
-                    if rules.contains("clipped-text") {
-                        if let Some(n) = self.doc.get(id) {
-                            findings.push(json!({"rule": "clipped-text", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Fixed-size text layer clips its content"}));
-                        }
-                        structural_hits.entry(id).or_default().insert("clipped-text");
-                    }
+
+                let mut unpaged_cfg = cfg.clone();
+                unpaged_cfg.limit = None;
+                unpaged_cfg.cursor = None;
+
+                let mut call_budget = designos_doc::lint::Budget::with_limits(self.lint_call_max_nodes.max(1), Some(std::time::Duration::from_millis(2_000)));
+                call_budget.cursor = stack_cursor.clone();
+
+                let report = designos_render::lint_env::lint_scoped_on_worker(
+                    &self.doc,
+                    &roots,
+                    &unpaged_cfg,
+                    512,
+                    std::time::Duration::from_millis(4),
+                    &mut call_budget,
+                )
+                .report;
+
+                if stack_cursor.is_none() && report.complete {
+                    self.refresh_node_lint_cache(&roots);
                 }
-                let rev = (self.doc.runtime_id(), self.doc.mutation_epoch());
-                self.update_lint_cache(rev, &checked_nodes, &["zero-bounds", "default-layer-name"], fresh_hits);
-                self.update_lint_cache(rev, &structural_checked, &["clipped-text"], structural_hits);
-                for (style_key, meta) in &self.doc.style_meta {
-                    for (prop, vid) in &meta.bindings {
-                        if !self.doc.variables.contains_key(vid) {
-                            findings.push(json!({
-                                "rule": "broken-style-binding",
-                                "category": "tokens",
-                                "severity": "warning",
-                                "style_key": style_key,
-                                "name": meta.name,
-                                "property": prop,
-                                "variable_id": vid,
-                                "message": format!("Style '{}' binds '{}' to missing variable '{}'", meta.name, prop, vid),
-                            }));
-                        }
-                    }
-                }
-                let count = findings.len();
-                Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
+                // Style findings belong to the whole document, not to a node chunk: fold them into the
+                // first chunk only (a resumed `stack:` chunk never repeats them), and into the cached
+                // report so every page of that chunk shares one total and honours `limit`.
+                let extra_findings = if stack_cursor.is_none() { designos_doc::lint::broken_style_binding_findings_for(&self.doc, &cfg) } else { Vec::new() };
+                let value = page_with_extras(&report, &extra_findings, offset_cursor.unwrap_or(0), limit, false, stack_cursor.as_deref());
+                self.lint_report_cache = Some(CachedLintReport {
+                    runtime_id: self.doc.runtime_id(),
+                    mutation_epoch: self.doc.mutation_epoch(),
+                    node_count: self.doc.nodes.len(),
+                    roots,
+                    preset: a.preset,
+                    rules: a.rules,
+                    include_ignored: cfg.include_ignored,
+                    stack_cursor,
+                    report,
+                    extra_findings,
+                });
+                Ok(value)
             }
             "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
             "designos_apply_batch" => crate::tools::batch::apply(self, args),
@@ -900,6 +1085,20 @@ struct QueryXpathArgs {
 struct LintArgs {
     #[serde(default)]
     page_id: Option<u64>,
+    #[serde(default)]
+    node_id: Option<u64>,
+    #[serde(default)]
+    node_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
+    rules: Option<Vec<String>>,
+    #[serde(default)]
+    include_ignored: Option<bool>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    cursor: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1092,8 +1291,16 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "lint",
-        "Audit layers on a page for zero-bounds geometry and default layer names, returning structured findings and pass status.",
-        json!({"page_id":id}),
+        "Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page.",
+        json!({
+            "page_id": id,
+            "node_ids": {"type": "array", "items": id, "maxItems": 500},
+            "preset": {"type": "string", "default": "agent"},
+            "rules": {"type": "array", "items": {"type": "string"}},
+            "include_ignored": {"type": "boolean", "default": false},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            "cursor": {"type": "string"}
+        }),
         vec![],
         true,
         true,
@@ -1108,6 +1315,20 @@ pub fn tools() -> Vec<Value> {
             "x":coordinate,
             "y":coordinate,
             "infer_block_auto_layout":{"type":"boolean","default":true}
+        }),
+        vec![],
+        false,
+        false,
+    );
+    add(
+        "lint_fix",
+        "Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step.",
+        json!({
+            "page_id": id,
+            "node_id": id,
+            "node_ids": {"type": "array", "items": id, "maxItems": 500},
+            "preset": {"type": "string", "default": "strict"},
+            "rules": {"type": "array", "items": {"type": "string"}}
         }),
         vec![],
         false,
@@ -1478,7 +1699,7 @@ mod tests {
     fn readers_that_serialize_or_generate_finish_a_queue_they_find() {
         let dir = std::env::temp_dir().join(format!("designos_engine_settle_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for tool in ["designos_generate_code", "designos_export_fig_file", "designos_export_spec"] {
+        for tool in ["designos_generate_code", "designos_export_fig_file", "designos_export_spec", "designos_lint"] {
             let mut e = Engine::default();
             let (frame, last) = rows_frame(&mut e);
             queue_the_last_row(&mut e, frame, last);
@@ -1486,6 +1707,7 @@ mod tests {
             let args = match tool {
                 "designos_generate_code" => json!({"node_id":frame.0,"language":"css"}),
                 "designos_export_fig_file" => json!({"output_path":out.to_str().unwrap()}),
+                "designos_lint" => json!({"node_ids":[frame.0],"limit":10}),
                 _ => json!({"node_id":frame.0}),
             };
             e.call(tool, args).unwrap();
@@ -1533,16 +1755,8 @@ mod tests {
 
     #[test]
     fn apply_spec_instance_round_trips_designos_and_fig_and_exports_spec() {
-        let mut e = Engine {
-            doc: designos_doc::fixtures::button_library(),
-            history: History::default(),
-            active_page_id: None,
-            live_ops: None,
-            live_patch_label: None,
-            owned_frames: None,
-            lint_cache: None,
-            lint_rules_cache: None,
-        };
+        let mut e =
+            Engine { doc: designos_doc::fixtures::button_library(), history: History::default(), active_page_id: None, live_ops: None, ..Engine::default() };
         let page = e.doc.pages[0];
         e.active_page_id = Some(page);
 
@@ -1833,5 +2047,470 @@ mod tests {
         // Undo removes the placed Card and all its slot children in 1 step
         e.call("designos_undo", json!({})).unwrap();
         assert!(e.doc.get(root_id).is_none());
+    }
+
+    #[test]
+    fn mcp_lint_returns_full_rule_set() {
+        use designos_doc::{AutoLayout, Color, FrameProps, LayoutChild, LayoutDirection, Paint, Sizing, TextAutoResize, TextStyle};
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+
+        // 1. overflow-parent: non-clipping frame with overflowing child
+        let ov_parent = e.doc.alloc_id();
+        let mut ov_f = Node::frame(ov_parent, Rect::new(0.0, 0.0, 100.0, 100.0));
+        ov_f.name = "OverflowParent".into();
+        ov_f.kind = NodeKind::Frame(FrameProps { clips_content: false, ..Default::default() });
+        e.doc.insert(page, ov_f).unwrap();
+        let ov_child = e.doc.alloc_id();
+        let mut ov_c = Node::rectangle(ov_child, Rect::new(60.0, 0.0, 80.0, 40.0));
+        ov_c.name = "OverflowChild".into();
+        ov_c.fills = vec![Paint::solid(Color::rgb(12, 34, 56))]; // also hardcoded-color
+        e.doc.insert(ov_parent, ov_c).unwrap();
+
+        // 2 & 3. clipped-partial and clipped-full inside clipping frame
+        let clip_parent = e.doc.alloc_id();
+        let mut clip_f = Node::frame(clip_parent, Rect::new(200.0, 0.0, 100.0, 100.0));
+        clip_f.name = "ClipParent".into();
+        clip_f.kind = NodeKind::Frame(FrameProps { clips_content: true, ..Default::default() });
+        e.doc.insert(page, clip_f).unwrap();
+        let cp_id = e.doc.alloc_id();
+        let mut cp_n = Node::rectangle(cp_id, Rect::new(80.0, 10.0, 40.0, 40.0));
+        cp_n.name = "PartialClip".into();
+        e.doc.insert(clip_parent, cp_n).unwrap();
+        let cf_id = e.doc.alloc_id();
+        let mut cf_n = Node::rectangle(cf_id, Rect::new(140.0, 10.0, 20.0, 20.0));
+        cf_n.name = "FullClip".into();
+        e.doc.insert(clip_parent, cf_n).unwrap();
+
+        // 4, 8, 19, 26, 27. Plain frame with sibling-overlap, missing-auto-layout, misaligned-siblings, sizing-conflict, default-layer-name
+        let plain_f = e.doc.alloc_id();
+        let mut pf = Node::frame(plain_f, Rect::new(400.0, 0.0, 200.0, 200.0));
+        pf.name = "Frame 1".into(); // default-layer-name
+        e.doc.insert(page, pf).unwrap();
+        let s1 = e.doc.alloc_id();
+        let mut s1_n = Node::rectangle(s1, Rect::new(10.0, 10.0, 60.0, 40.0));
+        s1_n.name = "SibA".into();
+        s1_n.fills = vec![Paint::solid(Color::BLACK)];
+        s1_n.layout_child = LayoutChild { horizontal: Sizing::Fill, ..Default::default() }; // sizing-conflict
+        e.doc.insert(plain_f, s1_n).unwrap();
+        let s2 = e.doc.alloc_id();
+        let mut s2_n = Node::rectangle(s2, Rect::new(40.0, 12.0, 60.0, 40.0)); // overlaps s1 + 2px y misalignment
+        s2_n.name = "SibB".into();
+        s2_n.fills = vec![Paint::solid(Color::BLACK)];
+        e.doc.insert(plain_f, s2_n).unwrap();
+
+        // 5, 6, 9, 11, 15, 20, 22, 17. Text rules + low-contrast-text + detached-text-style
+        let bg_f = e.doc.alloc_id();
+        let mut bg = Node::frame(bg_f, Rect::new(0.0, 240.0, 400.0, 200.0));
+        bg.name = "TextHost".into();
+        bg.fills = vec![Paint::solid(Color::WHITE)];
+        e.doc.insert(page, bg).unwrap();
+
+        // text-truncated + non-scale-font-size (15px) + detached-text-style + low-contrast-text
+        let t_trunc = e.doc.alloc_id();
+        let mut tt = Node::text(
+            t_trunc,
+            Rect::new(8.0, 8.0, 80.0, 20.0),
+            "Enterprise annual plan subscription",
+            TextStyle { font_size: 15.0, fills: vec![Paint::solid(Color::rgb(210, 210, 210))], ..Default::default() },
+        );
+        tt.name = "PlanTitle".into();
+        if let NodeKind::Text(tp) = &mut tt.kind {
+            tp.auto_resize = TextAutoResize::None;
+        }
+        e.doc.insert(bg_f, tt).unwrap();
+
+        // text-unexpected-wrap
+        let t_wrap = e.doc.alloc_id();
+        let mut tw = Node::text(t_wrap, Rect::new(8.0, 40.0, 60.0, 60.0), "Subscribe now", TextStyle { font_size: 16.0, ..Default::default() });
+        tw.name = "CTA".into();
+        if let NodeKind::Text(tp) = &mut tw.kind {
+            tp.auto_resize = TextAutoResize::Height;
+        }
+        e.doc.insert(bg_f, tw).unwrap();
+
+        // text-missing-fill + placeholder-text + tiny-text
+        let t_ghost = e.doc.alloc_id();
+        let mut tg =
+            Node::text(t_ghost, Rect::new(8.0, 110.0, 120.0, 20.0), "Lorem ipsum dolor", TextStyle { font_size: 9.0, fills: vec![], ..Default::default() });
+        tg.name = "GhostLorem".into();
+        tg.fills.clear();
+        e.doc.insert(bg_f, tg).unwrap();
+
+        // 7 & 16. collapsed-size + non-4px-grid + inconsistent-radius
+        let col_id = e.doc.alloc_id();
+        let mut col_n = Node::rectangle(col_id, Rect::new(0.0, 480.0, 0.0, 19.0));
+        col_n.name = "CollapsedRect".into();
+        col_n.corner_radii = [7.0, 7.0, 7.0, 7.0]; // off-scale radius
+        e.doc.insert(page, col_n).unwrap();
+
+        // 10, 14, 18. Auto-layout with >50% absolute children, inconsistent-spacing (11px), unbalanced-padding
+        let al_id = e.doc.alloc_id();
+        let mut al_n = Node::frame(al_id, Rect::new(100.0, 480.0, 200.0, 120.0));
+        al_n.name = "AutoFrame".into();
+        al_n.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                item_spacing: 11.0,
+                padding: [8.0, 24.0, 8.0, 8.0],
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        e.doc.insert(page, al_n).unwrap();
+        for i in 0..2 {
+            let ac = e.doc.alloc_id();
+            let mut ac_n = Node::rectangle(ac, Rect::new(0.0, 0.0, 20.0, 20.0));
+            ac_n.name = format!("AbsChild{i}");
+            ac_n.layout_child = LayoutChild { absolute: true, ..Default::default() };
+            e.doc.insert(al_id, ac_n).unwrap();
+        }
+
+        // 12. detached-instance
+        let det_id = e.doc.alloc_id();
+        let mut det_n = Node::frame(det_id, Rect::new(340.0, 480.0, 80.0, 40.0));
+        det_n.name = "DetachedCard".into();
+        det_n.detached_symbol_id = Some("guid:99:1".into());
+        e.doc.insert(page, det_n).unwrap();
+
+        // 14 & 24. empty-container + deeply-nested (depth > 6)
+        let mut parent_id = page;
+        for d in 1..=7 {
+            let nid = e.doc.alloc_id();
+            let mut nf = Node::frame(nid, Rect::new(0.0, 0.0, 80.0, 80.0));
+            nf.name = format!("Nest{d}");
+            if d == 7 {
+                nf.fills.clear();
+            }
+            e.doc.insert(parent_id, nf).unwrap();
+            parent_id = nid;
+        }
+
+        // 21. small-touch-target (button < 44x44)
+        let btn_id = e.doc.alloc_id();
+        let mut btn = Node::frame(btn_id, Rect::new(500.0, 480.0, 32.0, 28.0));
+        btn.name = "Save Button".into();
+        btn.fills = vec![Paint::solid(Color::BLACK)];
+        e.doc.insert(page, btn).unwrap();
+
+        bind_style_to_missing_variable(&mut e);
+        let res = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
+        assert!(res.get("passed").is_none(), "old two-rule `passed` field must be gone");
+        let by_rule = res["by_rule"].as_object().expect("by_rule map");
+        for rule_id in designos_doc::lint::all_rule_ids() {
+            assert!(
+                by_rule.get(rule_id).and_then(Value::as_u64).unwrap_or(0) >= 1,
+                "strict preset must report finding for rule '{rule_id}', got by_rule={by_rule:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn same_findings_three_callers() {
+        use designos_doc::lint::{lint, LintConfig, LintPreset};
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+
+        let comp_id = e.doc.alloc_id();
+        let mut comp = Node::frame(comp_id, Rect::new(0.0, 0.0, 120.0, 40.0));
+        comp.name = "PrimaryButton".into();
+        comp.source_id = Some("10:1".into());
+        comp.kind = NodeKind::Component(Default::default());
+        e.doc.insert(page, comp).unwrap();
+
+        let det_id = e.doc.alloc_id();
+        let mut det = Node::frame(det_id, Rect::new(0.0, 80.0, 120.0, 40.0));
+        det.name = "DetachedCopy".into();
+        det.detached_symbol_id = Some("guid:10:1".into());
+        e.doc.insert(page, det).unwrap();
+
+        // Caller 1: MCP designos_lint with preset "check-designs"
+        let mcp_res = e.call("designos_lint", json!({"preset": "check-designs"})).unwrap();
+        let mcp_findings = mcp_res["findings"].as_array().unwrap();
+
+        // Caller 2: Direct library call with RenderLintEnv and CheckDesigns preset
+        let lib_cfg = LintConfig::from_preset(LintPreset::CheckDesigns);
+        let lib_report = lint(&e.doc, &lib_cfg, &designos_render::RenderLintEnv);
+        let lib_val = lib_report.to_value();
+        let lib_findings = lib_val["findings"].as_array().unwrap();
+
+        // Caller 3: Check designs shared detached rule engine
+        let comps = designos_doc::lint::rules::detached::Components::new(&e.doc);
+        let det_node = e.doc.get(det_id).unwrap();
+        let cd_plan = designos_doc::lint::rules::detached::plan(&e.doc, &comps, det_node);
+        let cd_equal = match cd_plan {
+            designos_doc::lint::rules::detached::DetachedPlan::Compare { component } => {
+                assert_eq!(component, comp_id);
+                designos_doc::lint::rules::detached::matches_component(&e.doc, det_id, component)
+            }
+            other => panic!("expected Compare plan, got {other:?}"),
+        };
+        let (cd_msg, cd_reconnect, _) = designos_doc::lint::rules::detached::compared_outcome(&e.doc, comp_id, cd_equal);
+        // Touch comps again so clippy knows it's used.
+        assert_eq!(comps.resolve("guid:10:1"), Some(comp_id));
+
+        assert_eq!(mcp_findings, lib_findings, "MCP and direct library call must match identically");
+        assert_eq!(mcp_findings.len(), 1);
+        assert_eq!(mcp_findings[0]["rule"], "detached-instance");
+        assert_eq!(mcp_findings[0]["node_id"], det_id.0);
+        assert_eq!(mcp_findings[0]["message"], cd_msg);
+        assert_eq!(mcp_findings[0]["suggested_fix"]["to"].as_u64(), cd_reconnect.map(|id| id.0));
+    }
+
+    #[test]
+    fn mcp_lint_error_contracts_and_history_fix() {
+        let mut e = Engine::default();
+        let id = create(&mut e, "frame", "Frame 1");
+        let id2 = create(&mut e, "frame", "Frame 2");
+
+        let err_scope = e.call("designos_lint", json!({"page_id": 1, "node_ids": [id]})).unwrap_err();
+        assert!(err_scope.contains("EXACTLY_ONE_SCOPE") && err_scope.contains("safe_to_retry"), "{err_scope}");
+
+        let err_preset = e.call("designos_lint", json!({"preset": "nonexistent-preset"})).unwrap_err();
+        assert!(err_preset.contains("UNKNOWN_PRESET") && err_preset.contains("valid_options"), "{err_preset}");
+
+        let err_rule = e.call("designos_lint", json!({"rules": ["nonexistent-rule"]})).unwrap_err();
+        assert!(err_rule.contains("UNKNOWN_RULE") && err_rule.contains("valid_options"), "{err_rule}");
+
+        let err_node = e.call("designos_lint", json!({"node_ids": [999_999]})).unwrap_err();
+        assert!(err_node.contains("NODE_NOT_FOUND"), "{err_node}");
+
+        // designos_lint is readOnlyHint: true and must reject `fix: true` without mutating.
+        let err_fix_on_readonly = e.call("designos_lint", json!({"rules": ["default-layer-name"], "fix": true})).unwrap_err();
+        assert!(err_fix_on_readonly.contains("unknown field `fix`"), "{err_fix_on_readonly}");
+        assert_eq!(e.doc.get(NodeId(id)).unwrap().name, "Frame 1");
+
+        // designos_lint_fix with preset "agent" (where auto-fixable rules are off) must not mutate.
+        let no_fix_agent = e.call("designos_lint_fix", json!({"preset": "agent"})).unwrap();
+        assert_eq!(no_fix_agent["fixed_count"], 0);
+        assert_eq!(e.doc.get(NodeId(id)).unwrap().name, "Frame 1");
+        assert_eq!(e.doc.get(NodeId(id2)).unwrap().name, "Frame 2");
+
+        // designos_lint_fix scoped by node_ids fixes only the targeted subtree and routes through History.
+        let fixed = e.call("designos_lint_fix", json!({"node_ids": [id], "rules": ["default-layer-name"]})).unwrap();
+        assert_eq!(fixed["fixed_count"], 1);
+        assert_ne!(e.doc.get(NodeId(id)).unwrap().name, "Frame 1");
+        assert_eq!(e.doc.get(NodeId(id2)).unwrap().name, "Frame 2", "unscoped sibling must remain untouched");
+        e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(e.doc.get(NodeId(id)).unwrap().name, "Frame 1");
+
+        // Offset pagination serves from Engine::lint_cache without rescanning (`scanned == 0`).
+        let page1 = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 1})).unwrap();
+        assert_eq!(page1["findings"].as_array().unwrap().len(), 1);
+        assert_eq!(page1["total"], 2);
+        assert_eq!(page1["complete"], true);
+        assert_eq!(page1["cursor"], "offset:1");
+        assert!(page1["scanned"].as_u64().unwrap() >= 2);
+
+        let page2 = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 1, "cursor": "offset:1"})).unwrap();
+        assert_eq!(page2["findings"].as_array().unwrap().len(), 1);
+        assert_eq!(page2["total"], 2);
+        assert_eq!(page2["complete"], true);
+        assert!(page2["cursor"].is_null());
+        assert_eq!(page2["scanned"], 0, "offset cursor pagination must serve from cached report without rescanning");
+        assert_ne!(page1["findings"][0]["node_id"], page2["findings"][0]["node_id"]);
+
+        let catalog = tools();
+        assert!(catalog.iter().any(|t| t["name"] == "designos_lint_fix" && t["annotations"]["readOnlyHint"] == false));
+    }
+
+    fn bind_style_to_missing_variable(e: &mut Engine) {
+        let mut bindings = std::collections::BTreeMap::new();
+        bindings.insert("fill".to_string(), "var-deleted".to_string());
+        e.doc.style_meta.insert(
+            "Brand/Primary".into(),
+            designos_doc::StyleMeta {
+                name: "Brand/Primary".into(),
+                key: None,
+                description: String::new(),
+                property: designos_doc::StyleProperty::Fill,
+                bindings,
+            },
+        );
+    }
+
+    #[test]
+    fn mcp_lint_broken_style_binding_appears_once_across_budgeted_chunks_with_consistent_totals() {
+        let mut e = Engine::default();
+        for i in 1..=20 {
+            create(&mut e, "frame", &format!("Frame {i}"));
+        }
+        bind_style_to_missing_variable(&mut e);
+        e.lint_call_max_nodes = 8;
+        e.clear_lint_cache();
+
+        let mut cursor: Option<String> = None;
+        let mut style_hits = 0usize;
+        let mut chunk_totals: Vec<(bool, u64)> = Vec::new();
+        let mut saw_incomplete_chunk = false;
+        for _ in 0..40 {
+            let mut req = json!({"preset": "strict", "limit": 3});
+            if let Some(ref c) = cursor {
+                req["cursor"] = json!(c);
+            }
+            let res = e.call("designos_lint", req).unwrap();
+            let batch = res["findings"].as_array().unwrap();
+            assert!(batch.len() <= 3, "page must not exceed limit: {}", batch.len());
+            style_hits += batch.iter().filter(|f| f["rule"] == "broken-style-binding").count();
+            let resumed = cursor.as_deref().is_some_and(|c| c.starts_with("stack:"));
+            let by_rule_hits = res["by_rule"]["broken-style-binding"].as_u64().unwrap_or(0);
+            assert_eq!(by_rule_hits, u64::from(!resumed), "by_rule counts the style finding only in the first chunk");
+            chunk_totals.push((resumed, res["total"].as_u64().unwrap()));
+            saw_incomplete_chunk |= res["complete"] == false;
+            match res["cursor"].as_str() {
+                Some(next) => cursor = Some(next.to_string()),
+                None => break,
+            }
+        }
+        assert!(saw_incomplete_chunk, "test must exercise budgeted chunks");
+        assert_eq!(style_hits, 1, "the style finding must be returned exactly once across all chunks");
+        let first: Vec<u64> = chunk_totals.iter().take_while(|(resumed, _)| !resumed).map(|(_, t)| *t).collect();
+        assert!(first.len() > 1, "first chunk must span several cached pages");
+        assert!(first.windows(2).all(|w| w[0] == w[1]), "cached pages must report the first page total: {first:?}");
+    }
+
+    fn style_hits(res: &Value) -> usize {
+        res["findings"].as_array().unwrap().iter().filter(|f| f["rule"] == "broken-style-binding").count()
+    }
+
+    #[test]
+    fn mcp_lint_broken_style_binding_follows_the_active_preset() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        bind_style_to_missing_variable(&mut e);
+        for preset in ["agent", "recommended", "strict", "tokens"] {
+            let res = e.call("designos_lint", json!({"preset": preset, "limit": 500})).unwrap();
+            assert_eq!(style_hits(&res), 1, "{preset}");
+            assert_eq!(res["by_rule"]["broken-style-binding"], 1, "{preset}");
+        }
+        let default = e.call("designos_lint", json!({"limit": 500})).unwrap();
+        assert_eq!(style_hits(&default), 1, "default preset is agent");
+        let layout = e.call("designos_lint", json!({"preset": "layout", "limit": 500})).unwrap();
+        assert_eq!(style_hits(&layout), 0);
+        assert!(layout["by_rule"].get("broken-style-binding").is_none());
+    }
+
+    #[test]
+    fn mcp_lint_rules_list_accepts_broken_style_binding() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        bind_style_to_missing_variable(&mut e);
+        let only = e.call("designos_lint", json!({"rules": ["broken-style-binding"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&only), 1);
+        assert_eq!(only["findings"].as_array().unwrap().len(), 1, "only the requested rule is returned");
+        assert_eq!(only["total"], 1);
+        let mixed = e.call("designos_lint", json!({"rules": ["default-layer-name", "broken-style-binding"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&mixed), 1);
+        let other = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&other), 0);
+    }
+
+    #[test]
+    fn mcp_lint_page_with_extras_marks_truncated_from_node_and_style_findings() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        create(&mut e, "frame", "Frame 2");
+        bind_style_to_missing_variable(&mut e);
+        let mut meta = e.doc.style_meta["Brand/Primary"].clone();
+        meta.name = "Brand/Secondary".into();
+        e.doc.style_meta.insert("Brand/Secondary".into(), meta);
+        e.clear_lint_cache();
+        let req = json!({"rules": ["default-layer-name", "broken-style-binding"], "limit": 3});
+        let first = e.call("designos_lint", req.clone()).unwrap();
+        assert_eq!(first["total"], 4, "2 node + 2 style findings");
+        assert_eq!(first["findings"].as_array().unwrap().len(), 3);
+        assert_eq!(first["truncated"], true);
+        let mut next = req;
+        next["cursor"] = first["cursor"].clone();
+        let last = e.call("designos_lint", next).unwrap();
+        assert_eq!(last["findings"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn mcp_lint_budgeted_chunk_pagination_preserves_all_findings_and_invalidates_on_doc_swap() {
+        let mut e = Engine::default();
+        for i in 1..=20 {
+            create(&mut e, "frame", &format!("Frame {i}"));
+        }
+
+        // Full unpaged reference scan.
+        let full = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 500})).unwrap();
+        let full_findings = full["findings"].as_array().unwrap().clone();
+        assert_eq!(full_findings.len(), 20);
+        assert_eq!(full["complete"], true);
+        assert!(full["cursor"].is_null());
+
+        // Force incomplete (`stack:`) chunks (8 nodes per worker call) while paging with `limit = 3`
+        // so each incomplete and final chunk produces more findings than `limit`.
+        e.lint_call_max_nodes = 8;
+        e.clear_lint_cache();
+
+        let mut paged_findings = Vec::new();
+        let mut total_scanned = 0u64;
+        let mut cursor: Option<String> = None;
+        let mut saw_incomplete_chunk = false;
+        let mut saw_resumed_offset_cursor = false;
+        let mut pages = 0usize;
+
+        loop {
+            let mut req = json!({"rules": ["default-layer-name"], "limit": 3});
+            if let Some(ref c) = cursor {
+                req["cursor"] = json!(c);
+            }
+            let res = e.call("designos_lint", req).unwrap();
+            pages += 1;
+            let batch = res["findings"].as_array().unwrap();
+            assert!(!batch.is_empty() && batch.len() <= 3);
+            paged_findings.extend(batch.iter().cloned());
+
+            let scanned = res["scanned"].as_u64().unwrap();
+            if cursor.as_deref().is_some_and(|c| c.contains("offset:")) {
+                assert_eq!(scanned, 0, "offset page inside a chunk must serve from cache without rescanning");
+            } else {
+                assert!(scanned > 0, "initial or stack-resumed chunk page must scan nodes");
+            }
+            total_scanned += scanned;
+
+            if res["complete"] == false {
+                saw_incomplete_chunk = true;
+            }
+            match res["cursor"].as_str() {
+                Some(next) => {
+                    if next.contains("+offset:") {
+                        saw_resumed_offset_cursor = true;
+                    }
+                    cursor = Some(next.to_string());
+                }
+                None => {
+                    assert_eq!(res["complete"], true);
+                    break;
+                }
+            }
+            assert!(pages <= 20, "pagination loop did not terminate");
+        }
+
+        assert!(saw_incomplete_chunk, "test must exercise incomplete (`complete: false`) chunks");
+        assert!(saw_resumed_offset_cursor, "test must exercise `stack:<id>+offset:<n>` pagination on a resumed chunk");
+        assert_eq!(total_scanned, full["scanned"].as_u64().unwrap(), "all 20 scene nodes must be scanned once across chunks");
+        assert_eq!(paged_findings, full_findings, "all pages concatenated across budgeted chunks must equal the full scan");
+
+        // Replacing `e.doc` with a new Document that has the same node count and epoch must not hit stale cache.
+        e.lint_call_max_nodes = 100_000;
+        let _ = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 1})).unwrap();
+        let mut replacement = Document::new("Replacement");
+        let rep_page = replacement.add_page("Page 1");
+        for i in 1..=20 {
+            let fid = replacement.alloc_id();
+            let mut n = Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.name = format!("SemanticCard{i}");
+            replacement.insert(rep_page, n).unwrap();
+        }
+        assert_eq!(replacement.nodes.len(), e.doc.nodes.len());
+        e.doc = replacement;
+        let after_swap = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 1, "cursor": "offset:0"})).unwrap();
+        assert_eq!(after_swap["findings"].as_array().unwrap().len(), 0, "new document has no default layer names; stale cache must not be served");
+        assert!(after_swap["scanned"].as_u64().unwrap() > 0, "runtime_id mismatch must invalidate lint_cache and rescan");
     }
 }

@@ -729,6 +729,19 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         .filter(|p| p.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
         .collect();
 
+    let doc_plugin_data: Option<Value> = doc_idx.and_then(|d| {
+        let pd_arr = entries[d].json.get("pluginData")?.as_array()?;
+        let mut pd_map = Map::new();
+        for entry in pd_arr {
+            let Some(k) = fstr(entry, "key") else { continue };
+            let val = fstr(entry, "value").unwrap_or("");
+            let pid = fstr(entry, "pluginID").unwrap_or("");
+            let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
+            pd_map.insert(full_key, Value::String(val.to_string()));
+        }
+        (!pd_map.is_empty()).then_some(Value::Object(pd_map))
+    });
+
     drop(entries);
     drop(children);
     drop(visited);
@@ -739,6 +752,9 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": pages},
         "styles": styles,
     });
+    if let Some(pd) = doc_plugin_data {
+        out["document"]["pluginData"] = pd;
+    }
     if let (Some(v), Some(o)) = (variables, out.as_object_mut()) {
         o.insert("variables".into(), v);
     }

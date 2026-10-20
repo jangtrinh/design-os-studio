@@ -173,8 +173,9 @@ fn a_large_detached_frame_does_not_stall_one_slice() {
         n.source_id = Some("1:1".into());
         f.doc.insert(f.page, n).unwrap()
     };
+    let wrap = f.frame(comp, "Wrap", None);
     for i in 0..20_000 {
-        f.rect(comp, &format!("Dot {i}"), gray(0xEE));
+        f.rect(wrap, &format!("Dot {i}"), gray(0xEE));
     }
     let frame = detached_copy(&mut f, comp, "Copy", "guid:1:1");
     let (doc, page) = (f.doc, f.page);
@@ -248,8 +249,9 @@ fn mid_scan_edit_restarts_and_keeps_previous_complete_report_until_done() {
 fn a_detached_comparison_paused_between_slices_gives_the_same_report() {
     let mut f = fx();
     let comp = component(&mut f, "1:1");
+    let wrap = f.frame(comp, "Wrap", None);
     for i in 0..300 {
-        f.rect(comp, &format!("Dot {i}"), gray(0xEE));
+        f.rect(wrap, &format!("Dot {i}"), gray(0xEE));
     }
     let frame = detached_copy(&mut f, comp, "Copy", "guid:1:1");
     let (doc, scope) = (f.doc, Scope::Page(f.page));
@@ -260,7 +262,7 @@ fn a_detached_comparison_paused_between_slices_gives_the_same_report() {
     while !audit_step(&doc, &mut cur, Duration::from_micros(1)) {
         slices += 1;
     }
-    assert!(slices > 50, "a 300-layer comparison spans many 1 us slices, got {slices}");
+    assert!(slices > 50, "a 300-layer nested-component comparison spans many 1 us slices, got {slices}");
     let sliced = cur.into_report(&doc);
     assert_eq!(sliced, sync);
     let found = sliced.of(Rule::DetachedInstance).find(|x| x.node == frame).expect("the copy is reported");
