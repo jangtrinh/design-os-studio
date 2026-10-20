@@ -1623,12 +1623,12 @@ mod tests {
         let err = doc.apply_spec_with_report(page, &bad_radius).unwrap_err();
         assert_eq!(err.code, "OVERRIDE_FIELD_NOT_APPLICABLE");
 
-        // Explicit font_size detaches text_style with STYLE_DETACHED_BY_SPEC warning
+        // Explicit font_size variable detaches text_style with STYLE_DETACHED_BY_SPEC warning
         let detached: NodeSpec = serde_json::from_value(serde_json::json!({
             "kind": "text",
             "text": "Custom Size",
             "text_style": "Heading L",
-            "font_size": 18.0
+            "font_size": "var:Spacing/4"
         }))
         .unwrap();
         let rep = doc.apply_spec_with_report(page, &detached).unwrap();
@@ -1636,7 +1636,7 @@ mod tests {
         let tn = doc.get(rep.root_node_id).unwrap();
         assert!(!tn.style_refs.contains_key("text"));
         if let NodeKind::Text(tp) = &tn.kind {
-            assert_eq!(tp.style.font_size, 18.0);
+            assert_eq!(tp.style.font_size, 16.0);
         }
 
         // Edge case 4: user collection already named "EaseUI (deprecated)" -> engine appends " (2)"

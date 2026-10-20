@@ -1328,8 +1328,8 @@ impl Document {
     }
 
     /// Applies the explicit `font_size`, `line_height` and `font_weight` of `spec` to the text node
-    /// `id` after its text style, so they override the style. An explicit `font_size` together with
-    /// `text_style` also detaches the style link (`STYLE_DETACHED_BY_SPEC`).
+    /// `id` after its text style, so they override the style. Binding `font_size` to a variable
+    /// together with `text_style` detaches the style link (`STYLE_DETACHED_BY_SPEC`).
     #[allow(clippy::too_many_arguments)]
     fn apply_text_overrides(
         &mut self,
@@ -1348,8 +1348,7 @@ impl Document {
                         tp.style.font_size = v.max(1.0);
                     }
                 }
-            }
-            if spec.text_style.is_some() {
+            } else if spec.text_style.is_some() {
                 if let Some(n) = self.get_mut(id) {
                     if n.style_refs.remove("text").is_some() {
                         report.warnings.push(SpecWarning {
@@ -1559,7 +1558,7 @@ impl Document {
                 });
                 let fs = if let Some(vid) = n.variables.bindings.get("fontSize") {
                     self.export_var_ref(index, vid).map(NumberOrVar::Ref)
-                } else if text_style.is_none() {
+                } else if text_style.is_none() || linked_ts.is_some_and(|ts| ts.font_size != tp.style.font_size) {
                     Some(NumberOrVar::Num(tp.style.font_size))
                 } else {
                     None
