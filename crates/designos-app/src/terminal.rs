@@ -1735,9 +1735,9 @@ impl TerminalState {
     /// Dispatches a Figma AI task prompt into the active PTY session (`#651` §3 rule 10: with no live tab,
     /// resumes the file's last resumable session or opens the picker and holds the prompt until a CLI is chosen).
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
-        if self.tabs.is_empty() {
+        if !self.has_live_tab() {
             self.open_for_agent_use(file_path);
-            if self.tabs.is_empty() {
+            if !self.has_live_tab() {
                 self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
                 self.dock_open = true;
                 return;

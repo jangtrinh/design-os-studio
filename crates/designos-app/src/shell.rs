@@ -1338,10 +1338,8 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
 pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
     match action {
         crate::cmdk::CmdKAction::ApplySpec(spec) => {
-            if !app.terminal.tabs.is_empty() {
-                let fp = app.file_path.clone();
-                app.terminal.dispatch_figma_ai_prompt("Make Design", &spec.name, fp.as_deref());
-            }
+            let fp = app.file_path.clone();
+            app.terminal.dispatch_figma_ai_prompt("Make Design", &spec.name, fp.as_deref());
             app.apply_node_spec(&spec, "Cmd+K Synthesizer");
         }
         crate::cmdk::CmdKAction::OpenSpecReader => {
@@ -1392,10 +1390,8 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
             let fixed_count = crate::cmdk::auto_fix_design_gate(&mut app.doc, page, &sel);
             app.changed();
             app.cmdk.last_audit = Some(crate::cmdk::run_design_gate_audit(&app.doc, app.page, &app.selection));
-            if !app.terminal.tabs.is_empty() {
-                let fp = app.file_path.clone();
-                app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
-            }
+            let fp = app.file_path.clone();
+            app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
             app.show_toast(format!("Applied {fixed_count} Figma AI change(s) (Cmd+Z to Undo)"), false);
         }
     }

@@ -369,10 +369,12 @@ pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: 
     p.text(Pos2::new(btn_rect.left() + theme::INSET_SEGMENT, btn_rect.center().y), Align2::LEFT_CENTER, lbl, theme::font_caption_medium(), fg);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(btn_rect.right() - SESSIONS_BTN_CHEVRON_OFFSET, btn_rect.center().y), SESSIONS_BTN_CHEVRON_SIZE, fg);
     widgets::record(ui, "agents-sessions-btn", btn_rect);
+    ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-btn-rect"), btn_rect));
     if resp.clicked() {
         state.sessions_popover_open = !state.sessions_popover_open;
         if state.sessions_popover_open {
             state.runtime_dropdown_open = false;
+            ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-opened-pass"), ui.ctx().cumulative_pass_nr()));
         } else {
             state.cancel_rename_session();
         }
@@ -447,9 +449,11 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         let rename_r =
             Rect::from_min_size(Pos2::new(remove_r.left() - theme::SPACE_FACT - ACTION_RENAME_W, remove_r.top()), Vec2::new(ACTION_RENAME_W, ACTION_BTN_H));
 
-        let remove_resp = ui.interact(remove_r, Id::new((&row_widget_id, "remove")), Sense::click());
-        let rename_resp = ui.interact(rename_r, Id::new((&row_widget_id, "rename")), Sense::click());
+        // Register `row_resp` first and child action buttons (`rename_resp`, `remove_resp`) after so the
+        // child buttons win pointer hit-testing inside `r_rect` in egui 0.35.
         let row_resp = ui.interact(r_rect, Id::new(&row_widget_id), Sense::click());
+        let rename_resp = ui.interact(rename_r, Id::new((&row_widget_id, "rename")), Sense::click());
+        let remove_resp = ui.interact(remove_r, Id::new((&row_widget_id, "remove")), Sense::click());
 
         let bg = if row.is_focused_tab {
             theme::BG_SELECTED
@@ -521,11 +525,12 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
 
         widgets::record(ui, &row_widget_id, r_rect);
 
+        let pointer_in_action_btn = ui.input(|i| i.pointer.interact_pos()).is_some_and(|pos| rename_r.contains(pos) || remove_r.contains(pos));
         if remove_resp.clicked() {
             remove_id = Some(row.tab_id);
         } else if rename_resp.clicked() {
             start_rename_id = Some(row.tab_id);
-        } else if row_resp.clicked() && state.renaming_session_tab_id != Some(row.tab_id) {
+        } else if row_resp.clicked() && !pointer_in_action_btn && state.renaming_session_tab_id != Some(row.tab_id) {
             select_tab_id = Some(row.tab_id);
         }
 
@@ -543,12 +548,15 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     } else if let Some(id) = select_tab_id {
         state.select_session_row(id, file_path);
     } else if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            let sess_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-sessions-btn".to_string()))));
-            let in_btn = sess_btn.map(|r| r.contains(pos)).unwrap_or(false);
-            if !pop_r.contains(pos) && !in_btn {
-                state.sessions_popover_open = false;
-                state.cancel_rename_session();
+        let opened_this_pass = ui.ctx().data(|d| d.get_temp::<u64>(Id::new("agents-sessions-opened-pass"))) == Some(ui.ctx().cumulative_pass_nr());
+        if !opened_this_pass {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let sess_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-sessions-btn-rect")));
+                let in_btn = sess_btn.map(|r| r.contains(pos)).unwrap_or(false);
+                if !pop_r.contains(pos) && !in_btn {
+                    state.sessions_popover_open = false;
+                    state.cancel_rename_session();
+                }
             }
         }
     }
@@ -1157,6 +1165,165 @@ mod tests {
         assert!(st.picker_open, "FixAction::StartNewSession must open the new-session picker");
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 18. `sessions_popover_rename_and_remove_buttons_win_hit_testing_over_row`
+    #[test]
+    fn sessions_popover_rename_and_remove_buttons_win_hit_testing_over_row() {
+        let dir = temp_test_dir("popover-hit-test");
+        let bin_dir = dir.join("bin");
+        write_stub_cli(&bin_dir, "claude", "sleep 5");
+
+        let mut st = TerminalState::new_for_session("doc-popover-hit", "Landing", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.session_registry.sessions.push(make_session_entry(
+            1,
+            "Claude #1",
+            "claude",
+            Some("99999999-9999-4999-8999-999999999999"),
+            100,
+            200,
+            SessionEntryStatus::Exited,
+        ));
+        save_registry(&st.session_dir, &st.session_registry).expect("save registry");
+        st.sessions_popover_open = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 720.0));
+
+        // Frame 1: lay out popover to record button rects
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+        });
+        let rename_r = crate::widgets::rect(&ctx, "agents-session-rename-1").expect("rename button rect");
+        let remove_r = crate::widgets::rect(&ctx, "agents-session-remove-1").expect("remove button rect");
+
+        // Click Rename (press + release on rename_r.center()) -> must start inline rename, NOT select/resume row
+        let rename_pos = rename_r.center();
+        for pressed in [true, false] {
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(rename_pos),
+                    egui::Event::PointerButton { pos: rename_pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+                ],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| {
+                render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+            });
+        }
+        assert_eq!(st.renaming_session_tab_id, Some(1), "Clicking Rename must start inline rename instead of being stolen by row_resp");
+        assert!(st.tabs.is_empty(), "Clicking Rename must not trigger select_session_row");
+
+        // Click Remove from list (press + release on remove_r.center()) -> must remove session from registry, NOT select/resume row
+        let remove_pos = remove_r.center();
+        for pressed in [true, false] {
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(remove_pos),
+                    egui::Event::PointerButton { pos: remove_pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+                ],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| {
+                render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+            });
+        }
+        assert!(st.session_registry.sessions.is_empty(), "Clicking Remove from list must remove the session entry");
+        assert!(st.tabs.is_empty(), "Clicking Remove from list must not trigger select_session_row");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 19. `sessions_button_single_frame_click_keeps_popover_open`
+    #[test]
+    fn sessions_button_single_frame_click_keeps_popover_open() {
+        let dir = temp_test_dir("btn-single-frame");
+        let mut st = TerminalState::new_for_session("doc-btn-frame", "Landing", Some(&dir));
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 720.0));
+        let btn_rect = Rect::from_min_size(Pos2::new(180.0, 8.0), Vec2::new(SESSIONS_BTN_W, theme::CONTROL_DENSE));
+
+        // Initial layout frame
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            render_sessions_button(&mut st, ui, btn_rect);
+        });
+        assert!(!st.sessions_popover_open);
+
+        // Single-frame synthetic click (both press and release in one frame)
+        let pos = btn_rect.center();
+        let raw = egui::RawInput {
+            screen_rect: Some(screen),
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw, |ui| {
+            render_sessions_button(&mut st, ui, btn_rect);
+            if st.sessions_popover_open {
+                render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+            }
+        });
+        assert!(st.sessions_popover_open, "Opening the Sessions popover must not immediately self-close on the same pass");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 20. `execute_cmdk_action_dispatches_prompt_when_no_live_tab_is_open`
+    #[test]
+    fn execute_cmdk_action_dispatches_prompt_when_no_live_tab_is_open() {
+        let dir = temp_test_dir("shell-cmdk-empty-tabs");
+        let bin_dir = dir.join("bin");
+        write_stub_cli(&bin_dir, "claude", "cat");
+
+        // Case A: no resumable session -> execute_cmdk_action opens picker and holds pending_prompt
+        let mut app = crate::app::App::new();
+        app.terminal = TerminalState::new_for_session("doc-shell-cmdk-a", "Landing", Some(&dir));
+        app.terminal.path_prepend.push(bin_dir.clone());
+        assert!(app.terminal.tabs.is_empty());
+
+        let spec = crate::cmdk::synthesize_spec_from_prompt("Pricing card");
+        let spec_name = spec.name.clone();
+        crate::shell::execute_cmdk_action(&mut app, crate::cmdk::CmdKAction::ApplySpec(Box::new(spec)));
+        assert!(app.terminal.tabs.is_empty(), "No process may auto-spawn when no resumable session exists");
+        assert!(app.terminal.picker_open, "execute_cmdk_action must open the picker when no resumable session exists");
+        assert_eq!(app.terminal.pending_prompt, Some(("Make Design".to_string(), spec_name)));
+
+        // Case B: resumable session exists -> execute_cmdk_action resumes it and dispatches the prompt
+        let mut app_resumable = crate::app::App::new();
+        app_resumable.terminal = TerminalState::new_for_session("doc-shell-cmdk-b", "Landing", Some(&dir));
+        app_resumable.terminal.path_prepend.push(bin_dir);
+        app_resumable.terminal.session_registry.sessions.push(make_session_entry(
+            1,
+            "Claude #1",
+            "claude",
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            100,
+            300,
+            SessionEntryStatus::Exited,
+        ));
+        save_registry(&app_resumable.terminal.session_dir, &app_resumable.terminal.session_registry).expect("save registry");
+
+        crate::shell::execute_cmdk_action(&mut app_resumable, crate::cmdk::CmdKAction::AutoFixDesignGate);
+        assert_eq!(app_resumable.terminal.tabs.len(), 1, "execute_cmdk_action must resume the last session when tabs is empty");
+        assert!(app_resumable.terminal.tabs[0].is_resumed);
+        assert!(!app_resumable.terminal.picker_open);
+
+        app_resumable.terminal.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
