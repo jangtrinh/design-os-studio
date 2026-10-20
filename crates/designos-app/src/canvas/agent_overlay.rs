@@ -26,6 +26,16 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
     if app.canvas.tiles.unlimited_budget {
         return;
     }
+    // Reset presence whenever the document runtime id or active page changes.
+    let doc_rid = app.doc.runtime_id();
+    if (app.agent_presence.bound_doc_runtime_id != 0 && app.agent_presence.bound_doc_runtime_id != doc_rid)
+        || app.agent_presence.bound_page.is_some_and(|p| p != app.page)
+    {
+        app.agent_presence.reset();
+    }
+    app.agent_presence.bound_doc_runtime_id = doc_rid;
+    app.agent_presence.bound_page = Some(app.page);
+
     // Rule 3: Hidden draws nothing and requests no frame.
     let size_mode = app.agent_presence.cursor_size;
     if size_mode == AgentCursorSize::Hidden || app.agent_presence.sessions.is_empty() {
@@ -50,8 +60,22 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
 
     // 1. Paint write flashes below the cursors (Rule 7: "drawn above the canvas, below the cursor").
     for session in &app.agent_presence.sessions {
+        if session.page != Some(app.page) {
+            continue;
+        }
         let base_color = session.color();
+        for fade_entry in &session.insert_fades {
+            if app.doc.page_of(fade_entry.node_id) == Some(app.page) {
+                let alpha = crate::agent_presence::top_level_insert_fade_alpha(now_s - fade_entry.start_s);
+                if alpha < 1.0 {
+                    needs_immediate_repaint = true;
+                }
+            }
+        }
         for flash in &session.flashes {
+            if app.doc.page_of(flash.node_id) != Some(app.page) {
+                continue;
+            }
             let elapsed = now_s - flash.start_s;
             if elapsed < 0.0 {
                 // Waiting for the 300 ms cursor-travel delay.
@@ -79,7 +103,11 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
 
     // 2. Paint each session's cursor arrow and label pill.
     let arrow_scale = size_mode.pixels() / AgentCursorSize::Small.pixels();
-    for (idx, session) in app.agent_presence.sessions.iter_mut().enumerate() {
+    let mut cursor_record_idx = 0usize;
+    for session in &mut app.agent_presence.sessions {
+        if session.page != Some(app.page) {
+            continue;
+        }
         let since_first = (now_s - session.first_write_s).max(0.0);
         let since_last = (now_s - session.last_write_s).max(0.0);
         let travelling = (session.target_page - session.cursor_page).length() > 0.5;
@@ -88,8 +116,7 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
 
         if travelling || fading_in || fading_out {
             needs_immediate_repaint = true;
-        } else if since_last < CURSOR_IDLE_HOLD_S && session.fade_wakeup_scheduled_for != Some(session.last_write_s) {
-            session.fade_wakeup_scheduled_for = Some(session.last_write_s);
+        } else if since_last < CURSOR_IDLE_HOLD_S {
             let wait_s = (CURSOR_IDLE_HOLD_S - since_last).max(0.001);
             earliest_fade_wakeup_s = Some(match earliest_fade_wakeup_s {
                 Some(prev) => prev.min(wait_s),
@@ -135,8 +162,9 @@ pub fn paint(app: &mut App, ui: &Ui, canvas_rect: ERect) {
         painter.galley(pill_rect.center() - galley.size() * 0.5, galley, text_color);
 
         let union_rect = pill_rect.union(ERect::from_min_size(tip, Vec2::splat(arm_long)));
-        widgets::record(ui, &format!("agent-cursor-{idx}"), union_rect);
+        widgets::record(ui, &format!("agent-cursor-{cursor_record_idx}"), union_rect);
         widgets::record(ui, &format!("agent-cursor-{}", session.id), union_rect);
+        cursor_record_idx += 1;
     }
 
     if needs_immediate_repaint {

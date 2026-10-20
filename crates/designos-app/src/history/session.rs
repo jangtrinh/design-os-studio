@@ -26,6 +26,7 @@ impl App {
         self.hover_layer = None;
         self.canvas.reset_interaction();
         self.layers.reset();
+        self.agent_presence.reset();
         self.fonts.load_for(&self.doc);
         self.comments.close_popovers();
         self.changed();

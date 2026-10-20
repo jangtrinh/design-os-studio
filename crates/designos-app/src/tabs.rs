@@ -333,6 +333,7 @@ impl TabsState {
         app.canvas.reset_interaction();
         app.comments.close_popovers();
         app.layers.reset();
+        app.agent_presence.reset();
         app.fonts.load_for(&app.doc);
         if tab_kind == ProjectTabKind::Spec {
             app.ui.rail = Some(RailItem::Specs);
