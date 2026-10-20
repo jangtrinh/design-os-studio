@@ -859,6 +859,7 @@ mod tests {
         st.picker.settings_root_override = Some(root.clone());
         seed_test_probes(&mut st);
         st.picker.cache.set_probe(AgentCliPreset::Gemini, CliProbe { installed: false, version: None, signed_in: SignIn::Unknown });
+        st.picker.cache.set_probe(AgentCliPreset::Grok, CliProbe { installed: false, version: None, signed_in: SignIn::Unknown });
 
         let rows = rows_for_state(&mut st);
 
@@ -875,6 +876,12 @@ mod tests {
         assert_eq!(agy_fix, Some(FixAction::OpenInstallPage("https://antigravity.google/")));
         assert!(st.tabs.is_empty(), "uninstalled Antigravity must not spawn a tab");
         assert_eq!(st.status_msg.as_deref(), Some("Open https://antigravity.google/ in your browser"));
+
+        let grok_row = rows.iter().find(|r| r.label == "Grok").expect("Grok row").clone();
+        assert!(!grok_row.selectable);
+        let grok_fix = execute_row_selection(&mut st, &grok_row, None);
+        assert_eq!(grok_fix, Some(FixAction::OpenInstallPage("https://x.ai/cli")));
+        assert!(st.tabs.is_empty(), "uninstalled Grok must not spawn a tab");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
