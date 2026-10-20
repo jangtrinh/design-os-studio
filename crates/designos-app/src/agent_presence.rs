@@ -38,6 +38,12 @@ pub const FLASH_HOLD_S: f64 = 0.4;
 pub const FLASH_RELEASE_S: f64 = 0.3;
 pub const FLASH_TOTAL_S: f64 = FLASH_ATTACK_S + FLASH_HOLD_S + FLASH_RELEASE_S;
 
+/// Exponential decay rate (1/s) for runtime fade-in of newly inserted top-level nodes (`#682` Rule 7).
+pub const TOP_LEVEL_INSERT_DECAY_RATE: f64 = 5.0;
+
+/// Duration (s) after which a top-level insert fade (`1 - exp(-5 * t)`) is >= 99.7% opaque and settled.
+pub const TOP_LEVEL_INSERT_SETTLE_S: f64 = 1.2;
+
 /// Maximum concurrent flashes retained per session; oldest drops first.
 pub const MAX_FLASHES_PER_SESSION: usize = 64;
 
@@ -99,20 +105,28 @@ pub struct Flash {
     pub stroke_px: f32,
 }
 
+/// Runtime-only fade-in state for a newly inserted top-level node (never written to `Document`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopLevelInsertFade {
+    pub node_id: NodeId,
+    pub start_s: f64,
+}
+
 /// One active agent session on the canvas.
 #[derive(Clone, Debug)]
 pub struct Session {
     pub id: String,
     pub colour_index: usize,
     pub label: String,
+    pub page: Option<NodeId>,
+    pub has_cursor: bool,
     pub cursor_page: Pos2,
     pub target_page: Pos2,
     pub first_write_s: f64,
     pub last_write_s: f64,
     pub fade: f32,
     pub flashes: Vec<Flash>,
-    /// Tracks the `last_write_s` for which a one-shot fade-out wakeup has already been scheduled.
-    pub fade_wakeup_scheduled_for: Option<f64>,
+    pub insert_fades: Vec<TopLevelInsertFade>,
 }
 
 impl Session {
@@ -127,6 +141,8 @@ pub struct AgentPresence {
     pub sessions: Vec<Session>,
     pub cursor_size: AgentCursorSize,
     next_colour_slot: usize,
+    pub bound_doc_runtime_id: u64,
+    pub bound_page: Option<NodeId>,
 }
 
 /// Exponential follow step in 1D with rate `FOLLOW_RATE` (`2.5 / s`).
@@ -141,6 +157,17 @@ pub fn follow_scalar(pos: f32, target: f32, dt: f32) -> f32 {
 /// Exponential follow step in 2D page space with rate `FOLLOW_RATE` (`2.5 / s`).
 pub fn follow_pos(pos: Pos2, target: Pos2, dt: f32) -> Pos2 {
     Pos2::new(follow_scalar(pos.x, target.x, dt), follow_scalar(pos.y, target.y, dt))
+}
+
+/// Runtime fade-in opacity (`0.0..=1.0`) for a newly inserted top-level node (`1 - exp(-5 * elapsed_s)`).
+pub fn top_level_insert_fade_alpha(elapsed_s: f64) -> f32 {
+    if elapsed_s <= 0.0 {
+        return 0.0;
+    }
+    if elapsed_s >= TOP_LEVEL_INSERT_SETTLE_S {
+        return 1.0;
+    }
+    (1.0 - (-TOP_LEVEL_INSERT_DECAY_RATE * elapsed_s).exp()).clamp(0.0, 1.0) as f32
 }
 
 /// Flash opacity envelope (`0.0..=1.0`) at `elapsed_s` seconds after `flash.start_s`:
@@ -162,20 +189,16 @@ pub fn flash_envelope(elapsed_s: f64) -> f32 {
 }
 
 /// Cursor opacity (`0.0..=1.0`) given elapsed seconds since the session's first write and last write:
-/// - Fade-in: `200 ms` ease-out-cubic (`1 - (1 - t)^3`)
+/// - Fade-in: `200 ms` ease-out-cubic (`1 - (1 - t)^3`) starting at `0.0` at `t = 0`
 /// - Hold: `5.0 s` after last write at `1.0`
 /// - Fade-out: `1.5 s` linear ramp to `0.0` from `5.0 s` to `6.5 s` after last write
 pub fn cursor_fade_alpha(since_first_write_s: f64, since_last_write_s: f64) -> f32 {
     if since_last_write_s >= CURSOR_IDLE_HOLD_S + CURSOR_FADE_OUT_S {
         return 0.0;
     }
-    let fade_in = if since_first_write_s <= 0.0 {
-        // At the exact frame of the first write, start visible enough to render and ramp over 200ms,
-        // or follow ease-out-cubic with a small floor on frame 0 so single-frame tests see the cursor.
-        1.0
-    } else if since_first_write_s < CURSOR_FADE_IN_S {
+    let fade_in = if since_first_write_s < CURSOR_FADE_IN_S {
         let u = (since_first_write_s / CURSOR_FADE_IN_S).clamp(0.0, 1.0) as f32;
-        (1.0 - (1.0 - u).powi(3)).max(0.05)
+        1.0 - (1.0 - u).powi(3)
     } else {
         1.0
     };
@@ -209,10 +232,54 @@ fn node_center_page(doc: &Document, index: Option<&designos_render::SceneIndex>,
 }
 
 impl AgentPresence {
-    /// Clears all sessions (called on `DocEpoch` document switch).
+    /// Clears all sessions (called on `DocEpoch` document switch, tab switch, or page change).
     pub fn reset(&mut self) {
         self.sessions.clear();
         self.next_colour_slot = 0;
+        self.bound_doc_runtime_id = 0;
+        self.bound_page = None;
+    }
+
+    /// Runtime-only opacity multiplier (`0.0..=1.0`) for a newly inserted top-level node at `now_s`.
+    /// Returns `1.0` once the fade settles, when `cursor_size == AgentCursorSize::Hidden`, or for any node that is not currently fading in.
+    pub fn top_level_insert_opacity(&self, node_id: NodeId, now_s: f64) -> f32 {
+        if self.cursor_size == AgentCursorSize::Hidden {
+            return 1.0;
+        }
+        for session in self.sessions.iter().rev() {
+            if let Some(fade) = session.insert_fades.iter().find(|f| f.node_id == node_id) {
+                return top_level_insert_fade_alpha(now_s - fade.start_s);
+            }
+        }
+        1.0
+    }
+
+    /// Active runtime-only opacity multipliers (`0.0..1.0`) for newly inserted top-level nodes on `page` at `now_s`.
+    /// Empty when `cursor_size == AgentCursorSize::Hidden` or once all insert fades have settled to `1.0`.
+    pub fn active_top_level_insert_opacities(&self, doc: &Document, page: NodeId, now_s: f64) -> Vec<(NodeId, f32)> {
+        if self.cursor_size == AgentCursorSize::Hidden {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for session in &self.sessions {
+            if session.page != Some(page) {
+                continue;
+            }
+            for fade in &session.insert_fades {
+                if doc.page_of(fade.node_id) != Some(page) {
+                    continue;
+                }
+                let alpha = self.top_level_insert_opacity(fade.node_id, now_s);
+                if alpha < 1.0 {
+                    if let Some(existing) = out.iter_mut().find(|(id, _)| *id == fade.node_id) {
+                        existing.1 = alpha;
+                    } else {
+                        out.push((fade.node_id, alpha));
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn alloc_colour_index(&mut self) -> usize {
@@ -245,18 +312,21 @@ impl AgentPresence {
         if report.touched.is_empty() {
             return;
         }
+        if self.bound_doc_runtime_id != 0 && self.bound_doc_runtime_id != doc.runtime_id() {
+            self.reset();
+        }
+        self.bound_doc_runtime_id = doc.runtime_id();
+
         let clean_id = if session_id.trim().is_empty() { "default" } else { session_id.trim() };
         let clean_label = if label.trim().is_empty() { "Claude" } else { label.trim() };
 
         // Prune expired sessions before allocating a colour or looking up `clean_id`.
-        self.sessions.retain(|s| (now_s - s.last_write_s) < CURSOR_IDLE_HOLD_S + CURSOR_FADE_OUT_S || !s.flashes.is_empty());
+        self.sessions.retain(|s| (now_s - s.last_write_s) < CURSOR_IDLE_HOLD_S + CURSOR_FADE_OUT_S || !s.flashes.is_empty() || !s.insert_fades.is_empty());
 
-        let existing_idx = self.sessions.iter().position(|s| s.id == clean_id);
-        let (session_idx, existed_before_frame) = match existing_idx {
+        let session_idx = match self.sessions.iter().position(|s| s.id == clean_id) {
             Some(idx) => {
-                let existed = self.sessions[idx].first_write_s < now_s;
                 self.sessions[idx].label = clean_label.to_string();
-                (idx, existed)
+                idx
             }
             None => {
                 let colour_index = self.alloc_colour_index();
@@ -264,20 +334,21 @@ impl AgentPresence {
                     id: clean_id.to_string(),
                     colour_index,
                     label: clean_label.to_string(),
+                    page: None,
+                    has_cursor: false,
                     cursor_page: Pos2::ZERO,
                     target_page: Pos2::ZERO,
                     first_write_s: now_s,
                     last_write_s: now_s,
-                    fade: 1.0,
+                    fade: 0.0,
                     flashes: Vec::new(),
-                    fade_wakeup_scheduled_for: None,
+                    insert_fades: Vec::new(),
                 });
-                (self.sessions.len() - 1, false)
+                self.sessions.len() - 1
             }
         };
 
         let session = &mut self.sessions[session_idx];
-        let mut positioned_cursor = existed_before_frame;
         for &(id, kind) in &report.touched {
             let target_node_id = match kind {
                 TouchKind::Removed => report.removed_parents.get(&id).copied().unwrap_or(id),
@@ -286,14 +357,22 @@ impl AgentPresence {
             let Some(center) = node_center_page(doc, index, target_node_id) else {
                 continue;
             };
-            let had_to_travel = positioned_cursor && (center - session.cursor_page).length() > 1.0;
-            if !positioned_cursor {
+            session.page = doc.page_of(target_node_id);
+            let had_to_travel = session.has_cursor && (center - session.cursor_page).length() > 1.0;
+            if !session.has_cursor {
                 session.cursor_page = center;
-                positioned_cursor = true;
+                session.has_cursor = true;
             }
             session.target_page = center;
             session.last_write_s = now_s;
-            session.fade_wakeup_scheduled_for = None;
+
+            if kind == TouchKind::Inserted && is_top_level_frame(doc, target_node_id) {
+                if let Some(existing) = session.insert_fades.iter_mut().find(|f| f.node_id == target_node_id) {
+                    existing.start_s = now_s;
+                } else {
+                    session.insert_fades.push(TopLevelInsertFade { node_id: target_node_id, start_s: now_s });
+                }
+            }
 
             // Rule 4: top-level frames do not flash; a removed node flashes its parent instead.
             let should_flash = match kind {
@@ -307,7 +386,7 @@ impl AgentPresence {
                     TouchKind::Inserted => 1.0,
                     TouchKind::Updated | TouchKind::Moved | TouchKind::Removed => 2.0,
                 };
-                let start_s = if existed_before_frame && had_to_travel { now_s + FLASH_TRAVEL_DELAY_S } else { now_s };
+                let start_s = if had_to_travel { now_s + FLASH_TRAVEL_DELAY_S } else { now_s };
                 if let Some(existing) = session.flashes.iter_mut().find(|f| f.node_id == target_node_id) {
                     existing.start_s = start_s;
                     existing.stroke_px = stroke_px;
@@ -329,10 +408,11 @@ impl AgentPresence {
             let since_last = (now_s - session.last_write_s).max(0.0);
             session.fade = cursor_fade_alpha(since_first, since_last);
             session.flashes.retain(|f| now_s < f.start_s + FLASH_TOTAL_S);
+            session.insert_fades.retain(|f| now_s < f.start_s + TOP_LEVEL_INSERT_SETTLE_S);
         }
         self.sessions.retain(|s| {
             let since_last = (now_s - s.last_write_s).max(0.0);
-            since_last < CURSOR_IDLE_HOLD_S + CURSOR_FADE_OUT_S || !s.flashes.is_empty()
+            since_last < CURSOR_IDLE_HOLD_S + CURSOR_FADE_OUT_S || !s.flashes.is_empty() || !s.insert_fades.is_empty()
         });
     }
 }
@@ -423,8 +503,9 @@ mod tests {
         crate::theme::apply(&ctx);
         crate::theme::install_fonts(&ctx);
         let canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
-        let raw = RawInput { screen_rect: Some(canvas_rect), time: Some(1.1), ..Default::default() };
-        app.now = 1.1;
+        // At t = 1.35 s, flash 0 is in its hold phase and flashes 1 & 2 have passed their 300ms travel delay.
+        let raw = RawInput { screen_rect: Some(canvas_rect), time: Some(1.35), ..Default::default() };
+        app.now = 1.35;
         let _ = ctx.run_ui(raw, |ui| {
             crate::canvas::agent_overlay::paint(&mut app, ui, canvas_rect);
         });
@@ -590,5 +671,146 @@ mod tests {
 
         let png_with_agent = designos_export::export_png(&app.doc, app.page, 1.0);
         assert_eq!(png_without_agent, png_with_agent, "CPU export must be pixel-identical with and without an active agent");
+    }
+
+    #[test]
+    fn batch_writes_in_same_frame_keep_cursor_at_first_node_and_delay_later_flashes() {
+        let (doc, _frame_id, children) = make_doc_with_frame_and_three_children();
+        let mut app = App::new(doc);
+        app.now = 1.0;
+
+        let patches: Vec<LivePatch> =
+            children.iter().enumerate().map(|(idx, &cid)| LivePatch::new(vec![update_name_op(cid, &format!("Batch {idx}"))])).collect();
+        apply_live_patches(&mut app, &patches);
+
+        let s = &app.agent_presence.sessions[0];
+        let c0_center = super::node_center_page(&app.doc, None, children[0]).unwrap();
+        let c2_center = super::node_center_page(&app.doc, None, children[2]).unwrap();
+        assert_eq!(s.cursor_page, c0_center, "cursor must start on the first touched node, not jump to the last");
+        assert_eq!(s.target_page, c2_center, "target_page must point to the last touched node");
+        assert_eq!(s.flashes[0].start_s, 1.0, "first node flash starts immediately");
+        assert!((s.flashes[1].start_s - (1.0 + FLASH_TRAVEL_DELAY_S)).abs() < 1e-6, "second node in same-frame batch must delay flash by 300ms");
+        assert!((s.flashes[2].start_s - (1.0 + FLASH_TRAVEL_DELAY_S)).abs() < 1e-6, "third node in same-frame batch must delay flash by 300ms");
+    }
+
+    #[test]
+    fn hold_frames_keep_rearming_repaint_after_until_five_seconds() {
+        let (doc, _frame_id, children) = make_doc_with_frame_and_three_children();
+        let mut app = App::new(doc);
+        app.now = 1.0;
+        apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(children[0], "HoldWake")])]);
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        // Flush font upload frame.
+        let _ = ctx.run_ui(RawInput { screen_rect: Some(canvas_rect), time: Some(1.0), ..Default::default() }, |_| {});
+
+        // At t = 2.5 s (flash finished at 1.9 s, fade-in finished at 1.2 s), first hold frame schedules wake in 3.5 s.
+        app.now = 2.5;
+        let out1 = ctx.run_ui(RawInput { screen_rect: Some(canvas_rect), time: Some(2.5), ..Default::default() }, |ui| {
+            crate::canvas::agent_overlay::paint(&mut app, ui, canvas_rect);
+        });
+        let delay1 = out1.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay).unwrap_or(Duration::MAX);
+        assert!((delay1.as_secs_f64() - 3.5).abs() < 0.05, "expected ~3.5s wake delay at t=2.5s, got {delay1:?}");
+
+        // An unrelated hover/toast frame arrives at t = 3.0 s during the hold window; it MUST re-arm the wake for the remaining 3.0 s.
+        app.now = 3.0;
+        let out2 = ctx.run_ui(RawInput { screen_rect: Some(canvas_rect), time: Some(3.0), ..Default::default() }, |ui| {
+            crate::canvas::agent_overlay::paint(&mut app, ui, canvas_rect);
+        });
+        let delay2 = out2.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay).unwrap_or(Duration::MAX);
+        assert!((delay2.as_secs_f64() - 3.0).abs() < 0.05, "expected ~3.0s wake delay at t=3.0s, got {delay2:?}");
+    }
+
+    #[test]
+    fn switching_page_or_tab_resets_presence_and_ignores_other_pages() {
+        let (mut doc, _frame_id, children) = make_doc_with_frame_and_three_children();
+        let page2 = doc.add_page("Page 2");
+        let mut app = App::new(doc);
+        app.now = 1.0;
+
+        apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(children[0], "Page1Edit")])]);
+        assert_eq!(app.agent_presence.sessions.len(), 1);
+
+        // Switching to Page 2 clears presence on the next overlay paint so Page 1's cursor/flashes never bleed onto Page 2.
+        app.page = page2;
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let canvas_rect = ERect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        app.now = 1.1;
+        let _ = ctx.run_ui(RawInput { screen_rect: Some(canvas_rect), time: Some(1.1), ..Default::default() }, |ui| {
+            crate::canvas::agent_overlay::paint(&mut app, ui, canvas_rect);
+        });
+        assert!(recorded_rect(&ctx, "agent-cursor-0").is_none(), "cursor from Page 1 must not draw on Page 2");
+        assert!(recorded_rect(&ctx, "agent-flash-0").is_none(), "flash from Page 1 must not draw on Page 2");
+    }
+
+    #[test]
+    fn cursor_fade_in_starts_at_zero_and_top_level_insert_fades_with_rate_5() {
+        assert_eq!(cursor_fade_alpha(0.0, 0.0), 0.0, "cursor fade-in must start at 0.0 at t=0 on ease-out-cubic");
+        let mid_fade = cursor_fade_alpha(0.1, 0.1);
+        assert!((mid_fade - 0.875).abs() < 1e-4, "at 100ms (u=0.5), ease-out-cubic is 0.875, got {mid_fade}");
+
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.now = 1.0;
+
+        let frame_id = NodeId(500);
+        let mut frame = Node::new(frame_id, NodeKind::Frame(FrameProps::default()));
+        frame.name = "Hero Frame".into();
+        frame.size = DV::new(800.0, 600.0);
+        frame.fills.push(Paint::solid(Color::rgba(255, 0, 0, 255)));
+        frame.parent = Some(page);
+        let patch = LivePatch::new(vec![LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![frame] }]);
+        apply_live_patches(&mut app, &[patch]);
+
+        // Document opacity must remain 1.0 (never mutated in document).
+        let inserted_id = app.selection[0];
+        assert_eq!(app.doc.get(inserted_id).unwrap().opacity, 1.0);
+        // Runtime insert fade starts at 0.0 at t=1.0 and reaches 1 - exp(-5 * 0.2) at t=1.2.
+        assert_eq!(app.agent_presence.top_level_insert_opacity(inserted_id, 1.0), 0.0);
+        let at_200ms = app.agent_presence.top_level_insert_opacity(inserted_id, 1.2);
+        let expected = 1.0 - (-5.0_f32 * 0.2).exp();
+        assert!((at_200ms - expected).abs() < 1e-5, "expected {expected}, got {at_200ms}");
+
+        // Verify CPU tile path and GPU compile both multiply draw opacity without bumping TileView::rev.
+        let vp = designos_render::Viewport { offset: DV::ZERO, zoom: 1.0, dpr: 1.0 };
+        let sample_tile_red = |app: &mut App| -> u8 {
+            let opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, app.now);
+            let rev = crate::canvas::tiles::take_rev(app);
+            app.canvas.tiles.cache.set_runtime_opacities(&app.doc, app.page, opacities);
+            let tf = app.canvas.tiles.cache.render_tiles(&app.doc, app.page, &vp, (512, 512), rev, designos_render::TileBudget::unlimited());
+            let tile = tf.tiles.iter().find(|t| t.key.x == 0 && t.key.y == 0).expect("tile (0,0)");
+            let idx = (100 * (designos_render::TILE_SIZE as usize) + 100) * 4;
+            tile.pixmap.data()[idx]
+        };
+
+        let r_t0 = sample_tile_red(&mut app);
+        let rev_initial = app.canvas.tiles.rev();
+        assert_eq!(r_t0, 0x5A, "at t=1.0 (fade alpha 0.0), rendered CPU tile red channel must equal page background 0x5A (90)");
+
+        app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.0);
+        let gpu_t0 = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
+        assert_eq!(gpu_t0.stats().draws, 0, "at t=1.0 (fade alpha 0.0), GPU compile must skip drawing the 0-opacity frame");
+
+        app.now = 1.2;
+        let r_mid = sample_tile_red(&mut app);
+        assert_eq!(app.canvas.tiles.rev(), rev_initial, "runtime fade must not bump TileView::rev");
+        assert!(r_mid > 180 && r_mid < 230, "at t=1.2 (fade alpha ~0.632), CPU tile red channel must be blended above 0x5A and below 255, got {r_mid}");
+
+        app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.2);
+        let gpu_mid = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
+        assert!(gpu_mid.stats().draws > 0, "at t=1.2, GPU compile must emit draws for the fading top-level frame");
+
+        app.now = 2.5;
+        app.agent_presence.step(2.5, 0.016);
+        let r_settled = sample_tile_red(&mut app);
+        assert_eq!(app.canvas.tiles.rev(), rev_initial, "settling runtime fade must not bump TileView::rev");
+        assert_eq!(r_settled, 255, "at t=2.5 (settled), CPU tile red channel must be 255");
+        assert_eq!(app.doc.get(inserted_id).unwrap().opacity, 1.0, "Node.opacity in Document must never be mutated");
     }
 }
