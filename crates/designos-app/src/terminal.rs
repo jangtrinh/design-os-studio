@@ -150,6 +150,17 @@ impl AgentCliPreset {
         }
     }
 
+    /// True when this tab preset is an agent CLI tab (`Claude`, `Codex`, `Antigravity`, `Grok`)
+    /// rather than an interactive `Shell` or `DesignOsHelp` tab (`#685`).
+    pub fn is_agent(self) -> bool {
+        matches!(self, AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Antigravity | AgentCliPreset::Grok)
+    }
+
+    /// True when this preset reserves `Ctrl+Z` inside the terminal on Windows/Linux (`#685`).
+    pub fn uses_ctrl_z(self) -> bool {
+        crate::terminal_undo_chord::preset_ctrl_z_policy(self).1
+    }
+
     /// Interactive CLI launch command with dangerous-permission prompts skipped (`DIR-29`)
     /// and per-file `designos-mcp` + live current-page system prompt pre-wired.
     pub fn cli_launch_command(self) -> &'static str {
@@ -228,26 +239,38 @@ pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Prompt sent by the `"Make design (First Draft)"` action (`#681` §3 rule 5, §13).
+pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =
+    "Design a first draft for the selected frame, or for this page if nothing is selected, using this file's variables and styles.";
+
 /// Checks if `bin` exists as an executable file in `PATH` (or common user/system CLI directories, or as an explicit path).
 pub fn runtime_binary_available(bin: &str) -> bool {
+    let path_os = std::env::var_os("PATH");
+    let include_default_dirs = !path_os.as_ref().is_some_and(|p| p.is_empty());
+    runtime_binary_available_in(bin, path_os.as_deref(), include_default_dirs)
+}
+
+fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, include_default_dirs: bool) -> bool {
     let trimmed = bin.trim();
     if trimmed.is_empty() {
         return false;
     }
     let explicit = Path::new(trimmed);
-    if explicit.components().count() > 1 && explicit.is_file() {
-        return true;
+    if explicit.components().count() > 1 {
+        return explicit.is_file();
     }
 
     let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(path_os) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&path_os) {
+    if let Some(p_os) = path_os {
+        for p in std::env::split_paths(p_os) {
             if !p.as_os_str().is_empty() {
                 dirs.push(p);
             }
         }
     }
-    dirs.extend(extra_cli_path_dirs());
+    if include_default_dirs {
+        dirs.extend(extra_cli_path_dirs());
+    }
 
     dirs.into_iter().any(|d| {
         d.join(trimmed).is_file()
@@ -274,6 +297,8 @@ pub struct SessionEnv {
     pub current_page_name: String,
     pub doc_name: String,
     pub path_prepend: Vec<PathBuf>,
+    #[cfg(test)]
+    pub path_override: Option<std::ffi::OsString>,
 }
 
 impl SessionEnv {
@@ -296,6 +321,8 @@ impl SessionEnv {
             current_page_name: "Page 1".to_string(),
             doc_name: "Untitled".to_string(),
             path_prepend: Vec::new(),
+            #[cfg(test)]
+            path_override: None,
         }
     }
 }
@@ -303,7 +330,7 @@ impl SessionEnv {
 /// Builds a shell-escaped real CLI invocation for `preset` (`claude`, `codex`, `agy`, `grok`, or shell)
 /// with dangerous-permissions skipped (`DIR-29`) and per-file MCP/context environment exported.
 pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &Path, selection_json: &Path) -> String {
-    let clean = prompt.trim().replace('\n', " ");
+    let clean = sanitize_pty_paste_text(prompt);
     let escaped = clean.replace('\'', "'\\''");
     let session_dir = live_spec.parent().unwrap_or_else(|| Path::new("/tmp"));
     let mcp_config = session_dir.join("mcp-config.json");
@@ -344,12 +371,25 @@ pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &
     }
 }
 
-/// Returns true when `prompt` asks to create, design, or synthesize a UI surface or component.
-pub fn is_design_creation_prompt(prompt: &str) -> bool {
-    let lower = prompt.to_ascii_lowercase();
-    ["create", "build", "design", "card", "frame", "screen", "modal", "dashboard", "login", "pricing", "checkout", "spec", "implement", "make"]
-        .iter()
-        .any(|kw| lower.contains(kw))
+#[cfg(test)]
+fn default_test_stub_cli() -> PathBuf {
+    let p = std::env::temp_dir().join(format!("designos-noop-stub-cli-{}.sh", std::process::id()));
+    if !p.is_file() {
+        let _ = std::fs::write(&p, b"#!/bin/sh\nexit 0\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+    p
+}
+
+#[cfg(test)]
+fn apply_stub_cli_to_command(_preset: AgentCliPreset, stub: &Path, _real_cli_cmd: &str, prompt: &str) -> String {
+    let stub_quoted = format!("'{}'", stub.display().to_string().replace('\'', "'\\''"));
+    let escaped = sanitize_pty_paste_text(prompt).replace('\n', " ").replace('\'', "'\\''");
+    format!("{stub_quoted} -p '{escaped}'")
 }
 
 /// Actions emitted by the Embedded Agent Terminal for the host `App` / `Shell` to execute.
@@ -412,6 +452,9 @@ pub struct TerminalTab {
     pub session_uuid: Option<String>,
     /// True when this tab was opened by resuming an entry from `sessions.json`.
     pub is_resumed: bool,
+    /// Raw bytes written via [`Self::write_bytes`] during tests (`#685`).
+    #[cfg(test)]
+    pub written_bytes: Vec<u8>,
 }
 
 impl TerminalTab {
@@ -561,6 +604,8 @@ impl TerminalTab {
             start_failure: None,
             session_uuid: None,
             is_resumed: false,
+            #[cfg(test)]
+            written_bytes: Vec::new(),
         })
     }
 
@@ -589,6 +634,8 @@ impl TerminalTab {
 
     /// Writes raw bytes directly to the PTY master stdin.
     pub fn write_bytes(&mut self, bytes: &[u8]) {
+        #[cfg(test)]
+        self.written_bytes.extend_from_slice(bytes);
         let _ = self.writer.write_all(bytes);
         let _ = self.writer.flush();
     }
@@ -629,6 +676,7 @@ impl TerminalTab {
 pub enum AgentChatRole {
     User,
     Assistant,
+    System,
 }
 
 /// One conversational turn in the Agent Chat UI wrapping `Claude Code`, `Codex`, or `Antigravity CLI` (`DIR-21`).
@@ -726,6 +774,18 @@ pub struct TerminalState {
     pub rename_session_input: String,
     /// Prompt held by `dispatch_figma_ai_prompt` when no live tab and no resumable session exist (`#651` §3 rule 10).
     pub pending_prompt: Option<(String, String)>,
+    /// Test-only override for `cfg!(target_os = "macos")` when routing terminal undo/redo chords (`#685`).
+    #[cfg(test)]
+    pub platform_is_mac_override: Option<bool>,
+    /// Test-only override for `preset.uses_ctrl_z()` when routing terminal undo/redo chords (`#685`).
+    #[cfg(test)]
+    pub cli_uses_ctrl_z_override: Option<bool>,
+    /// Test-only executable overriding the active runtime's CLI binary inside `submit_chat_prompt`.
+    #[cfg(test)]
+    pub stub_cli: Option<PathBuf>,
+    /// Test-only `PATH` override for binary availability checks and spawned agent tabs.
+    #[cfg(test)]
+    pub path_override: Option<std::ffi::OsString>,
 }
 
 impl Default for TerminalState {
@@ -816,6 +876,14 @@ impl TerminalState {
             renaming_session_tab_id: None,
             rename_session_input: String::new(),
             pending_prompt: None,
+            #[cfg(test)]
+            platform_is_mac_override: None,
+            #[cfg(test)]
+            cli_uses_ctrl_z_override: None,
+            #[cfg(test)]
+            stub_cli: None,
+            #[cfg(test)]
+            path_override: None,
         }
     }
 
@@ -830,6 +898,23 @@ impl TerminalState {
             st.bind_session(file_id);
         }
         st
+    }
+
+    #[cfg(test)]
+    fn resolve_test_cli_stub(&self, runtime: AgentCliPreset) -> PathBuf {
+        if let Some(ref stub) = self.stub_cli {
+            return stub.clone();
+        }
+        if let Some(ref path_os) = self.path_override {
+            let bin = runtime.binary_name();
+            for dir in std::env::split_paths(path_os) {
+                let candidate = dir.join(bin);
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        default_test_stub_cli()
     }
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
@@ -948,6 +1033,8 @@ impl TerminalState {
             current_page_name: self.current_page_name.clone(),
             doc_name: self.doc_name.clone(),
             path_prepend: self.path_prepend.clone(),
+            #[cfg(test)]
+            path_override: self.path_override.clone(),
         }
     }
 
@@ -980,6 +1067,7 @@ impl TerminalState {
         let key = (doc.mutation_epoch(), page.0, selection_key);
         if self.last_synced_key != Some(key) {
             let selected_ids: Vec<u64> = selection.iter().map(|n| n.0).collect();
+            let is_scoped = doc.nodes.len() > 25_000;
             let ctx_val = serde_json::json!({
                 "session_id": self.session_id,
                 "doc_name": self.doc_name,
@@ -987,6 +1075,7 @@ impl TerminalState {
                 "current_page_id": page.0,
                 "current_page_name": self.current_page_name,
                 "selected_node_ids": selected_ids,
+                "scoped": is_scoped,
             });
             if let Ok(ctx_bytes) = serde_json::to_vec_pretty(&ctx_val) {
                 let _ = atomic_write_session_file(&self.context_json_path, &ctx_bytes);
@@ -995,11 +1084,8 @@ impl TerminalState {
                 }
             }
 
-            let canvas_json = if doc.nodes.len() <= 25_000 {
-                doc.to_json().ok()
-            } else {
-                crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok()
-            };
+            let canvas_json =
+                if !is_scoped { doc.to_json().ok() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok() };
             if let Some(json_str) = canvas_json {
                 let _ = atomic_write_session_file(&self.live_canvas_path, json_str.as_bytes());
                 if !cfg!(test) {
@@ -1178,6 +1264,45 @@ impl TerminalState {
         ((agent_panel_open && self.side_panel_pty_open) || self.dock_open) && self.viewport_focused
     }
 
+    /// Returns the currently active terminal tab when one exists.
+    pub fn focused_tab(&self) -> Option<&TerminalTab> {
+        self.tabs.get(self.active_tab.min(self.tabs.len().saturating_sub(1)))
+    }
+
+    /// Returns `(is_mac, tab_is_agent, cli_uses_ctrl_z)` for [`crate::terminal_undo_chord::terminal_undo_chord`].
+    pub fn undo_chord_context(&self) -> (bool, bool, bool) {
+        let is_mac = {
+            #[cfg(test)]
+            {
+                self.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"))
+            }
+            #[cfg(not(test))]
+            {
+                cfg!(target_os = "macos")
+            }
+        };
+        let preset = self.focused_tab().map(|t| t.preset).unwrap_or(self.active_runtime);
+        let tab_is_agent = preset.is_agent();
+        let cli_uses_ctrl_z = {
+            #[cfg(test)]
+            {
+                self.cli_uses_ctrl_z_override.unwrap_or_else(|| preset.uses_ctrl_z())
+            }
+            #[cfg(not(test))]
+            {
+                preset.uses_ctrl_z()
+            }
+        };
+        (is_mac, tab_is_agent, cli_uses_ctrl_z)
+    }
+
+    /// Ensures at least one interactive Shell PTY tab is running when the terminal UI is first shown (`DIR-29`).
+    pub fn ensure_default_tab(&mut self, file_path: Option<&Path>) {
+        if self.tabs.is_empty() {
+            let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+        }
+    }
+
     /// Lazily spawns a Shell PTY tab for the Agent Chat UI composer on first submit (`#651` §3 rule 1 & §5).
     pub fn ensure_shell_for_chat(&mut self, file_path: Option<&Path>) {
         if self.tabs.is_empty() {
@@ -1210,6 +1335,70 @@ impl TerminalState {
         }
         self.ensure_shell_for_chat(file_path);
         let runtime = self.active_runtime;
+        let is_raw_shell = trimmed.starts_with('$')
+            || trimmed.starts_with('!')
+            || trimmed.starts_with("claude ")
+            || trimmed.starts_with("codex ")
+            || trimmed.starts_with("agy ")
+            || trimmed.starts_with("grok ")
+            || trimmed.starts_with("designos ");
+        let raw_cmd = if is_raw_shell { sanitize_pty_paste_text(trimmed.trim_start_matches('$').trim_start_matches('!').trim()) } else { String::new() };
+
+        let selection_path = self.selection_spec_path.clone();
+        let real_cli_cmd = build_real_cli_command(runtime, trimmed, &self.live_spec_path, &selection_path);
+        let display_cmd = if is_raw_shell { raw_cmd.clone() } else { real_cli_cmd.clone() };
+
+        let is_agent_runtime = !matches!(runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
+        const _RETAINED_MIC_ICON_VARIANT: crate::icons::Icon = crate::icons::Icon::Microphone;
+        #[cfg(not(test))]
+        let bin_available = runtime_binary_available(runtime.binary_name());
+        #[cfg(test)]
+        let bin_available = if self.stub_cli.is_some() {
+            true
+        } else if let Some(ref p) = self.path_override {
+            runtime_binary_available_in(runtime.binary_name(), Some(p.as_os_str()), false)
+        } else {
+            true
+        };
+
+        let skip_dead_agent = self.active_tab_mut().map(|tab| !tab.is_shell_process() && !tab.is_alive()).unwrap_or(false);
+        if !skip_dead_agent && !is_raw_shell && is_agent_runtime && !bin_available {
+            let user_id = self.next_turn_id.max(1);
+            self.next_turn_id = user_id + 1;
+            let (tab_id, current_log_len) = self
+                .active_tab()
+                .map(|t| {
+                    let len = t.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
+                    (t.id, len)
+                })
+                .unwrap_or((1, 0));
+            self.chat_turns.push(AgentChatTurn {
+                id: user_id,
+                role: AgentChatRole::User,
+                runtime,
+                text: trimmed.to_string(),
+                shell_cmd: display_cmd,
+                tab_id,
+                log_start_offset: current_log_len,
+                log_end_offset: Some(current_log_len),
+                extracted_spec_json: None,
+                applied_to_canvas: false,
+            });
+            self.side_panel_pty_open = true;
+            self.chat_mode = false;
+            let _ = self.spawn_tab(runtime, file_path);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(if cfg!(test) { 2000 } else { 250 });
+            while std::time::Instant::now() < deadline {
+                if self.active_tab_mut().is_some_and(|t| !t.is_alive()) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            let _ = self.poll_live_agent_bridge();
+            return;
+        }
+
+        self.ensure_default_tab(file_path);
         if let Some(tab) = self.active_tab_mut() {
             tab.preset = runtime;
             tab.title = format!("{} #{}", runtime.tab_title(), tab.id);
@@ -1234,24 +1423,13 @@ impl TerminalState {
         let asst_id = user_id + 1;
         self.next_turn_id = asst_id + 1;
 
-        let is_raw_shell = trimmed.starts_with('$')
-            || trimmed.starts_with('!')
-            || trimmed.starts_with("claude ")
-            || trimmed.starts_with("codex ")
-            || trimmed.starts_with("agy ")
-            || trimmed.starts_with("grok ")
-            || trimmed.starts_with("designos ");
-        let raw_cmd = if is_raw_shell { trimmed.trim_start_matches('$').trim_start_matches('!').trim().to_string() } else { String::new() };
-
-        let selection_path = self.selection_spec_path.clone();
-        let real_cli_cmd = build_real_cli_command(runtime, trimmed, &self.live_spec_path, &selection_path);
-        let display_cmd = if is_raw_shell { raw_cmd.clone() } else { real_cli_cmd.clone() };
-
-        let run_real_cli = !is_raw_shell
-            && !cfg!(test)
-            && std::env::var_os("DESIGNOS_FORCE_LOCAL_SYNTH").is_none()
-            && !matches!(runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
-            && runtime_binary_available(runtime.binary_name());
+        #[cfg(test)]
+        let exec_cli_cmd = {
+            let stub = self.resolve_test_cli_stub(runtime);
+            apply_stub_cli_to_command(runtime, &stub, &real_cli_cmd, trimmed)
+        };
+        #[cfg(not(test))]
+        let exec_cli_cmd = real_cli_cmd.clone();
 
         let pty_exec_line = if is_raw_shell {
             format!("printf 'DESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN'; {raw_cmd}; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'")
@@ -1259,33 +1437,9 @@ impl TerminalState {
             let safe = sanitize_pty_paste_text(trimmed).replace('\'', "").replace('\n', " ");
             let bin = runtime.binary_name();
             let title = runtime.tab_title();
-            let lower = trimmed.to_ascii_lowercase();
-            let is_prd_query = lower.contains("@prd")
-                || lower.contains("/prd")
-                || lower.contains("/spec")
-                || lower.contains("prd")
-                || lower.contains("fc-001")
-                || lower.contains("req-")
-                || lower.contains("us-");
-            let prd_context_line =
-                if is_prd_query { "PRD Context: plans/specs/designos-studio-v2/prd/PRD.md (REQ-01..REQ-20 · US-01..US-17 · G1..G5 APPROVED) | " } else { "" };
-            if run_real_cli {
-                format!(
-                    "printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[%s · %s PTY] %s\\n%s' 'BEGIN' '{title}' '{bin}' '{safe}' '{prd_context_line}'; {real_cli_cmd} 2>&1; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'"
-                )
-            } else {
-                format!(
-                    "printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[%s · %s PTY] %s\\n%sCLI: %s | Shell: %s\\nLive Spec: {}\\nStatus: Executed via %s CLI shell & streamed to Canvas\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'BEGIN' '{title}' '{bin}' '{safe}' '{prd_context_line}' '{bin}' \"${{SHELL:-/bin/zsh}}\" '{bin}' 'END'",
-                    self.live_spec_path.display()
-                )
-            }
-        };
-
-        let synth_spec = if !is_raw_shell && (is_design_creation_prompt(trimmed) || !run_real_cli) {
-            let spec = crate::cmdk::synthesize_spec_from_prompt(trimmed);
-            serde_json::to_string(&spec).ok()
-        } else {
-            None
+            format!(
+                "printf 'DESIGNOS_CHAT_%s_{asst_id}\\n[%s · %s PTY] %s\\n' 'BEGIN' '{title}' '{bin}' '{safe}'; {exec_cli_cmd} 2>&1; printf '\\nDESIGNOS_CHAT_%s_{asst_id}\\n' 'END'"
+            )
         };
 
         self.chat_turns.push(AgentChatTurn {
@@ -1310,7 +1464,7 @@ impl TerminalState {
             tab_id,
             log_start_offset: current_log_len,
             log_end_offset: None,
-            extracted_spec_json: synth_spec,
+            extracted_spec_json: None,
             applied_to_canvas: false,
         });
 
@@ -1328,6 +1482,33 @@ impl TerminalState {
         if cfg!(test) || !self.side_panel_pty_open {
             self.side_panel_pty_open = false;
             self.chat_mode = true;
+        }
+    }
+
+    /// Submits an automated system prompt (e.g. an AI image tool task) to the active or preferred
+    /// agent CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`), recording the prompt turn with
+    /// [`AgentChatRole::System`] (`E5-10` §3 rule 3, §7).
+    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.preset == preset && t.start_failure.is_none() && !t.exited_notice_shown) {
+            self.active_tab = idx;
+            self.active_runtime = preset;
+        } else {
+            let active_dead = self.active_tab().is_some_and(|t| !t.is_shell_process() && t.exited_notice_shown);
+            if active_dead {
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+            }
+            self.set_active_runtime(preset, file_path);
+        }
+        if let Some(tab) = self.active_tab() {
+            if let Ok(mut st) = tab.agent_status.lock() {
+                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
+            }
+        }
+        self.submit_chat_prompt(prompt, file_path);
+        let len = self.chat_turns.len();
+        if len >= 2 {
+            self.chat_turns[len - 2].role = AgentChatRole::System;
+            self.chat_turns[len - 1].extracted_spec_json = None;
         }
     }
 
@@ -1686,6 +1867,8 @@ impl TerminalState {
         let mut agent_exited = false;
         let mut registry_dirty = false;
         let now_secs = crate::agent_sessions::unix_timestamp_secs();
+        #[cfg(test)]
+        let path_override = self.path_override.clone();
         for tab in &mut self.tabs {
             if tab.is_shell_process() || tab.exited_notice_shown {
                 continue;
@@ -1699,7 +1882,21 @@ impl TerminalState {
                         std::thread::sleep(std::time::Duration::from_millis(5));
                     }
                     let output = tab.raw_log.lock().map(|log| log.clone()).unwrap_or_default();
-                    let mut diag = agent_start_failure::diagnose(tab.spawn_preset, tab.spawn_preset.is_installed(), exit_code, &output);
+                    let installed = {
+                        #[cfg(test)]
+                        {
+                            if let Some(ref p) = path_override {
+                                runtime_binary_available_in(tab.spawn_preset.binary_name(), Some(p.as_os_str()), false)
+                            } else {
+                                tab.spawn_preset.is_installed()
+                            }
+                        }
+                        #[cfg(not(test))]
+                        {
+                            tab.spawn_preset.is_installed()
+                        }
+                    };
+                    let mut diag = agent_start_failure::diagnose(tab.spawn_preset, installed, exit_code, &output);
                     if tab.is_resumed {
                         diag.fix = FixAction::StartNewSession(tab.spawn_preset);
                     }
@@ -1947,7 +2144,7 @@ pub fn strip_selection_gutter(text: &str) -> String {
     trimmed_lines.into_iter().map(|l| if l.trim().is_empty() { "" } else { &l[min_indent.min(l.len())..] }).collect::<Vec<&str>>().join("\n")
 }
 
-fn parse_agent_status_payload(payload: &str) -> Option<AgentTabStatus> {
+pub fn parse_agent_status_payload(payload: &str) -> Option<AgentTabStatus> {
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return None;
@@ -2487,6 +2684,7 @@ fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
     } else {
         if cfg!(test) {
             if shell_bin.ends_with("zsh") {
+                c.arg("-d");
                 c.arg("-f");
             } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
                 c.arg("--norc");
@@ -2693,6 +2891,16 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
     if cmd.get_cwd().is_none() {
         cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    }
+
+    #[cfg(test)]
+    if let Some(overrides) = session.and_then(|s| s.path_override.as_ref()) {
+        cmd.env("PATH", overrides);
+        return;
+    }
+    if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {
+        cmd.env("PATH", "");
+        return;
     }
 
     let mut extra_paths: Vec<String> = Vec::new();
@@ -3190,7 +3398,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                 (0usize, "agents-cat-tidy", "Tidy and polish"),
                 (1usize, "agents-cat-generate", "Generate designs"),
                 (2usize, "agents-cat-plugins", "Create plugins and shaders"),
-                (3usize, "agents-cat-prd", "PRD & Spec Driven v2"),
             ] {
                 let card_r = Rect::from_min_size(Pos2::new(card_x, y), Vec2::new(card_w, card_h));
                 let card_resp = ui.interact(card_r, Id::new(cat_id), Sense::click());
@@ -3204,7 +3411,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                 match cat_idx {
                     0 => paint_wand_sparkle_icon(&p, icon_pos, icon_col),
                     1 => paint_four_point_star_icon(&p, icon_pos, icon_col),
-                    3 => paint_open_book_icon(&p, icon_pos, icon_col),
                     _ => paint_toolbox_icon(&p, icon_pos, icon_col),
                 }
 
@@ -3245,7 +3451,7 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                             ),
                         ],
                         1 => &[
-                            ("term-ai-make-design", "Make design (First Draft)", "Make Design", "Synthesize UI3 NodeSpec blueprint to $DESIGNOS_LIVE_SPEC"),
+                            ("term-ai-make-design", "Make design (First Draft)", "Make Design", MAKE_DESIGN_FIRST_DRAFT_PROMPT),
                             (
                                 "term-ai-make-proto",
                                 "Make prototype flows",
@@ -3257,26 +3463,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                                 "Populate realistic data",
                                 "Populate Content",
                                 "Populate realistic SaaS metrics, names, and statuses into repeated cards",
-                            ),
-                        ],
-                        3 => &[
-                            (
-                                "term-ai-prd-audit",
-                                "Audit PRD & FC-001 traceability",
-                                "PRD Audit",
-                                "@prd Audit plans/specs/designos-studio-v2/prd/PRD.md & FC-001 traceability across US-01..US-17",
-                            ),
-                            (
-                                "term-ai-prd-story",
-                                "Implement active User Story (US-01..US-17)",
-                                "Implement Story",
-                                "@prd Implement active User Story from plans/specs/designos-studio-v2/us/ onto Canvas",
-                            ),
-                            (
-                                "term-ai-prd-gates",
-                                "Verify G1..G5 pipeline gates & Gherkin ACs",
-                                "Verify Gates",
-                                "@prd Verify G1..G5 pipeline gates and Gherkin scenarios",
                             ),
                         ],
                         _ => &[
@@ -3306,15 +3492,12 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
                                     }
                                 }
                                 "term-left-sync-disk" => actions.push(TerminalAction::ReloadFromDisk),
+                                "term-ai-make-design" => {
+                                    state.submit_chat_prompt(cli_prompt, file_path);
+                                }
                                 _ => {
                                     state.submit_chat_prompt(cli_prompt, file_path);
                                     state.dispatch_figma_ai_prompt(task_title, cli_prompt, file_path);
-                                    if sub_id == "term-ai-make-design" {
-                                        let spec = crate::cmdk::synthesize_spec_from_prompt("pricing card");
-                                        if let Ok(json) = serde_json::to_string(&spec) {
-                                            actions.push(TerminalAction::ApplySpecJson(json));
-                                        }
-                                    }
                                 }
                             }
                         }
@@ -3434,22 +3617,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         }
     }
 
-    // Bottom-right Microphone circle button (`26x26` `#2D364D` circle + `#6EA8FE` mic glyph)
-    let off_50 = theme::CONTROL_STANDARD + off_20 + theme::INSET_SEGMENT;
-    let mic_center = Pos2::new(composer_rect.right() - off_50, icon_y);
-    let mic_r = Rect::from_center_size(mic_center, Vec2::splat(26.0));
-    let mic_resp = ui.interact(mic_r, Id::new("agents-composer-mic"), Sense::click());
-    p.circle_filled(mic_center, 13.0, if mic_resp.hovered() { Color32::from_rgb(0x36, 0x41, 0x5C) } else { Color32::from_rgb(0x2D, 0x36, 0x4D) });
-    paint_microphone_icon(&p, mic_center, Color32::from_rgb(0x6E, 0xA8, 0xFE));
-    widgets::record(ui, "agents-composer-mic", mic_r);
-    if mic_resp.clicked() {
-        let template = "@prd Audit the selected frame against the PRD acceptance criteria";
-        if state.input_line.trim().is_empty() {
-            state.input_line = template.to_string();
-        } else if !state.input_line.contains(template) {
-            state.input_line = format!("{} {template}", state.input_line.trim());
-        }
-    }
 
     // Bottom-right Up-Arrow Send circle button (`26x26` `#383838` / `#0D99FF` circle + `↑` arrow)
     let has_text = !state.input_line.trim().is_empty();
@@ -3475,15 +3642,6 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
         let prompt = state.input_line.trim().to_string();
         state.input_line.clear();
         state.submit_chat_prompt(&prompt, file_path);
-        if !prompt.starts_with('$') && !prompt.starts_with('!') {
-            let spec = crate::cmdk::synthesize_spec_from_prompt(&prompt);
-            if let Ok(json) = serde_json::to_string(&spec) {
-                if let Some(last_asst) = state.chat_turns.iter_mut().rev().find(|t| t.role == AgentChatRole::Assistant) {
-                    last_asst.applied_to_canvas = true;
-                }
-                actions.push(TerminalAction::ApplySpecJson(json));
-            }
-        }
     }
 
     actions
@@ -3538,7 +3696,8 @@ fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect:
 
         for (idx, turn) in state.chat_turns.iter().enumerate() {
             match turn.role {
-                AgentChatRole::User => {
+                AgentChatRole::User | AgentChatRole::System => {
+                    let header_label = if turn.role == AgentChatRole::System { "System" } else { "You" };
                     let card_w = (center_rect.width() - 28.0).max(120.0);
                     let max_txt_w = (card_w - 20.0).max(60.0);
                     let lines = wrap_chat_lines(&p, &turn.text, &font, max_txt_w, 6);
@@ -3548,7 +3707,7 @@ fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect:
                     p.rect_filled(card_r, CornerRadius::same(8), Color32::from_rgb(0x26, 0x35, 0x4A));
                     p.rect_stroke(card_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x4C, 0x6D)), StrokeKind::Inside);
 
-                    p.text(Pos2::new(card_r.left() + 10.0, card_r.top() + 13.0), Align2::LEFT_CENTER, "You", font_strong.clone(), Color32::WHITE);
+                    p.text(Pos2::new(card_r.left() + 10.0, card_r.top() + 13.0), Align2::LEFT_CENTER, header_label, font_strong.clone(), Color32::WHITE);
                     p.text(
                         Pos2::new(card_r.right() - 10.0, card_r.top() + 13.0),
                         Align2::RIGHT_CENTER,
@@ -3666,10 +3825,6 @@ fn paint_toolbox_icon(p: &egui::Painter, c: Pos2, col: Color32) {
 
 fn paint_open_book_icon(p: &egui::Painter, c: Pos2, col: Color32) {
     icons::paint(p, Icon::BookOpen, c, 14.0, col);
-}
-
-fn paint_microphone_icon(p: &egui::Painter, c: Pos2, col: Color32) {
-    icons::paint(p, Icon::Microphone, c, 14.0, col);
 }
 
 fn paint_up_arrow_icon(p: &egui::Painter, c: Pos2, col: Color32) {
@@ -4064,6 +4219,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                             copy_selection = true;
                                         }
                                     }
+                                    Key::Z if modifiers.ctrl && !modifiers.mac_cmd && !modifiers.shift => {
+                                        raw_bytes.push(0x1a);
+                                    }
                                     Key::Backspace => raw_bytes.push(0x15),
                                     Key::ArrowLeft => raw_bytes.push(0x01),
                                     Key::ArrowRight => raw_bytes.push(0x05),
@@ -4091,6 +4249,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                     Key::W => raw_bytes.push(0x17),
                                     Key::A => raw_bytes.push(0x01),
                                     Key::E => raw_bytes.push(0x05),
+                                    Key::Z if !modifiers.shift => raw_bytes.push(0x1a),
                                     _ => {}
                                 }
                             } else {
@@ -4405,6 +4564,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(input_r));
         let _ = child_ui.add(
             TextEdit::singleline(&mut state.search_query)
+                .id(Id::new((surface_id, "term-search-input")))
                 .hint_text(RichText::new("Find...").color(theme::TEXT_TERTIARY).font(theme::font_caption()))
                 .font(theme::font_caption())
                 .text_color(Color32::WHITE)
@@ -4761,13 +4921,14 @@ Done!
         let mut prd_streamed = false;
         while std::time::Instant::now() < deadline {
             st.sync_chat_from_pty();
-            if st.chat_turns[1].text.contains("PRD Context: plans/specs/designos-studio-v2/prd/PRD.md") {
+            if st.chat_turns[1].text.contains("@prd Review & implement spec block (REQ-01)") {
                 prd_streamed = true;
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(40));
         }
-        assert!(prd_streamed, "Assistant PTY turn should include PRD Context line: got '{}'", st.chat_turns[1].text);
+        assert!(prd_streamed, "Assistant PTY turn should echo user prompt without hardcoded planning paths: got '{}'", st.chat_turns[1].text);
+        assert!(!st.chat_turns[1].text.contains("plans/specs/"), "Must not inject repo-internal planning paths: '{}'", st.chat_turns[1].text);
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -4854,7 +5015,10 @@ Done!
         let ai_rect = get_rect("agents-header-ai");
         let plus_rect = get_rect("agents-composer-attach");
         let prd_rect = get_rect("agents-composer-context");
-        let mic_rect = get_rect("agents-composer-mic");
+        assert!(
+            ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-composer-mic".to_string())))).is_none(),
+            "agents-composer-mic must not be rendered"
+        );
 
         // Click AI header button -> toggles chat_mode
         assert!(st.chat_mode);
@@ -4893,10 +5057,6 @@ Done!
         // Click `PRD` context chip -> cycles next context tag (@tokens since @prd & @selection are present)
         let _ = click_at(&ctx, &mut st, prd_rect.center());
         assert!(st.input_line.contains("@tokens"));
-
-        // Click mic button -> appends voice audit prompt template
-        let _ = click_at(&ctx, &mut st, mic_rect.center());
-        assert!(st.input_line.contains("Audit the selected frame against the PRD acceptance criteria"));
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -5434,6 +5594,7 @@ Done!
     #[test]
     fn export_selection_pastes_fixed_sentence_only() {
         let mut st = TerminalState::default();
+        st.bind_session(&format!("test-export-sel-{}", std::process::id()));
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
@@ -5490,6 +5651,7 @@ Done!
         let _ = std::fs::remove_file(&marker);
 
         let mut st = TerminalState::default();
+        st.bind_session(&format!("test-dead-tab-{}", std::process::id()));
         spawn_stub_exiting_agent_into(&mut st);
         assert!(wait_until_tab_exits(&mut st, 8), "stub agent must exit");
         assert!(!st.active_tab_mut().unwrap().is_alive());
@@ -5963,6 +6125,7 @@ Done!
     /// bridge is not polled here, so each test decides the spawn time the exit is judged against.
     fn exited_stub_state() -> TerminalState {
         let mut st = TerminalState::default();
+        st.bind_session(&format!("test-dead-tab-{}", std::process::id()));
         spawn_stub_exiting_agent_into(&mut st);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while st.active_tab_mut().unwrap().is_alive() {
@@ -6114,5 +6277,235 @@ Done!
         assert_eq!(failure.cause, agent_start_failure::StartFailureCause::NotLoggedIn);
         assert_eq!(failure.fix, FixAction::RunLogin("grok login"));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn write_test_stub_script(name: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("designos-681-stubs-{}-{name}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let script = dir.join("claude");
+        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).expect("write stub script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+        }
+        script
+    }
+
+    #[test]
+    fn prompt_with_a_stub_cli_that_writes_nothing_leaves_the_document_hash_unchanged() {
+        let stub = write_test_stub_script("noop", "exit 0");
+        let mut doc = Document::new("681 Noop Stub Doc");
+        let page = doc.add_page("Page 1");
+        let doc_hash = |d: &Document| -> u64 {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            d.to_json().expect("doc.to_json").hash(&mut h);
+            h.finish()
+        };
+        let hash_before = doc_hash(&doc);
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = TerminalState {
+            side_panel_pty_open: false,
+            chat_mode: true,
+            active_runtime: AgentCliPreset::Claude,
+            input_line: "Design a pricing card".to_string(),
+            stub_cli: Some(stub),
+            ..TerminalState::for_tab(68101)
+        };
+        st.sync_live_file_context(&doc, page, &[], None);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let send_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send recorded");
+        let send_pos = send_rect.center();
+
+        let mut actions = Vec::new();
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+            events: vec![
+                egui::Event::PointerMoved(send_pos),
+                egui::Event::PointerButton { pos: send_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos: send_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw, |ui| {
+            actions = show_left(&mut st, ui, panel_rect, None);
+        });
+
+        assert!(
+            !actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_) | TerminalAction::ApplySpecFile(_))),
+            "submitting prompt with noop stub must emit no ApplySpecJson or ApplySpecFile: {actions:?}"
+        );
+        assert_eq!(st.chat_turns.len(), 2);
+        for turn in &st.chat_turns {
+            assert!(turn.extracted_spec_json.is_none(), "turn extracted_spec_json must be None: {turn:?}");
+        }
+        assert_eq!(doc_hash(&doc), hash_before, "document hash must remain unchanged");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn design_words_do_not_apply_a_template() {
+        let stub = write_test_stub_script("design-words-noop", "exit 0");
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+
+        let mut st = TerminalState {
+            side_panel_pty_open: false,
+            chat_mode: true,
+            active_runtime: AgentCliPreset::Claude,
+            stub_cli: Some(stub),
+            ..TerminalState::for_tab(68102)
+        };
+
+        for prompt in
+            ["create a card", "build a dashboard", "make a hero", "generate a form", "landing page", " template ", "ui for login", "screen for checkout"]
+        {
+            st.input_line = prompt.to_string();
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+                let _ = show_left(&mut st, ui, panel_rect, None);
+            });
+            let send_pos = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send").center();
+            let mut actions = Vec::new();
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+                events: vec![
+                    egui::Event::PointerMoved(send_pos),
+                    egui::Event::PointerButton { pos: send_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                    egui::Event::PointerButton { pos: send_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+                ],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| {
+                actions = show_left(&mut st, ui, panel_rect, None);
+            });
+            assert!(!actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_))), "prompt {prompt:?} must not produce ApplySpecJson: {actions:?}");
+            for turn in &st.chat_turns {
+                assert!(turn.extracted_spec_json.is_none(), "prompt {prompt:?} must not populate extracted_spec_json");
+            }
+        }
+
+        let terminal_src = include_str!("terminal.rs");
+        let shipped_part = terminal_src.split("#[cfg(test)]\nmod tests").next().unwrap_or(terminal_src);
+        assert!(!shipped_part.contains("fn is_design_creation_prompt"), "is_design_creation_prompt must not exist in terminal.rs");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn missing_cli_shows_the_start_failure_surface_and_no_executed_text() {
+        assert!(!runtime_binary_available_in("claude", Some(std::ffi::OsStr::new("")), false), "empty PATH must report claude as unavailable");
+        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, path_override: Some(std::ffi::OsString::new()), ..TerminalState::for_tab(68103) };
+        st.submit_chat_prompt("Design a card", None);
+        st.sync_chat_from_pty();
+        let _ = st.poll_live_agent_bridge();
+
+        for turn in &st.chat_turns {
+            assert!(!turn.text.contains("Executed via"), "turn text must not claim Executed via: {:?}", turn.text);
+            assert!(!turn.text.contains("streamed to Canvas"), "turn text must not claim streamed to Canvas: {:?}", turn.text);
+        }
+        let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("missing CLI must populate start_failure on the active tab");
+        assert_eq!(failure.preset, AgentCliPreset::Claude);
+        assert_eq!(failure.cause, agent_start_failure::StartFailureCause::NotInstalled);
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn no_planning_path_reaches_the_transcript() {
+        let stub = write_test_stub_script("echo-ok", "echo ok");
+        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, stub_cli: Some(stub), ..TerminalState::for_tab(68104) };
+        st.submit_chat_prompt("@prd check req-01 and us-02 in fc-001", None);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        let mut synced = false;
+        while std::time::Instant::now() < deadline {
+            st.sync_chat_from_pty();
+            if st.chat_turns.get(1).is_some_and(|t| t.text.contains("ok")) {
+                synced = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        assert!(synced, "stub CLI output 'ok' must reach assistant turn: {:?}", st.chat_turns);
+
+        for turn in &st.chat_turns {
+            for forbidden in ["plans/specs/", "PRD.md", "FC-001", "REQ-01..REQ-20", "US-01..US-17", "G1..G5"] {
+                assert!(!turn.text.contains(forbidden), "turn {:?} text must not contain {forbidden:?}: {:?}", turn.role, turn.text);
+            }
+        }
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn make_design_sends_a_prompt_and_applies_nothing() {
+        let stub = write_test_stub_script("make-design-noop", "exit 0");
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+        let mut st =
+            TerminalState { side_panel_pty_open: false, chat_mode: true, expanded_agent_cat: Some(1), stub_cli: Some(stub), ..TerminalState::for_tab(68105) };
+
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        assert!(ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-cat-prd".to_string())))).is_none(), "agents-cat-prd category must be removed");
+        let make_design_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "term-ai-make-design".to_string())))).expect("term-ai-make-design recorded");
+        let pos = make_design_rect.center();
+
+        let mut actions = Vec::new();
+        let raw = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw, |ui| {
+            actions = show_left(&mut st, ui, panel_rect, None);
+        });
+
+        assert!(
+            st.chat_turns.iter().any(|t| t.role == AgentChatRole::User && t.text == MAKE_DESIGN_FIRST_DRAFT_PROMPT),
+            "clicking term-ai-make-design must record a User turn with MAKE_DESIGN_FIRST_DRAFT_PROMPT: {:?}",
+            st.chat_turns
+        );
+        assert!(
+            !actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_) | TerminalAction::ApplySpecFile(_))),
+            "clicking term-ai-make-design must not return ApplySpecJson or ApplySpecFile: {actions:?}"
+        );
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn composer_has_no_microphone_control() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+        let mut st = TerminalState { side_panel_pty_open: false, chat_mode: true, ..TerminalState::for_tab(68106) };
+
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        assert!(
+            ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-composer-mic".to_string())))).is_none(),
+            "agents-composer-mic must not be recorded"
+        );
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        for t in &texts {
+            assert!(!t.text.contains("Audit the selected frame against the PRD"), "painted text must not contain fake voice prompt: {:?}", t.text);
+        }
+        kill_tabs(&mut st);
     }
 }

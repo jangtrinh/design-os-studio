@@ -618,6 +618,9 @@ impl App {
             self.show_toast(format!("Edit failed: {e}"), true);
             return None;
         }
+        if let Some(id) = self.doc.get(parent).and_then(|p| p.children.last().copied()) {
+            App::stretch_into_slot_if_configured(&mut self.doc, &mut tx.ed, parent, id);
+        }
         App::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
         if !self.run_tx(tx) {

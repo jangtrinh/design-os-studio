@@ -22,6 +22,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
     let selected = selected_top_level(doc, page, selection);
     let mut p = page_node.clone();
     p.fig_metadata.clear();
+    p.fig_metadata.insert("designos:scoped".into(), "true".into());
     p.children = page_node.children.iter().enumerate().filter(|(i, c)| *i < MAX_TOP_LEVEL || selected.contains(c)).map(|(_, c)| *c).collect();
     let mut budget = FULL_SUBTREE_BUDGET;
     for &cid in &p.children {
@@ -40,6 +41,7 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
             c.fill_geometry = None;
             c.stroke_geometry = None;
             c.fig_metadata.clear();
+            c.fig_metadata.insert("designos:scoped_shell".into(), "true".into());
             scoped.nodes.insert(cid, c);
         }
     }

@@ -93,13 +93,13 @@ To compile all 4 release binaries (`designos-studio`, `designos`, `designos-mcp`
 
 ```bash
 # Build & package for your current host OS (macOS .dmg + .tar.gz, Linux .deb + .tar.gz, Windows .zip)
-./scripts/build-release.sh 0.3.0 --local-host
+./scripts/build-release.sh 0.5.0 --local-host
 
 # Build & package a Universal (Apple Silicon + Intel) macOS release
-./scripts/build-release.sh 0.3.0 --universal-macos
+./scripts/build-release.sh 0.5.0 --universal-macos
 
 # Package already-built release binaries in target/release without recompiling
-./scripts/build-release.sh 0.3.0 --local-host --skip-build
+./scripts/build-release.sh 0.5.0 --local-host --skip-build
 ```
 
 Outputs are written to `dist/`:

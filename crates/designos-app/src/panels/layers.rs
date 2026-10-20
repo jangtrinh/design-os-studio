@@ -532,8 +532,14 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     }
                 }
             } else {
+                let chip_left = crate::image_jobs::layer_row_progress_chip(app, ui, &p, rr, text_right, row.id);
+                let avail_right = chip_left.unwrap_or(text_right);
                 let label_w = widgets::text_width(&p, type_label, &theme::font_caption()) + TYPE_LABEL_PAD;
-                let split = split_row_text(text_left, text_right, label_w);
+                let split = if chip_left.is_some() {
+                    RowTextSplit { name_right: avail_right, show_label: false }
+                } else {
+                    split_row_text(text_left, avail_right, label_w)
+                };
                 let shown = widgets::elide(&p, &node_name, &theme::font_body(), (split.name_right - text_left).max(10.0));
                 if let Some(m) = &filter {
                     let ranges = crate::find::filter::highlights(m, &shown);
@@ -541,9 +547,9 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                 }
                 p.text(Pos2::new(text_left, rr.center().y), Align2::LEFT_CENTER, shown, theme::font_body(), tcol);
                 if split.show_label {
-                    let column = Rect::from_min_max(Pos2::new(text_left, rr.top()), Pos2::new(text_right, rr.bottom()));
+                    let column = Rect::from_min_max(Pos2::new(text_left, rr.top()), Pos2::new(avail_right, rr.bottom()));
                     p.with_clip_rect(column).text(
-                        Pos2::new(text_right - 2.0, rr.center().y),
+                        Pos2::new(avail_right - 2.0, rr.center().y),
                         Align2::RIGHT_CENTER,
                         type_label,
                         theme::font_caption(),

@@ -59,6 +59,8 @@ pub enum Command {
     SetPrototypeDevice {
         device: PrototypeDevice,
     },
+    /// Replace Check designs settings (rule toggles, contrast level, ignored findings).
+    SetCheckDesignsSettings(CheckDesignsSettings),
     /// Replace all variables and collections (variable edits).
     SetVariables {
         variables: BTreeMap<String, Variable>,
@@ -154,15 +156,30 @@ impl Command {
                 doc.bump_mutation_epoch();
                 Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
             }
-            Command::SetLibraryState { state, library_page } => Command::SetLibraryState {
-                state: std::mem::replace(&mut doc.library, state),
-                library_page: std::mem::replace(&mut doc.library_page, library_page),
-            },
+            Command::SetLibraryState { state, library_page } => {
+                if let Some(lp_id) = library_page {
+                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp_id) {
+                        let mut n = Node::new(lp_id, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
+                        n.name = "Library".into();
+                        e.insert(n);
+                        doc.bump_ids();
+                    }
+                }
+                doc.mark_full_dirty();
+                Command::SetLibraryState {
+                    state: std::mem::replace(&mut doc.library, state),
+                    library_page: std::mem::replace(&mut doc.library_page, library_page),
+                }
+            }
             Command::SetGuides { page, guides } => {
                 let old = if guides.is_empty() { doc.guides.remove(&page) } else { doc.guides.insert(page, guides) };
                 Command::SetGuides { page, guides: old.unwrap_or_default() }
             }
             Command::SetPrototypeDevice { device } => Command::SetPrototypeDevice { device: std::mem::replace(&mut doc.prototype_device, device) },
+            Command::SetCheckDesignsSettings(settings) => {
+                doc.bump_mutation_epoch();
+                Command::SetCheckDesignsSettings(std::mem::replace(&mut doc.check_designs, settings))
+            }
             Command::SetVariables { variables, collections } => {
                 doc.mark_full_dirty();
                 Command::SetVariables {
@@ -293,7 +310,11 @@ impl Command {
                     + collections.values_mut().map(finite_json::neutralize_in_place).sum::<usize>()
             }
             Command::Batch(cmds) => cmds.iter_mut().map(Self::neutralize_non_finite).sum(),
-            Command::Remove { .. } | Command::Reparent { .. } | Command::RemovePage { .. } | Command::SetImages { .. } => 0,
+            Command::Remove { .. }
+            | Command::Reparent { .. }
+            | Command::RemovePage { .. }
+            | Command::SetImages { .. }
+            | Command::SetCheckDesignsSettings(_) => 0,
         }
     }
 }

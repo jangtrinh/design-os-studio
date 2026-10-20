@@ -7,7 +7,7 @@ Every visible button, input bar, scrollbar, tab, menu item, and agent CLI runtim
 `design:os studio` (`crates/designos-app/src/`) must execute real state mutation, real OS
 clipboard/filesystem I/O, or real CLI subprocess execution.
 
-Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
+Verifies 15 hard Zero-Fake-UI invariants (`Z01..Z15`):
   - Z01: `terminal.rs` has `runtime_binary_available` and real CLI invocation
          (`claude -p`, `codex exec`, `agy -p`, `grok -p`) in `submit_chat_prompt`.
   - Z02: `terminal.rs` `set_active_runtime` mutates `tab.preset` (not just renaming `tab.title`)
@@ -15,8 +15,8 @@ Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
          and `build_real_cli_command`.
   - Z03: `terminal.rs` `dispatch_figma_ai_prompt` does NOT prefix PTY commands with a `#` shell comment.
   - Z04: `terminal.rs` header & composer buttons (`agents-header-ai`, `agents-header-popout`,
-         `agents-header-more`, `agents-composer-attach`, `agents-composer-context`,
-         `agents-composer-mic`) all have interactive click handlers (`Sense::click()`).
+         `agents-header-more`, `agents-composer-attach`, `agents-composer-context`) all have
+         interactive click handlers (`Sense::click()`); `agents-composer-mic` stays removed.
   - Z05: `specs.rs` `specs-ask-agent-bar` hosts a real `TextEdit::singleline` (`ask_input`)
          instead of only sending a hardcoded prompt string.
   - Z06: `specs.rs` Right Inspector has dynamic `active_section_toc` and interactive
@@ -39,6 +39,8 @@ Verifies 14 hard Zero-Fake-UI invariants (`Z01..Z14`):
          still builds its candidate from `ReleaseManifest::sample_for_channel`; the guard must be
          CODE (comments stripped) in every entry point: the `tabs.rs` button, the Home sidebar card
          and the update modal.
+  - Z15: `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` /
+         `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`.
 
 All source matching runs on shipped code: `//` comments and `#[cfg(test)]` items are stripped first, then
 every string literal is rewritten to the text the Rust compiler builds from it (escapes decoded, raw strings quoted,
@@ -50,7 +52,7 @@ this gate fails.
          `Sense::click_and_drag()`.
 
 Exit code:
-  0 when 14/14 invariants pass, 1 if any invariant fails.
+  0 when 15/15 invariants pass, 1 if any invariant fails.
 """
 
 from __future__ import annotations
@@ -527,14 +529,14 @@ def check_z03(terminal_rs: str) -> Tuple[bool, str]:
     return False, f"dispatch_figma_ai_prompt comment_noop={comment_noop}, has_send={has_send}"
 
 
-def check_z04(terminal_rs: str) -> Tuple[bool, str]:
+def check_z04(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
     required_ids = [
         "agents-header-ai",
         "agents-header-popout",
         "agents-header-more",
         "agents-composer-attach",
         "agents-composer-context",
-        "agents-composer-mic",
     ]
     missing = []
     for wid in required_ids:
@@ -544,9 +546,10 @@ def check_z04(terminal_rs: str) -> Tuple[bool, str]:
         )
         if not pattern.search(terminal_rs):
             missing.append(wid)
-    if not missing:
-        return True, f"All 6 header/composer controls ({', '.join(required_ids)}) have interactive Sense::click() handlers"
-    return False, f"Missing interactive Sense::click() handler for: {missing}"
+    has_fake_mic = "agents-composer-mic" in terminal_rs
+    if not missing and not has_fake_mic:
+        return True, f"All 5 header/composer controls ({', '.join(required_ids)}) have interactive Sense::click() handlers; fake mic removed"
+    return False, f"Missing interactive Sense::click() handler for: {missing}, has_fake_mic={has_fake_mic}"
 
 
 def check_z05(specs_rs: str) -> Tuple[bool, str]:
@@ -618,10 +621,18 @@ def check_z08(sources: "SourceSet") -> Tuple[bool, str]:
     has_select = "ctx-select-area" in toolbar_rs
     has_edit_img = ("ctx-edit-image" in toolbar_rs) or ("ctx-edit-prompt" in toolbar_rs)
     # Crop / Remove-background had no real implementation (a 5% shrink and "delete first fill").
-    # They may only come back with an honest implementation, which must update this check.
-    # Scan all shipped, non-test sources (not only cmdk.rs / toolbar.rs) and reject concat! / \u{ in UI labels.
+    # E5-10 brings back Remove background as an honest agent-CLI job in image_jobs.rs (request.json + input.png + output.png);
+    # keep scanning all other shipped, non-test sources (including cmdk.rs, panels/toolbar.rs, panels/mod.rs) and reject concat! / \u{ in UI labels.
+    image_jobs_rs = sources.code("image_jobs.rs")
+    honest_e5_10 = (
+        "request.json" in image_jobs_rs
+        and "input.png" in image_jobs_rs
+        and "output.png" in image_jobs_rs
+        and "ImageOp::RemoveBackground" in image_jobs_rs
+    )
+    allowed_e5_10_files = {"image_jobs.rs", "panels/context.rs", "panels/menus.rs"} if honest_e5_10 else set()
     retired_actions = sources.code_hits(RETIRED_ACTION_PATTERN)
-    retired_cmdk = sources.code_hits(RETIRED_CMDK_PATTERN)
+    retired_cmdk = [f for f in sources.code_hits(RETIRED_CMDK_PATTERN) if f not in allowed_e5_10_files]
     cmdk_unnorm = sources.unnormalized_code("cmdk.rs")
     toolbar_unnorm = sources.unnormalized_code("panels/toolbar.rs")
     obfuscated_ui_labels = []
@@ -865,6 +876,42 @@ def check_z14(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
+def check_z15(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_code = sources.code("terminal.rs")
+    cmdk_code = sources.code("cmdk.rs")
+    forbidden_terminal = [
+        tok
+        for tok in (
+            "synthesize_spec_from_prompt",
+            "is_design_creation_prompt",
+            "Executed via",
+            "streamed to Canvas",
+            "PRD Context:",
+            "agents-cat-prd",
+            "agents-composer-mic",
+        )
+        if tok in terminal_code
+    ]
+    synth_callers = [
+        rel
+        for rel in sources.code_hits(r"\bsynthesize_spec_from_prompt\b")
+        if rel != "cmdk.rs"
+    ]
+    pub_synth_in_cmdk = bool(
+        re.search(r"\bpub\s+fn\s+synthesize_spec_from_prompt\b", cmdk_code)
+    )
+    ok = not forbidden_terminal and not synth_callers and not pub_synth_in_cmdk
+    if ok:
+        return (
+            True,
+            "`terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` / `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`",
+        )
+    return (
+        False,
+        f"forbidden_terminal={forbidden_terminal}, synth_callers_outside_cmdk={synth_callers}, pub_synth_in_cmdk={pub_synth_in_cmdk}",
+    )
+
+
 def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]]:
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
@@ -883,7 +930,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z01", "terminal.rs", "Real CLI binary detection & invocation in submit_chat_prompt", lambda: check_z01(terminal_rs)),
         ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn, never typed", lambda: check_z02(terminal_rs)),
         ("Z03", "terminal.rs", "dispatch_figma_ai_prompt sends executable command without # comment prefix", lambda: check_z03(terminal_rs)),
-        ("Z04", "terminal.rs", "All 6 Agents header & composer buttons have Sense::click() handlers", lambda: check_z04(terminal_rs)),
+        ("Z04", "terminal.rs", "All 5 Agents header & composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
         ("Z05", "specs.rs", "specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input)", lambda: check_z05(specs_rs)),
         ("Z06", "specs.rs", "Right Inspector dynamic active_section_toc & interactive SpecComment", lambda: check_z06(specs_rs)),
         ("Z07", "specs.rs", "Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract", lambda: check_z07(specs_rs)),
@@ -894,6 +941,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z12", "widgets/picker.rs + panels/mod.rs + variables/view.rs", "Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag()", lambda: check_z12(picker_rs, panels_mod_rs, vars_view_rs, properties_rs)),
         ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
         ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(sources)),
+        ("Z15", "terminal.rs + cmdk.rs", "No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs", lambda: check_z15(sources)),
     ]
 
     results: List[Dict[str, Any]] = []

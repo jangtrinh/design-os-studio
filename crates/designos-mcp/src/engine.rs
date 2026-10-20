@@ -1,8 +1,6 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
 use designos_doc::live_patch::{live_ops_for_command, LiveOp};
-use designos_doc::{
-    Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Rect, TextStyle, Vec2,
-};
+use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
@@ -13,13 +11,17 @@ pub struct Engine {
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
+    /// Undo-group label attached to the next [`designos_doc::live_patch::LivePatch`] line when set.
+    pub live_patch_label: Option<String>,
+    /// Optional RD-3 frame ownership lock: when `Some`, writes outside these root frames are refused.
+    pub owned_frames: Option<Vec<NodeId>>,
 }
 
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
-        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None }
+        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None, live_patch_label: None, owned_frames: None }
     }
 }
 
@@ -54,6 +56,10 @@ impl Engine {
                     }).collect::<Vec<_>>(),
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
+            "designos_get_libraries" => {
+                let _: Empty = parse(args)?;
+                Ok(crate::tools::libraries::get_libraries(&self.doc))
+            }
             "designos_list_nodes" => {
                 let a: ListArgs = parse(args)?;
                 if a.limit == 0 || a.limit > 500 {
@@ -81,6 +87,7 @@ impl Engine {
                 let a: NodeArgs = parse(args)?;
                 Ok(json!({"node":self.node(a.node_id)?}))
             }
+            "designos_get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args),
             "designos_get_variables" => {
                 let a: VariablesArgs = parse(args)?;
                 let effective = if let Some(id) = a.node_id {
@@ -113,30 +120,32 @@ impl Engine {
                 let a: CodeArgs = parse(args)?;
                 let id = self.node(a.node_id)?.id;
                 let doc = designos_doc::apply_bound_variables(&self.doc);
-                let code = match a.language.as_str() {
-                    "css" => designos_export::css_for(&doc, id),
-                    "tailwind" => designos_export::tailwind_for(&doc, id),
-                    "react" => designos_export::react_for(&doc, id),
-                    "swiftui" => designos_export::swiftui_for(&doc, id),
-                    "uikit" => designos_export::uikit_for(&doc, id),
-                    "compose" => designos_export::compose_for(&doc, id),
-                    "android-xml" => designos_export::android_xml_for(&doc, id),
-                    "svg" => designos_export::export_svg(&doc, id, &Default::default()),
-                    _ => return Err("language must be css, tailwind, react, swiftui, uikit, compose, android-xml, or svg".into()),
+                let code = if let Some(lang) = designos_export::language::CodeLanguage::from_id(a.language.as_str()) {
+                    lang.generate(&doc, id, false)
+                } else if a.language == "svg" {
+                    designos_export::export_svg(&doc, id, &Default::default())
+                } else {
+                    let ids: Vec<&str> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id()).collect();
+                    return Err(format!("language must be {}, or svg", ids.join(", ")));
                 };
                 Ok(json!({"node_id":id,"language":a.language,"code":code}))
             }
             "designos_create_node" => self.create(parse(args)?),
             "designos_update_node" => self.update(parse(args)?),
             "designos_delete_node" => {
-                let a: NodeArgs = parse(args)?;
+                let a: DeleteArgs = parse(args)?;
                 let n = self.node(a.node_id)?;
                 if n.parent.is_none() {
                     return Err("page roots cannot be deleted by this tool".into());
                 }
                 let id = n.id;
+                let before_doc = a.diff_image.then(|| self.doc.clone());
                 self.exec(Command::Remove { id })?;
-                Ok(json!({"node_id":id,"deleted":true}))
+                let mut out = json!({"node_id":id,"deleted":true});
+                if let Some(before) = &before_doc {
+                    crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+                }
+                Ok(out)
             }
             "designos_list_comments" => {
                 let a: ListCommentsArgs = parse(args)?;
@@ -259,14 +268,28 @@ impl Engine {
                 if !self.node(parent.0)?.kind.is_container() {
                     return Err("parent_id must identify a container".into());
                 }
-                let mut trial = self.doc.clone();
-                let root_id = trial.apply_spec(parent, &a.spec)?;
-                let mut nodes = Vec::new();
-                trial.walk(root_id, |n, _| nodes.push(n.clone()));
-                let index = self.doc.get(parent).ok_or("parent not found")?.children.len();
-                self.exec(Command::Insert { parent, index, nodes })?;
+                let before_doc = a.diff_image.then(|| self.doc.clone());
+                let snapshots = crate::tools::library_source::load_enabled_snapshots(&self.doc);
+                let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots).map_err(|e| e.to_string())?;
+                self.exec(cmd)?;
                 self.relayout(parent);
-                Ok(json!({"root_node_id": root_id, "parent_id": parent.0, "node": self.doc.get(root_id), "changed": true}))
+                let root_id = report.root_node_id;
+                let mut resp = json!({
+                    "root_node_id": root_id,
+                    "parent_id": parent.0,
+                    "node": self.doc.get(root_id),
+                    "changed": true,
+                    "name_to_id": report.name_to_id,
+                    "instances": report.instances,
+                    "imported_assets": report.imported_assets,
+                });
+                if !report.stale_library_assets.is_empty() {
+                    resp["stale_library_assets"] = json!(report.stale_library_assets);
+                }
+                if let Some(before) = &before_doc {
+                    crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
+                }
+                Ok(resp)
             }
             "designos_export_spec" => {
                 let a: NodeArgs = parse(args)?;
@@ -373,6 +396,8 @@ impl Engine {
                 let count = findings.len();
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }
+            "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
+            "designos_apply_batch" => crate::tools::batch::apply(self, args),
             "designos_undo" | "designos_redo" => {
                 let _: Empty = parse(args)?;
                 let undo = name == "designos_undo";
@@ -394,7 +419,7 @@ impl Engine {
     /// Re-solves auto layout under `root` and finishes what the pass had to defer. The editor
     /// drains deferred layout a step per frame; this engine has no window, and its document is
     /// read, saved and exported as is.
-    fn relayout(&mut self, root: NodeId) {
+    pub(crate) fn relayout(&mut self, root: NodeId) {
         self.doc.relayout_subtree(root);
         self.doc.flush_pending_relayout();
     }
@@ -405,14 +430,14 @@ impl Engine {
         self.doc.flush_pending_relayout();
     }
 
-    fn node(&self, id: u64) -> Result<&Node, String> {
+    pub(crate) fn node(&self, id: u64) -> Result<&Node, String> {
         if id == 0 {
             return Err("node IDs must be positive integers".into());
         }
         self.doc.get(NodeId(id)).ok_or_else(|| format!("node {id} not found"))
     }
 
-    fn exec(&mut self, command: Command) -> Result<(), String> {
+    pub(crate) fn exec(&mut self, command: Command) -> Result<(), String> {
         let ops = self.live_ops_for(&command)?;
         self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
         self.record(ops);
@@ -420,14 +445,14 @@ impl Engine {
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
-    fn live_ops_for(&self, command: &Command) -> Result<Vec<LiveOp>, String> {
+    pub(crate) fn live_ops_for(&self, command: &Command) -> Result<Vec<LiveOp>, String> {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
         live_ops_for_command(&self.doc, command)
     }
 
-    fn record(&mut self, ops: Vec<LiveOp>) {
+    pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
         if let Some(log) = &mut self.live_ops {
             log.extend(ops);
         }
@@ -446,98 +471,59 @@ impl Engine {
             }
             None => self.resolve_default_page()?,
         };
-        let parent = self.node(parent_id.0)?;
-        if !parent.kind.is_container() {
-            return Err("parent_id must identify a container".into());
+        if let Some(fill_str) = &a.fill {
+            designos_doc::resolve_easeui_color(fill_str).ok_or_else(|| format!("invalid fill color '{fill_str}'"))?;
         }
-        let index = parent.children.len();
-        geometry(a.x, a.y, a.width, a.height)?;
-        if let Some(name) = &a.name {
-            bounded_text("name", name, 1024)?;
-        }
-        if let Some(text) = &a.text {
-            bounded_text("text", text, 100_000)?;
-        }
-        if a.kind != "text" && a.text.is_some() {
-            return Err("text can only be set on text nodes".into());
-        }
-        let rect = Rect::new(a.x, a.y, a.width, a.height);
-        // Allocate only after every argument has passed validation.
-        let constructor: fn(NodeId, Rect) -> Node = match a.kind.as_str() {
-            "frame" => Node::frame,
-            "rectangle" => Node::rectangle,
-            "ellipse" => Node::ellipse,
-            "text" => |id, r| Node::text(id, r, "", TextStyle::default()),
-            _ => return Err("kind must be frame, rectangle, ellipse, or text".into()),
-        };
-        // Imported native files may carry a stale allocation counter. Derive a
-        // fresh ID from the actual nodes instead of risking an overwrite.
-        let id = self.doc.try_alloc_id().ok_or("Document has exhausted node IDs")?;
-        let mut node = constructor(id, rect);
-        if let Some(name) = a.name {
-            node.name = name;
-        }
-        if let (Some(text), NodeKind::Text(props)) = (a.text, &mut node.kind) {
-            props.content = text;
+        let before_doc = a.diff_image.then(|| self.doc.clone());
+        let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
+        if let Some(fills) = a.fills {
+            node.fills = fills;
+        } else if let Some(fill_str) = &a.fill {
+            if let Some(color) = designos_doc::resolve_easeui_color(fill_str) {
+                node.fills = vec![designos_doc::Paint::solid(color)];
+            }
         }
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
         }
-        Ok(json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true}))
+        let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        if let Some(before) = &before_doc {
+            crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+        }
+        Ok(out)
     }
 
     fn update(&mut self, a: UpdateArgs) -> Result<Value, String> {
-        let mut node = self.node(a.node_id)?.clone();
-        if node.parent.is_none() {
-            return Err("page roots cannot be updated by this tool".into());
-        }
-        if let Some(name) = a.name {
-            bounded_text("name", &name, 1024)?;
-            node.name = name;
-        }
-        if let Some(x) = a.x {
-            node.transform.tx = x;
-        }
-        if let Some(y) = a.y {
-            node.transform.ty = y;
-        }
-        if let Some(width) = a.width {
-            node.size.x = width;
-        }
-        if let Some(height) = a.height {
-            node.size.y = height;
-        }
-        geometry(node.transform.tx, node.transform.ty, node.size.x, node.size.y)?;
-        if let Some(visible) = a.visible {
-            node.visible = visible;
-        }
-        if let Some(opacity) = a.opacity {
-            if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
-                return Err("opacity must be between 0 and 1".into());
-            }
-            node.opacity = opacity;
-        }
-        if let Some(text) = a.text {
-            bounded_text("text", &text, 100_000)?;
-            let NodeKind::Text(props) = &mut node.kind else {
-                return Err("text can only be set on text nodes".into());
-            };
-            if props.content != text {
-                props.content = text;
-                props.runs.clear();
-                props.lists.clear();
-            }
-        }
+        let (node, changed) = crate::tools::build_updated_node(
+            &self.doc,
+            NodeId(a.node_id),
+            crate::tools::UpdateFields {
+                name: a.name,
+                text: a.text,
+                x: a.x,
+                y: a.y,
+                width: a.width,
+                height: a.height,
+                visible: a.visible,
+                opacity: a.opacity,
+                fill: a.fill,
+                fills: a.fills,
+            },
+        )?;
         let id = node.id;
-        let changed = self.doc.get(id) != Some(&node);
+        let before_doc = a.diff_image.then(|| self.doc.clone());
         if changed {
             self.exec(Command::Update { node: Box::new(node) })?;
             if let Some(page_id) = self.doc.page_of(id) {
                 self.relayout(page_id);
             }
         }
-        Ok(json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed}))
+        let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
+        if let Some(before) = &before_doc {
+            crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+        }
+        Ok(out)
     }
 }
 
@@ -547,25 +533,10 @@ fn summary(n: &Node) -> Value {
         "width":n.size.x,"height":n.size.y})
 }
 
-fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
+pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))
 }
-fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), String> {
-    if value.len() > max {
-        Err(format!("{field} exceeds {max} UTF-8 bytes"))
-    } else {
-        Ok(())
-    }
-}
-fn geometry(x: f32, y: f32, width: f32, height: f32) -> Result<(), String> {
-    if [x, y, width, height].iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
-        return Err("geometry must be finite and within +/-1000000".into());
-    }
-    if width < 0.0 || height < 0.0 {
-        return Err("width and height must be non-negative".into());
-    }
-    Ok(())
-}
+use crate::tools::bounded_text;
 fn default_limit() -> usize {
     100
 }
@@ -583,6 +554,13 @@ struct Empty {}
 #[serde(deny_unknown_fields)]
 struct NodeArgs {
     node_id: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteArgs {
+    node_id: u64,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -621,6 +599,12 @@ struct CreateArgs {
     width: f32,
     #[serde(default = "default_size")]
     height: f32,
+    #[serde(default)]
+    fill: Option<String>,
+    #[serde(default)]
+    fills: Option<Vec<designos_doc::Paint>>,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -634,6 +618,12 @@ struct UpdateArgs {
     height: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
+    #[serde(default)]
+    fill: Option<String>,
+    #[serde(default)]
+    fills: Option<Vec<designos_doc::Paint>>,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -674,6 +664,8 @@ struct ResolveCommentArgs {
 struct ApplySpecArgs {
     parent_id: Option<u64>,
     spec: NodeSpec,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -725,6 +717,14 @@ pub fn tools() -> Vec<Value> {
         true,
     );
     add(
+        "get_libraries",
+        "List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root.",
+        json!({}),
+        vec![],
+        true,
+        true,
+    );
+    add(
         "list_nodes",
         "List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate.",
         json!({"parent_id":id,"query":{"type":"string","maxLength":1024},"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":500,"default":100}}),
@@ -741,22 +741,23 @@ pub fn tools() -> Vec<Value> {
         true,
         true,
     );
+    let generate_code_langs: Vec<&str> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id()).chain(["svg"]).collect();
     add(
         "generate_code",
         "Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files.",
-        json!({"node_id":id,"language":{"type":"string","enum":["css","tailwind","react","swiftui","uikit","compose","android-xml","svg"]}}),
+        json!({"node_id":id,"language":{"type":"string","enum":generate_code_langs}}),
         vec!["node_id", "language"],
         true,
         true,
     );
     add("create_node","Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved.",
-        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size}),vec!["parent_id","kind"],false,false);
+        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["parent_id","kind"],false,false);
     add("update_node","Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1}}),vec!["node_id"],false,true);
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["node_id"],false,true);
     add(
         "delete_node",
         "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id}),
+        json!({"node_id":id,"diff_image":{"type":"boolean","default":false}}),
         vec!["node_id"],
         false,
         false,
@@ -796,7 +797,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "apply_spec",
         "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step.",
-        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."}}),
+        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false}}),
         vec!["spec"],
         false,
         false,
@@ -825,14 +826,29 @@ pub fn tools() -> Vec<Value> {
         false,
         true,
     );
+    add(
+        "get_guidelines",
+        "List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules').",
+        json!({
+            "topic":{"type":"string"},
+            "platform":{"type":"string","enum":["web","ios","android"],"default":"web"},
+            "max_tokens":{"type":"integer","minimum":500,"maximum":25000,"default":8000}
+        }),
+        vec![],
+        true,
+        true,
+    );
     add("undo", "Undo the latest successful edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
     add("redo", "Redo the most recently undone edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
+    out.push(crate::tools::screenshot::tool_descriptor());
+    out.push(crate::tools::batch::tool_descriptor());
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::Rect;
 
     #[test]
     fn variable_inspection_and_codegen_resolve_inherited_cross_collection_aliases() {
@@ -968,16 +984,17 @@ mod tests {
         assert_eq!(result["total"], 2);
         assert_eq!(result["nodes"][0]["node_id"], id);
         assert_eq!(result["next_offset"], 1);
-        for language in ["css", "tailwind", "react", "swiftui", "uikit", "compose", "android-xml", "svg"] {
+        for language in designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id()).chain(["svg"]) {
             let output = e.call("designos_generate_code", json!({"node_id":id,"language":language})).unwrap();
             assert!(!output["code"].as_str().unwrap().is_empty());
         }
         let uikit = e.call("designos_generate_code", json!({"node_id":id,"language":"uikit"})).unwrap();
         assert!(uikit["code"].as_str().unwrap().starts_with("let card = "), "{uikit}");
-        let xml = e.call("designos_generate_code", json!({"node_id":id,"language":"android-xml"})).unwrap();
+        let android_id = designos_export::language::CodeLanguage::AndroidXml.id();
+        let xml = e.call("designos_generate_code", json!({"node_id":id,"language":android_id})).unwrap();
         assert!(xml["code"].as_str().unwrap().starts_with("<!-- res/layout/card.xml -->"), "{xml}");
         let err = e.call("designos_generate_code", json!({"node_id":id,"language":"vue"})).unwrap_err();
-        assert!(err.contains("uikit") && err.contains("android-xml"), "{err}");
+        assert!(err.contains("uikit") && err.contains(android_id), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
     }
@@ -1192,5 +1209,119 @@ mod tests {
             assert_settled(&e, last, tool);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_duplicate_language_list() {
+        let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let needle = format!("\"{}\"", designos_export::language::CodeLanguage::AndroidXml.id());
+        fn scan_dir(dir: &std::path::Path, needle: &str) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    scan_dir(&path, needle);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    let content = std::fs::read_to_string(&path).unwrap();
+                    for (idx, line) in content.lines().enumerate() {
+                        if line.contains(needle) && !line.contains("CodeLanguage") {
+                            panic!("{}:{} contains literal {needle} outside a CodeLanguage call", path.display(), idx + 1);
+                        }
+                    }
+                }
+            }
+        }
+        scan_dir(&src_dir, &needle);
+    }
+
+    #[test]
+    fn mcp_generate_code_ids_match_dropdown() {
+        let list = tools();
+        let gen_tool = list.iter().find(|t| t["name"] == "designos_generate_code").unwrap();
+        let enum_vals: Vec<String> = gen_tool["inputSchema"]["properties"]["language"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .filter(|v| v != "svg")
+            .collect();
+        let expected: Vec<String> = designos_export::language::CodeLanguage::ALL.iter().map(|l| l.id().to_string()).collect();
+        assert_eq!(enum_vals, expected);
+    }
+
+    #[test]
+    fn apply_spec_instance_round_trips_designos_and_fig_and_exports_spec() {
+        let mut e = Engine {
+            doc: designos_doc::fixtures::button_library(),
+            history: History::default(),
+            active_page_id: None,
+            live_ops: None,
+            live_patch_label: None,
+            owned_frames: None,
+        };
+        let page = e.doc.pages[0];
+        e.active_page_id = Some(page);
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "Hero CTA",
+                        "component": "Button",
+                        "variant": { "Size": "lg", "State": "hover" },
+                        "overrides": [
+                            { "path": "Label", "text": "Launch" },
+                            { "path": "Icon", "swap": "Icon/Arrow" }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        assert_eq!(res["instances"].as_array().unwrap().len(), 1);
+        assert_eq!(res["name_to_id"]["Hero CTA"], root_id.0);
+
+        // .designos JSON round-trip
+        let json_str = e.doc.to_json().unwrap();
+        let from_json = Document::from_json(&json_str).unwrap();
+        let inst_json = from_json.get(root_id).unwrap();
+        let comp_json = designos_doc::instance_component(inst_json).unwrap();
+        assert_eq!(from_json.get(comp_json).unwrap().name, "Size=lg, State=hover");
+
+        // .fig binary round-trip
+        let fig_bytes = designos_fig::export_fig(&e.doc).unwrap();
+        let from_fig = designos_fig::import_fig(&fig_bytes).unwrap();
+        let fig_inst = from_fig
+            .nodes
+            .values()
+            .find(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.name == "Hero CTA")
+            .expect("Hero CTA instance must survive .fig round-trip");
+        let fig_comp = designos_doc::instance_component(fig_inst).expect("Hero CTA must remain linked to its variant component after .fig import");
+        assert_eq!(from_fig.get(fig_comp).unwrap().name, "Size=lg, State=hover");
+        let fig_label_id = designos_doc::resolve_override_path(&from_fig, fig_inst.id, "Label").unwrap();
+        assert_eq!(from_fig.get(fig_label_id).unwrap().kind.any_text().unwrap().content, "Launch");
+
+        // designos_export_spec -> designos_apply_spec round-trip
+        let exported = e.call("designos_export_spec", json!({ "node_id": root_id.0 })).unwrap();
+        assert_eq!(exported["spec"]["kind"], "instance");
+        let reapplied = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": exported["spec"]
+                }),
+            )
+            .unwrap();
+        let root2 = NodeId(reapplied["root_node_id"].as_u64().unwrap());
+        assert_eq!(designos_doc::instance_component(e.doc.get(root_id).unwrap()), designos_doc::instance_component(e.doc.get(root2).unwrap()));
+
+        // Undo removes the second instance in one step
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(root2).is_none());
+        assert!(e.doc.get(root_id).is_some());
     }
 }

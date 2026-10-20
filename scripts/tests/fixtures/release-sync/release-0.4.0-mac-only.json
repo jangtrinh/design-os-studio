@@ -1,0 +1,23 @@
+{
+  "tagName": "v0.4.0",
+  "publishedAt": "2026-10-18T12:07:36Z",
+  "isPrerelease": false,
+  "assets": [
+    {
+      "name": "designos-0.4.0-macos-universal.tar.gz",
+      "size": 95044809
+    },
+    {
+      "name": "designos-0.4.0-macos.dmg",
+      "size": 105411149
+    },
+    {
+      "name": "release-manifest.json",
+      "size": 1881
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 507
+    }
+  ]
+}

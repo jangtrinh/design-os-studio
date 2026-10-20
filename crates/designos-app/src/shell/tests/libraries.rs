@@ -626,3 +626,43 @@ fn an_allowed_first_library_drop_keeps_its_image_bytes() {
     assert!(!b.app().doc.images.is_empty(), "the imported component keeps the image its fill refers to");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn branch_merge_applies_and_undoes_in_one_step() {
+    let root = tmp("branch-merge");
+    let mut s = sim(&root);
+    let lib = designos_library::Library::open(&root).unwrap();
+    let proj = lib.create_project("Product").unwrap();
+    let file = lib.create_file(&proj.id, None, "App", &s.shell.app.doc).unwrap();
+    let branch = lib.create_branch(&file.id, &s.shell.app.doc, "ui-polish", "Alice").unwrap();
+
+    let page = s.shell.app.doc.pages[0];
+    let mut branch_doc = lib.load_branch(&file.id, &branch.id).unwrap();
+
+    // Add colliding NodeIds on main and branch after branch point.
+    let m_id = s.shell.app.doc.alloc_id();
+    let mut m_rect = designos_doc::Node::rectangle(m_id, designos_doc::Rect::new(20.0, 20.0, 60.0, 40.0));
+    m_rect.name = "Main Banner".into();
+    s.shell.app.doc.insert(page, m_rect).unwrap();
+    lib.save_file(&file.id, &s.shell.app.doc).unwrap();
+
+    let b_id = branch_doc.alloc_id();
+    assert_eq!(m_id, b_id);
+    let mut b_rect = designos_doc::Node::rectangle(b_id, designos_doc::Rect::new(100.0, 20.0, 80.0, 40.0));
+    b_rect.name = "Branch Card".into();
+    branch_doc.insert(page, b_rect).unwrap();
+    lib.save_branch(&file.id, &branch.id, &branch_doc).unwrap();
+
+    let pre_merge_count = s.shell.app.doc.nodes.len();
+    let outcome = lib.merge_branch(&file.id, &branch.id, &mut s.shell.app.doc, &mut s.shell.app.hist, &designos_doc::Resolution::default()).unwrap();
+
+    assert_eq!(s.shell.app.doc.nodes.len(), pre_merge_count + 1);
+    assert!(designos_doc::validate_merged_references(&s.shell.app.doc).is_empty());
+    assert_eq!(outcome.branch.status, designos_library::BranchStatus::Merged { into_version: outcome.after_version.n });
+
+    // One undo in the app reverts the entire branch merge batch.
+    s.shell.app.undo();
+    assert_eq!(s.shell.app.doc.nodes.len(), pre_merge_count);
+
+    let _ = std::fs::remove_dir_all(root);
+}

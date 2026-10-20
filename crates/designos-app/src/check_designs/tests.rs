@@ -21,6 +21,7 @@ struct Fx {
 
 fn fx() -> Fx {
     let mut doc = Document::new("check");
+    doc.check_designs.disabled_rules.insert(Rule::TextStyles.figma_id().into());
     let page = doc.add_page("Page 1");
     Fx { doc, page }
 }
@@ -214,20 +215,24 @@ fn a_stroke_is_matched_against_stroke_variables_and_stroke_styles() {
 #[test]
 fn text_equal_to_a_text_style_apart_from_its_colour_suggests_the_style() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
     let t = f.text(white, "Heading", 32.0, 700, gray(0x11));
     let ts = TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() };
     f.style("H1", "Heading/H1", Style::Text(ts), StyleProperty::Text);
     let report = f.report();
-    let found = only(&report, Rule::HardCodedValue);
+    let found = only(&report, Rule::TextStyles);
     assert_eq!(found.node, t);
     assert_eq!(found.fix, Some(Fix::ApplyStyle { style: "H1".into() }));
     assert_eq!(found.message, "Text matches style \"Heading/H1\"");
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
     f.text(white, "Heading", 31.0, 700, gray(0x11));
     f.style("H1", "Heading/H1", Style::Text(TextStyle { font_size: 32.0, font_weight: 700, ..TextStyle::default() }), StyleProperty::Text);
-    assert!(f.report().findings.is_empty());
+    let unstyled = only(&f.report(), Rule::TextStyles);
+    assert_eq!(unstyled.fix, None);
+    assert_eq!(unstyled.message, "No text style");
 }
 
 #[test]
@@ -258,11 +263,12 @@ fn contrast_ratio_matches_the_wcag_reference_values() {
 
 #[test]
 fn large_text_needs_three_to_one_and_everything_else_four_and_a_half() {
-    assert_eq!(required_ratio(16.0, 400), 4.5);
-    assert_eq!(required_ratio(23.9, 400), 4.5);
-    assert_eq!(required_ratio(24.0, 400), 3.0);
-    assert_eq!(required_ratio(18.66, 700), 3.0);
-    assert_eq!(required_ratio(18.0, 700), 4.5);
+    use designos_doc::ContrastLevel;
+    assert_eq!(required_ratio(16.0, 400, ContrastLevel::AA), 4.5);
+    assert_eq!(required_ratio(23.9, 400, ContrastLevel::AA), 4.5);
+    assert_eq!(required_ratio(24.0, 400, ContrastLevel::AA), 3.0);
+    assert_eq!(required_ratio(18.66, 700, ContrastLevel::AA), 3.0);
+    assert_eq!(required_ratio(18.0, 700, ContrastLevel::AA), 4.5);
 }
 
 #[test]
@@ -459,19 +465,6 @@ fn hidden_layers_and_instance_contents_are_skipped_and_scope_is_honoured() {
     assert!(audit(&f.doc, &Scope::Layers(vec![])).findings.is_empty());
 }
 
-#[test]
-fn an_oversized_page_is_cut_off_and_says_so() {
-    let mut f = fx();
-    let frame = f.frame(f.page, "Bulk", None);
-    for _ in 0..MAX_SCANNED_LAYERS + 5 {
-        let id = f.doc.alloc_id();
-        f.doc.insert(frame, Node::rectangle(id, Rect::new(0.0, 0.0, 4.0, 4.0))).unwrap();
-    }
-    let report = f.report();
-    assert!(report.truncated);
-    assert_eq!(report.scanned, MAX_SCANNED_LAYERS);
-}
-
 // ---------------------------------------------------------------- fixes
 
 fn snapshot(app: &App, ids: &[NodeId]) -> Vec<Option<Node>> {
@@ -501,6 +494,7 @@ fn binding_a_variable_is_one_undo_step() {
 #[test]
 fn applying_fill_text_and_effect_styles_links_them_in_one_step_each() {
     let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TextStyles.figma_id());
     let r = f.rect(f.page, "Card", gray(0xEE));
     f.doc.get_mut(r).unwrap().effects = vec![shadow(8.0)];
     let white = f.frame(f.page, "Surface", Some(Color::WHITE));
@@ -630,7 +624,9 @@ mod numbers;
 mod outside_the_box;
 mod painted_behind;
 mod resolved_styles;
+mod rules;
 mod safety;
+mod scale;
 mod subtree_bounds;
 mod text_run_fills;
 mod under_an_opaque_fill;

@@ -10,6 +10,7 @@ name = "designos-mcp"
 path = "src/main.rs"
 
 [dependencies]
+designos-diff.workspace = true
 designos-doc.workspace = true
 designos-export.workspace = true
 designos-fig.workspace = true

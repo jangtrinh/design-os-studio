@@ -87,6 +87,63 @@ pub fn decode_fig_to_json(bytes: &[u8]) -> Result<Value, FigError> {
     Ok(Value::Object(out))
 }
 
+/// Pre-decoded `derivedSymbolData` entry and instance scale metadata for corpus verification.
+#[derive(Debug, Clone)]
+pub struct FigDerivedSymbolEntry {
+    pub path: Vec<String>,
+    pub size: Option<Vec2>,
+    pub transform: Option<Affine>,
+}
+
+/// Extracted `derivedSymbolData` and `uniformScaleFactor` for an `INSTANCE` node in a `.fig` file.
+#[derive(Debug, Clone, Default)]
+pub struct FigInstanceDerivedData {
+    pub uniform_scale: f32,
+    pub entries: Vec<FigDerivedSymbolEntry>,
+}
+
+/// Extracts `derivedSymbolData` entries and `uniformScaleFactor` keyed by `INSTANCE` guid (`"s:l"`).
+pub fn extract_fig_derived_symbol_data(bytes: &[u8]) -> Result<HashMap<String, FigInstanceDerivedData>, FigError> {
+    let mut d = decode_inner(bytes, true)?;
+    let raw_changes: Vec<KiwiValue> = match d.message.take_field("nodeChanges") {
+        Some(KiwiValue::Array(arr)) => arr,
+        _ => Vec::new(),
+    };
+    let mut map = HashMap::new();
+    for nc in &raw_changes {
+        if nc.get("type").and_then(kiwi_str) != Some("INSTANCE") {
+            continue;
+        }
+        let Some(id) = nc.get("guid").and_then(kiwi_guid_str) else { continue };
+        let sd = nc.get("symbolData");
+        let uniform_scale = sd.and_then(|s| kiwi_f32(s, "uniformScaleFactor")).unwrap_or(1.0);
+        let derived_val = nc.get("derivedSymbolData").or_else(|| sd.and_then(|s| s.get("derivedSymbolData")));
+        let Some(KiwiValue::Array(arr)) = derived_val else { continue };
+        let mut entries = Vec::new();
+        for o in arr {
+            let p = o.get("guidPath");
+            let list = p.and_then(|p| p.get("guids")).or(p).and_then(KiwiValue::as_array);
+            let path: Vec<String> = list.map(|a| a.iter().filter_map(kiwi_guid_str).collect()).unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            let size = o.get("size").and_then(|s| Some(Vec2::new(kiwi_f32(s, "x")?, kiwi_f32(s, "y")?)));
+            let transform = o.get("transform").map(|t| {
+                let g = |k: &str, d: f32| kiwi_f32(t, k).unwrap_or(d);
+                Affine { a: g("m00", 1.0), c: g("m01", 0.0), tx: g("m02", 0.0), b: g("m10", 0.0), d: g("m11", 1.0), ty: g("m12", 0.0) }
+            });
+            if size.is_none() && transform.is_none() {
+                continue;
+            }
+            entries.push(FigDerivedSymbolEntry { path, size, transform });
+        }
+        if !entries.is_empty() {
+            map.insert(id, FigInstanceDerivedData { uniform_scale, entries });
+        }
+    }
+    Ok(map)
+}
+
 /// Pre-decoded `derivedSymbolData` entry for fast `.fig` import without JSON intermediate.
 #[derive(Debug, Clone)]
 pub(crate) struct FastDerivedEntry {

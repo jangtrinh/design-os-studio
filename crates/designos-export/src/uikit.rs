@@ -142,7 +142,7 @@ impl Cx<'_> {
 
         if let NodeKind::Instance { .. } = n.kind {
             self.line(format!("let {v} = {}()", view_name(doc, n)));
-            for (name, lit) in instance_args(doc, n) {
+            for (name, lit) in instance_args_for(doc, n, crate::slots::Lang::Swift) {
                 let value = match lit {
                     PropLit::Bool(b) => b.to_string(),
                     PropLit::Text(t) => swift_quote(&t),
@@ -563,6 +563,22 @@ card.addArrangedSubview(chip)"####;
         for line in code.lines().filter(|l| l.contains("addArrangedSubview(") || l.contains("addSubview(")) {
             let name = line.split('(').nth(1).unwrap().trim_end_matches(')');
             assert!(code.contains(&format!("let {name} = ")), "{name} is never declared:\n{code}");
+        }
+    }
+
+    #[test]
+    fn uikit_hugging_row_all_fill_children() {
+        let (d, row, _) = fixture::row_with_counter_children(Sizing::Hug, &[20.0, 100.0], true, false);
+        let out = uikit_for(&d, row);
+        assert_eq!(out.matches("heightAnchor.constraint(equalToConstant: 100)").count(), 2, "{out}");
+    }
+
+    #[test]
+    fn uikit_grid_fill_child_exports_solved_height() {
+        for (track, height) in [(None, 20), (Some(GridTrack::Fixed(100.0)), 100)] {
+            let (d, grid, _) = fixture::grid_fill_child(track);
+            let out = uikit_for(&d, grid);
+            assert!(out.contains(&format!("heightAnchor.constraint(equalToConstant: {height})")), "{track:?}: {out}");
         }
     }
 }

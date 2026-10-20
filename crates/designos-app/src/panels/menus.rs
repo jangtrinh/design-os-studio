@@ -124,6 +124,11 @@ pub enum Action {
     MarkReadyForDev,
     MarkCompleted,
     ClearDevStatus,
+    /// E5-10: AI image tools routed through the user's agent CLI.
+    AiRemoveBackground,
+    AiIsolateSubject,
+    AiExpandImage,
+    AiEraseImage,
     /// Switches to a tool (also from the command palette).
     Tool(Tool),
 }
@@ -267,6 +272,28 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::ClearDevStatus => {
             let sel = app.top_selection();
             app.dev_clear_status(&sel);
+        }
+        Action::AiRemoveBackground => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::RemoveBackground);
+            }
+        }
+        Action::AiIsolateSubject => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                app.start_image_job(node, fill_idx, crate::image_jobs::ImageOp::IsolateSubject);
+            }
+        }
+        Action::AiExpandImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_expand_image_popover(node, fill_idx, anchor);
+            }
+        }
+        Action::AiEraseImage => {
+            if let Some((node, fill_idx, _, _, _)) = crate::image_jobs::selection_target_image_fill(app) {
+                let anchor = Rect::from_min_size(ctx.content_rect().center(), Vec2::splat(24.0));
+                app.open_erase_image_popover(node, fill_idx, anchor);
+            }
         }
         Action::Tool(t) => pick_tool(app, t),
     }

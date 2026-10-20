@@ -48,6 +48,19 @@ fn copy_paste_submenu(has: bool, has_clip: bool) -> Entry {
     Entry { item: MenuItem::new("Copy/Paste").sep(), act: None, kids }
 }
 
+/// The "AI image" submenu shown when a layer with a visible image fill is selected (`E5-10`).
+fn ai_image_submenu(app: &App) -> Entry {
+    let available = crate::image_jobs::has_available_agent_cli(app);
+    let tip = if available { "" } else { crate::image_jobs::DISABLED_TOOLTIP };
+    let kids = vec![
+        (MenuItem::new("Remove background").disabled(!available).tooltip(tip), Action::AiRemoveBackground),
+        (MenuItem::new("Isolate subject").disabled(!available).tooltip(tip).sep(), Action::AiIsolateSubject),
+        (MenuItem::new("Expand…").disabled(!available).tooltip(tip), Action::AiExpandImage),
+        (MenuItem::new("Erase…").disabled(!available).tooltip(tip), Action::AiEraseImage),
+    ];
+    Entry { item: MenuItem::new("AI image").sep(), act: None, kids }
+}
+
 /// Entries given the current selection.
 fn entries(app: &App) -> Vec<Entry> {
     let has = !app.selection.is_empty();
@@ -74,6 +87,7 @@ fn entries(app: &App) -> Vec<Entry> {
         .any(|id| app.doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Page { .. })));
     let can_mark = app.selection.iter().any(|id| crate::dev::markable(app, *id));
     let has_status = app.selection.iter().any(|id| app.doc.get(*id).is_some_and(|n| n.dev.status.is_some()));
+    let has_image_fill = crate::image_jobs::selection_target_image_fill(app).is_some();
     let mut list = vec![
         leaf(MenuItem::new("Duplicate").shortcut("Ctrl+D").disabled(!has), Action::Duplicate),
         leaf(MenuItem::new("Group selection").shortcut("Ctrl+G").disabled(!has), Action::Group),
@@ -89,8 +103,11 @@ fn entries(app: &App) -> Vec<Entry> {
         leaf(MenuItem::new("Send to back").shortcut("Ctrl+Shift+[").disabled(!has).sep(), Action::SendToBack),
         select_submenu(has),
         copy_paste_submenu(has, has_clip),
-        leaf(MenuItem::new("Mark as ready for dev").disabled(!can_mark), Action::MarkReadyForDev),
     ];
+    if has_image_fill {
+        list.push(ai_image_submenu(app));
+    }
+    list.push(leaf(MenuItem::new("Mark as ready for dev").disabled(!can_mark), Action::MarkReadyForDev));
     if is_grid_table {
         list.push(leaf(MenuItem::new("Insert row"), Action::InsertTableRow));
         list.push(leaf(MenuItem::new("Delete row"), Action::DeleteTableRow));

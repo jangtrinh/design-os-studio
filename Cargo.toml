@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/designos-doc",
+    "crates/designos-eval",
     "crates/designos-render",
     "crates/designos-fonts",
     "crates/designos-fig",
@@ -12,6 +13,7 @@ members = [
     "crates/designos-svg",
     "crates/designos-gpu",
     "crates/designos-mcp",
+    "crates/designos-webcapture",
 ]
 
 [workspace.package]
@@ -22,7 +24,9 @@ repository = "https://github.com/jangtrinh/design-os-studio"
 
 [workspace.dependencies]
 designos-doc = { path = "crates/designos-doc" }
+designos-eval = { path = "crates/designos-eval" }
 designos-render = { path = "crates/designos-render" }
+designos-diff = { path = "crates/designos-diff" }
 designos-fig = { path = "crates/designos-fig" }
 designos-library = { path = "crates/designos-library" }
 designos-fonts = { path = "crates/designos-fonts" }
@@ -30,6 +34,7 @@ designos-export = { path = "crates/designos-export" }
 designos-svg = { path = "crates/designos-svg" }
 designos-gpu = { path = "crates/designos-gpu" }
 designos-mcp = { path = "crates/designos-mcp" }
+designos-webcapture = { path = "crates/designos-webcapture" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

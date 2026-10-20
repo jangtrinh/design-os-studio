@@ -70,6 +70,13 @@ impl Document {
         for asset in self.library.external.values_mut() {
             asset.node = asset.node.map(f);
         }
+        self.check_designs.ignored = std::mem::take(&mut self.check_designs.ignored)
+            .into_iter()
+            .map(|mut k| {
+                k.node = f(k.node);
+                k
+            })
+            .collect();
     }
 }
 

@@ -2512,6 +2512,22 @@ fn resized_instance_applies_stretch_and_scale_constraints_to_children_without_de
             }),
         ),
         node(
+            (1, 6),
+            (1, 2),
+            "$",
+            "ELLIPSE",
+            "Series 3",
+            json!({
+                "size": {"x": 160.0, "y": 160.0},
+                "transform": {
+                    "m00": 0.5, "m01": 0.8660254, "m02": -29.282032,
+                    "m10": -0.8660254, "m11": 0.5, "m12": 109.282036
+                },
+                "horizontalConstraint": "SCALE",
+                "verticalConstraint": "SCALE",
+            }),
+        ),
+        node(
             (1, 10),
             (0, 1),
             "\"",
@@ -2534,13 +2550,127 @@ fn resized_instance_applies_stretch_and_scale_constraints_to_children_without_de
     assert_eq!((bg.transform.tx, bg.transform.ty), (0.0, 0.0));
 
     let series2 = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Series 2").expect("Series 2 child");
-    assert_eq!(series2.size, Vec2::new(280.0, 280.0));
-    assert!((series2.transform.tx - (-51.243556)).abs() < 1e-3, "got tx={}", series2.transform.tx);
-    assert!((series2.transform.ty - 191.24356).abs() < 1e-3, "got ty={}", series2.transform.ty);
+    assert!((series2.size.x - 247.8461).abs() < 1e-3 && (series2.size.y - 247.8461).abs() < 1e-3, "got size={:?}", series2.size);
+    assert!((series2.transform.tx - (-29.282032)).abs() < 1e-3, "got tx={}", series2.transform.tx);
+    assert!((series2.transform.ty - 185.35898).abs() < 1e-3, "got ty={}", series2.transform.ty);
+
+    let series3 = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "Series 3").expect("Series 3 child");
+    assert_eq!(series3.size, Vec2::new(280.0, 280.0));
+    assert!((series3.transform.tx - (-51.243556)).abs() < 1e-3, "got tx={}", series3.transform.tx);
+    assert!((series3.transform.ty - 191.24356).abs() < 1e-3, "got ty={}", series3.transform.ty);
 
     let badge = inst.children.iter().filter_map(|id| doc.get(*id)).find(|n| n.name == "ScaledBadge").expect("ScaledBadge child");
     assert_eq!(badge.size, Vec2::new(70.0, 70.0));
     assert_eq!((badge.transform.tx, badge.transform.ty), (35.0, 70.0));
+}
+
+#[test]
+fn derived_entry_overrides_the_pass() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "DerivedOverrideDoc"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 2),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "SYMBOL",
+            "name": "BoxComp",
+            "size": {"x": 100.0, "y": 100.0}
+        },
+        {
+            "guid": g(1, 3),
+            "parentIndex": {"guid": g(1, 2), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "Inner",
+            "size": {"x": 80.0, "y": 80.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 10.0, "m10": 0.0, "m11": 1.0, "m12": 10.0},
+            "horizontalConstraint": "STRETCH",
+            "verticalConstraint": "STRETCH"
+        },
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "\""},
+            "type": "INSTANCE",
+            "name": "BoxComp",
+            "size": {"x": 200.0, "y": 200.0},
+            "symbolData": {
+                "symbolID": g(1, 2),
+                "symbolOverrides": []
+            },
+            "derivedSymbolData": [
+                {
+                    "guidPath": {"guids": [g(1, 3)]},
+                    "size": {"x": 144.0, "y": 155.0},
+                    "transform": {"m00": 1.0, "m01": 0.0, "m02": 22.0, "m10": 0.0, "m11": 1.0, "m12": 33.0}
+                }
+            ]
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "DerivedOverrideDoc").expect("import DerivedOverrideDoc");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance");
+    let inner = doc.get(inst.children[0]).expect("Inner child");
+    assert_eq!(inner.size, Vec2::new(144.0, 155.0), "derivedSymbolData size must override the constraint pass");
+    assert_eq!((inner.transform.tx, inner.transform.ty), (22.0, 33.0));
+}
+
+#[test]
+fn editor_and_importer_call_the_shared_pass() {
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let changes = json!([
+        {"guid": g(0, 0), "type": "DOCUMENT", "name": "SharedPassParity"},
+        {"guid": g(0, 1), "parentIndex": {"guid": g(0, 0), "position": "!"}, "type": "CANVAS", "name": "Page 1"},
+        {
+            "guid": g(1, 2),
+            "parentIndex": {"guid": g(0, 1), "position": "!"},
+            "type": "SYMBOL",
+            "name": "Comp",
+            "size": {"x": 200.0, "y": 200.0}
+        },
+        {
+            "guid": g(1, 3),
+            "parentIndex": {"guid": g(1, 2), "position": "!"},
+            "type": "RECTANGLE",
+            "name": "Rot30Stretch",
+            "size": {"x": 100.0, "y": 40.0},
+            "transform": {
+                "m00": 0.8660254, "m01": -0.5, "m02": 0.0,
+                "m10": 0.5, "m11": 0.8660254, "m12": 0.0
+            },
+            "horizontalConstraint": "STRETCH",
+            "verticalConstraint": "STRETCH"
+        },
+        {
+            "guid": g(1, 4),
+            "parentIndex": {"guid": g(1, 2), "position": "\""},
+            "type": "RECTANGLE",
+            "name": "CenterMax",
+            "size": {"x": 30.0, "y": 20.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 10.0, "m10": 0.0, "m11": 1.0, "m12": 15.0},
+            "horizontalConstraint": "CENTER",
+            "verticalConstraint": "MAX"
+        },
+        {
+            "guid": g(1, 10),
+            "parentIndex": {"guid": g(0, 1), "position": "\""},
+            "type": "INSTANCE",
+            "name": "Comp",
+            "size": {"x": 300.0, "y": 200.0},
+            "symbolData": {
+                "symbolID": g(1, 2),
+                "symbolOverrides": []
+            }
+        }
+    ]);
+    let doc = import_fig_node_changes(&changes, "SharedPassParity").expect("import SharedPassParity");
+    let comp = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_))).expect("component");
+    let inst = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Instance { .. })).expect("instance");
+    let planned = designos_doc::plan_constraint_pass(&doc, comp.id, Vec2::new(200.0, 200.0), Vec2::new(300.0, 200.0), 16);
+    assert_eq!(planned.len(), inst.children.len());
+    for ((_, expected_t, expected_sz), &inst_child_id) in planned.into_iter().zip(inst.children.iter()) {
+        let actual = doc.get(inst_child_id).unwrap();
+        assert_eq!(actual.size, expected_sz);
+        assert_eq!(actual.transform, expected_t);
+    }
 }
 
 #[test]
@@ -3688,4 +3818,87 @@ fn radial_gradient_transform_imports_centred_handles_and_roundtrips() {
     let bytes = export_fig(&doc).expect("export_fig RadialDoc");
     let rt = import_fig(&bytes).expect("re-import RadialDoc");
     check(&rt);
+}
+
+#[test]
+fn resized_instance_scales_rotated_vector_and_boolean_geometry_without_derived_data() {
+    let mut doc = Document::new("RotatedVecInst");
+    let page = doc.add_page("Page 1");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "IconComp".into();
+    comp.size = Vec2::new(200.0, 200.0);
+    doc.insert(page, comp).unwrap();
+
+    let vec_id = doc.alloc_id();
+    let rect_path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(100.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(100.0, 40.0)),
+            PathCmd::LineTo(Vec2::new(0.0, 40.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let net = VectorNetwork::from_paths(std::slice::from_ref(&rect_path));
+    let mut vec_node = Node::new(vec_id, NodeKind::Vector { paths: vec![rect_path.clone()], network: Some(net) });
+    vec_node.name = "RotatedGlyph".into();
+    vec_node.size = Vec2::new(100.0, 40.0);
+    vec_node.transform = Affine::rotate(30.0_f32.to_radians());
+    vec_node.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+    vec_node.fills = vec![Paint::solid(Color::BLACK)];
+    doc.insert(comp_id, vec_node).unwrap();
+
+    let bool_id = doc.alloc_id();
+    let mut bool_node = Node::new(bool_id, NodeKind::BooleanOp(BooleanOp::Union));
+    bool_node.name = "BadgeUnion".into();
+    bool_node.size = Vec2::new(100.0, 40.0);
+    bool_node.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+    bool_node.fill_geometry = Some(vec![rect_path.clone()]);
+    bool_node.fills = vec![Paint::solid(Color::BLACK)];
+    doc.insert(comp_id, bool_node).unwrap();
+
+    let inst_id = doc.alloc_id();
+    let mut inst = Node::new(inst_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+    inst.name = "ResizedIconInst".into();
+    inst.size = Vec2::new(300.0, 200.0);
+    inst.transform = Affine::translate(260.0, 0.0);
+    doc.insert(page, inst).unwrap();
+
+    // Export and re-import through .fig (no derivedSymbolData is written by export_fig).
+    let bytes = export_fig(&doc).expect("export_fig RotatedVecInst");
+    let imported = import_fig(&bytes).expect("import_fig RotatedVecInst");
+
+    let imp_inst = find(&imported, "ResizedIconInst");
+    let glyph = imp_inst.children.iter().filter_map(|&cid| imported.get(cid)).find(|n| n.name == "RotatedGlyph").expect("RotatedGlyph child");
+    assert!((glyph.size.x - 175.130).abs() < 1e-2, "expected glyph w≈175.130, got {}", glyph.size.x);
+    assert!((glyph.size.y - 44.266).abs() < 1e-2, "expected glyph h≈44.266, got {}", glyph.size.y);
+
+    let NodeKind::Vector { paths, .. } = &glyph.kind else { panic!("expected Vector") };
+    let max_pt = paths[0]
+        .cmds
+        .iter()
+        .filter_map(|c| match *c {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p),
+            _ => None,
+        })
+        .fold(Vec2::ZERO, |acc, p| Vec2::new(acc.x.max(p.x), acc.y.max(p.y)));
+    assert!((max_pt.x - glyph.size.x).abs() < 1e-2, "vector path max_x={} vs glyph.size.x={}", max_pt.x, glyph.size.x);
+    assert!((max_pt.y - glyph.size.y).abs() < 1e-2, "vector path max_y={} vs glyph.size.y={}", max_pt.y, glyph.size.y);
+
+    let badge = imp_inst.children.iter().filter_map(|&cid| imported.get(cid)).find(|n| n.name == "BadgeUnion").expect("BadgeUnion child");
+    assert!((badge.size.x - 200.0).abs() < 1e-2);
+    if let Some(fg) = &badge.fill_geometry {
+        let bmax = fg[0]
+            .cmds
+            .iter()
+            .filter_map(|c| match *c {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(p),
+                _ => None,
+            })
+            .fold(Vec2::ZERO, |acc, p| Vec2::new(acc.x.max(p.x), acc.y.max(p.y)));
+        assert!((bmax.x - badge.size.x).abs() < 1e-2, "boolean fill_geometry max_x={} vs size.x={}", bmax.x, badge.size.x);
+    }
 }

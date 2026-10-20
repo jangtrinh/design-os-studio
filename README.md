@@ -83,7 +83,7 @@ Install the AI agent skill plugin in Claude Code / Codex, download a release pac
 git clone https://github.com/jangtrinh/design-os-studio
 cd design-os-studio
 cargo run --release -p designos-app --bin designos-studio
-./scripts/build-release.sh 0.3.0 --local-host
+./scripts/build-release.sh 0.5.0 --local-host
 ```
 
 <a id="first-safe-use--the-practical-loop"></a>
@@ -280,7 +280,7 @@ Releases are verified on macOS (Apple Silicon). The Windows and Linux packages a
 
 ```bash
 # Build & package native installers + release-manifest.json + SHA256SUMS locally into dist/
-./scripts/build-release.sh 0.3.0 --local-host
+./scripts/build-release.sh 0.5.0 --local-host
 ```
 
 ### Claude Code

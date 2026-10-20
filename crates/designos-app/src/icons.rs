@@ -136,6 +136,7 @@ pub enum Icon {
     Microphone,
     ArrowUp,
     ArrowSquareOut,
+    Sliders,
 }
 
 impl Icon {
@@ -259,6 +260,7 @@ impl Icon {
         Icon::Microphone,
         Icon::ArrowUp,
         Icon::ArrowSquareOut,
+        Icon::Sliders,
     ];
 
     /// Name of the vendored Phosphor regular icon that stands in for this one (`None` for the logo).
@@ -381,6 +383,7 @@ impl Icon {
             Icon::Microphone => "microphone",
             Icon::ArrowUp => "arrow-up",
             Icon::ArrowSquareOut => "arrow-square-out",
+            Icon::Sliders => "sliders-horizontal",
         })
     }
 
@@ -633,7 +636,7 @@ mod tests {
         for i in Icon::ALL {
             assert!(seen.insert(*i), "{i:?} listed twice");
         }
-        assert_eq!(seen.len(), 117);
+        assert_eq!(seen.len(), 118);
     }
 
     #[test]

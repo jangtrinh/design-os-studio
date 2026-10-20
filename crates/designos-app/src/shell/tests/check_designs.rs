@@ -117,3 +117,20 @@ fn a_clean_file_shows_the_empty_state_with_a_disabled_fix_all() {
     s.click(fix_all.center());
     assert!(!s.app().hist.can_undo(), "a disabled Fix all does nothing");
 }
+
+#[test]
+fn fix_all_disabled_while_scanning() {
+    let mut s = sim();
+    assert_eq!(s.app().check_designs.report.findings.len(), 8);
+    // Force a new incremental scan that stays in-flight by setting a 0ns slice budget and invalidating.
+    s.shell.app.check_designs.invalidate();
+    s.shell.app.check_designs.slice_budget = std::time::Duration::ZERO;
+    s.frame(vec![]);
+    assert!(s.app().check_designs.is_scanning(), "scan is still in flight after one micro-slice");
+    assert!(has_rect(&s, "check-designs-progress"), "progress row is rendered while scanning");
+
+    let fix_all = s.rect_of("check-designs-fix-all");
+    s.click(fix_all.center());
+    assert!(!s.app().hist.can_undo(), "Fix all is disabled while scanning and does not push an undo step");
+    assert_eq!(report(&s).findings.len(), 8, "no findings were modified while scanning");
+}

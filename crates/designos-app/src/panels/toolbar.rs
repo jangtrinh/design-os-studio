@@ -606,11 +606,10 @@ mod tests {
         assert_eq!(app.selection, vec![f]);
         let _ = std::fs::remove_dir_all(&tmp_lib);
 
-        // UF-05: In-panel Agents prompt -> NodeSpec synthesis & Canvas mutation with undo history.
-        let spec = crate::cmdk::synthesize_spec_from_prompt("pricing card");
-        let spec_json = serde_json::to_string(&spec).unwrap();
+        // UF-05: Applying a NodeSpec via execute_terminal_actions mutates the Canvas with undo history.
+        let spec_json = r#"{"name":"Pricing Card","preset":"easeui-card"}"#.to_string();
         crate::shell::execute_terminal_actions(&mut app, vec![crate::terminal::TerminalAction::ApplySpecJson(spec_json)]);
-        assert!(app.hist.can_undo(), "Applying Agent-synthesized NodeSpec records undo history");
+        assert!(app.hist.can_undo(), "Applying NodeSpec records undo history");
     }
 
     #[test]

@@ -21,6 +21,7 @@ mod fonts;
 mod history;
 mod home;
 mod icons;
+mod image_jobs;
 mod io;
 mod layout;
 mod libraries;
@@ -48,6 +49,7 @@ mod specs;
 mod styles;
 mod tabs;
 mod terminal;
+mod terminal_undo_chord;
 #[cfg(test)]
 mod test_timing;
 mod textedit;

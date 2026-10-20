@@ -1627,6 +1627,9 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) -> bool {
             let old_parent = app.doc.get(id).and_then(|n| n.parent);
             let order_before = app.doc.get(r.parent).map(|p| p.children.clone());
             if m.tx.cmd(&mut app.doc, Command::Reparent { id, parent: r.parent, index: r.index }).is_ok() {
+                if old_parent != Some(r.parent) {
+                    App::stretch_into_slot_if_configured(&mut app.doc, &mut m.tx.ed, r.parent, id);
+                }
                 if app.doc.get(r.parent).map(|p| &p.children) != order_before.as_ref() {
                     App::mark_slot_content_override(&mut app.doc, &mut m.tx.ed, r.parent);
                 }
@@ -1654,6 +1657,7 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) -> bool {
             if let Some(n) = m.tx.ed.node(&mut app.doc, id) {
                 n.transform = inv * world;
             }
+            App::stretch_into_slot_if_configured(&mut app.doc, &mut m.tx.ed, target, id);
             moved = true;
             // The slot an Alt-copy was parked in never gained or lost anything.
             if !copies {
@@ -2045,7 +2049,9 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![node] }).ok()?;
+    App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, id);
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
+    layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![id];
     app.tool = Tool::Move;
@@ -2084,7 +2090,9 @@ pub fn place_image_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut tx = Tx::new();
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: vec![n] }).ok()?;
+    App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, id);
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
+    layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
     app.run_tx(tx);
     app.selection = vec![id];
     app.tool = Tool::Move;

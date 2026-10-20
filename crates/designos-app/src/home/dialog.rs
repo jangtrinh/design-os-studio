@@ -163,6 +163,7 @@ impl App {
             ("Shift+0", "Zoom to 100%"),
             ("Ctrl+\\", "Show or hide the UI"),
             ("Ctrl+Alt+Enter", "Present"),
+            ("Undo / Redo work while an agent terminal has focus (macOS; Windows and Linux for agent tabs)", ""),
         ];
         let lines = rows.iter().map(|(k, a)| (k.to_string(), a.to_string())).collect();
         self.dialog = Some(Dialog::info(Intent::Shortcuts, "Keyboard shortcuts", lines));

@@ -2095,7 +2095,7 @@ impl<'a> Ctx<'a> {
             let old = self.doc.get(comp).map(|n| n.size).unwrap_or_default();
             let new = self.doc.get(inst).map(|n| n.size).unwrap_or_default();
             if (new.x - old.x).abs() > 1e-4 || (new.y - old.y).abs() > 1e-4 {
-                self.apply_instance_constraints(inst, old, new, 16);
+                self.apply_instance_constraints(inst, old, new, MAX_TREE_DEPTH);
             }
         }
     }
@@ -2104,58 +2104,9 @@ impl<'a> Ctx<'a> {
     /// resized instance container (`old` -> `new`) before instance overrides
     /// and `derivedSymbolData` run.
     fn apply_instance_constraints(&mut self, parent: NodeId, old: Vec2, new: Vec2, depth: usize) {
-        if depth == 0 || old.x <= 0.0 || old.y <= 0.0 {
-            return;
-        }
-        let (has_al, children) = match self.doc.get(parent) {
-            Some(p) => (p.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some(), p.children.clone()),
-            None => return,
-        };
-        let dw = new.x - old.x;
-        let dh = new.y - old.y;
-        let rx = new.x / old.x;
-        let ry = new.y / old.y;
-        for c in children {
-            let Some(k) = self.doc.get(c) else { continue };
-            if has_al && !k.layout_child.absolute {
-                continue;
-            }
-            let old_child = k.size;
-            let t = k.transform;
-            let old_center = t.apply(Vec2::new(old_child.x * 0.5, old_child.y * 0.5));
-            let old_left = old_center.x - old_child.x * 0.5;
-            let old_top = old_center.y - old_child.y * 0.5;
-            let (new_left, new_w) = match k.constraints.horizontal {
-                Constraint::Min => (old_left, old_child.x),
-                Constraint::Max => (old_left + dw, old_child.x),
-                Constraint::Center => (old_left + dw * 0.5, old_child.x),
-                Constraint::Stretch => (old_left, (old_child.x + dw).max(1.0)),
-                Constraint::Scale => (old_left * rx, (old_child.x * rx).max(1.0)),
-            };
-            let (new_top, new_h) = match k.constraints.vertical {
-                Constraint::Min => (old_top, old_child.y),
-                Constraint::Max => (old_top + dh, old_child.y),
-                Constraint::Center => (old_top + dh * 0.5, old_child.y),
-                Constraint::Stretch => (old_top, (old_child.y + dh).max(1.0)),
-                Constraint::Scale => (old_top * ry, (old_child.y * ry).max(1.0)),
-            };
-            let new_size = Vec2::new(new_w, new_h);
-            let new_center = Vec2::new(new_left + new_w * 0.5, new_top + new_h * 0.5);
-            let new_tx = new_center.x - (t.a * new_w * 0.5 + t.c * new_h * 0.5);
-            let new_ty = new_center.y - (t.b * new_w * 0.5 + t.d * new_h * 0.5);
-            let size_changed = (new_size.x - old_child.x).abs() > 1e-4 || (new_size.y - old_child.y).abs() > 1e-4;
-            let is_container = k.kind.is_container();
+        for (c, new_transform, new_size) in designos_doc::plan_constraint_pass(&self.doc, parent, old, new, depth) {
             if let Some(km) = self.doc.get_mut(c) {
-                km.transform.tx = new_tx;
-                km.transform.ty = new_ty;
-                km.size = new_size;
-                if size_changed && !matches!(km.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
-                    km.fill_geometry = None;
-                    km.stroke_geometry = None;
-                }
-            }
-            if size_changed && is_container {
-                self.apply_instance_constraints(c, old_child, new_size, depth - 1);
+                designos_doc::apply_constrained_geometry(km, new_transform, new_size);
             }
         }
     }

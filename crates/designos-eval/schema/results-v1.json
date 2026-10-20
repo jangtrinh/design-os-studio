@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://designos.dev/schema/eval/results-v1.json",
+  "title": "designos-eval JSONL Result Record v1",
+  "type": "object",
+  "required": ["type"],
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "meta" },
+        "schema": { "const": 1 },
+        "release": { "type": "string", "minLength": 1 },
+        "git": { "type": "string", "minLength": 1 },
+        "preamble_sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "started": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "judge_model": { "type": ["string", "null"] },
+        "mode": { "enum": ["tuning", "release"] },
+        "runs": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "host": {
+          "type": "object",
+          "required": ["os", "arch"],
+          "properties": {
+            "os": { "type": "string" },
+            "arch": { "type": "string" }
+          }
+        }
+      },
+      "required": [
+        "type",
+        "schema",
+        "release",
+        "git",
+        "preamble_sha1",
+        "started",
+        "agent",
+        "model",
+        "judge_model",
+        "mode",
+        "runs",
+        "host"
+      ]
+    },
+    {
+      "properties": {
+        "type": { "const": "run" },
+        "task": { "type": "string", "minLength": 1 },
+        "split": { "enum": ["dev", "held_out"] },
+        "run": { "type": "integer", "minimum": 1 },
+        "exit": { "enum": ["ok", "timeout", "crashed", "budget"] },
+        "wall_ms": { "type": "integer", "minimum": 0 },
+        "tool_calls": { "type": "integer", "minimum": 0 },
+        "tool_errors": { "type": "integer", "minimum": 0 },
+        "error_rate": { "type": ["number", "null"] },
+        "retries": { "type": "integer", "minimum": 0 },
+        "retry_rate": { "type": ["number", "null"] },
+        "undo_groups": { "type": "integer" },
+        "tokens_in": { "type": ["integer", "null"] },
+        "tokens_out": { "type": ["integer", "null"] },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "artefacts": {
+          "type": "object",
+          "required": ["doc", "renders", "transcript"],
+          "properties": {
+            "doc": { "type": "string" },
+            "renders": { "type": "array", "items": { "type": "string" } },
+            "transcript": { "type": "string" }
+          }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": [
+        "type",
+        "task",
+        "split",
+        "run",
+        "exit",
+        "wall_ms",
+        "tool_calls",
+        "tool_errors",
+        "error_rate",
+        "retries",
+        "retry_rate",
+        "undo_groups",
+        "tokens_in",
+        "tokens_out",
+        "metrics",
+        "artefacts"
+      ]
+    },
+    {
+      "properties": {
+        "type": { "const": "task" },
+        "task": { "type": "string", "minLength": 1 },
+        "split": { "enum": ["dev", "held_out"] },
+        "runs": { "type": "integer", "minimum": 1 },
+        "mean": {
+          "type": "object",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "sd": {
+          "type": "object",
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["type", "task", "split", "runs", "mean", "sd"]
+    },
+    {
+      "properties": {
+        "type": { "const": "suite" },
+        "suite": { "type": "string", "minLength": 1 },
+        "split": { "enum": ["all", "dev", "held_out"] },
+        "n_tasks": { "type": "integer", "minimum": 1 },
+        "metric": { "type": "string", "minLength": 1 },
+        "mean": { "type": ["number", "null"] },
+        "ci95": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": ["number", "null"] }
+        },
+        "ci_method": { "enum": ["bootstrap-two-stage", "bootstrap-tasks"] },
+        "B": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": [
+        "type",
+        "suite",
+        "split",
+        "n_tasks",
+        "metric",
+        "mean",
+        "ci95",
+        "ci_method",
+        "B"
+      ]
+    }
+  ]
+}
