@@ -3090,43 +3090,7 @@ fn style_meta(styles: Option<&Value>, doc: &Document) -> BTreeMap<String, StyleM
             _ if used_as_stroke.contains(id.as_str()) && !used_as_fill.contains(id.as_str()) => StyleProperty::Stroke,
             _ => StyleProperty::Fill,
         };
-        let mut bindings = crate::variables::parse_node_variables(m).bindings;
-        // In pure REST JSON (where `_styleNode` is not set on `m`), if the style entry itself carries
-        // no `boundVariables`, copy the matching slot bindings from the first consumer node that links it.
-        if bindings.is_empty() && fbool(m, "_styleNode") != Some(true) {
-            for n in doc.nodes.values() {
-                let Some((slot, _)) = n.style_refs.iter().find(|(_, sid)| *sid == id) else { continue };
-                for (k, vid) in &n.variables.bindings {
-                    let mapped = match slot.as_str() {
-                        "fill" if k.starts_with("fills/") => Some(k.clone()),
-                        "stroke" if k.starts_with("strokes/") => k.strip_prefix("strokes/").map(|rest| format!("fills/{rest}")),
-                        "effect" if k.starts_with("effects/") => Some(k.clone()),
-                        "text"
-                            if matches!(
-                                k.as_str(),
-                                "fontFamily"
-                                    | "fontSize"
-                                    | "fontWeight"
-                                    | "fontStyle"
-                                    | "lineHeight"
-                                    | "letterSpacing"
-                                    | "paragraphSpacing"
-                                    | "paragraphIndent"
-                            ) =>
-                        {
-                            Some(k.clone())
-                        }
-                        _ => None,
-                    };
-                    if let Some(mk) = mapped {
-                        bindings.insert(mk, vid.clone());
-                    }
-                }
-                if !bindings.is_empty() {
-                    break;
-                }
-            }
-        }
+        let bindings = crate::variables::parse_node_variables(m).bindings;
         out.insert(
             id.clone(),
             StyleMeta {

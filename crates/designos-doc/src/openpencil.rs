@@ -979,6 +979,26 @@ pub fn lint_document(doc: &Document, page: Option<NodeId>, preset: &str) -> Valu
         });
     }
 
+    for (style_key, meta) in &doc.style_meta {
+        for (prop, vid) in &meta.bindings {
+            if !doc.variables.contains_key(vid) && rule_enabled(preset, "broken-style-binding", "tokens") {
+                *by_category.entry("tokens".to_string()).or_insert(0) += 1;
+                *by_rule.entry("broken-style-binding".to_string()).or_insert(0) += 1;
+                issues.push(json!({
+                    "rule": "broken-style-binding",
+                    "category": "tokens",
+                    "severity": "warning",
+                    "style_key": style_key,
+                    "style_name": meta.name,
+                    "property": prop,
+                    "variable_id": vid,
+                    "message": format!("Style '{}' binds '{}' to missing variable '{}'", meta.name, prop, vid),
+                    "fixable": false,
+                }));
+            }
+        }
+    }
+
     json!({
         "preset": if preset.is_empty() { "recommended" } else { preset },
         "issue_count": issues.len(),

@@ -373,6 +373,22 @@ impl Engine {
                         check_node(n);
                     }
                 }
+                for (style_key, meta) in &self.doc.style_meta {
+                    for (prop, vid) in &meta.bindings {
+                        if !self.doc.variables.contains_key(vid) {
+                            findings.push(json!({
+                                "rule": "broken-style-binding",
+                                "category": "tokens",
+                                "severity": "warning",
+                                "style_key": style_key,
+                                "name": meta.name,
+                                "property": prop,
+                                "variable_id": vid,
+                                "message": format!("Style '{}' binds '{}' to missing variable '{}'", meta.name, prop, vid),
+                            }));
+                        }
+                    }
+                }
                 let count = findings.len();
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }

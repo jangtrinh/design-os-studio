@@ -87,17 +87,20 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
     let Some(vid) = app.doc.style_meta.get(style_key).and_then(|m| m.bindings.get(prop)).cloned() else {
         return false;
     };
-    let Some(var) = app.doc.variables.get(&vid).cloned() else { return false };
+    let (label, kind) = match app.doc.variables.get(&vid) {
+        Some(var) => (var.name.clone(), var.kind),
+        None => (format!("{vid} (missing)"), property_kind(prop).unwrap_or(VariableKind::Color)),
+    };
     let swatch = match app.doc.resolve_variable_default(&vid) {
         Some(VariableValue::Color(c)) => Some(to_c32(c)),
         _ => None,
     };
     widgets::record(ui, &format!("style-bound:{style_key}:{prop}"), rect);
-    let r = pill(ui, rect, ("style-bound", style_key, prop), &var.name, swatch, true);
+    let r = pill(ui, rect, ("style-bound", style_key, prop), &label, swatch, true);
     if r.detach {
         app.unbind_style_variable(style_key, prop);
     } else if r.body.clicked() {
-        open_style_picker(app, style_key, prop, var.kind, rect);
+        open_style_picker(app, style_key, prop, kind, rect);
     }
     true
 }
@@ -158,16 +161,14 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         }
     }
     // Variables of enabled libraries, one section per library; copied into the file when picked.
-    if bp.style_key.is_none() {
-        for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &key0, &kind_node)) {
-            let Some(render) = app.library_render_doc(&lv.library_id) else { continue };
-            let Some(v) = render.variables.get(lv.key.strip_prefix("var:").unwrap_or(&lv.key)) else { continue };
-            let mut item = pick_item(&render, v);
-            item.id = format!("{LIB_PREFIX}{}{LIB_SEP}{}", lv.library_id, lv.key);
-            item.group = lv.library_name.clone();
-            item.name = lv.name.clone();
-            items.push(item);
-        }
+    for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &key0, &kind_node)) {
+        let Some(render) = app.library_render_doc(&lv.library_id) else { continue };
+        let Some(v) = render.variables.get(lv.key.strip_prefix("var:").unwrap_or(&lv.key)) else { continue };
+        let mut item = pick_item(&render, v);
+        item.id = format!("{LIB_PREFIX}{}{LIB_SEP}{}", lv.library_id, lv.key);
+        item.group = lv.library_name.clone();
+        item.name = lv.name.clone();
+        items.push(item);
     }
     let title = match bp.kind {
         VariableKind::Color => "Colors",
@@ -184,7 +185,14 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         PickResult::Closed => {}
         PickResult::Picked(id) => {
             if let Some(skey) = &bp.style_key {
-                app.bind_style_variable(skey, &key0, &id);
+                match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
+                    Some((lib, key)) => {
+                        app.bind_style_library_variable(skey, &key0, lib, key);
+                    }
+                    None => {
+                        app.bind_style_variable(skey, &key0, &id);
+                    }
+                }
             } else {
                 match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
                     Some((lib, key)) => app.bind_library_variable(&bp.nodes, &key_refs, lib, key),
