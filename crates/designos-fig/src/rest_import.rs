@@ -357,10 +357,12 @@ fn auto_resize(s: &str) -> TextAutoResize {
 
 /// Document-wide cap on cloned nodes created while expanding component instances during a single import.
 ///
-/// Sizing across the benchmark kits (`Simple Design System`, `Polaris`, `Material 3`, and `VSF - PCP.fig` which has
-/// 23,429 cloned nodes across 1,082,324 expanded scene nodes; community kits stay under 450,000 cloned nodes):
-/// `2_000_000` is >= 4x the largest real kit clone count and matches `.pen`'s `MAX_PEN_REF_CLONES`.
-pub const CLONE_BUDGET_TOTAL: usize = 2_000_000;
+/// Kept well above any real design kit (`Simple Design System`, `Polaris`, `Material 3`, `iOS 26`, and `VSF - PCP.fig`
+/// stay under 450,000 cloned nodes) while bounding a 5,000-link chain to a deterministic ceiling.
+pub const MAX_IMPORT_CLONES: usize = 8_000_000;
+
+/// Alias for [`MAX_IMPORT_CLONES`].
+pub const CLONE_BUDGET_TOTAL: usize = MAX_IMPORT_CLONES;
 
 /// Per-instance cap on cloned nodes so a single runaway component still stops early even when the global budget has room.
 pub const PER_INSTANCE_CLONE_BUDGET: usize = 50_000;
@@ -1444,7 +1446,7 @@ impl<'a> Ctx<'a> {
         // Clone ids are handed out sequentially above every imported id, in
         // instance order, so the same input always yields the same ids.
         let max_id = self.doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0);
-        self.next_clone = max_id.checked_add(1).ok_or_else(|| FigError::Format("node ids exhausted".into()))?;
+        self.next_clone = max_id.checked_add(1).ok_or_else(|| FigError::Format("node id space exhausted".into()))?;
         self.has_instance_swap_values = self.doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
         let mut done = BTreeSet::new();
         let defer_inactive = self.large_file && self.doc.nodes.len() > 25_000 && self.doc.pages.len() > 2;
@@ -1496,7 +1498,28 @@ impl<'a> Ctx<'a> {
                     }
                 }
             }
-            if self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total {
+            let pending_exceeds_budget = if self.budget_exhausted || self.cloned_nodes >= self.clone_budget_total {
+                true
+            } else if pending_by_page.is_empty() {
+                false
+            } else {
+                let mut comp_sizes: HashMap<NodeId, usize> = HashMap::new();
+                let mut pending_clones = 0usize;
+                for insts in pending_by_page.values() {
+                    for &inst in insts {
+                        if let Some(&comp) = targets.get(&inst) {
+                            let sz = self.component_clone_count(comp, &mut comp_sizes);
+                            pending_clones = pending_clones.saturating_add(sz);
+                        }
+                        for swap_comp in self.swap_target_components(inst) {
+                            let sz = self.component_clone_count(swap_comp, &mut comp_sizes);
+                            pending_clones = pending_clones.saturating_add(sz);
+                        }
+                    }
+                }
+                self.cloned_nodes.saturating_add(pending_clones) > self.clone_budget_total || self.next_clone.checked_add(pending_clones as u64).is_none()
+            };
+            if pending_exceeds_budget {
                 let mut deferred: Vec<NodeId> = pending_by_page.drain().flat_map(|(_, v)| v).collect();
                 deferred.sort();
                 for inst in deferred {
@@ -1506,7 +1529,9 @@ impl<'a> Ctx<'a> {
             let rest: Vec<NodeId> = self.overrides.keys().copied().filter(|i| !done.contains(i)).collect();
             for inst in rest {
                 match node_page.get(&inst).copied() {
-                    Some(p) if !initial_pages.contains(&p) && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total => {
+                    Some(p)
+                        if !initial_pages.contains(&p) && !pending_exceeds_budget && !self.budget_exhausted && self.cloned_nodes < self.clone_budget_total =>
+                    {
                         let list = pending_by_page.entry(p).or_default();
                         if !list.contains(&inst) {
                             list.push(inst);
@@ -1537,6 +1562,26 @@ impl<'a> Ctx<'a> {
         self.apply_rest_overrides();
         self.resolve_proto();
         Ok(())
+    }
+
+    fn component_clone_count(&self, comp: NodeId, cache: &mut HashMap<NodeId, usize>) -> usize {
+        if let Some(&cached) = cache.get(&comp) {
+            return cached;
+        }
+        let mut count = 0usize;
+        let mut stack: Vec<NodeId> = self.doc.get(comp).map(|n| n.children.iter().rev().copied().collect()).unwrap_or_default();
+        while let Some(id) = stack.pop() {
+            if count >= PER_INSTANCE_CLONE_BUDGET {
+                break;
+            }
+            let Some(n) = self.doc.get(id) else { continue };
+            count += 1;
+            if n.kind.is_container() {
+                stack.extend(n.children.iter().rev().copied());
+            }
+        }
+        cache.insert(comp, count);
+        count
     }
 
     fn install_deferred_hydrator(&mut self) {
@@ -1589,6 +1634,8 @@ impl<'a> Ctx<'a> {
             clone_budget_total: self.clone_budget_total,
             cloned_nodes: self.cloned_nodes,
             budget_exhausted: self.budget_exhausted,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
         };
         self.doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
     }
@@ -1767,7 +1814,7 @@ impl<'a> Ctx<'a> {
 
     fn fresh_id(&mut self) -> Result<NodeId, FigError> {
         let id = NodeId(self.next_clone);
-        self.next_clone = self.next_clone.checked_add(1).ok_or_else(|| FigError::Format("node ids exhausted".into()))?;
+        self.next_clone = self.next_clone.checked_add(1).ok_or_else(|| FigError::Format("node id space exhausted".into()))?;
         Ok(id)
     }
 
@@ -2117,20 +2164,55 @@ impl<'a> Ctx<'a> {
         }
         let fast_clone = self.rest_overrides.is_empty() && self.doc.nodes.len() >= 10_000;
         let prefix = if fast_clone { String::new() } else { self.doc.get(inst).and_then(|n| n.source_id.clone()).unwrap_or_default() };
+        let has_col_anchors = !self.col_anchor_guids.is_empty();
+        let has_row_anchors = !self.row_anchor_guids.is_empty();
+        let has_col_tracks = !self.grid_col_track_ids.is_empty();
+        let has_row_tracks = !self.grid_row_track_ids.is_empty();
+        let has_no_auto_layout = !self.no_auto_layout.is_empty();
         let mut budget = PER_INSTANCE_CLONE_BUDGET;
+        let mut inst_children: Vec<NodeId> = Vec::with_capacity(kids.len());
+        let mut staged: Vec<Node> = Vec::new();
         // Pre-order on an explicit stack: a component of any depth is copied completely without recursion.
-        let mut stack: Vec<(NodeId, NodeId)> = kids.into_iter().rev().map(|k| (k, inst)).collect();
-        while let Some((src, parent)) = stack.pop() {
+        let mut stack: Vec<(NodeId, Option<usize>)> = kids.into_iter().rev().map(|k| (k, None)).collect();
+        while let Some((src, parent_idx)) = stack.pop() {
+            if self.cloned_nodes >= self.clone_budget_total {
+                self.budget_exhausted = true;
+                for p_idx in std::iter::once(parent_idx).chain(stack.iter().map(|&(_, p)| p)).flatten() {
+                    let p_node = &staged[p_idx];
+                    if matches!(p_node.kind, NodeKind::Instance { component: Some(_), .. }) && p_node.children.is_empty() {
+                        self.unexpanded_instances.insert(p_node.id);
+                    }
+                }
+                break;
+            }
             if budget == 0 {
-                return Ok(());
+                break;
             }
             budget -= 1;
             let Some(mut n) = self.doc.get(src).cloned() else { continue };
             let orig_children = std::mem::take(&mut n.children);
-            let id = self.fresh_id()?;
+            let id = match self.fresh_id() {
+                Ok(id) => id,
+                Err(e) => {
+                    if let Some(p) = self.doc.nodes.get_mut(&inst) {
+                        p.children.extend(inst_children);
+                    }
+                    for node in staged {
+                        self.doc.nodes.insert(node.id, node);
+                    }
+                    return Err(e);
+                }
+            };
             self.cloned_nodes += 1;
+            let parent = match parent_idx {
+                Some(idx) => staged[idx].id,
+                None => inst,
+            };
             n.id = id;
             n.parent = Some(parent);
+            if !self.unexpanded_instances.is_empty() && self.unexpanded_instances.contains(&src) {
+                self.unexpanded_instances.insert(id);
+            }
             if fast_clone {
                 n.fig_metadata.clear();
                 if let Some(sid) = n.source_id.take() {
@@ -2142,19 +2224,27 @@ impl<'a> Ctx<'a> {
                     self.override_keys.insert(id, k);
                 }
             }
-            if let Some(g) = self.col_anchor_guids.get(&src).cloned() {
-                self.col_anchor_guids.insert(id, g);
+            if has_col_anchors {
+                if let Some(g) = self.col_anchor_guids.get(&src).cloned() {
+                    self.col_anchor_guids.insert(id, g);
+                }
             }
-            if let Some(g) = self.row_anchor_guids.get(&src).cloned() {
-                self.row_anchor_guids.insert(id, g);
+            if has_row_anchors {
+                if let Some(g) = self.row_anchor_guids.get(&src).cloned() {
+                    self.row_anchor_guids.insert(id, g);
+                }
             }
-            if let Some(ids) = self.grid_col_track_ids.get(&src).cloned() {
-                self.grid_col_track_ids.insert(id, ids);
+            if has_col_tracks {
+                if let Some(ids) = self.grid_col_track_ids.get(&src).cloned() {
+                    self.grid_col_track_ids.insert(id, ids);
+                }
             }
-            if let Some(ids) = self.grid_row_track_ids.get(&src).cloned() {
-                self.grid_row_track_ids.insert(id, ids);
+            if has_row_tracks {
+                if let Some(ids) = self.grid_row_track_ids.get(&src).cloned() {
+                    self.grid_row_track_ids.insert(id, ids);
+                }
             }
-            if self.no_auto_layout.contains(&src) {
+            if has_no_auto_layout && self.no_auto_layout.contains(&src) {
                 self.no_auto_layout.insert(id);
             }
             n.component.source = Some(src);
@@ -2163,13 +2253,21 @@ impl<'a> Ctx<'a> {
             n.component.layout_cleared = false;
             n.component.props.clear();
             let container = n.kind.is_container();
-            self.doc.nodes.insert(id, n);
-            if let Some(p) = self.doc.nodes.get_mut(&parent) {
-                p.children.push(id);
+            match parent_idx {
+                Some(idx) => staged[idx].children.push(id),
+                None => inst_children.push(id),
             }
+            let my_idx = staged.len();
+            staged.push(n);
             if container {
-                stack.extend(orig_children.into_iter().rev().map(|c| (c, id)));
+                stack.extend(orig_children.into_iter().rev().map(|c| (c, Some(my_idx))));
             }
+        }
+        if let Some(p) = self.doc.nodes.get_mut(&inst) {
+            p.children.extend(inst_children);
+        }
+        for node in staged {
+            self.doc.nodes.insert(node.id, node);
         }
         if !self.scales.contains_key(&inst) {
             let old = self.doc.get(comp).map(|n| n.size).unwrap_or_default();
@@ -2966,6 +3064,8 @@ struct DeferredFigHydrator {
     clone_budget_total: usize,
     cloned_nodes: usize,
     budget_exhausted: bool,
+    unexpanded_instances: BTreeSet<NodeId>,
+    last_error: Option<String>,
 }
 
 impl std::fmt::Debug for DeferredFigHydrator {
@@ -2986,6 +3086,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             return false;
         }
         let next_clone = self.next_clone.max(doc.peek_next_id().0);
+        let saved_insts: Vec<(NodeId, Node)> = insts.iter().filter_map(|&id| doc.get(id).cloned().map(|n| (id, n))).collect();
+        let saved_done = self.done.clone();
         let taken_doc = std::mem::take(doc);
         let has_instance_swap_values = taken_doc.nodes.values().any(|n| n.component.values.values().any(|v| matches!(v, PropValue::Instance(t) if t.0 != 0)));
         let mut cx = Ctx {
@@ -3024,12 +3126,46 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             connectors: Vec::new(),
             deferred_pending: None,
         };
-        for inst in insts {
-            if self.targets.contains_key(&inst) {
-                let _ = cx.expand_rec(inst, &self.targets, &mut self.done);
+        let mut hydration_err: Option<FigError> = None;
+        for &inst in &insts {
+            let res = if self.targets.contains_key(&inst) {
+                cx.expand_rec(inst, &self.targets, &mut self.done)
             } else if !self.done.contains(&inst) {
-                let _ = cx.apply_overrides(inst, &self.targets, &mut self.done);
+                cx.apply_overrides(inst, &self.targets, &mut self.done)
+            } else {
+                Ok(())
+            };
+            if let Err(e) = res {
+                hydration_err = Some(e);
+                break;
             }
+        }
+        if let Some(err) = hydration_err {
+            cx.doc.nodes.retain(|&id, _| id.0 < next_clone);
+            for (id, node) in saved_insts {
+                cx.doc.nodes.insert(id, node);
+            }
+            self.done = saved_done;
+            self.last_error = Some(err.to_string());
+            *doc = cx.doc;
+            if !self.pending_by_page.is_empty() {
+                self.ids = cx.ids;
+                self.overrides = cx.overrides;
+                self.override_keys = cx.override_keys;
+                self.col_anchor_guids = cx.col_anchor_guids;
+                self.row_anchor_guids = cx.row_anchor_guids;
+                self.grid_col_track_ids = cx.grid_col_track_ids;
+                self.grid_row_track_ids = cx.grid_row_track_ids;
+                self.no_auto_layout = cx.no_auto_layout;
+                self.scales = cx.scales;
+                self.path_cache = cx.path_cache;
+                self.blob_cache = cx.blob_cache;
+                self.expanded_comps = cx.expanded_comps;
+            } else {
+                self.targets.clear();
+                self.done.clear();
+            }
+            return false;
         }
         if cx.next_clone > 1 {
             cx.doc.reserve_ids(NodeId(cx.next_clone - 1));
@@ -3037,6 +3173,7 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
         self.next_clone = cx.next_clone;
         self.cloned_nodes = cx.cloned_nodes;
         self.budget_exhausted = cx.budget_exhausted;
+        self.unexpanded_instances.extend(cx.unexpanded_instances);
         *doc = cx.doc;
         if !self.pending_by_page.is_empty() {
             self.ids = cx.ids;
@@ -3059,7 +3196,8 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
     }
 
     fn hydrate_all(&mut self, doc: &mut Document) -> bool {
-        let pages: Vec<NodeId> = self.pending_by_page.keys().copied().collect();
+        let mut pages: Vec<NodeId> = self.pending_by_page.keys().copied().collect();
+        pages.sort();
         let mut any = false;
         for page in pages {
             if self.hydrate_page(doc, page) {
@@ -3071,6 +3209,24 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
 
     fn is_hydrated(&self, page: NodeId) -> bool {
         self.hydrated_pages.contains(&page) || !self.pending_by_page.contains_key(&page)
+    }
+
+    fn unexpanded_instances(&self) -> usize {
+        self.unexpanded_instances.len()
+    }
+
+    fn take_unexpanded_instances(&mut self) -> usize {
+        let n = self.unexpanded_instances.len();
+        self.unexpanded_instances.clear();
+        n
+    }
+
+    fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    fn take_last_error(&mut self) -> Option<String> {
+        self.last_error.take()
     }
 }
 
@@ -3862,17 +4018,17 @@ mod expand_depth_tests {
 
     #[test]
     fn chained_links_stop_at_the_global_clone_budget() {
-        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with CLONE_BUDGET_TOTAL (2,000,000)
-        // it stops after 2,000 links (2,001,000 cloned nodes <= budget + 50,000) and leaves 3,000 instances unexpanded.
+        // 5,000-link chain: without a global budget this clones 12,502,500 nodes; with MAX_IMPORT_CLONES (8,000,000)
+        // it stops at 8,000,000 cloned nodes (never exceeding MAX_IMPORT_CLONES) and leaves 1,001 instances empty.
         let chain = component_chain(5_000);
         let base_nodes = 1 + 2 * 5_000 + 1; // page + 5000*(comp + inner) + Use
         let started = std::time::Instant::now();
-        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, CLONE_BUDGET_TOTAL).unwrap();
+        let (doc, report) = import_rest_value_with_blobs_and_budget(&chain, true, &[], None, MAX_IMPORT_CLONES).unwrap();
         let elapsed = started.elapsed();
         let cloned = doc.nodes.len().saturating_sub(base_nodes);
-        assert!(cloned <= CLONE_BUDGET_TOTAL + PER_INSTANCE_CLONE_BUDGET, "cloned {cloned} > budget + 50k");
-        assert_eq!(cloned, 2_001_000);
-        assert_eq!(report.instances_left_unexpanded, 3_000);
+        assert!(cloned <= MAX_IMPORT_CLONES, "cloned {cloned} > MAX_IMPORT_CLONES");
+        assert_eq!(cloned, MAX_IMPORT_CLONES);
+        assert_eq!(report.instances_left_unexpanded, 1_001);
         let limit_secs = if cfg!(debug_assertions) { 60 } else { 15 };
         assert!(elapsed.as_secs() < limit_secs, "5,000-link chain took {elapsed:?}");
     }
@@ -3893,6 +4049,150 @@ mod expand_depth_tests {
         let json10 = component_chain(10).to_string();
         let (_doc_exact, rep_exact) = import_rest_json_with_budget(&json10, 6).unwrap();
         assert_eq!(rep_exact.instances_left_unexpanded, 7);
+
+        // Mid-instance boundary: when budget stops cloning inside an instance whose child is a nested instance,
+        // total cloned nodes never exceed budget and the cloned empty nested instance is also counted in report.
+        let (mut doc_mid, rep_mid) = import_rest_json_with_budget(&json10, 5).unwrap();
+        let base_10 = 1 + 2 * 10 + 1;
+        assert_eq!(doc_mid.nodes.len().saturating_sub(base_10), 5);
+        let empty_instances =
+            doc_mid.nodes.values().filter(|n| matches!(n.kind, NodeKind::Instance { component: Some(_), .. }) && n.children.is_empty()).count();
+        assert_eq!(rep_mid.instances_left_unexpanded, empty_instances);
+        assert!(doc_mid.validate_and_repair().is_clean());
+    }
+
+    #[test]
+    fn deferred_page_hydration_counts_skipped_instances_and_propagates_id_exhaustion() {
+        // Multi-page .fig import (!blobs.is_empty() && pages.len() > 1):
+        // Page 1 has >= 50 nodes (and is largest) with a single leaf component C0 (1 child, 0 nested instances, so
+        // expand_nested clones 0 nodes). Page 2 has 10 instances of C0 (10 clones needed > budget 6).
+        let mut p1_children: Vec<Value> =
+            (0..55).map(|i| json!({"id": format!("1:{i}"), "name": format!("R{i}"), "type": "RECTANGLE", "size": {"x": 4, "y": 4}})).collect();
+        p1_children.push(json!({
+            "id": "10:1", "name": "C0", "type": "COMPONENT", "size": {"x": 4, "y": 4},
+            "children": [{"id": "10:2", "name": "Dot", "type": "RECTANGLE", "size": {"x": 4, "y": 4}}]
+        }));
+        let p2_children: Vec<Value> = (0..10)
+            .map(|i| json!({"id": format!("2:{i}"), "name": format!("Use{i}"), "type": "INSTANCE", "componentId": "10:1", "size": {"x": 4, "y": 4}}))
+            .collect();
+        let multi_page = json!({
+            "document": {
+                "type": "DOCUMENT",
+                "children": [
+                    {"id": "0:1", "name": "Page 1", "type": "CANVAS", "children": p1_children},
+                    {"id": "0:2", "name": "Page 2", "type": "CANVAS", "children": p2_children}
+                ]
+            }
+        });
+        let (mut doc, rep) = import_rest_value_with_blobs_and_budget(&multi_page, true, &[&[0u8][..]], None, 6).unwrap();
+        assert_eq!(rep.instances_left_unexpanded, 4, "deferred page instances exceeding budget must be reported in ImportReport");
+        assert!(doc.validate_and_repair().is_clean());
+
+        // Also test DeferredFigHydrator::hydrate_page directly when node IDs exhaust mid-page:
+        // The first instance on the page would succeed (u64::MAX - 1 -> u64::MAX), and the second instance
+        // hits u64::MAX overflow. hydrate_page must roll back the partial mutation and record the error.
+        let mut doc_h = Document::new("deferred_overflow");
+        let p1 = doc_h.add_page("Page 1");
+        let p2 = doc_h.add_page("Page 2");
+        let comp_id = NodeId(10);
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        let child_id = NodeId(11);
+        let mut child = Node::new(child_id, NodeKind::Rectangle);
+        child.parent = Some(comp_id);
+        comp.children.push(child_id);
+        comp.parent = Some(p1);
+        let inst1 = NodeId(20);
+        let mut i1 = Node::new(inst1, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        i1.parent = Some(p2);
+        let inst2 = NodeId(21);
+        let mut i2 = Node::new(inst2, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp_id), component_key: None });
+        i2.parent = Some(p2);
+        doc_h.get_mut(p1).unwrap().children.push(comp_id);
+        doc_h.get_mut(p2).unwrap().children.extend([inst1, inst2]);
+        doc_h.nodes.insert(comp_id, comp);
+        doc_h.nodes.insert(child_id, child);
+        doc_h.nodes.insert(inst1, i1);
+        doc_h.nodes.insert(inst2, i2);
+        doc_h.reserve_ids(inst2);
+
+        let mut pending_by_page = HashMap::new();
+        pending_by_page.insert(p2, vec![inst1, inst2]);
+        let mut hydrated_pages = HashSet::new();
+        hydrated_pages.insert(p1);
+        let mut targets = BTreeMap::new();
+        targets.insert(inst1, comp_id);
+        targets.insert(inst2, comp_id);
+        let hydrator = DeferredFigHydrator {
+            pending_by_page,
+            hydrated_pages,
+            targets,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            next_clone: u64::MAX - 1,
+            clone_budget_total: MAX_IMPORT_CLONES,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+        };
+        doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator)));
+        assert!(!doc_h.ensure_page_hydrated(p2), "hydration that hits u64::MAX must fail cleanly");
+        assert!(doc_h.get(inst1).unwrap().children.is_empty(), "partial expansion on inst1 must be rolled back on error");
+        assert!(doc_h.get(inst2).unwrap().children.is_empty());
+        assert!(doc_h.validate_and_repair().is_clean());
+        let err = doc_h.hydration_error().expect("hydration error must be recorded");
+        assert!(err.contains("node id space exhausted"), "{err}");
+
+        // Also verify DeferredFigHydrator::hydrate_page records unexpanded_instances when clone_budget_total is hit.
+        let mut pending_b = HashMap::new();
+        pending_b.insert(p2, vec![inst1, inst2]);
+        let mut hydrated_b = HashSet::new();
+        hydrated_b.insert(p1);
+        let mut targets_b = BTreeMap::new();
+        targets_b.insert(inst1, comp_id);
+        targets_b.insert(inst2, comp_id);
+        let hydrator_b = DeferredFigHydrator {
+            pending_by_page: pending_b,
+            hydrated_pages: hydrated_b,
+            targets: targets_b,
+            done: BTreeSet::new(),
+            ids: BTreeMap::new(),
+            overrides: BTreeMap::new(),
+            override_keys: HashMap::new(),
+            col_anchor_guids: HashMap::new(),
+            row_anchor_guids: HashMap::new(),
+            grid_col_track_ids: HashMap::new(),
+            grid_row_track_ids: HashMap::new(),
+            no_auto_layout: HashSet::new(),
+            scales: BTreeMap::new(),
+            path_cache: HashMap::new(),
+            blob_cache: HashMap::new(),
+            expanded_comps: HashSet::new(),
+            next_clone: 100,
+            clone_budget_total: 1,
+            cloned_nodes: 0,
+            budget_exhausted: false,
+            unexpanded_instances: BTreeSet::new(),
+            last_error: None,
+        };
+        doc_h.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(hydrator_b)));
+        assert!(doc_h.ensure_page_hydrated(p2));
+        assert_eq!(doc_h.get(inst1).unwrap().children.len(), 1);
+        assert!(doc_h.get(inst2).unwrap().children.is_empty());
+        assert_eq!(doc_h.hydration_unexpanded_instances(), 1);
+        assert_eq!(doc_h.take_hydration_unexpanded_instances(), 1);
+        assert_eq!(doc_h.hydration_unexpanded_instances(), 0);
     }
 
     #[test]
@@ -3919,7 +4219,7 @@ mod expand_depth_tests {
             {"id": "1:1", "name": "HugeComp", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "children": leaves},
             {"id": "1:2", "name": "HugeInst", "type": "INSTANCE", "componentId": "1:1", "size": {"x": 10, "y": 10}}
         ]}]}});
-        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, CLONE_BUDGET_TOTAL).unwrap();
+        let (doc, rep) = import_rest_value_with_blobs_and_budget(&doc_json, true, &[], None, MAX_IMPORT_CLONES).unwrap();
         assert_eq!(rep.instances_left_unexpanded, 0);
         let inst = doc.nodes.values().find(|n| n.name == "HugeInst").unwrap();
         assert_eq!(inst.children.len(), PER_INSTANCE_CLONE_BUDGET);
@@ -3938,7 +4238,7 @@ mod expand_depth_tests {
             component_keys: BTreeMap::new(),
             overrides: BTreeMap::new(),
             next_clone: 0,
-            clone_budget_total: CLONE_BUDGET_TOTAL,
+            clone_budget_total: MAX_IMPORT_CLONES,
             cloned_nodes: 0,
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
@@ -3965,7 +4265,7 @@ mod expand_depth_tests {
         };
         cx.doc.nodes.insert(NodeId(u64::MAX), Node::new(NodeId(u64::MAX), NodeKind::Rectangle));
         let err = cx.finish(true).unwrap_err();
-        assert!(err.to_string().contains("node ids exhausted"), "{err}");
+        assert!(err.to_string().contains("node id space exhausted"), "{err}");
     }
 
     #[test]
@@ -3981,7 +4281,7 @@ mod expand_depth_tests {
             component_keys: BTreeMap::new(),
             overrides: BTreeMap::new(),
             next_clone: 0,
-            clone_budget_total: CLONE_BUDGET_TOTAL,
+            clone_budget_total: MAX_IMPORT_CLONES,
             cloned_nodes: 0,
             budget_exhausted: false,
             unexpanded_instances: BTreeSet::new(),
@@ -4030,7 +4330,7 @@ mod expand_depth_tests {
         cx.instances.push((inst1, "10:1".into()));
         cx.instances.push((inst2, "10:1".into()));
         let err = cx.finish(true).unwrap_err();
-        assert!(err.to_string().contains("node ids exhausted"), "{err}");
+        assert!(err.to_string().contains("node id space exhausted"), "{err}");
         // First instance got u64::MAX - 1; second instance overflowed when advancing past u64::MAX.
         assert_eq!(cx.doc.get(inst1).unwrap().children, vec![NodeId(u64::MAX - 1)]);
     }
@@ -4038,18 +4338,33 @@ mod expand_depth_tests {
     #[test]
     fn nan_round_trip_import_save_reopen() {
         let mut doc = import_rest_value(&component_chain(4), true).unwrap();
-        let rect_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle)).unwrap().id;
+        let rect_id = doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle) && n.component.source.is_none()).unwrap().id;
         doc.get_mut(rect_id).unwrap().size.x = f32::NAN;
         doc.get_mut(rect_id).unwrap().transform.tx = f32::INFINITY;
+
+        let (native_json, replaced) = doc.to_json_counted().unwrap();
+        assert!(replaced >= 2, "expected non-finite numbers to be replaced on save, got {replaced}");
+        assert_eq!(doc.to_json().unwrap(), native_json);
+        let (reopened_native, native_report) = Document::from_json_with_report(&native_json).unwrap();
+        assert!(native_report.is_clean());
+        assert_eq!(reopened_native.get(rect_id).unwrap().size.x, 0.0);
+        assert_eq!(reopened_native.get(rect_id).unwrap().transform.tx, 0.0);
+
+        let legacy_json = serde_json::to_string(&doc).unwrap();
+        let (reopened_legacy, legacy_report) = Document::from_json_with_report(&legacy_json).unwrap();
+        assert!(legacy_report.non_finite_numbers > 0);
+        assert_eq!(reopened_legacy.get(rect_id).unwrap().size.x, 0.0);
+        assert_eq!(reopened_legacy.get(rect_id).unwrap().transform.tx, 0.0);
+
         let bytes = crate::export_fig(&doc).unwrap();
         let fig_imported = crate::import_fig(&bytes).unwrap();
         for n in fig_imported.nodes.values() {
             assert!(n.size.x.is_finite() && n.size.y.is_finite());
             assert!(n.transform.tx.is_finite() && n.transform.ty.is_finite());
         }
-        let native_json = fig_imported.to_json().unwrap();
-        let reopened = Document::from_json(&native_json).unwrap();
-        assert_eq!(reopened.nodes.len(), fig_imported.nodes.len());
+        let fig_rect = fig_imported.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle) && n.component.source.is_none()).unwrap();
+        assert_eq!(fig_rect.size.x, 0.0);
+        assert_eq!(fig_rect.transform.tx, 0.0);
     }
 }
 

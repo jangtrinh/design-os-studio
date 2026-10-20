@@ -138,7 +138,7 @@ fn load_path_importing_pen_with_mode(
             let bytes = std::fs::read(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
             let (d, report) = designos_fig::import_fig_with_report(&bytes).map_err(|e| format!("Cannot import .fig: {e}"))?;
             if report.instances_left_unexpanded > 0 {
-                warning = Some(format!("{} instances were left unexpanded to keep the import fast.", report.instances_left_unexpanded));
+                warning = Some(clone_budget_notice(report.instances_left_unexpanded));
             }
             d
         }
@@ -165,7 +165,7 @@ fn load_path_importing_pen_with_mode(
                         warning = if record_once { non_finite_notice_once(path, replaced) } else { non_finite_notice(replaced) };
                     }
                     if report.instances_left_unexpanded > 0 {
-                        let budget_msg = format!("{} instances were left unexpanded to keep the import fast.", report.instances_left_unexpanded);
+                        let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
                         warning = Some(match warning {
                             Some(prev) => format!("{prev} {budget_msg}"),
                             None => budget_msg,
@@ -212,6 +212,12 @@ fn load_path_importing_pen_with_mode(
     }
     ensure_page(&mut doc);
     Ok((doc, warning))
+}
+
+/// Formats the user-facing warning when `unexpanded` component instances were skipped
+/// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
+pub fn clone_budget_notice(unexpanded: usize) -> String {
+    format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -975,15 +981,41 @@ mod tests {
 
     #[test]
     fn opening_file_that_hits_clone_budget_surfaces_unexpanded_instances_toast() {
-        let mut children = Vec::with_capacity(1421);
-        children.push(
-            r#"{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {"x": 10, "y": 10}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{"id": "2:0", "name": "R0", "type": "RECTANGLE", "size": {"x": 4, "y": 4}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}]}"#
-                .to_string(),
-        );
-        for k in 1..=1420 {
-            let prev = k - 1;
+        let mut children = Vec::with_capacity(207);
+        let c0_rects: Vec<String> = (0..99)
+            .map(|i| {
+                format!(r#"{{"id": "2:{i}", "name": "R{i}", "type": "RECTANGLE", "size": {{"x": 4, "y": 4}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}}"#)
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:0", "name": "C0", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c0_rects.join(",")
+        ));
+        let c1_insts: Vec<String> = (0..10)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "3:{i}", "name": "I1_{i}", "type": "INSTANCE", "componentId": "1:0", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                )
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:1", "name": "C1", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c1_insts.join(",")
+        ));
+        let c2_insts: Vec<String> = (0..40)
+            .map(|i| {
+                format!(
+                    r#"{{"id": "4:{i}", "name": "I2_{i}", "type": "INSTANCE", "componentId": "1:1", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
+                )
+            })
+            .collect();
+        children.push(format!(
+            r#"{{"id": "1:2", "name": "C2", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{}]}}"#,
+            c2_insts.join(",")
+        ));
+        for k in 0..204 {
             children.push(format!(
-                r#"{{"id": "1:{k}", "name": "C{k}", "type": "COMPONENT", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [{{"id": "3:{k}", "name": "I{k}", "type": "INSTANCE", "componentId": "1:{prev}", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}, {{"id": "2:{k}", "name": "R{k}", "type": "RECTANGLE", "size": {{"x": 4, "y": 4}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]]}}]}}"#
+                r#"{{"id": "5:{k}", "name": "U{k}", "type": "INSTANCE", "componentId": "1:2", "size": {{"x": 10, "y": 10}}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": []}}"#
             ));
         }
         let json = format!(
@@ -997,6 +1029,9 @@ mod tests {
         std::fs::remove_file(&p).ok();
 
         let toast = app.toast.as_ref().expect("open_path must show a toast");
-        assert_eq!(toast.text, "Opened BudgetKit with a warning: 5 instances were left unexpanded to keep the import fast.");
+        assert_eq!(
+            toast.text,
+            "Opened BudgetKit with a warning: This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty."
+        );
     }
 }
