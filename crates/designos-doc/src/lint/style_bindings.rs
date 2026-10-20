@@ -1,15 +1,15 @@
 //! Document-level `broken-style-binding` check: a style binds a property to a variable that no
-//! longer exists. It has no owning node, so it lives beside the node rules instead of in the registry.
+//! longer exists. It has no owning node, so it is evaluated here instead of by the node traversal;
+//! it is still a registered rule (`tokens` category, `agent` preset) and obeys rule selection.
 
 use super::config::LintConfig;
-use super::registry::{resolve_rule, Category};
 use crate::Document;
 use serde_json::{json, Value};
 
-/// Whether the style-binding check runs for `config`: it belongs to the `tokens` category, so it
-/// is active whenever the selection enables at least one token rule.
+/// Whether the style-binding check runs for `config`: only when the registered
+/// `broken-style-binding` rule is enabled by the active preset or rule list.
 pub fn style_binding_check_enabled(config: &LintConfig) -> bool {
-    config.enabled_rules.keys().any(|id| resolve_rule(id).is_some_and(|spec| spec.category == Category::Tokens))
+    config.is_enabled("broken-style-binding")
 }
 
 /// [`broken_style_binding_findings`] when [`style_binding_check_enabled`] holds for `config`.

@@ -144,8 +144,8 @@ use LintPreset::*;
 use RuleNeeds::Geometry;
 use Severity::*;
 
-/// Canonical registry of all 27 design lint rules (12 new geometric/text/content/component rules
-/// plus the 15 non-overlapping legacy rules, with legacy rule ids retained as aliases).
+/// Canonical registry of the design lint rules (12 new geometric/text/content/component rules,
+/// the 15 non-overlapping legacy rules and the document-level `broken-style-binding`, with legacy rule ids retained as aliases).
 pub const RULES: &[RuleSpec] = &[
     // --- 12 new rules defined in E15-9 §3.2 ---
     RuleSpec {
@@ -382,6 +382,16 @@ pub const RULES: &[RuleSpec] = &[
         fixable: false,
         needs: Geometry,
         presets: &[Strict],
+    },
+    // --- document-level rule (E1-4 §8.1): no owning node, evaluated by `style_bindings.rs` ---
+    RuleSpec {
+        id: "broken-style-binding",
+        aliases: &[],
+        category: Tokens,
+        default_severity: Warning,
+        fixable: false,
+        needs: Geometry,
+        presets: &[Agent, Recommended, Strict],
     },
 ];
 

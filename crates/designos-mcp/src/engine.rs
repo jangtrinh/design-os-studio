@@ -47,8 +47,10 @@ fn page_with_extras(
         .map(|f| serde_json::to_value(f).unwrap_or(Value::Null))
         .collect();
     page.extend(extras.iter().skip(start.saturating_sub(own)).take(end.saturating_sub(start.max(own))).cloned());
+    let page_len = page.len();
     value["findings"] = Value::Array(page);
     value["total"] = json!(report.total + extras.len());
+    value["truncated"] = json!(!report.complete || page_len < report.total + extras.len());
     value["cursor"] = if end < all {
         match stack_prefix {
             Some(prefix) => json!(format!("{prefix}+offset:{end}")),
@@ -710,11 +712,7 @@ impl Engine {
                 // Style findings belong to the whole document, not to a node chunk: fold them into the
                 // first chunk only (a resumed `stack:` chunk never repeats them), and into the cached
                 // report so every page of that chunk shares one total and honours `limit`.
-                let extra_findings = if stack_cursor.is_none() && a.rules.is_none() {
-                    designos_doc::lint::broken_style_binding_findings_for(&self.doc, &cfg)
-                } else {
-                    Vec::new()
-                };
+                let extra_findings = if stack_cursor.is_none() { designos_doc::lint::broken_style_binding_findings_for(&self.doc, &cfg) } else { Vec::new() };
                 let value = page_with_extras(&report, &extra_findings, offset_cursor.unwrap_or(0), limit, false, stack_cursor.as_deref());
                 self.lint_report_cache = Some(CachedLintReport {
                     runtime_id: self.doc.runtime_id(),
@@ -2194,6 +2192,7 @@ mod tests {
         btn.fills = vec![Paint::solid(Color::BLACK)];
         e.doc.insert(page, btn).unwrap();
 
+        bind_style_to_missing_variable(&mut e);
         let res = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
         assert!(res.get("passed").is_none(), "old two-rule `passed` field must be gone");
         let by_rule = res["by_rule"].as_object().expect("by_rule map");
@@ -2369,18 +2368,61 @@ mod tests {
         assert!(first.windows(2).all(|w| w[0] == w[1]), "cached pages must report the first page total: {first:?}");
     }
 
+    fn style_hits(res: &Value) -> usize {
+        res["findings"].as_array().unwrap().iter().filter(|f| f["rule"] == "broken-style-binding").count()
+    }
+
     #[test]
-    fn mcp_lint_layout_preset_omits_broken_style_binding() {
+    fn mcp_lint_broken_style_binding_follows_the_active_preset() {
         let mut e = Engine::default();
         create(&mut e, "frame", "Frame 1");
         bind_style_to_missing_variable(&mut e);
-        let strict = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
-        assert!(strict["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "broken-style-binding"));
-        for preset in ["layout", "agent"] {
+        for preset in ["agent", "recommended", "strict", "tokens"] {
             let res = e.call("designos_lint", json!({"preset": preset, "limit": 500})).unwrap();
-            assert!(res["findings"].as_array().unwrap().iter().all(|f| f["rule"] != "broken-style-binding"), "{preset}");
-            assert!(res["by_rule"].get("broken-style-binding").is_none(), "{preset}");
+            assert_eq!(style_hits(&res), 1, "{preset}");
+            assert_eq!(res["by_rule"]["broken-style-binding"], 1, "{preset}");
         }
+        let default = e.call("designos_lint", json!({"limit": 500})).unwrap();
+        assert_eq!(style_hits(&default), 1, "default preset is agent");
+        let layout = e.call("designos_lint", json!({"preset": "layout", "limit": 500})).unwrap();
+        assert_eq!(style_hits(&layout), 0);
+        assert!(layout["by_rule"].get("broken-style-binding").is_none());
+    }
+
+    #[test]
+    fn mcp_lint_rules_list_accepts_broken_style_binding() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        bind_style_to_missing_variable(&mut e);
+        let only = e.call("designos_lint", json!({"rules": ["broken-style-binding"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&only), 1);
+        assert_eq!(only["findings"].as_array().unwrap().len(), 1, "only the requested rule is returned");
+        assert_eq!(only["total"], 1);
+        let mixed = e.call("designos_lint", json!({"rules": ["default-layer-name", "broken-style-binding"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&mixed), 1);
+        let other = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 500})).unwrap();
+        assert_eq!(style_hits(&other), 0);
+    }
+
+    #[test]
+    fn mcp_lint_page_with_extras_marks_truncated_from_node_and_style_findings() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        create(&mut e, "frame", "Frame 2");
+        bind_style_to_missing_variable(&mut e);
+        let mut meta = e.doc.style_meta["Brand/Primary"].clone();
+        meta.name = "Brand/Secondary".into();
+        e.doc.style_meta.insert("Brand/Secondary".into(), meta);
+        e.clear_lint_cache();
+        let req = json!({"rules": ["default-layer-name", "broken-style-binding"], "limit": 3});
+        let first = e.call("designos_lint", req.clone()).unwrap();
+        assert_eq!(first["total"], 4, "2 node + 2 style findings");
+        assert_eq!(first["findings"].as_array().unwrap().len(), 3);
+        assert_eq!(first["truncated"], true);
+        let mut next = req;
+        next["cursor"] = first["cursor"].clone();
+        let last = e.call("designos_lint", next).unwrap();
+        assert_eq!(last["findings"].as_array().unwrap().len(), 1);
     }
 
     #[test]
