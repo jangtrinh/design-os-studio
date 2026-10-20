@@ -245,3 +245,20 @@ fn closing_the_window_saves_an_automatic_version() {
     assert!(list[0].auto);
     assert_eq!(lib(&s).load_version(&id, list[0].n).unwrap().nodes.len(), nodes(&s));
 }
+
+#[test]
+fn labeled_live_patch_shows_step_label_in_history_panel() {
+    let (mut s, _d) = file_sim();
+    let hero = s.by_name("Hero");
+    let patch = designos_doc::live_patch::LivePatch::new(vec![designos_doc::live_patch::LiveOp::Remove { id: hero }]).with_label(Some("Agent: run-7".into()));
+    crate::live_patch_apply::apply_live_patches(&mut s.shell.app, &[patch]);
+    assert_eq!(s.app().hist.peek_undo_label(), Some("Agent: run-7"));
+
+    run(&mut s, Action::ToggleVersionHistory);
+    let _ = s.rect_of("history-undo-0");
+
+    // Undo moves the label to redo; redo restores it to undo.
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().hist.peek_undo_label(), None);
+    assert_eq!(s.app().hist.peek_redo_label(), Some("Agent: run-7"));
+}

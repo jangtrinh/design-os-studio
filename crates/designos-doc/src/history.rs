@@ -222,14 +222,22 @@ impl Document {
 #[derive(Default)]
 pub struct History {
     undo: Vec<Command>,
+    undo_labels: Vec<Option<String>>,
     redo: Vec<Command>,
+    redo_labels: Vec<Option<String>>,
 }
 
 impl History {
     pub fn exec(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
+        self.exec_labeled(doc, cmd, None)
+    }
+    /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
+    pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
         self.undo.push(inv);
+        self.undo_labels.push(label);
         self.redo.clear();
+        self.redo_labels.clear();
         Ok(())
     }
     /// Reverts the latest step. Any deferred auto-layout queue from the superseded edit is dropped
@@ -237,16 +245,20 @@ impl History {
     /// their restored state so descendants return to the pre-edit layout.
     pub fn undo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.undo.pop() else { return Ok(false) };
+        let lbl = self.undo_labels.pop().flatten();
         let inv = apply_and_relayout(doc, c)?;
         self.redo.push(inv);
+        self.redo_labels.push(lbl);
         Ok(true)
     }
     /// Re-applies the latest undone step, dropping any superseded queue and re-solving affected
     /// auto-layout containers from their restored state, like [`Self::undo`].
     pub fn redo(&mut self, doc: &mut Document) -> Result<bool, DocError> {
         let Some(c) = self.redo.pop() else { return Ok(false) };
+        let lbl = self.redo_labels.pop().flatten();
         let inv = apply_and_relayout(doc, c)?;
         self.undo.push(inv);
+        self.undo_labels.push(lbl);
         Ok(true)
     }
     /// The command [`Self::undo`] would apply next.
@@ -256,6 +268,18 @@ impl History {
     /// The command [`Self::redo`] would apply next.
     pub fn peek_redo(&self) -> Option<&Command> {
         self.redo.last()
+    }
+    /// The label of the step [`Self::undo`] would apply next, if any.
+    pub fn peek_undo_label(&self) -> Option<&str> {
+        self.undo_labels.last().and_then(|l| l.as_deref())
+    }
+    /// The label of the step [`Self::redo`] would apply next, if any.
+    pub fn peek_redo_label(&self) -> Option<&str> {
+        self.redo_labels.last().and_then(|l| l.as_deref())
+    }
+    /// Labels of the undo stack, oldest first (aligned with [`Self::undo_depth`]).
+    pub fn undo_labels(&self) -> &[Option<String>] {
+        &self.undo_labels
     }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
@@ -268,6 +292,7 @@ impl History {
     /// reverted another way (by restoring a snapshot of the document).
     pub fn drop_undo_steps_after(&mut self, depth: usize) {
         self.undo.truncate(depth);
+        self.undo_labels.truncate(depth);
     }
     /// The steps [`Self::redo`] can take, oldest first, for [`Self::restore_redo`].
     pub fn redo_steps(&self) -> Vec<Command> {
@@ -275,6 +300,7 @@ impl History {
     }
     /// Puts back the redo steps an edit cleared, for an edit the caller reverted another way.
     pub fn restore_redo(&mut self, steps: Vec<Command>) {
+        self.redo_labels.resize(steps.len(), None);
         self.redo = steps;
     }
     pub fn can_redo(&self) -> bool {

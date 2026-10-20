@@ -142,7 +142,11 @@ impl Tx {
         }
     }
 
-    pub fn commit(mut self, doc: &mut Document, hist: &mut History) -> Result<bool, DocError> {
+    pub fn commit(self, doc: &mut Document, hist: &mut History) -> Result<bool, DocError> {
+        self.commit_labeled(doc, hist, None)
+    }
+
+    pub fn commit_labeled(mut self, doc: &mut Document, hist: &mut History, label: Option<String>) -> Result<bool, DocError> {
         if self.poisoned {
             self.cancel(doc);
             return Err(DocError::NotFound(designos_doc::NodeId(0)));
@@ -163,7 +167,7 @@ impl Tx {
         let cmd = if all.len() == 1 { all.pop().unwrap() } else { Command::Batch(all) };
         // Edits to a main component also update its instances, in the same undo step.
         let cmd = crate::comp_ops::with_sync(doc, cmd);
-        hist.exec(doc, cmd)?;
+        hist.exec_labeled(doc, cmd, label)?;
         Ok(true)
     }
 }
