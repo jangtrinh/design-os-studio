@@ -49,6 +49,12 @@ pub fn scoped_canvas(doc: &Document, page: NodeId, selection: &[NodeId], name: &
     // Threads are small; with them the agent can reply to the user's threads and picks ids
     // that do not collide with theirs.
     scoped.comments = doc.comments.clone();
+    let now = doc.now_ms();
+    for (&id, ip) in &doc.in_progress {
+        if scoped.nodes.contains_key(&id) && !ip.is_stale(now, designos_doc::IN_PROGRESS_DEFAULT_STALE_MS) {
+            scoped.in_progress.insert(id, ip.clone());
+        }
+    }
     scoped
 }
 

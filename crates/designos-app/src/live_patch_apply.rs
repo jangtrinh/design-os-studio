@@ -179,6 +179,8 @@ pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], off
         }
         app.sanitize();
         app.changed();
+    } else if total.applied > 0 {
+        app.in_progress_changed();
     }
     if let Some(first) = failures.first() {
         let msg = match patches.len() {
@@ -214,6 +216,7 @@ fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
 fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(LivePatchReport, bool), String> {
     let saved = app.terminal.live_patch.state.clone();
     let (pre_names, pre_fps) = crate::agent_turn_ledger::snapshot_pre_step(&app.doc, patch);
+    let saved_in_progress = app.doc.in_progress.clone();
     let mut tx = Tx::new();
     let mut touched_ids = Vec::new();
     let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| {
@@ -224,6 +227,7 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         Ok(r) => r,
         Err(e) => {
             tx.cancel(&mut app.doc);
+            app.doc.in_progress = saved_in_progress;
             return Err(e.to_string());
         }
     };
@@ -231,6 +235,7 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
     let committed = tx.commit_labeled(&mut app.doc, &mut app.hist, patch.label.clone()).map_err(|e| {
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
+        app.doc.in_progress = saved_in_progress;
         e.to_string()
     })?;
     for (id, ip) in post_replay_in_progress {

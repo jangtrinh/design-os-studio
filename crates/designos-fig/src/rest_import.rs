@@ -866,6 +866,7 @@ impl<'a> Ctx<'a> {
         let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
+            self.doc.in_progress.remove(&id);
             return;
         }
         if is_frame {
@@ -970,6 +971,7 @@ impl<'a> Ctx<'a> {
         let container = node.kind.can_hold_children();
         let is_frame = node.kind.frame_props().is_some();
         if self.doc.insert(parent, node).is_err() {
+            self.doc.in_progress.remove(&id);
             return;
         }
         if is_frame {
@@ -1108,6 +1110,12 @@ impl<'a> Ctx<'a> {
         if let Some(pd) = v.get("pluginData").and_then(Value::as_object) {
             for (k, val) in pd {
                 if let Some(s) = val.as_str() {
+                    if k == "designos:in_progress" || k == "in_progress" {
+                        if let Ok(ip) = serde_json::from_str::<InProgress>(s) {
+                            self.doc.in_progress.insert(id, ip);
+                            continue;
+                        }
+                    }
                     n.plugin_data.insert(k.clone(), s.to_string());
                 }
             }

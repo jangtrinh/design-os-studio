@@ -110,6 +110,19 @@ impl App {
         self.dialog = Some(crate::home::Dialog::prompt(crate::home::Intent::AuthorName, "Your name", &current, "Save"));
     }
 
+    /// Sets and persists `agent.in_progress_stale_minutes` (clamped to `1..=1440`, default `15`).
+    #[allow(dead_code)]
+    pub fn set_in_progress_stale_minutes(&mut self, minutes: u32) -> u32 {
+        let clamped = minutes.clamp(designos_doc::IN_PROGRESS_MIN_STALE_MINUTES, designos_doc::IN_PROGRESS_MAX_STALE_MINUTES);
+        designos_doc::set_in_progress_stale_minutes(Some(clamped));
+        if let Some(lib) = &self.lib {
+            if let Err(e) = settings::save_in_progress_stale_minutes(lib.root(), clamped) {
+                self.show_toast(e, true);
+            }
+        }
+        clamped
+    }
+
     /// Replaces all threads as one undo step.
     fn commit_comments(&mut self, new: Vec<CommentThread>) -> bool {
         if self.history.viewing.is_some() {

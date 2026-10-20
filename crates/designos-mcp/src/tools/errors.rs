@@ -75,6 +75,10 @@ pub enum ErrorCode {
     UnknownLanguage,
     OutsideOwnedFrames,
 
+    // In-progress flag codes (E15-7) (2)
+    InProgressTargetNotRoot,
+    NodeInProgressByOtherRun,
+
     // Codes owned by other specs' tools (lint, guidelines, design-system search, screenshot, prompts) (12)
     UnknownPreset,
     UnknownRule,
@@ -127,7 +131,7 @@ impl ErrorCode {
     pub const IoError: Self = Self::InternalError;
     pub const SessionUnavailable: Self = Self::InternalError;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes and the 12 codes owned by other specs' tools).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes and the 12 codes owned by other specs' tools).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -182,6 +186,8 @@ impl ErrorCode {
         Self::InvalidSelector,
         Self::UnknownLanguage,
         Self::OutsideOwnedFrames,
+        Self::InProgressTargetNotRoot,
+        Self::NodeInProgressByOtherRun,
         Self::UnknownPreset,
         Self::UnknownRule,
         Self::ExactlyOneScope,
@@ -251,6 +257,8 @@ impl ErrorCode {
             Self::InvalidSelector => "INVALID_SELECTOR",
             Self::UnknownLanguage => "UNKNOWN_LANGUAGE",
             Self::OutsideOwnedFrames => "OUTSIDE_OWNED_FRAMES",
+            Self::InProgressTargetNotRoot => "IN_PROGRESS_TARGET_NOT_ROOT",
+            Self::NodeInProgressByOtherRun => "NODE_IN_PROGRESS_BY_OTHER_RUN",
             Self::UnknownPreset => "UNKNOWN_PRESET",
             Self::UnknownRule => "UNKNOWN_RULE",
             Self::ExactlyOneScope => "EXACTLY_ONE_SCOPE",
@@ -283,6 +291,8 @@ impl ErrorCode {
             Self::ExactlyOneScope | Self::ExactlyOneTarget => "Remove the extra scope or target arguments so exactly one remains, then retry.",
             Self::TopicNotAvailable => "Call designos_get_guidelines without a topic to list the available topics.",
             Self::InternalError => "Call designos_get_document to inspect current state before retrying.",
+            Self::InProgressTargetNotRoot => "Flag the root frame named in valid_options instead of a nested layer.",
+            Self::NodeInProgressByOtherRun => "Wait for the other run to finish, or pass force:true only when that run is known dead.",
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
     }
@@ -342,6 +352,8 @@ impl ErrorCode {
             "INVALID_SELECTOR" => Some(Self::InvalidSelector),
             "UNKNOWN_LANGUAGE" => Some(Self::UnknownLanguage),
             "OUTSIDE_OWNED_FRAMES" => Some(Self::OutsideOwnedFrames),
+            "IN_PROGRESS_TARGET_NOT_ROOT" => Some(Self::InProgressTargetNotRoot),
+            "NODE_IN_PROGRESS_BY_OTHER_RUN" => Some(Self::NodeInProgressByOtherRun),
             "UNKNOWN_PRESET" => Some(Self::UnknownPreset),
             "UNKNOWN_RULE" => Some(Self::UnknownRule),
             "EXACTLY_ONE_SCOPE" => Some(Self::ExactlyOneScope),

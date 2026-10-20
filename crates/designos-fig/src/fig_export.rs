@@ -773,7 +773,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let mut pd_entries: Vec<V> = node
         .plugin_data
         .iter()
-        .filter(|(full_key, _)| !is_studio_carrier_key(full_key))
+        .filter(|(full_key, _)| !is_studio_carrier_key(full_key) && *full_key != "designos:in_progress")
         .map(|(full_key, val)| {
             let mut m = Vec::with_capacity(3);
             if let Some((pid, key)) = full_key.split_once(':') {
@@ -794,6 +794,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     }
     if let Some(id) = node.component.slot_content_id.as_deref().filter(|s| !s.is_empty()) {
         pd_entries.push(studio_entry(STUDIO_SLOT_CONTENT_ID_KEY, id.to_string()));
+    }
+    if let Some(ip) = cx.doc.in_progress.get(&id) {
+        if let Ok(val) = serde_json::to_string(ip) {
+            pd_entries.push(msg(vec![("pluginID", V::String("designos".into())), ("key", V::String("in_progress".into())), ("value", V::String(val))]));
+        }
     }
     if !node.component.description.is_empty() {
         fields.push(("symbolDescription", V::String(node.component.description.clone())));

@@ -2193,6 +2193,9 @@ impl App {
                 commands.push(Command::Insert { parent, index, nodes });
                 let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
                 if self.hist.exec(&mut self.doc, command).is_ok() {
+                    if let Some(ip) = trial.in_progress.get(&root_id).cloned() {
+                        self.doc.set_in_progress(root_id, Some(ip));
+                    }
                     self.doc.relayout_subtree(parent);
                     self.selection = vec![root_id];
                     self.changed();

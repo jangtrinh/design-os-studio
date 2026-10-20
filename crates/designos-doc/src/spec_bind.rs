@@ -148,6 +148,8 @@ pub struct SpecApplyReport {
     pub warnings: Vec<SpecWarning>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<crate::SpecIssue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub in_progress: BTreeMap<NodeId, crate::InProgress>,
 }
 
 /// Structured error envelope produced when a spec variable, style, mode, colour, or instance fails validation.

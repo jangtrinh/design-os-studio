@@ -398,6 +398,9 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
     if doc.nodes.len() > 5_000 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         (doc.runtime_id(), doc.mutation_epoch(), doc.nodes.len(), doc.pages.len(), &doc.name).hash(&mut h);
+        for (k, v) in &doc.in_progress {
+            (k.0, &v.run_id, &v.agent, v.since_ms, v.stale_after_s, &v.status).hash(&mut h);
+        }
         return h.finish();
     }
     use serde::Serialize;
@@ -485,6 +488,7 @@ impl App {
         for entry in &mut self.tabs.entries {
             entry.terminal.permission_mode = mode;
         }
+        let _ = crate::comments::settings::load_in_progress_stale_minutes(&root);
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {

@@ -324,6 +324,15 @@ impl App {
         self.canvas.dirty = true;
     }
 
+    /// Marks transient `in_progress` badge state as updated for session persistence without dirtying
+    /// the canvas tile/GPU scene cache (`TileView::rev`).
+    pub fn in_progress_changed(&mut self) {
+        if self.lib_file.is_some() {
+            self.autosave.changed_at = Some(self.now);
+            self.autosave.confirmed = false;
+        }
+    }
+
     /// Runs one bounded step of the auto-layout subtrees a relayout deferred past its budget and
     /// reports the work still queued. True while subtrees remain, so the caller keeps repainting.
     pub fn step_pending_relayout(&mut self) -> bool {
@@ -377,6 +386,7 @@ impl App {
 
     /// Drops selection/hover entries that no longer exist or left the page.
     pub fn sanitize(&mut self) {
+        self.doc.prune_in_progress();
         let doc = &self.doc;
         let page = self.page;
         self.selection.retain(|id| doc.get(*id).is_some() && doc.page_of(*id) == Some(page));

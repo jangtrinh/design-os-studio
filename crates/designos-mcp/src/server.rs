@@ -281,13 +281,47 @@ impl Session {
 
         let mut loaded_page_id: Option<u64> = None;
         let mut context_scoped = false;
+        let mut loaded_run_id: Option<String> = None;
+        let mut loaded_agent: Option<String> = None;
         if let Some(ctx_path) = &self.bridge.context_json_path {
             if let Ok(raw) = fs::read_to_string(ctx_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     loaded_page_id = val.get("current_page_id").and_then(Value::as_u64);
                     context_scoped = val.get("scoped").and_then(Value::as_bool).unwrap_or(false);
+                    loaded_run_id = val.get("run_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+                    loaded_agent = val.get("agent_runtime").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
                 }
             }
+        }
+        if loaded_run_id.is_none() || loaded_agent.is_none() {
+            if let Some(dir) = &self.bridge.session_dir {
+                if let Ok(raw) = fs::read_to_string(dir.join("mcp-config.json")) {
+                    if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                        if loaded_run_id.is_none() {
+                            loaded_run_id = val
+                                .pointer("/mcpServers/designos/env/DESIGNOS_AGENT_RUN_ID")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_string);
+                        }
+                        if loaded_agent.is_none() {
+                            loaded_agent = val
+                                .pointer("/mcpServers/designos/env/DESIGNOS_AGENT_RUNTIME")
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_string);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(rid) = loaded_run_id {
+            self.engine.default_run_id = Some(rid);
+        }
+        if let Some(ag) = loaded_agent {
+            self.engine.default_agent = Some(ag);
         }
         if loaded_page_id.is_none() {
             if let Ok(env_pid) = std::env::var("DESIGNOS_TARGET_PAGE_ID") {
@@ -826,6 +860,8 @@ impl Session {
                         | "designos_resolve_comment"
                         | "designos_set_dev_status"
                         | "designos_lint_fix"
+                        | "designos_set_in_progress"
+                        | "set_in_progress"
                         | "designos_undo"
                         | "designos_redo"
                 ) || (matches!(name, "designos_lint" | "check_design") && args.get("fix").and_then(Value::as_bool) == Some(true));
@@ -858,7 +894,9 @@ impl Session {
                         return Err(ToolError::new(code, "", format!("The open editor could not receive this edit, so it was undone: {e}")));
                     }
                     self.dirty = true;
-                    self.history_dropped = false;
+                    if !matches!(name, "designos_set_in_progress" | "set_in_progress") {
+                        self.history_dropped = false;
+                    }
                 } else if matches!(name, "designos_undo" | "designos_redo") && self.history_dropped {
                     if let Some(obj) = result.as_object_mut() {
                         obj.insert(

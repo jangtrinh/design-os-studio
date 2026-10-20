@@ -148,6 +148,9 @@ pub struct NodeSpec {
     pub annotation: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
+    /// Optional agent `in_progress` flag (`true`, `false`, or an [`InProgress`] object).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_progress: Option<InProgressSpec>,
     /// Attached canvas comments when exporting a subtree spec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<ResolvedCommentThread>,
@@ -300,6 +303,38 @@ pub fn format_spec_serde_error(err: &serde_json::Error) -> String {
         }
     } else {
         msg
+    }
+}
+
+/// Declarative `in_progress` flag on a [`NodeSpec`] (`true`/`false` or a detailed [`InProgress`] object).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InProgressSpec {
+    Bool(bool),
+    Detailed(InProgress),
+}
+
+impl InProgressSpec {
+    pub fn into_state(self) -> Option<InProgress> {
+        match self {
+            InProgressSpec::Bool(true) => Some(InProgress {
+                run_id: std::env::var("DESIGNOS_AGENT_RUN_ID").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                agent: std::env::var("DESIGNOS_AGENT_RUNTIME").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                since_ms: now_ms(),
+                stale_after_s: Some(crate::default_in_progress_stale_s()),
+                status: None,
+            }),
+            InProgressSpec::Bool(false) => None,
+            InProgressSpec::Detailed(mut ip) => {
+                if ip.since_ms == 0 {
+                    ip.since_ms = now_ms();
+                }
+                if ip.stale_after_s.is_none() {
+                    ip.stale_after_s = Some(crate::default_in_progress_stale_s());
+                }
+                Some(ip)
+            }
+        }
     }
 }
 
@@ -562,6 +597,7 @@ impl Document {
         let prev_gap_cursor = self.gap_cursor;
         let prev_dirty = self.dirty.clone();
         let prev_pending_relayout = self.pending_relayout.clone();
+        let prev_in_progress = self.in_progress.clone();
         let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
         let mut saved_parent_geom = Vec::new();
         if parent_has_al {
@@ -581,6 +617,7 @@ impl Document {
                 report.imported_assets = ctx.imported_assets;
                 report.stale_library_assets = ctx.stale_library_assets;
                 report.issues = ctx.issues;
+                report.in_progress = self.in_progress.iter().filter(|(id, ip)| prev_in_progress.get(*id) != Some(*ip)).map(|(id, ip)| (*id, ip.clone())).collect();
                 report.bindings_created += ctx.bindings_created;
                 report.styles_linked += ctx.styles_linked;
                 report.warnings.extend(ctx.warnings);
@@ -612,6 +649,7 @@ impl Document {
                 self.gap_cursor = prev_gap_cursor;
                 self.dirty = prev_dirty;
                 self.pending_relayout = prev_pending_relayout;
+                self.in_progress = prev_in_progress;
                 data_before.restore(self);
                 Err(err)
             }
@@ -913,6 +951,28 @@ impl Document {
             safe_to_retry: true,
         })?;
         inserted_ids.push(id);
+        if let Some(ip_spec) = &spec.in_progress {
+            let state = ip_spec.clone().into_state();
+            if state.is_some() {
+                if let Err(root_opt) = self.is_in_progress_root(id) {
+                    let message = match root_opt {
+                        Some(r) => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame (use root frame {})", id.0, r.0),
+                        None => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame", id.0),
+                    };
+                    return Err(SpecBindError {
+                        code: "IN_PROGRESS_TARGET_NOT_ROOT".to_string(),
+                        message,
+                        path: path.to_string(),
+                        received: None,
+                        expected: None,
+                        valid_options: Vec::new(),
+                        corrected_example: None,
+                        safe_to_retry: true,
+                    });
+                }
+            }
+            self.set_in_progress(id, state);
+        }
 
         // 1. Bind preset EaseUI colours (before explicit fill/stroke overrides)
         if let Some(preset) = &spec.preset {
@@ -1639,6 +1699,7 @@ impl Document {
 
         let dev_status = n.dev.status.map(|s| s.label().to_string());
         let annotations: Vec<String> = n.dev.annotations.iter().map(|a| a.text.clone()).collect();
+        let in_progress = self.get_in_progress(id).cloned().map(InProgressSpec::Detailed);
         let comments: Vec<ResolvedCommentThread> = all_comments
             .iter()
             .filter(|c| c.target_node_id == Some(id.0) || (c.target_node_id.is_none() && c.target_frame_id == Some(id.0)))
@@ -1693,6 +1754,7 @@ impl Document {
             dev_status,
             annotation: None,
             annotations,
+            in_progress,
             comments,
             children,
         })
