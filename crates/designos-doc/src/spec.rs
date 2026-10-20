@@ -73,10 +73,12 @@ pub struct NodeSpec {
     pub x: f32,
     #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub y: f32,
+    /// Width in px or a `"var:..."` Number variable reference.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<f32>,
+    pub width: Option<NumberOrVar>,
+    /// Height in px or a `"var:..."` Number variable reference.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub height: Option<f32>,
+    pub height: Option<NumberOrVar>,
     /// `"fixed"`, `"hug"`, or `"fill"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width_sizing: Option<String>,
@@ -111,7 +113,11 @@ pub struct NodeSpec {
     pub opacity: NumberOrVar,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clips_content: Option<bool>,
+    /// `false` hides the node; a `"var:..."` string binds `visible` to a Boolean variable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<BoolOrVar>,
     /// Text content (for `"text"` nodes, or automatically creates a child label if set on a button/badge frame!).
+    /// A `"var:..."` string binds `characters` to a String variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,6 +132,9 @@ pub struct NodeSpec {
     pub text_style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_style: Option<String>,
+    /// Layout grid style name or `"style:<key>"` reference (frame-like nodes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_style: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub mode: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -587,8 +596,10 @@ impl Document {
             safe_to_retry: true,
         })?;
         let is_text_kind = kind_str.eq_ignore_ascii_case("text");
-        let w = spec.width.unwrap_or(if is_text_kind { 120.0 } else { 200.0 });
-        let h = spec.height.unwrap_or(if is_text_kind { 24.0 } else { 100.0 });
+        // `text: "var:..."` binds `characters` to a String variable: the node starts empty and takes the value after insert.
+        let text_var: Option<&str> = spec.text.as_deref().map(str::trim).filter(|t| t.starts_with("var:"));
+        let w = spec.width.as_ref().and_then(NumberOrVar::as_num).unwrap_or(if is_text_kind { 120.0 } else { 200.0 });
+        let h = spec.height.as_ref().and_then(NumberOrVar::as_num).unwrap_or(if is_text_kind { 24.0 } else { 100.0 });
         let rect = Rect::new(spec.x, spec.y, w.max(0.0), h.max(0.0));
 
         let mut node = match kind_str.to_ascii_lowercase().as_str() {
@@ -612,7 +623,8 @@ impl Document {
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(14.0);
                 style.font_weight = spec.font_weight.unwrap_or(400);
                 style.fills = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
-                Node::text(id, rect, spec.text.clone().unwrap_or_default(), style)
+                let content = if text_var.is_some() { String::new() } else { spec.text.clone().unwrap_or_default() };
+                Node::text(id, rect, content, style)
             }
             other => {
                 return Err(SpecBindError {
@@ -643,7 +655,7 @@ impl Document {
             node.name = spec.name.clone();
         } else if let Some(preset) = &spec.preset {
             node.name = preset.clone();
-        } else if let Some(t) = &spec.text {
+        } else if let (Some(t), None) = (&spec.text, text_var) {
             node.name = t.chars().take(32).collect();
         }
 
@@ -682,8 +694,11 @@ impl Document {
             }
         }
 
-        if let Some(w_explicit) = spec.width {
-            node.size.x = w_explicit.max(0.0);
+        // An explicit width or height (a literal, or a variable bound after insert) pins that axis of an auto-layout frame.
+        if let Some(width) = &spec.width {
+            if let Some(w_explicit) = width.as_num() {
+                node.size.x = w_explicit.max(0.0);
+            }
             if spec.width_sizing.is_none() {
                 if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
                     if al.primary_is_horizontal() {
@@ -694,8 +709,10 @@ impl Document {
                 }
             }
         }
-        if let Some(h_explicit) = spec.height {
-            node.size.y = h_explicit.max(0.0);
+        if let Some(height) = &spec.height {
+            if let Some(h_explicit) = height.as_num() {
+                node.size.y = h_explicit.max(0.0);
+            }
             if spec.height_sizing.is_none() {
                 if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
                     if !al.primary_is_horizontal() {
@@ -705,6 +722,9 @@ impl Document {
                     }
                 }
             }
+        }
+        if let Some(BoolOrVar::Bool(visible)) = &spec.visible {
+            node.visible = *visible;
         }
         if let Some(op) = spec.opacity.as_num() {
             node.opacity = op.clamp(0.0, 1.0);
@@ -826,6 +846,18 @@ impl Document {
             if let Some(style) = self.styles.get(&style_key).cloned() {
                 if let Some(n) = self.get_mut(id) {
                     n.style_refs.insert("effect".to_string(), style_key.clone());
+                    crate::apply_style_values(n, &style, &style_key);
+                    report.styles_linked += 1;
+                }
+            }
+        }
+
+        // 2b. Layout grid style link
+        if let Some(grid_ref) = &spec.grid_style {
+            let style_key = crate::resolve_style_ref(self, index, libraries, grid_ref, StyleProperty::Grid, "grid_style", &format!("{path}.grid_style"))?;
+            if let Some(style) = self.styles.get(&style_key).cloned() {
+                if let Some(n) = self.get_mut(id) {
+                    n.style_refs.insert("grid".to_string(), style_key.clone());
                     crate::apply_style_values(n, &style, &style_key);
                     report.styles_linked += 1;
                 }
@@ -965,6 +997,15 @@ impl Document {
         }
 
         // 6. Bindable numeric properties
+        if let Some(NumberOrVar::Ref(raw_ref)) = &spec.width {
+            self.bind_variable_ref(id, &node_kind, raw_ref, &["width"], "width", &format!("{path}.width"), index, libraries, report)?;
+        }
+        if let Some(NumberOrVar::Ref(raw_ref)) = &spec.height {
+            self.bind_variable_ref(id, &node_kind, raw_ref, &["height"], "height", &format!("{path}.height"), index, libraries, report)?;
+        }
+        if let Some(BoolOrVar::Ref(raw_ref)) = &spec.visible {
+            self.bind_variable_ref(id, &node_kind, raw_ref, &["visible"], "visible", &format!("{path}.visible"), index, libraries, report)?;
+        }
         if let Some(sw) = &spec.stroke_weight {
             if let Some(v) =
                 self.bind_or_eval_number(id, &node_kind, sw, &["strokeWeight"], "stroke_weight", format!("{path}.stroke_weight"), index, libraries, report)?
@@ -1054,6 +1095,11 @@ impl Document {
             self.apply_text_overrides(id, &node_kind, spec, path, index, libraries, report)?;
         }
 
+        // `text: "var:..."` on a text node binds `characters` before the text is measured.
+        if let (true, Some(raw_ref)) = (is_text_kind, text_var) {
+            self.bind_characters(id, &node_kind, raw_ref, &spec.name, spec.preset.is_some(), &format!("{path}.text"), index, libraries, report)?;
+        }
+
         // Re-estimate intrinsic text bounds after text_style / font_size / line_height application
         if let Some(n) = self.get_mut(id) {
             if let NodeKind::Text(tp) = &mut n.kind {
@@ -1093,8 +1139,11 @@ impl Document {
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(13.0);
                 style.font_weight = spec.font_weight.unwrap_or(500);
                 style.fills = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
-                let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), label.clone(), style);
-                tnode.name = label.clone();
+                let initial = if text_var.is_some() { String::new() } else { label.clone() };
+                let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), initial, style);
+                if text_var.is_none() {
+                    tnode.name = label.clone();
+                }
                 let tkind = tnode.kind.clone();
                 self.insert(id, tnode).map_err(|e| SpecBindError {
                     code: "INSERT_FAILED".to_string(),
@@ -1153,6 +1202,9 @@ impl Document {
                 }
                 // The generated label takes the same explicit overrides a text node does, after its style.
                 self.apply_text_overrides(tid, &tkind, spec, path, index, libraries, report)?;
+                if let Some(raw_ref) = text_var {
+                    self.bind_characters(tid, &tkind, raw_ref, "", false, &format!("{path}.text"), index, libraries, report)?;
+                }
                 if let Some(tn) = self.get_mut(tid) {
                     if let NodeKind::Text(tp) = &tn.kind {
                         tn.size = estimate_intrinsic_text_size(tp);
@@ -1242,12 +1294,59 @@ impl Document {
         match nv {
             NumberOrVar::Num(v) => Ok(Some(*v)),
             NumberOrVar::Ref(raw_ref) => {
-                let var_id = crate::resolve_variable_ref(self, index, libraries, raw_ref, fname, &fpath)?;
-                crate::validate_variable_binding_for_keys(self, index, &var_id, keys, node_kind, raw_ref, fname, &fpath)?;
-                report.bindings_created += crate::apply_variable_binding(self, id, keys, &var_id, &fpath, &mut report.warnings);
+                self.bind_variable_ref(id, node_kind, raw_ref, keys, fname, &fpath, index, libraries, report)?;
                 Ok(None)
             }
         }
+    }
+
+    /// Binds `characters` of the text node `id` to a String variable and, when the spec names neither the node nor a
+    /// preset, names the node after the resolved content.
+    #[allow(clippy::too_many_arguments)]
+    fn bind_characters(
+        &mut self,
+        id: NodeId,
+        node_kind: &NodeKind,
+        raw_ref: &str,
+        name: &str,
+        has_preset: bool,
+        fpath: &str,
+        index: &mut SpecBindIndex,
+        libraries: &[LibrarySnapshot],
+        report: &mut SpecApplyReport,
+    ) -> Result<(), SpecBindError> {
+        self.bind_variable_ref(id, node_kind, raw_ref, &["characters"], "text", fpath, index, libraries, report)?;
+        if name.is_empty() && !has_preset {
+            if let Some(n) = self.get_mut(id) {
+                if let NodeKind::Text(tp) = &n.kind {
+                    if !tp.content.is_empty() {
+                        n.name = tp.content.chars().take(32).collect();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolves `raw_ref` (`"var:..."`), checks its kind, applicability and scope for `keys` on the node, binds it
+    /// and writes its resolved value into the node. Returns the bound variable id.
+    #[allow(clippy::too_many_arguments)]
+    fn bind_variable_ref(
+        &mut self,
+        id: NodeId,
+        node_kind: &NodeKind,
+        raw_ref: &str,
+        keys: &[&str],
+        fname: &str,
+        fpath: &str,
+        index: &mut SpecBindIndex,
+        libraries: &[LibrarySnapshot],
+        report: &mut SpecApplyReport,
+    ) -> Result<String, SpecBindError> {
+        let var_id = crate::resolve_variable_ref(self, index, libraries, raw_ref, fname, fpath)?;
+        crate::validate_variable_binding_for_keys(self, index, &var_id, keys, node_kind, raw_ref, fname, fpath)?;
+        report.bindings_created += crate::apply_variable_binding(self, id, keys, &var_id, fpath, &mut report.warnings);
+        Ok(var_id)
     }
 
     fn export_var_ref(&self, index: &SpecBindIndex, var_id: &str) -> Option<String> {
@@ -1335,6 +1434,16 @@ impl Document {
 
         let text_style = n.style_refs.get("text").and_then(|k| self.export_style_ref(k, false));
         let effect_style = n.style_refs.get("effect").and_then(|k| self.export_style_ref(k, false));
+        let grid_style = n.style_refs.get("grid").and_then(|k| self.export_style_ref(k, false));
+        let bound_or = |key: &str, literal: f32| -> NumberOrVar {
+            n.variables.bindings.get(key).and_then(|vid| self.export_var_ref(index, vid)).map(NumberOrVar::Ref).unwrap_or(NumberOrVar::Num(literal))
+        };
+        let width = bound_or("width", n.size.x);
+        let height = bound_or("height", n.size.y);
+        let visible = match n.variables.bindings.get("visible").and_then(|vid| self.export_var_ref(index, vid)) {
+            Some(r) => Some(BoolOrVar::Ref(r)),
+            None => (!n.visible).then_some(BoolOrVar::Bool(false)),
+        };
 
         let (text, font_size, line_height, font_weight, text_color) = match &n.kind {
             NodeKind::Text(tp) => {
@@ -1366,7 +1475,8 @@ impl Document {
                         _ => None,
                     })
                 };
-                (Some(tp.content.clone()), fs, lh, fw, tc)
+                let content = n.variables.bindings.get("characters").and_then(|vid| self.export_var_ref(index, vid)).unwrap_or_else(|| tp.content.clone());
+                (Some(content), fs, lh, fw, tc)
             }
             _ => (None, None, None, None, None),
         };
@@ -1446,8 +1556,8 @@ impl Document {
             preset: None,
             x: n.transform.tx,
             y: n.transform.ty,
-            width: Some(n.size.x),
-            height: Some(n.size.y),
+            width: Some(width),
+            height: Some(height),
             width_sizing: (n.layout_child.horizontal != Sizing::Fixed).then(|| format!("{:?}", n.layout_child.horizontal).to_ascii_lowercase()),
             height_sizing: (n.layout_child.vertical != Sizing::Fixed).then(|| format!("{:?}", n.layout_child.vertical).to_ascii_lowercase()),
             min_width: n.layout_child.min_w,
@@ -1462,6 +1572,7 @@ impl Document {
             corner_radius,
             corner_radii,
             opacity,
+            visible,
             clips_content: n.kind.frame_props().and_then(|f| f.clips_content.then_some(true)),
             text,
             font_size,
@@ -1470,6 +1581,7 @@ impl Document {
             text_color,
             text_style,
             effect_style,
+            grid_style,
             mode,
             layout,
             dev_status,

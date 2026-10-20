@@ -56,8 +56,11 @@ mod slot_model_tests;
 pub mod spec;
 pub mod spec_bind;
 #[cfg(test)]
+mod spec_bind_reference_forms_tests;
+#[cfg(test)]
 mod spec_bind_rollback_label_tests;
 mod spec_data;
+pub use spec_data::SpecDataSnapshot;
 pub mod spec_instance;
 mod styles_ops;
 mod text_fills;

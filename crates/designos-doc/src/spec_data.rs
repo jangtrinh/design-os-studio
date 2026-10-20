@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 /// Copy of the non-node data a spec apply may change.
 #[derive(Clone, Debug)]
-pub(crate) struct SpecDataSnapshot {
+pub struct SpecDataSnapshot {
     variables: BTreeMap<String, Variable>,
     variable_collections: BTreeMap<String, VariableCollection>,
     styles: BTreeMap<String, Style>,
@@ -17,7 +17,7 @@ pub(crate) struct SpecDataSnapshot {
 }
 
 impl SpecDataSnapshot {
-    pub(crate) fn of(doc: &Document) -> Self {
+    pub fn of(doc: &Document) -> Self {
         Self {
             variables: doc.variables.clone(),
             variable_collections: doc.variable_collections.clone(),
@@ -28,7 +28,7 @@ impl SpecDataSnapshot {
         }
     }
 
-    pub(crate) fn restore(self, doc: &mut Document) {
+    pub fn restore(self, doc: &mut Document) {
         doc.variables = self.variables;
         doc.variable_collections = self.variable_collections;
         doc.styles = self.styles;
@@ -60,7 +60,7 @@ impl SpecDataSnapshot {
         }
     }
 
-    pub(crate) fn commands_to(&self, applied: &Self) -> Vec<Command> {
+    pub fn commands_to(&self, applied: &Self) -> Vec<Command> {
         let mut cmds = Vec::new();
         if self.variables != applied.variables || self.variable_collections != applied.variable_collections {
             cmds.push(Command::SetVariables { variables: applied.variables.clone(), collections: applied.variable_collections.clone() });

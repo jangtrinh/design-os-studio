@@ -10,8 +10,8 @@ use crate::engine::Engine;
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
-    apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, Style,
-    StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+    apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
+    SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1160,7 +1160,23 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                     return Err(op_failed_error(op_idx, op_name, "NOT_A_CONTAINER", &op_path, "parent must identify a container"));
                 }
                 let prev_children = pnode.children.clone();
+                let data_before = SpecDataSnapshot::of(&trial);
                 let root_id = trial.apply_spec(parent, &a.spec).map_err(|e| op_failed_error(op_idx, op_name, "INVALID_ARGUMENTS", &op_path, e))?;
+                // Variables, styles and library state the spec wrote (an `$easeui.*` token creates its collection) are
+                // committed as their own commands ahead of the insert, so the bound nodes never outlive their variables
+                // and one undo step removes both.
+                let data_cmds = data_before.commands_to(&SpecDataSnapshot::of(&trial));
+                if !data_cmds.is_empty() {
+                    data_before.restore(&mut trial);
+                    for cmd in data_cmds {
+                        if recording_live {
+                            let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                            recorded_live_ops.extend(ops);
+                        }
+                        cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                        collected_cmds.push(cmd);
+                    }
+                }
                 let target_idx = a.index.unwrap_or(prev_children.len()).min(prev_children.len());
                 if target_idx < prev_children.len() {
                     if let Some(p_mut) = trial.get_mut(parent) {
@@ -1849,6 +1865,50 @@ mod tests {
         assert_eq!(engine.doc.nodes, post_nodes);
         assert_eq!(engine.doc.variables, post_vars);
         assert_eq!(engine.doc.styles, post_styles);
+    }
+
+    #[test]
+    fn apply_spec_op_with_easeui_token_commits_collection_and_one_undo_removes_both() {
+        let mut engine = Engine { live_ops: Some(Vec::new()), ..Default::default() };
+        let page = engine.resolve_default_page().unwrap();
+        let pre_nodes = engine.doc.nodes.clone();
+        let pre_vars = engine.doc.variables.clone();
+        let pre_collections = engine.doc.variable_collections.clone();
+        let pre_depth = engine.history.undo_depth();
+
+        let reply = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "apply_spec",
+                        "as": "panel",
+                        "parent": page.0,
+                        "spec": { "kind": "rectangle", "name": "Panel", "fill": "$easeui.bg.panel" }
+                    }]
+                }),
+            )
+            .expect("batch should succeed");
+
+        let panel = NodeId(reply["created"][0].as_u64().unwrap());
+        assert_eq!(
+            engine.doc.get(panel).unwrap().variables.bindings.get("fills/0").map(String::as_str),
+            Some("easeui-deprecated/bg/panel"),
+            "the node binds the deprecated EaseUI token variable"
+        );
+        assert!(engine.doc.variable_collections.contains_key("easeui-deprecated"), "the collection the node binds to reaches the document");
+        assert!(engine.doc.variables.contains_key("easeui-deprecated/bg/panel"));
+        assert_eq!(engine.history.undo_depth(), pre_depth + 1, "nodes and variables are one undo step");
+
+        let live = engine.take_live_ops();
+        let variables_at = live.iter().position(|op| matches!(op, LiveOp::Variables { .. })).expect("the editor is told about the new variables");
+        let insert_at = live.iter().position(|op| matches!(op, LiveOp::Insert { .. })).expect("the editor is told about the new node");
+        assert!(variables_at < insert_at, "the editor holds the variable before the bound node arrives: {live:?}");
+
+        engine.call("designos_undo", json!({})).unwrap();
+        assert_eq!(engine.doc.nodes, pre_nodes);
+        assert_eq!(engine.doc.variables, pre_vars);
+        assert_eq!(engine.doc.variable_collections, pre_collections);
     }
 
     #[test]

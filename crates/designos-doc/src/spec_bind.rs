@@ -99,6 +99,20 @@ impl NumberOrVar {
     }
 }
 
+/// A boolean spec field (`visible`) that accepts either a literal `bool` or a `"var:..."` reference to a Boolean variable.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BoolOrVar {
+    Bool(bool),
+    Ref(String),
+}
+
+impl From<bool> for BoolOrVar {
+    fn from(v: bool) -> Self {
+        BoolOrVar::Bool(v)
+    }
+}
+
 /// Non-fatal warning emitted during `apply_spec_with_report`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpecWarning {
@@ -423,6 +437,18 @@ impl SpecBindIndex {
         Some(self.format_variable_ref_from_parts(var_id, &c.id, &c.name, &v.name))
     }
 
+    /// A reference that resolves to `var_id` alone: `var:<collection id>/<variable name>` when the longest-prefix
+    /// step picks it, otherwise `var:id:<id>`. Unlike [`Self::format_variable_ref`] it never uses the name form.
+    fn pasteable_ref(&self, doc: &Document, var_id: &str) -> String {
+        if let Some(v) = doc.variables.get(var_id) {
+            let body = format!("{}/{}", v.collection, v.name);
+            if matches!(self.resolve_local_body(&body), Ok(Some(ref id)) if id == var_id) {
+                return format!("var:{body}");
+            }
+        }
+        format!("var:id:{var_id}")
+    }
+
     fn closest_variables(&self, query: &str, limit: usize) -> Vec<String> {
         let mut scored: Vec<(usize, usize, &str, &str)> = self
             .all_vars
@@ -469,7 +495,7 @@ impl SpecBindIndex {
         let mut scored: Vec<(usize, &str)> = self
             .all_styles
             .iter()
-            .filter(|(_, _, prop)| expected_prop.is_none_or(|ep| *prop == ep))
+            .filter(|(_, _, prop)| expected_prop.is_none_or(|ep| style_property_serves(ep, *prop)))
             .map(|(_, name, _)| (levenshtein(query, name), name.as_str()))
             .collect();
         scored.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
@@ -624,6 +650,23 @@ pub fn resolve_variable_ref(
         if doc.variables.contains_key(id_part) {
             return Ok(id_part.to_string());
         }
+        // `var:id:<library id>/<raw id>` names one library's variable even when a local variable has the same raw id.
+        for snap in libraries {
+            if !doc.library.enabled.iter().any(|l| l.id == snap.library_id) {
+                continue;
+            }
+            let Some(raw_id) = id_part.strip_prefix(snap.library_id.as_str()).and_then(|r| r.strip_prefix('/')) else {
+                continue;
+            };
+            if snap.variables.contains_key(raw_id) {
+                let cmd = crate::import_asset(doc, snap, &format!("var:{raw_id}"), None);
+                let _ = cmd.apply(doc);
+                *index = SpecBindIndex::build(doc);
+                if doc.variables.contains_key(id_part) {
+                    return Ok(id_part.to_string());
+                }
+            }
+        }
         // Check enabled libraries by raw variable id
         for snap in libraries {
             if !doc.library.enabled.iter().any(|l| l.id == snap.library_id) {
@@ -657,7 +700,10 @@ pub fn resolve_variable_ref(
     // Steps 1 & 2: Local qualified (longest collection id/name prefix) then local unqualified (whole path)
     match index.resolve_local_body(body) {
         Ok(Some(var_id)) => return Ok(var_id),
-        Err(matches) => return Err(ambiguous_variable_error(raw_ref, field_name, spec_path, &matches)),
+        Err(matches) => {
+            let options = matches.iter().map(|(vid, _)| index.pasteable_ref(doc, vid)).collect();
+            return Err(ambiguous_variable_error(raw_ref, field_name, spec_path, options));
+        }
         Ok(None) => {}
     }
 
@@ -725,9 +771,8 @@ pub fn resolve_variable_ref(
     };
     if let Some(hits) = chosen_lib {
         if hits.len() > 1 {
-            let pairs: Vec<(String, String)> =
-                hits.iter().map(|(s_idx, vid, cname)| (crate::local_key(&libraries[*s_idx].library_id, vid), cname.clone())).collect();
-            return Err(ambiguous_variable_error(raw_ref, field_name, spec_path, &pairs));
+            let options = hits.iter().map(|(s_idx, vid, _)| format!("var:id:{}", crate::local_key(&libraries[*s_idx].library_id, vid))).collect();
+            return Err(ambiguous_variable_error(raw_ref, field_name, spec_path, options));
         }
         let (s_idx, vid, _) = &hits[0];
         let snap = &libraries[*s_idx];
@@ -753,17 +798,17 @@ pub fn resolve_variable_ref(
     })
 }
 
-fn ambiguous_variable_error(raw_ref: &str, field_name: &str, spec_path: &str, matches: &[(String, String)]) -> SpecBindError {
-    let valid_options: Vec<String> = matches.iter().map(|(id, coll)| format!("var:id:{id} ({coll})")).collect();
-    let first_id = matches.first().map(|(id, _)| format!("var:id:{id}")).unwrap_or_default();
+/// `options` are references that each resolve to exactly one of the matching variables (see [`SpecBindIndex::pasteable_ref`]).
+fn ambiguous_variable_error(raw_ref: &str, field_name: &str, spec_path: &str, options: Vec<String>) -> SpecBindError {
+    let corrected_example = options.first().map(|first| serde_json::json!({ field_name: first }));
     SpecBindError {
         code: "AMBIGUOUS_VARIABLE".to_string(),
         message: format!("Variable reference '{raw_ref}' matches multiple variables."),
         path: spec_path.to_string(),
         received: Some(raw_ref.to_string()),
-        expected: Some("an unambiguous collection/name or var:id:<id>".to_string()),
-        valid_options,
-        corrected_example: Some(serde_json::json!({ field_name: first_id })),
+        expected: Some("an unambiguous <collection id>/<name> or var:id:<id>".to_string()),
+        valid_options: options,
+        corrected_example,
         safe_to_retry: true,
     }
 }
@@ -853,7 +898,55 @@ pub fn validate_variable_binding_for_keys(
     Ok(())
 }
 
-/// Resolves a style reference by exact `StyleMeta.name` (or style key) and verifies its `StyleProperty`.
+/// Whether a style of property `actual` may serve a field that expects `expected`. A colour style serves a
+/// fill and a stroke alike.
+fn style_property_serves(expected: StyleProperty, actual: StyleProperty) -> bool {
+    actual == expected || (matches!(expected, StyleProperty::Fill | StyleProperty::Stroke) && matches!(actual, StyleProperty::Fill | StyleProperty::Stroke))
+}
+
+fn snapshot_style_property(snap: &LibrarySnapshot, key: &str, style: &Style) -> StyleProperty {
+    snap.style_meta.get(key).map(|m| m.property).unwrap_or(match style {
+        Style::Text(_) => StyleProperty::Text,
+        Style::Effect(_) => StyleProperty::Effect,
+        Style::Grid(_) => StyleProperty::Grid,
+        Style::Fill(_) => StyleProperty::Fill,
+    })
+}
+
+/// Among document styles that share a name, prefers a style the document owns, then a copy imported from an
+/// enabled library, then a copy imported from a library that is now disabled; ties keep key order.
+fn pick_style_by_origin<'a>(doc: &Document, keys: &[&'a String]) -> Option<&'a String> {
+    if keys.len() <= 1 {
+        return keys.first().copied();
+    }
+    let mut imported: HashMap<&str, bool> = HashMap::new();
+    for ext in doc.library.external.values() {
+        if ext.kind != LibraryAssetKind::Style {
+            continue;
+        }
+        if let Some(local) = ext.local_key.as_deref() {
+            imported.insert(local, doc.library.enabled.iter().any(|r| r.id == ext.library_id));
+        }
+    }
+    keys.iter().copied().min_by_key(|k| match imported.get(k.as_str()) {
+        None => 0u8,
+        Some(true) => 1,
+        Some(false) => 2,
+    })
+}
+
+fn import_library_style(doc: &mut Document, index: &mut SpecBindIndex, snap: &LibrarySnapshot, style_key: &str) -> Option<String> {
+    let (cmd, local_opt) = crate::import_style_key(doc, snap, &format!("style:{style_key}"));
+    let _ = cmd.apply(doc);
+    *index = SpecBindIndex::build(doc);
+    local_opt
+}
+
+/// Resolves a style reference and verifies its `StyleProperty`. `raw_ref` is, in this order of precedence:
+/// 1. a style name (local styles first, then copies imported from enabled libraries, then from disabled ones);
+/// 2. a style key in the document (`z_local_heading`, or an already imported `<library id>/<style key>`);
+/// 3. `<library id>/<style key>` of an enabled library, imported on first use;
+/// 4. a style name in an enabled library, imported on first use.
 pub fn resolve_style_ref(
     doc: &mut Document,
     index: &mut SpecBindIndex,
@@ -863,20 +956,66 @@ pub fn resolve_style_ref(
     field_name: &str,
     spec_path: &str,
 ) -> Result<String, SpecBindError> {
-    let name = raw_ref.trim().strip_prefix("style:").unwrap_or(raw_ref.trim());
-    if let Some(keys) = index.styles_by_name.get(name).cloned() {
-        for k in &keys {
-            if crate::style_property(doc, k) == expected_prop {
-                return Ok(k.clone());
+    let name = raw_ref.trim().strip_prefix("style:").unwrap_or(raw_ref.trim()).trim();
+    // Property of a style that matched the reference but is of the wrong type.
+    let mut wrong_type: Option<StyleProperty> = None;
+
+    if let Some(keys) = index.styles_by_name.get(name) {
+        let fitting: Vec<&String> = keys.iter().filter(|k| style_property_serves(expected_prop, crate::style_property(doc, k))).collect();
+        if let Some(best) = pick_style_by_origin(doc, &fitting) {
+            return Ok(best.clone());
+        }
+        wrong_type = keys.first().map(|k| crate::style_property(doc, k));
+    }
+
+    if doc.styles.contains_key(name) {
+        let actual = crate::style_property(doc, name);
+        if style_property_serves(expected_prop, actual) {
+            return Ok(name.to_string());
+        }
+        wrong_type.get_or_insert(actual);
+    }
+
+    let enabled: Vec<&LibrarySnapshot> = libraries.iter().filter(|snap| doc.library.enabled.iter().any(|l| l.id == snap.library_id)).collect();
+    for snap in &enabled {
+        let Some(style_key) = name.strip_prefix(snap.library_id.as_str()).and_then(|r| r.strip_prefix('/')) else {
+            continue;
+        };
+        let Some(style) = snap.styles.get(style_key) else {
+            continue;
+        };
+        let actual = snapshot_style_property(snap, style_key, style);
+        if style_property_serves(expected_prop, actual) {
+            if let Some(local_key) = import_library_style(doc, index, snap, style_key) {
+                return Ok(local_key);
+            }
+        } else {
+            wrong_type.get_or_insert(actual);
+        }
+    }
+    for snap in &enabled {
+        for (skey, style) in &snap.styles {
+            let sname = snap.style_meta.get(skey).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(skey.as_str());
+            if sname != name {
+                continue;
+            }
+            let actual = snapshot_style_property(snap, skey, style);
+            if style_property_serves(expected_prop, actual) {
+                if let Some(local_key) = import_library_style(doc, index, snap, skey) {
+                    return Ok(local_key);
+                }
+            } else {
+                wrong_type.get_or_insert(actual);
             }
         }
-        // Found a style with that name, but wrong type!
-        let actual_prop = crate::style_property(doc, &keys[0]);
-        let valid_options = index.closest_styles(name, Some(expected_prop), 5);
-        let corrected_example = valid_options.first().map(|first| {
-            let val = if field_name == "fill" || field_name == "stroke" { format!("style:{first}") } else { first.clone() };
-            serde_json::json!({ field_name: val })
-        });
+    }
+
+    let valid_options = index.closest_styles(name, Some(expected_prop), 5);
+    let corrected_example = valid_options.first().map(|first| {
+        let val = if field_name == "fill" || field_name == "stroke" { format!("style:{first}") } else { first.clone() };
+        serde_json::json!({ field_name: val })
+    });
+    if let Some(actual_prop) = wrong_type {
         return Err(SpecBindError {
             code: "STYLE_TYPE_MISMATCH".to_string(),
             message: format!("Style '{name}' is a {:?} style, but '{field_name}' requires a {:?} style.", actual_prop, expected_prop),
@@ -888,56 +1027,6 @@ pub fn resolve_style_ref(
             safe_to_retry: true,
         });
     }
-
-    // Check enabled libraries
-    for snap in libraries {
-        if !doc.library.enabled.iter().any(|l| l.id == snap.library_id) {
-            continue;
-        }
-        let mut wrong_type = None;
-        for (skey, style) in &snap.styles {
-            let sname = snap.style_meta.get(skey).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(skey.as_str());
-            if sname == name {
-                let prop = snap.style_meta.get(skey).map(|m| m.property).unwrap_or(match style {
-                    Style::Text(_) => StyleProperty::Text,
-                    Style::Effect(_) => StyleProperty::Effect,
-                    Style::Grid(_) => StyleProperty::Grid,
-                    Style::Fill(_) => StyleProperty::Fill,
-                });
-                if prop == expected_prop {
-                    let asset_key = format!("style:{skey}");
-                    let (cmd, local_opt) = crate::import_style_key(doc, snap, &asset_key);
-                    let _ = cmd.apply(doc);
-                    *index = SpecBindIndex::build(doc);
-                    if let Some(local_key) = local_opt {
-                        return Ok(local_key);
-                    }
-                } else {
-                    wrong_type = Some(prop);
-                }
-            }
-        }
-        if let Some(actual_prop) = wrong_type {
-            let valid_options = index.closest_styles(name, Some(expected_prop), 5);
-            let corrected_example = valid_options.first().map(|first| serde_json::json!({ field_name: first }));
-            return Err(SpecBindError {
-                code: "STYLE_TYPE_MISMATCH".to_string(),
-                message: format!("Library style '{name}' is a {:?} style, but '{field_name}' requires a {:?} style.", actual_prop, expected_prop),
-                path: spec_path.to_string(),
-                received: Some(format!("{:?}", actual_prop)),
-                expected: Some(format!("{:?}", expected_prop)),
-                valid_options,
-                corrected_example,
-                safe_to_retry: true,
-            });
-        }
-    }
-
-    let valid_options = index.closest_styles(name, Some(expected_prop), 5);
-    let corrected_example = valid_options.first().map(|first| {
-        let val = if field_name == "fill" || field_name == "stroke" { format!("style:{first}") } else { first.clone() };
-        serde_json::json!({ field_name: val })
-    });
     Err(SpecBindError {
         code: "UNKNOWN_STYLE".to_string(),
         message: format!("Unknown {:?} style '{name}'.", expected_prop),
@@ -1053,7 +1142,8 @@ pub fn resolve_colour_ref(
         return Ok(ResolvedColourRef::Variable { var_id, color });
     }
     if trimmed.starts_with("style:") {
-        let style_key = resolve_style_ref(doc, index, libraries, trimmed, StyleProperty::Fill, field_name, spec_path)?;
+        let expected_prop = if prop_key.starts_with("strokes/") { StyleProperty::Stroke } else { StyleProperty::Fill };
+        let style_key = resolve_style_ref(doc, index, libraries, trimmed, expected_prop, field_name, spec_path)?;
         let paints = match doc.styles.get(&style_key) {
             Some(Style::Fill(p)) => p.clone(),
             _ => Vec::new(),
@@ -1749,10 +1839,15 @@ mod tests {
 
         let err = doc.apply_spec_with_report(page, &spec).unwrap_err();
         assert_eq!(err.code, "AMBIGUOUS_VARIABLE");
-        assert_eq!(err.valid_options.len(), 2);
-        assert!(err.valid_options.iter().any(|o| o.contains("var:id:var_style_primary")));
-        assert!(err.valid_options.iter().any(|o| o.contains("var:id:var_brand_primary")));
+        let mut options = err.valid_options.clone();
+        options.sort();
+        assert_eq!(options, ["var:b1/color/primary", "var:designos-style:color/color/primary"]);
         assert_eq!(doc.nodes.len(), before_nodes, "document must be unchanged on AMBIGUOUS_VARIABLE");
+        for (option, expected) in [("var:b1/color/primary", "var_brand_primary"), ("var:designos-style:color/color/primary", "var_style_primary")] {
+            let spec: NodeSpec = serde_json::from_value(serde_json::json!({ "kind": "rectangle", "fill": option })).unwrap();
+            let report = doc.apply_spec_with_report(page, &spec).unwrap();
+            assert_eq!(doc.get(report.root_node_id).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some(expected), "{option}");
+        }
     }
 
     #[test]

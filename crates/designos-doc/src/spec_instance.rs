@@ -1745,6 +1745,10 @@ fn check_forbidden_instance_fields(spec: &NodeSpec) -> Result<(), SpecError> {
         forbidden = Some("text");
     } else if spec.fill.is_some() {
         forbidden = Some("fill");
+    } else if matches!(spec.width, Some(NumberOrVar::Ref(_))) {
+        forbidden = Some("width");
+    } else if matches!(spec.height, Some(NumberOrVar::Ref(_))) {
+        forbidden = Some("height");
     }
 
     if let Some(field) = forbidden {
@@ -1822,7 +1826,7 @@ impl Document {
             if !spec.name.is_empty() && spec.name != inst_node.name {
                 inst_node.name = spec.name.clone();
             }
-            if let Some(w_explicit) = spec.width {
+            if let Some(w_explicit) = spec.width.as_ref().and_then(NumberOrVar::as_num) {
                 inst_node.size.x = w_explicit.max(0.0);
                 inst_node.component.overrides.insert(OverrideField::Size);
                 if spec.width_sizing.is_none() {
@@ -1835,7 +1839,7 @@ impl Document {
                     }
                 }
             }
-            if let Some(h_explicit) = spec.height {
+            if let Some(h_explicit) = spec.height.as_ref().and_then(NumberOrVar::as_num) {
                 inst_node.size.y = h_explicit.max(0.0);
                 inst_node.component.overrides.insert(OverrideField::Size);
                 if spec.height_sizing.is_none() {
@@ -2014,8 +2018,8 @@ impl Document {
             preset: None,
             x: n.transform.tx,
             y: n.transform.ty,
-            width: size_overridden.then_some(n.size.x),
-            height: size_overridden.then_some(n.size.y),
+            width: size_overridden.then_some(NumberOrVar::Num(n.size.x)),
+            height: size_overridden.then_some(NumberOrVar::Num(n.size.y)),
             width_sizing: (n.layout_child.horizontal != Sizing::Fixed).then(|| format!("{:?}", n.layout_child.horizontal).to_ascii_lowercase()),
             height_sizing: (n.layout_child.vertical != Sizing::Fixed).then(|| format!("{:?}", n.layout_child.vertical).to_ascii_lowercase()),
             min_width: n.layout_child.min_w,
@@ -2030,6 +2034,7 @@ impl Document {
             corner_radius: None,
             corner_radii: None,
             opacity: NumberOrVar::Num(opacity),
+            visible: (!n.visible).then_some(BoolOrVar::Bool(false)),
             clips_content: None,
             text: None,
             font_size: None,
@@ -2038,6 +2043,7 @@ impl Document {
             text_color: None,
             text_style: None,
             effect_style: None,
+            grid_style: None,
             mode: BTreeMap::new(),
             layout: None,
             dev_status,
