@@ -617,7 +617,8 @@ impl Document {
                 report.imported_assets = ctx.imported_assets;
                 report.stale_library_assets = ctx.stale_library_assets;
                 report.issues = ctx.issues;
-                report.in_progress = self.in_progress.iter().filter(|(id, ip)| prev_in_progress.get(*id) != Some(*ip)).map(|(id, ip)| (*id, ip.clone())).collect();
+                report.in_progress =
+                    self.in_progress.iter().filter(|(id, ip)| prev_in_progress.get(*id) != Some(*ip)).map(|(id, ip)| (*id, ip.clone())).collect();
                 report.bindings_created += ctx.bindings_created;
                 report.styles_linked += ctx.styles_linked;
                 report.warnings.extend(ctx.warnings);
