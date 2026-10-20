@@ -6,7 +6,7 @@
 //! into the active agent tab without pressing Enter.
 
 use crate::{theme, widgets};
-use designos_doc::{Document, NodeId};
+use designos_doc::{BooleanOp, Document, NodeId, NodeKind};
 use egui::{Align2, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
@@ -30,7 +30,7 @@ pub struct SelectionSummary {
 
 #[derive(Default)]
 struct CachedSummary {
-    key: Option<(u64, u64, u64)>,
+    key: Option<(u64, u64, u64, u64)>,
     summary: SelectionSummary,
 }
 
@@ -78,10 +78,10 @@ impl SelectionSummary {
     }
 }
 
-/// Calls `f` with a cached [`SelectionSummary`] keyed by `(doc.mutation_epoch(), page.0, selection_hash)`,
-/// allocating nothing when the selection, page, and document epoch are unchanged.
+/// Calls `f` with a cached [`SelectionSummary`] keyed by `(doc.runtime_id(), doc.mutation_epoch(), page.0, selection_hash)`,
+/// allocating nothing when the document, selection, page, and document epoch are unchanged.
 pub fn with_selection_summary<R>(doc: &Document, page: NodeId, selection: &[NodeId], f: impl FnOnce(&SelectionSummary) -> R) -> R {
-    let key = (doc.mutation_epoch(), page.0, selection_hash(selection));
+    let key = (doc.runtime_id(), doc.mutation_epoch(), page.0, selection_hash(selection));
     SUMMARY_CACHE.with(|cell| {
         let mut cache = cell.borrow_mut();
         if cache.key != Some(key) {
@@ -211,6 +211,16 @@ pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &Select
     (pill_rect, clicked)
 }
 
+fn node_kind_label(kind: &NodeKind) -> String {
+    match kind {
+        NodeKind::BooleanOp(BooleanOp::Union) => "union".to_string(),
+        NodeKind::BooleanOp(BooleanOp::Subtract) => "subtract".to_string(),
+        NodeKind::BooleanOp(BooleanOp::Intersect) => "intersect".to_string(),
+        NodeKind::BooleanOp(BooleanOp::Exclude) => "exclude".to_string(),
+        other => other.default_name().to_ascii_lowercase(),
+    }
+}
+
 /// Builds the JSON payload written to `selection.spec.json` when the user clicks the chip:
 /// `{ "page": { "id", "name" }, "count": N, "nodes": [ { "node_id", "name", "kind", "spec"? } ] }`.
 ///
@@ -230,7 +240,7 @@ pub fn build_selection_spec_json(doc: &Document, page: NodeId, selection: &[Node
             Some(serde_json::json!({
                 "node_id": id.0,
                 "name": n.name,
-                "kind": n.kind.default_name().to_ascii_lowercase(),
+                "kind": node_kind_label(&n.kind),
             }))
         })
         .collect();
@@ -349,6 +359,50 @@ mod tests {
             } else {
                 assert!(entry.get("spec").is_none(), "layers past 10 must omit inline spec (layer {i})");
             }
+        }
+    }
+
+    #[test]
+    fn with_selection_summary_invalidates_across_documents_with_same_epoch_and_page_id() {
+        let mut doc_a = Document::new("CheckoutFile");
+        let page_a = doc_a.add_page("Checkout");
+
+        let mut doc_b = Document::new("SettingsFile");
+        let page_b = doc_b.add_page("Settings");
+
+        assert_eq!(doc_a.mutation_epoch(), doc_b.mutation_epoch());
+        assert_eq!(page_a, page_b);
+        assert_ne!(doc_a.runtime_id(), doc_b.runtime_id());
+
+        let text_a = with_selection_summary(&doc_a, page_a, &[], |s| s.chip_text());
+        assert_eq!(text_a, "Checkout · none selected");
+
+        let text_b = with_selection_summary(&doc_b, page_b, &[], |s| s.chip_text());
+        assert_eq!(text_b, "Settings · none selected");
+    }
+
+    #[test]
+    fn build_selection_spec_json_writes_exact_boolean_op_kinds() {
+        use designos_doc::{BooleanOp, NodeKind};
+
+        let mut doc = Document::new("BoolOps");
+        let page = doc.add_page("Page 1");
+        let ops = [(BooleanOp::Union, "union"), (BooleanOp::Subtract, "subtract"), (BooleanOp::Intersect, "intersect"), (BooleanOp::Exclude, "exclude")];
+        let mut sel = Vec::new();
+        for (op, label) in ops {
+            let id = doc.alloc_id();
+            let mut n = Node::new(id, NodeKind::BooleanOp(op));
+            n.name = format!("Bool {label}");
+            doc.insert(page, n).unwrap();
+            sel.push(id);
+        }
+
+        let (json, count) = build_selection_spec_json(&doc, page, &sel).unwrap().unwrap();
+        assert_eq!(count, 4);
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let nodes = val["nodes"].as_array().unwrap();
+        for (i, (_, expected_kind)) in ops.iter().enumerate() {
+            assert_eq!(nodes[i]["kind"].as_str(), Some(*expected_kind));
         }
     }
 }
