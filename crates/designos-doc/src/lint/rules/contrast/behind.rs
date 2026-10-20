@@ -4,9 +4,11 @@
 //! modelled, so the text is not checked.
 
 use super::backdrop::{blends_as_group, inside_inset_box};
+use super::children::ChildIndex;
 use super::extent::{box_corners, clipped, page_box, paint_seen, painted_box, stroke_under};
 use super::subtree::{may_reach, SubtreeBounds};
 use crate::{resolved_node, Affine, BlendMode, Color, Document, Node, NodeId, NodeKind, PaintKind, Rect, TextProps, Vec2};
+use std::sync::Arc;
 
 /// Nodes one text check may look at in earlier siblings' subtrees. Past it the backdrop is unknown.
 const SUBTREE_BUDGET: usize = 4096;
@@ -54,7 +56,68 @@ struct Probe<'a> {
     budget: usize,
 }
 
+/// The children of a layer, with the index over them when the subtree bounds are known.
+struct Kids<'a> {
+    layer: &'a Node,
+    index: Option<Arc<ChildIndex>>,
+}
+
+impl Kids<'_> {
+    /// Position of the first occurrence of `id` among the children.
+    fn position_of(&self, id: NodeId) -> Option<usize> {
+        match &self.index {
+            Some(index) => index.position_of(id),
+            None => self.layer.children.iter().position(|s| *s == id),
+        }
+    }
+
+    /// Positions, ascending, of the children that can reach `text_box`; all of them without bounds.
+    fn reaching(&self, text_box: &Rect, out: &mut Vec<usize>) {
+        match &self.index {
+            Some(index) => index.reaching(text_box, out),
+            None => {
+                out.clear();
+                out.extend(0..self.layer.children.len());
+            }
+        }
+    }
+
+    /// Like [`Kids::reaching`], for a test on the resolved layers around a point box.
+    fn near_point(&self, sample: &Rect, out: &mut Vec<usize>) {
+        match &self.index {
+            Some(index) => index.near_point(sample, out),
+            None => self.reaching(sample, out),
+        }
+    }
+
+    /// Whether a child at a position `<= at` masks the siblings after it.
+    fn masked_through(&self, doc: &Document, at: usize) -> bool {
+        match &self.index {
+            Some(index) => index.masked_through(at),
+            None => self.layer.children[..=at].iter().any(|m| doc.get(*m).is_some_and(|m| m.is_mask)),
+        }
+    }
+
+    /// Whether a child at a position `>= at` masks the siblings after it.
+    fn masked_from(&self, doc: &Document, at: usize) -> bool {
+        match &self.index {
+            Some(index) => index.masked_from(at),
+            None => self.layer.children[at..].iter().any(|m| doc.get(*m).is_some_and(|m| m.is_mask)),
+        }
+    }
+
+    /// Whether the layer draws its children in reverse document order.
+    fn reversed(&self) -> bool {
+        self.layer.paints_children_reversed() && self.layer.children.len() > 1
+    }
+}
+
 impl Probe<'_> {
+    /// The children of `layer`, indexed when the subtree bounds are known.
+    fn kids<'n>(&self, parent: NodeId, layer: &'n Node) -> Kids<'n> {
+        Kids { layer, index: self.bounds.map(|b| b.children_of(self.doc, parent)) }
+    }
+
     /// Whether the subtree of `id` (transform `world`, under ancestors whose effects add `inherited`
     /// page units of growth) can reach the text at all.
     fn can_reach(&self, id: NodeId, world: Affine, inherited: f32) -> bool {
@@ -141,6 +204,15 @@ impl Probe<'_> {
     }
 }
 
+/// The positions of `near` (ascending, in document order) of the children that paint after the
+/// child at `pos`, top-most first. A layer that draws its children in reverse document order paints
+/// the earlier ones on top.
+fn later_siblings_top_first(near: &[usize], pos: usize, reversed: bool) -> impl Iterator<Item = &usize> {
+    let (down, up): (&[usize], &[usize]) =
+        if reversed { (&[], &near[..near.partition_point(|a| *a < pos)]) } else { (&near[near.partition_point(|a| *a <= pos)..], &[]) };
+    down.iter().rev().chain(up.iter())
+}
+
 /// What is painted behind a text layer.
 #[derive(Debug, PartialEq)]
 pub enum Behind {
@@ -174,6 +246,7 @@ pub fn has_layer_behind(doc: &Document, id: NodeId, occluder: Option<NodeId>, bo
     let Some(text_box) = page_box(doc, id) else { return Behind::Unknown };
     let mut probe = Probe { doc, text: id, text_box, bounds, budget: SUBTREE_BUDGET };
     let mut cover = None;
+    let mut near = Vec::new();
     let mut cur = id;
     while let Some(parent) = doc.get(cur).and_then(|n| n.parent) {
         if Some(cur) == occluder {
@@ -181,11 +254,14 @@ pub fn has_layer_behind(doc: &Document, id: NodeId, occluder: Option<NodeId>, bo
         }
         let Some(p) = doc.get(parent) else { return Behind::Unknown };
         let parent_world = doc.world_transform(parent);
-        let before = p.children.iter().position(|s| *s == cur).unwrap_or(p.children.len());
-        for (at, sibling) in p.children[..before].iter().enumerate().rev() {
+        let kids = probe.kids(parent, p);
+        let before = kids.position_of(cur).unwrap_or(p.children.len());
+        kids.reaching(&probe.text_box, &mut near);
+        for &at in near[..near.partition_point(|a| *a < before)].iter().rev() {
+            let sibling = &p.children[at];
             let Some(s) = doc.get(*sibling) else { continue };
             let world = parent_world * s.transform;
-            if !s.visible || s.opacity <= 0.0 || !probe.can_reach(*sibling, world, 0.0) {
+            if !s.visible || s.opacity <= 0.0 {
                 continue;
             }
             let painted = painted_box(&world, s, 0.0);
@@ -196,7 +272,7 @@ pub fn has_layer_behind(doc: &Document, id: NodeId, occluder: Option<NodeId>, bo
             if !reaches {
                 continue;
             }
-            let masked = p.children[..=at].iter().any(|m| doc.get(*m).is_some_and(|m| m.is_mask));
+            let masked = kids.masked_through(doc, at);
             let fills = match probe.plain_cover(*sibling, &world) {
                 Some(fills) if cover.is_none() && !masked => fills,
                 _ => return Behind::Unknown,
@@ -224,21 +300,21 @@ pub fn layer_painted_after(doc: &Document, id: NodeId, bounds: Option<&SubtreeBo
         chain.push((cur, parent));
         cur = parent;
     }
+    let mut near = Vec::new();
     // Check from outermost ancestor to innermost so the top-most painted layer wins.
     for (child, parent) in chain.into_iter().rev() {
         let p = doc.get(parent)?;
         let parent_world = doc.world_transform(parent);
-        let paint_kids = p.paint_children();
-        let pos = paint_kids.iter().position(|s| *s == child)?;
-        for sibling in paint_kids[pos + 1..].iter().rev() {
+        let kids = probe.kids(parent, p);
+        let pos = kids.position_of(child)?;
+        kids.reaching(&probe.text_box, &mut near);
+        for &at in later_siblings_top_first(&near, pos, kids.reversed()) {
+            let sibling = &p.children[at];
             let Some(s) = doc.get(*sibling) else { continue };
             if !s.visible || s.opacity <= 0.0 || s.is_mask {
                 continue;
             }
             let world = parent_world * s.transform;
-            if !probe.can_reach(*sibling, world, 0.0) {
-                continue;
-            }
             let painted = painted_box(&world, s, 0.0);
             let clips = s.kind.frame_props().is_some_and(|f| f.clips_content);
             let reaches = (paints_something(s) && painted.rect.intersects(&probe.text_box))
@@ -273,20 +349,25 @@ pub fn covering_layer_painted_after(doc: &Document, id: NodeId, sample_pt: crate
         chain.push((cur, parent));
         cur = parent;
     }
+    let mut near = Vec::new();
     for (child, parent) in chain.into_iter().rev() {
         if !opaque_up_to_the_page(doc, parent) {
             continue;
         }
         let p = doc.get(parent)?;
         let parent_world = doc.world_transform(parent);
-        let paint_kids = p.paint_children();
-        let pos = paint_kids.iter().position(|s| *s == child)?;
-        for (offset, sibling) in paint_kids[pos + 1..].iter().enumerate().rev() {
+        let kids = probe.kids(parent, p);
+        let pos = kids.position_of(child)?;
+        kids.near_point(&sample_box, &mut near);
+        let reversed = kids.reversed();
+        for &at in later_siblings_top_first(&near, pos, reversed) {
+            let sibling = &p.children[at];
             let Some(s) = doc.get(*sibling) else { continue };
             if !s.visible || s.opacity <= 0.0 || s.is_mask {
                 continue;
             }
-            let masked = paint_kids[..=pos + 1 + offset].iter().any(|m| doc.get(*m).is_some_and(|m| m.is_mask));
+            // Everything painted up to and including this sibling.
+            let masked = if reversed { kids.masked_from(doc, at) } else { kids.masked_through(doc, at) };
             if masked {
                 continue;
             }
@@ -316,14 +397,18 @@ pub fn has_plain_overlay_sibling_in_filled_frame(doc: &Document, id: NodeId, occ
     }
     let mut probe = Probe { doc, text: id, text_box, bounds, budget: SUBTREE_BUDGET };
     let parent_world = doc.world_transform(parent);
-    let before = p.children.iter().position(|s| *s == id).unwrap_or(p.children.len());
+    let kids = probe.kids(parent, p);
+    let before = kids.position_of(id).unwrap_or(p.children.len());
     let text_world = doc.world_transform(id);
     let Some(text_size) = doc.get(id).map(|n| n.size) else { return false };
     let mut saw_overlay = false;
-    for (at, sibling) in p.children[..before].iter().enumerate().rev() {
+    let mut near = Vec::new();
+    kids.reaching(&probe.text_box, &mut near);
+    for &at in near[..near.partition_point(|a| *a < before)].iter().rev() {
+        let sibling = &p.children[at];
         let Some(s) = doc.get(*sibling) else { continue };
         let world = parent_world * s.transform;
-        if !s.visible || s.opacity <= 0.0 || !probe.can_reach(*sibling, world, 0.0) {
+        if !s.visible || s.opacity <= 0.0 {
             continue;
         }
         let painted = painted_box(&world, s, 0.0);
@@ -333,7 +418,7 @@ pub fn has_plain_overlay_sibling_in_filled_frame(doc: &Document, id: NodeId, occ
         if !reaches {
             continue;
         }
-        if p.children[..=at].iter().any(|m| doc.get(*m).is_some_and(|m| m.is_mask)) {
+        if kids.masked_through(doc, at) {
             return false;
         }
         let Some(res_s) = resolved_node(doc, *sibling) else { return false };
@@ -364,3 +449,8 @@ pub fn has_plain_overlay_sibling_in_filled_frame(doc: &Document, id: NodeId, occ
     }
     saw_overlay
 }
+
+#[cfg(test)]
+mod equivalence_tests;
+#[cfg(test)]
+mod reference;

@@ -8,7 +8,7 @@ use super::config::LintConfig;
 use super::finding::{Finding, FixSuggestion};
 use super::registry::{Category, Severity};
 use super::LintEnv;
-use crate::openpencil::{infer_role_hint, node_to_xpath};
+use crate::openpencil::infer_role_hint;
 use crate::{Affine, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, Sizing, TextAutoResize, Vec2};
 pub use scale::{FONT_SCALE, RADIUS_SCALE, SPACING_SCALE};
 use serde_json::json;
@@ -203,7 +203,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     let config = ctx.config;
     let active = ctx.active;
     let tol = config.thresholds.geometry_tolerance;
-    let node_xpath = scale::LazyXPath::new(doc, n.id);
+    let node_xpath = scale::LazyXPath::new(doc, n.id, ctx.contrast_bounds.pass());
     let mut used_pixel_path = false;
 
     let mut emit = |rule_id: &'static str,
@@ -216,7 +216,7 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
         let Some(severity) = config.rule_severity(rule_id) else {
             return;
         };
-        let xpath = if target.id == n.id { node_xpath.get().to_string() } else { node_to_xpath(doc, target.id) };
+        let xpath = if target.id == n.id { node_xpath.get().to_string() } else { contrast::xpath::xpath_in_pass(doc, target.id, ctx.contrast_bounds.pass()) };
         out.push(Finding {
             rule: rule_id,
             category,

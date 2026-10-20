@@ -23,16 +23,18 @@ use std::sync::Arc;
 pub struct LazyXPath<'a> {
     doc: &'a Document,
     id: crate::NodeId,
+    /// Where the sibling positions of the lint pass are kept, so the walk is not repeated per finding.
+    pass: &'a crate::lint::PassCache,
     cell: OnceCell<String>,
 }
 
 impl<'a> LazyXPath<'a> {
-    pub fn new(doc: &'a Document, id: crate::NodeId) -> Self {
-        Self { doc, id, cell: OnceCell::new() }
+    pub fn new(doc: &'a Document, id: crate::NodeId, pass: &'a crate::lint::PassCache) -> Self {
+        Self { doc, id, pass, cell: OnceCell::new() }
     }
 
     pub fn get(&self) -> &str {
-        self.cell.get_or_init(|| crate::openpencil::node_to_xpath(self.doc, self.id))
+        self.cell.get_or_init(|| super::contrast::xpath::xpath_in_pass(self.doc, self.id, self.pass))
     }
 }
 

@@ -1,14 +1,14 @@
 //! `LintEnv` implementation backed by `cosmic-text` shaping and the CPU renderer.
 
-use crate::{render_backdrop, render_text_mask, resolve_font, text_geometry};
+use crate::{render_backdrop, render_backdrop_indexed, render_text_mask, resolve_font, text_geometry, BackdropIndex};
 use designos_doc::lint::rules::contrast::contrast_ratio;
 use designos_doc::lint::{
-    lint_in_slices, lint_in_slices_with_budget, Backdrop, Budget, LintConfig, LintEnv, LintReport, SamplePoint, SliceRunStats, TextMetrics,
+    lint_in_slices, lint_in_slices_with_budget, Backdrop, Budget, LintConfig, LintEnv, LintReport, PassCache, SamplePoint, SliceRunStats, TextMetrics,
 };
 use designos_doc::{resolve_node, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, TextAutoResize, TextProps, Vec2};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 thread_local! {
@@ -74,108 +74,112 @@ impl LintEnv for RenderLintEnv {
         Some(TextMetrics { line_count, visible_lines, content_height, widest_line, breaks_inside_word, substituted_family })
     }
 
-    fn backdrop(&self, doc: &Document, node: NodeId, mut rect: Rect) -> Option<Backdrop> {
-        let page_id = doc.page_of(node)?;
-        let raw_node = doc.get(node)?;
-        let resolved = resolve_node(doc, raw_node);
-
-        if rect.w <= 1.0 || rect.h <= 1.0 {
-            if let NodeKind::Text(tp) = &resolved.kind {
-                let geom = text_geometry(tp, resolved.size);
-                rect.w = rect.w.max(geom.width.ceil().max(4.0));
-                rect.h = rect.h.max(geom.height.ceil().max(4.0));
+    fn prepare_pass(&self, doc: &Document, roots: &[NodeId], pass: &PassCache) {
+        // Without text under the roots there is no backdrop to sample, so nothing to build.
+        if !roots.iter().any(|root| has_text(doc, *root)) {
+            return;
+        }
+        let indexes = pass.get_or_insert_with(PageIndexes::default);
+        for root in roots {
+            if let Some(page) = doc.page_of(*root) {
+                indexes.of(doc, page);
             }
         }
+    }
 
-        if rect.w <= 0.0 || rect.h <= 0.0 {
-            return ancestor_backdrop(doc, node);
+    fn backdrop(&self, doc: &Document, node: NodeId, rect: Rect) -> Option<Backdrop> {
+        sample_backdrop(doc, node, rect, None)
+    }
+
+    fn backdrop_in_pass(&self, doc: &Document, node: NodeId, rect: Rect, pass: &PassCache) -> Option<Backdrop> {
+        let indexes = pass.get_or_insert_with(PageIndexes::default);
+        sample_backdrop(doc, node, rect, Some(&indexes))
+    }
+}
+
+/// Whether `root` or a layer under it is text.
+fn has_text(doc: &Document, root: NodeId) -> bool {
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(n) = doc.get(id) else { continue };
+        if matches!(n.kind, NodeKind::Text(_)) {
+            return true;
         }
+        stack.extend(n.children.iter().copied());
+    }
+    false
+}
 
-        let scale = (256.0 / rect.w.max(rect.h)).min(1.0);
-        let b_pm = render_backdrop(doc, page_id, &[node], rect, scale)?;
-        let c_pm = render_backdrop(doc, page_id, &[], rect, scale)?;
-        let m_pm = render_text_mask(doc, node, rect, scale)?;
+/// The backdrop index of each page a lint pass has sampled, built the first time the page is needed.
+#[derive(Default)]
+struct PageIndexes(Mutex<HashMap<NodeId, Arc<BackdropIndex>>>);
 
-        let w = m_pm.width() as usize;
-        let b_pixels = b_pm.pixels();
-        let c_pixels = c_pm.pixels();
-        let m_pixels = m_pm.pixels();
+impl PageIndexes {
+    fn of(&self, doc: &Document, page: NodeId) -> Arc<BackdropIndex> {
+        let mut pages = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::clone(pages.entry(page).or_insert_with(|| Arc::new(BackdropIndex::new(doc, page))))
+    }
+}
 
-        let mut selected: Vec<usize> = m_pixels.iter().enumerate().filter_map(|(i, px)| (px.alpha() >= 192).then_some(i)).collect();
+/// Samples the backdrop behind `node` in `rect`. With `indexes`, the page is rendered through its
+/// scene index, which gives the same pixels as the full render.
+fn sample_backdrop(doc: &Document, node: NodeId, mut rect: Rect, indexes: Option<&PageIndexes>) -> Option<Backdrop> {
+    let page_id = doc.page_of(node)?;
+    let raw_node = doc.get(node)?;
+    let resolved = resolve_node(doc, raw_node);
 
-        if selected.len() < 4 {
-            selected = m_pixels.iter().enumerate().filter_map(|(i, px)| (px.alpha() > 0).then_some(i)).collect();
+    if rect.w <= 1.0 || rect.h <= 1.0 {
+        if let NodeKind::Text(tp) = &resolved.kind {
+            let geom = text_geometry(tp, resolved.size);
+            rect.w = rect.w.max(geom.width.ceil().max(4.0));
+            rect.h = rect.h.max(geom.height.ceil().max(4.0));
         }
+    }
 
-        if !selected.is_empty() {
-            let mut min_ratio = f64::INFINITY;
-            let mut worst_fg = Color::BLACK;
-            let mut worst_bg = Color::WHITE;
-            let mut worst_sample = SamplePoint { x: (rect.x + rect.w * 0.5).round(), y: (rect.y + rect.h * 0.5).round() };
-            let mut all_equal = true;
-            let mut first_bg: Option<tiny_skia::ColorU8> = None;
-            let mut uniform = true;
+    if rect.w <= 0.0 || rect.h <= 0.0 {
+        return ancestor_backdrop(doc, node);
+    }
 
-            for idx in selected {
-                let px = (idx % w) as f32;
-                let py = (idx / w) as f32;
-                let b_u8 = b_pixels[idx].demultiply();
-                let c_u8 = c_pixels[idx].demultiply();
-                let m_a = (f32::from(m_pixels[idx].alpha()) / 255.0).clamp(1.0 / 255.0, 1.0);
-
-                if c_u8.red() != b_u8.red() || c_u8.green() != b_u8.green() || c_u8.blue() != b_u8.blue() {
-                    all_equal = false;
-                }
-                if let Some(f0) = first_bg {
-                    if b_u8.red().abs_diff(f0.red()) > 2 || b_u8.green().abs_diff(f0.green()) > 2 || b_u8.blue().abs_diff(f0.blue()) > 2 {
-                        uniform = false;
-                    }
-                } else {
-                    first_bg = Some(b_u8);
-                }
-
-                let bg_i = Color { r: f32::from(b_u8.red()) / 255.0, g: f32::from(b_u8.green()) / 255.0, b: f32::from(b_u8.blue()) / 255.0, a: 1.0 };
-                let c_col = Color { r: f32::from(c_u8.red()) / 255.0, g: f32::from(c_u8.green()) / 255.0, b: f32::from(c_u8.blue()) / 255.0, a: 1.0 };
-                let inv_a = 1.0 - m_a;
-                let fg_i = Color {
-                    r: ((c_col.r - inv_a * bg_i.r) / m_a).clamp(0.0, 1.0),
-                    g: ((c_col.g - inv_a * bg_i.g) / m_a).clamp(0.0, 1.0),
-                    b: ((c_col.b - inv_a * bg_i.b) / m_a).clamp(0.0, 1.0),
-                    a: 1.0,
-                };
-
-                let ratio_i = contrast_ratio(fg_i, bg_i);
-                if ratio_i < min_ratio {
-                    min_ratio = ratio_i;
-                    worst_fg = fg_i;
-                    worst_bg = bg_i;
-                    worst_sample = SamplePoint { x: (rect.x + (px + 0.5) / scale).round(), y: (rect.y + (py + 0.5) / scale).round() };
-                }
-            }
-
-            return Some(Backdrop {
-                color: worst_bg,
-                uniform,
-                foreground: Some(worst_fg),
-                worst_ratio: Some(min_ratio as f32),
-                worst_sample: Some(worst_sample),
-                covered: all_equal,
-            });
+    let scale = (256.0 / rect.w.max(rect.h)).min(1.0);
+    let (b_pm, c_pm) = match indexes {
+        Some(indexes) => {
+            let index = indexes.of(doc, page_id);
+            (render_backdrop_indexed(doc, page_id, &[node], rect, scale, &index)?, render_backdrop_indexed(doc, page_id, &[], rect, scale, &index)?)
         }
+        None => (render_backdrop(doc, page_id, &[node], rect, scale)?, render_backdrop(doc, page_id, &[], rect, scale)?),
+    };
+    let m_pm = render_text_mask(doc, node, rect, scale)?;
 
-        // §8.6 Fallback: no glyph outlines produced; sample all pixels of B against solid fill colour.
-        let (fg_color, fg_alpha) = fallback_text_fill(&resolved);
+    let w = m_pm.width() as usize;
+    let b_pixels = b_pm.pixels();
+    let c_pixels = c_pm.pixels();
+    let m_pixels = m_pm.pixels();
+
+    let mut selected: Vec<usize> = m_pixels.iter().enumerate().filter_map(|(i, px)| (px.alpha() >= 192).then_some(i)).collect();
+
+    if selected.len() < 4 {
+        selected = m_pixels.iter().enumerate().filter_map(|(i, px)| (px.alpha() > 0).then_some(i)).collect();
+    }
+
+    if !selected.is_empty() {
         let mut min_ratio = f64::INFINITY;
-        let mut worst_fg = fg_color;
+        let mut worst_fg = Color::BLACK;
         let mut worst_bg = Color::WHITE;
         let mut worst_sample = SamplePoint { x: (rect.x + rect.w * 0.5).round(), y: (rect.y + rect.h * 0.5).round() };
+        let mut all_equal = true;
         let mut first_bg: Option<tiny_skia::ColorU8> = None;
         let mut uniform = true;
 
-        for (idx, b_px) in b_pixels.iter().enumerate() {
+        for idx in selected {
             let px = (idx % w) as f32;
             let py = (idx / w) as f32;
-            let b_u8 = b_px.demultiply();
+            let b_u8 = b_pixels[idx].demultiply();
+            let c_u8 = c_pixels[idx].demultiply();
+            let m_a = (f32::from(m_pixels[idx].alpha()) / 255.0).clamp(1.0 / 255.0, 1.0);
+
+            if c_u8.red() != b_u8.red() || c_u8.green() != b_u8.green() || c_u8.blue() != b_u8.blue() {
+                all_equal = false;
+            }
             if let Some(f0) = first_bg {
                 if b_u8.red().abs_diff(f0.red()) > 2 || b_u8.green().abs_diff(f0.green()) > 2 || b_u8.blue().abs_diff(f0.blue()) > 2 {
                     uniform = false;
@@ -183,13 +187,17 @@ impl LintEnv for RenderLintEnv {
             } else {
                 first_bg = Some(b_u8);
             }
+
             let bg_i = Color { r: f32::from(b_u8.red()) / 255.0, g: f32::from(b_u8.green()) / 255.0, b: f32::from(b_u8.blue()) / 255.0, a: 1.0 };
+            let c_col = Color { r: f32::from(c_u8.red()) / 255.0, g: f32::from(c_u8.green()) / 255.0, b: f32::from(c_u8.blue()) / 255.0, a: 1.0 };
+            let inv_a = 1.0 - m_a;
             let fg_i = Color {
-                r: fg_color.r * fg_alpha + bg_i.r * (1.0 - fg_alpha),
-                g: fg_color.g * fg_alpha + bg_i.g * (1.0 - fg_alpha),
-                b: fg_color.b * fg_alpha + bg_i.b * (1.0 - fg_alpha),
+                r: ((c_col.r - inv_a * bg_i.r) / m_a).clamp(0.0, 1.0),
+                g: ((c_col.g - inv_a * bg_i.g) / m_a).clamp(0.0, 1.0),
+                b: ((c_col.b - inv_a * bg_i.b) / m_a).clamp(0.0, 1.0),
                 a: 1.0,
             };
+
             let ratio_i = contrast_ratio(fg_i, bg_i);
             if ratio_i < min_ratio {
                 min_ratio = ratio_i;
@@ -199,15 +207,60 @@ impl LintEnv for RenderLintEnv {
             }
         }
 
-        Some(Backdrop {
+        return Some(Backdrop {
             color: worst_bg,
             uniform,
             foreground: Some(worst_fg),
             worst_ratio: Some(min_ratio as f32),
             worst_sample: Some(worst_sample),
-            covered: false,
-        })
+            covered: all_equal,
+        });
     }
+
+    // §8.6 Fallback: no glyph outlines produced; sample all pixels of B against solid fill colour.
+    let (fg_color, fg_alpha) = fallback_text_fill(&resolved);
+    let mut min_ratio = f64::INFINITY;
+    let mut worst_fg = fg_color;
+    let mut worst_bg = Color::WHITE;
+    let mut worst_sample = SamplePoint { x: (rect.x + rect.w * 0.5).round(), y: (rect.y + rect.h * 0.5).round() };
+    let mut first_bg: Option<tiny_skia::ColorU8> = None;
+    let mut uniform = true;
+
+    for (idx, b_px) in b_pixels.iter().enumerate() {
+        let px = (idx % w) as f32;
+        let py = (idx / w) as f32;
+        let b_u8 = b_px.demultiply();
+        if let Some(f0) = first_bg {
+            if b_u8.red().abs_diff(f0.red()) > 2 || b_u8.green().abs_diff(f0.green()) > 2 || b_u8.blue().abs_diff(f0.blue()) > 2 {
+                uniform = false;
+            }
+        } else {
+            first_bg = Some(b_u8);
+        }
+        let bg_i = Color { r: f32::from(b_u8.red()) / 255.0, g: f32::from(b_u8.green()) / 255.0, b: f32::from(b_u8.blue()) / 255.0, a: 1.0 };
+        let fg_i = Color {
+            r: fg_color.r * fg_alpha + bg_i.r * (1.0 - fg_alpha),
+            g: fg_color.g * fg_alpha + bg_i.g * (1.0 - fg_alpha),
+            b: fg_color.b * fg_alpha + bg_i.b * (1.0 - fg_alpha),
+            a: 1.0,
+        };
+        let ratio_i = contrast_ratio(fg_i, bg_i);
+        if ratio_i < min_ratio {
+            min_ratio = ratio_i;
+            worst_fg = fg_i;
+            worst_bg = bg_i;
+            worst_sample = SamplePoint { x: (rect.x + (px + 0.5) / scale).round(), y: (rect.y + (py + 0.5) / scale).round() };
+        }
+    }
+
+    Some(Backdrop {
+        color: worst_bg,
+        uniform,
+        foreground: Some(worst_fg),
+        worst_ratio: Some(min_ratio as f32),
+        worst_sample: Some(worst_sample),
+        covered: false,
+    })
 }
 
 fn fallback_text_fill(n: &Node) -> (Color, f32) {

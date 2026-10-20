@@ -3,6 +3,8 @@
 pub mod config;
 pub mod finding;
 pub mod fix;
+pub mod pass_cache;
+pub mod rect_tree;
 pub mod registry;
 pub mod rules;
 pub mod style_bindings;
@@ -12,6 +14,7 @@ pub mod traverse;
 pub use config::{LintConfig, LintConfigError, LintThresholds, RuleSeverityConfig, RuleSeverityLevel};
 pub use finding::{Finding, FixSuggestion, LintFinding, LintFix, LintPage, LintReport, LintSummary, SamplePoint, ScaleSource, SkippedRule};
 pub use fix::{lint_fix_commands, lint_fix_document, lint_fix_with_history};
+pub use pass_cache::PassCache;
 pub use registry::{
     all_preset_names, all_rule_ids, canonical_rule_id, preset_rule_ids, resolve_rule, rule_aliases, Category, LintPreset, RuleNeeds, RuleSpec, Severity, RULES,
 };
@@ -68,6 +71,17 @@ pub trait LintEnv {
     /// Sample the effective rendered backdrop color behind `rect` on `node`'s page.
     fn backdrop(&self, _doc: &Document, _node: NodeId, _rect: Rect) -> Option<Backdrop> {
         None
+    }
+
+    /// Called once before a lint pass over `roots` of `doc`, so an environment can build what
+    /// [`LintEnv::backdrop_in_pass`] will reuse for every node (kept in `pass`) ahead of the first
+    /// time slice. Does nothing by default.
+    fn prepare_pass(&self, _doc: &Document, _roots: &[NodeId], _pass: &PassCache) {}
+
+    /// [`LintEnv::backdrop`] for a node of the pass that owns `pass`. An environment may keep
+    /// per-document structures in `pass`; the answer must equal that of [`LintEnv::backdrop`].
+    fn backdrop_in_pass(&self, doc: &Document, node: NodeId, rect: Rect, _pass: &PassCache) -> Option<Backdrop> {
+        self.backdrop(doc, node, rect)
     }
 }
 

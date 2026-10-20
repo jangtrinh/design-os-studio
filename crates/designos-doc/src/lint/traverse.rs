@@ -245,6 +245,8 @@ fn scan_stack_slice<'a>(
 ) -> (usize, bool, Option<String>) {
     let mut scanned = 0usize;
     let mut pixel_evals = 0usize;
+    // A pixel-path evaluation renders; one can use up the slice by itself.
+    let mut out_of_time = false;
     let mut complete = true;
     let mut next_cursor: Option<String> = None;
     let loop_start = Instant::now();
@@ -260,7 +262,22 @@ fn scan_stack_slice<'a>(
 
         if scanned >= max_nodes
             || pixel_evals >= MAX_PIXEL_EVALS
+            || out_of_time
             || max_duration.is_some_and(|max_d| scanned >= 32 && (scanned & 31) == 0 && loop_start.elapsed() >= max_d)
+        {
+            stack.push(item);
+            complete = false;
+            next_cursor = Some(format!("stack:{}", item.id.0));
+            break;
+        }
+
+        // The contrast rule reads the bounds and sibling indexes around a text: ready them within
+        // the slice's time, and carry on in the next slice when they are not.
+        let is_instance_mirror = n.component.source.is_some() && n.component.overrides.is_empty();
+        if active.contrast
+            && matches!(n.kind, NodeKind::Text(_))
+            && (!is_instance_mirror || config.include_instances)
+            && !contrast_bounds.warm_for_text(doc, n.id, max_duration.map(|d| loop_start + d))
         {
             stack.push(item);
             complete = false;
@@ -275,7 +292,6 @@ fn scan_stack_slice<'a>(
 
         let node_world = item.parent_world * n.transform;
         let page_bounds = aabb_of_transformed_rect(node_world, n.size);
-        let is_instance_mirror = n.component.source.is_some() && n.component.overrides.is_empty();
 
         if !is_instance_mirror || config.include_instances {
             scanned += 1;
@@ -299,6 +315,7 @@ fn scan_stack_slice<'a>(
             };
             if evaluate_node(&ctx, raw_findings) {
                 pixel_evals += 1;
+                out_of_time = max_duration.is_some_and(|max_d| loop_start.elapsed() >= max_d);
             }
         }
 
@@ -349,6 +366,9 @@ pub fn lint_subtree_with_components(
     let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
 
     let contrast_bounds = contrast::SubtreeBounds::default();
+    if active.contrast {
+        env.prepare_pass(doc, roots, contrast_bounds.pass());
+    }
     let active_cursor = budget.cursor.as_deref().or(config.cursor.as_deref());
     let mut page_offset = 0usize;
     let mut stack = build_initial_stack(doc, roots, active_cursor, &active, &mut page_offset);
@@ -506,6 +526,9 @@ pub fn lint_in_slices_with_budget(
     let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
     // Shared across slices so each layer's bounds are computed once for the whole run.
     let contrast_bounds = contrast::SubtreeBounds::default();
+    if active.contrast {
+        env.prepare_pass(doc, roots, contrast_bounds.pass());
+    }
 
     let initial_cursor = total_budget.cursor.as_deref().or_else(|| config.cursor.as_deref().filter(|c| c.starts_with("stack:")));
     let mut unused_offset = 0usize;

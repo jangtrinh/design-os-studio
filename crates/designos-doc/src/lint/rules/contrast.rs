@@ -12,16 +12,18 @@
 
 pub mod backdrop;
 pub mod behind;
+pub mod children;
 pub mod extent;
 pub mod subtree;
+pub mod xpath;
 
 use super::NodeEvalCtx;
 use crate::lint::finding::{Finding, FixSuggestion, SamplePoint};
 use crate::lint::registry::{Category, Severity};
-use crate::openpencil::node_to_xpath;
 use crate::{resolved_node, BlendMode, Color, ContrastLevel, Document, Node, NodeId, NodeKind, Paint, PaintKind, TextProps, VariableKind, VariableValue};
 pub use backdrop::{backdrop, blends_as_group, Backdrop as AnalyticBackdrop};
 pub use behind::{has_layer_behind, layer_painted_after, Behind};
+pub use children::ChildIndex;
 pub use subtree::SubtreeBounds;
 
 fn linear(v: f32) -> f64 {
@@ -284,7 +286,7 @@ pub fn check_designs_outcome_with_env(
         return None;
     }
     let page_bounds = extent::page_box(doc, n.id)?;
-    let sampled = env.backdrop(doc, n.id, page_bounds)?;
+    let sampled = env.backdrop_in_pass(doc, n.id, page_bounds, bounds.pass())?;
     let bg = sampled.color;
     let fg = sampled.foreground.unwrap_or(color);
     let ratio = sampled.worst_ratio.map(f64::from).unwrap_or_else(|| contrast_ratio(fg, bg));
@@ -638,7 +640,7 @@ pub fn evaluate_contrast(ctx: &NodeEvalCtx<'_>, bounds: &SubtreeBounds, out: &mu
     let (fg, bg, ratio, method, worst_sample, covered_by) = match eval_result {
         Some(res) => res,
         None => {
-            let Some(sampled) = ctx.env.backdrop(doc, raw_n.id, ctx.page_bounds) else {
+            let Some(sampled) = ctx.env.backdrop_in_pass(doc, raw_n.id, ctx.page_bounds, bounds.pass()) else {
                 return false;
             };
             used_pixel_path = true;
@@ -686,7 +688,7 @@ pub fn evaluate_contrast(ctx: &NodeEvalCtx<'_>, bounds: &SubtreeBounds, out: &mu
             severity,
             node: raw_n.id,
             node_name: raw_n.name.clone(),
-            xpath: node_to_xpath(doc, raw_n.id),
+            xpath: xpath::xpath_in_pass(doc, raw_n.id, bounds.pass()),
             bounds: ctx.page_bounds,
             message,
             measured_ratio: Some(measured),

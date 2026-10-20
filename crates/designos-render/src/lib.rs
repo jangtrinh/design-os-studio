@@ -8,6 +8,7 @@
 //! come first. Group effects (opacity, blend, layer blur) use full-size
 //! offscreen layers.
 
+mod backdrop_index;
 mod blur;
 pub mod board;
 mod boolean;
@@ -27,6 +28,7 @@ mod text;
 mod tiles;
 pub mod vectorops;
 
+pub use backdrop_index::BackdropIndex;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
@@ -198,6 +200,31 @@ pub fn render_node(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia
 /// Per E15-10 §5.1, the target pixmap is initialized with `page`'s background color
 /// composited over opaque white (`#FFFFFF`).
 pub fn render_backdrop(doc: &Document, page: NodeId, hide: &[NodeId], rect: designos_doc::Rect, scale: f32) -> Option<tiny_skia::Pixmap> {
+    render_backdrop_with(doc, page, hide, rect, scale, None)
+}
+
+/// [`render_backdrop`] that draws only what can reach `rect`, using `index` (built for `page` of
+/// this `doc`) instead of walking every layer of the page: same pixels, in time that follows the
+/// size of the window rather than the size of the page.
+pub fn render_backdrop_indexed(
+    doc: &Document,
+    page: NodeId,
+    hide: &[NodeId],
+    rect: designos_doc::Rect,
+    scale: f32,
+    index: &BackdropIndex,
+) -> Option<tiny_skia::Pixmap> {
+    render_backdrop_with(doc, page, hide, rect, scale, Some(index))
+}
+
+fn render_backdrop_with(
+    doc: &Document,
+    page: NodeId,
+    hide: &[NodeId],
+    rect: designos_doc::Rect,
+    scale: f32,
+    index: Option<&BackdropIndex>,
+) -> Option<tiny_skia::Pixmap> {
     if scale <= 0.0 || !scale.is_finite() || rect.w <= 0.0 || rect.h <= 0.0 {
         return None;
     }
@@ -214,8 +241,22 @@ pub fn render_backdrop(doc: &Document, page: NodeId, hide: &[NodeId], rect: desi
     let p = doc.get(page)?;
     let ts = sk::Transform::from_row(scale, 0.0, 0.0, scale, -rect.x * scale, -rect.y * scale);
     effects::set_grid_origin(&ts);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide };
-    r.draw_children(&p.children, ts, &mut pm, None, None);
+    let Some(index) = index else {
+        let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[], hide };
+        r.draw_children(&p.children, ts, &mut pm, None, None);
+        return Some(pm);
+    };
+    // The window the pixmap covers (1 device px of slack), widened by how far any blur over it
+    // reads beyond its own layer, as a tile is padded. Layers that miss it are not drawn: the full
+    // render draws them into the same pixmap, outside of which nothing is kept, and they leave no
+    // pixel inside it.
+    let scene = index.scene();
+    let mut win = ((-1.0 - ts.tx) / ts.sx, (-1.0 - ts.ty) / ts.sy, (w as f32 + 1.0 - ts.tx) / ts.sx, (h as f32 + 1.0 - ts.ty) / ts.sy);
+    let reach = scene.blurry.iter().filter(|(b, _)| index::overlaps(*b, win)).map(|(_, r)| *r).fold(0.0f32, f32::max);
+    win = (win.0 - reach, win.1 - reach, win.2 + reach, win.3 + reach);
+    let children = index.top_level_near(win);
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: Some(Cull { index: scene, win }), runtime_opacities: &[], hide };
+    r.draw_children(&children, ts, &mut pm, None, None);
     Some(pm)
 }
 
@@ -331,14 +372,13 @@ impl Renderer<'_> {
             if self.hide.contains(cid) {
                 continue;
             }
+            // Before the node is looked up: a child that misses the window costs one hash lookup.
+            if self.cull.as_ref().is_some_and(|c| c.index.culls(*cid, c.win)) {
+                continue;
+            }
             let Some(child) = board::get(self.doc, *cid) else { continue };
             // Variable bindings (and the mode in effect) are applied per node at draw time.
             let child = &*resolve_node(self.doc, &child);
-            if let Some(c) = &self.cull {
-                if !child.is_mask && !c.index.may_touch(*cid, c.win) {
-                    continue;
-                }
-            }
             let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
             if child.is_mask {
                 if !child.visible {

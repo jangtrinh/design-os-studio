@@ -400,7 +400,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                 }
                 continue;
             }
-            if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, start + budget) {
+            if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, Some(start + budget)) {
                 cur.stack.push(id);
                 return false;
             }
