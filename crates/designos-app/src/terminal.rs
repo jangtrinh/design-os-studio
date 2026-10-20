@@ -73,7 +73,7 @@ macro_rules! codex_mcp_overrides {
 }
 
 /// Presets for launching an interactive PTY session inside DESIGN:OS Studio.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentCliPreset {
     Shell,
     Claude,
@@ -298,6 +298,7 @@ pub struct SessionEnv {
     pub doc_name: String,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
+    pub path_prepend: Vec<PathBuf>,
 }
 
 impl SessionEnv {
@@ -321,6 +322,7 @@ impl SessionEnv {
             doc_name: "Untitled".to_string(),
             #[cfg(test)]
             path_override: None,
+            path_prepend: Vec::new(),
         }
     }
 }
@@ -452,6 +454,14 @@ pub struct TerminalTab {
     /// Raw bytes written via [`Self::write_bytes`] during tests (`#685`).
     #[cfg(test)]
     pub written_bytes: Vec<u8>,
+    /// Pre-assigned UUID v4 passed via `--session-id` (for Claude and Grok), or `None`.
+    pub session_uuid: Option<String>,
+    /// True when this tab was opened by resuming an entry from `sessions.json`.
+    pub is_resumed: bool,
+    /// Set to `true` once the background PTY reader thread has reached EOF or exited.
+    pub reader_eof: Arc<std::sync::atomic::AtomicBool>,
+    /// Timestamp when the child process was first observed dead while waiting for `reader_eof`.
+    pub exited_at: Option<std::time::Instant>,
 }
 
 impl TerminalTab {
@@ -528,12 +538,14 @@ impl TerminalTab {
         let raw_log = Arc::new(Mutex::new(String::new()));
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
         let last_output_at = Arc::new(Mutex::new(None));
+        let reader_eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let parser_bg = Arc::clone(&parser);
         let spec_bg = Arc::clone(&last_spec_json);
         let log_bg = Arc::clone(&raw_log);
         let status_bg = Arc::clone(&agent_status);
         let output_at_bg = Arc::clone(&last_output_at);
+        let eof_bg = Arc::clone(&reader_eof);
 
         std::thread::Builder::new()
             .name(format!("designos-pty-reader-{id}"))
@@ -577,6 +589,7 @@ impl TerminalTab {
                         Err(_) => break,
                     }
                 }
+                eof_bg.store(true, std::sync::atomic::Ordering::Release);
             })
             .map_err(|e| format!("failed to spawn PTY reader thread: {e}"))?;
 
@@ -601,6 +614,10 @@ impl TerminalTab {
             start_failure: None,
             #[cfg(test)]
             written_bytes: Vec::new(),
+            session_uuid: None,
+            is_resumed: false,
+            reader_eof,
+            exited_at: None,
         })
     }
 
@@ -759,6 +776,22 @@ pub struct TerminalState {
     /// Test-only `PATH` override for binary availability checks and spawned agent tabs.
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
+    /// How this terminal's session directory is keyed (`LibraryFile` vs `Fallback`).
+    pub key: crate::agent_sessions::SessionKey,
+    /// Active Studio library root (`#652` / `#653`), retained even when the session falls back to `/tmp/designos-sessions/`.
+    pub library_root: Option<PathBuf>,
+    /// Persistent `sessions.json` registry for this session folder (`#653`).
+    pub session_registry: crate::agent_sessions::SessionRegistry,
+    /// Window identifier holding `<session_dir>/session.lock` when bound to a library file (`None` on fallback).
+    pub lock_owner: Option<String>,
+    /// Whether `codex resume --last` has passed the runtime cwd-scoping check (`#653` §6).
+    pub codex_cwd_scoped: bool,
+    /// Whether `agy --continue` has passed the runtime cwd-scoping check (`#653` §6).
+    pub agy_cwd_scoped: bool,
+    /// Additional directories prepended at the front of `PATH` when spawning child PTYs.
+    pub path_prepend: Vec<PathBuf>,
+    /// State for the new-session CLI picker, compact `+` menu, and inline `"Other CLI..."` form (`#652`).
+    pub picker: crate::agent_picker::AgentPickerState,
 }
 
 impl Default for TerminalState {
@@ -769,6 +802,12 @@ impl Default for TerminalState {
             st.last_watched_mtime = std::fs::metadata(&st.live_spec_path).and_then(|m| m.modified()).ok();
         }
         st
+    }
+}
+
+impl Drop for TerminalState {
+    fn drop(&mut self) {
+        self.release_lock();
     }
 }
 
@@ -795,6 +834,8 @@ impl TerminalState {
         let fallback_spec_mtime = std::fs::metadata("/tmp/designos-live-agent-out.spec.json").and_then(|m| m.modified()).ok();
         let live_patch = crate::live_patch_log::LivePatchLog::bind(session_dir.join("doc-patch.jsonl"));
         Self {
+            key: crate::agent_sessions::SessionKey::Fallback(session_id.clone()),
+            library_root: None,
             session_id,
             session_dir,
             live_spec_path,
@@ -840,6 +881,12 @@ impl TerminalState {
             stub_cli: None,
             #[cfg(test)]
             path_override: None,
+            session_registry: crate::agent_sessions::SessionRegistry::default(),
+            lock_owner: None,
+            codex_cwd_scoped: false,
+            agy_cwd_scoped: false,
+            path_prepend: Vec::new(),
+            picker: crate::agent_picker::AgentPickerState::default(),
         }
     }
 
@@ -860,14 +907,7 @@ impl TerminalState {
         default_test_stub_cli()
     }
 
-    /// Re-binds this terminal state to `session_id` under `/tmp/designos-sessions/<session_id>`.
-    pub fn bind_session(&mut self, session_id: &str) {
-        let clean = session_id.trim();
-        if clean.is_empty() || self.session_id == clean {
-            return;
-        }
-        let session_dir = std::env::temp_dir().join("designos-sessions").join(clean);
-        self.session_id = clean.to_string();
+    fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
         self.live_spec_path = session_dir.join("live-spec.json");
         self.live_doc_sync_path = session_dir.join("doc-sync.designos");
         self.live_canvas_path = session_dir.join("canvas.designos");
@@ -877,6 +917,94 @@ impl TerminalState {
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.last_synced_key = None;
+    }
+
+    /// Re-binds this terminal state to `session_id` under `/tmp/designos-sessions/<session_id>`.
+    /// When already bound to a library file and holding its `session.lock`, updates `self.session_id`
+    /// while preserving `<lib_root>/agent-sessions/<file_id>` as `self.session_dir`.
+    pub fn bind_session(&mut self, session_id: &str) {
+        let clean = session_id.trim();
+        if clean.is_empty() {
+            return;
+        }
+        if matches!(self.key, crate::agent_sessions::SessionKey::LibraryFile { .. }) {
+            self.session_id = clean.to_string();
+            if self.lock_owner.is_none() {
+                let fallback_dir = std::env::temp_dir().join("designos-sessions").join(clean);
+                if self.session_dir != fallback_dir {
+                    self.update_session_dir_paths(fallback_dir);
+                }
+            }
+            return;
+        }
+        if self.session_id == clean {
+            return;
+        }
+        let session_dir = std::env::temp_dir().join("designos-sessions").join(clean);
+        self.session_id = clean.to_string();
+        self.key = crate::agent_sessions::SessionKey::Fallback(clean.to_string());
+        self.update_session_dir_paths(session_dir);
+    }
+
+    /// Binds this terminal state to `<lib_root>/agent-sessions/<file_id>/` (`#653`), acquiring
+    /// `session.lock` for `window_id` or falling back to `/tmp/designos-sessions/<window_id>` if
+    /// another live Studio window already holds the lock.
+    pub fn bind_library_file(&mut self, lib_root: &Path, file_id: &str, window_id: &str) {
+        self.bind_library_file_with_liveness(lib_root, file_id, window_id, crate::agent_sessions::is_pid_alive);
+    }
+
+    /// Like [`Self::bind_library_file`], with a custom `pid_alive` predicate for unit tests.
+    pub fn bind_library_file_with_liveness<F>(&mut self, lib_root: &Path, file_id: &str, window_id: &str, pid_alive: F)
+    where
+        F: Fn(u32) -> bool,
+    {
+        self.library_root = Some(lib_root.to_path_buf());
+        let clean_file_id = file_id.trim();
+        if clean_file_id.is_empty() {
+            return;
+        }
+        let win = if window_id.trim().is_empty() { self.session_id.clone() } else { window_id.trim().to_string() };
+        let target_key = crate::agent_sessions::SessionKey::LibraryFile { lib_root: lib_root.to_path_buf(), file_id: clean_file_id.to_string() };
+        if self.key == target_key && self.lock_owner.as_deref() == Some(win.as_str()) {
+            return;
+        }
+        self.release_lock();
+        self.session_id = win.clone();
+        match crate::agent_sessions::acquire_stable_session_dir_with(lib_root, clean_file_id, &win, &win, pid_alive) {
+            crate::agent_sessions::LockOutcome::Acquired(dir) => {
+                self.key = target_key;
+                self.lock_owner = Some(win);
+                self.update_session_dir_paths(dir.clone());
+                self.session_registry = crate::agent_sessions::load_or_init_registry(&dir);
+                if let Some(max_id) = self.session_registry.sessions.iter().map(|s| s.tab_id as usize).max() {
+                    self.next_tab_id = self.next_tab_id.max(max_id + 1);
+                }
+            }
+            crate::agent_sessions::LockOutcome::Fallback { dir, message } => {
+                self.key = target_key;
+                self.lock_owner = None;
+                self.update_session_dir_paths(dir);
+                self.session_registry = crate::agent_sessions::SessionRegistry::default();
+                self.status_msg = Some(message);
+            }
+        }
+    }
+
+    /// Releases `<session_dir>/session.lock` if owned by this `TerminalState`.
+    pub fn release_lock(&mut self) {
+        if let Some(owner) = self.lock_owner.take() {
+            crate::agent_sessions::release_session_lock(&self.session_dir, &owner);
+        }
+    }
+
+    /// Detaches from any library file and binds to an ephemeral fallback `/tmp/designos-sessions/<session_id>`.
+    pub fn unbind_library_file(&mut self, session_id: &str) {
+        self.release_lock();
+        let clean = if session_id.trim().is_empty() { self.session_id.clone() } else { session_id.trim().to_string() };
+        self.key = crate::agent_sessions::SessionKey::Fallback(clean.clone());
+        self.session_id = String::new();
+        self.session_registry = crate::agent_sessions::SessionRegistry::default();
+        self.bind_session(&clean);
     }
 
     /// Builds a [`SessionEnv`] snapshot for this terminal state's per-file session.
@@ -897,6 +1025,7 @@ impl TerminalState {
             doc_name: self.doc_name.clone(),
             #[cfg(test)]
             path_override: self.path_override.clone(),
+            path_prepend: self.path_prepend.clone(),
         }
     }
 
@@ -1092,14 +1221,34 @@ impl TerminalState {
             FixAction::OpenShell => {
                 let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
             }
+            FixAction::StartNewSession(preset) => {
+                if self.active_tab().is_some_and(|t| t.start_failure.is_some()) {
+                    let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
+                    self.close_tab(idx);
+                }
+                let _ = self.spawn_tab(preset, file_path);
+            }
         }
     }
 
     /// Terminates all child PTY processes owned by this file's terminal state.
     pub fn shutdown(&mut self) {
+        let mut reg_dirty = false;
+        let now = crate::agent_sessions::unix_timestamp_secs();
         for mut tab in self.tabs.drain(..) {
             let _ = tab.child.kill();
+            if let Some(entry) = self.session_registry.sessions.iter_mut().find(|s| s.tab_id == tab.id as u64) {
+                if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
+                    entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
+                    entry.last_active_at = now;
+                    reg_dirty = true;
+                }
+            }
         }
+        if reg_dirty {
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+        }
+        self.release_lock();
     }
 
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
@@ -1406,14 +1555,79 @@ impl TerminalState {
         }
     }
 
+    /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
+    /// Only built-in agent CLIs (`claude`, `codex`, `grok`, `agy`) are recorded; `Shell` and custom
+    /// commands never become the default.
+    pub fn record_last_cli(&mut self, preset: AgentCliPreset) {
+        if crate::agent_sessions::is_agent_cli_preset(preset) {
+            self.session_registry.last_cli = Some(preset.binary_name().to_string());
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+        }
+    }
+
+    /// Spawns a custom CLI command tab (`"Other CLI..."` / `custom_clis`) in this file's session folder
+    /// with the `DESIGNOS_*` environment, without registering a resumable session (`#652` §3 rule 7).
+    pub fn spawn_custom_cli_tab(&mut self, label: &str, command: &str, file_path: Option<&Path>) -> Result<usize, String> {
+        let id = self.next_tab_id.max(1);
+        self.next_tab_id = id + 1;
+        let _ = std::fs::create_dir_all(&self.session_dir);
+        self.provision_session_agent_files(file_path);
+        let env = self.session_env();
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
+        #[cfg(test)]
+        isolate_zsh_from_home(&mut cmd);
+        cmd.cwd(&self.session_dir);
+
+        let clean_title = if label.trim().is_empty() { command.trim() } else { label.trim() };
+        match TerminalTab::spawn_with_session_cmd(id, AgentCliPreset::Shell, 28, 100, file_path, Some(&env), Some(cmd)) {
+            Ok(mut tab) => {
+                tab.title = clean_title.to_string();
+                self.tabs.push(tab);
+                self.active_tab = self.tabs.len() - 1;
+                self.viewport_focused = true;
+                self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
+                Ok(self.active_tab)
+            }
+            Err(e) => {
+                self.status_msg = Some(format!("PTY error: {e}"));
+                Err(e)
+            }
+        }
+    }
+
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
+    /// For registrable agent CLIs, records a new entry in `sessions.json` (`#653`) and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
-        self.spawn_tab_running(preset, file_path, None)
+        if crate::agent_sessions::is_agent_cli_preset(preset) {
+            let session_uuid =
+                if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
+            let launch_cmd = crate::agent_sessions::build_new_session_command(preset, session_uuid.as_deref());
+            self.spawn_tab_with_registration(preset, file_path, Some(&launch_cmd), session_uuid, false, None, true)
+        } else {
+            self.spawn_tab_with_registration(preset, file_path, None, None, false, None, false)
+        }
     }
 
     /// Like [`Self::spawn_tab`]; with `command` the tab runs that one shell command (an agent CLI's own
-    /// `login`) instead of the preset's launch command.
+    /// `login`) instead of the preset's launch command and does not register in `sessions.json`.
     fn spawn_tab_running(&mut self, preset: AgentCliPreset, file_path: Option<&Path>, command: Option<&str>) -> Result<usize, String> {
+        match command {
+            Some(cmd) => self.spawn_tab_with_registration(preset, file_path, Some(cmd), None, false, None, false),
+            None => self.spawn_tab(preset, file_path),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_tab_with_registration(
+        &mut self,
+        preset: AgentCliPreset,
+        file_path: Option<&Path>,
+        command: Option<&str>,
+        session_uuid: Option<String>,
+        is_resumed: bool,
+        custom_title: Option<String>,
+        register_new_entry: bool,
+    ) -> Result<usize, String> {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let _ = std::fs::create_dir_all(&self.session_dir);
@@ -1430,7 +1644,31 @@ impl TerminalState {
             cmd
         });
         match TerminalTab::spawn_with_session_cmd(id, preset, 28, 100, file_path, Some(&env), cmd_override) {
-            Ok(tab) => {
+            Ok(mut tab) => {
+                tab.session_uuid = session_uuid.clone();
+                tab.is_resumed = is_resumed;
+                if let Some(title) = custom_title {
+                    tab.title = title;
+                }
+                if register_new_entry && crate::agent_sessions::is_agent_cli_preset(preset) {
+                    self.session_registry.last_cli = Some(preset.binary_name().to_string());
+                    if crate::agent_sessions::is_registrable_cli_scoped(preset, self.codex_cwd_scoped, self.agy_cwd_scoped) {
+                        let now = crate::agent_sessions::unix_timestamp_secs();
+                        let entry = crate::agent_sessions::SessionEntry {
+                            tab_id: id as u64,
+                            title: tab.title.clone(),
+                            cli: preset.binary_name().to_string(),
+                            session_id: session_uuid,
+                            created_at: now,
+                            last_active_at: now,
+                            status: crate::agent_sessions::SessionEntryStatus::Active,
+                            extra: std::collections::BTreeMap::new(),
+                        };
+                        self.session_registry.sessions.retain(|s| s.tab_id != id as u64);
+                        self.session_registry.sessions.push(entry);
+                    }
+                    let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+                }
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
                 self.viewport_focused = true;
@@ -1444,11 +1682,81 @@ impl TerminalState {
         }
     }
 
+    /// Returns entries in `self.session_registry` that can be resumed (`status != Missing` and a valid
+    /// resume command exists for the CLI), ordered most-recently-active first.
+    pub fn resumable_sessions(&self) -> Vec<&crate::agent_sessions::SessionEntry> {
+        let mut list: Vec<&crate::agent_sessions::SessionEntry> = self
+            .session_registry
+            .sessions
+            .iter()
+            .filter(|e| {
+                e.status != crate::agent_sessions::SessionEntryStatus::Missing
+                    && crate::agent_sessions::build_resume_command_scoped(e, self.codex_cwd_scoped, self.agy_cwd_scoped).is_some()
+            })
+            .collect();
+        list.sort_by(|a, b| (b.last_active_at, b.tab_id).cmp(&(a.last_active_at, a.tab_id)));
+        list
+    }
+
+    /// Resumes the recorded session with `entry_tab_id` from `self.session_registry`.
+    pub fn resume_session_by_tab_id(&mut self, entry_tab_id: u64, file_path: Option<&Path>) -> Result<usize, String> {
+        let entry_idx = self
+            .session_registry
+            .sessions
+            .iter()
+            .position(|e| e.tab_id == entry_tab_id && e.status != crate::agent_sessions::SessionEntryStatus::Missing)
+            .ok_or_else(|| format!("No resumable session with tab_id {entry_tab_id}"))?;
+        let entry_clone = self.session_registry.sessions[entry_idx].clone();
+        let preset =
+            crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
+        let cmd_str = crate::agent_sessions::build_resume_command_scoped(&entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped)
+            .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
+
+        let tab_idx =
+            self.spawn_tab_with_registration(preset, file_path, Some(&cmd_str), entry_clone.session_id.clone(), true, Some(entry_clone.title.clone()), false)?;
+        let new_tab_id = self.tabs[tab_idx].id as u64;
+        if let Some(entry) = self.session_registry.sessions.get_mut(entry_idx) {
+            entry.tab_id = new_tab_id;
+            entry.status = crate::agent_sessions::SessionEntryStatus::Active;
+            entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+        }
+        Ok(tab_idx)
+    }
+
+    /// Resumes the most recently active session in `self.session_registry`.
+    pub fn resume_last_session(&mut self, file_path: Option<&Path>) -> Result<usize, String> {
+        let target_tab_id = self.resumable_sessions().first().map(|e| e.tab_id).ok_or_else(|| "No previous agent session to resume".to_string())?;
+        self.resume_session_by_tab_id(target_tab_id, file_path)
+    }
+
+    /// Renames tab `idx` and updates its `title` in `sessions.json` if registered.
+    pub fn rename_tab(&mut self, idx: usize, new_title: &str) {
+        let clean = new_title.trim();
+        if clean.is_empty() || idx >= self.tabs.len() {
+            return;
+        }
+        self.tabs[idx].title = clean.to_string();
+        let tab_id = self.tabs[idx].id as u64;
+        if let Some(entry) = self.session_registry.sessions.iter_mut().find(|e| e.tab_id == tab_id) {
+            entry.title = clean.to_string();
+            entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+        }
+    }
+
     /// Closes tab at `idx`, killing its child process if still running.
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
             let _ = removed.child.kill();
+            if let Some(entry) = self.session_registry.sessions.iter_mut().find(|e| e.tab_id == removed.id as u64) {
+                if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
+                    entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
+                    entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
+                    let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
+                }
+            }
             if self.active_tab >= self.tabs.len() && !self.tabs.is_empty() {
                 self.active_tab = self.tabs.len() - 1;
             } else if self.tabs.is_empty() {
@@ -1535,16 +1843,23 @@ impl TerminalState {
         let mut agent_exited = false;
         #[cfg(test)]
         let path_override = self.path_override.clone();
+        let mut registry_dirty = false;
+        let now_secs = crate::agent_sessions::unix_timestamp_secs();
         for tab in &mut self.tabs {
             if tab.is_shell_process() || tab.exited_notice_shown {
                 continue;
             }
             if !tab.is_alive() {
                 let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
-                if agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code) {
-                    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
-                    while tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false) && std::time::Instant::now() < drain_deadline {
-                        std::thread::sleep(std::time::Duration::from_millis(5));
+                let failed_start = agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
+                if failed_start {
+                    let log_empty = tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false);
+                    let eof = tab.reader_eof.load(std::sync::atomic::Ordering::Acquire);
+                    if log_empty && !eof {
+                        let first_seen = *tab.exited_at.get_or_insert_with(std::time::Instant::now);
+                        if first_seen.elapsed() < std::time::Duration::from_millis(100) {
+                            continue;
+                        }
                     }
                     let output = tab.raw_log.lock().map(|log| log.clone()).unwrap_or_default();
                     let installed = {
@@ -1561,7 +1876,20 @@ impl TerminalState {
                             tab.spawn_preset.is_installed()
                         }
                     };
-                    tab.start_failure = Some(agent_start_failure::diagnose(tab.spawn_preset, installed, exit_code, &output));
+                    let mut diag = agent_start_failure::diagnose(tab.spawn_preset, installed, exit_code, &output);
+                    if tab.is_resumed {
+                        diag.fix = FixAction::StartNewSession(tab.spawn_preset);
+                    }
+                    tab.start_failure = Some(diag);
+                }
+                if let Some(entry) = self.session_registry.sessions.iter_mut().find(|s| s.tab_id == tab.id as u64) {
+                    entry.last_active_at = now_secs;
+                    entry.status = if failed_start && tab.is_resumed {
+                        crate::agent_sessions::SessionEntryStatus::Missing
+                    } else {
+                        crate::agent_sessions::SessionEntryStatus::Exited
+                    };
+                    registry_dirty = true;
                 }
                 if let Ok(mut parser) = tab.parser.lock() {
                     parser.process("\r\n[design:os] Agent exited — this tab no longer accepts input. Open a new tab to continue.\r\n".as_bytes());
@@ -1570,6 +1898,9 @@ impl TerminalState {
                 tab.exited_notice_shown = true;
                 agent_exited = true;
             }
+        }
+        if registry_dirty {
+            let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
         }
         if agent_exited {
             self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
@@ -2537,7 +2868,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_FILE", fp.as_os_str());
     }
     cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
-    cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    if cmd.get_cwd().is_none() {
+        cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    }
 
     #[cfg(test)]
     if let Some(overrides) = session.and_then(|s| s.path_override.as_ref()) {
@@ -2549,7 +2882,13 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         return;
     }
 
-    let extra_paths: Vec<String> = extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let mut extra_paths: Vec<String> = Vec::new();
+    if let Some(sess) = session {
+        for p in &sess.path_prepend {
+            extra_paths.push(p.to_string_lossy().into_owned());
+        }
+    }
+    extra_paths.extend(extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()));
 
     let current_path = std::env::var("PATH").unwrap_or_default();
     let sep = if cfg!(windows) { ";" } else { ":" };
@@ -2833,6 +3172,7 @@ pub fn show_left_with_selection(
             state.active_tab = idx;
             state.viewport_focused = true;
             state.runtime_dropdown_open = false;
+            state.picker.on_close();
         }
         if let Some(idx) = tab_to_close {
             state.close_tab(idx);
@@ -2859,6 +3199,9 @@ pub fn show_left_with_selection(
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
         if add_resp.clicked() {
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
+            if !state.runtime_dropdown_open {
+                state.picker.on_close();
+            }
         }
 
         // Header strip (`CONTROL_DENSE` = 24px) hosting the live selection chip (#654)
@@ -3215,18 +3558,20 @@ pub fn show_left_with_selection(
         }
     });
 
-    let icon_y = composer_rect.bottom() - 20.0;
+    let off_20 = theme::SPACE_BLOCK + theme::SPACE_ROW;
+    let off_5 = theme::SPACE_ROW + theme::BORDER_WIDTH;
+    let icon_y = composer_rect.bottom() - off_20;
     let icon_gray = Color32::from_rgb(0xB3, 0xB3, 0xB3);
 
     // Bottom-left `+` button (attaches selection & PRD context to composer and PTY)
-    let plus_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 20.0, icon_y), Vec2::splat(22.0));
+    let plus_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_20, icon_y), Vec2::splat(22.0));
     let plus_resp = ui.interact(plus_r, Id::new("agents-composer-plus"), Sense::click());
     if plus_resp.hovered() {
         p.rect_filled(plus_r, CornerRadius::same(4), TERM_BG_HOVER);
     }
     let pc = plus_r.center();
-    p.line_segment([Pos2::new(pc.x - 5.0, pc.y), Pos2::new(pc.x + 5.0, pc.y)], Stroke::new(1.5, icon_gray));
-    p.line_segment([Pos2::new(pc.x, pc.y - 5.0), Pos2::new(pc.x, pc.y + 5.0)], Stroke::new(1.5, icon_gray));
+    p.line_segment([Pos2::new(pc.x - off_5, pc.y), Pos2::new(pc.x + off_5, pc.y)], Stroke::new(1.5, icon_gray));
+    p.line_segment([Pos2::new(pc.x, pc.y - off_5), Pos2::new(pc.x, pc.y + off_5)], Stroke::new(1.5, icon_gray));
     widgets::record(ui, "agents-composer-plus", plus_r);
     widgets::record(ui, "agents-composer-attach", plus_r);
     if plus_resp.clicked() {
@@ -3238,7 +3583,8 @@ pub fn show_left_with_selection(
     }
 
     // Bottom-left open-book button (toggles in-panel live PTY terminal / prompt library)
-    let book_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 46.0, icon_y), Vec2::splat(22.0));
+    let off_46 = theme::CONTROL_DENSE + off_20 + theme::INSET_SEGMENT;
+    let book_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_46, icon_y), Vec2::splat(22.0));
     let book_resp = ui.interact(book_r, Id::new("agents-composer-book"), Sense::click());
     if book_resp.hovered() {
         p.rect_filled(book_r, CornerRadius::same(4), TERM_BG_HOVER);
@@ -3250,7 +3596,8 @@ pub fn show_left_with_selection(
     }
 
     // Bottom-left `PRD` context chip button (attaches/cycles `@prd `, `@selection `, `@tokens `)
-    let prd_r = Rect::from_center_size(Pos2::new(composer_rect.left() + 82.0, icon_y), Vec2::new(38.0, 20.0));
+    let off_82 = theme::CONTROL_STANDARD * 2.0 + off_20 + theme::SPACE_ROW;
+    let prd_r = Rect::from_center_size(Pos2::new(composer_rect.left() + off_82, icon_y), Vec2::new(38.0, 20.0));
     let prd_resp = ui.interact(prd_r, Id::new("agents-composer-prd"), Sense::click());
     let lower_in = state.input_line.to_ascii_lowercase();
     let has_prd_tag = lower_in.contains("@prd") || lower_in.contains("@selection") || lower_in.contains("@tokens");
@@ -3294,7 +3641,8 @@ pub fn show_left_with_selection(
 
     // Bottom-right Up-Arrow Send circle button (`26x26` `#383838` / `#0D99FF` circle + `↑` arrow)
     let has_text = !state.input_line.trim().is_empty();
-    let send_center = Pos2::new(composer_rect.right() - 18.0, icon_y);
+    let off_18 = theme::INSET_PANEL + theme::INSET_SEGMENT;
+    let send_center = Pos2::new(composer_rect.right() - off_18, icon_y);
     let send_r = Rect::from_center_size(send_center, Vec2::splat(26.0));
     let send_resp = ui.interact(send_r, Id::new("agents-composer-send"), Sense::click());
     let send_bg = if has_text {
@@ -3321,68 +3669,7 @@ pub fn show_left_with_selection(
 }
 
 fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
-    let menu_w = (panel_rect.width() - 16.0).clamp(180.0, 224.0);
-    let entries = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Shell];
-    let row_h = 34.0;
-    let header_h = 24.0;
-    let menu_h = header_h + entries.len() as f32 * row_h + 8.0;
-    let menu_x = (panel_rect.right() - menu_w - 8.0).max(panel_rect.left() + 8.0);
-    let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
-
-    let p = ui.painter().clone();
-    p.rect_filled(menu_r, CornerRadius::same(8), Color32::from_rgb(0x22, 0x22, 0x26));
-    p.rect_stroke(menu_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x3E, 0x46)), StrokeKind::Inside);
-    widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
-
-    p.text(
-        Pos2::new(menu_r.left() + 10.0, menu_r.top() + 13.0),
-        Align2::LEFT_CENTER,
-        "LAUNCH CLI (SKIP PERMISSIONS)",
-        theme::font_caption_strong(),
-        theme::TEXT_SECONDARY,
-    );
-    widgets::hline(&p, menu_r.left() + 6.0, menu_r.right() - 6.0, menu_r.top() + header_h, TERM_BORDER);
-
-    let mut chosen: Option<AgentCliPreset> = None;
-    for (i, preset) in entries.iter().copied().enumerate() {
-        let ry = menu_r.top() + header_h + 4.0 + i as f32 * row_h;
-        let row_r = Rect::from_min_size(Pos2::new(menu_r.left() + 4.0, ry), Vec2::new(menu_w - 8.0, row_h - 2.0));
-        let id_str = match preset {
-            AgentCliPreset::Claude => "agents-dropdown-claude",
-            AgentCliPreset::Codex => "agents-dropdown-codex",
-            AgentCliPreset::Grok => "agents-dropdown-grok",
-            AgentCliPreset::Antigravity => "agents-dropdown-antigravity",
-            AgentCliPreset::Shell => "agents-dropdown-shell",
-            AgentCliPreset::DesignOsHelp => "agents-dropdown-help",
-        };
-        let resp = ui.interact(row_r, Id::new(id_str), Sense::click());
-        if resp.hovered() {
-            p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), TERM_BG_HOVER);
-        }
-        let (_widget_id, title, subtitle) = preset.dropdown_entry();
-        let title_str = widgets::elide(&p, title, &theme::font_caption_medium(), (row_r.width() - 18.0).max(40.0));
-        let sub_str = widgets::elide(&p, subtitle, &theme::font_mono(), (row_r.width() - 18.0).max(40.0));
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 10.0), Align2::LEFT_CENTER, title_str, theme::font_caption_medium(), Color32::WHITE);
-        p.text(Pos2::new(row_r.left() + 8.0, row_r.top() + 23.0), Align2::LEFT_CENTER, sub_str, theme::font_mono(), STATUS_INFO_TEXT);
-        widgets::record(ui, id_str, row_r);
-        if resp.clicked() {
-            chosen = Some(preset);
-        }
-    }
-
-    if let Some(preset) = chosen {
-        state.runtime_dropdown_open = false;
-        state.active_runtime = preset;
-        let _ = state.spawn_tab(preset, file_path);
-    } else if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            let add_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-runtime-add-btn".to_string()))));
-            let in_add = add_btn.map(|r| r.contains(pos)).unwrap_or(false);
-            if !menu_r.contains(pos) && !in_add {
-                state.runtime_dropdown_open = false;
-            }
-        }
-    }
+    crate::agent_picker::render_runtime_dropdown_menu(state, ui, panel_rect, top_y, file_path);
 }
 
 fn wrap_chat_lines(p: &Painter, text: &str, font: &FontId, max_w: f32, max_lines: usize) -> Vec<String> {
@@ -4489,7 +4776,9 @@ Done!
     fn poll_live_agent_bridge_detects_updated_spec_file() {
         let _ = std::fs::remove_file("/tmp/designos-live-agent-out.spec.json");
         let live_path = std::env::temp_dir().join(format!("designos-live-agent-test-{}.spec.json", std::process::id()));
-        let mut st = TerminalState { last_watched_mtime: Some(std::time::UNIX_EPOCH), live_spec_path: live_path.clone(), ..TerminalState::default() };
+        let mut st = TerminalState::default();
+        st.last_watched_mtime = Some(std::time::UNIX_EPOCH);
+        st.live_spec_path = live_path.clone();
         let _ = std::fs::write(&live_path, r#"{"name":"Live Agent Frame","preset":"easeui-card"}"#);
         let actions = st.poll_live_agent_bridge();
         assert_eq!(actions, vec![TerminalAction::ApplySpecFile(live_path.clone())]);
@@ -4761,7 +5050,9 @@ Done!
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState { side_panel_pty_open: false, chat_mode: true, ..TerminalState::default() };
+        let mut st = TerminalState::default();
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(240.0, 800.0));
 
         // First pass to record widget rects
@@ -5886,7 +6177,7 @@ Done!
         st.bind_session(&format!("test-dead-tab-{}", std::process::id()));
         spawn_stub_exiting_agent_into(&mut st);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        while st.active_tab_mut().unwrap().is_alive() {
+        while st.active_tab_mut().unwrap().is_alive() || !st.active_tab().unwrap().reader_eof.load(std::sync::atomic::Ordering::Acquire) {
             assert!(std::time::Instant::now() < deadline, "stub agent must exit");
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
@@ -6021,7 +6312,9 @@ Done!
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("'{}'", stub_path.display()));
         isolate_zsh_from_home(&mut cmd);
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Grok, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
-        let mut st = TerminalState { tabs: vec![tab], active_tab: 0, ..Default::default() };
+        let mut st = TerminalState::default();
+        st.tabs = vec![tab];
+        st.active_tab = 0;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while st.active_tab_mut().unwrap().is_alive() || !st.active_tab().unwrap().raw_log.lock().map(|l| l.contains("unauthorized")).unwrap_or(false) {
             assert!(std::time::Instant::now() < deadline, "stub agent must print unauthorized and exit");
@@ -6064,14 +6357,12 @@ Done!
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState {
-            side_panel_pty_open: false,
-            chat_mode: true,
-            active_runtime: AgentCliPreset::Claude,
-            input_line: "Design a pricing card".to_string(),
-            stub_cli: Some(stub),
-            ..TerminalState::for_tab(68101)
-        };
+        let mut st = TerminalState::for_tab(68101);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.active_runtime = AgentCliPreset::Claude;
+        st.input_line = "Design a pricing card".to_string();
+        st.stub_cli = Some(stub);
         st.sync_live_file_context(&doc, page, &[], None);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
@@ -6115,13 +6406,11 @@ Done!
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
-        let mut st = TerminalState {
-            side_panel_pty_open: false,
-            chat_mode: true,
-            active_runtime: AgentCliPreset::Claude,
-            stub_cli: Some(stub),
-            ..TerminalState::for_tab(68102)
-        };
+        let mut st = TerminalState::for_tab(68102);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.active_runtime = AgentCliPreset::Claude;
+        st.stub_cli = Some(stub);
 
         for prompt in
             ["create a card", "build a dashboard", "make a hero", "generate a form", "landing page", " template ", "ui for login", "screen for checkout"]
@@ -6159,7 +6448,9 @@ Done!
     #[test]
     fn missing_cli_shows_the_start_failure_surface_and_no_executed_text() {
         assert!(!runtime_binary_available_in("claude", Some(std::ffi::OsStr::new("")), false), "empty PATH must report claude as unavailable");
-        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, path_override: Some(std::ffi::OsString::new()), ..TerminalState::for_tab(68103) };
+        let mut st = TerminalState::for_tab(68103);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.path_override = Some(std::ffi::OsString::new());
         st.submit_chat_prompt("Design a card", None);
         st.sync_chat_from_pty();
         let _ = st.poll_live_agent_bridge();
@@ -6177,7 +6468,9 @@ Done!
     #[test]
     fn no_planning_path_reaches_the_transcript() {
         let stub = write_test_stub_script("echo-ok", "echo ok");
-        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, stub_cli: Some(stub), ..TerminalState::for_tab(68104) };
+        let mut st = TerminalState::for_tab(68104);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.stub_cli = Some(stub);
         st.submit_chat_prompt("@prd check req-01 and us-02 in fc-001", None);
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
@@ -6207,8 +6500,11 @@ Done!
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
-        let mut st =
-            TerminalState { side_panel_pty_open: false, chat_mode: true, expanded_agent_cat: Some(1), stub_cli: Some(stub), ..TerminalState::for_tab(68105) };
+        let mut st = TerminalState::for_tab(68105);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.expanded_agent_cat = Some(1);
+        st.stub_cli = Some(stub);
 
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
@@ -6249,7 +6545,9 @@ Done!
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
-        let mut st = TerminalState { side_panel_pty_open: false, chat_mode: true, ..TerminalState::for_tab(68106) };
+        let mut st = TerminalState::for_tab(68106);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
 
         let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);

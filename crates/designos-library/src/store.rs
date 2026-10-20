@@ -1007,11 +1007,43 @@ impl Library {
         }
     }
 
+    /// Stable agent-session folder for library file `file_id`: `<library root>/agent-sessions/<file_id>`.
+    pub fn agent_session_dir(&self, file_id: &str) -> PathBuf {
+        self.path("agent-sessions").join(file_id)
+    }
+
+    /// Deletes `<library root>/agent-sessions/<file_id>` if it exists.
+    pub fn remove_agent_sessions(&self, file_id: &str) {
+        let dir = self.agent_session_dir(file_id);
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
     /// Permanently deletes everything in the trash. This is the only hard delete in the library.
     pub fn empty_trash(&self) -> Result<()> {
         let dir = self.path("trash");
         if dir.exists() {
+            let mut session_file_ids: Vec<String> = Vec::new();
+            for item in self.list_trash() {
+                match item.kind {
+                    TrashKind::File => session_file_ids.push(item.id),
+                    TrashKind::Project => {
+                        let proj_manifest = self.trash_dir(&item.id).join("project").join(MANIFEST);
+                        if let Ok(text) = std::fs::read_to_string(proj_manifest) {
+                            if let Ok(m) = serde_json::from_str::<Manifest>(&text) {
+                                for f in m.files {
+                                    session_file_ids.push(f.id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             std::fs::remove_dir_all(&dir)?;
+            for file_id in session_file_ids {
+                self.remove_agent_sessions(&file_id);
+            }
         }
         Ok(())
     }
@@ -1325,5 +1357,24 @@ mod tests {
         std::fs::write(&orphan_path, "{}").unwrap();
         lib.rollback_unlisted_file(&p.id, "unlisted-id", &orphan_path);
         assert!(!orphan_path.exists(), "must unlink an orphan file not listed in the on-disk manifest");
+    }
+
+    #[test]
+    fn trash_empty_removes_the_session_folder() {
+        let (_t, lib) = Tmp::new();
+        let p = lib.create_project("P").unwrap();
+        let f = lib.create_file(&p.id, None, "Design A", &doc("Design A", 1)).unwrap();
+        let sess_dir = lib.agent_session_dir(&f.id);
+        std::fs::create_dir_all(&sess_dir).unwrap();
+        std::fs::write(sess_dir.join("sessions.json"), r#"{"version":1,"entries":[]}"#).unwrap();
+        assert!(sess_dir.exists());
+
+        // Moving to trash keeps the session folder so a restore keeps the conversation.
+        lib.trash_file(&f.id).unwrap();
+        assert!(sess_dir.exists(), "trashing alone keeps the session folder until trash is emptied");
+
+        // Emptying the trash removes the file's agent-sessions/<id> folder.
+        lib.empty_trash().unwrap();
+        assert!(!sess_dir.exists(), "empty_trash must remove agent-sessions/<id>");
     }
 }

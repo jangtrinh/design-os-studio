@@ -32,6 +32,8 @@ pub enum FixAction {
     RunLogin(&'static str),
     /// Opens a shell tab so the CLI can be run by hand (`--help`, update).
     OpenShell,
+    /// Starts a fresh session for the same CLI when a resumed session failed to start.
+    StartNewSession(AgentCliPreset),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +45,7 @@ pub struct StartFailure {
     pub fix: FixAction,
 }
 
-fn install_url(preset: AgentCliPreset) -> &'static str {
+pub fn install_url(preset: AgentCliPreset) -> &'static str {
     match preset {
         AgentCliPreset::Claude => "https://docs.claude.com/en/docs/claude-code/setup",
         AgentCliPreset::Codex => "https://github.com/openai/codex",
@@ -53,7 +55,7 @@ fn install_url(preset: AgentCliPreset) -> &'static str {
     }
 }
 
-fn login_command(preset: AgentCliPreset) -> &'static str {
+pub fn login_command(preset: AgentCliPreset) -> &'static str {
     match preset {
         AgentCliPreset::Claude => "claude auth login",
         AgentCliPreset::Codex => "codex login",
@@ -182,6 +184,7 @@ impl StartFailure {
             FixAction::OpenInstallPage(_) => format!("Install {}", self.preset.button_label()),
             FixAction::RunLogin(_) => "Run login".to_string(),
             FixAction::OpenShell => "Open a shell".to_string(),
+            FixAction::StartNewSession(_) => "Start a new session".to_string(),
         }
     }
 }

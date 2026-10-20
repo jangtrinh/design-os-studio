@@ -432,6 +432,10 @@ impl App {
     pub fn attach_library(&mut self, root: PathBuf) {
         // Shared libraries use the same root as the projects library.
         self.libs.set_root(root.clone());
+        self.terminal.library_root = Some(root.clone());
+        for entry in &mut self.tabs.entries {
+            entry.terminal.library_root = Some(root.clone());
+        }
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {
@@ -532,6 +536,8 @@ impl App {
             self.show_toast(crate::io::opened_toast_text(&entry.name, Some(w)), true);
         }
         self.lib_file = Some(LibFile { id: entry.id.clone(), project_id: entry.project.clone(), project, name: entry.name.clone() });
+        let window_id = self.tabs.active_session_id();
+        self.terminal.bind_library_file(lib.root(), &entry.id, &window_id);
         self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
         self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
         self.history_open_file();
@@ -877,6 +883,10 @@ impl App {
                 let new_disk_path = self.lib_file_disk_path(&new_lf);
                 self.release_active_repaired_original(new_disk_path.as_deref());
                 self.lib_file = Some(new_lf);
+                if self.terminal.tabs.is_empty() {
+                    let window_id = self.tabs.active_session_id();
+                    self.terminal.bind_library_file(lib.root(), &e.id, &window_id);
+                }
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
                 let disk_path = self.watched_disk_path();
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
