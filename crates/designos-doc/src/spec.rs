@@ -1553,6 +1553,10 @@ impl Document {
 
         let (text, font_size, line_height, font_weight, text_color) = match &n.kind {
             NodeKind::Text(tp) => {
+                let linked_ts = text_style.as_ref().and_then(|_| n.style_refs.get("text")).and_then(|k| match self.styles.get(k) {
+                    Some(Style::Text(ts)) => Some(ts),
+                    _ => None,
+                });
                 let fs = if let Some(vid) = n.variables.bindings.get("fontSize") {
                     self.export_var_ref(index, vid).map(NumberOrVar::Ref)
                 } else if text_style.is_none() {
@@ -1562,7 +1566,7 @@ impl Document {
                 };
                 let lh = if let Some(vid) = n.variables.bindings.get("lineHeight") {
                     self.export_var_ref(index, vid).map(NumberOrVar::Ref)
-                } else if text_style.is_none() {
+                } else if text_style.is_none() || linked_ts.is_some_and(|ts| ts.line_height != tp.style.line_height) {
                     match tp.style.line_height {
                         LineHeight::Pixels(px) => Some(NumberOrVar::Num(px)),
                         _ => None,
@@ -1570,7 +1574,7 @@ impl Document {
                 } else {
                     None
                 };
-                let fw = text_style.is_none().then_some(tp.style.font_weight);
+                let fw = (text_style.is_none() || linked_ts.is_some_and(|ts| ts.font_weight != tp.style.font_weight)).then_some(tp.style.font_weight);
                 let tc = if let Some(skey) = n.style_refs.get("fill") {
                     self.export_style_ref(skey, true)
                 } else if let Some(vid) = n.variables.bindings.get("fills/0") {

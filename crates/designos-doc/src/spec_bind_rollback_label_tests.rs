@@ -150,6 +150,42 @@ fn explicit_line_height_overrides_the_style_on_a_frame_label() {
     assert_eq!(text_style_of(label).line_height, LineHeight::Pixels(40.0));
     assert_eq!(text_style_of(label).font_size, 24.0, "the style still supplies the size");
     assert_eq!(label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+
+    let exported = doc.export_spec(report.root_node_id).unwrap();
+    assert_eq!(exported.children[0].text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.children[0].line_height, Some(NumberOrVar::Num(40.0)));
+    assert_eq!(exported.children[0].font_weight, None, "matching style font_weight is not emitted");
+    let reapplied = doc.apply_spec_with_report(page, &exported).unwrap();
+    let reapplied_label = label_of(&doc, reapplied.root_node_id);
+    assert_eq!(text_style_of(reapplied_label).line_height, LineHeight::Pixels(40.0));
+    assert_eq!(text_style_of(reapplied_label).font_size, 24.0);
+    assert_eq!(reapplied_label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+}
+
+#[test]
+fn export_spec_preserves_explicit_line_height_and_font_weight_overrides_on_styled_text() {
+    let mut doc = fixtures::tokens_doc();
+    let page = doc.pages[0];
+    let s = spec(serde_json::json!({
+        "kind": "text",
+        "text": "Subheading",
+        "text_style": "Heading L",
+        "line_height": 34,
+        "font_weight": 500
+    }));
+    let first = doc.apply_spec_with_report(page, &s).unwrap();
+    let exported = doc.export_spec(first.root_node_id).unwrap();
+    assert_eq!(exported.text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.font_size, None, "style font_size is not emitted when unchanged");
+    assert_eq!(exported.line_height, Some(NumberOrVar::Num(34.0)));
+    assert_eq!(exported.font_weight, Some(500));
+
+    let second = doc.apply_spec_with_report(page, &exported).unwrap();
+    let n2 = doc.get(second.root_node_id).unwrap();
+    assert_eq!(n2.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+    assert_eq!(text_style_of(n2).font_size, 24.0);
+    assert_eq!(text_style_of(n2).line_height, LineHeight::Pixels(34.0));
+    assert_eq!(text_style_of(n2).font_weight, 500);
 }
 
 #[test]
