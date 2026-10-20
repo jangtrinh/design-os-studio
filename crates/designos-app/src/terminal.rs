@@ -4316,7 +4316,7 @@ pub fn show_left_with_doc(
         if let Some((dot_col, status_txt)) = strip_status {
             const DOT_DIAMETER: f32 = 6.0;
             let text_x_off = DOT_DIAMETER + theme::INSET_CONTROL;
-            let cap_w = ((strip_right - strip_left) * 0.4).max(text_x_off + theme::TARGET_MIN);
+            let cap_w = (((ctx_r.right() - theme::INSET_CONTROL) - strip_left) * 0.4).max(text_x_off + theme::TARGET_MIN).min(strip_right - strip_left);
             let font = theme::font_caption();
             let text_w = widgets::text_width(&p, &status_txt, &font);
             let status_w = (text_x_off + text_w).min(cap_w);
@@ -8842,6 +8842,9 @@ Done!
         assert!(rect_of("agents-header-turn-status").is_none(), "the turn status must not draw a second right-hand item");
         assert!(!chip.intersects(pill) && chip.right() < pill.left(), "chip {chip:?} left of approval {pill:?}");
         assert!(pill.right() <= panel_rect.right(), "approval stays inside the panel");
+        let mention = rect_of("agent-mention-btn-left").expect("@ Mention button stays in the header strip");
+        assert!(!mention.intersects(pill) && pill.right() <= mention.left(), "approval {pill:?} left of mention {mention:?}");
+        assert!(!mention.intersects(chip) && mention.right() <= panel_rect.right(), "chip {chip:?} clear of mention {mention:?}");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
