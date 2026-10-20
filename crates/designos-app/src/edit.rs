@@ -168,6 +168,7 @@ impl Tx {
         // Edits to a main component also update its instances, in the same undo step.
         let cmd = crate::comp_ops::with_sync(doc, cmd);
         hist.exec_labeled(doc, cmd, label)?;
+        hist.mark_last_undo_as_user();
         Ok(true)
     }
 }

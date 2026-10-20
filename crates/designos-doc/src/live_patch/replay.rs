@@ -132,6 +132,7 @@ pub fn replay_live_patch(
             report.applied += 1;
         }
     }
+    doc.prune_in_progress();
     Ok(report)
 }
 
@@ -248,6 +249,20 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             let (remap, replaced) = (&state.remap, &state.replaced);
             let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
             resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
+        }
+        LiveOp::SetInProgress { node, state: ip_state } => {
+            let id = state.target(doc, *node);
+            if doc.get(id).is_none() {
+                report.skipped.push(format!("set_in_progress on missing node {}", id.0));
+                return None;
+            }
+            let prev = doc.set_in_progress(id, ip_state.clone());
+            if prev.as_ref() == ip_state.as_ref() {
+                report.duplicates += 1;
+            } else {
+                report.applied += 1;
+            }
+            None
         }
         LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
             let mut styles = doc.styles.clone();

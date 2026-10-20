@@ -15,7 +15,9 @@ mod validate;
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
 pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
 
-use crate::{Comment, CommentAnchor, CommentThread, ExternalAsset, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection};
+use crate::{
+    Comment, CommentAnchor, CommentThread, ExternalAsset, InProgress, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -202,6 +204,14 @@ pub enum LiveOp {
         changed: Vec<ThreadChange>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed: Vec<String>,
+    },
+    /// Sets or clears a transient work-in-progress flag on `node` without creating a [`Command`](crate::Command)
+    /// or undo step (`E15-7` / `#592`).
+    SetInProgress {
+        #[serde(alias = "id")]
+        node: NodeId,
+        #[serde(default, alias = "value", skip_serializing_if = "Option::is_none")]
+        state: Option<InProgress>,
     },
     /// Shared styles added, updated or removed.
     Styles {

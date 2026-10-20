@@ -417,6 +417,7 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
         &doc.comments,
         &doc.library,
         &doc.library_page,
+        &doc.in_progress,
     )
         .serialize(HashSerializer(&mut h));
     let _ = doc.check_designs.serialize(HashSerializer(&mut h));

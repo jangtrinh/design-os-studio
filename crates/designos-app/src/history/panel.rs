@@ -67,8 +67,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let now = crate::comments::time::now_ms();
     let versions = app.history.list.clone();
     let mut rows: Vec<Row> = vec![Row::Current];
-    for (idx, label) in app.hist.undo_labels().iter().enumerate().rev() {
-        if let Some(lbl) = label.as_deref().filter(|s| !s.is_empty()) {
+    for (idx, label) in app.hist.undo_labels().enumerate().rev() {
+        if let Some(lbl) = label.filter(|s| !s.is_empty()) {
             rows.push(Row::UndoStep(idx, lbl));
         }
     }

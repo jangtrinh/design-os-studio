@@ -786,6 +786,19 @@ impl TabTurnTracker {
         receipt
     }
 
+    /// Records that the user stopped the turn from the panel (`#684`): an active turn ends as stopped; a turn
+    /// the CLI reported as completed at or after `stop_sent_s` (the hook fired before the panel noticed) is
+    /// re-labelled stopped. Any other receipt is left alone. Returns the receipt now standing for the stop.
+    pub fn adopt_stop_by_user(&mut self, stop_sent_s: f64, now_s: f64) -> Option<TurnReceipt> {
+        if self.in_turn {
+            return Some(self.stop_by_user(now_s));
+        }
+        // Hook timestamps are whole seconds, so allow one second of slack.
+        let receipt = self.last_turn_receipt.as_mut().filter(|r| r.outcome == TurnOutcome::Completed && r.ended_s + 1.0 >= stop_sent_s)?;
+        receipt.outcome = TurnOutcome::StoppedByUser;
+        Some(receipt.clone())
+    }
+
     /// Edge case 3 (`#683` §8.3): when the agent process exits while a turn is still running without
     /// having fired `Stop`, leaves running and records `"Ended without a stop event"`.
     pub fn on_process_exit(&mut self, now_s: f64, current_status: &AgentTabStatus) -> Option<(AgentTabStatus, TurnReceipt)> {

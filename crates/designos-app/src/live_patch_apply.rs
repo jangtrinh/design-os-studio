@@ -26,6 +26,8 @@ pub fn user_edit_in_progress(app: &App) -> bool {
 /// Publishes the editor's document to the agent session, unless an edit is in progress or agent
 /// changes are still held (see `TerminalState::sync_live_file_context`).
 pub fn publish_live_context(app: &mut App) {
+    app.doc.prune_in_progress();
+    app.terminal.current_undo_depth = app.hist.undo_depth();
     app.terminal.edit_in_progress = user_edit_in_progress(app);
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
 }
@@ -64,7 +66,13 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
         crate::agent_turn_card::execute_revert(app, tab_idx, turn_id);
     }
+    // A stopped turn is closed once its held patches are in: fold its agent undo steps into one and clear its flags (`#684`).
+    let pending_close = app.terminal.pending_stop_close.take();
+    let pending_depth = app.terminal.pending_stop_fold_depth.take().or_else(|| pending_close.as_ref().map(|c| c.turn_start_depth));
     if !app.terminal.live_patch.has_held() {
+        if let Some(depth) = pending_depth {
+            crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
+        }
         return;
     }
     let epoch_switched = std::mem::take(&mut app.terminal.live_patch.pending_epoch_switch);
@@ -80,7 +88,23 @@ pub fn apply_pending_live_patches(app: &mut App) {
     let offsets = std::mem::take(&mut app.terminal.live_patch.pending_offsets);
     if !patches.is_empty() {
         app.terminal.status_msg = Some(format!("Applied {} live MCP edit(s) from {}", patches.len(), app.terminal.live_patch.path.display()));
-        apply_live_patches_with_offsets(app, &patches, &offsets);
+        if let Some(depth) = pending_depth {
+            // Patches that arrived before the stop closed belong to the stopped turn; later ones stay out of the fold.
+            let pre_count = pending_close.as_ref().map_or(patches.len(), |c| c.pre_close_patch_count.min(patches.len()));
+            let (pre_patches, post_patches) = patches.split_at(pre_count);
+            let (pre_offsets, post_offsets) = offsets.split_at(pre_count.min(offsets.len()));
+            if !pre_patches.is_empty() {
+                apply_live_patches_with_offsets(app, pre_patches, pre_offsets);
+            }
+            crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
+            if !post_patches.is_empty() {
+                apply_live_patches_with_offsets(app, post_patches, post_offsets);
+            }
+        } else {
+            apply_live_patches_with_offsets(app, &patches, &offsets);
+        }
+    } else if let Some(depth) = pending_depth {
+        crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
     }
     if dropped > 0 {
         note_dropped_edits(app, dropped);
@@ -107,6 +131,17 @@ pub fn apply_live_patches(app: &mut App, patches: &[LivePatch]) {
 /// Replays `patches` on `app.doc`, associating each patch with its start byte offset in
 /// `doc-patch.jsonl` when provided.
 pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], offsets: &[u64]) {
+    // A running turn whose first patch lands before the bridge noticed it starts at the depth before these patches (`#684`).
+    let pre_depth = app.hist.undo_depth();
+    for tab in &mut app.terminal.tabs {
+        if crate::agent_stop::is_tab_turn_running(tab) && !tab.was_working {
+            tab.was_working = true;
+            tab.turn_started_at_ms.get_or_insert_with(designos_doc::now_ms);
+            tab.turn_start_undo_depth = pre_depth;
+            tab.last_receipt = None;
+            tab.still_running_notice = None;
+        }
+    }
     let mut total = LivePatchReport::default();
     let mut committed_any = false;
     let mut failures = Vec::new();
@@ -138,6 +173,7 @@ pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], off
         }
     }
     if committed_any {
+        app.terminal.current_undo_depth = app.hist.undo_depth();
         if !total.inserted_roots.is_empty() {
             app.selection = total.inserted_roots.clone();
         }
@@ -191,12 +227,19 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             return Err(e.to_string());
         }
     };
+    let post_replay_in_progress = app.doc.in_progress.clone();
     let committed = tx.commit_labeled(&mut app.doc, &mut app.hist, patch.label.clone()).map_err(|e| {
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
         e.to_string()
     })?;
+    for (id, ip) in post_replay_in_progress {
+        if app.doc.get(id).is_some() {
+            app.doc.set_in_progress(id, Some(ip));
+        }
+    }
     if committed {
+        app.hist.mark_last_undo_as_agent();
         relayout_touched(&mut app.doc, &report.needs_layout);
         if let Some(inv) = app.hist.peek_undo().cloned() {
             let now = std::time::Instant::now();

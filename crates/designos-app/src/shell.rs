@@ -1520,7 +1520,12 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
         match action {
             crate::terminal::TerminalAction::ApplySpecJson(json) => match serde_json::from_str::<designos_doc::NodeSpec>(&json) {
                 Ok(spec) => {
+                    let before = app.hist.undo_depth();
                     app.apply_node_spec(&spec, "Agent Terminal");
+                    if app.hist.undo_depth() > before {
+                        app.hist.mark_last_undo_as_agent();
+                        app.terminal.current_undo_depth = app.hist.undo_depth();
+                    }
                 }
                 Err(e) => {
                     app.show_toast(format!("Spec parse error: {e}"), true);
@@ -1530,7 +1535,12 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                 Ok(raw) => match serde_json::from_str::<designos_doc::NodeSpec>(&raw) {
                     Ok(spec) => {
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
+                        let before = app.hist.undo_depth();
                         app.apply_node_spec(&spec, label);
+                        if app.hist.undo_depth() > before {
+                            app.hist.mark_last_undo_as_agent();
+                            app.terminal.current_undo_depth = app.hist.undo_depth();
+                        }
                     }
                     Err(e) => app.show_toast(format!("Invalid spec JSON: {e}"), true),
                 },
@@ -1584,6 +1594,9 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 let _ = app.terminal.focus_tab_by_id(tab_id);
+            }
+            crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id, agent } => {
+                crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref(), agent.as_deref());
             }
         }
     }

@@ -337,6 +337,26 @@ impl AgentTurnLedger {
         }
     }
 
+    /// Ends the open turn because the user stopped it from the panel (`#684`). The turn closes at
+    /// `current_patch_bytes`, like a tab exit, whether or not a hook wrote an end mark.
+    pub fn on_turn_stopped(&mut self, current_patch_bytes: u64, now: Instant) {
+        self.on_tab_exited(current_patch_bytes, now);
+    }
+
+    /// Re-maps recorded history depths after `History::fold_since_range` collapsed the 1-based undo
+    /// depths `start + 1..=end` into the single depth `start + 1` (`#684`). Without this the revert
+    /// logic would mistake later user edits for steps of the folded turn.
+    pub fn on_history_fold(&mut self, start: usize, end: usize) {
+        let removed = end.saturating_sub(start).saturating_sub(1);
+        for step in self.turns.iter_mut().flat_map(|t| t.steps.iter_mut()) {
+            if step.hist_depth > end {
+                step.hist_depth -= removed;
+            } else if step.hist_depth > start {
+                step.hist_depth = start + 1;
+            }
+        }
+    }
+
     /// Synchronizes heuristic turn boundaries with the agent tab's `Working` status.
     ///
     /// A heuristic turn closes ONLY on the `Working -> Idle/Done` transition (`on_status_change`)
@@ -772,7 +792,8 @@ pub fn snapshot_pre_step(doc: &Document, patch: &designos_doc::live_patch::LiveP
             | designos_doc::live_patch::LiveOp::Styles { .. }
             | designos_doc::live_patch::LiveOp::Variables { .. }
             | designos_doc::live_patch::LiveOp::LibraryState { .. }
-            | designos_doc::live_patch::LiveOp::Images { .. } => {}
+            | designos_doc::live_patch::LiveOp::Images { .. }
+            | designos_doc::live_patch::LiveOp::SetInProgress { .. } => {}
         }
     }
     (names, fps)

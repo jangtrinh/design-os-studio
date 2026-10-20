@@ -212,6 +212,12 @@ pub struct Document {
     /// Embedded images keyed by content hash (Figma `imageRef`).
     #[serde(default, with = "serde_images", skip_serializing_if = "BTreeMap::is_empty")]
     pub images: BTreeMap<String, Vec<u8>>,
+    /// Active agent work-in-progress flags keyed by root frame [`NodeId`] (`E15-7` / `#592`).
+    ///
+    /// Kept outside [`Node`] so setting or clearing a flag never creates a [`Command::Update`]
+    /// undo step on [`History`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub in_progress: BTreeMap<NodeId, InProgress>,
     next_id: u64,
     /// Where the exhausted-counter fallback resumes scanning, so one id is never handed out twice
     /// before its node is inserted. Runtime only.
@@ -226,6 +232,179 @@ pub struct Document {
     /// Optional on-demand hydrator that expands deferred component instances on inactive pages when switched to or exported.
     #[serde(skip)]
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
+}
+
+/// Default staleness threshold for [`InProgress`] flags in seconds (`15` minutes, E15-7 §3.3).
+pub const IN_PROGRESS_DEFAULT_STALE_S: u32 = 900;
+
+/// Default staleness threshold for [`InProgress`] flags in milliseconds (`15` minutes).
+pub const IN_PROGRESS_DEFAULT_STALE_MS: u64 = 900_000;
+
+/// Injectable clock trait (`fn now_ms()`) so tests do not sleep (E15-7 §10).
+pub trait Clock: Send + Sync + std::fmt::Debug {
+    fn now_ms(&self) -> u64;
+}
+
+/// Default wall-clock implementation of [`Clock`], honouring [`set_mock_now_ms`] in tests.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+}
+
+static GLOBAL_MOCK_NOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+std::thread_local! {
+    static THREAD_MOCK_NOW_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Returns the current Unix timestamp in milliseconds, or the injected test clock when set.
+pub fn now_ms() -> u64 {
+    if let Some(ms) = THREAD_MOCK_NOW_MS.with(|c| c.get()) {
+        return ms;
+    }
+    let global = GLOBAL_MOCK_NOW_MS.load(std::sync::atomic::Ordering::SeqCst);
+    if global != 0 {
+        return global;
+    }
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Overrides (or clears when `None`) the clock read by [`now_ms`] for deterministic tests.
+pub fn set_mock_now_ms(ms: Option<u64>) {
+    THREAD_MOCK_NOW_MS.with(|c| c.set(ms));
+    GLOBAL_MOCK_NOW_MS.store(ms.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Advances the injected test clock by `delta_ms` milliseconds and returns the new timestamp.
+pub fn advance_mock_now_ms(delta_ms: u64) -> u64 {
+    let next = now_ms().saturating_add(delta_ms);
+    set_mock_now_ms(Some(next));
+    next
+}
+
+/// Transient agent work-in-progress marker for a root frame or section (`E15-7` / `#592`).
+#[derive(Clone, Debug, Default, Eq, Serialize, Deserialize)]
+#[serde(from = "InProgressWire")]
+pub struct InProgress {
+    /// Identifier of the agent run that owns the flag (`$DESIGNOS_AGENT_RUN_ID`; `None` = imported or user-set).
+    #[serde(default)]
+    pub run_id: Option<String>,
+    /// Agent label shown on the canvas badge (`"Claude Code"`, `"Codex"`, etc.).
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Unix timestamp in milliseconds when the flag was set.
+    #[serde(default)]
+    pub since_ms: u64,
+    /// Optional per-flag staleness timeout in seconds (defaults to `agent.in_progress_stale_minutes`, 15 min).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_after_s: Option<u32>,
+    /// Optional short status note (`"Building header..."`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+impl PartialEq for InProgress {
+    fn eq(&self, other: &Self) -> bool {
+        self.run_id == other.run_id
+            && self.agent == other.agent
+            && self.since_ms == other.since_ms
+            && self.stale_after_s == other.stale_after_s
+            && self.status == other.status
+    }
+}
+
+impl InProgress {
+    pub fn new(agent: Option<String>, status: Option<String>, since_ms: u64) -> Self {
+        Self {
+            run_id: None,
+            agent: agent.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            since_ms,
+            stale_after_s: None,
+            status: status.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        }
+    }
+
+    /// Canonical timestamp in epoch milliseconds.
+    pub fn timestamp_ms(&self) -> u64 {
+        self.since_ms
+    }
+
+    /// Display text for the canvas badge (`"Agent working"` or `"<agent> working"`, E15-7 §7).
+    pub fn badge_text(&self) -> String {
+        match self.agent.as_deref().map(str::trim).filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("agent")) {
+            Some(a) => format!("{a} working"),
+            None => "Agent working".to_string(),
+        }
+    }
+
+    /// Effective expiry timestamp in epoch milliseconds, or `None` when `run_id` and `stale_after_s`
+    /// are both `None` (imported/user-set flags without an explicit timeout never go stale, E15-7 §3.3).
+    pub fn expiry_ms(&self, now_ms: u64, default_max_age_ms: u64) -> Option<u64> {
+        let effective_since = self.since_ms.min(now_ms);
+        if let Some(s) = self.stale_after_s {
+            Some(effective_since.saturating_add(u64::from(s).saturating_mul(1000)))
+        } else if self.run_id.is_some() {
+            Some(effective_since.saturating_add(default_max_age_ms))
+        } else {
+            None
+        }
+    }
+
+    /// True when this entry has expired at `now_ms` (treating future `since_ms` as `now_ms`, E15-7 §8.5).
+    pub fn is_stale(&self, now_ms: u64, default_max_age_ms: u64) -> bool {
+        self.expiry_ms(now_ms, default_max_age_ms).is_some_and(|exp| now_ms >= exp)
+    }
+}
+
+fn canonical_agent_name(s: &str) -> String {
+    let lower = s.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "claude" | "claude code" | "claude-code" => "claude".to_string(),
+        "codex" | "codex cli" | "codex-cli" => "codex".to_string(),
+        "agy" | "antigravity" | "google antigravity" => "agy".to_string(),
+        "grok" | "grok cli" | "grok-cli" => "grok".to_string(),
+        "zsh" | "sh" | "bash" | "shell" | "zsh/sh" => "shell".to_string(),
+        "designos" | "agent guide" => "designos".to_string(),
+        _ => lower,
+    }
+}
+
+fn agent_names_match(a: &str, b: &str) -> bool {
+    let ca = canonical_agent_name(a);
+    let cb = canonical_agent_name(b);
+    !ca.is_empty() && ca == cb
+}
+
+#[derive(Deserialize)]
+struct InProgressWire {
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default, alias = "agent_name")]
+    agent: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    started_at_ms: Option<u64>,
+    #[serde(default)]
+    since_ms: Option<u64>,
+    #[serde(default)]
+    stale_after_s: Option<u32>,
+}
+
+impl From<InProgressWire> for InProgress {
+    fn from(w: InProgressWire) -> Self {
+        let since_ms = w.since_ms.or(w.started_at_ms).unwrap_or(0).min(now_ms());
+        Self {
+            run_id: w.run_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            agent: w.agent.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            since_ms,
+            stale_after_s: w.stale_after_s,
+            status: w.status.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        }
+    }
 }
 
 /// On-demand hydrator for deferred component instances on inactive pages of large multi-page `.fig` documents.
@@ -734,6 +913,7 @@ impl Document {
         let mut out = Vec::new();
         let mut stack = vec![id];
         while let Some(n) = stack.pop() {
+            self.in_progress.remove(&n);
             if let Some(node) = self.nodes.remove(&n) {
                 stack.extend(node.children.iter().rev().copied());
                 out.push(node);
@@ -750,6 +930,151 @@ impl Document {
             self.mark_tree_full_dirty();
         }
         Ok(out)
+    }
+
+    /// Returns the current timestamp in milliseconds via [`now_ms`] (honouring the injected test clock).
+    pub fn now_ms(&self) -> u64 {
+        now_ms()
+    }
+
+    /// Returns the active (non-stale, existing-node) [`InProgress`] record for `id`, if flagged.
+    pub fn get_in_progress(&self, id: NodeId) -> Option<&InProgress> {
+        let now = now_ms();
+        self.in_progress.get(&id).filter(|ip| self.nodes.contains_key(&id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS))
+    }
+
+    /// Sets or clears the [`InProgress`] flag on `id` without touching [`History`].
+    pub fn set_in_progress(&mut self, id: NodeId, state: Option<InProgress>) -> Option<InProgress> {
+        let prev = match state {
+            Some(mut st) => {
+                st.since_ms = st.since_ms.min(now_ms());
+                self.in_progress.insert(id, st)
+            }
+            None => self.in_progress.remove(&id),
+        };
+        self.bump_mutation_epoch();
+        prev
+    }
+
+    /// Validates that `id` is a root frame or section eligible for an [`InProgress`] flag
+    /// (a `Frame`, `Section`, `Component`, `ComponentSet`, or `Instance` whose parent is a `Page`
+    /// or a top-level `Section`). On failure, returns `Err(Some(root_frame_id))` when `id` lies inside
+    /// a valid root frame ancestor, or `Err(None)` otherwise.
+    pub fn is_in_progress_root(&self, id: NodeId) -> Result<(), Option<NodeId>> {
+        let is_eligible_kind = |n: &Node| {
+            matches!(n.kind, NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. })
+        };
+        let is_root_container = |pid: NodeId| -> bool {
+            let Some(p) = self.nodes.get(&pid) else { return false };
+            match p.kind {
+                NodeKind::Page { .. } => true,
+                NodeKind::Section => p.parent.and_then(|gp| self.nodes.get(&gp)).is_some_and(|gn| matches!(gn.kind, NodeKind::Page { .. })),
+                _ => false,
+            }
+        };
+        let Some(node) = self.nodes.get(&id) else { return Err(None) };
+        if is_eligible_kind(node) && node.parent.is_some_and(is_root_container) {
+            return Ok(());
+        }
+        let mut cur = node.parent;
+        let mut nearest_root = None;
+        while let Some(cid) = cur {
+            let Some(cn) = self.nodes.get(&cid) else { break };
+            if is_eligible_kind(cn) && cn.parent.is_some_and(is_root_container) {
+                nearest_root = Some(cid);
+                break;
+            }
+            cur = cn.parent;
+        }
+        Err(nearest_root)
+    }
+
+    /// Clears all [`InProgress`] flags owned by `agent_or_run_id` (matching either `run_id` or `agent`,
+    /// or all flags when `agent_or_run_id` is `"*"` or empty), returning the cleared [`NodeId`]s.
+    pub fn clear_in_progress_for_agent(&mut self, agent_or_run_id: &str) -> Vec<NodeId> {
+        let key = agent_or_run_id.trim();
+        let match_all = key.is_empty() || key == "*";
+        let mut matched_run_ids = std::collections::BTreeSet::new();
+        if !match_all {
+            matched_run_ids.insert(key.to_string());
+            for ip in self.in_progress.values() {
+                if ip.agent.as_deref().is_some_and(|a| agent_names_match(a, key)) {
+                    if let Some(r) = &ip.run_id {
+                        matched_run_ids.insert(r.clone());
+                    }
+                }
+            }
+        }
+        let removed: Vec<NodeId> = self
+            .in_progress
+            .iter()
+            .filter(|(_, ip)| {
+                match_all || ip.run_id.as_ref().is_some_and(|r| matched_run_ids.contains(r)) || ip.agent.as_deref().is_some_and(|a| agent_names_match(a, key))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Clears all [`InProgress`] flags owned by `run_id` or `agent` (including sibling flags sharing
+    /// the same `run_id` as a flag matching `agent`), returning the cleared [`NodeId`]s (E15-7 §3.2).
+    pub fn clear_in_progress_for_run_or_agent(&mut self, run_id: Option<&str>, agent: Option<&str>) -> Vec<NodeId> {
+        let rid = run_id.map(str::trim).filter(|s| !s.is_empty());
+        let ag = agent.map(str::trim).filter(|s| !s.is_empty());
+        let mut matched_run_ids = std::collections::BTreeSet::new();
+        if let Some(r) = rid {
+            matched_run_ids.insert(r.to_string());
+        }
+        if let Some(a) = ag {
+            for ip in self.in_progress.values() {
+                if ip.agent.as_deref().is_some_and(|ia| agent_names_match(ia, a)) {
+                    if let Some(r) = &ip.run_id {
+                        matched_run_ids.insert(r.clone());
+                    }
+                }
+            }
+        }
+        let removed: Vec<NodeId> = self
+            .in_progress
+            .iter()
+            .filter(|(_, ip)| {
+                ip.run_id.as_ref().is_some_and(|r| matched_run_ids.contains(r))
+                    || ag.is_some_and(|a| ip.agent.as_deref().is_some_and(|ia| agent_names_match(ia, a)))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Clears [`InProgress`] flags whose age at `now_ms` exceeds their `stale_after_s` (or
+    /// `default_max_age_ms` when `stale_after_s` is `None`), returning the cleared [`NodeId`]s.
+    pub fn clear_stale_in_progress(&mut self, now_ms: u64, default_max_age_ms: u64) -> Vec<NodeId> {
+        let removed: Vec<NodeId> =
+            self.in_progress.iter().filter(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now_ms, default_max_age_ms)).map(|(id, _)| *id).collect();
+        for id in &removed {
+            self.in_progress.remove(id);
+        }
+        if !removed.is_empty() {
+            self.bump_mutation_epoch();
+        }
+        removed
+    }
+
+    /// Prunes any [`InProgress`] entries whose target node no longer exists or that are stale at [`now_ms`].
+    pub fn prune_in_progress(&mut self) -> Vec<NodeId> {
+        self.clear_stale_in_progress(now_ms(), IN_PROGRESS_DEFAULT_STALE_MS)
     }
 
     /// Moves `id` under `new_parent` at `index` (clamped).
@@ -874,6 +1199,7 @@ impl Document {
         }
         let before = self.nodes.len();
         self.nodes.retain(|id, _| reachable.contains(id));
+        self.in_progress.retain(|id, _| reachable.contains(id));
         let removed = before - self.nodes.len();
         if removed > 0 {
             if !self.check_designs.ignored.is_empty() {
@@ -901,6 +1227,60 @@ impl Document {
         // Ignore keys of deleted layers are written as they are and dropped when the file is read
         // back (`from_json_with_report`): pruning here would clone the whole document, images
         // included, on every save after an ignored layer was deleted.
+        let now = now_ms();
+        if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
+            #[derive(Serialize)]
+            struct DocumentSerializeView<'a> {
+                name: &'a String,
+                kind: &'a DocumentKind,
+                nodes: &'a BTreeMap<NodeId, Node>,
+                pages: &'a Vec<NodeId>,
+                styles: &'a BTreeMap<String, Style>,
+                style_meta: &'a BTreeMap<String, StyleMeta>,
+                flows: &'a Vec<Flow>,
+                variables: &'a BTreeMap<String, Variable>,
+                variable_collections: &'a BTreeMap<String, VariableCollection>,
+                guides: &'a BTreeMap<NodeId, Vec<Guide>>,
+                prototype_device: &'a PrototypeDevice,
+                comments: &'a Vec<CommentThread>,
+                library: &'a LibraryState,
+                library_page: &'a Option<NodeId>,
+                #[serde(skip_serializing_if = "CheckDesignsSettings::is_empty")]
+                check_designs: &'a CheckDesignsSettings,
+                #[serde(with = "serde_images", skip_serializing_if = "BTreeMap::is_empty")]
+                images: &'a BTreeMap<String, Vec<u8>>,
+                #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+                in_progress: BTreeMap<NodeId, &'a InProgress>,
+                next_id: u64,
+            }
+            let filtered_in_progress: BTreeMap<NodeId, &InProgress> = self
+                .in_progress
+                .iter()
+                .filter(|(id, ip)| self.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS))
+                .map(|(id, ip)| (*id, ip))
+                .collect();
+            let view = DocumentSerializeView {
+                name: &self.name,
+                kind: &self.kind,
+                nodes: &self.nodes,
+                pages: &self.pages,
+                styles: &self.styles,
+                style_meta: &self.style_meta,
+                flows: &self.flows,
+                variables: &self.variables,
+                variable_collections: &self.variable_collections,
+                guides: &self.guides,
+                prototype_device: &self.prototype_device,
+                comments: &self.comments,
+                library: &self.library,
+                library_page: &self.library_page,
+                check_designs: &self.check_designs,
+                images: &self.images,
+                in_progress: filtered_in_progress,
+                next_id: self.next_id,
+            };
+            return finite_json::to_string_finite(&view);
+        }
         finite_json::to_string_finite(self)
     }
 
@@ -966,6 +1346,13 @@ impl Document {
         // neutral value and counted (see [`finite_json`]).
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
         let mut report = doc.validate_and_repair();
+        let now = now_ms();
+        doc.in_progress.retain(|id, _| doc.nodes.contains_key(id));
+        for ip in doc.in_progress.values_mut() {
+            if ip.since_ms > now {
+                ip.since_ms = now;
+            }
+        }
         report.non_finite_numbers = non_finite_numbers;
         doc.check_designs.ignored.retain(|k| doc.nodes.contains_key(&k.node));
         doc.migrate_text();
@@ -1234,5 +1621,135 @@ mod tests {
 
         assert_eq!(d.page_node_count(p1), 4);
         assert_eq!(d.page_node_count(p2), 1);
+    }
+
+    #[test]
+    fn killed_agent_flag_goes_stale() {
+        set_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+
+        d.set_in_progress(
+            frame,
+            Some(InProgress {
+                run_id: Some("run_killed".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: now_ms(),
+                stale_after_s: Some(60),
+                status: Some("Building header...".into()),
+            }),
+        );
+        assert!(d.get_in_progress(frame).is_some());
+        assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Claude Code working");
+
+        // Advance injected clock by 61 seconds without sleeping.
+        advance_mock_now_ms(61_000);
+        assert!(d.get_in_progress(frame).is_none(), "stale flag must be hidden from readers");
+
+        // Next save / prune removes the stale entry from the persisted map.
+        let json = d.to_json().unwrap();
+        assert!(!json.contains("run_killed"), "stale flag must be pruned on save: {json}");
+        let reloaded = Document::from_json(&json).unwrap();
+        assert!(reloaded.in_progress.is_empty());
+
+        // Clock skew: future since_ms is treated as now_ms().
+        set_mock_now_ms(Some(2_000_000));
+        d.set_in_progress(frame, Some(InProgress { run_id: Some("run_skew".into()), agent: None, since_ms: 9_000_000, stale_after_s: Some(60), status: None }));
+        assert_eq!(d.get_in_progress(frame).unwrap().badge_text(), "Agent working");
+        advance_mock_now_ms(61_000);
+        assert!(d.get_in_progress(frame).is_none(), "clock-skewed flag must expire 60s after effective now");
+        set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn undo_does_not_touch_flag() {
+        set_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0))).unwrap();
+
+        let mut h = History::default();
+        let mut after = d.get(frame).unwrap().clone();
+        after.name = "Renamed Hero".into();
+        h.exec(&mut d, Command::Update { node: Box::new(after) }).unwrap();
+
+        // Flag the frame outside History, then undo the previous node edit.
+        let ip = InProgress { run_id: Some("run_1".into()), agent: Some("Codex".into()), since_ms: now_ms(), stale_after_s: None, status: None };
+        d.set_in_progress(frame, Some(ip.clone()));
+        assert!(h.undo(&mut d).unwrap());
+        assert_eq!(d.get(frame).unwrap().name, "Frame");
+        assert_eq!(d.get_in_progress(frame), Some(&ip), "undoing node edit must leave in_progress flag untouched");
+
+        // Edge case §8.2: undoing the insert that created a flagged frame prunes the entry;
+        // redo restores the frame without the flag.
+        let fid2 = d.alloc_id();
+        let frame2_node = Node::frame(fid2, Rect::new(500.0, 0.0, 300.0, 200.0));
+        h.exec(&mut d, Command::Insert { parent: page, index: 1, nodes: vec![frame2_node] }).unwrap();
+        d.set_in_progress(fid2, Some(ip));
+        assert!(d.get_in_progress(fid2).is_some());
+        assert!(h.undo(&mut d).unwrap());
+        assert!(!d.in_progress.contains_key(&fid2));
+        assert!(h.redo(&mut d).unwrap());
+        assert!(d.get(fid2).is_some());
+        assert!(d.get_in_progress(fid2).is_none(), "redo must not restore transient work state");
+        set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn not_root_refused() {
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let tid = d.alloc_id();
+        let text = d.insert(frame, Node::text(tid, Rect::new(10.0, 10.0, 100.0, 24.0), "Title", TextStyle::default())).unwrap();
+        let sid = d.alloc_id();
+        let section = d.insert(page, Node::new(sid, NodeKind::Section)).unwrap();
+        let sfid = d.alloc_id();
+        let sec_frame = d.insert(section, Node::frame(sfid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+
+        assert_eq!(d.is_in_progress_root(frame), Ok(()));
+        assert_eq!(d.is_in_progress_root(section), Ok(()));
+        assert_eq!(d.is_in_progress_root(sec_frame), Ok(()));
+        assert_eq!(d.is_in_progress_root(text), Err(Some(frame)));
+        assert_eq!(d.is_in_progress_root(page), Err(None));
+    }
+
+    #[test]
+    fn clear_in_progress_matches_cli_binary_aliases_and_flag_run_id() {
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let f1_id = d.alloc_id();
+        let f1 = d.insert(page, Node::frame(f1_id, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let f2_id = d.alloc_id();
+        let f2 = d.insert(page, Node::frame(f2_id, Rect::new(400.0, 0.0, 320.0, 240.0))).unwrap();
+
+        d.set_in_progress(
+            f1,
+            Some(InProgress {
+                run_id: Some("mcp-run-42".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: 1_000,
+                stale_after_s: Some(300),
+                status: Some("Building hero".into()),
+            }),
+        );
+        d.set_in_progress(
+            f2,
+            Some(InProgress {
+                run_id: Some("mcp-run-42".into()),
+                agent: None,
+                since_ms: 1_000,
+                stale_after_s: Some(300),
+                status: Some("Building footer".into()),
+            }),
+        );
+
+        let cleared = d.clear_in_progress_for_run_or_agent(Some("terminal-session-id"), Some("claude"));
+        assert_eq!(cleared.len(), 2);
+        assert!(d.in_progress.is_empty());
     }
 }

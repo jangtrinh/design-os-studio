@@ -9,6 +9,7 @@ mod agent_presence;
 mod agent_selection_chip;
 pub mod agent_sessions;
 mod agent_start_failure;
+mod agent_stop;
 pub mod agent_turn_card;
 pub mod agent_turn_ledger;
 pub mod agent_turn_marks;

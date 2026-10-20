@@ -499,6 +499,9 @@ pub enum TerminalAction {
     OpenTurnReceipt(usize),
     /// Focuses the Studio window and selects agent `tab_id` when its OS notification is clicked (`#683` §3.6).
     FocusAgentTab(usize),
+    /// Closes a stopped agent turn: applies held patches, folds contiguous agent undo steps since
+    /// `turn_start_depth` into one `"Agent turn (stopped)"` batch, and clears in-progress flags (`#684`).
+    CloseStoppedTurn { tab_id: usize, turn_start_depth: usize, run_id: Option<String>, agent: Option<String> },
 }
 
 /// Orca live agent execution status (`Working` / `WaitingForInput` / `Done` / `Error` / `Stopped` / `Idle`).
@@ -574,6 +577,24 @@ pub struct TerminalTab {
     pub approvals_dir: PathBuf,
     /// Pending approval requests queued for this tab (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
+    /// Active stop sequence state (`#684`), or `None` when not stopping.
+    pub stop_state: Option<crate::agent_stop::StopState>,
+    /// Shared flag so the PTY reader thread ignores OSC status updates while a stop sequence is in flight (`#684`).
+    pub stop_in_flight: Arc<std::sync::atomic::AtomicBool>,
+    /// Keys sent by the stop sequence or Esc forwarding on this tab (for deterministic test inspection, `#684`).
+    pub stop_sent_keys: Vec<u8>,
+    /// Timestamp (`ms`) when the current turn started (`#684`).
+    pub turn_started_at_ms: Option<u64>,
+    /// `History::undo_depth` recorded at the start of the current turn (`#684`).
+    pub turn_start_undo_depth: usize,
+    /// True while the tab is inside an active `Working` turn (`#684`).
+    pub was_working: bool,
+    /// Notice shown when the CLI ignored both interrupt keys (`#684 §8.1`).
+    pub still_running_notice: Option<String>,
+    /// Last stopped-turn receipt line (e.g. `"Stopped by you after 42s"`, `#684 §3.4`); the only receipt for CLIs without a hook stream.
+    pub last_receipt: Option<String>,
+    /// Set on a restart-resumed tab (`#653`) that was running without a known turn (`#684 §8.6`).
+    pub resumed_without_known_turn: bool,
 }
 
 impl TerminalTab {
@@ -679,6 +700,7 @@ impl TerminalTab {
         let last_output_at = Arc::new(Mutex::new(None));
         let reader_eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let pty_waiting_heuristic = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let parser_bg = Arc::clone(&parser);
         let spec_bg = Arc::clone(&last_spec_json);
@@ -688,6 +710,7 @@ impl TerminalTab {
         let eof_bg = Arc::clone(&reader_eof);
         let waiting_heuristic_bg = Arc::clone(&pty_waiting_heuristic);
         let slave_bg = Arc::downgrade(&slave);
+        let stop_bg = Arc::clone(&stop_in_flight);
 
         let uses_pty_heuristic = preset == AgentCliPreset::Codex;
         std::thread::Builder::new()
@@ -704,17 +727,26 @@ impl TerminalTab {
                             let chunk = String::from_utf8_lossy(&buf[..n]);
                             let has_osc = chunk.contains("\x1b]9999;");
                             let (clean_chunk, detected_status) = parse_osc_agent_status_and_strip(&chunk);
-                            if uses_pty_heuristic || has_osc {
-                                if let Some(next_status) = detected_status {
-                                    if let Ok(mut st) = status_bg.lock() {
+                            // While a stop sequence is in flight the status is owned by it, and a stopped tab only
+                            // leaves `Stopped` when new work starts (`#684`).
+                            let stopping = stop_bg.load(std::sync::atomic::Ordering::Relaxed);
+                            let set_status = |next_status: AgentTabStatus| {
+                                if stopping {
+                                    return;
+                                }
+                                if let Ok(mut st) = status_bg.lock() {
+                                    if !matches!(*st, AgentTabStatus::Stopped) || matches!(next_status, AgentTabStatus::Working(_)) {
                                         *st = next_status;
                                     }
                                 }
+                            };
+                            if uses_pty_heuristic || has_osc {
+                                if let Some(next_status) = detected_status {
+                                    set_status(next_status);
+                                }
                             } else if waiting_heuristic_bg.load(std::sync::atomic::Ordering::Acquire) {
                                 if let Some(next_status @ AgentTabStatus::WaitingForInput(_)) = detected_status {
-                                    if let Ok(mut st) = status_bg.lock() {
-                                        *st = next_status;
-                                    }
+                                    set_status(next_status);
                                 }
                             }
                             if let Ok(mut p) = parser_bg.lock() {
@@ -787,7 +819,23 @@ impl TerminalTab {
             permission_mode: crate::agent_permissions::AgentPermissionMode::Skip,
             approvals_dir,
             pending_approvals: Vec::new(),
+            stop_state: None,
+            stop_in_flight,
+            stop_sent_keys: Vec::new(),
+            turn_started_at_ms: None,
+            turn_start_undo_depth: 0,
+            was_working: false,
+            still_running_notice: None,
+            last_receipt: None,
+            resumed_without_known_turn: false,
         })
+    }
+
+    /// Test helper: spawns a stub `CommandBuilder` under `preset` (`#684`).
+    #[cfg(test)]
+    pub fn spawn_test_stub(id: usize, preset: AgentCliPreset, mut cmd: CommandBuilder) -> Result<Self, String> {
+        isolate_zsh_from_home(&mut cmd);
+        Self::spawn_with_session_cmd(id, preset, 24, 80, None, None, Some(cmd))
     }
 
     /// Effective status of this tab (`#683` §3.3, §4).
@@ -800,9 +848,18 @@ impl TerminalTab {
         match explicit_status {
             AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
             AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
+            // A stopped Codex tab keeps showing `Stopped` while the CLI is still repainting its prompt (`#684`).
+            AgentTabStatus::Stopped => AgentTabStatus::Stopped,
             other if recent_pty_activity => AgentTabStatus::Working(None),
             other => other,
         }
+    }
+
+    /// True for a tool or notification hook event that was already in flight when the user stopped this tab. Such a
+    /// straggler must not revive the stopped turn; only a new prompt does (`#684`).
+    pub fn is_stale_event_after_stop(&self, event: &str) -> bool {
+        matches!(event, "PreToolUse" | "PostToolUse" | "PermissionRequest" | "Notification")
+            && matches!(self.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
     }
 
     /// Last completed turn receipt for this tab (`None` for Codex and Shell, which have no hook stream).
@@ -989,6 +1046,14 @@ pub struct TerminalState {
     pub search_query: String,
     /// Whether `Cmd+F` terminal search is case-sensitive (`Aa`).
     pub search_case_sensitive: bool,
+    /// True when the last pointer press was in the panel's non-terminal chrome (header, tab strip, composer) (`#684 §3.1`).
+    pub chrome_focused: bool,
+    /// Deferred undo depth to fold once a user edit in progress finishes (`#684 §3.4`).
+    pub pending_stop_fold_depth: Option<usize>,
+    /// Deferred stop close metadata (`depth`, `pre_close_patch_count`, `run_id`, `agent`) (`#684 §3.4`, `§3.5`).
+    pub pending_stop_close: Option<crate::agent_stop::PendingStopClose>,
+    /// Current `History::undo_depth` of the open document, refreshed by `publish_live_context` (`#684`).
+    pub current_undo_depth: usize,
     /// Test-only override for `cfg!(target_os = "macos")` when routing terminal undo/redo chords (`#685`).
     #[cfg(test)]
     pub platform_is_mac_override: Option<bool>,
@@ -1148,6 +1213,10 @@ impl TerminalState {
             search_open: false,
             search_query: String::new(),
             search_case_sensitive: false,
+            chrome_focused: false,
+            pending_stop_fold_depth: None,
+            pending_stop_close: None,
+            current_undo_depth: 0,
             #[cfg(test)]
             platform_is_mac_override: None,
             #[cfg(test)]
@@ -2442,6 +2511,9 @@ impl TerminalState {
                 })
                 .collect();
             if let Some(tab_idx) = crate::agent_turn_status::route_record_to_tab(&record, &tabs_info) {
+                if self.tabs[tab_idx].is_stale_event_after_stop(&record.e) {
+                    continue;
+                }
                 let tab_visible = self.surface_visible && tab_idx == self.active_tab;
                 let effect = self.tabs[tab_idx].turn_tracker.on_event(&record);
                 if let Some(new_status) = effect.new_status {
@@ -2538,7 +2610,26 @@ impl TerminalState {
             self.sync_active_tab_approvals();
         }
 
+        // Track where each running turn started in the undo stack so Stop can fold exactly that turn (`#684`).
+        let current_undo_depth = self.current_undo_depth;
+        for tab in &mut self.tabs {
+            let is_running = crate::agent_stop::is_tab_turn_running(tab);
+            if is_running && !tab.was_working {
+                tab.was_working = true;
+                tab.turn_started_at_ms = Some(designos_doc::now_ms());
+                tab.turn_start_undo_depth = current_undo_depth;
+                tab.last_receipt = None;
+                tab.still_running_notice = None;
+            } else if !is_running && tab.stop_state.is_none() {
+                tab.was_working = false;
+                tab.turn_started_at_ms = None;
+                tab.turn_start_undo_depth = current_undo_depth;
+            }
+        }
+        actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
+
         let mut agent_exited = false;
+        let mut stopped_exited = false;
         #[cfg(test)]
         let path_override = self.path_override.clone();
         let mut registry_dirty = false;
@@ -2552,8 +2643,9 @@ impl TerminalState {
             }
             if !tab.is_alive() {
                 tab.turn_ledger.on_tab_exited(patch_off, now_instant);
+                let was_stopped = matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped));
                 let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
-                let failed_start = agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
+                let failed_start = !was_stopped && agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
                     let log_empty = tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false);
                     let eof = tab.reader_eof.load(std::sync::atomic::Ordering::Acquire);
@@ -2623,6 +2715,7 @@ impl TerminalState {
                 tab.title.push_str(" (exited)");
                 tab.exited_notice_shown = true;
                 agent_exited = true;
+                stopped_exited |= was_stopped;
             }
         }
         if registry_dirty {
@@ -2634,7 +2727,7 @@ impl TerminalState {
         if let Some(denied_msg) = self.notifier.poll_denied_status_msg() {
             self.status_msg = Some(denied_msg);
         }
-        if agent_exited && self.status_msg.as_deref() != Some(crate::agent_notify::NOTIFICATIONS_OFF_STATUS_MSG) {
+        if agent_exited && !stopped_exited && self.status_msg.as_deref() != Some(crate::agent_notify::NOTIFICATIONS_OFF_STATUS_MSG) {
             self.status_msg = Some("Agent exited — this tab no longer accepts input. Open a new tab to continue.".into());
         }
 
@@ -3987,15 +4080,20 @@ pub fn show_left_with_selection(
         // Pure Interactive PTY Shell by Default + Top `+` Runtime Dropdown (`DIR-29`)
         p.rect_filled(rect, 0.0, TERM_BG_VIEWPORT);
 
+        let bar_h = 36.0;
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 if rect.contains(pos) {
-                    state.viewport_focused = true;
+                    // A press in the header or the strip under it is panel chrome: `Esc` stops the turn there, and is forwarded to the CLI in the terminal (`#684 §3.1`).
+                    let in_chrome = pos.y < rect.top() + bar_h + theme::CONTROL_DENSE;
+                    state.chrome_focused = in_chrome;
+                    state.viewport_focused = !in_chrome;
+                } else {
+                    state.chrome_focused = false;
                 }
             }
         }
 
-        let bar_h = 36.0;
         let bar_r = Rect::from_min_size(rect.min, Vec2::new(rect.width(), bar_h));
         p.rect_filled(bar_r, 0.0, TERM_BG_BAR);
         widgets::hline(&p, bar_r.left(), bar_r.right(), bar_r.bottom() - 1.0, TERM_BORDER);
@@ -4014,8 +4112,10 @@ pub fn show_left_with_selection(
             state.dock_open = !state.dock_open;
         }
 
+        let stop_left = crate::agent_stop::paint_header_stop_controls(ui, &p, state, bar_r, pop_rect.left());
+
         // Left-aligned session tabs + `"Sessions"` ghost button + `+` runtime dropdown button
-        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(pop_rect.left());
+        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(stop_left);
         let mut x = bar_r.left() + 6.0;
         let mut tab_to_select: Option<usize> = None;
         let mut tab_to_close: Option<usize> = None;
@@ -4099,7 +4199,7 @@ pub fn show_left_with_selection(
         }
 
         // `"Sessions"` ghost button (`#651` §3 rule 5 & §7) + top `+` button (`agents-runtime-add-btn`)
-        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, pop_rect.left());
+        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, stop_left);
         let add_rect = Rect::from_min_size(Pos2::new(add_x, bar_r.center().y - 12.0), Vec2::new(28.0, 24.0));
         let add_resp = ui.interact(add_rect, Id::new("agents-runtime-add-btn"), Sense::click());
         let add_bg = if state.runtime_dropdown_open {
@@ -4139,6 +4239,9 @@ pub fn show_left_with_selection(
         let needs_approval = state.needs_approval();
         let strip_status = if needs_approval {
             Some((STATUS_WARN_TEXT, "Needs approval".to_string()))
+        } else if let Some(notice) = state.active_tab().and_then(|t| t.still_running_notice.clone()) {
+            // The CLI ignored both interrupt keys (`#684 §8.1`).
+            Some((STATUS_WARN_TEXT, notice))
         } else {
             state.active_tab().and_then(|t| t.header_status_indicator(now_secs))
         };
@@ -4170,6 +4273,10 @@ pub fn show_left_with_selection(
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
+        if !state.viewport_focused && ui.input(|i| i.key_pressed(Key::Escape)) {
+            let composer_focused = ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
+            crate::agent_stop::handle_panel_escape(state, composer_focused, designos_doc::now_ms());
+        }
         if let Some(receipt) = &active_receipt {
             let receipt_r = Rect::from_min_max(Pos2::new(rect.left(), vp_bottom), rect.max);
             paint_turn_receipt_row(state, &mut actions, ui, &p, receipt_r, receipt);
@@ -9435,5 +9542,34 @@ Done!
         for h in handles {
             h.join().expect("stress worker must not panic");
         }
+    }
+
+    #[test]
+    fn tool_events_in_flight_after_a_stop_do_not_revive_the_tab_until_a_new_prompt() {
+        let mut st = isolated_683_state(68461);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stopped"));
+        let events_path = st.session_dir.join("agent-events.jsonl");
+        std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stopped\"}}\n").unwrap();
+        let _ = st.poll_live_agent_bridge();
+        assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Working(_)));
+
+        // The user stops the turn from the panel: the tab is latched `Stopped`.
+        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Stopped;
+        st.tabs[idx].turn_tracker.stop_by_user(400.5);
+
+        let append = |line: &str| {
+            let mut f = std::fs::OpenOptions::new().append(true).open(&events_path).unwrap();
+            std::io::Write::write_all(&mut f, line.as_bytes()).unwrap();
+        };
+        append("{\"t\":401.0,\"e\":\"PostToolUse\",\"p\":{\"session_id\":\"sid-stopped\",\"tool_name\":\"mcp__designos__designos_apply_spec\"}}\n");
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.tabs[idx].effective_status(), AgentTabStatus::Stopped, "a straggling tool event must not turn the stopped tab back to Working");
+        assert!(!st.tabs[idx].turn_tracker.in_turn, "nor start a phantom turn");
+
+        append("{\"t\":402.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stopped\"}}\n");
+        let _ = st.poll_live_agent_bridge();
+        assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Working(_)), "a new prompt starts a new turn");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 }
