@@ -222,6 +222,45 @@ impl Default for ImageJobsState {
 }
 
 impl ImageJobsState {
+    /// Creates a fresh `ImageJobsState` for a new tab while preserving test/runtime configuration overrides.
+    pub fn new_inheriting_config_from(other: &Self) -> Self {
+        Self {
+            override_agent_installed: other.override_agent_installed,
+            agent_script: other.agent_script.clone(),
+            stable_window: other.stable_window,
+            job_timeout: other.job_timeout,
+            ..Self::default()
+        }
+    }
+
+    /// Moves this tab's `ImageJobsState` out for parking in `ProjectTab`, leaving a clean state with the same config overrides.
+    pub fn take_for_park(&mut self) -> Self {
+        let replacement = Self::new_inheriting_config_from(self);
+        std::mem::replace(self, replacement)
+    }
+
+    /// Cancels all active/queued image jobs and removes this tab's `<session_dir>/image-jobs` folder.
+    pub fn cancel_and_cleanup(&mut self, fallback_root: Option<PathBuf>) {
+        if let Some(w) = self.watcher.take() {
+            w.cancel.store(true, Ordering::SeqCst);
+        }
+        self.queue.clear();
+        for job in &mut self.jobs {
+            if matches!(job.state, ImageJobState::Running | ImageJobState::Queued) {
+                job.state = ImageJobState::Cancelled;
+            }
+        }
+        let root = self.last_session_root.take().or_else(|| self.custom_jobs_root.clone()).or(fallback_root);
+        if let Some(root) = root {
+            if root.exists() {
+                let _ = std::fs::remove_dir_all(&root);
+            }
+        }
+        self.open_fill_menu = None;
+        self.expand_popover = None;
+        self.erase_popover = None;
+    }
+
     /// True if `node` currently has a `Queued` or `Running` AI image job.
     pub fn active_job_for_node(&self, node: NodeId) -> Option<&ImageJob> {
         self.jobs.iter().find(|j| j.node == node && matches!(j.state, ImageJobState::Running | ImageJobState::Queued))
@@ -465,22 +504,8 @@ impl App {
 
     /// Cancels all active/queued image jobs and removes this file's `<session_dir>/image-jobs` folder on file close.
     pub fn cleanup_image_jobs_on_file_close(&mut self) {
-        if let Some(w) = self.image_jobs.watcher.take() {
-            w.cancel.store(true, Ordering::SeqCst);
-        }
-        self.image_jobs.queue.clear();
-        for job in &mut self.image_jobs.jobs {
-            if matches!(job.state, ImageJobState::Running | ImageJobState::Queued) {
-                job.state = ImageJobState::Cancelled;
-            }
-        }
-        let root = self.image_jobs.last_session_root.take().unwrap_or_else(|| self.image_jobs_root());
-        if root.exists() {
-            let _ = std::fs::remove_dir_all(&root);
-        }
-        self.image_jobs.open_fill_menu = None;
-        self.image_jobs.expand_popover = None;
-        self.image_jobs.erase_popover = None;
+        let fallback = self.image_jobs_root();
+        self.image_jobs.cancel_and_cleanup(Some(fallback));
     }
 
     /// Cancels any running or queued job on `node` (or the currently running job if `node` is `None`).
@@ -723,194 +748,276 @@ impl App {
 
     /// Starts the next queued job if no job is currently running.
     fn pump_next_queued_image_job(&mut self) {
-        if self.image_jobs.watcher.is_some() {
-            return;
-        }
-        while let Some(next_id) = self.image_jobs.queue.pop_front() {
-            let Some(idx) = self.image_jobs.jobs.iter().position(|j| j.id == next_id && j.state == ImageJobState::Queued) else {
-                continue;
-            };
-            self.image_jobs.jobs[idx].state = ImageJobState::Running;
-            self.image_jobs.jobs[idx].started_at = Instant::now();
-            let job = self.image_jobs.jobs[idx].clone();
-
-            let prompt = format!(
-                "Image task {}: {}. Read {}, write the result as PNG to {}. Keep the same pixel size unless told otherwise. Do not change other files.",
-                job.id,
-                job.op.instruction_text(),
-                job.input_path.display(),
-                job.output_path.display()
-            );
-
-            let status_file_path = self.terminal.session_dir.join("agent-status.json");
-            // Clear any stale `done` status file before starting a new job.
-            if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
-                if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
-                    let _ = std::fs::remove_file(&status_file_path);
-                }
-            }
-
-            if self.image_jobs.agent_script.is_none() {
-                let preset = preferred_agent_cli_preset(self).unwrap_or(AgentCliPreset::Claude);
-                let fp = self.file_path.clone();
-                self.terminal.submit_system_image_prompt(preset, &prompt, fp.as_deref());
-            }
-
-            let tab_status: Option<Arc<Mutex<AgentTabStatus>>> = self.terminal.active_tab().map(|t| Arc::clone(&t.agent_status));
-            let cancel = Arc::new(AtomicBool::new(false));
-            let cancel_bg = Arc::clone(&cancel);
-            let (tx, rx) = mpsc::channel();
-            let stable_window = self.image_jobs.stable_window;
-            let timeout = self.image_jobs.job_timeout;
-            let script = self.image_jobs.agent_script.clone();
-            let job_id = job.id.clone();
-
-            std::thread::spawn(move || {
-                let outcome = run_watcher_thread(job, script, stable_window, timeout, cancel_bg, tab_status, status_file_path);
-                let _ = tx.send(outcome);
-            });
-
-            self.image_jobs.watcher = Some(RunningWatcher { job_id, cancel, rx });
-            break;
-        }
+        let preset = preferred_agent_cli_preset(self).unwrap_or(AgentCliPreset::Claude);
+        let fp = self.file_path.clone();
+        pump_next_queued_image_job_for(&mut self.image_jobs, &mut self.terminal, fp.as_deref(), preset);
     }
 
-    /// Polls the background `output.png` watcher and applies finished jobs on the UI thread.
+    /// Polls the background `output.png` watcher and applies finished jobs on the UI thread
+    /// (for both the active tab and any background tabs parked in `self.tabs.entries`).
     pub fn poll_image_jobs(&mut self) -> bool {
-        let outcome = match &self.image_jobs.watcher {
-            Some(w) => match w.rx.try_recv() {
-                Ok(out) => Some(out),
-                Err(mpsc::TryRecvError::Empty) => None,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Some(WatcherOutcome::Failed { job_id: w.job_id.clone(), reason: "Image job watcher disconnected unexpectedly".to_string() })
-                }
-            },
-            None => None,
-        };
-        let Some(outcome) = outcome else {
-            return false;
-        };
-        self.image_jobs.watcher = None;
+        let mut any_handled = false;
 
-        match outcome {
-            WatcherOutcome::Completed { job_id, png_bytes, warning } => {
-                if let Some(job) = self.image_jobs.jobs.iter().find(|j| j.id == job_id).cloned() {
-                    if job.state != ImageJobState::Cancelled {
-                        match self.apply_completed_image_job(&job, png_bytes) {
-                            Ok(new_id) => {
-                                if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
-                                    j.state = ImageJobState::Done;
+        if let Some(outcome) = try_recv_watcher(&mut self.image_jobs) {
+            any_handled = true;
+            match outcome {
+                WatcherOutcome::Completed { job_id, png_bytes, warning } => {
+                    if let Some(job) = self.image_jobs.jobs.iter().find(|j| j.id == job_id).cloned() {
+                        if job.state != ImageJobState::Cancelled {
+                            match self.apply_completed_image_job(&job, png_bytes) {
+                                Ok(new_id) => {
+                                    if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                                        j.state = ImageJobState::Done;
+                                    }
+                                    self.selection = vec![new_id];
+                                    if let Some(w) = warning {
+                                        self.show_toast(w, false);
+                                    } else {
+                                        self.show_toast(format!("Applied {}", job.op.layer_suffix()), false);
+                                    }
                                 }
-                                self.selection = vec![new_id];
-                                if let Some(w) = warning {
-                                    self.show_toast(w, false);
-                                } else {
-                                    self.show_toast(format!("Applied {}", job.op.layer_suffix()), false);
+                                Err(err) => {
+                                    if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                                        j.state = ImageJobState::Failed(err.clone());
+                                    }
+                                    self.show_toast(err, true);
                                 }
-                            }
-                            Err(err) => {
-                                if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
-                                    j.state = ImageJobState::Failed(err.clone());
-                                }
-                                self.show_toast(err, true);
                             }
                         }
                     }
                 }
-            }
-            WatcherOutcome::Failed { job_id, reason } => {
-                if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
-                    if j.state != ImageJobState::Cancelled {
-                        j.state = ImageJobState::Failed(reason.clone());
-                        self.show_toast(reason, true);
+                WatcherOutcome::Failed { job_id, reason } => {
+                    if let Some(j) = self.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                        if j.state != ImageJobState::Cancelled {
+                            j.state = ImageJobState::Failed(reason.clone());
+                            self.show_toast(reason, true);
+                        }
                     }
                 }
             }
+            self.pump_next_queued_image_job();
+            self.changed();
         }
 
-        self.pump_next_queued_image_job();
-        self.changed();
-        true
+        let default_preset = preferred_agent_cli_preset(self).unwrap_or(AgentCliPreset::Claude);
+        let tab_len = self.tabs.entries.len();
+        for idx in 0..tab_len {
+            let is_parked = self.tabs.parked_in_home || self.home.is_some() || !self.tabs.is_hist_in_app() || idx != self.tabs.active_idx;
+            if !is_parked {
+                continue;
+            }
+            let Some(outcome) = try_recv_watcher(&mut self.tabs.entries[idx].image_jobs) else {
+                continue;
+            };
+            any_handled = true;
+            let mut toast_to_show: Option<(String, bool)> = None;
+            {
+                let tab = &mut self.tabs.entries[idx];
+                match outcome {
+                    WatcherOutcome::Completed { job_id, png_bytes, warning } => {
+                        if let Some(job) = tab.image_jobs.jobs.iter().find(|j| j.id == job_id).cloned() {
+                            if job.state != ImageJobState::Cancelled {
+                                match build_completed_image_job_tx(&mut tab.doc, &job, png_bytes)
+                                    .and_then(|(new_id, tx)| tx.commit(&mut tab.doc, &mut tab.hist).map(|_| new_id).map_err(|e| format!("Edit failed: {e}")))
+                                {
+                                    Ok(new_id) => {
+                                        if let Some(j) = tab.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                                            j.state = ImageJobState::Done;
+                                        }
+                                        tab.selection = vec![new_id];
+                                        tab.dirty = true;
+                                        if let (Some(lib), Some(lf)) = (&self.lib, &tab.lib_file) {
+                                            let _ = lib.save_file(&lf.id, &tab.doc);
+                                        }
+                                        let msg = warning.unwrap_or_else(|| format!("Applied {}", job.op.layer_suffix()));
+                                        toast_to_show = Some((msg, false));
+                                    }
+                                    Err(err) => {
+                                        if let Some(j) = tab.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                                            j.state = ImageJobState::Failed(err.clone());
+                                        }
+                                        toast_to_show = Some((err, true));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    WatcherOutcome::Failed { job_id, reason } => {
+                        if let Some(j) = tab.image_jobs.jobs.iter_mut().find(|j| j.id == job_id) {
+                            if j.state != ImageJobState::Cancelled {
+                                j.state = ImageJobState::Failed(reason.clone());
+                                toast_to_show = Some((reason, true));
+                            }
+                        }
+                    }
+                }
+                let fp = tab.file_path.clone();
+                pump_next_queued_image_job_for(&mut tab.image_jobs, &mut tab.terminal, fp.as_deref(), default_preset);
+            }
+            if let Some((msg, is_err)) = toast_to_show {
+                self.show_toast(msg, is_err);
+            }
+            self.changed();
+        }
+
+        any_handled
     }
 
     /// Inserts the result layer above the original and hides the original in one undo step (`Tx`).
     fn apply_completed_image_job(&mut self, job: &ImageJob, png_bytes: Vec<u8>) -> Result<NodeId, String> {
-        let orig = self.doc.get(job.node).cloned().ok_or_else(|| "Target image layer no longer exists".to_string())?;
-        let parent = orig.parent.ok_or_else(|| "Target image layer has no parent container".to_string())?;
-        let orig_index = self.doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == job.node)).unwrap_or(0);
-
-        let mut key_seq = self.doc.images.len() + 1;
-        let new_image_key = loop {
-            let candidate = format!("ai-{}-{key_seq}", job.id);
-            if !self.doc.images.contains_key(&candidate) {
-                break candidate;
-            }
-            key_seq += 1;
-        };
-
-        let new_id = self.doc.alloc_id();
-        let mut new_node = orig.clone();
-        new_node.id = new_id;
-        new_node.parent = Some(parent);
-        new_node.children.clear();
-        new_node.name = format!("{} · {}", orig.name, job.op.layer_suffix());
-        new_node.visible = true;
-        new_node.kind = NodeKind::Rectangle;
-
-        let (orig_scale_mode, orig_opacity, orig_blend) = orig
-            .fills
-            .get(job.fill_index)
-            .and_then(|p| match &p.kind {
-                PaintKind::Image { scale_mode, .. } => Some((*scale_mode, p.opacity, p.blend)),
-                _ => None,
-            })
-            .unwrap_or((ImageScaleMode::Fill, 1.0, BlendMode::Normal));
-
-        let new_paint = Paint {
-            visible: true,
-            opacity: orig_opacity,
-            blend: orig_blend,
-            kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode },
-        };
-        if job.fill_index < new_node.fills.len() {
-            new_node.fills[job.fill_index] = new_paint;
-        } else {
-            new_node.fills = vec![new_paint];
-        }
-
-        if let ImageOp::Expand { top, right, bottom, left } = job.op {
-            let cw = job.input_crop_size.0.max(1) as f32;
-            let ch = job.input_crop_size.1.max(1) as f32;
-            let (scale_x, scale_y) = match orig_scale_mode {
-                ImageScaleMode::Fit => {
-                    let s = (orig.size.x.max(1.0) / cw).min(orig.size.y.max(1.0) / ch);
-                    (s, s)
-                }
-                _ => (orig.size.x.max(1.0) / cw, orig.size.y.max(1.0) / ch),
-            };
-            let pad_left = left as f32 * scale_x;
-            let pad_right = right as f32 * scale_x;
-            let pad_top = top as f32 * scale_y;
-            let pad_bottom = bottom as f32 * scale_y;
-            new_node.size = Vec2::new(orig.size.x + pad_left + pad_right, orig.size.y + pad_top + pad_bottom);
-            new_node.transform = orig.transform * Affine::translate(-pad_left, -pad_top);
-        }
-
-        let mut add = BTreeMap::new();
-        add.insert(new_image_key, png_bytes);
-
-        let mut tx = Tx::new();
-        tx.cmd(&mut self.doc, Command::SetImages { add, remove: Vec::new() }).map_err(|e| format!("Failed to store result image: {e}"))?;
-        tx.cmd(&mut self.doc, Command::Insert { parent, index: orig_index + 1, nodes: vec![new_node] })
-            .map_err(|e| format!("Failed to insert result layer: {e}"))?;
-        if let Some(orig_mut) = tx.ed.node(&mut self.doc, job.node) {
-            orig_mut.visible = false;
-        }
+        let (new_id, tx) = build_completed_image_job_tx(&mut self.doc, job, png_bytes)?;
         if !self.run_tx(tx) {
             return Err("Failed to commit AI image edit".to_string());
         }
         Ok(new_id)
     }
+}
+
+fn try_recv_watcher(image_jobs: &mut ImageJobsState) -> Option<WatcherOutcome> {
+    let outcome = match &image_jobs.watcher {
+        Some(w) => match w.rx.try_recv() {
+            Ok(out) => Some(out),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Some(WatcherOutcome::Failed { job_id: w.job_id.clone(), reason: "Image job watcher disconnected unexpectedly".to_string() })
+            }
+        },
+        None => None,
+    };
+    if outcome.is_some() {
+        image_jobs.watcher = None;
+    }
+    outcome
+}
+
+fn pump_next_queued_image_job_for(
+    image_jobs: &mut ImageJobsState,
+    terminal: &mut crate::terminal::TerminalState,
+    file_path: Option<&std::path::Path>,
+    preset: AgentCliPreset,
+) {
+    if image_jobs.watcher.is_some() {
+        return;
+    }
+    while let Some(next_id) = image_jobs.queue.pop_front() {
+        let Some(idx) = image_jobs.jobs.iter().position(|j| j.id == next_id && j.state == ImageJobState::Queued) else {
+            continue;
+        };
+        image_jobs.jobs[idx].state = ImageJobState::Running;
+        image_jobs.jobs[idx].started_at = Instant::now();
+        let job = image_jobs.jobs[idx].clone();
+
+        let prompt = format!(
+            "Image task {}: {}. Read {}, write the result as PNG to {}. Keep the same pixel size unless told otherwise. Do not change other files.",
+            job.id,
+            job.op.instruction_text(),
+            job.input_path.display(),
+            job.output_path.display()
+        );
+
+        let status_file_path = terminal.session_dir.join("agent-status.json");
+        // Clear any stale `done` status file before starting a new job.
+        if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
+            if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
+                let _ = std::fs::remove_file(&status_file_path);
+            }
+        }
+
+        if image_jobs.agent_script.is_none() {
+            terminal.submit_system_image_prompt(preset, &prompt, file_path);
+        }
+
+        let tab_status: Option<Arc<Mutex<AgentTabStatus>>> = terminal.active_tab().map(|t| Arc::clone(&t.agent_status));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_bg = Arc::clone(&cancel);
+        let (tx, rx) = mpsc::channel();
+        let stable_window = image_jobs.stable_window;
+        let timeout = image_jobs.job_timeout;
+        let script = image_jobs.agent_script.clone();
+        let job_id = job.id.clone();
+
+        std::thread::spawn(move || {
+            let outcome = run_watcher_thread(job, script, stable_window, timeout, cancel_bg, tab_status, status_file_path);
+            let _ = tx.send(outcome);
+        });
+
+        image_jobs.watcher = Some(RunningWatcher { job_id, cancel, rx });
+        break;
+    }
+}
+
+fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: Vec<u8>) -> Result<(NodeId, Tx), String> {
+    let orig = doc.get(job.node).cloned().ok_or_else(|| "Target image layer no longer exists".to_string())?;
+    let parent = orig.parent.ok_or_else(|| "Target image layer has no parent container".to_string())?;
+    let orig_index = doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == job.node)).unwrap_or(0);
+
+    let mut key_seq = doc.images.len() + 1;
+    let new_image_key = loop {
+        let candidate = format!("ai-{}-{key_seq}", job.id);
+        if !doc.images.contains_key(&candidate) {
+            break candidate;
+        }
+        key_seq += 1;
+    };
+
+    let new_id = doc.alloc_id();
+    let mut new_node = orig.clone();
+    new_node.id = new_id;
+    new_node.parent = Some(parent);
+    new_node.children.clear();
+    new_node.name = format!("{} · {}", orig.name, job.op.layer_suffix());
+    new_node.visible = true;
+    new_node.kind = NodeKind::Rectangle;
+
+    let (orig_scale_mode, orig_opacity, orig_blend) = orig
+        .fills
+        .get(job.fill_index)
+        .and_then(|p| match &p.kind {
+            PaintKind::Image { scale_mode, .. } => Some((*scale_mode, p.opacity, p.blend)),
+            _ => None,
+        })
+        .unwrap_or((ImageScaleMode::Fill, 1.0, BlendMode::Normal));
+
+    let new_paint = Paint {
+        visible: true,
+        opacity: orig_opacity,
+        blend: orig_blend,
+        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode },
+    };
+    if job.fill_index < new_node.fills.len() {
+        new_node.fills[job.fill_index] = new_paint;
+    } else {
+        new_node.fills = vec![new_paint];
+    }
+
+    if let ImageOp::Expand { top, right, bottom, left } = job.op {
+        let cw = job.input_crop_size.0.max(1) as f32;
+        let ch = job.input_crop_size.1.max(1) as f32;
+        let (scale_x, scale_y) = match orig_scale_mode {
+            ImageScaleMode::Fit => {
+                let s = (orig.size.x.max(1.0) / cw).min(orig.size.y.max(1.0) / ch);
+                (s, s)
+            }
+            _ => (orig.size.x.max(1.0) / cw, orig.size.y.max(1.0) / ch),
+        };
+        let pad_left = left as f32 * scale_x;
+        let pad_right = right as f32 * scale_x;
+        let pad_top = top as f32 * scale_y;
+        let pad_bottom = bottom as f32 * scale_y;
+        new_node.size = Vec2::new(orig.size.x + pad_left + pad_right, orig.size.y + pad_top + pad_bottom);
+        new_node.transform = orig.transform * Affine::translate(-pad_left, -pad_top);
+    }
+
+    let mut add = BTreeMap::new();
+    add.insert(new_image_key, png_bytes);
+
+    let mut tx = Tx::new();
+    tx.cmd(doc, Command::SetImages { add, remove: Vec::new() }).map_err(|e| format!("Failed to store result image: {e}"))?;
+    tx.cmd(doc, Command::Insert { parent, index: orig_index + 1, nodes: vec![new_node] }).map_err(|e| format!("Failed to insert result layer: {e}"))?;
+    if let Some(orig_mut) = tx.ed.node(doc, job.node) {
+        orig_mut.visible = false;
+    }
+    Ok((new_id, tx))
 }
 
 fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_file_path: &std::path::Path) -> bool {
@@ -1811,5 +1918,82 @@ mod tests {
         assert!(app2.image_jobs_root().exists(), "file 2 image-jobs dir must remain intact when file 1 closes");
 
         app2.cleanup_image_jobs_on_file_close();
+    }
+
+    #[test]
+    fn multi_tab_switch_and_close_isolate_image_jobs_and_cleanup() {
+        let tmp = TestDir::new("multi-tab-isolation");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+
+        // Build a second document whose image layer has the exact same NodeId (`orig_id`) as Tab 0.
+        let mut doc_b = Document::new("Tab B Doc");
+        let page_b = doc_b.add_page("Page 1");
+        let nid_b = doc_b.alloc_id();
+        assert_eq!(nid_b, orig_id, "fresh Document allocates the same NodeId as Tab 0");
+        let mut node_b = Node::rectangle(nid_b, DRect::new(0.0, 0.0, 100.0, 100.0));
+        node_b.name = "Tab B Layer".to_string();
+        doc_b.insert(page_b, node_b).unwrap();
+
+        // Initialize Tab 0 and open Tab 1 (`doc_b`), then switch back to Tab 0.
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.sync_from_app(&app);
+        tabs.open_new_tab(&mut app, "Tab B", doc_b, crate::tabs::ProjectTabKind::Design);
+        tabs.switch_to(0, &mut app);
+        app.tabs = tabs;
+
+        let tab_a_jobs_dir = app.image_jobs_root();
+        let stub_png = tmp.path().join("tab_a_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        // Delay slightly so the tab switch happens while the job is in flight.
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on Tab A");
+        assert!(tab_a_jobs_dir.exists(), "Tab A image-jobs directory created");
+
+        // Switch to Tab B BEFORE Tab A's job finishes, then poll to completion while Tab B is active.
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(1, &mut app);
+        app.tabs = tabs;
+        let tab_b_jobs_dir = app.image_jobs_root();
+        assert_ne!(tab_a_jobs_dir, tab_b_jobs_dir, "Tab A and Tab B must have distinct session image-jobs roots");
+
+        wait_for_job_completion(&mut app);
+
+        // Tab B must NOT have been mutated by Tab A's completed image job despite sharing `orig_id`.
+        let page_b_children = &app.doc.get(app.page).unwrap().children;
+        assert_eq!(page_b_children, &[orig_id], "Tab B must not receive Tab A's output layer");
+        assert!(app.doc.get(orig_id).unwrap().visible, "Tab B's colliding NodeId layer must stay visible");
+        assert!(!app.hist.can_undo(), "Tab B undo history must stay clean");
+
+        // Switch back to Tab A: the completed result must be on Tab A and revertible in one undo step.
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(0, &mut app);
+        app.tabs = tabs;
+        let page_a_children = &app.doc.get(app.page).unwrap().children;
+        assert_eq!(page_a_children.len(), 2, "Tab A must receive its completed output layer");
+        assert!(!app.doc.get(orig_id).unwrap().visible, "Tab A's original layer must be hidden");
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![orig_id]);
+        assert!(app.doc.get(orig_id).unwrap().visible);
+
+        // Start a long-running job on Tab A, switch to Tab B, create Tab B's image-jobs dir, then close Tab A (background tab).
+        app.image_jobs.agent_script = Some("sleep 5".to_string());
+        app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("second job starts on Tab A");
+        assert!(tab_a_jobs_dir.exists());
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.switch_to(1, &mut app);
+        std::fs::create_dir_all(&tab_b_jobs_dir).unwrap();
+        assert!(tabs.close_tab(0, &mut app), "closing background Tab A succeeds");
+        app.tabs = tabs;
+
+        assert!(!tab_a_jobs_dir.exists(), "closing Tab A while Tab B stays open must remove Tab A's image-jobs dir");
+        assert!(tab_b_jobs_dir.exists(), "Tab B's image-jobs dir must remain intact when Tab A closes");
+
+        let mut tabs = std::mem::take(&mut app.tabs);
+        assert!(tabs.close_tab(0, &mut app), "closing last tab succeeds");
+        app.tabs = tabs;
+        assert!(!tab_b_jobs_dir.exists(), "closing Tab B removes Tab B's image-jobs dir");
     }
 }
