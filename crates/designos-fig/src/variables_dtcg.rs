@@ -924,6 +924,9 @@ fn export_dtcg(doc: &Document) -> Result<ExportBundle, FigError> {
                 if !v.description.is_empty() {
                     token.insert("$description".into(), Value::String(v.description.clone()));
                 }
+                if let Some(dep) = v.mode_extensions.get(&mode.id).and_then(|m| m.get("$deprecated")) {
+                    token.insert("$deprecated".into(), dep.clone());
+                }
                 let mut ext = Map::new();
                 ext.insert("org.designos".into(), Value::Object(dos_ext));
                 token.insert("$extensions".into(), Value::Object(ext));
@@ -1564,6 +1567,15 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                     (!o.contains_key("$value")).then_some((k, o))
                 })
                 .collect();
+            let root_tokens: Vec<(&String, &Map<String, Value>)> = root_obj
+                .iter()
+                .filter(|(k, _)| !k.starts_with('$'))
+                .filter_map(|(k, v)| {
+                    let o = v.as_object()?;
+                    o.contains_key("$value").then_some((k, o))
+                })
+                .collect();
+            let root_type = root_obj.get("$type").and_then(Value::as_str);
 
             if !top_groups.is_empty() && opts.collection_name.is_none() {
                 for (coll_name, group_obj) in top_groups {
@@ -1581,7 +1593,25 @@ fn import_dtcg_files(doc: &mut Document, primary_text: &str, opts: &ImportVariab
                         mode_name: mode_name.clone(),
                         is_default_mode: file_idx == 0,
                     };
-                    walk_tokens_group(group_obj, &[], None, &ctx, &mut parsed_tokens, &mut report.skipped);
+                    walk_tokens_group(group_obj, &[], root_type, &ctx, &mut parsed_tokens, &mut report.skipped);
+                }
+                if !root_tokens.is_empty() {
+                    let default_ctx = WalkContext {
+                        dialect: VariablesFormat::Dtcg,
+                        collection_id: "VariableCollectionId:tokens".to_string(),
+                        collection_name: "Tokens".to_string(),
+                        collection_key: None,
+                        source_library_key: None,
+                        has_explicit_collection_id: false,
+                        has_explicit_collection_name: false,
+                        coll_extensions: FigmaExtensions::new(),
+                        mode_id: mode_id.clone(),
+                        mode_name: mode_name.clone(),
+                        is_default_mode: file_idx == 0,
+                    };
+                    for (tok_name, tok_obj) in root_tokens {
+                        walk_tokens_group(tok_obj, std::slice::from_ref(tok_name), root_type, &default_ctx, &mut parsed_tokens, &mut report.skipped);
+                    }
                 }
             } else {
                 let has_explicit_collection_name = opts.collection_name.is_some();
@@ -2792,14 +2822,19 @@ mod tests {
             ..Default::default()
         };
         import_variables(&mut doc, sample_figma_native_light_json(), VariablesFormat::FigmaNative, opts).unwrap();
-        // Clear Figma-native-only extension bags (`dtcg` does not emit `com.figma.*` extensions by design).
+        // Clear Figma-native-only extension bags (`dtcg` does not emit `com.figma.*` extensions by design),
+        // while keeping `$deprecated` which §3.2 / AC3 require DTCG to round-trip.
         for c in doc.variable_collections.values_mut() {
             c.extensions.clear();
         }
         for v in doc.variables.values_mut() {
             v.extensions.clear();
-            v.mode_extensions.clear();
+            v.mode_extensions.retain(|_, m| {
+                m.retain(|k, _| k == "$deprecated");
+                !m.is_empty()
+            });
         }
+        assert_eq!(doc.variables["VariableID:10:4"].mode_extensions["Light"].get("$deprecated"), Some(&Value::Bool(true)));
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
         let zip_bytes = bundle.to_zip_bytes().unwrap();
@@ -2810,6 +2845,68 @@ mod tests {
         assert!(rep.skipped.is_empty(), "skipped: {:?}", rep.skipped);
         assert_eq!(reimported.variable_collections, doc.variable_collections);
         assert_eq!(reimported.variables, doc.variables);
+    }
+
+    #[test]
+    fn dtcg_deprecated_round_trips_without_clearing_mode_extensions() {
+        let dtcg_src = r##"{
+  "Theme": {
+    "OldFlag": {
+      "$value": true,
+      "$deprecated": true,
+      "$extensions": {
+        "org.designos": {
+          "id": "VariableID:dep:1",
+          "kind": "boolean"
+        }
+      }
+    },
+    "OldScale": {
+      "$type": "number",
+      "$value": 1.5,
+      "$deprecated": "Use NewScale instead",
+      "$extensions": {
+        "org.designos": {
+          "id": "VariableID:dep:2"
+        }
+      }
+    }
+  }
+}"##;
+        let mut doc = Document::new("d");
+        import_variables(&mut doc, dtcg_src, VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
+
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        let token_file = bundle.files.iter().find(|(n, _)| n.ends_with(".tokens.json")).unwrap();
+        let exported_json: Value = serde_json::from_slice(&token_file.1).unwrap();
+        assert_eq!(exported_json["Theme"]["OldFlag"]["$deprecated"], Value::Bool(true));
+        assert_eq!(exported_json["Theme"]["OldScale"]["$deprecated"], Value::String("Use NewScale instead".into()));
+
+        let zip_bytes = bundle.to_zip_bytes().unwrap();
+        let mut reimported = Document::new("reimported");
+        import_variables_bytes(&mut reimported, &zip_bytes, Some("tokens.zip"), VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
+        assert_eq!(reimported.variables, doc.variables);
+    }
+
+    #[test]
+    fn dtcg_mixed_root_group_and_token_preserves_both() {
+        let mixed = r##"{
+  "Brand": {
+    "Primary": {
+      "$type": "color",
+      "$value": { "colorSpace": "srgb", "components": [1.0, 0.0, 0.0] }
+    }
+  },
+  "RootGap": {
+    "$type": "dimension",
+    "$value": { "value": 8, "unit": "px" }
+  }
+}"##;
+        let mut doc = Document::new("d");
+        let rep = import_variables(&mut doc, mixed, VariablesFormat::Dtcg, ImportVariablesOptions::default()).unwrap();
+        assert_eq!(rep.added, 2);
+        assert!(doc.variables.values().any(|v| v.name == "Primary"));
+        assert!(doc.variables.values().any(|v| v.name == "RootGap"));
     }
 
     #[test]
