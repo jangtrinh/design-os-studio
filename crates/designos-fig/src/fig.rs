@@ -261,6 +261,17 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
 pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
+    import_fig_with_report(bytes).map(|(doc, _)| doc)
+}
+
+/// Imports a `.fig` file and returns an [`rest_import::ImportReport`] describing any instances left unexpanded by
+/// [`rest_import::CLONE_BUDGET_TOTAL`].
+pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_fig_with_budget(bytes, rest_import::CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
     let mut d = decode_inner(bytes, true)?;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
@@ -303,7 +314,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    let mut doc = rest_import::import_rest_value_owned(rest, true, &blob_refs, fast_derived.as_mut())?;
+    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
     drop(fast_derived);
     drop(blob_refs);
     drop(owned_blobs);
@@ -311,7 +322,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 // ------------------------------------------------------------------ tree

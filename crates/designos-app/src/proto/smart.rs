@@ -8,11 +8,13 @@ use std::collections::{HashMap, HashSet};
 
 /// Copy of `root` and its descendants (ids kept) as the only frame of a fresh
 /// document, so it can be rendered or morphed without touching the original.
-pub fn subtree_doc(doc: &Document, root: NodeId) -> Document {
+/// Returns `None` when the highest id in `doc` is `u64::MAX`, leaving no id for the snapshot page.
+pub fn subtree_doc(doc: &Document, root: NodeId) -> Option<Document> {
     let mut out = Document::new("snapshot");
     out.images = doc.images.clone();
     let max = doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0);
-    let pid = NodeId(max + 1);
+    let next = max.checked_add(1)?;
+    let pid = NodeId(next);
     let mut page = Node::new(pid, NodeKind::Page { background: Color::TRANSPARENT });
     page.children = vec![root];
     out.nodes.insert(pid, page);
@@ -28,8 +30,8 @@ pub fn subtree_doc(doc: &Document, root: NodeId) -> Document {
         stack.extend(n.children.iter().copied());
         out.nodes.insert(id, c);
     }
-    out.reserve_ids(NodeId(max + 1));
-    out
+    out.reserve_ids(NodeId(next));
+    Some(out)
 }
 
 fn descendants(doc: &Document, root: NodeId) -> Vec<(String, NodeId)> {
@@ -119,13 +121,14 @@ pub struct SmartPlan {
 }
 
 impl SmartPlan {
-    /// None when no layer pairs up (nothing to morph: use a dissolve).
+    /// None when no layer pairs up or when node ids are exhausted (nothing to morph: use a dissolve).
     pub fn build(from_doc: &Document, from_root: NodeId, to_doc: &Document, to_root: NodeId) -> Option<SmartPlan> {
+        from_doc.nodes.keys().next_back().map(|k| k.0).unwrap_or(0).checked_add(1)?;
         let matched = match_layers(from_doc, from_root, to_doc, to_root);
         if matched.is_empty() {
             return None;
         }
-        let mut base = subtree_doc(to_doc, to_root);
+        let mut base = subtree_doc(to_doc, to_root)?;
         let mut pairs = vec![Pair { id: to_root, from: from_doc.get(from_root)?.clone(), to: to_doc.get(to_root)?.clone() }];
         let to_of: HashMap<NodeId, NodeId> = matched.iter().map(|(t, f)| (*f, *t)).collect();
         let is_matched_to: HashSet<NodeId> = matched.iter().map(|(t, _)| *t).collect();
@@ -158,16 +161,14 @@ impl SmartPlan {
             }
             let attach = if parent == from_root { to_root } else { *to_of.get(&parent).unwrap_or(&to_root) };
             let attach_is_root_fallback = parent != from_root && !to_of.contains_key(&parent);
-            let new_id = clone_into(
+            let nid = clone_into(
                 from_doc,
                 id,
                 &mut base,
                 attach,
                 attach_is_root_fallback.then(|| from_doc.world_transform(parent).invert().map(|i| i * from_doc.world_transform(id))).flatten(),
-            );
-            if let Some(nid) = new_id {
-                fades.push(Fade { id: nid, opacity: fnode.opacity, fade_in: false });
-            }
+            )?;
+            fades.push(Fade { id: nid, opacity: fnode.opacity, fade_in: false });
         }
         Some(SmartPlan { base, root: to_root, pairs, fades })
     }
@@ -211,6 +212,7 @@ impl SmartPlan {
 /// Copies `src` and its subtree into `dst` under `parent` with fresh ids.
 fn clone_into(src_doc: &Document, src: NodeId, dst: &mut Document, parent: NodeId, retransform: Option<Affine>) -> Option<NodeId> {
     fn rec(src_doc: &Document, src: NodeId, dst: &mut Document, parent: NodeId) -> Option<NodeId> {
+        dst.peek_next_id().0.checked_add(1)?;
         let mut n = src_doc.get(src)?.clone();
         let id = dst.alloc_id();
         let kids = std::mem::take(&mut n.children);
@@ -221,7 +223,7 @@ fn clone_into(src_doc: &Document, src: NodeId, dst: &mut Document, parent: NodeI
             p.children.push(id);
         }
         for k in kids {
-            rec(src_doc, k, dst, id);
+            rec(src_doc, k, dst, id)?;
         }
         Some(id)
     }
@@ -425,7 +427,7 @@ mod tests {
     fn works_across_documents_for_change_to() {
         let (mut d, a, _b) = two_frames();
         rect(&mut d, a, "Label", Rect::new(0.0, 0.0, 10.0, 10.0), Color::BLACK);
-        let before = subtree_doc(&d, a);
+        let before = subtree_doc(&d, a).unwrap();
         d.get_mut(d.get(a).unwrap().children[0]).unwrap().size = Vec2::new(30.0, 30.0);
         let mut plan = SmartPlan::build(&before, a, &d, a).unwrap();
         let (doc, root) = plan.apply(0.5);
@@ -436,13 +438,24 @@ mod tests {
     fn subtree_doc_is_renderable_and_isolated() {
         let (mut d, a, _b) = two_frames();
         rect(&mut d, a, "R", Rect::new(0.0, 0.0, 50.0, 50.0), Color::rgb(255, 0, 0));
-        let s = subtree_doc(&d, a);
+        let s = subtree_doc(&d, a).unwrap();
         assert_eq!(s.nodes.len(), 3, "page + frame + child");
         let pm = designos_render::render_node(&s, a, 0.1).unwrap();
         assert_eq!((pm.width(), pm.height()), (40, 80));
         // original untouched
         assert!(d.get(a).unwrap().parent.is_some());
         assert_eq!(s.get(a).unwrap().parent, Some(s.pages[0]));
+    }
+
+    #[test]
+    fn max_id_overflow_in_smart_animate_uses_the_dissolve_fallback() {
+        let (mut d, a, b) = two_frames();
+        let mut overflowing = Node::rectangle(NodeId(u64::MAX), Rect::new(0.0, 0.0, 10.0, 10.0));
+        overflowing.name = "MaxChild".into();
+        d.insert(a, overflowing).unwrap();
+
+        assert!(subtree_doc(&d, a).is_none(), "subtree_doc must return None rather than wrap on u64::MAX");
+        assert!(SmartPlan::build(&d, a, &d, b).is_none(), "SmartPlan::build must return None (dissolve fallback) when node ids reach u64::MAX");
     }
 
     #[test]

@@ -1666,6 +1666,14 @@ impl App {
         if self.doc.pages.contains(&id) {
             crate::decks::ui::flush_notes(self);
             self.doc.ensure_page_hydrated(id);
+            if let Some(err) = self.doc.take_hydration_error() {
+                self.show_toast(err, true);
+            } else {
+                let skipped = self.doc.take_hydration_unexpanded_instances();
+                if skipped > 0 {
+                    self.show_toast(io::clone_budget_notice(skipped), true);
+                }
+            }
             self.page = id;
             self.selection.clear();
             self.canvas.reset_interaction();

@@ -1186,9 +1186,10 @@ impl Player {
             .filter(|t| {
                 matches!(t.kind, TransitionKind::SmartAnimate | TransitionKind::Dissolve) && easing::effective_duration_ms(&t.easing, t.duration_ms) > 0
             })
-            .map(|t| {
+            .and_then(|t| {
+                let doc = super::smart::subtree_doc(&self.doc, frame)?;
                 self.snapshots += 1;
-                (t, Snapshot { id: self.snapshots, doc: super::smart::subtree_doc(&self.doc, frame) })
+                Some((t, Snapshot { id: self.snapshots, doc }))
             });
         // Interactions live in the variants: when the instance still carries its variant's own
         // reactions (no override of its own), it takes the new variant's.

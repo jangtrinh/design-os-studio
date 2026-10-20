@@ -181,7 +181,7 @@ fn render_layers(
         return Some((designos_render::render_node(doc, frame, scale * fit(n.size))?, None, n.size));
     }
     let k = fit(content_units);
-    let mut s = subtree_doc(doc, frame);
+    let mut s = subtree_doc(doc, frame)?;
     {
         let fixed = n.prototype.fixed_children.clone();
         let f = s.get_mut(frame)?;
@@ -199,7 +199,7 @@ fn render_layers(
     let fixed = if n.prototype.fixed_children.is_empty() {
         None
     } else {
-        let mut s2 = subtree_doc(doc, frame);
+        let mut s2 = subtree_doc(doc, frame)?;
         let keep = n.prototype.fixed_children.clone();
         let kids = s2.get(frame)?.children.clone();
         for c in kids {
