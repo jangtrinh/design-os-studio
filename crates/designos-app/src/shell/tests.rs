@@ -16,6 +16,7 @@ struct Sim {
     mods: Modifiers,
     cursor: egui::CursorIcon,
     shapes: Vec<egui::epaint::ClippedShape>,
+    accesskit_update: Option<egui::accesskit::TreeUpdate>,
 }
 
 impl Sim {
@@ -27,7 +28,16 @@ impl Sim {
         let mut shell = Shell::build(&ctx, opts);
         // Hermetic: the OS pasteboard is global and not thread-safe; tests script the clipboard instead.
         shell.app.system_html = no_system_clipboard;
-        let mut s = Sim { ctx, shell, t: 0.0, pos: Pos2::new(700.0, 500.0), mods: Modifiers::NONE, cursor: egui::CursorIcon::Default, shapes: Vec::new() };
+        let mut s = Sim {
+            ctx,
+            shell,
+            t: 0.0,
+            pos: Pos2::new(700.0, 500.0),
+            mods: Modifiers::NONE,
+            cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
+            accesskit_update: None,
+        };
         s.frame(vec![]);
         s.frame(vec![]);
         s
@@ -59,6 +69,7 @@ impl Sim {
         let out = ctx.run_ui(raw, |ui| shell.draw(ui));
         self.cursor = out.platform_output.cursor_icon;
         self.shapes = out.shapes;
+        self.accesskit_update = out.platform_output.accesskit_update;
     }
     fn app(&self) -> &App {
         &self.shell.app
@@ -1238,4 +1249,355 @@ fn grid_track_editing_insert_delete_resize_and_reorder() {
     assert_eq!(col_pills.len(), 5);
     assert!(crate::canvas::interact::try_drag_grid_track_pill(&mut s.shell.app, crect, col_pills[1].3.center(), col_pills[3].3.center()));
     assert_eq!(track_labels(&s.app().doc, grid_id, true), vec!["80px", "100px", "Hug", "120px", "2fr"]);
+}
+
+mod agent_a11y {
+    use super::*;
+
+    fn set_tab_status(tab: &mut crate::terminal::TerminalTab, status: crate::terminal::AgentTabStatus) {
+        if let Ok(mut guard) = tab.agent_status.lock() {
+            *guard = status;
+        }
+    }
+
+    fn set_tab_status_and_reported(tab: &mut crate::terminal::TerminalTab, status: crate::terminal::AgentTabStatus) {
+        if let Ok(mut guard) = tab.agent_status.lock() {
+            *guard = status.clone();
+        }
+        tab.reported_status = status;
+    }
+
+    fn open_agents_panel_with_accesskit(s: &mut Sim) {
+        crate::agent_a11y::enable_accesskit(&s.ctx);
+        s.shell.app.ui.left_collapsed = false;
+        s.shell.app.ui.rail = Some(crate::app::RailItem::Agents);
+        s.shell.app.terminal.side_panel_pty_open = false;
+        s.shell.app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
+        s.frame(vec![]);
+        if let Some(tab) = s.shell.app.terminal.tabs.get_mut(0) {
+            tab.preset = crate::terminal::AgentCliPreset::Claude;
+            set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Idle);
+        }
+        s.shell.app.agent_a11y.queue.clear();
+        s.shell.app.agent_a11y.shown = None;
+        s.frame(vec![]);
+    }
+
+    fn find_accesskit_node<'a>(
+        update: &'a egui::accesskit::TreeUpdate,
+        role: egui::accesskit::Role,
+        label: &str,
+    ) -> Option<(egui::accesskit::NodeId, &'a egui::accesskit::Node)> {
+        update.nodes.iter().find(|(_, node)| node.role() == role && node.label() == Some(label)).map(|(id, node)| (*id, node))
+    }
+
+    #[test]
+    fn announcement_node_appears_when_a_stub_turn_ends() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        // Start the active Claude Code tab in Working state.
+        {
+            let tab = &mut s.shell.app.terminal.tabs[0];
+            tab.preset = crate::terminal::AgentCliPreset::Claude;
+            set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Working(None));
+        }
+        s.frame(vec![]);
+
+        // Transition Working -> Done and step one frame.
+        set_tab_status(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Done);
+        s.frame(vec![]);
+
+        let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let (_, node) = update
+            .nodes
+            .iter()
+            .find(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"))
+            .expect("polite announcement node for finished turn");
+        assert_eq!(node.role(), egui::accesskit::Role::Status);
+
+        // Step two more frames (§3.2: cleared two frames later); the announcement label must be gone.
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let update_after = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let still_present =
+            update_after.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"));
+        assert!(!still_present, "announcement node label must be cleared two frames later");
+    }
+
+    #[test]
+    fn needs_input_and_error_texts() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        let cases = [
+            (crate::terminal::AgentTabStatus::WaitingForInput(None), "Claude Code needs your input"),
+            (crate::terminal::AgentTabStatus::Error(Some("HTTP 429 rate limit exceeded".to_string())), "Claude Code failed: rate limited"),
+            (crate::terminal::AgentTabStatus::Error(Some("401 unauthorized token expired".to_string())), "Claude Code failed: login expired"),
+            (crate::terminal::AgentTabStatus::Error(None), "Claude Code failed: unknown error"),
+        ];
+
+        for (status, expected_text) in cases {
+            s.shell.app.agent_a11y.queue.clear();
+            s.shell.app.agent_a11y.shown = None;
+            let tab = &mut s.shell.app.terminal.tabs[0];
+            tab.preset = crate::terminal::AgentCliPreset::Claude;
+            set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Working(None));
+            set_tab_status(tab, status);
+            s.frame(vec![]);
+
+            let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+            let found = update.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some(expected_text));
+            assert!(found, "expected polite announcement {expected_text:?}");
+        }
+    }
+
+    #[test]
+    fn running_and_stopped_are_not_announced() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        set_tab_status_and_reported(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Idle);
+
+        set_tab_status(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Working(None));
+        s.frame(vec![]);
+        assert!(s.app().agent_a11y.queue.is_empty());
+        assert!(s.app().agent_a11y.shown.is_none());
+
+        set_tab_status(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Stopped);
+        s.frame(vec![]);
+        assert!(s.app().agent_a11y.queue.is_empty());
+        assert!(s.app().agent_a11y.shown.is_none());
+    }
+
+    #[test]
+    fn two_changes_in_one_frame_are_both_spoken() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        let _ = s.shell.app.terminal.spawn_tab(crate::terminal::AgentCliPreset::Shell, None);
+        assert!(s.shell.app.terminal.tabs.len() >= 2);
+        s.shell.app.terminal.tabs[0].preset = crate::terminal::AgentCliPreset::Claude;
+        set_tab_status_and_reported(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Working(None));
+        s.shell.app.terminal.tabs[1].preset = crate::terminal::AgentCliPreset::Codex;
+        set_tab_status_and_reported(&mut s.shell.app.terminal.tabs[1], crate::terminal::AgentTabStatus::Working(None));
+
+        // Both tabs finish in the same frame: §3.2 queues one announcement per frame so both are spoken.
+        set_tab_status(&mut s.shell.app.terminal.tabs[0], crate::terminal::AgentTabStatus::Done);
+        set_tab_status(&mut s.shell.app.terminal.tabs[1], crate::terminal::AgentTabStatus::Done);
+
+        s.frame(vec![]);
+        let update_first = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let has_first = update_first.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"));
+        assert!(has_first, "first announcement must be spoken on frame 1");
+
+        // On the next frame, the second queued announcement is spoken.
+        s.frame(vec![]);
+        let update_second = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let has_second = update_second.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Codex finished"));
+        assert!(has_second, "second announcement must be spoken on frame 2");
+    }
+
+    #[test]
+    fn regions_have_roles_and_names() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let (panel_id, _) = find_accesskit_node(update, egui::accesskit::Role::Region, "Agents panel").expect("Agents panel region");
+        let (tabs_id, _) = find_accesskit_node(update, egui::accesskit::Role::TabList, "Agent tabs").expect("Agent tabs tablist");
+        let (term_id, term_node) = find_accesskit_node(update, egui::accesskit::Role::Terminal, "Agent terminal").expect("Agent terminal");
+        let (comp_id, _) = find_accesskit_node(update, egui::accesskit::Role::Region, "Message composer").expect("Message composer region");
+
+        assert_eq!(term_node.description(), Some("Claude Code, idle"));
+
+        // Verify the region order in the root node's children follows visual order:
+        // Agents panel / header -> Agent tabs -> Agent terminal -> Message composer.
+        let root_id = update.tree.as_ref().expect("root tree").root;
+        let (_, root_node) = update.nodes.iter().find(|(id, _)| *id == root_id).expect("root node");
+        let children = root_node.children();
+        let idx_panel = children.iter().position(|&id| id == panel_id).expect("panel in root");
+        let idx_tabs = children.iter().position(|&id| id == tabs_id).expect("tabs in root");
+        let idx_term = children.iter().position(|&id| id == term_id).expect("terminal in root");
+        let idx_comp = children.iter().position(|&id| id == comp_id).expect("composer in root");
+        assert!(idx_panel < idx_tabs && idx_tabs < idx_term && idx_term < idx_comp);
+    }
+
+    #[test]
+    fn icon_buttons_have_names() {
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+
+        // In default chat mode (`side_panel_pty_open == false`), composer and runtime pills are created;
+        // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Selection chip`) must not be published.
+        let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        for label in ["Send", "Shell", "Attach context", "Toggle terminal", "Attach PRD context"] {
+            assert!(find_accesskit_node(update, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in chat mode");
+        }
+        let (shell_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Shell").expect("Shell button");
+        assert_eq!(shell_node_id, egui::Id::new("agents-runtime-pty-toggle").accesskit_id(), "Shell label must target agents-runtime-pty-toggle");
+        for absent in ["Stop", "Selection chip", "New session", "Close tab", "Insert audit prompt"] {
+            assert!(find_accesskit_node(update, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in chat mode");
+        }
+
+        // Switch to PTY mode with 2 tabs so both `New session` and `Close tab` exist in the PTY bar.
+        // With an empty selection, the selection chip uses `Sense::hover()` and must not appear as a button.
+        let _ = s.shell.app.terminal.spawn_tab(crate::terminal::AgentCliPreset::Shell, None);
+        s.shell.app.terminal.side_panel_pty_open = true;
+        s.frame(vec![]);
+
+        let update_pty = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        for label in ["New session", "Close tab", "Toggle terminal dock"] {
+            assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in PTY mode");
+        }
+        for absent in ["Stop", "Selection chip", "Send"] {
+            assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in PTY mode");
+        }
+
+        // Select a node on the canvas: the selection chip switches to `Sense::click()` and publishes
+        // `Role::Button` with accessible name `"Selection chip"`.
+        let page = s.shell.app.page;
+        let fid = s.shell.app.doc.alloc_id();
+        let frame_node = designos_doc::Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        s.shell.app.doc.insert(page, frame_node).unwrap();
+        s.shell.app.selection = vec![fid];
+        s.frame(vec![]);
+
+        let update_pty_selected = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
+        let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Selection chip")
+            .expect("expected Role::Button with label \"Selection chip\" in PTY mode when a node is selected");
+        assert_eq!(chip_node_id, egui::Id::new("agent-selection-chip-left").accesskit_id());
+        for absent in ["Stop", "Send"] {
+            assert!(
+                find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, absent).is_none(),
+                "unexpected phantom button {absent:?} in PTY mode with selection"
+            );
+        }
+    }
+
+    #[test]
+    fn shortcut_moves_focus_to_the_composer_and_back() {
+        let mut s = Sim::new();
+        crate::agent_a11y::enable_accesskit(&s.ctx);
+        // Start with the left sidebar collapsed on the File rail.
+        s.shell.app.ui.left_collapsed = true;
+        s.shell.app.ui.rail = Some(crate::app::RailItem::File);
+        s.frame(vec![]);
+
+        // Send Cmd+Alt+J -> opens the Agents panel and moves keyboard focus to the composer.
+        let cmd_alt = Modifiers { command: true, mac_cmd: true, alt: true, ..Default::default() };
+        s.mods = cmd_alt;
+        s.frame(vec![Event::Key { key: Key::J, physical_key: Some(Key::J), pressed: true, repeat: false, modifiers: cmd_alt }]);
+        s.mods = Modifiers::NONE;
+        s.frame(vec![]);
+
+        assert!(!s.app().ui.left_collapsed, "Cmd+Alt+J must uncollapse the left panel");
+        assert_eq!(s.app().ui.rail, Some(crate::app::RailItem::Agents), "Cmd+Alt+J must select the Agents rail");
+        assert_eq!(s.ctx.memory(|m| m.focused()), Some(crate::agent_a11y::composer_id()), "Cmd+Alt+J must focus the composer");
+
+        // Send Cmd+Alt+J again -> returns keyboard focus to the canvas.
+        s.mods = cmd_alt;
+        s.frame(vec![Event::Key { key: Key::J, physical_key: Some(Key::J), pressed: true, repeat: false, modifiers: cmd_alt }]);
+        s.mods = Modifiers::NONE;
+        s.frame(vec![]);
+
+        assert_eq!(s.ctx.memory(|m| m.focused()), Some(crate::agent_a11y::canvas_id()), "second Cmd+Alt+J must return focus to the canvas");
+
+        // Single-key canvas shortcuts must work immediately after focus returns to the canvas.
+        s.frame(vec![Event::Key { key: Key::R, physical_key: Some(Key::R), pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
+        assert_eq!(s.app().tool, crate::canvas::tools::Tool::Rectangle, "single-key 'R' shortcut must activate Rectangle tool when canvas has focus");
+    }
+
+    #[test]
+    fn cmd_alt_j_with_selected_text_node_justifies_text_instead_of_opening_agents() {
+        let mut s = Sim::new();
+        s.shell.app.ui.left_collapsed = true;
+        s.shell.app.ui.rail = Some(crate::app::RailItem::File);
+        let page = s.shell.app.page;
+        let tid = s.shell.app.doc.alloc_id();
+        let tn = designos_doc::Node::text(tid, designos_doc::Rect::new(0.0, 0.0, 200.0, 32.0), "Paragraph text", designos_doc::TextStyle::default());
+        s.shell.app.doc.insert(page, tn).unwrap();
+        s.shell.app.selection = vec![tid];
+        s.frame(vec![]);
+
+        let cmd_alt = Modifiers { command: true, mac_cmd: true, alt: true, ..Default::default() };
+        s.mods = cmd_alt;
+        s.frame(vec![Event::Key { key: Key::J, physical_key: Some(Key::J), pressed: true, repeat: false, modifiers: cmd_alt }]);
+        s.mods = Modifiers::NONE;
+        s.frame(vec![]);
+
+        let align_h = match &s.app().doc.get(tid).unwrap().kind {
+            designos_doc::NodeKind::Text(t) => t.style.align_h,
+            other => panic!("expected text node, got {other:?}"),
+        };
+        assert_eq!(align_h, designos_doc::TextAlignH::Justified, "Cmd+Alt+J with selected text node must set TextAlignH::Justified");
+        assert!(s.app().ui.left_collapsed, "left panel must stay collapsed");
+        assert_eq!(s.app().ui.rail, Some(crate::app::RailItem::File), "rail must remain unchanged");
+    }
+
+    #[test]
+    fn osc_stopped_status_and_tab_status_dot_colors() {
+        assert_eq!(
+            crate::terminal::parse_osc_agent_status_and_strip("\x1b]9999;{\"state\":\"stopped\"}\x07").1,
+            Some(crate::terminal::AgentTabStatus::Stopped)
+        );
+        assert_eq!(crate::terminal::parse_osc_agent_status_and_strip("\x1b]9999;stopped\x07").1, Some(crate::terminal::AgentTabStatus::Stopped));
+
+        let mut s = Sim::new();
+        open_agents_panel_with_accesskit(&mut s);
+        s.shell.app.terminal.side_panel_pty_open = true;
+
+        let has_circle_with_fill = |shapes: &[egui::epaint::ClippedShape], expected_fill: egui::Color32| -> bool {
+            shapes.iter().any(|cs| {
+                matches!(
+                    &cs.shape,
+                    egui::epaint::Shape::Circle(c) if (c.radius - 2.7).abs() < 0.05 && c.fill == expected_fill
+                )
+            })
+        };
+
+        // Error status -> painted with theme::DANGER
+        {
+            let tab = &mut s.shell.app.terminal.tabs[0];
+            if let Ok(mut ts) = tab.last_output_at.lock() {
+                *ts = None;
+            }
+            set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Error(Some("503 Service Unavailable".into())));
+        }
+        s.frame(vec![]);
+        assert!(has_circle_with_fill(&s.shapes, crate::theme::DANGER), "Error status dot must paint with theme::DANGER");
+
+        // Stopped status -> painted with theme::ICON_TERTIARY
+        {
+            let tab = &mut s.shell.app.terminal.tabs[0];
+            if let Ok(mut ts) = tab.last_output_at.lock() {
+                *ts = None;
+            }
+            set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Stopped);
+        }
+        s.frame(vec![]);
+        assert!(has_circle_with_fill(&s.shapes, crate::theme::ICON_TERTIARY), "Stopped status dot must paint with theme::ICON_TERTIARY");
+    }
+
+    #[test]
+    fn no_accesskit_means_no_cost() {
+        let mut s = Sim::new();
+        crate::agent_a11y::disable_accesskit(&s.ctx);
+        s.shell.app.ui.left_collapsed = false;
+        s.shell.app.ui.rail = Some(crate::app::RailItem::Agents);
+        s.frame(vec![]);
+
+        for status in [
+            crate::terminal::AgentTabStatus::Working(None),
+            crate::terminal::AgentTabStatus::Idle,
+            crate::terminal::AgentTabStatus::WaitingForInput(None),
+            crate::terminal::AgentTabStatus::Error(Some("429 rate limit".to_string())),
+            crate::terminal::AgentTabStatus::Stopped,
+        ] {
+            set_tab_status(&mut s.shell.app.terminal.tabs[0], status);
+            s.frame(vec![]);
+            assert!(s.app().agent_a11y.queue.is_empty(), "announcer queue must stay empty when AccessKit is disabled");
+            assert!(s.app().agent_a11y.shown.is_none(), "announcer shown must stay None when AccessKit is disabled");
+        }
+    }
 }

@@ -1,3 +1,4 @@
+mod agent_a11y;
 pub mod agent_cli_catalog;
 pub mod agent_picker;
 mod agent_selection_chip;

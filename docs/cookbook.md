@@ -30,6 +30,7 @@ designos app.designos --select "EaseUI — Agent-First Spec Console" --export-sp
 designos-studio --open-id <file-id> --panel specs
 
 # Launch the native Agentic PTY Chat UI wrapper (Claude Code · Codex · Antigravity CLI)
+# Keyboard shortcut inside Studio: Cmd+Alt+J (macOS) / Ctrl+Alt+J (Linux/Windows) moves focus to the Agents composer (or terminal) and back to the canvas.
 designos-studio --open-id <file-id> --rail agents
 
 # Read human feedback pins from the Canvas (resolved to exact NodeId + parent Screen Frame)

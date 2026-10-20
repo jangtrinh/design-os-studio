@@ -123,7 +123,16 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
         assert_eq!(shell.app.terminal.tabs.len(), 1, "precondition: --panel {panel} starts the shell during build");
         let started_with = shell.app.terminal.session_env();
 
-        let mut s = Sim { ctx, shell, t: 0.0, pos: Pos2::new(700.0, 500.0), mods: Modifiers::NONE, cursor: egui::CursorIcon::Default, shapes: Vec::new() };
+        let mut s = Sim {
+            ctx,
+            shell,
+            t: 0.0,
+            pos: Pos2::new(700.0, 500.0),
+            mods: Modifiers::NONE,
+            cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
+            accesskit_update: None,
+        };
         s.frame(vec![]);
         s.frame(vec![]);
 

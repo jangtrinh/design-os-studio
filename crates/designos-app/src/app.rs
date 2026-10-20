@@ -193,6 +193,8 @@ pub struct App {
     pub specs: crate::specs::SpecsState,
     /// Native Embedded PTY Agent Terminal (Claude CLI, Codex CLI, Grok CLI, $SHELL).
     pub terminal: crate::terminal::TerminalState,
+    /// Screen-reader polite live-region announcer for agent tab transitions (`#687`).
+    pub agent_a11y: crate::agent_a11y::Announcer,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
     /// Check designs panel: hard-coded values, contrast and detached instances.
@@ -257,6 +259,7 @@ impl App {
             decks: Default::default(),
             specs: Default::default(),
             terminal: Default::default(),
+            agent_a11y: Default::default(),
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
