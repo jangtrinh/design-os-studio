@@ -18,10 +18,11 @@ Activate this skill when the user asks to:
 ## Progressive Disclosure Routing (`What loads when`)
 
 1. **Always Loaded**: `skills/design-os-studio/SKILL.md` (this router — keeps context lean at ~120 lines).
-2. **On Demand — Prompt & CLI Recipes**: Load `docs/cookbook.md` when selecting multi-step workflows, headless screenshot flags, or MCP server patterns.
-3. **On Demand — Installation & Release Packaging**: Load `docs/install.md` and `docs/releasing.md` when building or installing `.dmg`, `-setup.exe`, or `.deb` packages.
-4. **On Demand — Diagnostics**: Load `commands/doctor.md` or run `python3 scripts/self_check.py` when verifying repository or skill health.
-5. **On Demand — Ecosystem Discovery**: Load `llms.txt` when cross-referencing companion `DESIGN:OS` engines.
+2. **On Demand — Agent Rules & Tool Pack**: Load [`rules.md`](./rules.md) (`skills/design-os-studio/rules.md`) for the generated 7-step build-verify-fix workflow, per-tool schemas/error codes, `NodeSpec` schema reference, and design-quality rules.
+3. **On Demand — Prompt & CLI Recipes**: Load `docs/cookbook.md` when selecting multi-step workflows, headless screenshot flags, or MCP server patterns.
+4. **On Demand — Installation & Release Packaging**: Load `docs/install.md` and `docs/releasing.md` when building or installing `.dmg`, `-setup.exe`, or `.deb` packages.
+5. **On Demand — Diagnostics**: Load `commands/doctor.md` or run `python3 scripts/self_check.py` when verifying repository or skill health.
+6. **On Demand — Ecosystem Discovery**: Load `llms.txt` when cross-referencing companion `DESIGN:OS` engines.
 
 ## Core Binaries & CLI Surface
 

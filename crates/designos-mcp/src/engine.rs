@@ -100,6 +100,8 @@ pub struct Engine {
     pub disable_text_lint_engine: bool,
     /// Monotonic in-memory mutation counter used by [`crate::server::Session`] to compute `safe_to_retry`.
     pub revision: u64,
+    /// Optional set of enabled canonical tool names from `designos.enabled_tools` (`E15-15` §8.5).
+    pub enabled_tools: Option<std::collections::BTreeSet<String>>,
 }
 
 impl Default for Engine {
@@ -122,6 +124,7 @@ impl Default for Engine {
             session_options: crate::tools::session_options::SessionOptions::default(),
             disable_text_lint_engine: false,
             revision: 0,
+            enabled_tools: None,
         }
     }
 }
@@ -1091,7 +1094,13 @@ impl Engine {
                     "changed": true
                 }))
             }
-            "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args).map_err(|e| {
+            "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines_with_enabled_tools(
+                &self.doc,
+                args,
+                &crate::tools::guidelines::guidelines_dir(),
+                self.enabled_tools.as_ref(),
+            )
+            .map_err(|e| {
                 let err = ToolError::from(e);
                 let path = if matches!(err.code, ErrorCode::UnknownTopic | ErrorCode::TopicNotAvailable) { "/topic" } else { "" };
                 err.with_path(path)

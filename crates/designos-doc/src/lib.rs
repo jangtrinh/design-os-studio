@@ -335,6 +335,7 @@ pub fn advance_mock_now_ms(delta_ms: u64) -> u64 {
 
 /// Transient agent work-in-progress marker for a root frame or section (`E15-7` / `#592`).
 #[derive(Clone, Debug, Default, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(from = "InProgressWire")]
 pub struct InProgress {
     /// Identifier of the agent run that owns the flag (`$DESIGNOS_AGENT_RUN_ID`; `None` = imported or user-set).
@@ -427,6 +428,7 @@ fn agent_names_match(a: &str, b: &str) -> bool {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct InProgressWire {
     #[serde(default)]
     run_id: Option<String>,

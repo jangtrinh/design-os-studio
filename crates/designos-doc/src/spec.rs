@@ -12,17 +12,21 @@ fn default_one_num_or_var() -> NumberOrVar {
     NumberOrVar::Num(1.0)
 }
 
-/// Declarative Auto-Layout 5.0 specification for a container frame.
+/// Auto-Layout 5.0 configuration for a container frame.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LayoutSpec {
     /// `"row"` / `"horizontal"` or `"column"` / `"vertical"`.
     #[serde(default, alias = "dir")]
     pub direction: String,
+    /// Wrap overflowing children onto additional lines when `true`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wrap: bool,
+    /// Primary-axis child gap in px (or `"var:<collection>/<name>"`).
     #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
     pub gap: NumberOrVar,
+    /// Cross-axis spacing between wrapped lines in px (or `"var:..."`).
     #[serde(default, skip_serializing_if = "NumberOrVar::is_zero")]
     pub counter_gap: NumberOrVar,
     /// `[top, right, bottom, left]` padding in px or `"var:..."` references.
@@ -34,51 +38,56 @@ pub struct LayoutSpec {
     /// `"start"`, `"center"`, `"end"`, or `"baseline"`.
     #[serde(default, alias = "align", skip_serializing_if = "String::is_empty")]
     pub counter_align: String,
+    /// Grid column count when using grid layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_columns: Option<u32>,
+    /// Grid row count when using grid layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_rows: Option<u32>,
 }
 
-/// Declarative node specification used by Agents and CLI/MCP tools (`apply_spec` / `export_spec`).
+/// Declarative node specification for `apply_spec` and `export_spec`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NodeSpec {
+    /// Node ID (assigned on export; optional on input).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
-    /// `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`, `"instance"`.
+    /// `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`, or `"instance"`.
     #[serde(default)]
     pub kind: String,
+    /// Layer name (avoid default names like `"Frame 1"`).
     #[serde(default)]
     pub name: String,
-    /// Component reference for `"instance"` nodes (`"node:<id>"`, component key, or component/library name).
+    /// Component ref for `"instance"` (`"node:<id>"`, key, or `"<Library>/<Component>"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
-    /// Variant property selection `{property: value}` for `"instance"` nodes.
+    /// Variant selection `{property: value}` for `"instance"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub variant: BTreeMap<String, String>,
-    /// Component property overrides `{prop_name: value}` on an `"instance"` root.
+    /// Component property overrides `{prop: value}` on an `"instance"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub props: BTreeMap<String, serde_json::Value>,
-    /// Ordered descendant overrides applied inside an `"instance"`.
+    /// Descendant overrides inside an `"instance"`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overrides: Vec<OverrideSpec>,
-    /// Slot fills or disable flags `{slot_name: [NodeSpec...] | false}` on an `"instance"` root (E15-2).
+    /// Slot fills `{slot: [NodeSpec...] | false}` on an `"instance"`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, SlotFillSpec>,
-    /// Optional EaseUI BrainWave 2.0 preset:
-    /// `"easeui-screen"`, `"easeui-panel"`, `"easeui-card"`, `"easeui-button-primary"`,
-    /// `"easeui-button-secondary"`, `"easeui-input"`, `"easeui-badge"`, `"easeui-row"`, `"easeui-column"`.
+    /// EaseUI preset (`"easeui-screen"`, `"easeui-panel"`, `"easeui-card"`, `"easeui-button-primary"`, `"easeui-button-secondary"`, `"easeui-input"`, `"easeui-badge"`, `"easeui-row"`, `"easeui-column"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    /// Parent-relative X in px.
     #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub x: f32,
+    /// Parent-relative Y in px.
     #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub y: f32,
-    /// Width in px or a `"var:..."` Number variable reference.
+    /// Width in px (or `"var:..."` Number variable reference).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<NumberOrVar>,
-    /// Height in px or a `"var:..."` Number variable reference.
+    /// Height in px (or `"var:..."` Number variable reference).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<NumberOrVar>,
     /// `"fixed"`, `"hug"`, or `"fill"`.
@@ -87,73 +96,95 @@ pub struct NodeSpec {
     /// `"fixed"`, `"hug"`, or `"fill"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height_sizing: Option<String>,
+    /// Min width in px.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_width: Option<f32>,
+    /// Max width in px.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_width: Option<f32>,
+    /// Min height in px.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_height: Option<f32>,
+    /// Max height in px.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_height: Option<f32>,
+    /// Grid column span (`>= 1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col_span: Option<u16>,
+    /// Grid row span (`>= 1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_span: Option<u16>,
-    /// Hex color (`"#18181B"`), `"var:<collection>/<name>"`, `"style:<name>"`, or EaseUI token (`"$easeui.bg.panel"`).
+    /// Fill (`"#18181B"`, `"var:<collection>/<name>"`, `"style:<name>"`, or `"$easeui.bg.panel"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
-    /// Hex color, `"var:..."`, `"style:..."`, or EaseUI token for stroke.
+    /// Stroke (`"#RRGGBB"`, `"var:<collection>/<name>"`, `"style:<name>"`, or EaseUI token).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<String>,
+    /// Stroke weight in px (or `"var:..."`).
     #[serde(default, alias = "stroke_width", skip_serializing_if = "Option::is_none")]
     pub stroke_weight: Option<NumberOrVar>,
+    /// Uniform corner radius in px (or `"var:..."`).
     #[serde(default, alias = "radius", skip_serializing_if = "Option::is_none")]
     pub corner_radius: Option<NumberOrVar>,
+    /// Per-corner radii `[tl, tr, br, bl]` in px (or `"var:..."`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub corner_radii: Option<[NumberOrVar; 4]>,
+    /// Opacity (`0.0..=1.0`, default `1.0`, or `"var:..."`).
     #[serde(default = "default_one_num_or_var", skip_serializing_if = "NumberOrVar::is_one")]
     pub opacity: NumberOrVar,
+    /// Clip overflowing children when `true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clips_content: Option<bool>,
     /// `false` hides the node; a `"var:..."` string binds `visible` to a Boolean variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible: Option<BoolOrVar>,
-    /// Text content (for `"text"` nodes, or automatically creates a child label if set on a button/badge frame!).
+    /// Text characters (for `"text"`, or auto-creates a child label on a button/badge frame).
     /// A `"var:..."` string binds `characters` to a String variable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Font size in px (or `"var:..."`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<NumberOrVar>,
+    /// Line height in px (or `"var:..."`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_height: Option<NumberOrVar>,
+    /// Font weight (`100..=900`, e.g. `400`, `500`, `600`, `700`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_weight: Option<u16>,
+    /// Text colour (`"#RRGGBB"`, `"var:<collection>/<name>"`, or `"$easeui.text.primary"`).
     #[serde(default, alias = "color", skip_serializing_if = "Option::is_none")]
     pub text_color: Option<String>,
+    /// Shared text style (`"style:<name>"` or style name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_style: Option<String>,
+    /// Shared effect style (`"style:<name>"` or style name).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_style: Option<String>,
     /// Layout grid style name or `"style:<key>"` reference (frame-like nodes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_style: Option<String>,
+    /// Variable mode overrides `{collection: mode}` on this container.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub mode: std::collections::BTreeMap<String, String>,
+    /// Auto-Layout 5.0 configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutSpec>,
     /// `"ready"` (`ReadyForDev`) or `"completed"` (`Completed`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_status: Option<String>,
+    /// Single handoff annotation string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotation: Option<String>,
+    /// Handoff annotations attached to this node.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
-    /// Optional agent `in_progress` flag (`true`, `false`, or an [`InProgress`] object).
+    /// Agent `in_progress` flag (`true`, `false`, or a detailed object).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_progress: Option<InProgressSpec>,
-    /// Attached canvas comments when exporting a subtree spec.
+    /// Resolved canvas comment threads on export.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<ResolvedCommentThread>,
+    /// Child `NodeSpec` items.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<NodeSpec>,
 }
@@ -161,6 +192,20 @@ pub struct NodeSpec {
 /// Literal `false` used by [`SlotFillSpec::Disabled`] (`slots: {"Actions": false}`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FalseLiteral;
+
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for FalseLiteral {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("FalseLiteral")
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "boolean",
+            "enum": [false],
+            "description": "Literal false to disable an optional component slot."
+        })
+    }
+}
 
 impl Serialize for FalseLiteral {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -179,11 +224,14 @@ impl<'de> Deserialize<'de> for FalseLiteral {
     }
 }
 
-/// Slot fill or disable specification in `NodeSpec::slots` / `OverrideSpec::slots` (E15-2).
+/// Slot fill or disable value in `slots` (`[NodeSpec...] | false`).
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum SlotFillSpec {
+    /// Disable and hide the slot (`false`).
     Disabled(FalseLiteral),
+    /// Populate the slot with child `NodeSpec` items (`[NodeSpec...]`).
     Fill(Vec<NodeSpec>),
 }
 
@@ -198,30 +246,42 @@ impl<'de> Deserialize<'de> for SlotFillSpec {
     }
 }
 
-/// Descendant override specification inside a `NodeSpec` of `kind: "instance"`.
+/// Descendant override inside an `"instance"` node.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct OverrideSpec {
+    /// Descendant path inside the instance (`"Header/Title"` or `"Card[1]/Label"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Numeric descendant node ID (alternative to `path`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
+    /// Override text on a descendant `"text"` layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Override fill (`"#RRGGBB"`, `"var:<collection>/<name>"`, or `"style:<name>"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
+    /// Override stroke (`"#RRGGBB"`, `"var:<collection>/<name>"`, or `"style:<name>"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<String>,
+    /// Toggle descendant visibility (`true` | `false`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible: Option<bool>,
+    /// Override descendant opacity (`0.0..=1.0`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<f32>,
+    /// Swap nested instance component (`"<Component>"` or `"<Library>/<Component>"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swap: Option<String>,
+    /// Variant properties `{property: value}` on a nested instance.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub variant: BTreeMap<String, String>,
+    /// Component properties `{prop: value}` on a nested instance.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub props: BTreeMap<String, serde_json::Value>,
+    /// Slot fills `{slot: [NodeSpec...] | false}` on a nested instance.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, SlotFillSpec>,
 }
@@ -308,6 +368,7 @@ pub fn format_spec_serde_error(err: &serde_json::Error) -> String {
 
 /// Declarative `in_progress` flag on a [`NodeSpec`] (`true`/`false` or a detailed [`InProgress`] object).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum InProgressSpec {
     Bool(bool),
@@ -341,6 +402,7 @@ impl InProgressSpec {
 /// A canvas comment thread enriched with its resolved world position and the
 /// exact target node and top-level screen/frame under the pin.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ResolvedCommentThread {
     pub id: String,
     pub resolved: bool,

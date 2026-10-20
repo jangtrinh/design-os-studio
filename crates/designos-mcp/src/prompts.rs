@@ -105,23 +105,52 @@ pub struct GeneratedRules {
     pub sources: Vec<String>,
 }
 
+pub const DESIGNOS_RULES: &str = "designos_rules";
+
 /// Returns the catalog of MCP prompts exposed by `designos-mcp`.
 pub fn prompts() -> Vec<Prompt> {
-    vec![Prompt::new(
-        CREATE_DESIGN_SYSTEM_RULES,
-        Some("Generate design-system rules from this file's variables, styles and components, naming every token source."),
-        Some(vec![
-            PromptArgument::new("scope").with_description("Scope to inspect: 'file' (default) or 'page:<id>'.").with_required(false),
-            PromptArgument::new("platform").with_description("Target platform for code syntax: 'web' (default), 'ios', or 'android'.").with_required(false),
-            PromptArgument::new("max_tokens").with_description("Maximum token budget (500..=25000, default 8000).").with_required(false),
-        ]),
-    )]
+    vec![
+        Prompt::new(
+            CREATE_DESIGN_SYSTEM_RULES,
+            Some("Generate design-system rules from this file's variables, styles and components, naming every token source."),
+            Some(vec![
+                PromptArgument::new("scope").with_description("Scope to inspect: 'file' (default) or 'page:<id>'.").with_required(false),
+                PromptArgument::new("platform").with_description("Target platform for code syntax: 'web' (default), 'ios', or 'android'.").with_required(false),
+                PromptArgument::new("max_tokens").with_description("Maximum token budget (500..=25000, default 8000).").with_required(false),
+            ]),
+        ),
+        Prompt::new(
+            DESIGNOS_RULES,
+            Some("Return the DESIGN:OS Studio agent rules pack, enabled tool reference, NodeSpec schema, and 7-step build-verify-fix workflow."),
+            None,
+        ),
+    ]
 }
 
 /// Executes an MCP `prompts/get` request against `doc`.
 pub fn get_prompt(doc: &Document, name: &str, arguments: Option<&JsonObject>) -> Result<GetPromptResult, String> {
+    get_prompt_with_enabled_tools(doc, name, arguments, None)
+}
+
+/// Executes an MCP `prompts/get` request against `doc`, filtering `designos_rules` to `enabled_tools` when configured.
+pub fn get_prompt_with_enabled_tools(
+    doc: &Document,
+    name: &str,
+    arguments: Option<&JsonObject>,
+    enabled_tools: Option<&BTreeSet<String>>,
+) -> Result<GetPromptResult, String> {
+    if name == DESIGNOS_RULES {
+        if let Some(map) = arguments {
+            if let Some(first_key) = map.keys().next() {
+                return Err(format!("INVALID_ARGUMENTS: unknown prompt argument '{first_key}'; '{DESIGNOS_RULES}' takes no arguments"));
+            }
+        }
+        let rules_md = crate::rules::generate_rules_pack(enabled_tools)?;
+        return Ok(GetPromptResult::new(vec![PromptMessage::new_text(Role::User, rules_md)])
+            .with_description("DESIGN:OS Studio agent rules pack and build-verify-fix workflow"));
+    }
     if name != CREATE_DESIGN_SYSTEM_RULES {
-        return Err(format!("UNKNOWN_PROMPT: unknown prompt '{name}'; valid_options: [\"{CREATE_DESIGN_SYSTEM_RULES}\"]"));
+        return Err(format!("UNKNOWN_PROMPT: unknown prompt '{name}'; valid_options: [\"{CREATE_DESIGN_SYSTEM_RULES}\", \"{DESIGNOS_RULES}\"]"));
     }
     let opts = RulesOptions::from_prompt_arguments(arguments)?;
     let generated = generate_design_system_rules(doc, &opts)?;

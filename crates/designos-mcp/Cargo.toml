@@ -15,12 +15,13 @@ path = "src/bin/gen-tool-docs.rs"
 
 [dependencies]
 designos-diff.workspace = true
-designos-doc.workspace = true
+designos-doc = { workspace = true, features = ["schema"] }
 designos-export.workspace = true
 designos-fig.workspace = true
 designos-library.workspace = true
 designos-webcapture.workspace = true
 designos-render.workspace = true
+schemars = "1"
 serde.workspace = true
 serde_json.workspace = true
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }

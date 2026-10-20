@@ -989,6 +989,7 @@ name = "designos-doc"
 version = "0.5.0"
 dependencies = [
  "regex",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1097,6 +1098,7 @@ dependencies = [
  "jsonschema",
  "quick-xml",
  "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "tokio",

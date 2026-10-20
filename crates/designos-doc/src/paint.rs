@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Straight (non-premultiplied) sRGB color, components 0..=1.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Color {
     pub r: f32,
     pub g: f32,

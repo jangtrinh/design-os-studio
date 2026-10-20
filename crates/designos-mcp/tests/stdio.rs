@@ -21,10 +21,15 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         assert!(tools.iter().any(|t| t.name == "designos_lint_fix"));
         assert!(tools.iter().all(|t| t.annotations.is_some() && t.output_schema.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
-        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts.len(), 2);
         assert_eq!(prompts[0].name, "create_design_system_rules");
+        assert_eq!(prompts[1].name, "designos_rules");
         let prompt_result = client.get_prompt(GetPromptRequestParams::new("create_design_system_rules")).await.unwrap();
         assert_eq!(prompt_result.messages.len(), 1);
+        let rules_prompt_result = client.get_prompt(GetPromptRequestParams::new("designos_rules")).await.unwrap();
+        assert_eq!(rules_prompt_result.messages.len(), 1);
+        let resources = client.list_all_resources().await.unwrap();
+        assert!(resources.iter().any(|r| r.uri == "designos://rules"));
         let call = |name: &'static str, args: Value| CallToolRequestParams::new(name).with_arguments(args.as_object().unwrap().clone());
         let libs = client.call_tool(call("designos_get_libraries", json!({}))).await.unwrap();
         assert_eq!(libs.is_error, Some(false));
@@ -34,6 +39,9 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let guidelines_ds = client.call_tool(call("designos_get_guidelines", json!({"topic":"design-system"}))).await.unwrap();
         assert_eq!(guidelines_ds.is_error, Some(false));
         assert!(guidelines_ds.structured_content.unwrap()["content"].as_str().unwrap().contains("# Design system rules"));
+        let guidelines_rules = client.call_tool(call("designos_get_guidelines", json!({"topic":"rules"}))).await.unwrap();
+        assert_eq!(guidelines_rules.is_error, Some(false));
+        assert!(guidelines_rules.structured_content.unwrap()["content"].as_str().unwrap().contains("# DESIGN:OS Studio — Agent Rules & Tool Pack"));
         let searched = client.call_tool(call("designos_search_design_system", json!({"query":"button"}))).await.unwrap();
         assert_eq!(searched.is_error, Some(false));
         assert_eq!(searched.structured_content.unwrap()["libraries_searched"], json!(["local"]));

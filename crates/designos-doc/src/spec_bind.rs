@@ -35,9 +35,12 @@ pub const EASEUI_CANONICAL_TOKENS: &[(&str, (u8, u8, u8), &[&str])] = &[
 
 /// A numeric spec field that accepts either a literal `f32` or a `"var:..."` string reference.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum NumberOrVar {
+    /// Numeric value in px (or opacity `0.0..=1.0`).
     Num(f32),
+    /// Variable reference `"var:<collection>/<name>"` or `"var:<Library>/<collection>/<name>"`.
     Ref(String),
 }
 
@@ -101,6 +104,7 @@ impl NumberOrVar {
 
 /// A boolean spec field (`visible`) that accepts either a literal `bool` or a `"var:..."` reference to a Boolean variable.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum BoolOrVar {
     Bool(bool),

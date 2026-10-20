@@ -169,15 +169,14 @@ pub fn call_get_guidelines(doc: &Document, raw_args: Value) -> Result<Value, Str
     }
 
     if topic == "rules" {
-        let Some(raw) = EMBEDDED_RULES else {
-            return Err("TOPIC_NOT_AVAILABLE: topic 'rules' is not available yet (provided by E15-15)".to_string());
-        };
-        let (content, truncated) = truncate_markdown(raw, opts.max_tokens, "rules");
+        let _ = EMBEDDED_RULES;
+        let raw = crate::rules::generate_rules_pack(None)?;
+        let (content, truncated) = truncate_markdown(&raw, opts.max_tokens, "rules");
         return Ok(json!({
             "topic": "rules",
             "content": content,
             "truncated": truncated,
-            "sources": ["guidelines/rules.md"],
+            "sources": ["generated/rules.md"],
         }));
     }
 
@@ -185,6 +184,15 @@ pub fn call_get_guidelines(doc: &Document, raw_args: Value) -> Result<Value, Str
 }
 
 pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &Path) -> Result<Value, String> {
+    call_get_guidelines_with_enabled_tools(doc, raw_args, base_dir, None)
+}
+
+pub fn call_get_guidelines_with_enabled_tools(
+    doc: &Document,
+    raw_args: Value,
+    base_dir: &Path,
+    enabled_tools: Option<&std::collections::BTreeSet<String>>,
+) -> Result<Value, String> {
     let args: GuidelinesArgs = serde_json::from_value(raw_args).map_err(|e| format!("INVALID_ARGUMENTS: {e}"))?;
     let opts = RulesOptions::parse(Some("file"), args.platform.as_deref(), Some(args.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS)))?;
 
@@ -263,17 +271,13 @@ pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &
     }
 
     if topic == "rules" {
-        let path = base_dir.join("rules.md");
-        if !path.is_file() {
-            return Err("TOPIC_NOT_AVAILABLE: topic 'rules' is not available yet (provided by E15-15)".to_string());
-        }
-        let raw = fs::read_to_string(&path).map_err(|e| format!("Failed to read rules guide: {e}"))?;
+        let raw = crate::rules::generate_rules_pack(enabled_tools)?;
         let (content, truncated) = truncate_markdown(&raw, opts.max_tokens, "rules");
         return Ok(json!({
             "topic": "rules",
             "content": content,
             "truncated": truncated,
-            "sources": ["guidelines/rules.md"],
+            "sources": ["generated/rules.md"],
         }));
     }
 
@@ -326,8 +330,8 @@ fn list_embedded_topics_value() -> Value {
 
     topics.push(json!({
         "id": "rules",
-        "summary": "Catalogue of 85 automated design critique and linting rules.",
-        "available": EMBEDDED_RULES.is_some(),
+        "summary": "Generated design-agent rules pack, tool reference, NodeSpec schema, and build-verify-fix workflow.",
+        "available": true,
         "provided_by": "E15-15",
     }));
 
@@ -370,11 +374,10 @@ fn list_topics_value(base_dir: &Path) -> Value {
         "provided_by": "E15-18",
     }));
 
-    let has_rules = base_dir.join("rules.md").is_file();
     topics.push(json!({
         "id": "rules",
-        "summary": "Catalogue of 85 automated design critique and linting rules.",
-        "available": has_rules,
+        "summary": "Generated design-agent rules pack, tool reference, NodeSpec schema, and build-verify-fix workflow.",
+        "available": true,
         "provided_by": "E15-15",
     }));
 
@@ -784,9 +787,14 @@ mod tests {
         let err_arch_id = call_get_guidelines(&doc, json!({"topic": "archetype:fintech"})).unwrap_err();
         assert!(err_arch_id.contains("TOPIC_NOT_AVAILABLE") && err_arch_id.contains("E15-18"), "unexpected error: {err_arch_id}");
 
-        // Requesting unavailable rules returns TOPIC_NOT_AVAILABLE naming E15-15
-        let err_rules = call_get_guidelines(&doc, json!({"topic": "rules"})).unwrap_err();
-        assert!(err_rules.contains("TOPIC_NOT_AVAILABLE") && err_rules.contains("E15-15"), "unexpected error: {err_rules}");
+        // Requesting rules returns the E15-15 generated rules pack
+        let rules_topic = topics.iter().find(|t| t["id"] == "rules").expect("rules topic");
+        assert_eq!(rules_topic["available"], true);
+        assert_eq!(rules_topic["provided_by"], "E15-15");
+        let rules_res = call_get_guidelines(&doc, json!({"topic": "rules"})).unwrap();
+        assert_eq!(rules_res["topic"], "rules");
+        assert_eq!(rules_res["truncated"], false);
+        assert!(rules_res["content"].as_str().unwrap().contains("# DESIGN:OS Studio — Agent Rules & Tool Pack"));
 
         // Unknown topic returns UNKNOWN_TOPIC with valid_options
         let err_unknown = call_get_guidelines(&doc, json!({"topic": "not-a-topic"})).unwrap_err();

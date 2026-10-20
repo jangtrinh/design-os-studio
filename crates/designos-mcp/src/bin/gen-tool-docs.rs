@@ -232,4 +232,17 @@ fn main() {
         let updated = replace_marked_block(&original, &block).unwrap_or_else(|e| panic!("failed to update {}: {e}", path.display()));
         fs::write(&path, updated).unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
     }
+
+    let rules_md = designos_mcp::rules::generate_default_rules_pack().expect("generate default rules pack");
+    let generated_rules_path = crate_dir.join("generated/rules.md");
+    if let Some(parent) = generated_rules_path.parent() {
+        fs::create_dir_all(parent).expect("create generated dir");
+    }
+    fs::write(&generated_rules_path, &rules_md).expect("write crates/designos-mcp/generated/rules.md");
+
+    let skill_rules_path = root.join("skills/design-os-studio/rules.md");
+    if let Some(parent) = skill_rules_path.parent() {
+        fs::create_dir_all(parent).expect("create skills/design-os-studio dir");
+    }
+    fs::write(&skill_rules_path, &rules_md).expect("write skills/design-os-studio/rules.md");
 }
