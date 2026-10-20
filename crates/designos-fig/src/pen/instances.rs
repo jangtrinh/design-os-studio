@@ -592,15 +592,19 @@ fn apply_descendant_overrides(
             parse_paints(Some(fill_v), doc, target_source_id.as_deref(), base_dir_ref.as_deref(), &mut ctx.total_image_bytes, &mut pdata, &mut ctx.warnings);
         if let Some(n) = doc.get_mut(target_id) {
             n.plugin_data = pdata;
+            let icon_stroke_from_fill = n.plugin_data.get("pen:icon_stroke_from_fill").map(String::as_str) == Some("true");
             if let Some(tp) = n.kind.any_text_mut() {
                 tp.style.fills = paints;
+            } else if icon_stroke_from_fill && n.fills.is_empty() {
+                n.stroke.paints = paints;
             } else {
                 n.fills = paints;
             }
+            let bind_key = if icon_stroke_from_fill && n.fills.is_empty() { "strokes/0" } else { "fills/0" };
             if let Some(fv) = fvar {
-                n.variables.bindings.insert("fills/0".into(), fv);
+                n.variables.bindings.insert(bind_key.into(), fv);
             } else {
-                n.variables.bindings.remove("fills/0");
+                n.variables.bindings.remove(bind_key);
             }
             n.component.overrides.insert(OverrideField::Fills);
         }
@@ -827,27 +831,26 @@ fn apply_descendant_overrides(
             }
             n.plugin_data.insert("pen:icon".into(), json!({ "family": fam, "name": iname }).to_string());
             n.plugin_data.insert("pen:icon_overridden".into(), "true".into());
-            if let Some(d_str) = builtin_icon_svg_path(&fam, &iname) {
-                let mut path = parse_path(d_str, FillRule::NonZero);
-                let (w, h) = (n.size.x.max(1.0), n.size.y.max(1.0));
-                for cmd in &mut path.cmds {
-                    let scale = |p: Vec2| Vec2::new(p.x * (w / 24.0), p.y * (h / 24.0));
-                    match cmd {
-                        PathCmd::MoveTo(p) | PathCmd::LineTo(p) => *p = scale(*p),
-                        PathCmd::QuadTo(p1, p2) => {
-                            *p1 = scale(*p1);
-                            *p2 = scale(*p2);
-                        }
-                        PathCmd::CubicTo(p1, p2, p3) => {
-                            *p1 = scale(*p1);
-                            *p2 = scale(*p2);
-                            *p3 = scale(*p3);
-                        }
-                        PathCmd::Close => {}
+            let d_str = builtin_icon_svg_path(&fam, &iname).unwrap_or(super::node::FALLBACK_ICON_SVG_PATH);
+            let mut path = parse_path(d_str, FillRule::NonZero);
+            let (w, h) = (n.size.x.max(1.0), n.size.y.max(1.0));
+            for cmd in &mut path.cmds {
+                let scale = |p: Vec2| Vec2::new(p.x * (w / 24.0), p.y * (h / 24.0));
+                match cmd {
+                    PathCmd::MoveTo(p) | PathCmd::LineTo(p) => *p = scale(*p),
+                    PathCmd::QuadTo(p1, p2) => {
+                        *p1 = scale(*p1);
+                        *p2 = scale(*p2);
                     }
+                    PathCmd::CubicTo(p1, p2, p3) => {
+                        *p1 = scale(*p1);
+                        *p2 = scale(*p2);
+                        *p3 = scale(*p3);
+                    }
+                    PathCmd::Close => {}
                 }
-                n.kind = NodeKind::Vector { paths: vec![path], network: None };
             }
+            n.kind = NodeKind::Vector { paths: vec![path], network: None };
             n.component.overrides.insert(OverrideField::Characters);
         }
     }
@@ -879,7 +882,7 @@ fn apply_descendant_overrides(
         }
 
         for cid in inserted_roots {
-            designos_doc::components::mark_slot_content_subtree(doc, cid);
+            designos_doc::mark_slot_content_subtree(doc, cid);
         }
         if let Some(tn) = doc.get_mut(target_id) {
             tn.component.overrides.insert(OverrideField::SlotContent);

@@ -123,6 +123,7 @@ fn migrates_1_0_through_2_21_fixtures() {
         let exported = export_pen_json(&report.doc).expect("export_pen_json");
         let exported_val: Value = serde_json::from_str(&exported).expect("valid exported JSON");
         assert_eq!(exported_val.get("version").and_then(Value::as_str), Some("2.21"), "exported version for {file} must be 2.21");
+        validate_pen_2_21_document_shape(&exported_val, file).unwrap_or_else(|e| panic!("exported {file} failed 2.21 schema shape validation: {e}"));
 
         let reimported = import_pen_json_report(&exported, &PenImportOptions::default()).unwrap_or_else(|e| panic!("failed to reimport {file}: {e}"));
         assert_eq!(reimported.source_version, "2.21");
@@ -784,9 +785,13 @@ fn icon_font_never_renders_raw_identifier_as_text() {
     let known = find_by_source_id(&report.doc, "ic-known");
     assert!(matches!(known.kind, NodeKind::Vector { .. }));
     assert!(known.plugin_data.get("pen:icon").unwrap().contains("\"search\""));
+    assert!(!known.stroke.paints.is_empty(), "lucide icon fill must map to stroke paints");
+    assert_eq!(known.stroke.weight, 2.0);
+    assert_eq!(known.stroke.cap, StrokeCap::Round);
+    assert_eq!(known.stroke.join, StrokeJoin::Round);
 
     let unknown = find_by_source_id(&report.doc, "ic-unknown");
-    assert!(matches!(unknown.kind, NodeKind::Frame(_)));
+    assert!(matches!(unknown.kind, NodeKind::Vector { .. }), "unknown icon must render a fallback vector glyph, not an empty Frame");
     assert!(unknown.plugin_data.get("pen:icon").unwrap().contains("\"nonexistent-glyph-42\""));
     assert!(report.warnings.iter().any(|w| w.code == "unresolved_icon_glyph" && w.node_id.as_deref() == Some("ic-unknown")));
 
@@ -794,6 +799,8 @@ fn icon_font_never_renders_raw_identifier_as_text() {
     assert_eq!(exported["children"][0]["type"].as_str(), Some("icon_font"));
     assert_eq!(exported["children"][0]["iconFontFamily"].as_str(), Some("lucide"));
     assert_eq!(exported["children"][0]["iconFontName"].as_str(), Some("search"));
+    assert_eq!(exported["children"][0]["fill"].as_str(), Some("#111827"));
+    assert!(exported["children"][0].get("stroke").is_none(), "synthesized icon stroke must export back as fill, not stroke");
     assert_eq!(exported["children"][1]["type"].as_str(), Some("icon_font"));
     assert_eq!(exported["children"][1]["iconFontName"].as_str(), Some("nonexistent-glyph-42"));
 }
@@ -1706,4 +1713,407 @@ fn user_stroke_and_size_edits_on_pen_instance_survive_sync_and_pen_round_trip() 
     assert_eq!(rt_inst.stroke.paints, vec![blue], "user-edited stroke color must survive .pen export/import round trip");
     assert_eq!(rt_inst.stroke.weight, 4.0, "instance stroke thickness must survive .pen export/import round trip");
     assert_eq!(rt_inst.size, Vec2::new(200.0, 64.0), "user-edited size must survive .pen export/import round trip");
+}
+
+const FORBIDDEN_LEGACY_PEN_KEYS: &[&str] = &[
+    "fillColor",
+    "strokeColor",
+    "strokeThickness",
+    "componentId",
+    "overrides",
+    "slots",
+    "isPlaceholder",
+    "horizontalFlip",
+    "verticalFlip",
+    "svgPath",
+    "stops",
+    "position",
+];
+
+const COMMON_PEN_2_21_NODE_KEYS: &[&str] = &[
+    "id",
+    "type",
+    "name",
+    "reusable",
+    "enabled",
+    "opacity",
+    "blendMode",
+    "href",
+    "layoutPosition",
+    "placeholder",
+    "slot",
+    "x",
+    "y",
+    "rotation",
+    "flipX",
+    "flipY",
+    "width",
+    "height",
+    "theme",
+    "fill",
+    "stroke",
+    "cornerRadius",
+    "effect",
+    "children",
+];
+
+fn allowed_type_specific_pen_2_21_keys(node_type: &str) -> Option<&'static [&'static str]> {
+    match node_type {
+        "frame" | "group" | "section" => Some(&["layout", "wrap", "gap", "padding", "justifyContent", "alignItems", "clip"]),
+        "rectangle" | "line" => Some(&[]),
+        "ellipse" => Some(&["startAngle", "sweepAngle", "innerRadius"]),
+        "polygon" => Some(&["polygonCount", "innerRadius"]),
+        "path" => Some(&["geometry", "fillRule", "viewBox"]),
+        "text" => Some(&[
+            "content",
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "fontStyle",
+            "letterSpacing",
+            "lineHeight",
+            "textAlign",
+            "underline",
+            "strikethrough",
+            "textDecoration",
+        ]),
+        "icon_font" => Some(&["iconFontFamily", "iconFontName", "weight"]),
+        "note" => Some(&["content", "author"]),
+        "ref" => Some(&["ref", "descendants", "layout", "wrap", "gap", "padding", "justifyContent", "alignItems", "clip"]),
+        "connection" => Some(&["from", "to", "content"]),
+        "boolean" => Some(&["operation"]),
+        _ => None,
+    }
+}
+
+fn is_valid_pen_dimension_value(v: &Value) -> bool {
+    match v {
+        Value::Number(n) => n.as_f64().is_some_and(|x| x.is_finite() && x >= 0.0),
+        Value::String(s) => {
+            s == "fit_content"
+                || s == "fill_container"
+                || (s.starts_with("fit_content(") && s.ends_with(')'))
+                || (s.starts_with("fill_container(") && s.ends_with(')'))
+                || s.starts_with('$')
+        }
+        _ => false,
+    }
+}
+
+fn is_valid_pen_num_or_var(v: &Value) -> bool {
+    v.as_f64().is_some_and(|x| x.is_finite()) || v.as_str().is_some_and(|s| s.starts_with('$'))
+}
+
+fn validate_pen_2_21_fill_shape(v: &Value, path: &str) -> Result<(), String> {
+    match v {
+        Value::String(s) => {
+            if !(s.starts_with('#') || s.starts_with('$')) {
+                return Err(format!("{path}: fill string '{s}' must be a hex color or $variable"));
+            }
+            Ok(())
+        }
+        Value::Object(obj) => {
+            for k in obj.keys() {
+                if FORBIDDEN_LEGACY_PEN_KEYS.contains(&k.as_str()) {
+                    return Err(format!("{path}: forbidden legacy key '{k}' in fill object"));
+                }
+            }
+            match obj.get("type").and_then(Value::as_str) {
+                Some("color") => {
+                    if !obj.get("color").and_then(Value::as_str).is_some_and(|s| s.starts_with('#') || s.starts_with('$')) {
+                        return Err(format!("{path}: color fill object must have hex/$ 'color'"));
+                    }
+                    Ok(())
+                }
+                Some("gradient") => {
+                    if obj.contains_key("stops") {
+                        return Err(format!("{path}: gradient fill must use 2.21 'colors', not legacy 'stops'"));
+                    }
+                    let colors = obj.get("colors").and_then(Value::as_array).ok_or_else(|| format!("{path}: gradient fill missing 'colors' array"))?;
+                    for (idx, stop) in colors.iter().enumerate() {
+                        let sobj = stop.as_object().ok_or_else(|| format!("{path}.colors[{idx}]: must be object"))?;
+                        for sk in sobj.keys() {
+                            if !["color", "position"].contains(&sk.as_str()) {
+                                return Err(format!("{path}.colors[{idx}]: unexpected key '{sk}' in 2.21 gradient stop"));
+                            }
+                        }
+                        if !sobj.get("color").and_then(Value::as_str).is_some_and(|s| s.starts_with('#') || s.starts_with('$')) {
+                            return Err(format!("{path}.colors[{idx}]: missing valid 'color'"));
+                        }
+                        if !sobj.get("position").is_some_and(is_valid_pen_num_or_var) {
+                            return Err(format!("{path}.colors[{idx}]: missing valid 'position'"));
+                        }
+                    }
+                    Ok(())
+                }
+                Some("image") => {
+                    if obj.get("url").and_then(Value::as_str).is_none() {
+                        return Err(format!("{path}: image fill missing string 'url'"));
+                    }
+                    Ok(())
+                }
+                other => Err(format!("{path}: invalid fill object type {other:?}")),
+            }
+        }
+        Value::Array(arr) => {
+            for (i, item) in arr.iter().enumerate() {
+                validate_pen_2_21_fill_shape(item, &format!("{path}[{i}]"))?;
+            }
+            Ok(())
+        }
+        _ => Err(format!("{path}: invalid fill value shape {v}")),
+    }
+}
+
+fn validate_pen_2_21_stroke_shape(v: &Value, path: &str) -> Result<(), String> {
+    let obj = v.as_object().ok_or_else(|| format!("{path}: 2.21 stroke must be an object, got {v}"))?;
+    for k in obj.keys() {
+        if !["fill", "thickness", "align", "strokeAlignment", "cap", "join", "dashPattern"].contains(&k.as_str()) {
+            return Err(format!("{path}: unexpected key '{k}' in 2.21 stroke object"));
+        }
+    }
+    if let Some(f) = obj.get("fill") {
+        validate_pen_2_21_fill_shape(f, &format!("{path}.fill"))?;
+    }
+    if let Some(th) = obj.get("thickness") {
+        let valid_th = is_valid_pen_num_or_var(th)
+            || th.as_object().is_some_and(|m| {
+                !m.is_empty() && m.iter().all(|(side, val)| ["top", "right", "bottom", "left"].contains(&side.as_str()) && is_valid_pen_num_or_var(val))
+            });
+        if !valid_th {
+            return Err(format!("{path}.thickness: invalid 2.21 stroke thickness shape {th}"));
+        }
+    }
+    for align_key in ["align", "strokeAlignment"] {
+        if let Some(al) = obj.get(align_key) {
+            if !al.as_str().is_some_and(|s| ["inside", "center", "outside"].contains(&s)) {
+                return Err(format!("{path}.{align_key}: invalid stroke align {al}"));
+            }
+        }
+    }
+    if let Some(cap) = obj.get("cap") {
+        if !cap.as_str().is_some_and(|s| ["none", "round", "square"].contains(&s)) {
+            return Err(format!("{path}.cap: invalid stroke cap {cap}"));
+        }
+    }
+    if let Some(join) = obj.get("join") {
+        if !join.as_str().is_some_and(|s| ["miter", "round", "bevel"].contains(&s)) {
+            return Err(format!("{path}.join: invalid stroke join {join}"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_pen_2_21_node_shape(node: &Value, path: &str) -> Result<(), String> {
+    let obj = node.as_object().ok_or_else(|| format!("{path}: node must be a JSON object"))?;
+    let id = obj.get("id").and_then(Value::as_str).ok_or_else(|| format!("{path}: node missing string 'id'"))?;
+    let npath = format!("{path}({id})");
+    let node_type = obj.get("type").and_then(Value::as_str).ok_or_else(|| format!("{npath}: node missing string 'type'"))?;
+
+    for k in obj.keys() {
+        if FORBIDDEN_LEGACY_PEN_KEYS.contains(&k.as_str()) {
+            return Err(format!("{npath}: contains forbidden legacy key '{k}'"));
+        }
+    }
+
+    if let Some(type_keys) = allowed_type_specific_pen_2_21_keys(node_type) {
+        for k in obj.keys() {
+            if !COMMON_PEN_2_21_NODE_KEYS.contains(&k.as_str()) && !type_keys.contains(&k.as_str()) {
+                return Err(format!("{npath}: key '{k}' is not in the allowed 2.21 key set for type '{node_type}'"));
+            }
+        }
+    }
+
+    if let Some(w) = obj.get("width") {
+        if !is_valid_pen_dimension_value(w) {
+            return Err(format!("{npath}.width: invalid 2.21 dimension shape {w}"));
+        }
+    }
+    if let Some(h) = obj.get("height") {
+        if !is_valid_pen_dimension_value(h) {
+            return Err(format!("{npath}.height: invalid 2.21 dimension shape {h}"));
+        }
+    }
+    if let Some(layout) = obj.get("layout") {
+        if !layout.as_str().is_some_and(|s| ["horizontal", "vertical", "grid", "none"].contains(&s)) {
+            return Err(format!("{npath}.layout: invalid 2.21 layout value {layout}"));
+        }
+    }
+    if let Some(pad) = obj.get("padding") {
+        let valid_pad =
+            is_valid_pen_num_or_var(pad) || pad.as_array().is_some_and(|arr| (arr.len() == 2 || arr.len() == 4) && arr.iter().all(is_valid_pen_num_or_var));
+        if !valid_pad {
+            return Err(format!("{npath}.padding: invalid 2.21 padding shape {pad}"));
+        }
+    }
+    if let Some(fill) = obj.get("fill") {
+        validate_pen_2_21_fill_shape(fill, &format!("{npath}.fill"))?;
+    }
+    if let Some(stroke) = obj.get("stroke") {
+        validate_pen_2_21_stroke_shape(stroke, &format!("{npath}.stroke"))?;
+    }
+    if let Some(cr) = obj.get("cornerRadius") {
+        let valid_cr = is_valid_pen_num_or_var(cr) || cr.as_array().is_some_and(|arr| arr.len() == 4 && arr.iter().all(is_valid_pen_num_or_var));
+        if !valid_cr {
+            return Err(format!("{npath}.cornerRadius: invalid cornerRadius shape {cr}"));
+        }
+    }
+    if let Some(slot) = obj.get("slot") {
+        if !slot.as_array().is_some_and(|arr| arr.iter().all(|x| x.is_string())) {
+            return Err(format!("{npath}.slot: 2.21 slot must be an array of strings, got {slot}"));
+        }
+    }
+    if let Some(ph) = obj.get("placeholder") {
+        if !ph.is_boolean() {
+            return Err(format!("{npath}.placeholder: must be boolean"));
+        }
+    }
+    if let Some(desc) = obj.get("descendants") {
+        let dobj = desc.as_object().ok_or_else(|| format!("{npath}.descendants: must be an object"))?;
+        for (dk, dv) in dobj {
+            let ov = dv.as_object().ok_or_else(|| format!("{npath}.descendants[{dk}]: must be an object"))?;
+            for ok in ov.keys() {
+                if FORBIDDEN_LEGACY_PEN_KEYS.contains(&ok.as_str()) {
+                    return Err(format!("{npath}.descendants[{dk}]: contains forbidden legacy key '{ok}'"));
+                }
+            }
+            if let Some(f) = ov.get("fill") {
+                validate_pen_2_21_fill_shape(f, &format!("{npath}.descendants[{dk}].fill"))?;
+            }
+            if let Some(s) = ov.get("stroke") {
+                validate_pen_2_21_stroke_shape(s, &format!("{npath}.descendants[{dk}].stroke"))?;
+            }
+            if let Some(ch) = ov.get("children") {
+                let carr = ch.as_array().ok_or_else(|| format!("{npath}.descendants[{dk}].children: must be array"))?;
+                for (ci, cn) in carr.iter().enumerate() {
+                    validate_pen_2_21_node_shape(cn, &format!("{npath}.descendants[{dk}].children[{ci}]"))?;
+                }
+            }
+        }
+    }
+    if let Some(children) = obj.get("children") {
+        let carr = children.as_array().ok_or_else(|| format!("{npath}.children: must be an array"))?;
+        for (i, ch) in carr.iter().enumerate() {
+            validate_pen_2_21_node_shape(ch, &format!("{npath}.children[{i}]"))?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_pen_2_21_document_shape(root: &Value, ctx: &str) -> Result<(), String> {
+    let obj = root.as_object().ok_or_else(|| format!("{ctx}: root must be an object"))?;
+    for k in obj.keys() {
+        if !["version", "name", "imports", "themes", "variables", "children", "pages"].contains(&k.as_str()) {
+            return Err(format!("{ctx}: unexpected top-level key '{k}'"));
+        }
+    }
+    if obj.get("version").and_then(Value::as_str) != Some("2.21") {
+        return Err(format!("{ctx}: root version must be '2.21'"));
+    }
+    let children = obj.get("children").and_then(Value::as_array).ok_or_else(|| format!("{ctx}: root missing 'children' array"))?;
+    for (i, ch) in children.iter().enumerate() {
+        validate_pen_2_21_node_shape(ch, &format!("{ctx}/children[{i}]"))?;
+    }
+    if let Some(pages) = obj.get("pages") {
+        let parr = pages.as_array().ok_or_else(|| format!("{ctx}: 'pages' must be an array"))?;
+        for (pi, page) in parr.iter().enumerate() {
+            let pobj = page.as_object().ok_or_else(|| format!("{ctx}/pages[{pi}]: must be an object"))?;
+            for pk in pobj.keys() {
+                if !["id", "name", "background", "children"].contains(&pk.as_str()) {
+                    return Err(format!("{ctx}/pages[{pi}]: unexpected page key '{pk}'"));
+                }
+            }
+            let pchildren = pobj.get("children").and_then(Value::as_array).ok_or_else(|| format!("{ctx}/pages[{pi}]: missing 'children'"))?;
+            for (ci, ch) in pchildren.iter().enumerate() {
+                validate_pen_2_21_node_shape(ch, &format!("{ctx}/pages[{pi}]/children[{ci}]"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// 33. exported_fixtures_validate_against_2_21_schema_shape (AC2)
+#[test]
+fn exported_fixtures_validate_against_2_21_schema_shape() {
+    for file in ["v1_0.pen", "v2_8.pen", "v2_13.pen", "v2_17.pen", "v2_21.pen"] {
+        let raw = fixture_str(file);
+        let doc = import_pen_json(&raw).unwrap_or_else(|e| panic!("import {file}: {e}"));
+        let exported = export_pen_json(&doc).unwrap_or_else(|e| panic!("export {file}: {e}"));
+        let val: Value = serde_json::from_str(&exported).expect("valid exported JSON");
+        validate_pen_2_21_document_shape(&val, file).unwrap_or_else(|e| panic!("{file} failed 2.21 schema validation: {e}"));
+    }
+
+    // Verify the validator rejects legacy keys and invalid shapes.
+    let bad_legacy = json!({
+        "version": "2.21",
+        "children": [{ "id": "r1", "type": "rectangle", "fillColor": "#FF0000" }]
+    });
+    assert!(validate_pen_2_21_document_shape(&bad_legacy, "bad_legacy").is_err());
+
+    let bad_type_key = json!({
+        "version": "2.21",
+        "children": [{ "id": "r2", "type": "rectangle", "polygonCount": 5 }]
+    });
+    assert!(validate_pen_2_21_document_shape(&bad_type_key, "bad_type_key").is_err());
+
+    let bad_stroke_shape = json!({
+        "version": "2.21",
+        "children": [{ "id": "r3", "type": "rectangle", "stroke": 2 }]
+    });
+    assert!(validate_pen_2_21_document_shape(&bad_stroke_shape, "bad_stroke_shape").is_err());
+}
+
+// 34. icon_nodes_render_non_zero_pixels_for_plus_check_trash_2_and_unknown
+#[test]
+fn icon_nodes_render_non_zero_pixels_for_plus_check_trash_2_and_unknown() {
+    let raw = r##"{
+        "version": "2.21",
+        "children": [
+            {
+                "id": "ic-plus",
+                "type": "icon_font",
+                "iconFontFamily": "lucide",
+                "iconFontName": "plus",
+                "width": 24,
+                "height": 24,
+                "fill": "#111827"
+            },
+            {
+                "id": "ic-check",
+                "type": "icon_font",
+                "iconFontFamily": "lucide",
+                "iconFontName": "check",
+                "width": 24,
+                "height": 24,
+                "fill": "#111827"
+            },
+            {
+                "id": "ic-trash-2",
+                "type": "icon_font",
+                "iconFontFamily": "lucide",
+                "iconFontName": "trash-2",
+                "width": 24,
+                "height": 24,
+                "fill": "#111827"
+            },
+            {
+                "id": "ic-fallback",
+                "type": "icon_font",
+                "iconFontFamily": "lucide",
+                "iconFontName": "custom-unlisted-icon-99",
+                "width": 24,
+                "height": 24,
+                "fill": "#111827"
+            }
+        ]
+    }"##;
+
+    let doc = import_pen_json(raw).expect("import icon nodes");
+    for sid in ["ic-plus", "ic-check", "ic-trash-2", "ic-fallback"] {
+        let node = find_by_source_id(&doc, sid);
+        assert!(matches!(node.kind, NodeKind::Vector { .. }), "{sid} must be a Vector node, got {:?}", node.kind);
+        let pm = designos_render::render_node(&doc, node.id, 1.0).unwrap_or_else(|| panic!("render_node for {sid}"));
+        let drawn_pixels = pm.pixels().iter().filter(|px| px.alpha() > 0).count();
+        assert!(drawn_pixels > 0, "icon '{sid}' must draw > 0 visible pixels when rendered, got 0");
+    }
 }

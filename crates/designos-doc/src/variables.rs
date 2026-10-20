@@ -224,7 +224,7 @@ impl Document {
     }
 
     fn resolve_multi_axis_value<'a>(&self, node: NodeId, v: &'a Variable, primary_mode: &str) -> Option<&'a VariableValue> {
-        if self.variable_collections.len() <= 1 && !v.values.keys().any(|k| k.contains('+')) {
+        if !v.values.keys().any(|k| k.contains('+')) {
             return None;
         }
         let active_modes: Vec<String> = self.variable_collections.keys().filter_map(|cid| self.variable_mode(node, cid)).collect();

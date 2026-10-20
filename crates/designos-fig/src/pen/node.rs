@@ -312,21 +312,22 @@ fn import_single_pen_node(v: &Value, doc: &mut Document, parent_id: NodeId, ctx:
 
             let explicit_geom = v.get("geometry").and_then(Value::as_str);
             let svg_d = explicit_geom.or_else(|| builtin_icon_svg_path(&family, &icon_name));
-            if let Some(d_str) = svg_d {
-                let mut path = parse_path(d_str, FillRule::NonZero);
-                let (vb_x, vb_y, vb_w, vb_h) = parse_view_box(v.get("viewBox")).unwrap_or((0.0, 0.0, 24.0, 24.0));
-                if vb_w > 0.0 && vb_h > 0.0 && w > 0.0 && h > 0.0 {
-                    scale_path(&mut path, vb_x, vb_y, w / vb_w, h / vb_h);
-                }
-                NodeKind::Vector { paths: if path.cmds.is_empty() { Vec::new() } else { vec![path] }, network: None }
+            let d_str = if let Some(d) = svg_d {
+                d
             } else {
                 ctx.warnings.push(PenWarning {
                     code: "unresolved_icon_glyph".into(),
                     node_id: pen_id.clone(),
-                    message: format!("Icon glyph '{family}:{icon_name}' could not be resolved to local vector geometry; using placeholder frame"),
+                    message: format!("Icon glyph '{family}:{icon_name}' could not be resolved to local vector geometry; using fallback vector glyph"),
                 });
-                NodeKind::Frame(FrameProps::default())
+                FALLBACK_ICON_SVG_PATH
+            };
+            let mut path = parse_path(d_str, FillRule::NonZero);
+            let (vb_x, vb_y, vb_w, vb_h) = parse_view_box(v.get("viewBox")).unwrap_or((0.0, 0.0, 24.0, 24.0));
+            if vb_w > 0.0 && vb_h > 0.0 && w > 0.0 && h > 0.0 {
+                scale_path(&mut path, vb_x, vb_y, w / vb_w, h / vb_h);
             }
+            NodeKind::Vector { paths: if path.cmds.is_empty() { Vec::new() } else { vec![path] }, network: None }
         }
         "note" | "sticky" => {
             let content = v.get("content").and_then(Value::as_str).unwrap_or("").to_string();
@@ -436,8 +437,28 @@ fn import_single_pen_node(v: &Value, doc: &mut Document, parent_id: NodeId, ctx:
         }
     }
 
+    let mut stroke = stroke;
+    let mut fill_var = fill_var;
+    let mut stroke_color_var = stroke_color_var;
     if !matches!(node.kind, NodeKind::Text(_) | NodeKind::Unknown { .. }) {
-        if is_icon_like && fills.is_empty() && stroke.paints.is_empty() && matches!(node.kind, NodeKind::Vector { .. }) {
+        let use_stroke_for_icon = is_icon_like
+            && stroke.paints.is_empty()
+            && matches!(&node.kind, NodeKind::Vector { paths, .. } if v.get("geometry").is_none() || is_stroke_icon_family(&extract_icon_family_and_name(v).0) || paths.iter().any(|p| !p.cmds.iter().any(|c| matches!(c, PathCmd::Close))));
+        if use_stroke_for_icon {
+            stroke = Stroke {
+                paints: if fills.is_empty() { vec![Paint::solid(Color::BLACK)] } else { fills },
+                weight: 2.0,
+                align: StrokeAlign::Center,
+                cap: StrokeCap::Round,
+                join: StrokeJoin::Round,
+                ..Default::default()
+            };
+            node.fills.clear();
+            plugin_data.insert("pen:icon_stroke_from_fill".into(), "true".into());
+            if stroke_color_var.is_none() {
+                stroke_color_var = fill_var.take();
+            }
+        } else if is_icon_like && fills.is_empty() && stroke.paints.is_empty() && matches!(node.kind, NodeKind::Vector { .. }) {
             node.fills = vec![Paint::solid(Color::BLACK)];
         } else {
             node.fills = fills;
@@ -999,27 +1020,69 @@ pub fn extract_icon_family_and_name(v: &Value) -> (String, String) {
     }
 }
 
+/// Clean 24x24 fallback vector glyph (rounded badge + centre glyph lines) used when an icon name is not in the builtin table.
+pub const FALLBACK_ICON_SVG_PATH: &str = "M 12 3 L 21 12 L 12 21 L 3 12 Z M 12 8 L 12 16 M 8 12 L 16 12";
+
+pub fn is_stroke_icon_family(family: &str) -> bool {
+    matches!(
+        family.trim().to_ascii_lowercase().as_str(),
+        "" | "lucide" | "feather" | "tabler" | "heroicons" | "heroicons-outline" | "phosphor" | "icon" | "material" | "material-symbols" | "material-icons"
+    )
+}
+
 pub fn builtin_icon_svg_path(_family: &str, name: &str) -> Option<&'static str> {
     match name.trim().to_ascii_lowercase().as_str() {
-        "search" => Some("M 11 3 C 6.58 3 3 6.58 3 11 C 3 15.42 6.58 19 11 19 C 13.21 19 15.21 18.1 16.66 16.66 L 21 21 L 16.66 16.66 C 18.1 15.21 19 13.21 19 11 C 19 6.58 15.42 3 11 3 Z"),
-        "check" => Some("M 20 6 L 9 17 L 4 12 L 9 17 Z"),
+        "search" => Some("M 11 3 C 6.58 3 3 6.58 3 11 C 3 15.42 6.58 19 11 19 C 15.42 19 19 15.42 19 11 C 19 6.58 15.42 3 11 3 Z M 21 21 L 16.65 16.65"),
+        "check" | "done" => Some("M 20 6 L 9 17 L 4 12"),
         "plus" | "add" => Some("M 12 5 L 12 19 M 5 12 L 19 12"),
+        "minus" | "remove" => Some("M 5 12 L 19 12"),
         "x" | "close" => Some("M 18 6 L 6 18 M 6 6 L 18 18"),
         "arrow-right" | "arrow_forward" => Some("M 5 12 L 19 12 M 12 5 L 19 12 L 12 19"),
         "arrow-left" | "arrow_back" => Some("M 19 12 L 5 12 M 12 19 L 5 12 L 12 5"),
+        "arrow-up" | "arrow_upward" => Some("M 12 19 L 12 5 M 5 12 L 12 5 L 19 12"),
+        "arrow-down" | "arrow_downward" => Some("M 12 5 L 12 19 M 19 12 L 12 19 L 5 12"),
         "chevron-down" | "expand_more" => Some("M 6 9 L 12 15 L 18 9"),
         "chevron-right" | "chevron_right" => Some("M 9 18 L 15 12 L 9 6"),
         "chevron-left" | "chevron_left" => Some("M 15 18 L 9 12 L 15 6"),
         "chevron-up" | "expand_less" => Some("M 18 15 L 12 9 L 6 15"),
         "star" => Some("M 12 2 L 15.09 8.26 L 22 9.27 L 17 14.14 L 18.18 21.02 L 12 17.77 L 5.82 21.02 L 7 14.14 L 2 9.27 L 8.91 8.26 Z"),
-        "heart" => Some("M 12 21.35 L 10.55 20.03 C 5.4 15.36 2 12.28 2 8.5 C 2 5.42 4.42 3 7.5 3 C 9.24 3 10.91 3.81 12 5.09 C 13.09 3.81 14.76 3 16.5 3 C 19.58 3 22 5.42 22 8.5 C 22 12.28 18.6 15.36 13.45 20.04 Z"),
+        "heart" | "favorite" => Some("M 12 21.35 L 10.55 20.03 C 5.4 15.36 2 12.28 2 8.5 C 2 5.42 4.42 3 7.5 3 C 9.24 3 10.91 3.81 12 5.09 C 13.09 3.81 14.76 3 16.5 3 C 19.58 3 22 5.42 22 8.5 C 22 12.28 18.6 15.36 13.45 20.04 Z"),
         "home" => Some("M 3 10 L 12 3 L 21 10 L 21 21 L 15 21 L 15 14 L 9 14 L 9 21 L 3 21 Z"),
-        "user" | "person" => Some("M 12 4 C 9.79 4 8 5.79 8 8 C 8 10.21 9.79 12 12 12 C 14.21 12 16 10.21 16 8 C 16 5.79 14.21 4 12 4 Z M 4 20 C 4 16.69 7.58 14 12 14 C 16.42 14 20 16.69 20 20 Z"),
-        "settings" | "cog" => Some("M 12 8 C 9.79 8 8 9.79 8 12 C 8 14.21 9.79 16 12 16 C 14.21 16 16 14.21 16 12 C 16 9.79 14.21 8 12 8 Z"),
+        "user" | "person" => Some("M 12 4 C 9.79 4 8 5.79 8 8 C 8 10.21 9.79 12 12 12 C 14.21 12 16 10.21 16 8 C 16 5.79 14.21 4 12 4 Z M 4 20 C 4 16.69 7.58 14 12 14 C 16.42 14 20 16.69 20 20"),
+        "settings" | "cog" => Some("M 12 9 C 10.34 9 9 10.34 9 12 C 9 13.66 10.34 15 12 15 C 13.66 15 15 13.66 15 12 C 15 10.34 13.66 9 12 9 Z M 12 2 L 12 5 M 12 19 L 12 22 M 2 12 L 5 12 M 19 12 L 22 12 M 4.93 4.93 L 7.05 7.05 M 16.95 16.95 L 19.07 19.07 M 19.07 4.93 L 16.95 7.05 M 7.05 16.95 L 4.93 19.07"),
         "menu" => Some("M 4 6 L 20 6 M 4 12 L 20 12 M 4 18 L 20 18"),
-        "bell" | "notifications" => Some("M 18 8 C 18 4.69 15.31 2 12 2 C 8.69 2 6 4.69 6 8 L 6 15 L 4 17 L 20 17 L 18 15 Z"),
-        "info" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z"),
+        "bell" | "notifications" => Some("M 18 8 C 18 4.69 15.31 2 12 2 C 8.69 2 6 4.69 6 8 L 6 15 L 4 17 L 20 17 L 18 15 Z M 10 20 C 10.5 21 11.2 21.5 12 21.5 C 12.8 21.5 13.5 21 14 20"),
+        "info" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 12 16 L 12 12 M 12 8 L 12.5 8"),
         "sparkles" => Some("M 12 3 L 14.5 9.5 L 21 12 L 14.5 14.5 L 12 21 L 9.5 14.5 L 3 12 L 9.5 9.5 Z"),
+        "trash" | "trash-2" | "delete" => Some("M 3 6 L 21 6 M 8 6 L 8 4 L 16 4 L 16 6 M 19 6 L 18 20 L 6 20 L 5 6 M 10 11 L 10 17 M 14 11 L 14 17"),
+        "edit" | "edit-2" | "edit-3" | "pencil" => Some("M 17 3 L 21 7 L 7 21 L 3 21 L 3 17 L 17 3 Z"),
+        "copy" | "content_copy" => Some("M 9 9 L 20 9 L 20 20 L 9 20 Z M 5 15 L 4 15 L 4 4 L 15 4 L 15 5"),
+        "download" | "file_download" => Some("M 21 15 L 21 19 L 3 19 L 3 15 M 7 10 L 12 15 L 17 10 M 12 15 L 12 3"),
+        "upload" | "file_upload" => Some("M 21 15 L 21 19 L 3 19 L 3 15 M 17 8 L 12 3 L 7 8 M 12 3 L 12 15"),
+        "eye" | "visibility" => Some("M 2 12 C 4.5 7 8 5 12 5 C 16 5 19.5 7 22 12 C 19.5 17 16 19 12 19 C 8 19 4.5 17 2 12 Z M 12 9 C 10.34 9 9 10.34 9 12 C 9 13.66 10.34 15 12 15 C 13.66 15 15 13.66 15 12 C 15 10.34 13.66 9 12 9 Z"),
+        "eye-off" | "visibility_off" => Some("M 2 2 L 22 22 M 6.5 6.5 C 4.5 8 3 9.8 2 12 C 4.5 17 8 19 12 19 C 14 19 15.8 18.4 17.5 17.5 M 12 5 C 16 5 19.5 7 22 12 C 21.2 13.6 20.2 15 19 16"),
+        "lock" => Some("M 5 11 L 19 11 L 19 21 L 5 21 Z M 8 11 L 8 7 C 8 4.79 9.79 3 12 3 C 14.21 3 16 4.79 16 7 L 16 11"),
+        "unlock" | "lock_open" => Some("M 5 11 L 19 11 L 19 21 L 5 21 Z M 8 11 L 8 7 C 8 4.79 9.79 3 12 3 C 13.8 3 15.3 4.2 15.8 5.8"),
+        "calendar" | "calendar_today" => Some("M 3 5 L 21 5 L 21 21 L 3 21 Z M 16 3 L 16 7 M 8 3 L 8 7 M 3 10 L 21 10"),
+        "clock" | "schedule" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 12 6 L 12 12 L 16 14"),
+        "folder" => Some("M 2 6 L 10 6 L 12 8 L 22 8 L 22 19 L 2 19 Z"),
+        "file" | "file-text" | "description" => Some("M 6 2 L 14 2 L 20 8 L 20 22 L 6 22 Z M 14 2 L 14 8 L 20 8 M 9 13 L 17 13 M 9 17 L 15 17"),
+        "image" | "photo" => Some("M 3 3 L 21 3 L 21 21 L 3 21 Z M 8.5 10 C 9.33 10 10 9.33 10 8.5 C 10 7.67 9.33 7 8.5 7 C 7.67 7 7 7.67 7 8.5 C 7 9.33 7.67 10 8.5 10 Z M 21 15 L 16 10 L 5 21"),
+        "mail" | "email" => Some("M 2 5 L 22 5 L 22 19 L 2 19 Z M 2 6 L 12 13 L 22 6"),
+        "sliders" | "tune" => Some("M 4 21 L 4 14 M 4 10 L 4 3 M 12 21 L 12 12 M 12 8 L 12 3 M 20 21 L 20 16 M 20 12 L 20 3 M 1 14 L 7 14 M 9 8 L 15 8 M 17 16 L 23 16"),
+        "filter" | "filter_list" => Some("M 22 3 L 2 3 L 10 12.46 L 10 19 L 14 21 L 14 12.46 Z"),
+        "refresh-cw" | "refresh" | "sync" => Some("M 23 4 L 23 10 L 17 10 M 1 20 L 1 14 L 7 14 M 3.51 9 C 4.85 5.22 8.87 3 13 3.5 C 16.5 3.9 19.5 6 21 9 M 20.49 15 C 19.15 18.78 15.13 21 11 20.5 C 7.5 20.1 4.5 18 3 15"),
+        "more-horizontal" | "more_horiz" => Some("M 5 11 C 4.45 11 4 11.45 4 12 C 4 12.55 4.45 13 5 13 C 5.55 13 6 12.55 6 12 C 6 11.45 5.55 11 5 11 Z M 12 11 C 11.45 11 11 11.45 11 12 C 11 12.55 11.45 13 12 13 C 12.55 13 13 12.55 13 12 C 13 11.45 12.55 11 12 11 Z M 19 11 C 18.45 11 18 11.45 18 12 C 18 12.55 18.45 13 19 13 C 19.55 13 20 12.55 20 12 C 20 11.45 19.55 11 19 11 Z"),
+        "more-vertical" | "more_vert" => Some("M 12 4 C 11.45 4 11 4.45 11 5 C 11 5.55 11.45 6 12 6 C 12.55 6 13 5.55 13 5 C 13 4.45 12.55 4 12 4 Z M 12 11 C 11.45 11 11 11.45 11 12 C 11 12.55 11.45 13 12 13 C 12.55 13 13 12.55 13 12 C 13 11.45 12.55 11 12 11 Z M 12 18 C 11.45 18 11 18.45 11 19 C 11 19.55 11.45 20 12 20 C 12.55 20 13 19.55 13 19 C 13 18.45 12.55 18 12 18 Z"),
+        "alert-circle" | "error" | "warning" | "alert-triangle" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 12 8 L 12 12 M 12 16 L 12.5 16"),
+        "help-circle" | "help" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 9.5 9 C 9.8 7.8 11 7 12.2 7 C 13.7 7 15 8 15 9.5 C 15 11 12 11.8 12 13.5 M 12 17 L 12.5 17"),
+        "send" => Some("M 22 2 L 11 13 M 22 2 L 15 22 L 11 13 L 2 9 Z"),
+        "play" | "play_arrow" => Some("M 5 3 L 19 12 L 5 21 Z"),
+        "pause" => Some("M 6 4 L 10 4 L 10 20 L 6 20 Z M 14 4 L 18 4 L 18 20 L 14 20 Z"),
+        "external-link" | "open_in_new" => Some("M 18 13 L 18 19 L 5 19 L 5 6 L 11 6 M 15 3 L 21 3 L 21 9 M 10 14 L 21 3"),
+        "link" => Some("M 10 13 L 14 9 M 15 12 L 18 9 C 19.66 7.34 19.66 4.66 18 3 C 16.34 1.34 13.66 1.34 12 3 L 9 6 M 9 12 L 6 15 C 4.34 16.66 4.34 19.34 6 21 C 7.66 22.66 10.34 22.66 12 21 L 15 18"),
+        "share" | "share-2" => Some("M 18 8 C 19.66 8 21 6.66 21 5 C 21 3.34 19.66 2 18 2 C 16.34 2 15 3.34 15 5 C 15 6.66 16.34 8 18 8 Z M 6 15 C 7.66 15 9 13.66 9 12 C 9 10.34 7.66 9 6 9 C 4.34 9 3 10.34 3 12 C 3 13.66 4.34 15 6 15 Z M 18 22 C 19.66 22 21 20.66 21 19 C 21 17.34 19.66 16 18 16 C 16.34 16 15 17.34 15 19 C 15 20.66 16.34 22 18 22 Z M 8.59 13.51 L 15.42 17.49 M 15.41 6.51 L 8.59 10.49"),
+        "globe" | "language" => Some("M 12 2 C 6.48 2 2 6.48 2 12 C 2 17.52 6.48 22 12 22 C 17.52 22 22 17.52 22 12 C 22 6.48 17.52 2 12 2 Z M 2 12 L 22 12 M 12 2 C 15 5 16.5 8.5 16.5 12 C 16.5 15.5 15 19 12 22 C 9 19 7.5 15.5 7.5 12 C 7.5 8.5 9 5 12 2 Z"),
         _ => None,
     }
 }

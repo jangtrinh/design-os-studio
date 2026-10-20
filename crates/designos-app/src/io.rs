@@ -100,10 +100,16 @@ fn parse_native_with_warning(path: &Path, text: &str, record_once: bool) -> serd
     Ok((doc, warning))
 }
 
+fn import_pen_with_options(raw: &str, opts: &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String> {
+    let report = designos_fig::import_pen_json_report(raw, opts)?;
+    let joined = if report.warnings.is_empty() { None } else { Some(report.warnings.iter().map(|w| w.message.as_str()).collect::<Vec<_>>().join("; ")) };
+    Ok((report.doc, joined))
+}
+
 /// Loads a document from disk, dispatching on the file extension. Import warnings go to stderr;
 /// use [`load_path_with_warning`] where the user should see them.
 pub fn load_path(path: &Path) -> Result<Document, String> {
-    let (doc, warning) = load_path_importing_pen_with_mode(path, designos_fig::import_pen_json_with_warnings, false)?;
+    let (doc, warning) = load_path_importing_pen_with_mode(path, import_pen_with_options, false)?;
     if let Some(w) = warning {
         eprintln!("designos: {}: {w}", path.display());
     }
@@ -114,24 +120,25 @@ pub fn load_path(path: &Path) -> Result<Document, String> {
 /// file whose `ref` expansion hit the clone budget or a native `.designos` file whose node graph
 /// needed structural repair on load still opens, and reports what changed.
 pub fn load_path_with_warning(path: &Path) -> Result<(Document, Option<String>), String> {
-    load_path_importing_pen_with(path, designos_fig::import_pen_json_with_warnings)
+    load_path_importing_pen_with(path, import_pen_with_options)
 }
 
 /// [`load_path_with_warning`] with the `.pen` importer injected, so a test can produce a warning
 /// without a document that really exhausts the import's clone budget.
 fn load_path_importing_pen_with(
     path: &Path,
-    import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+    import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
 ) -> Result<(Document, Option<String>), String> {
     load_path_importing_pen_with_mode(path, import_pen, true)
 }
 
 fn load_path_importing_pen_with_mode(
     path: &Path,
-    import_pen: impl Fn(&str) -> Result<(Document, Option<String>), String>,
+    import_pen: impl Fn(&str, &designos_fig::PenImportOptions) -> Result<(Document, Option<String>), String>,
     record_once: bool,
 ) -> Result<(Document, Option<String>), String> {
     let mut warning = None;
+    let pen_opts = designos_fig::PenImportOptions { base_dir: path.parent().map(Path::to_path_buf) };
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let mut doc = match ext.as_str() {
         "fig" => {
@@ -140,7 +147,7 @@ fn load_path_importing_pen_with_mode(
         }
         "pen" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-            let (mut d, w) = import_pen(&text).map_err(|e| format!("Cannot import .pen: {e}"))?;
+            let (mut d, w) = import_pen(&text, &pen_opts).map_err(|e| format!("Cannot import .pen: {e}"))?;
             warning = w;
             if d.name.is_empty() || d.name == "Pencil Document" {
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -162,7 +169,7 @@ fn load_path_importing_pen_with_mode(
                     }
                     d
                 }
-                Err(fig_err) => match import_pen(&text) {
+                Err(fig_err) => match import_pen(&text, &pen_opts) {
                     Ok((d, w)) => {
                         warning = w;
                         d
@@ -359,7 +366,7 @@ mod tests {
 
     #[test]
     fn an_import_warning_is_returned_for_pen_files_and_for_pen_text_in_a_json_file() {
-        let warn = |_: &str| Ok((Document::new("Pencil Document"), Some("3 instance(s) left unexpanded".to_string())));
+        let warn = |_: &str, _: &designos_fig::PenImportOptions| Ok((Document::new("Pencil Document"), Some("3 instance(s) left unexpanded".to_string())));
         for name in ["warned.pen", "warned.json"] {
             let p = tmp(name);
             std::fs::write(&p, r#"{"version":"1.0","children":[]}"#).unwrap();
@@ -960,5 +967,68 @@ mod tests {
             .unwrap();
         assert_eq!(text_overflow.content, text_clean.content, "overflow neutralization must not strip literal bullets via migrate_text");
         assert_eq!(text_overflow.lists, text_clean.lists);
+    }
+
+    #[test]
+    fn load_path_resolves_relative_pen_library_imports_and_images_via_base_dir() {
+        let dir = std::env::temp_dir().join(format!("designos_io_pen_basedir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+
+        let png_bytes = b"\x89PNG\r\n\x1a\nfake_png_payload";
+        std::fs::write(dir.join("img/hero.png"), png_bytes).unwrap();
+
+        let lib_pen = r##"{
+            "version": "2.21",
+            "children": [
+                {
+                    "id": "lib-btn",
+                    "type": "frame",
+                    "reusable": true,
+                    "name": "LibButton",
+                    "width": 160,
+                    "height": 44,
+                    "fill": "#2563EB",
+                    "children": [
+                        {
+                            "id": "lib-btn-label",
+                            "type": "text",
+                            "content": "Click me"
+                        }
+                    ]
+                }
+            ]
+        }"##;
+        std::fs::write(dir.join("lib.pen"), lib_pen).unwrap();
+
+        let main_pen = r##"{
+            "version": "2.21",
+            "imports": { "ui": "lib.pen" },
+            "children": [
+                {
+                    "id": "btn-use",
+                    "type": "ref",
+                    "ref": "ui:lib-btn"
+                },
+                {
+                    "id": "hero-banner",
+                    "type": "rectangle",
+                    "width": 320,
+                    "height": 180,
+                    "fill": { "type": "image", "url": "img/hero.png", "mode": "fill" }
+                }
+            ]
+        }"##;
+        let main_path = dir.join("a.pen");
+        std::fs::write(&main_path, main_pen).unwrap();
+
+        let (doc, warning) = load_path_with_warning(&main_path).expect("load_path_with_warning on a.pen");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(warning.is_none(), "expected no import warning (especially no 'without PenImportOptions::base_dir'), got: {warning:?}");
+        let inst = doc.nodes.values().find(|n| n.source_id.as_deref() == Some("btn-use")).expect("btn-use instance node");
+        assert!(matches!(inst.kind, designos_doc::NodeKind::Instance { component: Some(_), .. }), "library ref ui:lib-btn must resolve to a cloned component");
+        assert!(!inst.children.is_empty(), "library ref ui:lib-btn must expand its children");
+        assert!(!doc.images.is_empty(), "relative image img/hero.png must be loaded into doc.images");
     }
 }

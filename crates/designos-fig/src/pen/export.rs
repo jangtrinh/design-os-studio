@@ -276,17 +276,25 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
         }
     }
 
+    let icon_stroke_from_fill = is_icon_node && n.plugin_data.get("pen:icon_stroke_from_fill").map(String::as_str) == Some("true");
+
     // Fills
     let should_write_fill = !is_instance || n.component.overrides.contains(&OverrideField::Fills);
     if should_write_fill {
-        let active_fills = if let NodeKind::Text(t) = &n.kind { &t.style.fills } else { &n.fills };
-        if let Some(fill_val) = export_paints_value(active_fills, n.variables.bindings.get("fills/0"), &n.plugin_data) {
+        let (active_fills, fill_binding) = if let NodeKind::Text(t) = &n.kind {
+            (&t.style.fills, n.variables.bindings.get("fills/0"))
+        } else if icon_stroke_from_fill && n.fills.is_empty() {
+            (&n.stroke.paints, n.variables.bindings.get("strokes/0").or_else(|| n.variables.bindings.get("fills/0")))
+        } else {
+            (&n.fills, n.variables.bindings.get("fills/0"))
+        };
+        if let Some(fill_val) = export_paints_value(active_fills, fill_binding, &n.plugin_data) {
             obj.insert("fill".into(), fill_val);
         }
     }
 
     // Stroke
-    let should_write_stroke = !is_instance || n.component.overrides.contains(&OverrideField::Stroke);
+    let should_write_stroke = !icon_stroke_from_fill && (!is_instance || n.component.overrides.contains(&OverrideField::Stroke));
     if should_write_stroke {
         if let Some(stroke_val) = export_stroke_value_filtered(&n.stroke, &n.variables, &n.plugin_data, is_instance) {
             obj.insert("stroke".into(), stroke_val);
@@ -665,8 +673,15 @@ fn collect_instance_descendant_overrides(doc: &Document, inst_node: &Node, out: 
                     }
                 }
                 if cn.component.overrides.contains(&OverrideField::Fills) {
-                    let active_fills = if let NodeKind::Text(t) = &cn.kind { &t.style.fills } else { &cn.fills };
-                    if let Some(fval) = export_paints_value(active_fills, cn.variables.bindings.get("fills/0"), &cn.plugin_data) {
+                    let icon_stroke = cn.plugin_data.get("pen:icon_stroke_from_fill").map(String::as_str) == Some("true");
+                    let (active_fills, fbind) = if let NodeKind::Text(t) = &cn.kind {
+                        (&t.style.fills, cn.variables.bindings.get("fills/0"))
+                    } else if icon_stroke && cn.fills.is_empty() {
+                        (&cn.stroke.paints, cn.variables.bindings.get("strokes/0").or_else(|| cn.variables.bindings.get("fills/0")))
+                    } else {
+                        (&cn.fills, cn.variables.bindings.get("fills/0"))
+                    };
+                    if let Some(fval) = export_paints_value(active_fills, fbind, &cn.plugin_data) {
                         ov.insert("fill".into(), fval);
                     }
                 }
