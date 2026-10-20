@@ -6,7 +6,7 @@ use super::registry::{Category, RuleNeeds, RULES};
 use super::rules::{aabb_of_transformed_rect, detached, evaluate_node, severity_rank, ActiveRules, NodeEvalCtx, ParentEvalCtx};
 use super::LintEnv;
 use crate::{Affine, Document, Node, NodeId, NodeKind};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 /// Execution budget for [`lint_subtree`], capping visited nodes and/or wall-clock duration.
@@ -15,6 +15,8 @@ pub struct Budget {
     pub max_nodes: usize,
     pub max_duration: Option<Duration>,
     pub cursor: Option<String>,
+    /// Nodes whose own rules are evaluated when visited, without descending into their children.
+    pub shallow_nodes: BTreeSet<NodeId>,
 }
 
 impl Default for Budget {
@@ -25,11 +27,11 @@ impl Default for Budget {
 
 impl Budget {
     pub fn unlimited() -> Self {
-        Self { max_nodes: usize::MAX, max_duration: None, cursor: None }
+        Self { max_nodes: usize::MAX, max_duration: None, cursor: None, shallow_nodes: BTreeSet::new() }
     }
 
     pub fn with_limits(max_nodes: usize, max_duration: Option<Duration>) -> Self {
-        Self { max_nodes, max_duration, cursor: None }
+        Self { max_nodes, max_duration, cursor: None, shallow_nodes: BTreeSet::new() }
     }
 }
 
@@ -232,6 +234,7 @@ fn scan_stack_slice<'a>(
     components: &detached::Components,
     scales: &super::rules::scale::Scales,
     token_index: &super::token_match::Index,
+    shallow_nodes: &BTreeSet<NodeId>,
     max_nodes: usize,
     max_duration: Option<Duration>,
     raw_findings: &mut Vec<Finding>,
@@ -288,7 +291,9 @@ fn scan_stack_slice<'a>(
             evaluate_node(&ctx, raw_findings);
         }
 
-        push_children(n, &child_buf, node_world, item.depth, item.in_component, active, stack);
+        if !shallow_nodes.contains(&item.id) {
+            push_children(n, &child_buf, node_world, item.depth, item.in_component, active, stack);
+        }
     }
 
     (scanned, complete, next_cursor)
@@ -337,8 +342,20 @@ pub fn lint_subtree_with_components(
     let mut stack = build_initial_stack(doc, roots, active_cursor, &active, &mut page_offset);
 
     let mut raw_findings: Vec<Finding> = Vec::new();
-    let (scanned, complete, mut next_cursor) =
-        scan_stack_slice(doc, &mut stack, config, &active, env, components, &scales, &token_index, budget.max_nodes, budget.max_duration, &mut raw_findings);
+    let (scanned, complete, mut next_cursor) = scan_stack_slice(
+        doc,
+        &mut stack,
+        config,
+        &active,
+        env,
+        components,
+        &scales,
+        &token_index,
+        &budget.shallow_nodes,
+        budget.max_nodes,
+        budget.max_duration,
+        &mut raw_findings,
+    );
 
     // Filter or mark ignored findings in place when ignores exist.
     if !doc.check_designs.ignored.is_empty() {
@@ -504,6 +521,7 @@ pub fn lint_in_slices_with_budget(
             &components,
             &scales,
             &token_index,
+            &total_budget.shallow_nodes,
             slice_nodes,
             Some(max_slice_duration),
             &mut raw_findings,

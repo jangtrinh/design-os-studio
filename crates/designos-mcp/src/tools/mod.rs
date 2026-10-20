@@ -1,13 +1,16 @@
-//! Shared tool validation helpers and modular MCP tool implementations (`v0.6 AI design`).
+//! Shared tool validation helpers, batched transaction dispatcher (`tools::batch`),
+//! per-call lint issues block (`tools::issues`), and session options (`tools::session_options`).
 
 pub mod batch;
 pub mod design_context;
 pub mod guidelines;
+pub mod issues;
 pub mod libraries;
 pub mod library_source;
 pub mod metadata;
 pub mod screenshot;
 pub mod search_design_system;
+pub mod session_options;
 
 use designos_doc::{resolve_easeui_color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle};
 

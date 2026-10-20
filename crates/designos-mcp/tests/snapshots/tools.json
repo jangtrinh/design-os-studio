@@ -281,6 +281,22 @@
           ],
           "type": "string"
         },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
         "name": {
           "description": "Layer name; limited to 1024 UTF-8 bytes.",
           "maxLength": 1024,
@@ -350,6 +366,22 @@
           "minimum": 0,
           "type": "number"
         },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
         "name": {
           "description": "Layer name; limited to 1024 UTF-8 bytes.",
           "maxLength": 1024,
@@ -410,6 +442,22 @@
         "diff_image": {
           "default": false,
           "type": "boolean"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
         },
         "node_id": {
           "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
@@ -579,6 +627,22 @@
         "diff_image": {
           "default": false,
           "type": "boolean"
+        },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
         },
         "parent_id": {
           "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
@@ -1030,6 +1094,22 @@
           "maxLength": 128,
           "type": "string"
         },
+        "lint": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            }
+          ],
+          "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
+        },
         "ops": {
           "items": {
             "additionalProperties": false,
@@ -1263,6 +1343,48 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    }
+  },
+  {
+    "name": "designos_configure_session",
+    "description": "Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset | errors_only | off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_fix": {
+          "type": "object"
+        },
+        "issues": {
+          "additionalProperties": false,
+          "properties": {
+            "max_items": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": [
+                "preset",
+                "errors_only",
+                "off"
+              ],
+              "type": "string"
+            },
+            "preset": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
     }
   },
   {

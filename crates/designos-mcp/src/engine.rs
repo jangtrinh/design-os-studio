@@ -88,6 +88,11 @@ pub struct Engine {
     pub lint_call_max_nodes: usize,
     #[doc(hidden)]
     pub lint_report_cache: Option<CachedLintReport>,
+    /// Per-session options (`designos_configure_session`, E15-12).
+    pub session_options: crate::tools::session_options::SessionOptions,
+    /// When `true` (used by headless tests), disables the text-shaping engine so text rules are
+    /// reported in `issues_skipped_rules` (`E15-12` §8.5).
+    pub disable_text_lint_engine: bool,
 }
 
 impl Default for Engine {
@@ -105,6 +110,8 @@ impl Default for Engine {
             lint_cache: None,
             lint_rules_cache: None,
             lint_report_cache: None,
+            session_options: crate::tools::session_options::SessionOptions::default(),
+            disable_text_lint_engine: false,
         }
     }
 }
@@ -148,6 +155,7 @@ pub const DISPATCHED: &[&str] = &[
     "designos_undo",
     "designos_redo",
     "designos_apply_batch",
+    "designos_configure_session",
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
@@ -225,6 +233,14 @@ impl Engine {
         self.lint_report_cache = None;
     }
 
+    /// Returns the active [`designos_doc::lint::LintEnv`] for this engine.
+    pub fn lint_env(&self) -> &dyn designos_doc::lint::LintEnv {
+        if self.disable_text_lint_engine {
+            &designos_doc::lint::NoLintEnv
+        } else {
+            &designos_render::RenderLintEnv
+        }
+    }
     /// Resolves the target page when a tool call omits `parent_id` / `page_id`:
     /// prefers `self.active_page_id` (the user's currently selected page in `design:os studio`)
     /// if valid in `self.doc.pages`, falling back to `self.doc.pages.first()`.
@@ -342,16 +358,28 @@ impl Engine {
             "designos_delete_node" => {
                 let a: DeleteArgs = parse(args)?;
                 let n = self.node(a.node_id)?;
-                if n.parent.is_none() {
+                let Some(former_parent) = n.parent else {
                     return Err("page roots cannot be deleted by this tool".into());
-                }
+                };
                 let id = n.id;
                 let before_doc = a.diff_image.then(|| self.doc.clone());
+                let baseline =
+                    crate::tools::issues::PreCallBaseline::capture(&self.doc, &[former_parent], &self.session_options.issues, a.lint, self.lint_env());
                 self.exec(Command::Remove { id })?;
+                self.relayout(former_parent);
                 let mut out = json!({"node_id":id,"deleted":true});
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
                 }
+                crate::tools::issues::attach_issues_block(
+                    &self.doc,
+                    &[former_parent],
+                    &self.session_options.issues,
+                    a.lint,
+                    &baseline,
+                    self.lint_env(),
+                    &mut out,
+                );
                 Ok(out)
             }
             "designos_list_comments" => {
@@ -479,6 +507,8 @@ impl Engine {
                     return Err("parent_id must identify a container".into());
                 }
                 let before_doc = a.diff_image.then(|| self.doc.clone());
+                let baseline =
+                    crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent, &self.session_options.issues, a.lint, self.lint_env());
                 let snapshots = crate::tools::library_source::load_enabled_snapshots(&self.doc);
                 let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots).map_err(|e| e.to_string())?;
                 self.exec(cmd)?;
@@ -492,7 +522,6 @@ impl Engine {
                     "name_to_id": report.name_to_id,
                     "instances": report.instances,
                     "imported_assets": report.imported_assets,
-                    "issues": report.issues,
                     "bindings_created": report.bindings_created,
                     "styles_linked": report.styles_linked,
                     "warnings": report.warnings,
@@ -502,6 +531,21 @@ impl Engine {
                 }
                 if let Some(before) = &before_doc {
                     crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
+                }
+                crate::tools::issues::attach_issues_block(&self.doc, &[root_id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut resp);
+                if !report.issues.is_empty() {
+                    if let Some(arr) = resp.get_mut("issues").and_then(Value::as_array_mut) {
+                        for spec_issue in &report.issues {
+                            if let Ok(v) = serde_json::to_value(spec_issue) {
+                                arr.push(v);
+                            }
+                        }
+                        if let Some(tot) = resp.get("issues_total").and_then(Value::as_u64) {
+                            resp["issues_total"] = json!(tot + report.issues.len() as u64);
+                        }
+                    } else {
+                        resp["issues"] = json!(report.issues);
+                    }
                 }
                 Ok(resp)
             }
@@ -733,6 +777,7 @@ impl Engine {
             }
             "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
             "designos_apply_batch" => crate::tools::batch::apply(self, args),
+            "designos_configure_session" => self.session_options.apply_patch(args),
             "designos_import_web_capture" | "import_web_capture" => {
                 let a: ImportWebCaptureArgs = parse(args)?;
                 let page = a
@@ -868,6 +913,7 @@ impl Engine {
             designos_doc::resolve_easeui_color(fill_str).ok_or_else(|| format!("invalid fill color '{fill_str}'"))?;
         }
         let before_doc = a.diff_image.then(|| self.doc.clone());
+        let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
         if let Some(fills) = a.fills {
             node.fills = fills;
@@ -881,6 +927,7 @@ impl Engine {
             self.relayout(page_id);
         }
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
@@ -906,6 +953,7 @@ impl Engine {
         )?;
         let id = node.id;
         let before_doc = a.diff_image.then(|| self.doc.clone());
+        let baseline = crate::tools::issues::PreCallBaseline::capture(&self.doc, &[id], &self.session_options.issues, a.lint, self.lint_env());
         if changed {
             self.exec(Command::Update { node: Box::new(node) })?;
             if let Some(page_id) = self.doc.page_of(id) {
@@ -913,6 +961,7 @@ impl Engine {
             }
         }
         let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
+        crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
@@ -954,6 +1003,8 @@ struct DeleteArgs {
     node_id: u64,
     #[serde(default)]
     diff_image: bool,
+    #[serde(default)]
+    lint: Option<crate::tools::session_options::PerCallLintOverride>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1000,6 +1051,8 @@ struct CreateArgs {
     fills: Option<Vec<designos_doc::Paint>>,
     #[serde(default)]
     diff_image: bool,
+    #[serde(default)]
+    lint: Option<crate::tools::session_options::PerCallLintOverride>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1019,6 +1072,8 @@ struct UpdateArgs {
     fills: Option<Vec<designos_doc::Paint>>,
     #[serde(default)]
     diff_image: bool,
+    #[serde(default)]
+    lint: Option<crate::tools::session_options::PerCallLintOverride>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1061,6 +1116,8 @@ struct ApplySpecArgs {
     spec: NodeSpec,
     #[serde(default)]
     diff_image: bool,
+    #[serde(default)]
+    lint: Option<crate::tools::session_options::PerCallLintOverride>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1127,6 +1184,7 @@ pub fn tools() -> Vec<Value> {
     let size = json!({"type":"number","minimum":0,"maximum":1000000});
     let text = json!({"type":"string","maxLength":100000,"description":"Plain text; limited to 100000 UTF-8 bytes."});
     let name = json!({"type":"string","maxLength":1024,"description":"Layer name; limited to 1024 UTF-8 bytes."});
+    let lint_opt = json!({"anyOf":[{"type":"boolean"},{"type":"string","enum":["preset","errors_only","off"]}],"description":"Optional per-call lint override (false or 'off' skips the per-call lint pass)."});
     let mut out = Vec::new();
     let mut add = |tool: &str, description: &str, properties: Value, required: Vec<&str>, read_only: bool, idempotent: bool| {
         out.push(json!({"name":format!("designos_{tool}"),"description":description,
@@ -1197,13 +1255,13 @@ pub fn tools() -> Vec<Value> {
         true,
     );
     add("create_node","Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved.",
-        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["parent_id","kind"],false,false);
+        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),vec!["parent_id","kind"],false,false);
     add("update_node","Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["node_id"],false,true);
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),vec!["node_id"],false,true);
     add(
         "delete_node",
         "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"diff_image":{"type":"boolean","default":false}}),
+        json!({"node_id":id,"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
         vec!["node_id"],
         false,
         false,
@@ -1243,7 +1301,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "apply_spec",
         "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).",
-        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false}}),
+        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
         vec!["spec"],
         false,
         false,
@@ -1342,6 +1400,7 @@ pub fn tools() -> Vec<Value> {
     out.push(crate::tools::screenshot::tool_descriptor());
     out.push(crate::tools::batch::tool_descriptor());
     out.push(crate::tools::design_context::tool_descriptor());
+    out.push(crate::tools::session_options::tool_descriptor());
     out
 }
 
