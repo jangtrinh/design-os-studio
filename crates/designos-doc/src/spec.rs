@@ -17,7 +17,7 @@ fn default_one_num_or_var() -> NumberOrVar {
 #[serde(deny_unknown_fields)]
 pub struct LayoutSpec {
     /// `"row"` / `"horizontal"` or `"column"` / `"vertical"`.
-    #[serde(default)]
+    #[serde(default, alias = "dir")]
     pub direction: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wrap: bool,
@@ -1978,5 +1978,20 @@ mod tests {
             "width_sizing=hug and height_sizing=hug on a grid frame must hug the columns and the rows"
         );
         assert_eq!(doc.get(hug_both_id).unwrap().size, Vec2::new(110.0, 30.0));
+    }
+
+    #[test]
+    fn layout_dir_is_an_alias_of_direction_and_a_typo_is_still_refused() {
+        let mut doc = Document::new("Alias");
+        let page = doc.add_page("P");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({"kind": "frame", "layout": {"dir": "column"}})).unwrap();
+        let id = doc.apply_spec(page, &spec).unwrap();
+        let al = doc.get(id).unwrap().kind.frame_props().and_then(|f| f.auto_layout.clone()).expect("auto layout");
+        assert_eq!(al.direction, LayoutDirection::Vertical, "`dir` must set the layout direction");
+
+        let err = serde_json::from_value::<NodeSpec>(serde_json::json!({"kind": "frame", "layout": {"dirr": "row"}})).unwrap_err().to_string();
+        let (bad, options) = extract_unknown_field_options(&err).expect("unknown field error");
+        assert_eq!(bad, "dirr");
+        assert!(options.contains(&"direction".to_string()), "{options:?}");
     }
 }

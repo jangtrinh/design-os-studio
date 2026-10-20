@@ -31,9 +31,9 @@ pub struct LivePatchState {
     introduced_variables: BTreeMap<String, Variable>,
     introduced_collections: BTreeSet<String>,
     /// Styles and style metadata this session introduced into the editor document, mapped to the
-    /// last value this session wrote. An agent edit or undo touches one only while the editor still
-    /// holds exactly that value, so a style the editor already had (or the user changed) is never
-    /// overwritten or removed.
+    /// last value this session wrote. Agent writes go by id and the last one wins; a later agent
+    /// edit is refused only when the editor no longer holds the value written here (the user
+    /// changed it), and an agent undo removes only ids recorded here whose value is unchanged.
     introduced_styles: BTreeMap<String, Style>,
     introduced_style_meta: BTreeMap<String, StyleMeta>,
 }
@@ -262,34 +262,13 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
         LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
             let mut styles = doc.styles.clone();
             let mut style_meta = doc.style_meta.clone();
-            for k in removed {
-                if state.introduced_styles.get(k).is_some_and(|prev| styles.get(k) == Some(prev)) {
-                    state.introduced_styles.remove(k);
-                    styles.remove(k);
-                }
-            }
-            for k in removed_meta {
-                if state.introduced_style_meta.get(k).is_some_and(|prev| style_meta.get(k) == Some(prev)) {
-                    state.introduced_style_meta.remove(k);
-                    style_meta.remove(k);
-                }
-            }
-            for (k, v) in upserted {
-                if k.is_empty() {
-                    report.skipped.push("a style without an id was not replayed".to_string());
-                } else if !styles.contains_key(k) || state.introduced_styles.get(k).is_some_and(|prev| styles.get(k) == Some(prev)) {
-                    styles.insert(k.clone(), v.clone());
-                    state.introduced_styles.insert(k.clone(), v.clone());
-                }
-            }
-            for (k, v) in upserted_meta {
-                if !k.is_empty() && (!style_meta.contains_key(k) || state.introduced_style_meta.get(k).is_some_and(|prev| style_meta.get(k) == Some(prev))) {
-                    style_meta.insert(k.clone(), v.clone());
-                    state.introduced_style_meta.insert(k.clone(), v.clone());
-                }
-            }
+            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, upserted, removed, is_spec_undo, "style", report);
+            let refused_meta =
+                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, upserted_meta, removed_meta, is_spec_undo, "style metadata", report);
             if styles == doc.styles && style_meta == doc.style_meta {
-                report.duplicates += 1;
+                if !(refused_styles || refused_meta) {
+                    report.duplicates += 1;
+                }
                 None
             } else {
                 Some(Command::SetStyles { styles, style_meta })
@@ -370,6 +349,55 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
     }
 }
 
+/// The agent's change to one id-keyed token map (styles or style metadata) merged into the
+/// editor's copy: writes go by id and the last write wins, the same rule variables follow.
+/// An upsert is refused only when this session wrote the id earlier and the editor now holds a
+/// different value (the user changed it since); a removal of such an id is refused on an agent
+/// undo for the same reason, and an undo never removes an id this session did not introduce.
+/// Every refusal is reported in `skipped`. Returns whether anything was refused.
+fn merge_agent_tokens<T: Clone + PartialEq>(
+    current: &mut BTreeMap<String, T>,
+    introduced: &mut BTreeMap<String, T>,
+    upserted: &BTreeMap<String, T>,
+    removed: &[String],
+    is_spec_undo: bool,
+    what: &str,
+    report: &mut LivePatchReport,
+) -> bool {
+    let mut refused = false;
+    for k in removed {
+        let Some(held) = current.get(k) else {
+            introduced.remove(k);
+            continue;
+        };
+        let introduced_unchanged = introduced.get(k).is_some_and(|written| written == held);
+        if !is_spec_undo || introduced_unchanged {
+            introduced.remove(k);
+            current.remove(k);
+        } else if introduced.contains_key(k) {
+            report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        }
+    }
+    for (k, v) in upserted {
+        if k.is_empty() {
+            report.skipped.push(format!("a {what} without an id was not replayed"));
+            refused = true;
+            continue;
+        }
+        if introduced.get(k).is_some_and(|written| current.get(k).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; the agent's edit was not replayed"));
+            refused = true;
+            continue;
+        }
+        if !current.contains_key(k) || introduced.contains_key(k) {
+            introduced.insert(k.clone(), v.clone());
+        }
+        current.insert(k.clone(), v.clone());
+    }
+    refused
+}
+
 /// The agent's variable and collection changes merged into the editor's own maps, which can hold
 /// more than the agent's copy did. Changed variables and collections are upserted (unioning member
 /// lists for existing collections so editor-only members are preserved). On an agent spec-undo
@@ -401,12 +429,16 @@ fn resolve_variables(
             merged_colls.remove(id);
         }
     }
+    let mut refused = false;
     for v in variables {
         if v.id.is_empty() {
             report.skipped.push("a variable without an id was not replayed".to_string());
+            refused = true;
         } else {
             let user_changed = state.introduced_variables.get(&v.id).is_some_and(|written| merged_vars.get(&v.id).is_some_and(|cur| cur != written));
             if user_changed {
+                report.skipped.push(format!("variable {} was changed in the editor after the agent wrote it; the agent's edit was not replayed", v.id));
+                refused = true;
                 continue;
             }
             if !merged_vars.contains_key(&v.id) || state.introduced_variables.contains_key(&v.id) {
@@ -436,7 +468,9 @@ fn resolve_variables(
         }
     }
     if merged_vars == doc.variables && merged_colls == doc.variable_collections {
-        report.duplicates += 1;
+        if !refused {
+            report.duplicates += 1;
+        }
         return None;
     }
     Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
