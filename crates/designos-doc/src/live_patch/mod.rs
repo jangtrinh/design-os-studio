@@ -32,16 +32,24 @@ pub struct LivePatch {
     /// base: after the agent reloads a newer canvas it sees the editor's own ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<u64>,
+    /// Optional undo-group label shown in Studio's History panel (e.g. `Agent: <run>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, ops }
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {
         self.base = base;
+        self
+    }
+
+    pub fn with_label(mut self, label: Option<String>) -> Self {
+        self.label = label;
         self
     }
 }

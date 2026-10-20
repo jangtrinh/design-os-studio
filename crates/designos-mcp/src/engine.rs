@@ -1,8 +1,6 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
 use designos_doc::live_patch::{live_ops_for_command, LiveOp};
-use designos_doc::{
-    Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Rect, TextStyle, Vec2,
-};
+use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
@@ -13,13 +11,17 @@ pub struct Engine {
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
+    /// Undo-group label attached to the next [`designos_doc::live_patch::LivePatch`] line when set.
+    pub live_patch_label: Option<String>,
+    /// Optional RD-3 frame ownership lock: when `Some`, writes outside these root frames are refused.
+    pub owned_frames: Option<Vec<NodeId>>,
 }
 
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
-        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None }
+        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None, live_patch_label: None, owned_frames: None }
     }
 }
 
@@ -131,14 +133,19 @@ impl Engine {
             "designos_create_node" => self.create(parse(args)?),
             "designos_update_node" => self.update(parse(args)?),
             "designos_delete_node" => {
-                let a: NodeArgs = parse(args)?;
+                let a: DeleteArgs = parse(args)?;
                 let n = self.node(a.node_id)?;
                 if n.parent.is_none() {
                     return Err("page roots cannot be deleted by this tool".into());
                 }
                 let id = n.id;
+                let before_doc = a.diff_image.then(|| self.doc.clone());
                 self.exec(Command::Remove { id })?;
-                Ok(json!({"node_id":id,"deleted":true}))
+                let mut out = json!({"node_id":id,"deleted":true});
+                if let Some(before) = &before_doc {
+                    crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+                }
+                Ok(out)
             }
             "designos_list_comments" => {
                 let a: ListCommentsArgs = parse(args)?;
@@ -261,6 +268,7 @@ impl Engine {
                 if !self.node(parent.0)?.kind.is_container() {
                     return Err("parent_id must identify a container".into());
                 }
+                let before_doc = a.diff_image.then(|| self.doc.clone());
                 let snapshots = crate::tools::library_source::load_enabled_snapshots(&self.doc);
                 let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots).map_err(|e| e.to_string())?;
                 self.exec(cmd)?;
@@ -277,6 +285,9 @@ impl Engine {
                 });
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
+                }
+                if let Some(before) = &before_doc {
+                    crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[root_id], &mut resp);
                 }
                 Ok(resp)
             }
@@ -386,6 +397,7 @@ impl Engine {
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }
             "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
+            "designos_apply_batch" => crate::tools::batch::apply(self, args),
             "designos_undo" | "designos_redo" => {
                 let _: Empty = parse(args)?;
                 let undo = name == "designos_undo";
@@ -407,7 +419,7 @@ impl Engine {
     /// Re-solves auto layout under `root` and finishes what the pass had to defer. The editor
     /// drains deferred layout a step per frame; this engine has no window, and its document is
     /// read, saved and exported as is.
-    fn relayout(&mut self, root: NodeId) {
+    pub(crate) fn relayout(&mut self, root: NodeId) {
         self.doc.relayout_subtree(root);
         self.doc.flush_pending_relayout();
     }
@@ -418,14 +430,14 @@ impl Engine {
         self.doc.flush_pending_relayout();
     }
 
-    fn node(&self, id: u64) -> Result<&Node, String> {
+    pub(crate) fn node(&self, id: u64) -> Result<&Node, String> {
         if id == 0 {
             return Err("node IDs must be positive integers".into());
         }
         self.doc.get(NodeId(id)).ok_or_else(|| format!("node {id} not found"))
     }
 
-    fn exec(&mut self, command: Command) -> Result<(), String> {
+    pub(crate) fn exec(&mut self, command: Command) -> Result<(), String> {
         let ops = self.live_ops_for(&command)?;
         self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
         self.record(ops);
@@ -433,14 +445,14 @@ impl Engine {
     }
 
     /// The ops `command` will perform, when recording; refuses edits the editor cannot replay.
-    fn live_ops_for(&self, command: &Command) -> Result<Vec<LiveOp>, String> {
+    pub(crate) fn live_ops_for(&self, command: &Command) -> Result<Vec<LiveOp>, String> {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
         live_ops_for_command(&self.doc, command)
     }
 
-    fn record(&mut self, ops: Vec<LiveOp>) {
+    pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
         if let Some(log) = &mut self.live_ops {
             log.extend(ops);
         }
@@ -459,98 +471,59 @@ impl Engine {
             }
             None => self.resolve_default_page()?,
         };
-        let parent = self.node(parent_id.0)?;
-        if !parent.kind.is_container() {
-            return Err("parent_id must identify a container".into());
+        if let Some(fill_str) = &a.fill {
+            designos_doc::resolve_easeui_color(fill_str).ok_or_else(|| format!("invalid fill color '{fill_str}'"))?;
         }
-        let index = parent.children.len();
-        geometry(a.x, a.y, a.width, a.height)?;
-        if let Some(name) = &a.name {
-            bounded_text("name", name, 1024)?;
-        }
-        if let Some(text) = &a.text {
-            bounded_text("text", text, 100_000)?;
-        }
-        if a.kind != "text" && a.text.is_some() {
-            return Err("text can only be set on text nodes".into());
-        }
-        let rect = Rect::new(a.x, a.y, a.width, a.height);
-        // Allocate only after every argument has passed validation.
-        let constructor: fn(NodeId, Rect) -> Node = match a.kind.as_str() {
-            "frame" => Node::frame,
-            "rectangle" => Node::rectangle,
-            "ellipse" => Node::ellipse,
-            "text" => |id, r| Node::text(id, r, "", TextStyle::default()),
-            _ => return Err("kind must be frame, rectangle, ellipse, or text".into()),
-        };
-        // Imported native files may carry a stale allocation counter. Derive a
-        // fresh ID from the actual nodes instead of risking an overwrite.
-        let id = self.doc.try_alloc_id().ok_or("Document has exhausted node IDs")?;
-        let mut node = constructor(id, rect);
-        if let Some(name) = a.name {
-            node.name = name;
-        }
-        if let (Some(text), NodeKind::Text(props)) = (a.text, &mut node.kind) {
-            props.content = text;
+        let before_doc = a.diff_image.then(|| self.doc.clone());
+        let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
+        if let Some(fills) = a.fills {
+            node.fills = fills;
+        } else if let Some(fill_str) = &a.fill {
+            if let Some(color) = designos_doc::resolve_easeui_color(fill_str) {
+                node.fills = vec![designos_doc::Paint::solid(color)];
+            }
         }
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
         }
-        Ok(json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true}))
+        let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        if let Some(before) = &before_doc {
+            crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+        }
+        Ok(out)
     }
 
     fn update(&mut self, a: UpdateArgs) -> Result<Value, String> {
-        let mut node = self.node(a.node_id)?.clone();
-        if node.parent.is_none() {
-            return Err("page roots cannot be updated by this tool".into());
-        }
-        if let Some(name) = a.name {
-            bounded_text("name", &name, 1024)?;
-            node.name = name;
-        }
-        if let Some(x) = a.x {
-            node.transform.tx = x;
-        }
-        if let Some(y) = a.y {
-            node.transform.ty = y;
-        }
-        if let Some(width) = a.width {
-            node.size.x = width;
-        }
-        if let Some(height) = a.height {
-            node.size.y = height;
-        }
-        geometry(node.transform.tx, node.transform.ty, node.size.x, node.size.y)?;
-        if let Some(visible) = a.visible {
-            node.visible = visible;
-        }
-        if let Some(opacity) = a.opacity {
-            if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
-                return Err("opacity must be between 0 and 1".into());
-            }
-            node.opacity = opacity;
-        }
-        if let Some(text) = a.text {
-            bounded_text("text", &text, 100_000)?;
-            let NodeKind::Text(props) = &mut node.kind else {
-                return Err("text can only be set on text nodes".into());
-            };
-            if props.content != text {
-                props.content = text;
-                props.runs.clear();
-                props.lists.clear();
-            }
-        }
+        let (node, changed) = crate::tools::build_updated_node(
+            &self.doc,
+            NodeId(a.node_id),
+            crate::tools::UpdateFields {
+                name: a.name,
+                text: a.text,
+                x: a.x,
+                y: a.y,
+                width: a.width,
+                height: a.height,
+                visible: a.visible,
+                opacity: a.opacity,
+                fill: a.fill,
+                fills: a.fills,
+            },
+        )?;
         let id = node.id;
-        let changed = self.doc.get(id) != Some(&node);
+        let before_doc = a.diff_image.then(|| self.doc.clone());
         if changed {
             self.exec(Command::Update { node: Box::new(node) })?;
             if let Some(page_id) = self.doc.page_of(id) {
                 self.relayout(page_id);
             }
         }
-        Ok(json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed}))
+        let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
+        if let Some(before) = &before_doc {
+            crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
+        }
+        Ok(out)
     }
 }
 
@@ -560,25 +533,10 @@ fn summary(n: &Node) -> Value {
         "width":n.size.x,"height":n.size.y})
 }
 
-fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
+pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, String> {
     serde_json::from_value(args).map_err(|e| format!("invalid arguments: {e}"))
 }
-fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), String> {
-    if value.len() > max {
-        Err(format!("{field} exceeds {max} UTF-8 bytes"))
-    } else {
-        Ok(())
-    }
-}
-fn geometry(x: f32, y: f32, width: f32, height: f32) -> Result<(), String> {
-    if [x, y, width, height].iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
-        return Err("geometry must be finite and within +/-1000000".into());
-    }
-    if width < 0.0 || height < 0.0 {
-        return Err("width and height must be non-negative".into());
-    }
-    Ok(())
-}
+use crate::tools::bounded_text;
 fn default_limit() -> usize {
     100
 }
@@ -596,6 +554,13 @@ struct Empty {}
 #[serde(deny_unknown_fields)]
 struct NodeArgs {
     node_id: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeleteArgs {
+    node_id: u64,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -634,6 +599,12 @@ struct CreateArgs {
     width: f32,
     #[serde(default = "default_size")]
     height: f32,
+    #[serde(default)]
+    fill: Option<String>,
+    #[serde(default)]
+    fills: Option<Vec<designos_doc::Paint>>,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -647,6 +618,12 @@ struct UpdateArgs {
     height: Option<f32>,
     visible: Option<bool>,
     opacity: Option<f32>,
+    #[serde(default)]
+    fill: Option<String>,
+    #[serde(default)]
+    fills: Option<Vec<designos_doc::Paint>>,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -687,6 +664,8 @@ struct ResolveCommentArgs {
 struct ApplySpecArgs {
     parent_id: Option<u64>,
     spec: NodeSpec,
+    #[serde(default)]
+    diff_image: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -772,13 +751,13 @@ pub fn tools() -> Vec<Value> {
         true,
     );
     add("create_node","Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved.",
-        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size}),vec!["parent_id","kind"],false,false);
+        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["parent_id","kind"],false,false);
     add("update_node","Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1}}),vec!["node_id"],false,true);
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false}}),vec!["node_id"],false,true);
     add(
         "delete_node",
         "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id}),
+        json!({"node_id":id,"diff_image":{"type":"boolean","default":false}}),
         vec!["node_id"],
         false,
         false,
@@ -818,7 +797,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "apply_spec",
         "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step.",
-        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."}}),
+        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false}}),
         vec!["spec"],
         false,
         false,
@@ -862,12 +841,14 @@ pub fn tools() -> Vec<Value> {
     add("undo", "Undo the latest successful edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
     add("redo", "Redo the most recently undone edit in this session; returns changed=false if the stack is empty.", json!({}), vec![], false, false);
     out.push(crate::tools::screenshot::tool_descriptor());
+    out.push(crate::tools::batch::tool_descriptor());
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use designos_doc::Rect;
 
     #[test]
     fn variable_inspection_and_codegen_resolve_inherited_cross_collection_aliases() {
@@ -1269,7 +1250,14 @@ mod tests {
 
     #[test]
     fn apply_spec_instance_round_trips_designos_and_fig_and_exports_spec() {
-        let mut e = Engine { doc: designos_doc::fixtures::button_library(), history: History::default(), active_page_id: None, live_ops: None };
+        let mut e = Engine {
+            doc: designos_doc::fixtures::button_library(),
+            history: History::default(),
+            active_page_id: None,
+            live_ops: None,
+            live_patch_label: None,
+            owned_frames: None,
+        };
         let page = e.doc.pages[0];
         e.active_page_id = Some(page);
 

@@ -76,6 +76,9 @@ pub struct DiffReport {
     pub ratio: f64,
     /// Grayscale SSIM over the overlapping region, scaled by overlap/canvas area.
     pub ssim: f64,
+    /// Tight pixel-space bounding box over all mismatched pixels (`None` when `mismatched == 0`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changed_bbox: Option<Rect>,
 }
 
 const CLASS_SAME: u8 = 0;
@@ -231,6 +234,13 @@ fn analyze(a: &RgbaImage, b: &RgbaImage, opts: &DiffOptions) -> (DiffReport, Vec
 
     let mut classes = vec![CLASS_SAME; (w as usize) * (h as usize)];
     let (mut mismatched, mut aa_pixels, mut ignored) = (0u64, 0u64, 0u64);
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    let mut record_mismatch = |x: u32, y: u32| {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    };
     for y in 0..h {
         for x in 0..w {
             let idx = (y * w + x) as usize;
@@ -242,6 +252,7 @@ fn analyze(a: &RgbaImage, b: &RgbaImage, opts: &DiffOptions) -> (DiffReport, Vec
             if x >= ow || y >= oh {
                 classes[idx] = CLASS_MISMATCH;
                 mismatched += 1;
+                record_mismatch(x, y);
                 continue;
             }
             let (ca, cb) = (pa.at(x, y), pb.at(x, y));
@@ -255,6 +266,7 @@ fn analyze(a: &RgbaImage, b: &RgbaImage, opts: &DiffOptions) -> (DiffReport, Vec
             } else {
                 classes[idx] = CLASS_MISMATCH;
                 mismatched += 1;
+                record_mismatch(x, y);
             }
         }
     }
@@ -282,6 +294,7 @@ fn analyze(a: &RgbaImage, b: &RgbaImage, opts: &DiffOptions) -> (DiffReport, Vec
 
     let considered = (w as u64 * h as u64).saturating_sub(ignored);
     let ratio = if considered == 0 { 0.0 } else { mismatched as f64 / considered as f64 };
+    let changed_bbox = if mismatched > 0 { Some(Rect::new(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)) } else { None };
     let report = DiffReport {
         width: w,
         height: h,
@@ -293,6 +306,7 @@ fn analyze(a: &RgbaImage, b: &RgbaImage, opts: &DiffOptions) -> (DiffReport, Vec
         ignored,
         ratio,
         ssim,
+        changed_bbox,
     };
     (report, classes)
 }
@@ -450,5 +464,21 @@ mod tests {
         let d = downscale(&img, 2);
         assert_eq!(d.dimensions(), (4, 4));
         assert_eq!(*d.get_pixel(1, 1), Rgba([2, 2, 0, 255]));
+    }
+
+    #[test]
+    fn diff_report_bbox_unit() {
+        let a = solid(10, 10, [255, 255, 255, 255]);
+        let mut b = a.clone();
+        b.put_pixel(2, 3, Rgba([255, 0, 0, 255]));
+        b.put_pixel(7, 8, Rgba([0, 0, 255, 255]));
+        let opts = DiffOptions { tolerance: 0, detect_aa: false, ignore: Vec::new() };
+        let r = compare(&a, &b, &opts);
+        assert_eq!(r.mismatched, 2);
+        assert_eq!(r.changed_bbox, Some(Rect::new(2, 3, 6, 6)));
+
+        let same = compare(&a, &a, &opts);
+        assert_eq!(same.mismatched, 0);
+        assert_eq!(same.changed_bbox, None);
     }
 }

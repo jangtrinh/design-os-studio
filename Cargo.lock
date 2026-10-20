@@ -1051,6 +1051,7 @@ dependencies = [
 name = "designos-mcp"
 version = "0.5.0"
 dependencies = [
+ "designos-diff",
  "designos-doc",
  "designos-export",
  "designos-fig",

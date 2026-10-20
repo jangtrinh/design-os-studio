@@ -26,6 +26,7 @@ repository = "https://github.com/jangtrinh/design-os-studio"
 designos-doc = { path = "crates/designos-doc" }
 designos-eval = { path = "crates/designos-eval" }
 designos-render = { path = "crates/designos-render" }
+designos-diff = { path = "crates/designos-diff" }
 designos-fig = { path = "crates/designos-fig" }
 designos-library = { path = "crates/designos-library" }
 designos-fonts = { path = "crates/designos-fonts" }

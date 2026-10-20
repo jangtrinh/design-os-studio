@@ -679,6 +679,354 @@ pub fn tool_descriptor() -> Value {
     })
 }
 
+/// Maximum number of touched pages rendered for `diff_image: true` (`E15-8` §3.2).
+pub const MAX_DIFF_PAGES: usize = 4;
+
+fn round6_f64(v: f64) -> f64 {
+    (v * 1_000_000.0).round() / 1_000_000.0
+}
+
+fn rect_to_json(r: Rect) -> Value {
+    json!({
+        "x": round6(r.x),
+        "y": round6(r.y),
+        "width": round6(r.w),
+        "height": round6(r.h),
+    })
+}
+
+fn union_rect_opt(acc: Option<Rect>, r: Rect) -> Option<Rect> {
+    if !r.x.is_finite() || !r.y.is_finite() || !r.w.is_finite() || !r.h.is_finite() || (r.w <= 0.0 && r.h <= 0.0) {
+        return acc;
+    }
+    Some(match acc {
+        Some(prev) => prev.union(&r),
+        None => r,
+    })
+}
+
+fn collect_changed_page_regions(before_doc: &Document, after_doc: &Document, touched_hints: &[NodeId]) -> Vec<(NodeId, String, Rect)> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let globals_changed = before_doc.variables != after_doc.variables
+        || before_doc.variable_collections != after_doc.variable_collections
+        || before_doc.styles != after_doc.styles
+        || before_doc.style_meta != after_doc.style_meta;
+
+    let mut page_order = Vec::new();
+    let mut seen_pages = BTreeSet::new();
+    for &p in after_doc.pages.iter().chain(before_doc.pages.iter()) {
+        if seen_pages.insert(p) {
+            page_order.push(p);
+        }
+    }
+
+    if !globals_changed && !touched_hints.is_empty() && before_doc.nodes.len() > 5_000 {
+        let mut candidates = BTreeSet::new();
+        for &id in touched_hints {
+            if let Some(top_b) = crate::tools::batch::top_container_under_page(before_doc, id) {
+                before_doc.walk(top_b, |n, _| {
+                    candidates.insert(n.id);
+                });
+            } else if before_doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. })) {
+                candidates.insert(id);
+            }
+            if let Some(top_a) = crate::tools::batch::top_container_under_page(after_doc, id) {
+                after_doc.walk(top_a, |n, _| {
+                    candidates.insert(n.id);
+                });
+            } else if after_doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. })) {
+                candidates.insert(id);
+            }
+        }
+        let mut by_page: BTreeMap<NodeId, Rect> = BTreeMap::new();
+        for &id in touched_hints {
+            if before_doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. })) {
+                if let Some(pid) = enclosing_page(before_doc, id) {
+                    let b = page_render_bounds(before_doc, id);
+                    if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                        by_page.insert(pid, u);
+                    }
+                }
+            }
+            if after_doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. })) {
+                if let Some(pid) = enclosing_page(after_doc, id) {
+                    let b = page_render_bounds(after_doc, id);
+                    if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                        by_page.insert(pid, u);
+                    }
+                }
+            }
+        }
+        for id in candidates {
+            match (before_doc.get(id), after_doc.get(id)) {
+                (None, Some(_)) => {
+                    if let Some(pid) = enclosing_page(after_doc, id) {
+                        let b = page_render_bounds(after_doc, id);
+                        if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                            by_page.insert(pid, u);
+                        }
+                    }
+                }
+                (Some(_), None) => {
+                    if let Some(pid) = enclosing_page(before_doc, id) {
+                        let b = page_render_bounds(before_doc, id);
+                        if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                            by_page.insert(pid, u);
+                        }
+                    }
+                }
+                (Some(bn), Some(an)) => {
+                    let mut ra = resolve_node(before_doc, bn).into_owned();
+                    let mut rb = resolve_node(after_doc, an).into_owned();
+                    let parent_changed = ra.parent != rb.parent;
+                    ra.parent = None;
+                    rb.parent = None;
+                    ra.children.clear();
+                    rb.children.clear();
+                    ra.variables.bindings.clear();
+                    rb.variables.bindings.clear();
+                    let wt_changed = before_doc.world_transform(id) != after_doc.world_transform(id);
+                    if parent_changed || wt_changed || ra != rb {
+                        if let Some(pid) = enclosing_page(before_doc, id) {
+                            let b = page_render_bounds(before_doc, id);
+                            if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                                by_page.insert(pid, u);
+                            }
+                        }
+                        if let Some(pid) = enclosing_page(after_doc, id) {
+                            let b = page_render_bounds(after_doc, id);
+                            if let Some(u) = union_rect_opt(by_page.get(&pid).copied(), b) {
+                                by_page.insert(pid, u);
+                            }
+                        }
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+        let mut out = Vec::new();
+        for pid in page_order {
+            if let Some(bbox) = by_page.get(&pid).copied() {
+                if bbox.w > 0.0 && bbox.h > 0.0 {
+                    let page_name = after_doc.get(pid).or_else(|| before_doc.get(pid)).map(|n| n.name.clone()).unwrap_or_else(|| format!("Page {}", pid.0));
+                    let region = designos_doc::grow_and_clip_page_region(after_doc, pid, bbox);
+                    out.push((pid, page_name, region));
+                }
+            }
+        }
+        return out;
+    }
+
+    let mut out = Vec::new();
+    for pid in page_order {
+        let rep = designos_doc::diff_pages(before_doc, after_doc, pid);
+        let mut bbox_opt = rep.changed_bbox;
+        for &id in rep.added.iter().chain(rep.modified.iter()).chain(rep.moved.iter()) {
+            bbox_opt = union_rect_opt(bbox_opt, page_render_bounds(after_doc, id));
+        }
+        for &id in rep.removed.iter().chain(rep.modified.iter()).chain(rep.moved.iter()) {
+            bbox_opt = union_rect_opt(bbox_opt, page_render_bounds(before_doc, id));
+        }
+        if let Some(bbox) = bbox_opt {
+            if bbox.w > 0.0 && bbox.h > 0.0 {
+                let page_name = after_doc.get(pid).or_else(|| before_doc.get(pid)).map(|n| n.name.clone()).unwrap_or_else(|| format!("Page {}", pid.0));
+                let region = designos_doc::grow_and_clip_page_region(after_doc, pid, bbox);
+                out.push((pid, page_name, region));
+            }
+        }
+    }
+    out
+}
+
+/// Computes the `diff` JSON summary and MCP `image` content blocks for a mutation (`E15-8` / `#593`).
+pub fn compute_mutation_diff(before_doc: &Document, after_doc: &Document, touched_hints: &[NodeId]) -> (Value, Vec<Value>) {
+    let page_regions = collect_changed_page_regions(before_doc, after_doc, touched_hints);
+    if page_regions.is_empty() {
+        return (
+            json!({
+                "pages": [],
+                "diff_skipped": Value::Null,
+                "changed_pixels": 0,
+                "changed_ratio": 0.0,
+                "changed_bbox": Value::Null,
+                "bbox": Value::Null,
+                "width": 0,
+                "height": 0,
+                "omitted_pages": 0,
+            }),
+            Vec::new(),
+        );
+    }
+
+    let omitted_pages = page_regions.len().saturating_sub(MAX_DIFF_PAGES);
+    if omitted_pages > 0 {
+        return (
+            json!({
+                "pages": [],
+                "diff_skipped": "more than 4 pages",
+                "changed_pixels": 0,
+                "changed_ratio": 0.0,
+                "changed_bbox": Value::Null,
+                "bbox": Value::Null,
+                "width": 0,
+                "height": 0,
+                "omitted_pages": omitted_pages,
+            }),
+            Vec::new(),
+        );
+    }
+    let mut diff_skipped: Option<String> = None;
+
+    let mut pages_json = Vec::new();
+    let mut content_blocks = Vec::new();
+    let mut total_changed_pixels = 0u64;
+    let mut total_considered_pixels = 0u64;
+    let mut union_changed_bbox: Option<Rect> = None;
+    let mut first_dims: Option<(u32, u32)> = None;
+
+    for (page_id, page_name, region) in page_regions.into_iter().take(MAX_DIFF_PAGES) {
+        let target = ScreenshotTarget::Region(RegionTarget { page_id: page_id.0, x: region.x, y: region.y, width: region.w, height: region.h });
+        let after_res = if after_doc.get(page_id).is_some() {
+            render_target(after_doc, target.clone(), 1.0, 1024)
+        } else {
+            render_target(before_doc, target.clone(), 1.0, 1024)
+        };
+        let rendered_after = match after_res {
+            Ok(r) => r,
+            Err(e) => {
+                diff_skipped = Some(e.code.to_string());
+                continue;
+            }
+        };
+        let rendered_before = if before_doc.get(page_id).is_some() {
+            match render_target(before_doc, target, 1.0, 1024) {
+                Ok(r) => r,
+                Err(e) => {
+                    diff_skipped = Some(e.code.to_string());
+                    continue;
+                }
+            }
+        } else {
+            let Some(pm) = Pixmap::new(rendered_after.width, rendered_after.height) else {
+                diff_skipped = Some("IMAGE_TOO_LARGE".to_string());
+                continue;
+            };
+            RenderedImage { pixmap: pm, ..rendered_after.clone() }
+        };
+
+        let (w, h) = (rendered_after.width, rendered_after.height);
+        if first_dims.is_none() {
+            first_dims = Some((w, h));
+        }
+        let scale_used = rendered_after.scale_used;
+        let Some(before_rgba) = designos_export::image::RgbaImage::from_raw(w, h, designos_export::rgba_bytes(&rendered_before.pixmap)) else {
+            continue;
+        };
+        let Some(after_rgba) = designos_export::image::RgbaImage::from_raw(w, h, designos_export::rgba_bytes(&rendered_after.pixmap)) else {
+            continue;
+        };
+
+        let opts = designos_diff::DiffOptions { tolerance: 0, detect_aa: false, ignore: Vec::new() };
+        let (report, diff_rgba) = designos_diff::diff_image(&before_rgba, &after_rgba, &opts);
+        let page_total_px = (w as u64) * (h as u64);
+        total_changed_pixels += report.mismatched;
+        total_considered_pixels += page_total_px;
+
+        if report.mismatched == 0 {
+            pages_json.push(json!({
+                "page_id": page_id.0,
+                "page_name": page_name,
+                "region": rect_to_json(region),
+                "scale_used": round6(scale_used),
+                "width": w,
+                "height": h,
+                "changed_pixels": 0,
+                "total_pixels": page_total_px,
+                "changed_ratio": 0.0,
+                "changed_bbox": Value::Null,
+                "bbox": Value::Null,
+                "images": [],
+            }));
+            continue;
+        }
+
+        let page_changed_bbox = report.changed_bbox.map(|b| {
+            Rect::new(region.x + (b.x as f32) / scale_used, region.y + (b.y as f32) / scale_used, (b.w as f32) / scale_used, (b.h as f32) / scale_used)
+        });
+        if let Some(cb) = page_changed_bbox {
+            union_changed_bbox = union_rect_opt(union_changed_bbox, cb);
+        }
+
+        let before_png = rendered_before.encode(ScreenshotFormat::Png, 80);
+        let after_png = rendered_after.encode(ScreenshotFormat::Png, 80);
+        let diff_png = designos_export::tiny_skia::IntSize::from_wh(w, h)
+            .and_then(|sz| Pixmap::from_vec(diff_rgba.into_raw(), sz))
+            .map(|pm| encode_png_pixmap(&pm))
+            .unwrap_or_default();
+
+        let base_idx = content_blocks.len();
+        for (role, bytes) in [("before", &before_png), ("after", &after_png), ("diff", &diff_png)] {
+            content_blocks.push(json!({
+                "type": "image",
+                "mimeType": "image/png",
+                "data": BASE64_STANDARD.encode(bytes),
+                "role": role,
+            }));
+        }
+
+        let cb_json = page_changed_bbox.map(rect_to_json).unwrap_or(Value::Null);
+        pages_json.push(json!({
+            "page_id": page_id.0,
+            "page_name": page_name,
+            "region": rect_to_json(region),
+            "scale_used": round6(scale_used),
+            "width": w,
+            "height": h,
+            "changed_pixels": report.mismatched,
+            "total_pixels": page_total_px,
+            "changed_ratio": round6_f64(report.ratio),
+            "changed_bbox": cb_json.clone(),
+            "bbox": cb_json,
+            "images": [
+                { "content_index": base_idx, "role": "before" },
+                { "content_index": base_idx + 1, "role": "after" },
+                { "content_index": base_idx + 2, "role": "diff" }
+            ],
+        }));
+    }
+
+    let overall_ratio = if total_considered_pixels == 0 { 0.0 } else { round6_f64(total_changed_pixels as f64 / total_considered_pixels as f64) };
+    let union_cb_json = union_changed_bbox.map(rect_to_json).unwrap_or(Value::Null);
+    let (first_w, first_h) = first_dims.unwrap_or((0, 0));
+
+    (
+        json!({
+            "pages": pages_json,
+            "diff_skipped": diff_skipped,
+            "changed_pixels": total_changed_pixels,
+            "changed_ratio": overall_ratio,
+            "changed_bbox": union_cb_json.clone(),
+            "bbox": union_cb_json,
+            "width": first_w,
+            "height": first_h,
+            "omitted_pages": omitted_pages,
+        }),
+        content_blocks,
+    )
+}
+
+/// Attaches `"diff"` and `"content"` (MCP image blocks) to a tool reply `out` when `diff_image: true`.
+pub fn attach_diff_to_reply(before_doc: &Document, after_doc: &Document, touched_hints: &[NodeId], out: &mut Value) {
+    let (diff_val, content_blocks) = compute_mutation_diff(before_doc, after_doc, touched_hints);
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert("diff".into(), diff_val);
+        if !content_blocks.is_empty() {
+            obj.insert("content".into(), Value::Array(content_blocks));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

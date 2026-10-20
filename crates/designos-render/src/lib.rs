@@ -11,6 +11,7 @@
 mod blur;
 pub mod board;
 mod boolean;
+pub mod diff_image;
 mod effects;
 mod fx;
 mod geom;
@@ -26,6 +27,7 @@ mod tiles;
 pub mod vectorops;
 
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
+pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
 pub use mask::{mask_frame_box, mask_stencil};

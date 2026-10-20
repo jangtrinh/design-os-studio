@@ -24,6 +24,7 @@ pub mod changelog_features;
 mod comments;
 mod components;
 mod dev;
+pub mod diff;
 pub mod find;
 pub mod finite_json;
 #[cfg(test)]
@@ -71,6 +72,7 @@ pub use changelog_features::*;
 pub use comments::*;
 pub use components::*;
 pub use dev::*;
+pub use diff::*;
 pub use geom::*;
 pub use history::*;
 pub use layout_apply::RELAYOUT_NOTICE_PREFIX;
