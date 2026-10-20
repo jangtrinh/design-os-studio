@@ -246,7 +246,7 @@ impl AgentPresence {
         if self.cursor_size == AgentCursorSize::Hidden {
             return 1.0;
         }
-        for session in &self.sessions {
+        for session in self.sessions.iter().rev() {
             if let Some(fade) = session.insert_fades.iter().find(|f| f.node_id == node_id) {
                 return top_level_insert_fade_alpha(now_s - fade.start_s);
             }
@@ -269,7 +269,7 @@ impl AgentPresence {
                 if doc.page_of(fade.node_id) != Some(page) {
                     continue;
                 }
-                let alpha = top_level_insert_fade_alpha(now_s - fade.start_s);
+                let alpha = self.top_level_insert_opacity(fade.node_id, now_s);
                 if alpha < 1.0 {
                     if let Some(existing) = out.iter_mut().find(|(id, _)| *id == fade.node_id) {
                         existing.1 = alpha;
@@ -784,14 +784,14 @@ mod tests {
             let rev = crate::canvas::tiles::take_rev(app);
             app.canvas.tiles.cache.set_runtime_opacities(&app.doc, app.page, opacities);
             let tf = app.canvas.tiles.cache.render_tiles(&app.doc, app.page, &vp, (512, 512), rev, designos_render::TileBudget::unlimited());
-            let tile = tf.tiles.iter().find(|t| t.key.tx == 0 && t.key.ty == 0).expect("tile (0,0)");
+            let tile = tf.tiles.iter().find(|t| t.key.x == 0 && t.key.y == 0).expect("tile (0,0)");
             let idx = (100 * (designos_render::TILE_SIZE as usize) + 100) * 4;
-            tile.rgba[idx]
+            tile.pixmap.data()[idx]
         };
 
         let r_t0 = sample_tile_red(&mut app);
         let rev_initial = app.canvas.tiles.rev();
-        assert_eq!(r_t0, 0, "at t=1.0 (fade alpha 0.0), rendered CPU tile red channel must be 0");
+        assert_eq!(r_t0, 0x5A, "at t=1.0 (fade alpha 0.0), rendered CPU tile red channel must equal page background 0x5A (90)");
 
         app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.0);
         let gpu_t0 = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
@@ -800,7 +800,7 @@ mod tests {
         app.now = 1.2;
         let r_mid = sample_tile_red(&mut app);
         assert_eq!(app.canvas.tiles.rev(), rev_initial, "runtime fade must not bump TileView::rev");
-        assert!(r_mid > 100 && r_mid < 200, "at t=1.2 (fade alpha ~0.632), CPU tile red channel must be partially faded in, got {r_mid}");
+        assert!(r_mid > 180 && r_mid < 230, "at t=1.2 (fade alpha ~0.632), CPU tile red channel must be blended above 0x5A and below 255, got {r_mid}");
 
         app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.2);
         let gpu_mid = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
