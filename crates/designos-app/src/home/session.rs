@@ -783,6 +783,8 @@ impl App {
         let old_page = self.page;
         let old_sel = self.selection.clone();
         self.doc = new_doc;
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         if !self.doc.pages.contains(&old_page) {
             if let Some(&p) = self.doc.pages.first() {
                 self.page = p;

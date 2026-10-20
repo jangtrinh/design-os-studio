@@ -1852,6 +1852,8 @@ impl App {
         self.board.tool_menu = None;
         self.board.bar_menu = None;
         self.layers.reset();
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         self.fonts.load_for(&self.doc);
         self.web_capture_report = None;
         self.web_capture_report_open = false;

@@ -681,12 +681,14 @@ mod tests {
         app.agent_changes_chip.refresh_for_view(&app.doc, app.view, canvas_rect);
         assert!(app.agent_changes_chip.chips.is_empty(), "chip must clear when user pans so changed layers are visible");
 
-        // 3. Document switch clears the chip.
+        // 3. Document switch (`replace_document` used by File -> Open / New) clears the chip and resets presence.
         app.view = View { offset: DV::ZERO, zoom: 1.0 };
         apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(off_children[1], "T3")]).with_agent("s1", "Claude")]);
         assert_eq!(app.agent_changes_chip.chips.len(), 1);
-        app.agent_changes_chip.clear();
+        assert!(!app.agent_presence.sessions.is_empty());
+        app.replace_document(Document::new("Other"), None);
         assert!(app.agent_changes_chip.chips.is_empty(), "chip must clear on document switch");
+        assert!(app.agent_presence.sessions.is_empty(), "agent presence must reset on document switch");
         let _ = DocEpoch::of(1, b"{}");
         let _ = SiblingHint::default();
     }
