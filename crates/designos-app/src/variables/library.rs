@@ -34,6 +34,7 @@ pub fn first_collection_of(collections: &BTreeMap<String, VariableCollection>) -
 }
 
 /// What an import of variables did.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VariablesImport {
     /// Variables of the payload that were merged into the file.
@@ -44,6 +45,7 @@ pub struct VariablesImport {
     pub skipped_library: usize,
 }
 
+#[allow(dead_code)]
 impl VariablesImport {
     /// The toast text.
     pub fn message(&self) -> String {
@@ -58,6 +60,7 @@ impl VariablesImport {
 /// how many variables that was. A library record and a record of the file never replace each other:
 /// nothing lands in a library collection the file already has, and a library collection or variable
 /// is not imported under the id of one the file owns. Figma ids repeat across files, so both happen.
+#[allow(dead_code)]
 pub fn drop_refused_records(
     store: &VariableStore,
     collections: &mut BTreeMap<String, VariableCollection>,
@@ -120,6 +123,7 @@ mod tests {
             variables: vec![],
             key: None,
             source_library_key: lib.map(String::from),
+            extensions: BTreeMap::new(),
         }
     }
 

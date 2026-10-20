@@ -930,6 +930,7 @@ pub(crate) mod fixture {
                 variables: vec!["primary".into(), "muted".into(), "md".into()],
                 key: None,
                 source_library_key: None,
+                extensions: Default::default(),
             },
         );
         let var = |id: &str, name: &str, kind, values: Vec<(&str, VariableValue)>| Variable {
@@ -944,6 +945,8 @@ pub(crate) mod fixture {
             key: None,
 
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         };
         d.variables.insert(
             "primary".into(),
@@ -1121,6 +1124,8 @@ mod tests {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         }
     }
 

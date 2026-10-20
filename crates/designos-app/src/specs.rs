@@ -2242,7 +2242,11 @@ impl App {
             .unwrap_or_else(|| std::env::temp_dir().join(format!("{stem}.fig")));
         self.settle_pending_relayout();
         match crate::io::save_path(&self.doc, &default_path) {
-            Ok(saved) => self.show_toast(format!("Saved .fig binary to {}", saved.display()), false),
+            Ok(saved) => {
+                let omitted = designos_fig::collect_omitted_extensions(&self.doc).len();
+                let note = if omitted == 0 { String::new() } else { format!(" ({omitted} extension keys not carried)") };
+                self.show_toast(format!("Saved .fig binary to {}{note}", saved.display()), false);
+            }
             Err(e) => self.show_toast(e, true),
         }
     }

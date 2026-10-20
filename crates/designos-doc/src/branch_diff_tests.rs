@@ -191,6 +191,7 @@ fn edge_cases_tolerance_kind_reorder_instance_and_variables() {
             variables: vec!["var-1".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     let mut values = BTreeMap::new();
@@ -209,6 +210,8 @@ fn edge_cases_tolerance_kind_reorder_instance_and_variables() {
             hidden_from_publishing: false,
             key: None,
             code_syntax: BTreeMap::new(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
 
