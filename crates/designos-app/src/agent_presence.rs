@@ -241,14 +241,45 @@ impl AgentPresence {
     }
 
     /// Runtime-only opacity multiplier (`0.0..=1.0`) for a newly inserted top-level node at `now_s`.
-    /// Returns `1.0` once the fade settles or for any node that is not currently fading in.
+    /// Returns `1.0` once the fade settles, when `cursor_size == AgentCursorSize::Hidden`, or for any node that is not currently fading in.
     pub fn top_level_insert_opacity(&self, node_id: NodeId, now_s: f64) -> f32 {
+        if self.cursor_size == AgentCursorSize::Hidden {
+            return 1.0;
+        }
         for session in &self.sessions {
             if let Some(fade) = session.insert_fades.iter().find(|f| f.node_id == node_id) {
                 return top_level_insert_fade_alpha(now_s - fade.start_s);
             }
         }
         1.0
+    }
+
+    /// Active runtime-only opacity multipliers (`0.0..1.0`) for newly inserted top-level nodes on `page` at `now_s`.
+    /// Empty when `cursor_size == AgentCursorSize::Hidden` or once all insert fades have settled to `1.0`.
+    pub fn active_top_level_insert_opacities(&self, doc: &Document, page: NodeId, now_s: f64) -> Vec<(NodeId, f32)> {
+        if self.cursor_size == AgentCursorSize::Hidden {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for session in &self.sessions {
+            if session.page != Some(page) {
+                continue;
+            }
+            for fade in &session.insert_fades {
+                if doc.page_of(fade.node_id) != Some(page) {
+                    continue;
+                }
+                let alpha = top_level_insert_fade_alpha(now_s - fade.start_s);
+                if alpha < 1.0 {
+                    if let Some(existing) = out.iter_mut().find(|(id, _)| *id == fade.node_id) {
+                        existing.1 = alpha;
+                    } else {
+                        out.push((fade.node_id, alpha));
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn alloc_colour_index(&mut self) -> usize {
@@ -732,6 +763,7 @@ mod tests {
         let mut frame = Node::new(frame_id, NodeKind::Frame(FrameProps::default()));
         frame.name = "Hero Frame".into();
         frame.size = DV::new(800.0, 600.0);
+        frame.fills.push(Paint::solid(Color::rgba(255, 0, 0, 255)));
         frame.parent = Some(page);
         let patch = LivePatch::new(vec![LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![frame] }]);
         apply_live_patches(&mut app, &[patch]);
@@ -744,5 +776,41 @@ mod tests {
         let at_200ms = app.agent_presence.top_level_insert_opacity(inserted_id, 1.2);
         let expected = 1.0 - (-5.0_f32 * 0.2).exp();
         assert!((at_200ms - expected).abs() < 1e-5, "expected {expected}, got {at_200ms}");
+
+        // Verify CPU tile path and GPU compile both multiply draw opacity without bumping TileView::rev.
+        let vp = designos_render::Viewport { offset: DV::ZERO, zoom: 1.0, dpr: 1.0 };
+        let sample_tile_red = |app: &mut App| -> u8 {
+            let opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, app.now);
+            let rev = crate::canvas::tiles::take_rev(app);
+            app.canvas.tiles.cache.set_runtime_opacities(&app.doc, app.page, opacities);
+            let tf = app.canvas.tiles.cache.render_tiles(&app.doc, app.page, &vp, (512, 512), rev, designos_render::TileBudget::unlimited());
+            let tile = tf.tiles.iter().find(|t| t.key.tx == 0 && t.key.ty == 0).expect("tile (0,0)");
+            let idx = (100 * (designos_render::TILE_SIZE as usize) + 100) * 4;
+            tile.rgba[idx]
+        };
+
+        let r_t0 = sample_tile_red(&mut app);
+        let rev_initial = app.canvas.tiles.rev();
+        assert_eq!(r_t0, 0, "at t=1.0 (fade alpha 0.0), rendered CPU tile red channel must be 0");
+
+        app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.0);
+        let gpu_t0 = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
+        assert_eq!(gpu_t0.stats().draws, 0, "at t=1.0 (fade alpha 0.0), GPU compile must skip drawing the 0-opacity frame");
+
+        app.now = 1.2;
+        let r_mid = sample_tile_red(&mut app);
+        assert_eq!(app.canvas.tiles.rev(), rev_initial, "runtime fade must not bump TileView::rev");
+        assert!(r_mid > 100 && r_mid < 200, "at t=1.2 (fade alpha ~0.632), CPU tile red channel must be partially faded in, got {r_mid}");
+
+        app.canvas.gpu.compiler.opts.runtime_node_opacities = app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, 1.2);
+        let gpu_mid = app.canvas.gpu.compiler.compile(&app.doc, app.page, rev_initial, &vp, (512, 512));
+        assert!(gpu_mid.stats().draws > 0, "at t=1.2, GPU compile must emit draws for the fading top-level frame");
+
+        app.now = 2.5;
+        app.agent_presence.step(2.5, 0.016);
+        let r_settled = sample_tile_red(&mut app);
+        assert_eq!(app.canvas.tiles.rev(), rev_initial, "settling runtime fade must not bump TileView::rev");
+        assert_eq!(r_settled, 255, "at t=2.5 (settled), CPU tile red channel must be 255");
+        assert_eq!(app.doc.get(inserted_id).unwrap().opacity, 1.0, "Node.opacity in Document must never be mutated");
     }
 }
