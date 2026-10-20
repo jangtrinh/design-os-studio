@@ -23,6 +23,7 @@ use crate::widgets;
 pub struct AgentPickerState {
     pub cache: CatalogProbeCache,
     pub probe_started: bool,
+    pub open_row_order: Vec<String>,
     pub selected_index: usize,
     pub other_form_open: bool,
     pub other_label_input: String,
@@ -45,12 +46,14 @@ impl AgentPickerState {
     /// background probe while keeping the cached result on screen (`#652` §5).
     pub fn on_close(&mut self) {
         self.probe_started = false;
+        self.open_row_order.clear();
     }
 
     /// Triggers a fresh background probe (e.g. when re-opening the picker).
     #[allow(dead_code)]
     pub fn refresh(&mut self) {
         self.probe_started = true;
+        self.open_row_order.clear();
         self.cache.refresh_async();
     }
 
@@ -92,12 +95,20 @@ pub fn resolve_settings_root(state: &TerminalState) -> PathBuf {
 
 /// Builds the current [`PickerRow`] list for `state` using its cached probes, per-file `last_cli`,
 /// and Studio's saved `custom_clis` (`#652` §3 rules 3–8).
+/// While the picker or `+` menu remains open, row order is pinned (`open_row_order`) so background
+/// probes finishing at different times only update row pills in-place without shifting rows (`#783`).
 pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
     state.picker.ensure_probed();
     let settings_root = resolve_settings_root(state);
     let custom_clis: Vec<CustomCliEntry> = load_custom_clis(&settings_root);
     let snap = state.picker.cache.snapshot();
-    let rows = build_picker_rows(&snap, state.session_registry.last_cli.as_deref(), &custom_clis);
+    let mut rows = build_picker_rows(&snap, state.session_registry.last_cli.as_deref(), &custom_clis);
+    if state.picker.open_row_order.is_empty() {
+        state.picker.open_row_order = rows.iter().map(|r| r.id.clone()).collect();
+    } else {
+        let order = state.picker.open_row_order.clone();
+        rows.sort_by_key(|r| order.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
+    }
     if state.picker.selected_index >= rows.len() || !rows.get(state.picker.selected_index).is_some_and(|r| r.selectable) {
         if let Some(first_sel) = rows.iter().position(|r| r.selectable) {
             state.picker.selected_index = first_sel;
@@ -137,12 +148,22 @@ enum PickerInteraction {
     ResumeLastSession,
 }
 
+fn is_row_clickable_on_pointer(state: &TerminalState, row: &PickerRow) -> bool {
+    if row.selectable {
+        return true;
+    }
+    if let PickerRowKind::CatalogCli { preset, signed_in: SignIn::Checking, .. } = row.kind {
+        return state.picker.cache.is_preset_installed(preset);
+    }
+    false
+}
+
 /// Executes selecting `row` in the new-session picker or `+` menu.
 /// Returns `Some(FixAction)` when an uninstalled CLI row's install action is triggered without spawning a tab.
 pub fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_path: Option<&Path>) -> Option<FixAction> {
     match &row.kind {
-        PickerRowKind::CatalogCli { preset, installed, install_action, .. } => {
-            if *installed {
+        PickerRowKind::CatalogCli { preset, installed, signed_in, install_action, .. } => {
+            if *installed || (*signed_in == SignIn::Checking && state.picker.cache.is_preset_installed(*preset)) {
                 state.runtime_dropdown_open = false;
                 state.picker.on_close();
                 state.active_runtime = *preset;
@@ -346,7 +367,7 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
         if resp.clicked() && matches!(interaction, PickerInteraction::None) {
             if row.kind == PickerRowKind::OtherCli {
                 interaction = PickerInteraction::OpenOtherForm;
-            } else if row.selectable {
+            } else if is_row_clickable_on_pointer(state, row) {
                 interaction = PickerInteraction::SelectRow(idx);
             }
         }
@@ -486,7 +507,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         if resp.clicked() && matches!(interaction, PickerInteraction::None) {
             if row.kind == PickerRowKind::OtherCli {
                 interaction = PickerInteraction::OpenOtherForm;
-            } else if row.selectable {
+            } else if is_row_clickable_on_pointer(state, row) {
                 interaction = PickerInteraction::SelectRow(idx);
             }
         }
@@ -847,6 +868,99 @@ mod tests {
         assert_eq!(st.status_msg.as_deref(), Some("Open https://antigravity.google/ in your browser"));
 
         st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // #783: `clicking_row_mid_staggered_probe_starts_the_clicked_cli`
+    #[test]
+    fn clicking_row_mid_staggered_probe_starts_the_clicked_cli() {
+        use crate::agent_cli_catalog::{CommandOutput, RunCommand, PROBE_TIMEOUT};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        struct StaggeredRunner;
+        impl RunCommand for StaggeredRunner {
+            fn is_installed(&self, _binary: &str, _install_folders: &[PathBuf]) -> bool {
+                true
+            }
+            fn run(&self, argv: &[&str], _install_folders: &[PathBuf], _timeout: Duration) -> CommandOutput {
+                match argv {
+                    // Claude and Grok finish after a short delay (25ms), after frame 1 paints
+                    // initial "Checking..." rows, while Codex takes longer (250ms).
+                    ["claude", "--version"] => {
+                        std::thread::sleep(Duration::from_millis(25));
+                        CommandOutput::ok("2.1.302 (Claude Code)\n")
+                    }
+                    ["claude", "auth", "status"] => CommandOutput::ok(r#"{"loggedIn": true}"#),
+                    ["grok", "--version"] => {
+                        std::thread::sleep(Duration::from_millis(25));
+                        CommandOutput::ok("grok 1.0.62\n")
+                    }
+                    ["codex", "--version"] => {
+                        std::thread::sleep(Duration::from_millis(250));
+                        CommandOutput::ok("codex-cli 0.163.0\n")
+                    }
+                    ["codex", "login", "status"] => CommandOutput::ok("Logged in using ChatGPT\n"),
+                    ["agy", "--version"] => {
+                        std::thread::sleep(Duration::from_millis(250));
+                        CommandOutput::ok("1.4.2\n")
+                    }
+                    ["gemini", "--version"] => {
+                        std::thread::sleep(Duration::from_millis(250));
+                        CommandOutput::ok("0.38.2\n")
+                    }
+                    _ => CommandOutput::exited(1, "", ""),
+                }
+            }
+        }
+
+        let root = temp_test_dir("staggered-probe-click");
+        let mut st = TerminalState::for_tab(783);
+        st.picker.settings_root_override = Some(root.clone());
+        st.picker.cache = CatalogProbeCache::new(Arc::new(StaggeredRunner), PROBE_TIMEOUT);
+        st.runtime_dropdown_open = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+        let screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0)));
+
+        // Frame 1: open menu while all probes are in flight; record where Codex is painted.
+        let _ = ctx.run_ui(egui::RawInput { screen_rect, ..Default::default() }, |ui| {
+            render_runtime_dropdown_menu(&mut st, ui, panel_rect, 40.0, None);
+        });
+        let codex_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-dropdown-codex".to_string())))).expect("codex row painted on frame 1");
+        let click_pos = codex_rect.center();
+
+        // Wait until Claude and Grok probes have finished while Codex is still probing mid-flight.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            let snap = st.picker.cache.snapshot();
+            let claude_done = snap.get(&AgentCliPreset::Claude).is_some_and(|p| p.installed);
+            let grok_done = snap.get(&AgentCliPreset::Grok).is_some_and(|p| p.installed);
+            if claude_done && grok_done {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(st.picker.cache.is_probing(), "Codex probe must still be in flight when clicking");
+
+        // Click at `codex_rect.center()` mid-probe (move -> press -> release).
+        for events in [
+            vec![egui::Event::PointerMoved(click_pos)],
+            vec![egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }],
+            vec![egui::Event::PointerButton { pos: click_pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }],
+        ] {
+            let _ = ctx.run_ui(egui::RawInput { screen_rect, events, ..Default::default() }, |ui| {
+                render_runtime_dropdown_menu(&mut st, ui, panel_rect, 40.0, None);
+            });
+        }
+
+        assert_eq!(st.active_runtime, AgentCliPreset::Codex, "clicking Codex row mid-probe must start Codex, not a row that shifted into its slot");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&st.session_dir);
         let _ = std::fs::remove_dir_all(&root);
     }
 }
