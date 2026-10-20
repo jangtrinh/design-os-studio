@@ -348,16 +348,7 @@ pub fn with_paint<R>(
             };
             let (spread, quality) = match scale_mode {
                 d::ImageScaleMode::Tile => (sk::SpreadMode::Repeat, sk::FilterQuality::Bilinear),
-                _ => {
-                    let q = if eff > 1.0 && iw <= 8.0 && ih <= 8.0 {
-                        sk::FilterQuality::Nearest
-                    } else if eff > 1.0 {
-                        sk::FilterQuality::Bicubic
-                    } else {
-                        sk::FilterQuality::Bilinear
-                    };
-                    (sk::SpreadMode::Pad, q)
-                }
+                _ => (sk::SpreadMode::Pad, if eff > 1.0 { sk::FilterQuality::Bicubic } else { sk::FilterQuality::Bilinear }),
             };
             let shader_ts = sk::Transform::from_scale(s * mult, s * mult).post_translate(tx, ty);
             if matches!(scale_mode, d::ImageScaleMode::Fit) {

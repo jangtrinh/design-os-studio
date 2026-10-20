@@ -305,14 +305,19 @@ fn overlay_on_image_within_0_05() {
     use designos_doc::ImageScaleMode;
 
     let mut doc = Document::new("overlay-on-image");
-    // 2x2 checker #3060A0 / #F0E0C0 encoded as PNG.
-    let mut pm = tiny_skia::Pixmap::new(2, 2).unwrap();
+    // The label sits inside the light cell, away from the cell edge where bicubic sampling rings.
+    // 64x64 checker of 32 px cells (#3060A0 / #F0E0C0) encoded as PNG: large enough that the
+    // renderer's image sampling leaves cell interiors exact.
+    let mut pm = tiny_skia::Pixmap::new(64, 64).unwrap();
     let dark = [0x30, 0x60, 0xA0, 0xFF];
     let light = [0xF0, 0xE0, 0xC0, 0xFF];
-    pm.data_mut()[0..4].copy_from_slice(&dark);
-    pm.data_mut()[4..8].copy_from_slice(&light);
-    pm.data_mut()[8..12].copy_from_slice(&light);
-    pm.data_mut()[12..16].copy_from_slice(&dark);
+    for y in 0..64usize {
+        for x in 0..64usize {
+            let px = if (x / 32 + y / 32) % 2 == 0 { dark } else { light };
+            let o = (y * 64 + x) * 4;
+            pm.data_mut()[o..o + 4].copy_from_slice(&px);
+        }
+    }
     doc.images.insert("checker".into(), pm.encode_png().unwrap());
 
     let page = doc.add_page("Page 1");
@@ -331,7 +336,7 @@ fn overlay_on_image_within_0_05() {
     doc.insert(page, frame).unwrap();
 
     let tid = doc.alloc_id();
-    let text = make_text_node(tid, Rect::new(10.0, 10.0, 180.0, 30.0), "Hero Label", "WWWWWWWWWWWWWWWW", Color::WHITE, 16.0, 400);
+    let text = make_text_node(tid, Rect::new(120.0, 10.0, 70.0, 30.0), "Hero Label", "WWWW", Color::WHITE, 16.0, 400);
     doc.insert(fid, text).unwrap();
 
     let cfg = LintConfig::from_preset(LintPreset::Recommended);

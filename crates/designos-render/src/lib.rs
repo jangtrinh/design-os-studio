@@ -406,16 +406,7 @@ impl Renderer<'_> {
 
     fn visible_fills<'n>(&self, n: &'n Node) -> Vec<&'n designos_doc::Paint> {
         match &n.kind {
-            NodeKind::Text(t) => {
-                let use_node_fills = !n.fills.is_empty()
-                    && t.runs.is_empty()
-                    && (t.style.fills.is_empty() || t.style.fills.as_slice() == [designos_doc::Paint::solid(designos_doc::Color::BLACK)]);
-                if use_node_fills {
-                    n.fills.iter().filter(|p| p.visible).collect()
-                } else {
-                    t.style.fills.iter().filter(|p| p.visible).collect()
-                }
-            }
+            NodeKind::Text(t) => t.style.fills.iter().filter(|p| p.visible).collect(),
             _ => n.fills.iter().filter(|p| p.visible).collect(),
         }
     }
@@ -732,32 +723,17 @@ impl Renderer<'_> {
     }
 
     fn draw_text(&self, n: &Node, tl: &text::TextLayout, ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, alpha: f32) {
-        let use_node_fills = match &n.kind {
-            NodeKind::Text(t) => {
-                !n.fills.is_empty()
-                    && t.runs.is_empty()
-                    && (t.style.fills.is_empty() || t.style.fills.as_slice() == [designos_doc::Paint::solid(designos_doc::Color::BLACK)])
-            }
-            _ => false,
-        };
         for (i, path) in tl.paths.iter().enumerate() {
             let Some(path) = path else { continue };
-            let eff_size = if n.size.x > 0.0 && n.size.y > 0.0 {
-                n.size
-            } else {
-                let b = path.bounds();
-                Vec2::new(b.right().max(1.0), b.bottom().max(1.0))
-            };
             let paths = [(path.clone(), sk::FillRule::Winding)];
-            let fills_slice = if i == 0 && use_node_fills { &n.fills } else { &tl.styles[i].fills };
-            for p in fills_slice.iter().filter(|p| p.visible) {
-                fill_paths(&self.env, target, &paths, ts, eff_size, p, alpha, clip);
+            for p in tl.styles[i].fills.iter().filter(|p| p.visible) {
+                fill_paths(&self.env, target, &paths, ts, n.size, p, alpha, clip);
             }
             let strokes = self.visible_strokes(n);
             if !strokes.is_empty() {
                 let st = self.make_stroke(n, n.stroke.weight);
                 for p in strokes {
-                    stroke_paths(&self.env, target, &paths, &st, ts, eff_size, p, alpha, clip);
+                    stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, clip);
                 }
             }
         }

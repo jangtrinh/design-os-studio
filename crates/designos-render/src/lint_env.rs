@@ -5,7 +5,7 @@ use designos_doc::lint::rules::contrast::contrast_ratio;
 use designos_doc::lint::{
     lint_in_slices, lint_in_slices_with_budget, Backdrop, Budget, LintConfig, LintEnv, LintReport, PassCache, SamplePoint, SliceRunStats, TextMetrics,
 };
-use designos_doc::{resolve_node, Color, Document, Node, NodeId, NodeKind, Paint, PaintKind, Rect, TextAutoResize, TextProps, Vec2};
+use designos_doc::{resolve_node, Color, Document, Node, NodeId, NodeKind, PaintKind, Rect, TextAutoResize, TextProps, Vec2};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -265,9 +265,7 @@ fn sample_backdrop(doc: &Document, node: NodeId, mut rect: Rect, indexes: Option
 
 fn fallback_text_fill(n: &Node) -> (Color, f32) {
     if let NodeKind::Text(t) = &n.kind {
-        let use_node_fills = !n.fills.is_empty() && t.runs.is_empty() && (t.style.fills.is_empty() || t.style.fills.as_slice() == [Paint::solid(Color::BLACK)]);
-        let slice = if use_node_fills { &n.fills } else { &t.style.fills };
-        if let Some(p) = slice.iter().rev().find(|p| p.visible) {
+        if let Some(p) = t.style.fills.iter().rev().find(|p| p.visible) {
             if let PaintKind::Solid(c) = p.kind {
                 let a = (c.a * p.opacity * n.opacity).clamp(0.0, 1.0);
                 return (Color { r: c.r, g: c.g, b: c.b, a: 1.0 }, a);
