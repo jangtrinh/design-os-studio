@@ -104,9 +104,7 @@ fn message_job(f: &Finding, color: Color32) -> egui::text::LayoutJob {
 }
 
 fn list_height(report: &Report, show_ignored: bool, scanning: bool) -> f32 {
-    let notes_h = (report.unreadable_libraries.len() as f32) * 28.0
-        + if scanning { PROGRESS_H } else { 0.0 }
-        + if report.truncated { NOTE_H } else { 0.0 };
+    let notes_h = (report.unreadable_libraries.len() as f32) * 28.0 + if scanning { PROGRESS_H } else { 0.0 } + if report.truncated { NOTE_H } else { 0.0 };
     let ignored_h = if report.ignored.is_empty() {
         0.0
     } else if show_ignored {

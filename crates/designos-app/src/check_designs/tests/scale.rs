@@ -83,7 +83,9 @@ fn sliced_audit_equals_synchronous_audit() {
 #[test]
 fn no_layer_cut_off_on_large_page() {
     let (doc, page) = build_synthetic_page(30_000);
-    let report = audit(&doc, &Scope::Page(page));
+    let mut cur = ScanCursor::new(&doc, Scope::Page(page));
+    while !audit_step(&doc, &mut cur, Duration::from_secs(3600)) {}
+    let report = cur.into_report(&doc);
     assert_eq!(report.scanned, 30_000);
     assert!(report.complete);
     assert!(!report.findings.is_empty());
@@ -142,7 +144,9 @@ fn a_large_detached_frame_does_not_stall_one_slice() {
     let (doc, page) = (f.doc, f.page);
     let (worst, _) = worst_slice(&doc, &Scope::Page(page));
     assert!(worst <= Duration::from_millis(4), "worst slice {worst:?} exceeded 4ms budget");
-    let report = audit(&doc, &Scope::Page(page));
+    let mut cur = ScanCursor::new(&doc, Scope::Page(page));
+    while !audit_step(&doc, &mut cur, Duration::from_secs(3600)) {}
+    let report = cur.into_report(&doc);
     let found = report.of(Rule::DetachedInstance).find(|x| x.node == frame).expect("the copy is reported");
     assert!(matches!(found.fix, Some(Fix::Reconnect { component }) if component == comp), "an unedited copy still gets its reconnect");
 }

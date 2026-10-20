@@ -49,6 +49,7 @@ pub const MAX_SCANNED_LAYERS: usize = 20_000;
 pub const MAX_VISITED_LAYERS: usize = 200_000;
 
 /// Which scan cap stopped an audit early.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Truncation {
     /// Stopped at [`MAX_SCANNED_LAYERS`] meaningful layers.
@@ -402,6 +403,15 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
             if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
                 continue;
             }
+            if is_quiet_mirror(doc, n) {
+                cur.scanned += 1;
+                steps += 1;
+                cur.stack.extend(n.children.iter().rev().copied());
+                if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
+                    return false;
+                }
+                continue;
+            }
             if contrast_on && matches!(n.kind, NodeKind::Text(_)) && !cur.bounds.warm_for_text(doc, id, start + budget) {
                 cur.stack.push(id);
                 return false;
@@ -437,7 +447,8 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
 }
 
 fn same_own_as_source(n: &Node, src: &Node) -> bool {
-    n.opacity == src.opacity
+    std::mem::discriminant(&n.kind) == std::mem::discriminant(&src.kind)
+        && n.opacity == src.opacity
         && n.blend == src.blend
         && n.fills == src.fills
         && n.stroke == src.stroke
@@ -449,6 +460,9 @@ fn same_own_as_source(n: &Node, src: &Node) -> bool {
         && n.component.detached_symbol_id == src.component.detached_symbol_id
         && match (&n.kind, &src.kind) {
             (NodeKind::Text(a), NodeKind::Text(b)) => a.style == b.style && a.runs == b.runs,
+            (NodeKind::Instance { frame: fa, component: ca, component_key: ka }, NodeKind::Instance { frame: fb, component: cb, component_key: kb }) => {
+                fa == fb && ca == cb && ka == kb
+            }
             _ => n.kind.frame_props() == src.kind.frame_props(),
         }
 }
@@ -506,10 +520,12 @@ pub(super) fn audit_with_cheap_skip(doc: &Document, scope: &Scope, libs: &Librar
 }
 
 /// Scans `scope` and includes variables and styles from enabled `libs` snapshots.
+#[cfg(test)]
 pub fn audit_with_libraries(doc: &Document, scope: &Scope, libs: &LibrarySources) -> Report {
     audit_impl(doc, scope, libs, true)
 }
 
+#[cfg(test)]
 fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
     let roots: Vec<NodeId> = match scope {
         Scope::Page(page) => doc.get(*page).map(|p| p.children.clone()).unwrap_or_default(),
@@ -518,8 +534,13 @@ fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: 
     let index = hardcoded::Index::with_libraries(doc, libs);
     let components = detached::Components::new(doc);
     let bounds = contrast::SubtreeBounds::default();
+    let contrast_on = !doc.check_designs.disabled_rules.contains(Rule::Contrast.figma_id());
+    let detached_on = !doc.check_designs.disabled_rules.contains(Rule::DetachedInstance.figma_id());
+    let library_assets_on = !doc.check_designs.disabled_rules.contains(Rule::LibraryAssets.figma_id());
     let mut report = Report::default();
+    let mut partial = Vec::new();
     let mut visited = 0usize;
+    let mut checked = 0usize;
     let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
     while let Some(id) = stack.pop() {
         let Some(n) = doc.get(id) else { continue };
@@ -537,19 +558,34 @@ fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: 
             continue;
         }
         let always_counted = n.component.source.is_none() || !n.component.overrides.is_empty();
-        if always_counted && report.scanned >= MAX_SCANNED_LAYERS {
+        if (always_counted && report.scanned >= MAX_SCANNED_LAYERS) || checked >= MAX_SCANNED_LAYERS {
             report.truncated = true;
             report.truncated_by = Some(Truncation::Scanned);
             break;
         }
         visited += 1;
-        let before = report.findings.len();
-        hardcoded::check(doc, &index, n, &mut report.findings);
-        contrast::check(doc, &bounds, n, &mut report.findings);
-        detached::check(doc, &components, n, &mut report.findings);
-        if always_counted || report.findings.len() > before {
+        checked += 1;
+        let before = partial.len();
+        hardcoded::check(doc, &index, n, &mut partial);
+        if contrast_on {
+            contrast::check(doc, &bounds, n, &mut partial);
+        }
+        if detached_on {
+            match detached::plan(doc, &components, n) {
+                detached::Detached::Nothing => {}
+                detached::Detached::Found(f) => partial.push(f),
+                detached::Detached::Compare { component } => {
+                    let equal = detached::matches_component(doc, id, component);
+                    partial.push(detached::compared(doc, n, component, equal));
+                }
+            }
+        }
+        if library_assets_on {
+            library_assets::check(doc, libs, n, n.component.source.and_then(|s| doc.get(s)), &mut partial);
+        }
+        if always_counted || partial.len() > before {
             if report.scanned >= MAX_SCANNED_LAYERS {
-                report.findings.truncate(before);
+                partial.truncate(before);
                 report.truncated = true;
                 report.truncated_by = Some(Truncation::Scanned);
                 break;
@@ -557,6 +593,14 @@ fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: 
             report.scanned += 1;
         }
         stack.extend(n.children.iter().rev().copied());
+    }
+    report.complete = !report.truncated;
+    for f in partial {
+        if doc.check_designs.ignored.contains(&f.ignore_key()) {
+            report.ignored.push(f);
+        } else {
+            report.findings.push(f);
+        }
     }
     report
 }

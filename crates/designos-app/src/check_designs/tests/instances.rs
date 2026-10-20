@@ -349,6 +349,39 @@ fn mirror_heavy_page_still_reaches_the_later_frame() {
 }
 
 #[test]
+fn instance_text_mirrors_stop_at_checker_cap_instead_of_running_to_visited_cap() {
+    let mut f = fx();
+    white_page(&mut f);
+    let comp = component(&mut f, "663:text-mirror-cap");
+    place(&mut f, comp, 0.0, 200.0);
+    f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+    let comp_row = f.frame(comp, "Row", Some(Color::WHITE));
+    let comp_text = f.text(comp_row, "Label", 14.0, 400, gray(0x11));
+
+    let inst = spawn_instance(&mut f, comp, 0.0, 0.0);
+    // Group into quiet `Row` mirror frames of 10 text mirrors each (`2,001 * 10 = 20,010` text mirrors)
+    // so each parent has only 10 children while total text mirrors exceed `MAX_SCANNED_LAYERS` (20,000).
+    for _ in 0..(MAX_SCANNED_LAYERS / 10) + 1 {
+        let row_id = f.frame(inst, "Row", Some(Color::WHITE));
+        f.doc.get_mut(row_id).unwrap().component.source = Some(comp_row);
+        for _ in 0..10 {
+            let tid = f.text(row_id, "Label", 14.0, 400, gray(0x11));
+            f.doc.get_mut(tid).unwrap().component.source = Some(comp_text);
+        }
+    }
+
+    // Place a failing text layer after `inst`: because every instance text mirror runs `contrast::check`,
+    // the audit must stop after `MAX_SCANNED_LAYERS` (20,000) checker runs rather than running up to `MAX_VISITED_LAYERS` (200,000).
+    let frame_b = f.frame(f.page, "Frame B", Some(Color::WHITE));
+    let _later_failing_text = f.text(frame_b, "Low contrast", 14.0, 400, gray(0x77));
+
+    let report = f.report();
+    assert!(report.truncated, "un-overridden instance text layers that run checkers must stop at MAX_SCANNED_LAYERS");
+    assert_eq!(report.truncated_by, Some(Truncation::Scanned));
+    assert!(report.findings.is_empty(), "audit must stop before reaching Frame B after 20,000 checker runs");
+}
+
+#[test]
 fn quiet_mirror_predicate_keeps_the_ancestor_opacity_row() {
     let mut f = fx();
     white_page(&mut f);
@@ -748,5 +781,4 @@ fn measure_mirror_and_large_page_audit_perf() {
     });
     eprintln!("LARGE_112K_PERF pre_change_ms={off_ms:.3} post_change_ms={on_ms:.3}");
     assert!(on_ms <= off_ms * 1.05 + 0.5, "cheap-skip must stay within 5% of pre-change time: off={off_ms:.2}ms on={on_ms:.2}ms");
->>>>>>> 7041cee5 (fix(check-designs): separate mirror work cap, fix contrast suppression, add bound-override fixture (#663))
 }
