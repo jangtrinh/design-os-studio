@@ -447,13 +447,15 @@ impl AgentTurnLedger {
 
         // Edge case 2: if the user edited a layer `id` during the turn (between an earlier agent
         // step in this turn and the current agent step), a non-ledger history command directly
-        // targeting `id` landed between those two touches AND `pre_fingerprints[id]` before this
-        // step differs from `summary.post_fingerprint`. Drop the earlier steps' inverses for `id`
-        // so reverting this turn restores the state right before the agent's latest write
-        // (preserving the user's mid-turn edit). Layout-only fingerprint changes on `id` caused by
-        // auto-layout reflow (either from intervening agent patches or from a user edit on a
-        // sibling/ancestor layer) must keep earlier inverses.
+        // targeting `id` (with non-layout changes, or layout changes outside auto-layout reflow)
+        // landed between those two touches AND `pre_fingerprints[id]` before this step differs from
+        // `summary.post_fingerprint`. Drop the earlier steps' inverses for `id` so reverting this
+        // turn restores the state right before the agent's latest write (preserving the user's
+        // mid-turn edit). Auto-layout reflow updates on `id` where only `transform` / `size` /
+        // `layout_child` changed while the parent is auto-layout are ignored by `targets_node` so
+        // earlier inverses for `id` are preserved.
         for &(id, _, _) in &step.touched {
+            let pre_node = node_from_inverses(&step.atomic_inverses, id).or_else(|| doc_after.get(id));
             let user_targeted_id = if let Some(last_pos) = turn.steps.iter().rposition(|s| s.touched.iter().any(|(tid, _, _)| *tid == id)) {
                 let prev_depth = turn.steps[last_pos].hist_depth;
                 let cur_depth = step.hist_depth;
@@ -462,7 +464,7 @@ impl AgentTurnLedger {
                 } else {
                     ((prev_depth + 1)..cur_depth)
                         .filter(|&d| !turn.steps[last_pos + 1..].iter().any(|s| s.hist_depth == d))
-                        .any(|d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(id)))
+                        .any(|d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(doc_after, id, pre_node)))
                 }
             } else {
                 false
@@ -652,7 +654,9 @@ impl AgentTurnLedger {
                         .map(|s| s.hist_depth);
                     let layout_only_reflow = if let Some(ld) = last_id_depth {
                         let non_ledger_depths: Vec<usize> = ((ld + 1)..=undo_depth).filter(|&d| !turn.steps.iter().any(|s| s.hist_depth == d)).collect();
-                        !non_ledger_depths.is_empty() && !non_ledger_depths.iter().any(|&d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(id)))
+                        let cur_node = doc.get(id);
+                        !non_ledger_depths.is_empty()
+                            && !non_ledger_depths.iter().any(|&d| hist.undo_at_depth(d).is_some_and(|cmd| cmd.targets_node(doc, id, cur_node)))
                     } else {
                         false
                     };
@@ -794,21 +798,25 @@ fn flatten_inverses(cmd: Command, out: &mut Vec<(Option<NodeId>, Command)>) {
     }
 }
 
-fn name_from_inverses(inverses: &[(Option<NodeId>, Command)], target: NodeId) -> Option<String> {
-    for (id, cmd) in inverses {
+fn node_from_inverses(inverses: &[(Option<NodeId>, Command)], target: NodeId) -> Option<&Node> {
+    for (id, cmd) in inverses.iter().rev() {
         if *id == Some(target) {
             match cmd {
                 Command::Insert { nodes, .. } => {
                     if let Some(root) = nodes.first() {
-                        return Some(root.name.clone());
+                        return Some(root);
                     }
                 }
-                Command::Update { node } => return Some(node.name.clone()),
+                Command::Update { node } => return Some(node),
                 _ => {}
             }
         }
     }
     None
+}
+
+fn name_from_inverses(inverses: &[(Option<NodeId>, Command)], target: NodeId) -> Option<String> {
+    node_from_inverses(inverses, target).map(|n| n.name.clone())
 }
 
 fn can_apply_inverse(doc: &Document, cmd: &Command) -> bool {
@@ -1564,11 +1572,12 @@ mod tests {
         r.agent_rename(hero, "Hero Renamed");
         r.deliver();
 
-        // Mid-turn, user resizes sibling `card` (which moves `hero` via auto-layout reflow).
+        // Mid-turn, user resizes sibling `card` via the real inspector `apply_resize(..., true)` path
+        // (which calls `layout::relayout_up` and records `hero`'s reflow inside the same `Command::Batch`).
         let mut tx = Tx::new();
-        tx.ed.node(&mut r.app.doc, card).unwrap().size.x = 340.0;
+        let card_t = r.app.doc.get(card).unwrap().transform;
+        crate::ops::apply_resize(&mut r.app.doc, &mut tx.ed, card, designos_doc::Vec2::new(340.0, 120.0), card_t, true);
         tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
-        r.app.doc.relayout_subtree(container);
         let hero_tx_after_user_card_resize = r.app.doc.get(hero).unwrap().transform.tx;
 
         // Agent step 2: set Hero's opacity to 0.5.

@@ -214,13 +214,29 @@ impl Command {
         })
     }
 
-    /// Returns `true` when this command (or its inverse stored on the undo stack) directly targets `id`.
-    pub fn targets_node(&self, id: NodeId) -> bool {
+    /// Returns `true` when this command (or its inverse stored on the undo stack) directly targets `id`,
+    /// ignoring auto-layout reflow updates on `id` where only `transform`, `size`, and/or `layout_child`
+    /// changed while `id`'s parent is an auto-layout frame (or `id` itself is an auto-layout frame).
+    pub fn targets_node(&self, doc: &Document, id: NodeId, current: Option<&Node>) -> bool {
         match self {
             Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => nodes.iter().any(|n| n.id == id),
             Command::Remove { id: rid } | Command::Reparent { id: rid, .. } | Command::RemovePage { id: rid } => *rid == id,
-            Command::Update { node } => node.id == id,
-            Command::Batch(cmds) => cmds.iter().any(|c| c.targets_node(id)),
+            Command::Update { node } => {
+                if node.id != id {
+                    return false;
+                }
+                let Some(after) = current.or_else(|| doc.get(id)) else {
+                    return true;
+                };
+                let parent_is_auto_layout =
+                    after.parent.or(node.parent).and_then(|pid| doc.get(pid)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some()
+                        || after.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
+                if parent_is_auto_layout && only_layout_fields_differ(node, after) {
+                    return false;
+                }
+                node.as_ref() != after
+            }
+            Command::Batch(cmds) => cmds.iter().any(|c| c.targets_node(doc, id, current)),
             Command::SetFlows { .. }
             | Command::SetStyles { .. }
             | Command::SetComments { .. }
@@ -231,6 +247,16 @@ impl Command {
             | Command::SetImages { .. } => false,
         }
     }
+}
+
+fn only_layout_fields_differ(before: &Node, after: &Node) -> bool {
+    let mut normalized = before.clone();
+    normalized.parent = after.parent;
+    normalized.children = after.children.clone();
+    normalized.transform = after.transform;
+    normalized.size = after.size;
+    normalized.layout_child = after.layout_child;
+    normalized == *after
 }
 
 impl Document {
