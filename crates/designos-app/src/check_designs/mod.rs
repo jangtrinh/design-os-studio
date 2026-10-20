@@ -25,7 +25,7 @@ mod text_styles;
 pub use fixture::FIXTURE;
 pub use state::CheckDesignsState;
 
-use designos_doc::{BlendMode, CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind, PaintKind};
+use designos_doc::{BlendMode, CheckDesignsSettings, Color, Document, IgnoreKey, LibraryRef, LibrarySnapshot, Node, NodeId, NodeKind};
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::sync::Arc;
@@ -436,12 +436,6 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
     cur.phase == Phase::Done
 }
 
-fn has_opaque_fill(n: &Node) -> bool {
-    n.fills
-        .iter()
-        .any(|p| p.visible && matches!(p.blend, BlendMode::Normal | BlendMode::PassThrough) && matches!(p.kind, PaintKind::Solid(c) if c.a * p.opacity >= 1.0))
-}
-
 fn same_own_as_source(n: &Node, src: &Node) -> bool {
     n.opacity == src.opacity
         && n.blend == src.blend
@@ -459,9 +453,13 @@ fn same_own_as_source(n: &Node, src: &Node) -> bool {
         }
 }
 
-/// Whether `n` is an un-overridden mirror layer inside an instance whose ancestors up to the
-/// instance root are also un-overridden and fully opaque (`opacity >= 1.0`, normal blend).
+/// Whether `n` is an un-overridden non-text mirror layer inside an instance whose ancestors up to
+/// the instance root are also un-overridden and fully opaque (`opacity >= 1.0`, normal blend).
+/// Text mirrors always run the checkers so covering siblings and out-of-frame backdrops are audited.
 fn is_quiet_mirror(doc: &Document, n: &Node) -> bool {
+    if matches!(n.kind, NodeKind::Text(_)) {
+        return false;
+    }
     let Some(src_id) = n.component.source else { return false };
     if !n.component.overrides.is_empty() || !n.variables.modes.is_empty() {
         return false;
@@ -470,7 +468,6 @@ fn is_quiet_mirror(doc: &Document, n: &Node) -> bool {
     if !same_own_as_source(n, src) {
         return false;
     }
-    let mut opaque_backdrop = !matches!(n.kind, NodeKind::Text(_)) || has_opaque_fill(n);
     let mut cur = n.parent;
     while let Some(pid) = cur {
         let Some(anc) = doc.get(pid) else { return false };
@@ -489,10 +486,9 @@ fn is_quiet_mirror(doc: &Document, n: &Node) -> bool {
                 return false;
             }
         }
-        opaque_backdrop |= has_opaque_fill(anc);
         cur = anc.parent;
     }
-    opaque_backdrop
+    true
 }
 
 /// Scans `scope` with the document's own variables and styles only (the app always audits with

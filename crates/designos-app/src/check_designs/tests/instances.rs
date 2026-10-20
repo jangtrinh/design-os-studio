@@ -473,6 +473,27 @@ fn cheap_skip_changes_no_findings() {
         place(&mut f, t, 60.0, 50.0);
         assert_same(&f.doc, &Scope::Page(f.page), &LibrarySources::default(), "covering sibling");
     }
+    // 2b. Covering-sibling inside an opaque instance frame where only the sibling fill is overridden.
+    {
+        let mut f = fx();
+        white_page(&mut f);
+        let comp = component(&mut f, "cs:cov-inst");
+        place(&mut f, comp, 0.0, 0.0);
+        f.doc.get_mut(comp).unwrap().size = Vec2::new(200.0, 80.0);
+        f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+        let bg = f.rect(comp, "ButtonBg", gray(0x11));
+        resize(&mut f, bg, 160.0, 48.0);
+        place(&mut f, bg, 20.0, 16.0);
+        let lbl = f.text(comp, "Label", 14.0, 400, Color::WHITE);
+        resize(&mut f, lbl, 80.0, 20.0);
+        place(&mut f, lbl, 40.0, 28.0);
+
+        let inst = spawn_instance(&mut f, comp, 260.0, 0.0);
+        let inst_bg = f.doc.get(inst).unwrap().children[0];
+        f.doc.get_mut(inst_bg).unwrap().fills = vec![Paint::solid(gray(0xCC))];
+        f.doc.get_mut(inst_bg).unwrap().component.overrides.insert(OverrideField::Fills);
+        assert_same(&f.doc, &Scope::Page(f.page), &LibrarySources::default(), "covering sibling inside opaque instance");
+    }
     // 3. Library fixture (published library + consumer with instance and plain layers).
     {
         let mut lib_fx = fx();
@@ -492,6 +513,36 @@ fn cheap_skip_changes_no_findings() {
         spawn_instance(&mut f, comp, 260.0, 0.0);
         assert_same(&f.doc, &Scope::Page(f.page), &libs, "library fixture");
     }
+}
+
+#[test]
+fn overridden_sibling_behind_label_in_opaque_instance_reports_contrast_on_instance_text() {
+    let mut f = fx();
+    white_page(&mut f);
+    let comp = component(&mut f, "10:cov-sibling");
+    place(&mut f, comp, 0.0, 0.0);
+    f.doc.get_mut(comp).unwrap().size = Vec2::new(200.0, 80.0);
+    f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+    let bg = f.rect(comp, "ButtonBg", gray(0x11));
+    resize(&mut f, bg, 160.0, 48.0);
+    place(&mut f, bg, 20.0, 16.0);
+    let lbl = f.text(comp, "Label", 14.0, 400, Color::WHITE);
+    resize(&mut f, lbl, 80.0, 20.0);
+    place(&mut f, lbl, 40.0, 28.0);
+
+    let inst = spawn_instance(&mut f, comp, 260.0, 0.0);
+    let kids = f.doc.get(inst).unwrap().children.clone();
+    let inst_bg = kids[0];
+    let inst_label = kids[1];
+    {
+        let b = f.doc.get_mut(inst_bg).unwrap();
+        b.fills = vec![Paint::solid(gray(0xCC))];
+        b.component.overrides.insert(OverrideField::Fills);
+    }
+
+    let report = f.report();
+    let found = only(&report, Rule::Contrast);
+    assert_eq!(found.node, inst_label);
 }
 
 #[test]
