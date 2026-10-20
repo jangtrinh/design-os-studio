@@ -1048,6 +1048,64 @@ fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_fil
     false
 }
 
+fn run_stub_agent_script(cmd_str: &str, job: &ImageJob, cancel: &AtomicBool) {
+    let mut all_handled_in_process = true;
+    for raw_step in cmd_str.split("&&") {
+        if cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        let step = raw_step.trim();
+        if let Some(rest) = step.strip_prefix("sleep ") {
+            if let Ok(secs) = rest.trim().parse::<f64>() {
+                let deadline = Instant::now() + Duration::from_secs_f64(secs);
+                while Instant::now() < deadline {
+                    if cancel.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                continue;
+            }
+        }
+        if let Some(rest) = step.strip_prefix("cp \"") {
+            if let Some(src) = rest.strip_suffix("\" \"$DESIGNOS_IMAGE_OUTPUT\"") {
+                if let Some(parent) = job.output_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::copy(src, &job.output_path);
+                continue;
+            }
+        }
+        all_handled_in_process = false;
+        break;
+    }
+    if all_handled_in_process {
+        return;
+    }
+
+    #[cfg(unix)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("/bin/sh");
+        c.arg("-c").arg(cmd_str);
+        c
+    };
+    #[cfg(not(unix))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.arg("/C").arg(cmd_str);
+        c
+    };
+    cmd.env("DESIGNOS_IMAGE_JOB_ID", &job.id)
+        .env("DESIGNOS_IMAGE_OP", job.op.slug())
+        .env("DESIGNOS_IMAGE_REQUEST", &job.request_path)
+        .env("DESIGNOS_IMAGE_INPUT", &job.input_path)
+        .env("DESIGNOS_IMAGE_OUTPUT", &job.output_path);
+    if let Some(mp) = &job.mask_path {
+        cmd.env("DESIGNOS_IMAGE_MASK", mp);
+    }
+    let _ = cmd.output();
+}
+
 fn run_watcher_thread(
     job: ImageJob,
     script: Option<String>,
@@ -1058,18 +1116,7 @@ fn run_watcher_thread(
     status_file_path: PathBuf,
 ) -> WatcherOutcome {
     if let Some(cmd_str) = script {
-        let mut cmd = std::process::Command::new("/bin/sh");
-        cmd.arg("-c")
-            .arg(&cmd_str)
-            .env("DESIGNOS_IMAGE_JOB_ID", &job.id)
-            .env("DESIGNOS_IMAGE_OP", job.op.slug())
-            .env("DESIGNOS_IMAGE_REQUEST", &job.request_path)
-            .env("DESIGNOS_IMAGE_INPUT", &job.input_path)
-            .env("DESIGNOS_IMAGE_OUTPUT", &job.output_path);
-        if let Some(mp) = &job.mask_path {
-            cmd.env("DESIGNOS_IMAGE_MASK", mp);
-        }
-        let _ = cmd.output();
+        run_stub_agent_script(&cmd_str, &job, &cancel);
     }
 
     let start = Instant::now();
@@ -2028,11 +2075,7 @@ mod tests {
         assert!(app.home.is_some(), "Home screen is shown after Back to files");
 
         wait_for_job_completion(&mut app);
-        assert_eq!(
-            lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(),
-            2,
-            "completed job at Home must be saved to File A on disk"
-        );
+        assert_eq!(lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len(), 2, "completed job at Home must be saved to File A on disk");
 
         // Reopen File A from the Home grid (`open_library_file`).
         app.open_library_file(&entry_a.id);
