@@ -1023,7 +1023,7 @@ mod tests {
         let xml = e.call("designos_generate_code", json!({"node_id":id,"language":android_id})).unwrap();
         assert!(xml["code"].as_str().unwrap().starts_with("<!-- res/layout/card.xml -->"), "{xml}");
         let err = e.call("designos_generate_code", json!({"node_id":id,"language":"vue"})).unwrap_err();
-        assert!(err.contains("uikit") && err.contains("android-xml") && err.contains("html"), "{err}");
+        assert!(err.contains("uikit") && err.contains(android_id) && err.contains("html"), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
     }

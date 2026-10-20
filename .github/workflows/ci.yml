@@ -158,4 +158,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Validate HTML codegen with html-validate
-        run: cargo test -p designos-export --lib card_passes_html_validate --locked -- --ignored --exact
+        run: cargo test -p designos-export --lib html::tests::card_passes_html_validate --locked -- --ignored --exact
