@@ -10,7 +10,7 @@
 
 use crate::app::App;
 use crate::edit::Tx;
-use crate::terminal::{runtime_binary_available, AgentCliPreset, SessionEnv};
+use crate::terminal::{parse_agent_status_payload, runtime_binary_available, AgentCliPreset, AgentTabStatus};
 use crate::theme;
 use crate::widgets;
 use crate::widgets::field::{self, Prefix};
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Tooltip shown on disabled AI image commands when no agent CLI is installed.
@@ -127,6 +127,8 @@ pub struct ImageJob {
     pub mask_path: Option<PathBuf>,
     pub output_path: PathBuf,
     pub request_path: PathBuf,
+    /// Dimensions of the exported visible `input.png` crop in image pixels.
+    pub input_crop_size: (u32, u32),
     pub expected_size: (u32, u32),
     pub started_at: Instant,
     pub state: ImageJobState,
@@ -151,6 +153,8 @@ pub struct ExpandPopoverState {
     pub node: NodeId,
     pub fill_index: usize,
     pub anchor: Rect,
+    /// Cached visible crop dimensions `(w, h)` in image pixels so the `+25%` preset uses image pixels without re-decoding.
+    pub crop_dims: (u32, u32),
     pub top: u32,
     pub right: u32,
     pub bottom: u32,
@@ -165,7 +169,10 @@ pub struct ErasePopoverState {
     pub anchor: Rect,
     pub instruction: String,
     pub focus_requested: bool,
-    /// Optional mask rectangle in image pixel coordinates `[x, y, w, h]`.
+    /// Cached visible crop dimensions `(w, h)` in image pixels so canvas rendering never decodes `doc.images` per frame.
+    pub crop_dims: (u32, u32),
+    pub scale_mode: ImageScaleMode,
+    /// Optional mask rectangle in exported crop pixel coordinates `[x, y, w, h]`.
     pub region: Option<[u32; 4]>,
     /// Drag start in page coordinates when drawing the mask rectangle on the canvas.
     pub drag_start_page: Option<Pos2>,
@@ -226,14 +233,54 @@ impl ImageJobsState {
     }
 }
 
-/// Returns true when at least one agent CLI (`Claude`, `Codex`, `Antigravity`, `Grok`) is installed.
-pub fn has_available_agent_cli(app: &App) -> bool {
+const AGENT_CLI_PRESETS: [AgentCliPreset; 4] = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok];
+
+fn is_preset_installed(app: &App, preset: AgentCliPreset) -> bool {
+    if !matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Antigravity | AgentCliPreset::Grok) {
+        return false;
+    }
     if let Some(ov) = app.image_jobs.override_agent_installed {
         return ov;
     }
-    [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok]
-        .iter()
-        .any(|preset: &AgentCliPreset| runtime_binary_available(preset.binary_name()))
+    runtime_binary_available(preset.binary_name())
+}
+
+fn tab_is_usable_for_preset(tab: &crate::terminal::TerminalTab, preset: AgentCliPreset) -> bool {
+    tab.preset == preset && tab.start_failure.is_none() && !tab.exited_notice_shown
+}
+
+fn preset_has_failed_tab(app: &App, preset: AgentCliPreset) -> bool {
+    app.terminal.tabs.iter().any(|t| (t.preset == preset || t.spawn_preset == preset) && (t.start_failure.is_some() || t.exited_notice_shown))
+        && !app.terminal.tabs.iter().any(|t| tab_is_usable_for_preset(t, preset))
+}
+
+/// Resolves the agent CLI preset to use for this file: prefers an already-running usable agent tab,
+/// then `app.terminal.active_runtime` if it is an installed agent CLI that can be started, then the
+/// first installed agent CLI preset whose tab is running or can be started (`E5-10` §3 rule 2).
+pub fn preferred_agent_cli_preset(app: &App) -> Option<AgentCliPreset> {
+    if app.terminal.session_dir.as_os_str().is_empty() {
+        return None;
+    }
+    if let Some(active) = app.terminal.active_tab() {
+        if is_preset_installed(app, active.preset) && tab_is_usable_for_preset(active, active.preset) {
+            return Some(active.preset);
+        }
+    }
+    if is_preset_installed(app, app.terminal.active_runtime) && !preset_has_failed_tab(app, app.terminal.active_runtime) {
+        return Some(app.terminal.active_runtime);
+    }
+    for tab in &app.terminal.tabs {
+        if is_preset_installed(app, tab.preset) && tab_is_usable_for_preset(tab, tab.preset) {
+            return Some(tab.preset);
+        }
+    }
+    AGENT_CLI_PRESETS.into_iter().find(|&p| is_preset_installed(app, p) && !preset_has_failed_tab(app, p))
+}
+
+/// Returns true when at least one agent CLI (`Claude`, `Codex`, `Antigravity`, `Grok`) is installed
+/// and an agent tab for this file is running or can be started (`E5-10` §3 rule 2).
+pub fn has_available_agent_cli(app: &App) -> bool {
+    preferred_agent_cli_preset(app).is_some()
 }
 
 /// Finds the topmost visible `PaintKind::Image` fill on `node`, returning `(fill_index, image_ref, scale_mode, total_image_fills)`.
@@ -269,6 +316,120 @@ fn decode_doc_image(doc: &Document, image_ref: &str) -> Result<image::RgbaImage,
     Ok(dyn_img.to_rgba8())
 }
 
+/// Reads the header dimensions `(w, h)` of an image in `doc.images` without decoding every pixel when possible.
+fn doc_image_dimensions(doc: &Document, image_ref: &str) -> Option<(u32, u32)> {
+    let bytes = doc.images.get(image_ref)?;
+    if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
+        if let Ok(dims) = reader.into_dimensions() {
+            return Some((dims.0.max(1), dims.1.max(1)));
+        }
+    }
+    decode_doc_image(doc, image_ref).ok().map(|img| img.dimensions())
+}
+
+/// Computes the visible crop rectangle `(crop_x, crop_y, crop_w, crop_h)` in source image pixels
+/// matching `designos-render`'s `PaintKind::Image` shader (`Fill` / `Crop` center-cover vs `Fit`).
+pub fn visible_image_crop_rect(raw_w: u32, raw_h: u32, layer_size: Vec2, scale_mode: ImageScaleMode) -> (u32, u32, u32, u32) {
+    let rw = raw_w.max(1);
+    let rh = raw_h.max(1);
+    let iw = rw as f32;
+    let ih = rh as f32;
+    let lx = layer_size.x.max(1.0);
+    let ly = layer_size.y.max(1.0);
+    match scale_mode {
+        ImageScaleMode::Fill | ImageScaleMode::Crop => {
+            let s = (lx / iw).max(ly / ih).max(1e-6);
+            let crop_w = (lx / s).round().clamp(1.0, iw) as u32;
+            let crop_h = (ly / s).round().clamp(1.0, ih) as u32;
+            let crop_x = rw.saturating_sub(crop_w) / 2;
+            let crop_y = rh.saturating_sub(crop_h) / 2;
+            (crop_x, crop_y, crop_w, crop_h)
+        }
+        ImageScaleMode::Fit | ImageScaleMode::Tile => (0, 0, rw, rh),
+    }
+}
+
+/// Extracts the visible crop of `decoded` at native pixel resolution (`E5-10` §3 rule 3, §8.1).
+fn crop_visible_image(decoded: &image::RgbaImage, layer_size: Vec2, scale_mode: ImageScaleMode) -> image::RgbaImage {
+    let (raw_w, raw_h) = decoded.dimensions();
+    let (cx, cy, cw, ch) = visible_image_crop_rect(raw_w, raw_h, layer_size, scale_mode);
+    if cx == 0 && cy == 0 && cw == raw_w && ch == raw_h {
+        decoded.clone()
+    } else {
+        image::imageops::crop_imm(decoded, cx, cy, cw, ch).to_image()
+    }
+}
+
+/// Computes the cached visible crop dimensions `(crop_w, crop_h)` and `ImageScaleMode` for `(node, fill_index)`.
+fn node_fill_visible_crop_dims(doc: &Document, node: NodeId, fill_index: usize) -> Option<((u32, u32), ImageScaleMode)> {
+    let n = doc.get(node)?;
+    let paint = n.fills.get(fill_index)?;
+    let PaintKind::Image { image_ref, scale_mode } = &paint.kind else {
+        return None;
+    };
+    let (raw_w, raw_h) = doc_image_dimensions(doc, image_ref).unwrap_or_else(|| (n.size.x.round().max(1.0) as u32, n.size.y.round().max(1.0) as u32));
+    let (_, _, cw, ch) = visible_image_crop_rect(raw_w, raw_h, n.size, *scale_mode);
+    Some(((cw, ch), *scale_mode))
+}
+
+/// Returns `(x, y, w, h)` in node-local coordinates for the rendered image content rect inside `layer_size`.
+fn local_image_content_rect(layer_size: Vec2, scale_mode: ImageScaleMode, crop_dims: (u32, u32)) -> (f32, f32, f32, f32) {
+    let lx = layer_size.x.max(1.0);
+    let ly = layer_size.y.max(1.0);
+    let cw = crop_dims.0.max(1) as f32;
+    let ch = crop_dims.1.max(1) as f32;
+    match scale_mode {
+        ImageScaleMode::Fit => {
+            let s = (lx / cw).min(ly / ch).max(1e-6);
+            let w = cw * s;
+            let h = ch * s;
+            ((lx - w) * 0.5, (ly - h) * 0.5, w.max(1e-6), h.max(1e-6))
+        }
+        _ => (0.0, 0.0, lx, ly),
+    }
+}
+
+/// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the exported crop's pixel grid `(0..crop_w, 0..crop_h)`.
+pub fn page_drag_to_image_region(
+    world: Affine,
+    layer_size: Vec2,
+    scale_mode: ImageScaleMode,
+    crop_dims: (u32, u32),
+    start_page: Pos2,
+    cur_page: Pos2,
+) -> Option<[u32; 4]> {
+    let inv = world.invert()?;
+    let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
+    let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
+
+    let (cx, cy, cw_local, ch_local) = local_image_content_rect(layer_size, scale_mode, crop_dims);
+    let min_x = (p0.x.min(p1.x) - cx).clamp(0.0, cw_local);
+    let min_y = (p0.y.min(p1.y) - cy).clamp(0.0, ch_local);
+    let max_x = (p0.x.max(p1.x) - cx).clamp(0.0, cw_local);
+    let max_y = (p0.y.max(p1.y) - cy).clamp(0.0, ch_local);
+    if (max_x - min_x) < 1.0 || (max_y - min_y) < 1.0 {
+        return None;
+    }
+
+    let cw = crop_dims.0.max(1) as f32;
+    let ch = crop_dims.1.max(1) as f32;
+    let sx = cw / cw_local;
+    let sy = ch / ch_local;
+    let min_ix: f32 = min_x * sx;
+    let min_iy: f32 = min_y * sy;
+    let max_ix: f32 = max_x * sx;
+    let max_iy: f32 = max_y * sy;
+
+    if (max_ix - min_ix) < 1.0 || (max_iy - min_iy) < 1.0 {
+        return None;
+    }
+    let rx = (min_ix.floor() as u32).min(crop_dims.0.saturating_sub(1));
+    let ry = (min_iy.floor() as u32).min(crop_dims.1.saturating_sub(1));
+    let rw = ((max_ix - min_ix).ceil().max(1.0) as u32).min(crop_dims.0.saturating_sub(rx));
+    let rh = ((max_iy - min_iy).ceil().max(1.0) as u32).min(crop_dims.1.saturating_sub(ry));
+    Some([rx, ry, rw, rh])
+}
+
 /// Encodes an [`image::RgbaImage`] as PNG bytes.
 fn encode_png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
@@ -278,9 +439,9 @@ fn encode_png(img: &image::RgbaImage) -> Result<Vec<u8>, String> {
 }
 
 /// Builds the black/white `mask.png` (`#FFFFFF` = erase region on `#000000` background) of size `(w, h)`.
-fn build_erase_mask_png(w: u32, h: u32, region: Option<[u32; 4]>) -> Result<Vec<u8>, String> {
+fn build_erase_mask_png(w: u32, h: u32, region: [u32; 4]) -> Result<Vec<u8>, String> {
     let mut img = image::RgbaImage::from_pixel(w.max(1), h.max(1), image::Rgba([0, 0, 0, 255]));
-    let [rx, ry, rw, rh] = region.unwrap_or([0, 0, w, h]);
+    let [rx, ry, rw, rh] = region;
     let x0 = rx.min(w);
     let y0 = ry.min(h);
     let x1 = rx.saturating_add(rw).min(w);
@@ -294,16 +455,15 @@ fn build_erase_mask_png(w: u32, h: u32, region: Option<[u32; 4]>) -> Result<Vec<
 }
 
 impl App {
-    /// Resolves `<session>/image-jobs` for the current file and active agent tab.
+    /// Resolves `<session_dir>/image-jobs` for the current file's isolated session (`E5-10` §3 rule 3).
     pub fn image_jobs_root(&self) -> PathBuf {
         if let Some(custom) = &self.image_jobs.custom_jobs_root {
             return custom.clone();
         }
-        let tab_id = self.terminal.tabs.get(self.terminal.active_tab).map(|t| t.id).unwrap_or(1);
-        SessionEnv::for_session_id(&format!("tab-{tab_id}")).session_dir.join("image-jobs")
+        self.terminal.session_dir.join("image-jobs")
     }
 
-    /// Cancels all active/queued image jobs and removes the `<session>/image-jobs` folder on file close.
+    /// Cancels all active/queued image jobs and removes this file's `<session_dir>/image-jobs` folder on file close.
     pub fn cleanup_image_jobs_on_file_close(&mut self) {
         if let Some(w) = self.image_jobs.watcher.take() {
             w.cancel.store(true, Ordering::SeqCst);
@@ -353,11 +513,12 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
-        let (w, h) = self.doc.get(node).map(|n| (n.size.x.round().max(1.0) as u32, n.size.y.round().max(1.0) as u32)).unwrap_or((100, 100));
-        let pad_x = ((w as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
-        let pad_y = ((h as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
+        let ((crop_w, crop_h), _) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
+        let pad_x = ((crop_w as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
+        let pad_y = ((crop_h as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
         self.image_jobs.erase_popover = None;
-        self.image_jobs.expand_popover = Some(ExpandPopoverState { node, fill_index, anchor, top: pad_y, right: pad_x, bottom: pad_y, left: pad_x });
+        self.image_jobs.expand_popover =
+            Some(ExpandPopoverState { node, fill_index, anchor, crop_dims: (crop_w, crop_h), top: pad_y, right: pad_x, bottom: pad_y, left: pad_x });
     }
 
     /// Opens the `Erase…` popover for `(node, fill_index)` anchored at `anchor`.
@@ -369,9 +530,19 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
+        let (crop_dims, scale_mode) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
         self.image_jobs.expand_popover = None;
-        self.image_jobs.erase_popover =
-            Some(ErasePopoverState { node, fill_index, anchor, instruction: String::new(), focus_requested: true, region: None, drag_start_page: None });
+        self.image_jobs.erase_popover = Some(ErasePopoverState {
+            node,
+            fill_index,
+            anchor,
+            instruction: String::new(),
+            focus_requested: true,
+            crop_dims,
+            scale_mode,
+            region: None,
+            drag_start_page: None,
+        });
     }
 
     /// Verifies that `(node, fill_index)` is an editable non-tiled `PaintKind::Image` fill.
@@ -425,9 +596,12 @@ impl App {
             }
         }
 
-        let image_ref = match self.doc.get(node).and_then(|n| n.fills.get(fill_index)).map(|p| &p.kind) {
-            Some(PaintKind::Image { image_ref, .. }) => image_ref.clone(),
-            _ => return None,
+        let (image_ref, scale_mode, layer_size) = match self.doc.get(node) {
+            Some(n) => match n.fills.get(fill_index).map(|p| &p.kind) {
+                Some(PaintKind::Image { image_ref, scale_mode }) => (image_ref.clone(), *scale_mode, n.size),
+                _ => return None,
+            },
+            None => return None,
         };
 
         let decoded = match decode_doc_image(&self.doc, &image_ref) {
@@ -437,7 +611,8 @@ impl App {
                 return None;
             }
         };
-        let (orig_w, orig_h) = decoded.dimensions();
+        let cropped = crop_visible_image(&decoded, layer_size, scale_mode);
+        let (orig_w, orig_h) = cropped.dimensions();
         let expected_size = match &op {
             ImageOp::Expand { top, right, bottom, left } => {
                 (orig_w.saturating_add(*left).saturating_add(*right), orig_h.saturating_add(*top).saturating_add(*bottom))
@@ -461,7 +636,7 @@ impl App {
         let request_path = job_dir.join("request.json");
         let _ = std::fs::remove_file(&output_path);
 
-        let input_png = match encode_png(&decoded) {
+        let input_png = match encode_png(&cropped) {
             Ok(b) => b,
             Err(e) => {
                 self.show_toast(e, true);
@@ -473,9 +648,10 @@ impl App {
             return None;
         }
 
-        let mask_path = if let ImageOp::Erase { region, .. } = &op {
+        // Write `mask.png` only when an explicit region rectangle was drawn (`E5-10` §3 rule 1, rule 3).
+        let mask_path = if let ImageOp::Erase { region: Some(region_rect), .. } = &op {
             let mp = job_dir.join("mask.png");
-            match build_erase_mask_png(orig_w, orig_h, *region) {
+            match build_erase_mask_png(orig_w, orig_h, *region_rect) {
                 Ok(mask_bytes) => {
                     if let Err(e) = std::fs::write(&mp, mask_bytes) {
                         self.show_toast(format!("Cannot write {}: {e}", mp.display()), true);
@@ -527,6 +703,7 @@ impl App {
             mask_path,
             output_path,
             request_path,
+            input_crop_size: (orig_w, orig_h),
             expected_size,
             started_at: Instant::now(),
             state: ImageJobState::Queued,
@@ -565,11 +742,21 @@ impl App {
                 job.output_path.display()
             );
 
-            if self.image_jobs.agent_script.is_none() {
-                let fp = self.file_path.clone();
-                self.terminal.submit_chat_prompt(&prompt, fp.as_deref());
+            let status_file_path = self.terminal.session_dir.join("agent-status.json");
+            // Clear any stale `done` status file before starting a new job.
+            if let Ok(raw) = std::fs::read_to_string(&status_file_path) {
+                if matches!(parse_agent_status_payload(raw.trim()), Some(AgentTabStatus::Done)) {
+                    let _ = std::fs::remove_file(&status_file_path);
+                }
             }
 
+            if self.image_jobs.agent_script.is_none() {
+                let preset = preferred_agent_cli_preset(self).unwrap_or(AgentCliPreset::Claude);
+                let fp = self.file_path.clone();
+                self.terminal.submit_system_image_prompt(preset, &prompt, fp.as_deref());
+            }
+
+            let tab_status: Option<Arc<Mutex<AgentTabStatus>>> = self.terminal.active_tab().map(|t| Arc::clone(&t.agent_status));
             let cancel = Arc::new(AtomicBool::new(false));
             let cancel_bg = Arc::clone(&cancel);
             let (tx, rx) = mpsc::channel();
@@ -579,7 +766,7 @@ impl App {
             let job_id = job.id.clone();
 
             std::thread::spawn(move || {
-                let outcome = run_watcher_thread(job, script, stable_window, timeout, cancel_bg);
+                let outcome = run_watcher_thread(job, script, stable_window, timeout, cancel_bg, tab_status, status_file_path);
                 let _ = tx.send(outcome);
             });
 
@@ -670,11 +857,20 @@ impl App {
         new_node.visible = true;
         new_node.kind = NodeKind::Rectangle;
 
+        let (orig_scale_mode, orig_opacity, orig_blend) = orig
+            .fills
+            .get(job.fill_index)
+            .and_then(|p| match &p.kind {
+                PaintKind::Image { scale_mode, .. } => Some((*scale_mode, p.opacity, p.blend)),
+                _ => None,
+            })
+            .unwrap_or((ImageScaleMode::Fill, 1.0, BlendMode::Normal));
+
         let new_paint = Paint {
             visible: true,
-            opacity: 1.0,
-            blend: BlendMode::Normal,
-            kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: ImageScaleMode::Fill },
+            opacity: orig_opacity,
+            blend: orig_blend,
+            kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode },
         };
         if job.fill_index < new_node.fills.len() {
             new_node.fills[job.fill_index] = new_paint;
@@ -683,8 +879,21 @@ impl App {
         }
 
         if let ImageOp::Expand { top, right, bottom, left } = job.op {
-            new_node.size = Vec2::new(orig.size.x + left as f32 + right as f32, orig.size.y + top as f32 + bottom as f32);
-            new_node.transform = orig.transform * Affine::translate(-(left as f32), -(top as f32));
+            let cw = job.input_crop_size.0.max(1) as f32;
+            let ch = job.input_crop_size.1.max(1) as f32;
+            let (scale_x, scale_y) = match orig_scale_mode {
+                ImageScaleMode::Fit => {
+                    let s = (orig.size.x.max(1.0) / cw).min(orig.size.y.max(1.0) / ch);
+                    (s, s)
+                }
+                _ => (orig.size.x.max(1.0) / cw, orig.size.y.max(1.0) / ch),
+            };
+            let pad_left = left as f32 * scale_x;
+            let pad_right = right as f32 * scale_x;
+            let pad_top = top as f32 * scale_y;
+            let pad_bottom = bottom as f32 * scale_y;
+            new_node.size = Vec2::new(orig.size.x + pad_left + pad_right, orig.size.y + pad_top + pad_bottom);
+            new_node.transform = orig.transform * Affine::translate(-pad_left, -pad_top);
         }
 
         let mut add = BTreeMap::new();
@@ -704,7 +913,38 @@ impl App {
     }
 }
 
-fn run_watcher_thread(job: ImageJob, script: Option<String>, stable_window: Duration, timeout: Duration, cancel: Arc<AtomicBool>) -> WatcherOutcome {
+fn is_agent_run_done(tab_status: &Option<Arc<Mutex<AgentTabStatus>>>, status_file_path: &std::path::Path) -> bool {
+    if let Ok(raw) = std::fs::read_to_string(status_file_path) {
+        if let Some(parsed) = parse_agent_status_payload(raw.trim()) {
+            if let Some(ts) = tab_status {
+                if let Ok(mut guard) = ts.lock() {
+                    *guard = parsed.clone();
+                }
+            }
+            if matches!(parsed, AgentTabStatus::Done) {
+                return true;
+            }
+        }
+    }
+    if let Some(ts) = tab_status {
+        if let Ok(guard) = ts.lock() {
+            if matches!(*guard, AgentTabStatus::Done) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn run_watcher_thread(
+    job: ImageJob,
+    script: Option<String>,
+    stable_window: Duration,
+    timeout: Duration,
+    cancel: Arc<AtomicBool>,
+    tab_status: Option<Arc<Mutex<AgentTabStatus>>>,
+    status_file_path: PathBuf,
+) -> WatcherOutcome {
     if let Some(cmd_str) = script {
         let mut cmd = std::process::Command::new("/bin/sh");
         cmd.arg("-c")
@@ -746,7 +986,11 @@ fn run_watcher_thread(job: ImageJob, script: Option<String>, stable_window: Dura
                         last_sig = Some((len, mtime, Instant::now()));
                     }
                 }
+            } else if is_agent_run_done(&tab_status, &status_file_path) {
+                return WatcherOutcome::Failed { job_id: job.id, reason: "Agent finished without writing output.png".to_string() };
             }
+        } else if is_agent_run_done(&tab_status, &status_file_path) {
+            return WatcherOutcome::Failed { job_id: job.id, reason: "Agent finished without writing output.png".to_string() };
         }
         std::thread::sleep(poll_interval);
     }
@@ -923,7 +1167,6 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
         return;
     };
     let total_fills = node_ref.fills.iter().filter(|p| matches!(p.kind, PaintKind::Image { .. })).count();
-    let layer_size = node_ref.size;
 
     let screen = ctx.content_rect();
     let w = 236.0;
@@ -947,15 +1190,15 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
         let mut cy = rect.top() + pad;
         p.text(Pos2::new(rect.left() + pad, cy + 8.0), Align2::LEFT_CENTER, "Expand image", theme::font_body_strong(), theme::TEXT);
 
-        // 25% preset button
+        // 25% preset button (uses visible crop pixel dimensions, not layer point size)
         let preset_r = Rect::from_min_size(Pos2::new(rect.right() - pad - 52.0, cy - 2.0), egui::vec2(52.0, 24.0));
         widgets::record(ui, "ai-expand-preset-25", preset_r);
         let pr_resp = ui.interact(preset_r, ui.id().with("ai-expand-25"), Sense::click());
         p.rect_filled(preset_r, theme::cr(theme::RADIUS_CONTROL), if pr_resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
         p.text(preset_r.center(), Align2::CENTER_CENTER, "+25%", theme::font_mono(), theme::TEXT);
         if pr_resp.on_hover_text("Set each side to 25% of image dimensions").clicked() {
-            let px = ((layer_size.x * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
-            let py = ((layer_size.y * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
+            let px = ((pop.crop_dims.0 as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
+            let py = ((pop.crop_dims.1 as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
             pop.top = py;
             pop.bottom = py;
             pop.left = px;
@@ -1138,19 +1381,9 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
 }
 
 fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, popover_rect: Rect, pop: &mut ErasePopoverState) {
-    let image_dims = node
-        .fills
-        .get(pop.fill_index)
-        .and_then(|p| match &p.kind {
-            PaintKind::Image { image_ref, .. } => decode_doc_image(&app.doc, image_ref).ok(),
-            _ => None,
-        })
-        .map(|img| img.dimensions())
-        .unwrap_or((node.size.x.round().max(1.0) as u32, node.size.y.round().max(1.0) as u32));
-
+    let image_dims = pop.crop_dims;
     let world = app.doc.world_transform(node.id);
-    let node_page_min = Pos2::new(world.tx, world.ty);
-    let node_page_size = egui::vec2(node.size.x.max(1.0), node.size.y.max(1.0));
+    let node_size = Vec2::new(node.size.x.max(1.0), node.size.y.max(1.0));
 
     let (pressed, down, released, ptr) =
         ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.interact_pos()));
@@ -1163,18 +1396,8 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
             let start = pop.drag_start_page.unwrap();
             let cur_v = app.view.to_page(app.canvas_rect.min, pos);
             let cur = Pos2::new(cur_v.x, cur_v.y);
-            let min_x = (start.x.min(cur.x) - node_page_min.x).clamp(0.0, node_page_size.x);
-            let min_y = (start.y.min(cur.y) - node_page_min.y).clamp(0.0, node_page_size.y);
-            let max_x = (start.x.max(cur.x) - node_page_min.x).clamp(0.0, node_page_size.x);
-            let max_y = (start.y.max(cur.y) - node_page_min.y).clamp(0.0, node_page_size.y);
-            if (max_x - min_x) >= 2.0 && (max_y - min_y) >= 2.0 {
-                let sx = image_dims.0 as f32 / node_page_size.x;
-                let sy = image_dims.1 as f32 / node_page_size.y;
-                let rx = (min_x * sx).floor() as u32;
-                let ry = (min_y * sy).floor() as u32;
-                let rw = ((max_x - min_x) * sx).ceil().max(1.0) as u32;
-                let rh = ((max_y - min_y) * sy).ceil().max(1.0) as u32;
-                pop.region = Some([rx, ry, rw, rh]);
+            if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, image_dims, start, cur) {
+                pop.region = Some(region);
             }
             if released {
                 pop.drag_start_page = None;
@@ -1183,10 +1406,15 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
     }
 
     if let Some([rx, ry, rw, rh]) = pop.region {
-        let sx = node_page_size.x / image_dims.0.max(1) as f32;
-        let sy = node_page_size.y / image_dims.1.max(1) as f32;
-        let p0 = Vec2::new(node_page_min.x + rx as f32 * sx, node_page_min.y + ry as f32 * sy);
-        let p1 = Vec2::new(node_page_min.x + (rx + rw) as f32 * sx, node_page_min.y + (ry + rh) as f32 * sy);
+        let (cx, cy, cw_local, ch_local) = local_image_content_rect(node_size, pop.scale_mode, image_dims);
+        let sx = cw_local / image_dims.0.max(1) as f32;
+        let sy = ch_local / image_dims.1.max(1) as f32;
+        let local_x0 = cx + rx as f32 * sx;
+        let local_y0 = cy + ry as f32 * sy;
+        let local_x1 = cx + (rx + rw) as f32 * sx;
+        let local_y1 = cy + (ry + rh) as f32 * sy;
+        let p0 = world.apply(Vec2::new(local_x0, local_y0));
+        let p1 = world.apply(Vec2::new(local_x1, local_y1));
         let s0 = app.view.to_screen(app.canvas_rect.min, p0);
         let s1 = app.view.to_screen(app.canvas_rect.min, p1);
         let mask_screen = Rect::from_two_pos(s0, s1);
@@ -1402,5 +1630,186 @@ mod tests {
         let new_node = app.doc.get(new_id).unwrap();
         assert_eq!(new_node.size, Vec2::new(120.0, 120.0));
         assert_eq!((new_node.transform.tx, new_node.transform.ty), (-10.0, -10.0));
+    }
+
+    #[test]
+    fn default_flow_without_agent_script_invokes_agent_cli_as_system_turn() {
+        let tmp = TestDir::new("default-cli-flow");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("test-default-cli-{}", std::process::id()));
+        // Do NOT set `app.image_jobs.agent_script`: exercise the real default terminal submission flow.
+        app.image_jobs.agent_script = None;
+
+        let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts via terminal");
+        app.cancel_image_job(Some(orig_id));
+        app.terminal.shutdown();
+
+        assert_ne!(app.terminal.active_runtime, AgentCliPreset::Shell, "default image job flow must select an agent CLI preset, never Shell");
+        assert!(app.terminal.chat_turns.len() >= 2, "expected system + assistant turns recorded in terminal");
+        let first_turn = &app.terminal.chat_turns[0];
+        assert_eq!(first_turn.role, crate::terminal::AgentChatRole::System, "image job prompt must be recorded as a System turn, not a User message");
+        assert!(first_turn.text.contains(&format!("Image task {job_id}")), "expected image task prompt in first turn: {}", first_turn.text);
+        let cmd = &first_turn.shell_cmd;
+        let invokes_real_cli = cmd.contains("claude --dangerously-skip-permissions -p")
+            || cmd.contains("codex --dangerously-bypass-approvals-and-sandbox exec")
+            || cmd.contains("agy --dangerously-skip-permissions -p")
+            || cmd.contains("grok --always-approve -p");
+        assert!(invokes_real_cli, "expected real agent CLI invocation in shell_cmd, got: {cmd}");
+    }
+
+    #[test]
+    fn finished_agent_without_output_fails_immediately_and_advances_queue() {
+        let tmp = TestDir::new("done-no-output");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.terminal.bind_session(&format!("test-done-no-output-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&app.terminal.session_dir);
+        // Keep the full 5-minute timeout so the test proves the watcher stops on `done` without waiting for timeout.
+        app.image_jobs.job_timeout = Duration::from_secs(300);
+        app.image_jobs.agent_script = None;
+
+        let job1 = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job 1 starts");
+        let job2 = app.start_image_job(orig_id, 0, ImageOp::IsolateSubject).expect("job 2 queues");
+        assert_eq!(app.image_jobs.jobs[0].state, ImageJobState::Running);
+        assert_eq!(app.image_jobs.jobs[1].state, ImageJobState::Queued);
+
+        // Prepare a stub script for job 2 so once job 1 fails immediately on `done`, job 2 runs and completes.
+        let stub_png = tmp.path().join("job2_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+
+        // Signal that the agent finished (`done`) without writing output.png for job 1.
+        std::fs::write(app.terminal.session_dir.join("agent-status.json"), r#"{"state":"done"}"#).unwrap();
+
+        // Wait for job 1 to fail immediately (< 1s, nowhere near the 300s timeout).
+        let t0 = Instant::now();
+        wait_for_job_completion(&mut app);
+        assert!(t0.elapsed() < Duration::from_secs(2), "watcher should fail immediately when agent is done without output");
+        assert!(
+            matches!(app.image_jobs.jobs.iter().find(|j| j.id == job1).map(|j| &j.state), Some(ImageJobState::Failed(_))),
+            "job 1 must fail when agent finishes without output.png"
+        );
+
+        // And job 2 must have started and completed right after job 1 failed.
+        wait_for_job_completion(&mut app);
+        assert_eq!(app.image_jobs.jobs.iter().find(|j| j.id == job2).map(|j| &j.state), Some(&ImageJobState::Done));
+        app.cleanup_image_jobs_on_file_close();
+        app.terminal.shutdown();
+    }
+
+    #[test]
+    fn erase_without_region_omits_mask_file_and_field() {
+        let tmp = TestDir::new("erase-no-mask");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        let stub_png = tmp.path().join("erase_out.png");
+        write_rgba_png(&stub_png, 100, 100, false);
+        app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+
+        let job_no_region = app
+            .start_image_job(orig_id, 0, ImageOp::Erase { instruction: "the person on the left".into(), region: None })
+            .expect("erase without region starts");
+        let job_dir = tmp.path().join("image-jobs").join(&job_no_region);
+        assert!(!job_dir.join("mask.png").exists(), "mask.png must NOT be written when no region was drawn");
+        let req_raw = std::fs::read_to_string(job_dir.join("request.json")).unwrap();
+        let req: JobRequestPayload = serde_json::from_str(&req_raw).unwrap();
+        assert!(req.mask.is_none(), "request.json must omit mask when region is None");
+        assert!(!req_raw.contains("\"mask\""), "serialized request.json must not contain mask field: {req_raw}");
+        wait_for_job_completion(&mut app);
+
+        // With an explicit region, mask.png IS written with only that rectangle white.
+        let job_with_region =
+            app.start_image_job(orig_id, 0, ImageOp::Erase { instruction: "sign".into(), region: Some([10, 20, 30, 40]) }).expect("erase with region starts");
+        let job2_dir = tmp.path().join("image-jobs").join(&job_with_region);
+        assert!(job2_dir.join("mask.png").exists(), "mask.png must be written when region is Some");
+        let mask_img = image::open(job2_dir.join("mask.png")).unwrap().to_rgba8();
+        assert_eq!(mask_img.get_pixel(0, 0).0, [0, 0, 0, 255], "outside region must be black");
+        assert_eq!(mask_img.get_pixel(15, 25).0, [255, 255, 255, 255], "inside region must be white");
+        wait_for_job_completion(&mut app);
+    }
+
+    #[test]
+    fn visible_crop_hidpi_expand_and_scale_mode_preserved() {
+        let tmp = TestDir::new("crop-hidpi");
+        let (mut app, orig_id, img_key) = sample_app_with_image_layer(tmp.path());
+
+        // Replace source bitmap with a 400x200 hi-DPI landscape image on the 100x100 layer using ImageScaleMode::Crop.
+        // Center cover crop of 400x200 into 100x100 aspect ratio is the middle 200x200 square (x in 100..300, y in 0..200).
+        let mut wide = image::RgbaImage::from_pixel(400, 200, image::Rgba([10, 20, 30, 255]));
+        for y in 0..200 {
+            for x in 100..300 {
+                wide.put_pixel(x, y, image::Rgba([200, 100, 50, 255]));
+            }
+        }
+        app.doc.images.insert(img_key.clone(), encode_png(&wide).unwrap());
+        app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop };
+
+        // Expand by 50 image px each side on the 200x200 visible crop -> expected output is 300x300 image px,
+        // and the 100x100 layer (0.5 layer units per image px) grows by 25 layer units each side to 150x150 at (-25, -25).
+        let expanded_png = tmp.path().join("expanded_300x300.png");
+        write_rgba_png(&expanded_png, 300, 300, false);
+        app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", expanded_png.display()));
+
+        let job_id = app.start_image_job(orig_id, 0, ImageOp::Expand { top: 50, right: 50, bottom: 50, left: 50 }).expect("expand starts");
+        let input_img = image::open(tmp.path().join("image-jobs").join(&job_id).join("input.png")).unwrap().to_rgba8();
+        assert_eq!(input_img.dimensions(), (200, 200), "input.png must be the 200x200 visible center crop, not the raw 400x200 bitmap");
+        assert_eq!(input_img.get_pixel(0, 0).0, [200, 100, 50, 255], "cropped input.png must come from center x=100..300");
+
+        wait_for_job_completion(&mut app);
+
+        let page_children = &app.doc.get(app.page).unwrap().children;
+        assert_eq!(page_children.len(), 2);
+        let new_node = app.doc.get(page_children[1]).unwrap();
+        assert_eq!(new_node.size, Vec2::new(150.0, 150.0), "layer size must scale expansion by layer-units-per-image-pixel (150/300 == 100/200)");
+        assert_eq!((new_node.transform.tx, new_node.transform.ty), (-25.0, -25.0));
+        match &new_node.fills[0].kind {
+            PaintKind::Image { scale_mode, .. } => assert_eq!(*scale_mode, ImageScaleMode::Crop, "source scale_mode must be preserved"),
+            other => panic!("expected image fill, got {other:?}"),
+        }
+
+        // Also verify `page_drag_to_image_region` respects both world scale/translation and Fit letterbox rect:
+        // 400x200 image in a 100x100 layer under Fit occupies local y in 25..75, x in 0..100.
+        // With a 2x scaled world transform at (50, 100), local (10, 35)..(60, 60) maps to page (70, 170)..(170, 220).
+        let world = Affine { a: 2.0, b: 0.0, c: 0.0, d: 2.0, tx: 50.0, ty: 100.0 };
+        let region =
+            page_drag_to_image_region(world, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, (400, 200), Pos2::new(70.0, 170.0), Pos2::new(170.0, 220.0))
+                .expect("drag within Fit image content rect resolves");
+        // local x: 10..60 of 0..100 -> 40..240 px (width 200); local y: 35..60 within 25..75 (10..35 of 50) -> 40..140 px (height 100).
+        assert_eq!(region, [40, 40, 200, 100]);
+    }
+
+    #[test]
+    fn jobs_rooted_in_file_session_dir_and_isolated_across_files() {
+        let tmp1 = TestDir::new("sess-1");
+        let tmp2 = TestDir::new("sess-2");
+        let (mut app1, orig1, _) = sample_app_with_image_layer(tmp1.path());
+        let (mut app2, orig2, _) = sample_app_with_image_layer(tmp2.path());
+        app1.image_jobs.custom_jobs_root = None;
+        app2.image_jobs.custom_jobs_root = None;
+        app1.terminal.bind_session(&format!("test-file-a-{}", std::process::id()));
+        app2.terminal.bind_session(&format!("test-file-b-{}", std::process::id()));
+
+        assert_eq!(app1.image_jobs_root(), app1.terminal.session_dir.join("image-jobs"));
+        assert_eq!(app2.image_jobs_root(), app2.terminal.session_dir.join("image-jobs"));
+        assert_ne!(app1.image_jobs_root(), app2.image_jobs_root());
+
+        let stub = tmp1.path().join("stub.png");
+        write_rgba_png(&stub, 100, 100, true);
+        let script = format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub.display());
+        app1.image_jobs.agent_script = Some(script.clone());
+        app2.image_jobs.agent_script = Some(script);
+
+        app1.start_image_job(orig1, 0, ImageOp::RemoveBackground).unwrap();
+        app2.start_image_job(orig2, 0, ImageOp::RemoveBackground).unwrap();
+        wait_for_job_completion(&mut app1);
+        wait_for_job_completion(&mut app2);
+
+        assert!(app1.image_jobs_root().exists());
+        assert!(app2.image_jobs_root().exists());
+
+        // Closing file 1 removes only file 1's image-jobs directory, leaving file 2's intact.
+        app1.cleanup_image_jobs_on_file_close();
+        assert!(!app1.image_jobs_root().exists(), "file 1 image-jobs dir must be removed on close");
+        assert!(app2.image_jobs_root().exists(), "file 2 image-jobs dir must remain intact when file 1 closes");
+
+        app2.cleanup_image_jobs_on_file_close();
     }
 }

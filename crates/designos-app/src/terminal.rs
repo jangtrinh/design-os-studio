@@ -639,6 +639,7 @@ impl TerminalTab {
 pub enum AgentChatRole {
     User,
     Assistant,
+    System,
 }
 
 /// One conversational turn in the Agent Chat UI wrapping `Claude Code`, `Codex`, or `Antigravity CLI` (`DIR-21`).
@@ -1230,6 +1231,33 @@ impl TerminalState {
         }
     }
 
+    /// Submits an automated system prompt (e.g. an AI image tool task) to the active or preferred
+    /// agent CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`), recording the prompt turn with
+    /// [`AgentChatRole::System`] (`E5-10` §3 rule 3, §7).
+    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.preset == preset && t.start_failure.is_none() && !t.exited_notice_shown) {
+            self.active_tab = idx;
+            self.active_runtime = preset;
+        } else {
+            let active_dead = self.active_tab().is_some_and(|t| !t.is_shell_process() && t.exited_notice_shown);
+            if active_dead {
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+            }
+            self.set_active_runtime(preset, file_path);
+        }
+        if let Some(tab) = self.active_tab() {
+            if let Ok(mut st) = tab.agent_status.lock() {
+                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
+            }
+        }
+        self.submit_chat_prompt(prompt, file_path);
+        let len = self.chat_turns.len();
+        if len >= 2 {
+            self.chat_turns[len - 2].role = AgentChatRole::System;
+            self.chat_turns[len - 1].extracted_spec_json = None;
+        }
+    }
+
     /// Synchronizes all `Assistant` chat turns with the live PTY `raw_log` buffer, stripping ANSI
     /// escape codes and extracting per-turn stdout (`DIR-21`).
     pub fn sync_chat_from_pty(&mut self) {
@@ -1657,7 +1685,7 @@ pub fn strip_selection_gutter(text: &str) -> String {
     trimmed_lines.into_iter().map(|l| if l.trim().is_empty() { "" } else { &l[min_indent.min(l.len())..] }).collect::<Vec<&str>>().join("\n")
 }
 
-fn parse_agent_status_payload(payload: &str) -> Option<AgentTabStatus> {
+pub fn parse_agent_status_payload(payload: &str) -> Option<AgentTabStatus> {
     let trimmed = payload.trim();
     if trimmed.is_empty() {
         return None;
@@ -3281,7 +3309,8 @@ fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect:
 
         for (idx, turn) in state.chat_turns.iter().enumerate() {
             match turn.role {
-                AgentChatRole::User => {
+                AgentChatRole::User | AgentChatRole::System => {
+                    let header_label = if turn.role == AgentChatRole::System { "System" } else { "You" };
                     let card_w = (center_rect.width() - 28.0).max(120.0);
                     let max_txt_w = (card_w - 20.0).max(60.0);
                     let lines = wrap_chat_lines(&p, &turn.text, &font, max_txt_w, 6);
@@ -3291,7 +3320,7 @@ fn render_agent_chat_thread(state: &mut TerminalState, ui: &mut Ui, center_rect:
                     p.rect_filled(card_r, CornerRadius::same(8), Color32::from_rgb(0x26, 0x35, 0x4A));
                     p.rect_stroke(card_r, CornerRadius::same(8), Stroke::new(1.0, Color32::from_rgb(0x3E, 0x4C, 0x6D)), StrokeKind::Inside);
 
-                    p.text(Pos2::new(card_r.left() + 10.0, card_r.top() + 13.0), Align2::LEFT_CENTER, "You", font_strong.clone(), Color32::WHITE);
+                    p.text(Pos2::new(card_r.left() + 10.0, card_r.top() + 13.0), Align2::LEFT_CENTER, header_label, font_strong.clone(), Color32::WHITE);
                     p.text(
                         Pos2::new(card_r.right() - 10.0, card_r.top() + 13.0),
                         Align2::RIGHT_CENTER,
