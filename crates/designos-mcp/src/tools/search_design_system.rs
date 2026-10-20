@@ -1461,6 +1461,7 @@ mod tests {
         host.variable_collections.insert(
             "c_tokens".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_tokens".into(),
                 name: "Tokens".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -1485,6 +1486,8 @@ mod tests {
             doc.variables.insert(
                 id.into(),
                 Variable {
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
                     id: id.into(),
                     name: name.into(),
                     collection: "c_tokens".into(),
@@ -1686,6 +1689,7 @@ mod tests {
         doc.variable_collections.insert(
             "c_tokens".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_tokens".into(),
                 name: "Spacing".into(),
                 modes: vec![VariableMode { id: "m_light".into(), name: "Light".into() }, VariableMode { id: "m_dark".into(), name: "Dark".into() }],
@@ -1702,6 +1706,8 @@ mod tests {
         doc.variables.insert(
             "v_gap".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_gap".into(),
                 name: "space-md".into(),
                 collection: "c_tokens".into(),
@@ -1719,6 +1725,8 @@ mod tests {
         doc.variables.insert(
             "v_radius".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_radius".into(),
                 name: "space-radius".into(),
                 collection: "c_tokens".into(),
@@ -1736,6 +1744,8 @@ mod tests {
         doc.variables.insert(
             "v_color".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_color".into(),
                 name: "space-bg".into(),
                 collection: "c_tokens".into(),
@@ -1756,6 +1766,8 @@ mod tests {
         doc.variables.insert(
             "v_unscoped".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_unscoped".into(),
                 name: "space-any".into(),
                 collection: "c_tokens".into(),
@@ -1895,6 +1907,7 @@ mod tests {
         lib_doc.variable_collections.insert(
             "c1".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c1".into(),
                 name: "Brand".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -1907,6 +1920,8 @@ mod tests {
         lib_doc.variables.insert(
             "v_pub".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_pub".into(),
                 name: "accent-token".into(),
                 collection: "c1".into(),
@@ -1922,6 +1937,8 @@ mod tests {
         lib_doc.variables.insert(
             "v_secret".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_secret".into(),
                 name: "accent-secret".into(),
                 collection: "c1".into(),
@@ -2023,6 +2040,7 @@ mod tests {
         lib_doc.variable_collections.insert(
             "c_color".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_color".into(),
                 name: "Color".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2035,6 +2053,8 @@ mod tests {
         lib_doc.variables.insert(
             "v_lib_primary".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_lib_primary".into(),
                 name: "Primary".into(),
                 collection: "c_color".into(),
@@ -2050,6 +2070,8 @@ mod tests {
         lib_doc.variables.insert(
             "v_shared_id".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_shared_id".into(),
                 name: "Secondary".into(),
                 collection: "c_color".into(),
@@ -2073,6 +2095,7 @@ mod tests {
         host.variable_collections.insert(
             "c_local_color".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_local_color".into(),
                 name: "Color".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2085,6 +2108,8 @@ mod tests {
         host.variables.insert(
             "v_local_primary".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_local_primary".into(),
                 name: "Primary".into(),
                 collection: "c_local_color".into(),
@@ -2100,6 +2125,8 @@ mod tests {
         host.variables.insert(
             "v_shared_id".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_shared_id".into(),
                 name: "Secondary".into(),
                 collection: "c_local_color".into(),
@@ -2117,6 +2144,7 @@ mod tests {
         host.variable_collections.insert(
             "c_dup_1".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_dup_1".into(),
                 name: "Dup".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2129,6 +2157,7 @@ mod tests {
         host.variable_collections.insert(
             "c_dup_2".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_dup_2".into(),
                 name: "Dup".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2141,6 +2170,8 @@ mod tests {
         host.variables.insert(
             "v_ambig_a".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_ambig_a".into(),
                 name: "Accent".into(),
                 collection: "c_dup_1".into(),
@@ -2156,6 +2187,8 @@ mod tests {
         host.variables.insert(
             "v_ambig_b".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_ambig_b".into(),
                 name: "Accent".into(),
                 collection: "c_dup_2".into(),
@@ -2263,6 +2296,7 @@ mod tests {
             kit.variable_collections.insert(
                 "c1".into(),
                 VariableCollection {
+                    extensions: Default::default(),
                     id: "c1".into(),
                     name: "Color".into(),
                     modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2275,6 +2309,8 @@ mod tests {
             kit.variables.insert(
                 "v1".into(),
                 Variable {
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
                     id: "v1".into(),
                     name: "Accent".into(),
                     collection: "c1".into(),
@@ -2326,6 +2362,7 @@ mod tests {
         host.variable_collections.insert(
             "c_local".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c_local".into(),
                 name: "Color".into(),
                 modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
@@ -2338,6 +2375,8 @@ mod tests {
         host.variables.insert(
             "v_local_accent".into(),
             Variable {
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
                 id: "v_local_accent".into(),
                 name: "Accent".into(),
                 collection: "c_local".into(),

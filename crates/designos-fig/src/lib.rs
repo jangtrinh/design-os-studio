@@ -43,12 +43,12 @@ pub use pen::{export_pen_json, import_pen_json, import_pen_json_report, import_p
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{image_refs, import_rest_json};
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
-pub use web_capture::{import_web_capture_into_page, import_web_capture_json, import_web_capture_json_with_report, looks_like_web_capture_json};
 pub use variables_dtcg::{
     apply_staged_variables, collect_omitted_extensions, detect_variables_format, detect_variables_format_value, export_variables, import_variables,
     import_variables_bytes, mode_name_from_filename, stage_variables, stage_variables_bytes, validate_dtcg_json, validate_dtcg_value, DtcgValidationError,
     ExportBundle, ImportReport, ImportVariablesOptions, SkippedVariable, StagedVariablesImport, VariablesFormat,
 };
+pub use web_capture::{import_web_capture_into_page, import_web_capture_json, import_web_capture_json_with_report, looks_like_web_capture_json};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FigError {

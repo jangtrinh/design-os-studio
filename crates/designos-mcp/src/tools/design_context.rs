@@ -671,6 +671,7 @@ mod tests {
         d.variable_collections.insert(
             "c1".into(),
             VariableCollection {
+                extensions: Default::default(),
                 id: "c1".into(),
                 name: "Tokens".into(),
                 modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
@@ -681,6 +682,8 @@ mod tests {
             },
         );
         let var = |id: &str, name: &str, kind, values: Vec<(&str, VariableValue)>| Variable {
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
             id: id.into(),
             name: name.into(),
             collection: "c1".into(),
