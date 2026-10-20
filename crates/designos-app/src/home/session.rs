@@ -436,6 +436,11 @@ impl App {
         for entry in &mut self.tabs.entries {
             entry.terminal.library_root = Some(root.clone());
         }
+        let mode = crate::agent_permissions::load_permission_mode(&root);
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
         match Library::open(&root) {
             Ok(lib) => {
                 match lib.seed_first_run(crate::demo::demo_document) {

@@ -1,6 +1,8 @@
 mod agent_a11y;
+mod agent_approval_card;
 pub mod agent_cli_catalog;
 pub mod agent_open_flow;
+pub mod agent_permissions;
 pub mod agent_picker;
 mod agent_presence;
 mod agent_selection_chip;
