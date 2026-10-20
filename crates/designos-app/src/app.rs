@@ -121,6 +121,8 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Whether the Preferences -> Agent permissions modal is open (`#656`).
+    pub permissions_modal_open: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -389,6 +391,20 @@ impl App {
     #[allow(dead_code)]
     pub fn title(&self) -> String {
         theme::APP_TITLE.to_string()
+    }
+
+    pub fn open_agent_permissions(&mut self) {
+        self.ui.permissions_modal_open = true;
+    }
+
+    pub fn set_agent_permission_mode(&mut self, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
+        if let Some(lib) = &self.lib {
+            let _ = crate::agent_permissions::save_permission_mode(lib.root(), mode);
+        }
     }
 }
 

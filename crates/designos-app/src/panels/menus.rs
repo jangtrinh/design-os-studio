@@ -115,6 +115,8 @@ pub enum Action {
     YourName,
     /// Preferences -> Use GPU rendering.
     ToggleGpu,
+    /// Preferences -> Agent permissions.
+    AgentPermissions,
     Shortcuts,
     AboutDesignOS,
     OpenGithub,
@@ -249,6 +251,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
+        Action::AgentPermissions => app.open_agent_permissions(),
         Action::Shortcuts => app.show_shortcuts(),
         Action::AboutDesignOS => app.show_about(),
         Action::OpenGithub => app.confirm_open_github(),
@@ -545,6 +548,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
             vec![
                 leaf("Your name…", "", Action::YourName),
                 leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available),
+                leaf("Agent permissions…", "", Action::AgentPermissions),
             ],
         ),
         leaf("Libraries", "", Action::OpenLibraries).sep(),

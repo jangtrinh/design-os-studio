@@ -455,6 +455,7 @@ pub const MAIN_MENU_Y: f32 = 44.0;
 pub const MAIN_MENU_WIDTH: f32 = 210.0;
 #[allow(dead_code)]
 pub const PALETTE_WIDTH: f32 = 320.0;
+pub const PERMISSIONS_MODAL_WIDTH: f32 = 360.0;
 #[allow(dead_code)]
 pub const PALETTE_TOP: f32 = 64.0;
 pub const TOAST_HEIGHT: f32 = 40.0;

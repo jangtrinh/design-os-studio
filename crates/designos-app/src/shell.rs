@@ -286,6 +286,18 @@ impl Shell {
                 app.ui.left_collapsed = false;
                 app.terminal.open_failed_start_fixture(app.file_path.as_deref());
             }
+            Some("agent-permissions") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                app.terminal.ensure_default_tab(app.file_path.as_deref());
+                app.ui.permissions_modal_open = true;
+            }
+            Some(p @ ("agents-approval-command" | "agents-approval-queued" | "agents-approval-open-tab")) => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.open_approval_fixture(p, app.file_path.as_deref());
+            }
             Some("specs") => {
                 app.ui.rail = Some(crate::app::RailItem::Specs);
                 app.specs.open = true;
@@ -482,7 +494,12 @@ impl Shell {
 
     fn handle_keys(&mut self, ctx: &Context) {
         self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
-        if self.app.plugins.open || self.app.dialog.is_some() || self.app.history.save_modal.is_some() || self.app.dev.compare.is_some() {
+        if self.app.plugins.open
+            || self.app.dialog.is_some()
+            || self.app.history.save_modal.is_some()
+            || self.app.dev.compare.is_some()
+            || self.app.ui.permissions_modal_open
+        {
             return;
         }
         if self.app.canvas.text.is_none() && crate::agent_a11y::try_focus_shortcut(&mut self.app, ctx) {
@@ -1207,6 +1224,15 @@ impl Shell {
         }
         crate::home::show(&mut self.app, ui);
         crate::home::dialog::show(&mut self.app, ctx);
+        if self.app.ui.permissions_modal_open {
+            let mut mode = self.app.terminal.permission_mode;
+            let mut open = self.app.ui.permissions_modal_open;
+            let picked = crate::agent_approval_card::paint_permissions_modal(ctx, &mut open, &mut mode, None);
+            self.app.ui.permissions_modal_open = open;
+            if let Some(new_mode) = picked {
+                self.app.set_agent_permission_mode(new_mode);
+            }
+        }
         let full = ui.max_rect();
         self.toast(ui, full);
         self.sync_title(ctx);
@@ -1324,7 +1350,8 @@ impl Shell {
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
         }
-        self.app.terminal.window_focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
+        self.app.terminal.set_window_focused(win_focused);
         self.app.terminal.surface_visible = (!self.app.ui.left_collapsed && is_ai_panel) || self.app.terminal.dock_open;
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
@@ -1464,6 +1491,15 @@ impl Shell {
         crate::libraries::show(&mut self.app, &ctx);
         crate::plugins::ui::show(&mut self.app, &ctx);
         self.show_web_capture_report(&ctx);
+        if self.app.ui.permissions_modal_open {
+            let mut mode = self.app.terminal.permission_mode;
+            let mut open = self.app.ui.permissions_modal_open;
+            let picked = crate::agent_approval_card::paint_permissions_modal(&ctx, &mut open, &mut mode, None);
+            self.app.ui.permissions_modal_open = open;
+            if let Some(new_mode) = picked {
+                self.app.set_agent_permission_mode(new_mode);
+            }
+        }
         self.toast(ui, full);
         crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
 

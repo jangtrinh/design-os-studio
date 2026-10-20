@@ -391,10 +391,18 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
 
     // Footer: Default permission caption (`Skip permissions`, `#652` §3 rule 9)
     let footer_y = (card_r.bottom() - theme::SPACE_GROUP).max(y + theme::SPACE_INLINE);
-    let perm_elided = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w);
+    let perm_elided = widgets::elide(&p, permission_caption(state.permission_mode), &theme::font_caption(), inner_w);
     p.text(Pos2::new(inner_left, footer_y), Align2::LEFT_CENTER, perm_elided, theme::font_caption(), theme::TEXT_TERTIARY);
 
     apply_picker_interaction(state, &rows, interaction, file_path);
+}
+
+/// Footer caption for the active launch mode (`Skip permissions` or `Ask before acting`, `#656`).
+fn permission_caption(mode: crate::terminal::PermissionMode) -> &'static str {
+    match mode {
+        crate::terminal::PermissionMode::Skip => DEFAULT_PERMISSION_CAPTION,
+        crate::terminal::PermissionMode::Ask => "Ask before acting",
+    }
 }
 
 /// Renders the compact `+` dropdown menu (`CONTROL_STANDARD` = 28 px rows, `#652` §3 rule 5 & §7).
@@ -531,7 +539,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
 
     // Footer permission caption (`Skip permissions`, `#652` §3 rule 9)
     let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + theme::SPACE_FACT);
-    let perm_str = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
+    let perm_str = widgets::elide(&p, permission_caption(state.permission_mode), &theme::font_caption(), inner_w - theme::SPACE_INLINE);
     p.text(Pos2::new(inner_left + theme::SPACE_FACT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
 
     if !matches!(interaction, PickerInteraction::None) {
