@@ -153,6 +153,8 @@ pub const DISPATCHED: &[&str] = &[
     "designos_apply_spec",
     "designos_export_spec",
     "designos_set_dev_status",
+    "designos_set_in_progress",
+    "set_in_progress",
     "designos_export_fig_file",
     "export_fig_file",
     "designos_get_guidelines",
@@ -169,8 +171,17 @@ pub const DISPATCHED: &[&str] = &[
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
-pub const ALIASES: &[&str] =
-    &["export_fig_file", "get_guidelines", "get_metadata", "get_screenshot", "get_design_context", "import_web_capture", "query_nodes", "check_design"];
+pub const ALIASES: &[&str] = &[
+    "export_fig_file",
+    "get_guidelines",
+    "get_metadata",
+    "get_screenshot",
+    "get_design_context",
+    "import_web_capture",
+    "query_nodes",
+    "check_design",
+    "set_in_progress",
+];
 
 fn non_empty_trimmed(s: Option<&str>) -> Option<String> {
     s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
