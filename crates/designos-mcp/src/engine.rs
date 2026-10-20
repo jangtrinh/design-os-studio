@@ -487,6 +487,7 @@ impl Engine {
             "designos_update_node" => self.update(parse(args)?),
             "designos_delete_node" => {
                 let a: DeleteArgs = parse(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 let n = self.node(a.node_id)?;
                 let Some(former_parent) = n.parent else {
                     let non_page_id = self.doc.nodes.values().find(|c| c.parent.is_some()).map(|c| c.id.0).unwrap_or(2);
@@ -531,6 +532,7 @@ impl Engine {
             }
             "designos_add_comment" => {
                 let a: AddCommentArgs = parse(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 if a.text.trim().is_empty() {
                     return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/text", "text must not be empty")
                         .with_corrected_example(json!({ "text": "Review padding" })));
@@ -599,6 +601,7 @@ impl Engine {
             }
             "designos_reply_comment" => {
                 let a: ReplyCommentArgs = parse(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 if a.text.trim().is_empty() {
                     return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/text", "text must not be empty")
                         .with_corrected_example(json!({ "thread_id": a.thread_id, "text": "Addressed" })));
@@ -637,6 +640,7 @@ impl Engine {
             }
             "designos_resolve_comment" => {
                 let a: ResolveCommentArgs = parse(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 let mut comments = self.doc.comments.clone();
                 let valid_threads: Vec<String> = comments.iter().map(|t| t.id.clone()).collect();
                 let t = comments.iter_mut().find(|t| t.id == a.thread_id).ok_or_else(|| {
@@ -655,6 +659,7 @@ impl Engine {
                     designos_doc::validate_raw_spec_slots(raw_spec).map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
                 }
                 let a: ApplySpecArgs = parse_spec(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 let parent = match a.parent_id.filter(|&id| id != 0) {
                     Some(id) => {
                         self.node_at(id, "/parent_id")?;
@@ -729,6 +734,7 @@ impl Engine {
             }
             "designos_set_dev_status" => {
                 let a: SetDevStatusArgs = parse(args)?;
+                crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
                 let mut node = self.node(a.node_id)?.clone();
                 self.check_owned_frames(node.id, "/node_id")?;
                 if let Some(status) = &a.status {
@@ -1185,6 +1191,7 @@ impl Engine {
     }
 
     fn create(&mut self, a: CreateArgs) -> Result<Value, ToolError> {
+        crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
         let parent_id = match a.parent_id {
             Some(id) => {
                 self.node_at(id, "/parent_id")?;
@@ -1220,6 +1227,7 @@ impl Engine {
     }
 
     fn update(&mut self, a: UpdateArgs) -> Result<Value, ToolError> {
+        crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
         self.check_owned_frames(NodeId(a.node_id), "/node_id")?;
         let (node, changed) = crate::tools::build_updated_node(
             &self.doc,
@@ -1418,6 +1426,7 @@ struct DeleteArgs {
     diff_image: bool,
     #[serde(default)]
     lint: Option<crate::tools::session_options::PerCallLintOverride>,
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1466,6 +1475,7 @@ struct CreateArgs {
     diff_image: bool,
     #[serde(default)]
     lint: Option<crate::tools::session_options::PerCallLintOverride>,
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1487,6 +1497,7 @@ struct UpdateArgs {
     diff_image: bool,
     #[serde(default)]
     lint: Option<crate::tools::session_options::PerCallLintOverride>,
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1506,6 +1517,8 @@ struct AddCommentArgs {
     x: f32,
     #[serde(default)]
     y: f32,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1514,6 +1527,8 @@ struct ReplyCommentArgs {
     text: String,
     author: Option<String>,
     resolved: Option<bool>,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1521,6 +1536,8 @@ struct ResolveCommentArgs {
     thread_id: String,
     #[serde(default = "default_true")]
     resolved: bool,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1531,6 +1548,7 @@ struct ApplySpecArgs {
     diff_image: bool,
     #[serde(default)]
     lint: Option<crate::tools::session_options::PerCallLintOverride>,
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1538,6 +1556,8 @@ struct SetDevStatusArgs {
     node_id: u64,
     status: Option<String>,
     annotation: Option<String>,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1622,6 +1642,13 @@ pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string","maxLength":100000,"description":"Plain text; limited to 100000 UTF-8 bytes."});
     let name = json!({"type":"string","maxLength":1024,"description":"Layer name; limited to 1024 UTF-8 bytes."});
     let lint_opt = json!({"anyOf":[{"type":"boolean"},{"type":"string","enum":["preset","errors_only","off"]}],"description":"Optional per-call lint override (false or 'off' skips the per-call lint pass)."});
+    let idempotency_key = json!({
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+        "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session."
+    });
     let mut out = Vec::new();
     let mut add =
         |tool: &str, description: &str, properties: Value, required: Vec<&str>, out_props: Value, out_req: &[&str], read_only: bool, idempotent: bool| {
@@ -1757,7 +1784,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "create_node",
         "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
-        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
+        json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["parent_id", "kind"],
         json!({
             "node": {"type": "object"},
@@ -1771,7 +1798,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "update_node",
         "Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved.",
-        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
+        json!({"node_id":id,"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"visible":{"type":"boolean"},"opacity":{"type":"number","minimum":0,"maximum":1},"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node": {"type": "object"},
@@ -1784,7 +1811,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "delete_node",
         "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
-        json!({"node_id":id,"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
+        json!({"node_id":id,"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node_id": {"type": "integer"},
@@ -1810,7 +1837,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "add_comment",
         "Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo.",
-        json!({"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"node_id":id,"page_id":id,"x":coordinate,"y":coordinate}),
+        json!({"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"node_id":id,"page_id":id,"x":coordinate,"y":coordinate,"idempotency_key":idempotency_key}),
         vec!["text"],
         json!({
             "id": {"type": "string"},
@@ -1824,7 +1851,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "reply_comment",
         "Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo.",
-        json!({"thread_id":{"type":"string","minLength":1},"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"resolved":{"type":"boolean"}}),
+        json!({"thread_id":{"type":"string","minLength":1},"text":{"type":"string","minLength":1,"maxLength":10000},"author":{"type":"string","maxLength":256},"resolved":{"type":"boolean"},"idempotency_key":idempotency_key}),
         vec!["thread_id", "text"],
         json!({
             "thread": {"type": "object"},
@@ -1837,7 +1864,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "resolve_comment",
         "Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo.",
-        json!({"thread_id":{"type":"string","minLength":1},"resolved":{"type":"boolean","default":true}}),
+        json!({"thread_id":{"type":"string","minLength":1},"resolved":{"type":"boolean","default":true},"idempotency_key":idempotency_key}),
         vec!["thread_id"],
         json!({
             "thread_id": {"type": "string"},
@@ -1860,7 +1887,7 @@ pub fn tools() -> Vec<Value> {
             "3) Component instance with filled slots:\n",
             "{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"SettingsCard\",\"component\":\"Card\",\"slots\":{\"header\":[{\"kind\":\"instance\",\"component\":\"CardHeader\"}],\"body\":[{\"kind\":\"instance\",\"component\":\"FormRow\"}],\"footer\":false}}}"
         ),
-        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
+        json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false},"lint":lint_opt,"idempotency_key":idempotency_key}),
         vec!["spec"],
         json!({
             "root_node_id": {"type": "integer"},
@@ -1895,7 +1922,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "set_dev_status",
         "Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo.",
-        json!({"node_id":id,"status":{"type":"string","enum":["ready","completed","clear","none"]},"annotation":{"type":"string","maxLength":10000}}),
+        json!({"node_id":id,"status":{"type":"string","enum":["ready","completed","clear","none"]},"annotation":{"type":"string","maxLength":10000},"idempotency_key":idempotency_key}),
         vec!["node_id"],
         json!({
             "node_id": {"type": "integer"},

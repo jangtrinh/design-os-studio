@@ -6,6 +6,8 @@ pub mod design_context;
 pub mod errors;
 pub mod guidelines;
 pub mod issues;
+pub mod ledger;
+pub use ledger as idempotency;
 pub mod libraries;
 pub mod library_source;
 pub mod metadata;

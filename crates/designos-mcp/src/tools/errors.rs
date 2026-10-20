@@ -70,7 +70,7 @@ pub enum ErrorCode {
     HistoryDropped,
     InternalError,
 
-    // Active pack codes (3)
+    // Active pack codes (5)
     InvalidSelector,
     UnknownLanguage,
     OutsideOwnedFrames,
@@ -92,6 +92,8 @@ pub enum ErrorCode {
     ImageTooLarge,
     NodesOnDifferentPages,
     UnknownPrompt,
+    IdempotencyKeyReused,
+    IdempotencyKeyStale,
 }
 
 #[allow(non_upper_case_globals)]
@@ -130,8 +132,10 @@ impl ErrorCode {
     pub const EmptyRender: Self = Self::InvalidArguments;
     pub const IoError: Self = Self::InternalError;
     pub const SessionUnavailable: Self = Self::InternalError;
+    pub const IdempotencyKeyConflict: Self = Self::IdempotencyKeyReused;
+    pub const InvalidIdempotencyKey: Self = Self::InvalidArguments;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes and the 12 codes owned by other specs' tools).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools and the 2 idempotency codes).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -200,6 +204,8 @@ impl ErrorCode {
         Self::ImageTooLarge,
         Self::NodesOnDifferentPages,
         Self::UnknownPrompt,
+        Self::IdempotencyKeyReused,
+        Self::IdempotencyKeyStale,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -271,6 +277,8 @@ impl ErrorCode {
             Self::ImageTooLarge => "IMAGE_TOO_LARGE",
             Self::NodesOnDifferentPages => "NODES_ON_DIFFERENT_PAGES",
             Self::UnknownPrompt => "UNKNOWN_PROMPT",
+            Self::IdempotencyKeyReused => "IDEMPOTENCY_KEY_REUSED",
+            Self::IdempotencyKeyStale => "IDEMPOTENCY_KEY_STALE",
         }
     }
 
@@ -293,6 +301,10 @@ impl ErrorCode {
             Self::InternalError => "Call designos_get_document to inspect current state before retrying.",
             Self::InProgressTargetNotRoot => "Flag the root frame named in valid_options instead of a nested layer.",
             Self::NodeInProgressByOtherRun => "Wait for the other run to finish, or pass force:true only when that run is known dead.",
+            Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
+            Self::IdempotencyKeyStale => {
+                "Read the target nodes; this write was undone or is not in the open document. Send it again with a new idempotency_key only if you still want it."
+            }
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
     }
@@ -366,6 +378,8 @@ impl ErrorCode {
             "IMAGE_TOO_LARGE" => Some(Self::ImageTooLarge),
             "NODES_ON_DIFFERENT_PAGES" => Some(Self::NodesOnDifferentPages),
             "UNKNOWN_PROMPT" => Some(Self::UnknownPrompt),
+            "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_KEY_CONFLICT" | "E_IDEMPOTENCY_CONFLICT" => Some(Self::IdempotencyKeyReused),
+            "IDEMPOTENCY_KEY_STALE" => Some(Self::IdempotencyKeyStale),
             _ => None,
         }
     }

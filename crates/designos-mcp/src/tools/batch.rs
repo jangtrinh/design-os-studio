@@ -134,7 +134,7 @@ pub fn tool_descriptor() -> Value {
     });
     json!({
         "name": "designos_apply_batch",
-        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
+        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
         "inputSchema": {
             "type": "object",
             "required": ["ops"],
@@ -147,7 +147,13 @@ pub fn tool_descriptor() -> Value {
                     "items": op_item_schema
                 },
                 "dry_run": { "type": "boolean", "default": false },
-                "idempotency_key": { "type": "string", "maxLength": 128 },
+                "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9._:-]{1,128}$",
+                    "description": "Optional idempotency key (1..=128 chars in [A-Za-z0-9._:-]); a key names one logical write. After a reconnect, call designos_get_node before trusting a replayed id."
+                },
                 "diff_image": { "type": "boolean", "default": false },
                 "lint": {
                     "anyOf": [
@@ -1422,11 +1428,7 @@ fn walk_named_descendants(
 /// Executes `designos_apply_batch` on `engine` (§3.1–§3.5).
 pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
     let batch_args: BatchArgs = serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error(&e, "", false))?;
-    if let Some(key) = &batch_args.idempotency_key {
-        if key.len() > 128 {
-            return Err(batch_error(ErrorCode::ValueOutOfRange, None, None, "/idempotency_key", "idempotency_key exceeds 128 UTF-8 bytes"));
-        }
-    }
+    crate::tools::ledger::validate_idempotency_key_opt(&batch_args.idempotency_key)?;
 
     // Step 1: Parse and validate every op's arguments, bounds, and @<as> references before running anything.
     let ops = parse_and_validate_ops(batch_args.ops)?;
