@@ -786,10 +786,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
 
         st.resume_last_session(None).expect("spawn resume");
-        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
-            let _ = st.poll_live_agent_bridge();
-            st.active_tab().is_some_and(|t| t.start_failure.is_some())
-        });
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
