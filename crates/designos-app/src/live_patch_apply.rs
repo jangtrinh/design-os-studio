@@ -176,8 +176,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         relayout_touched(&mut app.doc, &report.needs_layout);
         if let Some(inv) = app.hist.peek_undo().cloned() {
             let now = std::time::Instant::now();
+            let hist_depth = app.hist.undo_depth();
             let doc_ref = &app.doc;
-            app.terminal.active_turn_ledger_mut().record_step(doc_ref, patch_offset, inv, &report.touched, &pre_names, pre_fps, now);
+            app.terminal.active_turn_ledger_mut().record_step(doc_ref, patch_offset, hist_depth, inv, &report.touched, &pre_names, pre_fps, now);
         }
     }
     Ok((report, committed))

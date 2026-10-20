@@ -323,7 +323,6 @@ pub fn apply_card_action(app: &mut App, tab_idx: usize, action: TurnCardAction) 
                 }
                 app.select_only(id);
                 app.fit_selection();
-                app.changed();
             }
         }
         TurnCardAction::Expand(turn_id) => {

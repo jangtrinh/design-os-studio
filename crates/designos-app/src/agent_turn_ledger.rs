@@ -34,6 +34,8 @@ pub struct TouchedLayerSummary {
 #[derive(Clone, Debug)]
 pub struct LedgerStep {
     pub patch_offset: u64,
+    /// History undo depth immediately after this step was committed on `hist`.
+    pub hist_depth: usize,
     /// Atomic inverse commands in reverse execution order, each paired with the editor-side
     /// `NodeId` it targets (`None` for document-wide commands like `SetComments`).
     pub atomic_inverses: Vec<(Option<NodeId>, Command)>,
@@ -335,21 +337,13 @@ impl AgentTurnLedger {
         }
     }
 
-    /// Closes open heuristic turns once the agent leaves `Working` or after 2 s of patch silence.
+    /// Synchronizes heuristic turn boundaries with the agent tab's `Working` status.
+    ///
+    /// A heuristic turn closes ONLY on the `Working -> Idle/Done` transition (`on_status_change`)
+    /// or on tab exit (`on_tab_exited`), never while `is_working` remains `true`.
     pub fn tick(&mut self, is_working: bool, now: Instant) {
         let approx_bytes = self.turns.last().and_then(|t| t.steps.last().map(|s| s.patch_offset + 1).or(Some(t.start_patch_bytes))).unwrap_or(0);
         self.on_status_change(is_working, approx_bytes, now);
-        if let Some(last) = self.turns.last_mut() {
-            if last.approximate && last.end_patch_bytes.is_none() && last.state == TurnState::Active && !last.steps.is_empty() {
-                let idle = now.saturating_duration_since(last.last_patch_at);
-                if (!is_working && idle >= Duration::from_millis(500)) || idle >= HEURISTIC_GRACE_WINDOW {
-                    let end_offset = last.steps.last().map_or(last.start_patch_bytes, |s| s.patch_offset + 1);
-                    last.end_patch_bytes = Some(end_offset);
-                    last.state = TurnState::Completed;
-                    last.ended_at = Some(now);
-                }
-            }
-        }
     }
 
     /// Drops turn steps from a previous document when `DocEpoch` switches documents mid-session.
@@ -371,6 +365,7 @@ impl AgentTurnLedger {
         &mut self,
         doc_after: &Document,
         patch_offset: u64,
+        hist_depth: usize,
         committed_inverse: Command,
         touched: &[(NodeId, TouchKind)],
         pre_names: &BTreeMap<NodeId, String>,
@@ -434,7 +429,7 @@ impl AgentTurnLedger {
             + step_touched.iter().map(|(_, n, _)| 24 + n.len()).sum::<usize>()
             + (pre_fingerprints.len() + post_fingerprints.len()) * 24;
 
-        let step = LedgerStep { patch_offset, atomic_inverses, touched: step_touched, pre_fingerprints, post_fingerprints, approx_bytes };
+        let step = LedgerStep { patch_offset, hist_depth, atomic_inverses, touched: step_touched, pre_fingerprints, post_fingerprints, approx_bytes };
 
         let Some(turn_idx) = self.select_or_open_turn(patch_offset, now) else {
             // Patch arrived after the last closed turn without any open turn or 2 s grace window.
@@ -524,17 +519,11 @@ impl AgentTurnLedger {
             }
         }
 
-        // 4. Active heuristic turn within the 2 s inactivity window.
+        // 4. Active heuristic turn: stays open until `Working -> Idle/Done` (`on_status_change`) or tab exit.
         if let Some(idx) = self.turns.len().checked_sub(1) {
-            let last = &mut self.turns[idx];
+            let last = &self.turns[idx];
             if last.approximate && last.end_patch_bytes.is_none() && last.state == TurnState::Active {
-                if last.steps.is_empty() || now.saturating_duration_since(last.last_patch_at) < HEURISTIC_GRACE_WINDOW {
-                    return Some(idx);
-                }
-                let prev_end = last.steps.last().map_or(patch_offset, |s| s.patch_offset + 1);
-                last.end_patch_bytes = Some(prev_end);
-                last.state = TurnState::Completed;
-                last.ended_at = Some(now);
+                return Some(idx);
             }
         }
 
@@ -586,13 +575,26 @@ impl AgentTurnLedger {
         let turn = &self.turns[pos];
         let mut report = RevertReport::default();
         let mut skip_all_steps_for: BTreeSet<NodeId> = BTreeSet::new();
-        // Map from `NodeId` to the step index `k` from which steps `k..` were already undone via Cmd+Z.
-        let mut already_undone_from_step: BTreeMap<NodeId, usize> = BTreeMap::new();
+        let undo_depth = hist.undo_depth();
+        // A real `Cmd+Z` is detected solely by comparing the current history undo depth against
+        // the history depth recorded when each turn step was committed (while `can_redo()` holds),
+        // never by matching fingerprints against an intermediate step's `pre_fingerprint`.
+        let cmd_z_into_turn = hist.can_redo() && turn.steps.last().is_some_and(|s| undo_depth < s.hist_depth);
 
         for summary in &turn.touched_layers {
             let id = summary.id;
             let cur_fp = doc.get(id).map(node_fingerprint);
-            if cur_fp == summary.post_fingerprint {
+            let expected_fp = if cmd_z_into_turn {
+                if let Some(fp) = turn.steps.iter().rev().filter(|s| s.hist_depth <= undo_depth).find_map(|s| s.post_fingerprints.get(&id).copied()) {
+                    fp
+                } else {
+                    turn.steps.iter().find_map(|s| s.pre_fingerprints.get(&id).copied()).unwrap_or(summary.post_fingerprint)
+                }
+            } else {
+                summary.post_fingerprint
+            };
+
+            if cur_fp == expected_fp {
                 if summary.kind == TouchKind::Inserted {
                     if let Some(cur) = doc.get(id) {
                         let expected: BTreeSet<NodeId> = summary.post_children.iter().copied().collect();
@@ -604,22 +606,6 @@ impl AgentTurnLedger {
                         }
                     }
                 }
-                continue;
-            }
-
-            // Check whether `cur_fp` matches the pre-fingerprint of some step in this turn
-            // (meaning the user already pressed Cmd+Z for the trailing steps).
-            let mut matched_undo_step = None;
-            for (step_idx, step) in turn.steps.iter().enumerate() {
-                if let Some(&pre_fp) = step.pre_fingerprints.get(&id) {
-                    if cur_fp == pre_fp {
-                        matched_undo_step = Some(step_idx);
-                        break;
-                    }
-                }
-            }
-            if let Some(step_idx) = matched_undo_step {
-                already_undone_from_step.insert(id, step_idx);
                 continue;
             }
 
@@ -641,17 +627,15 @@ impl AgentTurnLedger {
         let mut needs_layout = Vec::new();
         let mut applied_any_in_step;
 
-        for (step_idx, step) in turn.steps.iter().enumerate().rev() {
+        for step in turn.steps.iter().rev() {
+            if cmd_z_into_turn && step.hist_depth > undo_depth {
+                continue;
+            }
             applied_any_in_step = false;
             for (target_id, inv_cmd) in &step.atomic_inverses {
                 if let Some(id) = *target_id {
                     if skip_all_steps_for.contains(&id) {
                         continue;
-                    }
-                    if let Some(&undone_from) = already_undone_from_step.get(&id) {
-                        if step_idx >= undone_from {
-                            continue;
-                        }
                     }
                     // For relayout updates on containers/siblings not directly in `touched_layers`,
                     // skip the stale update if the user modified that node after the step.
@@ -1331,5 +1315,91 @@ mod tests {
         assert!(agy_start.contains("\"turn_mark\":\"start\"") && agy_start.contains("\"cli\":\"agy\""), "agy PreInvocation missing start mark: {agy_start}");
         let agy_stop = agy["designos-status"]["Stop"][0]["command"].as_str().expect("agy Stop");
         assert!(agy_stop.contains("\"turn_mark\":\"end\"") && agy_stop.contains("\"cli\":\"agy\""), "agy Stop missing end mark: {agy_stop}");
+    }
+
+    #[test]
+    fn revert_preserves_user_edit_that_matches_earlier_agent_step_pre_fingerprint() {
+        let mut r = rig();
+        let hero = r.hero;
+
+        // Agent turn with two sequential writes: x = 0 -> 10 -> 20
+        r.run_hook("start", "claude");
+        r.session.call("designos_update_node", json!({ "node_id": hero.0, "x": 10.0 })).expect("update x=10");
+        r.session.call("designos_update_node", json!({ "node_id": hero.0, "x": 20.0 })).expect("update x=20");
+        r.run_hook("end", "claude");
+        r.deliver();
+        assert_eq!(r.app.doc.get(hero).unwrap().transform.tx, 20.0);
+
+        // User drags `hero` back to x = 10.0 (which happens to match step 1's pre-fingerprint).
+        let mut tx = Tx::new();
+        tx.ed.node(&mut r.app.doc, hero).unwrap().transform.tx = 10.0;
+        tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        assert_eq!(
+            r.app.doc.get(hero).unwrap().transform.tx,
+            10.0,
+            "Revert must skip a user-edited layer even when its new value matches an earlier step's pre-fingerprint"
+        );
+        let turn = r.app.terminal.active_turn_ledger().turns.last().unwrap();
+        let report = turn.last_revert_report.as_ref().expect("revert report");
+        assert_eq!(report.kept_user_changed, vec![(hero, "Hero".to_string())]);
+    }
+
+    #[test]
+    fn codex_working_turn_stays_one_turn_across_3s_patch_gap() {
+        let mut r = rig();
+        let hero = r.hero;
+        let card = r.card;
+        let t0 = Instant::now();
+
+        r.app.terminal.active_turn_ledger_mut().on_status_change(true, 0, t0);
+        r.agent_rename(hero, "Codex Hero Batch 1");
+        r.deliver();
+
+        // Simulate 3 seconds of thinking while `Working` remains true (`tick(true, ...)` called each frame).
+        let now = Instant::now();
+        r.app.terminal.active_turn_ledger_mut().turns[0].last_patch_at = now - Duration::from_secs(3);
+        r.app.terminal.active_turn_ledger_mut().tick(true, now);
+        assert_eq!(
+            r.app.terminal.active_turn_ledger().turns[0].state,
+            TurnState::Active,
+            "tick(true, ...) must not close an approximate turn after 3s while Working is held"
+        );
+
+        // Second patch arrives 3s later while still `Working`.
+        r.agent_rename(card, "Codex Card Batch 2");
+        r.deliver();
+
+        // Now Codex finishes (`Working -> Done`).
+        let end_bytes = r.app.terminal.live_patch.current_offset();
+        let t2 = Instant::now() + Duration::from_millis(500);
+        r.app.terminal.active_turn_ledger_mut().on_status_change(false, end_bytes, t2);
+
+        let ledger = r.app.terminal.active_turn_ledger();
+        assert_eq!(ledger.turns.len(), 1, "two patches 3s apart with Working held must stay one turn");
+        assert_eq!(ledger.turns[0].steps.len(), 2, "both patches must belong to the single heuristic turn");
+
+        let turn_id = ledger.visible_turn(t2).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero", "Revert must undo the first batch");
+        assert_eq!(r.app.doc.get(card).unwrap().name, "Pricing Card", "Revert must undo the second batch");
+    }
+
+    #[test]
+    fn select_layer_action_does_not_mark_canvas_dirty() {
+        let mut r = rig();
+        let card = r.card;
+        r.run_hook("start", "claude");
+        r.agent_rename(card, "Renamed Card");
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        r.app.canvas.dirty = false;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::SelectLayer(card));
+        assert_eq!(r.app.selection, vec![card]);
+        assert!(!r.app.canvas.dirty, "SelectLayer must not call app.changed() or mark canvas.dirty");
     }
 }
