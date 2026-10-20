@@ -4,6 +4,7 @@ pub mod batch;
 pub mod guidelines;
 pub mod libraries;
 pub mod library_source;
+pub mod metadata;
 pub mod screenshot;
 
 use designos_doc::{resolve_easeui_color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle};

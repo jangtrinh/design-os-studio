@@ -4,6 +4,8 @@ use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, D
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
+pub type LintRulesMap = std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>>;
+
 pub struct Engine {
     pub doc: Document,
     pub history: History,
@@ -15,17 +17,64 @@ pub struct Engine {
     pub live_patch_label: Option<String>,
     /// Optional RD-3 frame ownership lock: when `Some`, writes outside these root frames are refused.
     pub owned_frames: Option<Vec<NodeId>>,
+    /// Per-node lint issue counts cached for `(runtime_id, mutation_epoch)`.
+    pub lint_cache: Option<((u64, u64), std::collections::HashMap<NodeId, u16>)>,
+    /// Per-node active lint rule IDs cached for `(runtime_id, mutation_epoch)`, allowing
+    /// partial passes (`lint: true` vs `designos_lint`) to merge without clobbering disjoint rules.
+    pub lint_rules_cache: Option<((u64, u64), LintRulesMap)>,
 }
 
 impl Default for Engine {
     fn default() -> Self {
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
-        Self { doc, history: History::default(), active_page_id: Some(page), live_ops: None, live_patch_label: None, owned_frames: None }
+        Self {
+            doc,
+            history: History::default(),
+            active_page_id: Some(page),
+            live_ops: None,
+            live_patch_label: None,
+            owned_frames: None,
+            lint_cache: None,
+            lint_rules_cache: None,
+        }
     }
 }
 
 impl Engine {
+    /// Updates the per-node lint cache for `rev` by replacing `recomputed_rules` on `checked_nodes`
+    /// with `fresh_hits` while preserving any other rule hits or unchecked nodes from the same revision.
+    pub fn update_lint_cache(
+        &mut self,
+        rev: (u64, u64),
+        checked_nodes: &[NodeId],
+        recomputed_rules: &[&'static str],
+        fresh_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>>,
+    ) {
+        let mut rules_map = match self.lint_rules_cache.take() {
+            Some((cached_rev, existing)) if cached_rev == rev => existing,
+            _ => std::collections::HashMap::new(),
+        };
+        for &id in checked_nodes {
+            if let Some(set) = rules_map.get_mut(&id) {
+                for &rule in recomputed_rules {
+                    set.remove(rule);
+                }
+                if set.is_empty() {
+                    rules_map.remove(&id);
+                }
+            }
+        }
+        for (id, hits) in fresh_hits {
+            if !hits.is_empty() {
+                rules_map.entry(id).or_default().extend(hits);
+            }
+        }
+        let counts: std::collections::HashMap<NodeId, u16> =
+            rules_map.iter().filter_map(|(&id, set)| (!set.is_empty()).then_some((id, set.len().min(u16::MAX as usize) as u16))).collect();
+        self.lint_rules_cache = Some((rev, rules_map));
+        self.lint_cache = Some((rev, counts));
+    }
     /// Resolves the target page when a tool call omits `parent_id` / `page_id`:
     /// prefers `self.active_page_id` (the user's currently selected page in `design:os studio`)
     /// if valid in `self.doc.pages`, falling back to `self.doc.pages.first()`.
@@ -370,20 +419,28 @@ impl Engine {
                 let total = matches.len();
                 Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
             }
+            "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args),
             "designos_lint" | "check_design" => {
                 let a: LintArgs = parse(args)?;
                 let root = a.page_id.map(NodeId).or_else(|| self.resolve_default_page().ok());
                 let mut findings = Vec::new();
+                let mut checked_nodes = Vec::new();
+                let mut fresh_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
                 let mut check_node = |n: &Node| {
                     if matches!(n.kind, NodeKind::Page { .. }) {
                         return;
                     }
-                    if n.size.x <= 0.0 || n.size.y <= 0.0 {
+                    checked_nodes.push(n.id);
+                    if (n.size.x <= 0.0 || n.size.y <= 0.0) && !designos_export::is_lint_rule_ignored(n, "zero-bounds") {
                         findings.push(json!({"rule": "zero-bounds", "severity": "error", "node_id": n.id.0, "name": n.name, "message": "Layer has zero or negative width/height"}));
+                        fresh_hits.entry(n.id).or_default().insert("zero-bounds");
                     }
                     let trimmed = n.name.trim();
-                    if matches!(trimmed, "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group") {
+                    if matches!(trimmed, "Frame" | "Rectangle" | "Ellipse" | "Text" | "Group")
+                        && !designos_export::is_lint_rule_ignored(n, "default-layer-name")
+                    {
                         findings.push(json!({"rule": "default-layer-name", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Give layer a semantic name"}));
+                        fresh_hits.entry(n.id).or_default().insert("default-layer-name");
                     }
                 };
                 if let Some(r) = root {
@@ -393,6 +450,20 @@ impl Engine {
                         check_node(n);
                     }
                 }
+                let (structural, structural_checked) =
+                    designos_export::structural_lint_rules_for_nodes(&self.doc, &checked_nodes, std::time::Duration::from_millis(50));
+                let mut structural_hits: std::collections::HashMap<NodeId, std::collections::BTreeSet<&'static str>> = std::collections::HashMap::new();
+                for (id, rules) in structural {
+                    if rules.contains("clipped-text") {
+                        if let Some(n) = self.doc.get(id) {
+                            findings.push(json!({"rule": "clipped-text", "severity": "warning", "node_id": n.id.0, "name": n.name, "message": "Fixed-size text layer clips its content"}));
+                        }
+                        structural_hits.entry(id).or_default().insert("clipped-text");
+                    }
+                }
+                let rev = (self.doc.runtime_id(), self.doc.mutation_epoch());
+                self.update_lint_cache(rev, &checked_nodes, &["zero-bounds", "default-layer-name"], fresh_hits);
+                self.update_lint_cache(rev, &structural_checked, &["clipped-text"], structural_hits);
                 let count = findings.len();
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }
@@ -720,6 +791,14 @@ pub fn tools() -> Vec<Value> {
         "get_libraries",
         "List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root.",
         json!({}),
+        vec![],
+        true,
+        true,
+    );
+    add(
+        "get_metadata",
+        "Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree.",
+        crate::tools::metadata::properties_schema(),
         vec![],
         true,
         true,
@@ -1257,6 +1336,8 @@ mod tests {
             live_ops: None,
             live_patch_label: None,
             owned_frames: None,
+            lint_cache: None,
+            lint_rules_cache: None,
         };
         let page = e.doc.pages[0];
         e.active_page_id = Some(page);

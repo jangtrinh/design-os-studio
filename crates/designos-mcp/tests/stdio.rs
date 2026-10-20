@@ -14,7 +14,7 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let client = ().serve(TokioChildProcess::new(command).unwrap()).await.unwrap();
         assert_eq!(client.peer_info().unwrap().server_info.as_ref().unwrap().name, "designos-mcp");
         let tools = client.list_all_tools().await.unwrap();
-        assert_eq!(tools.len(), 26);
+        assert_eq!(tools.len(), 27);
         assert!(tools.iter().all(|t| t.annotations.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
         assert_eq!(prompts.len(), 1);

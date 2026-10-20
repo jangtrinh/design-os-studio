@@ -130,4 +130,21 @@ mod tests {
         assert_eq!(shared.len(), MAX_TOP_LEVEL + 1);
         assert_eq!(shared.last(), Some(&last));
     }
+
+    #[test]
+    fn scoped_canvas_metadata_xml_emits_children_zero_and_scoped_true() {
+        let mut doc = Document::new("d");
+        let page = doc.add_page("p");
+        let shell_frame = frame_with(&mut doc, page, 3);
+        let selected_frame = frame_with(&mut doc, page, 2);
+
+        let s = scoped_canvas(&doc, page, &[selected_frame], "d");
+        let meta = designos_export::metadata_xml(&s, page, &designos_export::MetadataOptions::default(), None);
+        assert!(meta.scoped, "metadata_xml on scoped_canvas must report scoped: true");
+        assert!(
+            meta.xml.contains(&format!("id=\"{}\" name=\"Frame\" x=\"0\" y=\"0\" width=\"100\" height=\"100\" children=\"0\"/>", shell_frame.0)),
+            "shell frame must carry children=\"0\":\n{}",
+            meta.xml
+        );
+    }
 }

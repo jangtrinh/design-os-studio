@@ -2181,8 +2181,7 @@ mod tests {
         for (target_nodes, budget_ms) in cases {
             let (doc, page, target_board) = build_synthetic_document(target_nodes);
             let approx_doc_bytes = doc.nodes.len() * std::mem::size_of::<Node>();
-            let mut engine =
-                Engine { doc, history: Default::default(), active_page_id: Some(page), live_ops: None, live_patch_label: None, owned_frames: None };
+            let mut engine = Engine { doc, active_page_id: Some(page), ..Default::default() };
 
             let pre_hash = batch_state_hash(&engine.doc, &[page, target_board]);
             let pre_len = engine.doc.nodes.len();
