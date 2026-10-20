@@ -3267,4 +3267,98 @@ mod tests {
         );
         assert_eq!(editor_slot.component.description, "User slot note");
     }
+
+    #[test]
+    fn undoing_a_marked_slot_insert_restores_slot_overrides_without_wiping_editor_overrides() {
+        // Case A: Slot already has `Size` on both sides. Agent inserts via `designos_apply_spec`, then `designos_undo`.
+        // Replaying undo must remove `SlotContent` while keeping `Size`, so main-component sync resumes.
+        {
+            let mut e = Engine::default();
+            let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, true);
+            e.doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Size);
+
+            let mut editor_doc = e.doc.clone();
+            let mut state = designos_doc::live_patch::LivePatchState::default();
+            e.live_ops = Some(Vec::new());
+
+            e.call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "spec": { "kind": "rectangle", "name": "Inserted", "width": 20.0, "height": 20.0 }
+                }),
+            )
+            .unwrap();
+            let insert_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(insert_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::Size));
+
+            e.call("designos_undo", json!({})).unwrap();
+            let undo_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(undo_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+
+            let editor_ovs = &editor_doc.get(inst_slot).unwrap().component.overrides;
+            assert!(
+                !editor_ovs.contains(&designos_doc::OverrideField::SlotContent),
+                "Case A: undoing marked insert must remove SlotContent so sync resumes, got {editor_ovs:?}"
+            );
+            assert!(editor_ovs.contains(&designos_doc::OverrideField::Size), "Case A: existing Size override must remain");
+            let _ = comp_id;
+        }
+
+        // Case B: Agent starts with empty overrides on the slot, while the editor has `Fills` (an editor-only override).
+        // Agent inserts into the slot, then calls `designos_undo`. Replaying undo must remove `SlotContent` and keep `Fills`.
+        {
+            let mut e = Engine::default();
+            let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+
+            let mut editor_doc = e.doc.clone();
+            editor_doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Fills);
+            let mut state = designos_doc::live_patch::LivePatchState::default();
+            e.live_ops = Some(Vec::new());
+
+            e.call(
+                "designos_create_node",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "kind": "rectangle",
+                    "name": "TempChild",
+                    "width": 24.0,
+                    "height": 24.0
+                }),
+            )
+            .unwrap();
+            let insert_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(insert_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::Fills));
+
+            e.call("designos_undo", json!({})).unwrap();
+            let undo_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(undo_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+
+            let editor_ovs = &editor_doc.get(inst_slot).unwrap().component.overrides;
+            assert!(
+                !editor_ovs.contains(&designos_doc::OverrideField::SlotContent),
+                "Case B: undoing marked insert must remove SlotContent, got {editor_ovs:?}"
+            );
+            assert!(
+                editor_ovs.contains(&designos_doc::OverrideField::Fills),
+                "Case B: undoing marked insert must not wipe editor-only Fills override, got {editor_ovs:?}"
+            );
+        }
+    }
 }

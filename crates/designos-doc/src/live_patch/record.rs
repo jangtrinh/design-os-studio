@@ -201,25 +201,32 @@ fn variable_changes(doc: &Document, variables: &BTreeMap<String, Variable>, coll
 
 fn component_changes(old_comp: &Map<String, Value>, new_comp: &Map<String, Value>, after: &crate::ComponentLink) -> Result<Map<String, Value>, String> {
     let mut diff = Map::new();
+    let old_ovs = old_comp.get("overrides").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let new_ovs = new_comp.get("overrides").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let added: Vec<Value> = new_ovs.iter().filter(|ov| !old_ovs.contains(ov)).cloned().collect();
+    let removed: Vec<Value> = old_ovs.iter().filter(|ov| !new_ovs.contains(ov)).cloned().collect();
+    if !added.is_empty() {
+        diff.insert("overrides_add".to_string(), Value::Array(added));
+    }
+    if !removed.is_empty() {
+        diff.insert("overrides_remove".to_string(), Value::Array(removed));
+    }
     for (k, v) in new_comp {
+        if k == "overrides" {
+            continue;
+        }
         if old_comp.get(k) != Some(v) {
-            if k == "overrides" {
-                if let (Some(Value::Array(old_ovs)), Value::Array(new_ovs)) = (old_comp.get("overrides"), v) {
-                    if old_ovs.iter().all(|ov| new_ovs.contains(ov)) {
-                        let added: Vec<Value> = new_ovs.iter().filter(|ov| !old_ovs.contains(ov)).cloned().collect();
-                        diff.insert(k.clone(), Value::Array(added));
-                        continue;
-                    }
-                }
-            }
             diff.insert(k.clone(), v.clone());
         }
     }
     for k in old_comp.keys() {
+        if k == "overrides" {
+            continue;
+        }
         if !new_comp.contains_key(k) {
             let reset_val = match k.as_str() {
                 "source" | "slot_content_id" | "override_level" | "detached_symbol_id" => Value::Null,
-                "overrides" | "props" => Value::Array(Vec::new()),
+                "props" => Value::Array(Vec::new()),
                 "values" | "slot_configs" | "slot_content_ids" | "bindings" | "variant_props" => Value::Object(Map::new()),
                 "is_slot" | "is_slot_content" | "expose_nested_instances" | "layout_cleared" => Value::Bool(false),
                 "description" => Value::String(String::new()),
