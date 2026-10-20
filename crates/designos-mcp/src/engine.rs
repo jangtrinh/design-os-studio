@@ -100,8 +100,10 @@ impl Engine {
                     "style_count":self.doc.styles.len(),
                     "styles":self.doc.styles.iter().map(|(key,values)|{
                         let meta=self.doc.style_meta.get(key);
+                        let empty = std::collections::BTreeMap::new();
                         json!({"key":key,"name":self.doc.style_name(key),"property":designos_doc::style_property(&self.doc,key),
-                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),"values":values})
+                            "description":meta.map(|m|m.description.as_str()).unwrap_or(""),"library_key":meta.and_then(|m|m.key.as_deref()),
+                            "bindings":meta.map(|m|&m.bindings).unwrap_or(&empty),"values":values})
                     }).collect::<Vec<_>>(),
                     "can_undo":self.history.can_undo(),"can_redo":self.history.can_redo()}))
             }
@@ -464,6 +466,22 @@ impl Engine {
                 let rev = (self.doc.runtime_id(), self.doc.mutation_epoch());
                 self.update_lint_cache(rev, &checked_nodes, &["zero-bounds", "default-layer-name"], fresh_hits);
                 self.update_lint_cache(rev, &structural_checked, &["clipped-text"], structural_hits);
+                for (style_key, meta) in &self.doc.style_meta {
+                    for (prop, vid) in &meta.bindings {
+                        if !self.doc.variables.contains_key(vid) {
+                            findings.push(json!({
+                                "rule": "broken-style-binding",
+                                "category": "tokens",
+                                "severity": "warning",
+                                "style_key": style_key,
+                                "name": meta.name,
+                                "property": prop,
+                                "variable_id": vid,
+                                "message": format!("Style '{}' binds '{}' to missing variable '{}'", meta.name, prop, vid),
+                            }));
+                        }
+                    }
+                }
                 let count = findings.len();
                 Ok(json!({"page_id": root.map(|r| r.0), "findings": findings, "total": count, "passed": count == 0}))
             }
@@ -1012,7 +1030,7 @@ mod tests {
         e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
         e.doc.styles.insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))]));
         for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {
-            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property });
+            e.doc.style_meta.insert(key.into(), StyleMeta { name: name.into(), key: None, description: String::new(), property, bindings: Default::default() });
         }
         e.doc.get_mut(NodeId(id)).unwrap().style_refs.insert("effect".into(), "Shadow/Card".into());
         let doc = e.call("designos_get_document", json!({})).unwrap();

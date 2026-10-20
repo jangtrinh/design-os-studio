@@ -262,6 +262,14 @@ fn collect_aliases(v: &Value, key: String, out: &mut BTreeMap<String, String>) {
 /// `fillOpacities[i]` / `strokeOpacities[i]` (effects use `effects[i].opacity`). These are the
 /// matching binding keys, `fills/i/opacity` etc.
 fn opacity_binding_key(rest_key: &str) -> Option<String> {
+    if let Some(rest) = rest_key.strip_prefix("fillStops/") {
+        let (i, j) = rest.split_once('/')?;
+        return Some(format!("fills/{i}/stops/{j}"));
+    }
+    if let Some(rest) = rest_key.strip_prefix("strokeStops/") {
+        let (i, j) = rest.split_once('/')?;
+        return Some(format!("strokes/{i}/stops/{j}"));
+    }
     let (list, i) = rest_key.split_once('/')?;
     let list = match list {
         "fillOpacities" => "fills",
@@ -273,6 +281,16 @@ fn opacity_binding_key(rest_key: &str) -> Option<String> {
 }
 
 fn opacity_rest_path(binding_key: &str) -> Option<String> {
+    if let Some(rest) = binding_key.strip_prefix("fills/") {
+        if let Some((i, j)) = rest.split_once("/stops/") {
+            return Some(format!("fillStops/{i}/{j}"));
+        }
+    }
+    if let Some(rest) = binding_key.strip_prefix("strokes/") {
+        if let Some((i, j)) = rest.split_once("/stops/") {
+            return Some(format!("strokeStops/{i}/{j}"));
+        }
+    }
     let rest = binding_key.strip_suffix("/opacity")?;
     let (list, i) = rest.split_once('/')?;
     match list {
@@ -286,18 +304,65 @@ fn opacity_rest_path(binding_key: &str) -> Option<String> {
 /// `boundVariables` and `explicitVariableModes` of a REST node.
 pub(crate) fn parse_node_variables(v: &Value) -> NodeVariables {
     let mut nv = NodeVariables::default();
+    let mut raw = BTreeMap::new();
     if let Some(b) = v.get("boundVariables").and_then(Value::as_object) {
-        let mut raw = BTreeMap::new();
         for (k, e) in b {
             collect_aliases(e, k.clone(), &mut raw);
         }
-        for (k, id) in raw {
-            let k = match k.as_str() {
-                "size/x" => "width".to_string(),
-                "size/y" => "height".to_string(),
-                _ => opacity_binding_key(&k).unwrap_or(k),
-            };
-            nv.bindings.insert(k, id);
+    }
+    if let Some(b) = v.get("style").and_then(|s| s.get("boundVariables")).and_then(Value::as_object) {
+        for (k, e) in b {
+            collect_aliases(e, k.clone(), &mut raw);
+        }
+    }
+    for (k, id) in raw {
+        let k = match k.as_str() {
+            "size/x" => "width".to_string(),
+            "size/y" => "height".to_string(),
+            "fontFamily/0" => "fontFamily".to_string(),
+            "fontSize/0" => "fontSize".to_string(),
+            "fontStyle/0" => "fontStyle".to_string(),
+            "fontWeight/0" => "fontWeight".to_string(),
+            "letterSpacing/0" => "letterSpacing".to_string(),
+            "lineHeight/0" => "lineHeight".to_string(),
+            "paragraphSpacing/0" => "paragraphSpacing".to_string(),
+            "paragraphIndent/0" => "paragraphIndent".to_string(),
+            _ => opacity_binding_key(&k).unwrap_or(k),
+        };
+        nv.bindings.insert(k, id);
+    }
+    for (arr_key, prefix) in [("fills", "fills"), ("strokes", "strokes")] {
+        if let Some(arr) = v.get(arr_key).and_then(Value::as_array) {
+            for (i, p) in arr.iter().enumerate() {
+                if let Some(bv) = p.get("boundVariables") {
+                    if let Some(c) = bv.get("color").and_then(|a| fstr(a, "id")) {
+                        nv.bindings.entry(format!("{prefix}/{i}")).or_insert_with(|| c.to_string());
+                    }
+                    if let Some(op) = bv.get("opacity").and_then(|a| fstr(a, "id")) {
+                        nv.bindings.entry(format!("{prefix}/{i}/opacity")).or_insert_with(|| op.to_string());
+                    }
+                }
+                for stops_key in ["gradientStops", "stops"] {
+                    if let Some(stops) = p.get(stops_key).and_then(Value::as_array) {
+                        for (j, st) in stops.iter().enumerate() {
+                            if let Some(c) = st.get("boundVariables").and_then(|b| b.get("color")).and_then(|a| fstr(a, "id")) {
+                                nv.bindings.entry(format!("{prefix}/{i}/stops/{j}")).or_insert_with(|| c.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(arr) = v.get("effects").and_then(Value::as_array) {
+        for (i, e) in arr.iter().enumerate() {
+            if let Some(bv) = e.get("boundVariables") {
+                for prop in ["color", "opacity", "radius", "spread", "offsetX", "offsetY"] {
+                    if let Some(id) = bv.get(prop).and_then(|a| fstr(a, "id")) {
+                        nv.bindings.entry(format!("effects/{i}/{prop}")).or_insert_with(|| id.to_string());
+                    }
+                }
+            }
         }
     }
     if let Some(m) = v.get("explicitVariableModes").and_then(Value::as_object) {

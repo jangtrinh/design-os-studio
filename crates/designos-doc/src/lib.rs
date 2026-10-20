@@ -863,6 +863,9 @@ pub struct StyleMeta {
     pub description: String,
     /// Property the style is used for (a `Style::Fill` can be a stroke style).
     pub property: StyleProperty,
+    /// Property key -> variable id bound on this style.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bindings: BTreeMap<String, String>,
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.

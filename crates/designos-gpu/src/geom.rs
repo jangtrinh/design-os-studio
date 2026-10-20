@@ -414,6 +414,7 @@ impl GeomCache {
                 && !feeds_boolean(n)
                 && !designos_render::board::is_synthetic(n.id)
                 && n.variables.bindings.is_empty()
+                && !designos_doc::node_has_style_bindings(doc, n)
                 && (!matches!(n.kind, NodeKind::Text(_)) || e.src.font_gen == font_generation())
                 && doc.is_node_clean_since(n.id, e.doc_epoch);
             if clean || e.src.same(doc, n, false) {
@@ -639,5 +640,83 @@ mod tests {
         }
         assert_eq!(cache.builds, 20);
         assert_eq!(cache.shared_hits, 20);
+    }
+
+    #[test]
+    fn mode_switch_rebuilds_style_bound_text_geom_and_draw_color() {
+        use crate::compile::SceneCompiler;
+        use crate::frame::Op;
+        use designos_doc::{
+            bind_style_property, PaintKind, Style, StyleMeta, StyleProperty, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+        };
+        use designos_render::Viewport;
+
+        let mut doc = Document::new("test");
+        let page = doc.add_page("Page 1");
+        let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+        let dark_c = Color::rgb(0x11, 0x11, 0x11);
+
+        doc.variable_collections.insert(
+            "theme".into(),
+            VariableCollection {
+                id: "theme".into(),
+                name: "Theme".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["surface".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "surface".into(),
+            Variable {
+                id: "surface".into(),
+                name: "surface".into(),
+                collection: "theme".into(),
+                kind: VariableKind::Color,
+                values: [("light".to_string(), VariableValue::Color(light_c)), ("dark".to_string(), VariableValue::Color(dark_c))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+            },
+        );
+        doc.styles.insert("Text/Primary".into(), Style::Fill(vec![Paint::solid(light_c)]));
+        doc.style_meta.insert(
+            "Text/Primary".into(),
+            StyleMeta { name: "Text/Primary".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+        );
+        bind_style_property(&doc, "Text/Primary", "fills/0", "surface").unwrap().apply(&mut doc).unwrap();
+
+        let frame_id = doc.alloc_id();
+        let frame = Node::frame(frame_id, Rect::new(0.0, 0.0, 200.0, 100.0));
+        doc.insert(page, frame).unwrap();
+
+        let text_id = doc.alloc_id();
+        let style = TextStyle { fills: vec![Paint::solid(light_c)], ..Default::default() };
+        let mut text = Node::text(text_id, Rect::new(10.0, 10.0, 120.0, 30.0), "Hello", style);
+        text.style_refs.insert("fill".into(), "Text/Primary".into());
+        doc.insert(frame_id, text).unwrap();
+
+        let mut compiler = SceneCompiler::new();
+        let vp = Viewport::default();
+        let f1 = compiler.compile(&doc, page, 1, &vp, (400, 300));
+        let draw_colors_1: Vec<[f32; 4]> = f1.programs[0].ops.iter().filter_map(|op| if let Op::Draw(d) = op { Some(d.inst.c0) } else { None }).collect();
+        assert!(draw_colors_1.iter().any(|c| (c[0] - 1.0).abs() < 1e-3), "expected light text draw in frame 1: {draw_colors_1:?}");
+
+        // Switch only the parent frame's mode to dark (text node itself is not directly dirtied).
+        doc.get_mut(frame_id).unwrap().variables.modes.insert("theme".into(), "dark".into());
+
+        let f2 = compiler.compile(&doc, page, 2, &vp, (400, 300));
+        let resolved_text = designos_doc::resolve_node(&doc, doc.get(text_id).unwrap());
+        let g2 = compiler.geom.get(&doc, &resolved_text, 0, 2);
+        assert_eq!(g2.text[0].fills[0].kind, PaintKind::Solid(dark_c));
+        let draw_colors_2: Vec<[f32; 4]> = f2.programs[0].ops.iter().filter_map(|op| if let Op::Draw(d) = op { Some(d.inst.c0) } else { None }).collect();
+        assert!(
+            draw_colors_2.iter().any(|c| (c[0] - dark_c.r).abs() < 1e-3 && (c[1] - dark_c.g).abs() < 1e-3 && (c[2] - dark_c.b).abs() < 1e-3),
+            "expected dark (#111111) text draw in frame 2, got: {draw_colors_2:?}"
+        );
     }
 }

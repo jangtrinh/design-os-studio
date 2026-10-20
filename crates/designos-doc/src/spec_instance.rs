@@ -2167,9 +2167,10 @@ mod tests {
     fn library_import_with_styles_vars_and_images_is_atomic_and_replays_to_live_editor() {
         let mut lib_doc = fixtures::button_library();
         lib_doc.styles.insert("s_btn_fill".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
-        lib_doc
-            .style_meta
-            .insert("s_btn_fill".into(), StyleMeta { name: "Button/Fill".into(), description: String::new(), key: None, property: StyleProperty::Fill });
+        lib_doc.style_meta.insert(
+            "s_btn_fill".into(),
+            StyleMeta { name: "Button/Fill".into(), description: String::new(), key: None, property: StyleProperty::Fill, bindings: Default::default() },
+        );
         lib_doc.variable_collections.insert(
             "c_brand".into(),
             VariableCollection {

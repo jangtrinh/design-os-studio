@@ -726,6 +726,35 @@ impl App {
         self.libs.invalidate();
     }
 
+    /// Binds `property` of style `style_key` to a library variable, copying it
+    /// into the file first. The copy and the style binding are one undo step.
+    pub fn bind_style_library_variable(&mut self, style_key: &str, property: &str, library_id: &str, key: &str) -> bool {
+        self.scrub_end();
+        if let Some(st) = self.props.style_edit.as_mut() {
+            if st.key == style_key {
+                st.pending = None;
+            }
+        }
+        let mut tx = Tx::new();
+        let res = match self.import_asset_in(&mut tx, library_id, key) {
+            Some(local) => match self.bind_style_variable_in(&mut tx, style_key, property, &local) {
+                Ok(()) => self.run_tx(tx),
+                Err(e) => {
+                    tx.cancel(&mut self.doc);
+                    self.show_toast(format!("Style not changed: {e}"), true);
+                    false
+                }
+            },
+            None => {
+                tx.cancel(&mut self.doc);
+                self.show_toast("Library variable could not be loaded", true);
+                false
+            }
+        };
+        self.libs.invalidate();
+        res
+    }
+
     /// Applies a library style to `sel`, copying it into the file first, in
     /// `tx` (which may already hold the caller's edits) as one undo step.
     pub fn apply_library_style(&mut self, mut tx: Tx, sel: &[NodeId], library_id: &str, key: &str) {

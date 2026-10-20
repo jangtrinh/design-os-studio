@@ -184,9 +184,48 @@ impl Document {
         None
     }
 
+    /// Resolves a variable in its collection's default mode (following aliases in their
+    /// respective collections' default modes), for contexts without a node such as style defaults.
+    pub fn resolve_variable_default(&self, variable: &str) -> Option<VariableValue> {
+        let mut id = variable.to_string();
+        for _ in 0..MAX_ALIAS_DEPTH {
+            let v = self.variables.get(&id)?;
+            let coll = self.variable_collections.get(&v.collection)?;
+            let value = v.values.get(&coll.default_mode).or_else(|| v.values.values().next())?;
+            match value {
+                VariableValue::Alias(next) => id = next.clone(),
+                other => return Some(other.clone()),
+            }
+        }
+        None
+    }
+
+    /// Variable id bound to `property` on `node` directly or through a linked style.
+    /// Direct node bindings take precedence over style bindings.
+    pub fn effective_binding(&self, node: NodeId, property: &str) -> Option<&str> {
+        let n = self.get(node)?;
+        if let Some(v) = n.variables.bindings.get(property) {
+            return Some(v.as_str());
+        }
+        if let Some(rest) = property.strip_prefix("strokes/") {
+            let sk = n.style_refs.get("stroke")?;
+            let bkey = format!("fills/{rest}");
+            return self.style_meta.get(sk)?.bindings.get(&bkey).map(String::as_str);
+        }
+        let slot = if property.starts_with("fills/") {
+            "fill"
+        } else if property.starts_with("effects/") {
+            "effect"
+        } else {
+            "text"
+        };
+        let sk = n.style_refs.get(slot)?;
+        self.style_meta.get(sk)?.bindings.get(property).map(String::as_str)
+    }
+
     /// Resolves the variable bound to `property` on `node`, if any.
     pub fn bound_value(&self, node: NodeId, property: &str) -> Option<VariableValue> {
-        let var = self.get(node)?.variables.bindings.get(property)?;
+        let var = self.effective_binding(node, property)?;
         self.resolve_variable(node, var)
     }
 }

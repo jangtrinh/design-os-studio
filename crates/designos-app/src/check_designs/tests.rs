@@ -600,6 +600,61 @@ fn a_fix_for_a_layer_that_changed_since_the_audit_is_refused_and_leaves_no_undo_
     assert_eq!(app.check_designs_fix_all(&[]), 0);
 }
 
+#[test]
+fn check_designs_counts_bound() {
+    let mut f = fx();
+    f.doc.check_designs.disabled_rules.remove(Rule::TypographyAndStroke.figma_id());
+    let light_c = Color::rgb(0xFF, 0xFF, 0xFF);
+    let dark_c = Color::rgb(0x11, 0x11, 0x11);
+    let surface = f.color_var("surface", light_c, dark_c);
+    let border_w = f.number_var("border-w", 2.0, 2.0);
+    f.doc.styles.insert("Card".into(), Style::Fill(vec![Paint::solid(light_c)]));
+    f.doc.style_meta.insert(
+        "Card".into(),
+        designos_doc::StyleMeta {
+            name: "Card".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Fill,
+            bindings: [("fills/0".to_string(), surface.clone())].into_iter().collect(),
+        },
+    );
+    f.doc.styles.insert("Body".into(), Style::Text(TextStyle::default()));
+    f.doc.style_meta.insert(
+        "Body".into(),
+        designos_doc::StyleMeta {
+            name: "Body".into(),
+            key: None,
+            description: String::new(),
+            property: designos_doc::StyleProperty::Text,
+            bindings: [("strokeWeight".to_string(), border_w.clone())].into_iter().collect(),
+        },
+    );
+    let frame = f.frame(f.page, "Container", None);
+    let rect = f.rect(frame, "Rect", light_c);
+    {
+        let n = f.doc.get_mut(rect).unwrap();
+        n.stroke.paints = vec![Paint::solid(light_c)];
+        n.stroke.weight = 2.0;
+        n.style_refs.insert("fill".into(), "Card".into());
+        n.style_refs.insert("stroke".into(), "Card".into());
+    }
+    f.doc.get_mut(frame).unwrap().variables.modes.insert("theme".into(), "dark".into());
+
+    // Without the style binding for strokeWeight, TypographyAndStroke flags the 2px stroke weight.
+    assert_eq!(f.report().of(Rule::TypographyAndStroke).count(), 1);
+
+    // Linking the style carrying the strokeWeight binding suppresses the finding via effective_binding (hardcoded.rs:631).
+    f.doc.get_mut(rect).unwrap().style_refs.insert("text".into(), "Body".into());
+    assert_eq!(f.doc.effective_binding(rect, "fills/0"), Some(surface.as_str()));
+    assert_eq!(f.doc.effective_binding(rect, "strokeWeight"), Some(border_w.as_str()));
+    assert_eq!(f.doc.bound_value(rect, "fills/0"), Some(designos_doc::VariableValue::Color(dark_c)));
+
+    let report = f.report();
+    assert_eq!(report.of(Rule::HardCodedValue).count(), 0, "unexpected hardcoded findings: {:#?}", report.findings);
+    assert_eq!(report.of(Rule::TypographyAndStroke).count(), 0, "unexpected typography/stroke findings: {:#?}", report.findings);
+}
+
 fn white_page(f: &mut Fx) {
     f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
 }

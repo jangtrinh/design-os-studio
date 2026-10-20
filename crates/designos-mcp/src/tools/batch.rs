@@ -941,8 +941,9 @@ fn apply_set_style_op(
         };
         let name = s_in.name.clone().or_else(|| existing_meta.as_ref().map(|m| m.name.clone())).unwrap_or_else(|| key.clone());
         let description = s_in.description.clone().or_else(|| existing_meta.as_ref().map(|m| m.description.clone())).unwrap_or_default();
+        let bindings = existing_meta.as_ref().map(|m| m.bindings.clone()).unwrap_or_default();
         styles.insert(key.clone(), style_val);
-        style_meta.insert(key.clone(), StyleMeta { name, key: existing_meta.and_then(|m| m.key), description, property: prop });
+        style_meta.insert(key.clone(), StyleMeta { name, key: existing_meta.and_then(|m| m.key), description, property: prop, bindings });
     }
 
     for del_key in &op.delete {

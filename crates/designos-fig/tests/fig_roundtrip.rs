@@ -629,7 +629,8 @@ fn fig_import_resolves_symbol_overrides_bindings_nested_swaps_and_handoff_map() 
     // 2. parameterConsumptionMap resolved STACK_HORIZONTAL_PADDING and FONT_STYLE
     assert_eq!(card_inst.variables.bindings.get("paddingLeft").map(String::as_str), Some("VariableID:1:13"));
     assert_eq!(card_inst.variables.bindings.get("paddingRight").map(String::as_str), Some("VariableID:1:13"));
-    assert_eq!(card_inst.variables.bindings.get("fontWeight").map(String::as_str), Some("VariableID:1:14"));
+    assert_eq!(card_inst.variables.bindings.get("fontStyle").map(String::as_str), Some("VariableID:1:14"));
+    assert!(!card_inst.variables.bindings.contains_key("fontWeight"));
 
     // 3. Surface inside CardInstance:
     // - literal fillPaints override cleared master's fills/0 variable binding

@@ -54,11 +54,12 @@ pub struct AliasPicker {
     pub query: String,
 }
 
-/// Binding picker opened from the inspector.
+/// Binding picker opened from the inspector or style editor.
 pub struct BindPicker {
     pub keys: Vec<String>,
     pub kind: VariableKind,
     pub nodes: Vec<NodeId>,
+    pub style_key: Option<String>,
     pub anchor: Rect,
     pub query: String,
 }

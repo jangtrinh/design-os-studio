@@ -54,7 +54,13 @@ fn style_nodes_become_style_meta() {
     assert_eq!(fill, "2:100");
     assert_eq!(
         d.style_meta[fill],
-        StyleMeta { name: "Brand/Primary".into(), key: Some("key-primary".into()), description: "Main brand fill".into(), property: StyleProperty::Fill }
+        StyleMeta {
+            name: "Brand/Primary".into(),
+            key: Some("key-primary".into()),
+            description: "Main brand fill".into(),
+            property: StyleProperty::Fill,
+            bindings: Default::default(),
+        }
     );
     // A FILL style used only through styleIdForStrokeFill is a stroke style.
     assert_eq!(d.style_meta[stroke].property, StyleProperty::Stroke);

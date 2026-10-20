@@ -388,8 +388,11 @@ fn rewrite_document_ids(
         doc.styles.insert(new_key, style);
     }
     let old_style_meta = std::mem::take(&mut doc.style_meta);
-    for (old_key, meta) in old_style_meta {
+    for (old_key, mut meta) in old_style_meta {
         let new_key = remap_str(&old_key, style_map);
+        for var_id in meta.bindings.values_mut() {
+            *var_id = remap_str(var_id, variable_map);
+        }
         doc.style_meta.insert(new_key, meta);
     }
 
@@ -1866,8 +1869,10 @@ mod tests {
         let main_extra = add_rect(&mut main, page, "Main Extra", 40.0, 40.0);
         assert_ne!(main_card, main_extra);
         main.styles.insert("brand/accent".into(), Style::Fill(vec![Paint::solid(Color::rgb(10, 40, 220))]));
-        main.style_meta
-            .insert("brand/accent".into(), StyleMeta { name: "Main Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+        main.style_meta.insert(
+            "brand/accent".into(),
+            StyleMeta { name: "Main Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+        );
         let col_id = "col-tokens".to_string();
         let mode_id = "mode-light".to_string();
         let var_id = "var-primary".to_string();
@@ -1957,9 +1962,10 @@ mod tests {
 
         // Colliding style, collection, and variable on branch.
         branch.styles.insert("brand/accent".into(), Style::Fill(vec![Paint::solid(Color::rgb(230, 50, 20))]));
-        branch
-            .style_meta
-            .insert("brand/accent".into(), StyleMeta { name: "Branch Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+        branch.style_meta.insert(
+            "brand/accent".into(),
+            StyleMeta { name: "Branch Accent".into(), key: None, description: String::new(), property: StyleProperty::Fill, bindings: Default::default() },
+        );
         let alias_var_id = "var-alias".to_string();
         branch.variable_collections.insert(
             col_id.clone(),
