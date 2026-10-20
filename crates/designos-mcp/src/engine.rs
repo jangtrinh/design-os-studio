@@ -16,6 +16,54 @@ pub struct CachedLintReport {
     include_ignored: bool,
     stack_cursor: Option<String>,
     report: designos_doc::lint::LintReport,
+    /// Document-level findings (no owning node) appended after `report.findings`; only the
+    /// first chunk of a scan carries them.
+    extra_findings: Vec<Value>,
+}
+
+/// One page over `report.findings` followed by `extras` (JSON findings with no owning node).
+/// `total`, `by_rule` and `by_severity` include the extras; the page never exceeds `limit`.
+fn page_with_extras(
+    report: &designos_doc::lint::LintReport,
+    extras: &[Value],
+    offset: usize,
+    limit: usize,
+    cached_hit: bool,
+    stack_prefix: Option<&str>,
+) -> Value {
+    let mut value = report.paginate_with_prefix(offset, limit, cached_hit, stack_prefix).to_value();
+    if extras.is_empty() {
+        return value;
+    }
+    let own = report.findings.len();
+    let all = own + extras.len();
+    let start = offset.min(all);
+    let end = (start + limit).min(all);
+    let mut page: Vec<Value> = report
+        .findings
+        .iter()
+        .skip(start)
+        .take(end.saturating_sub(start).min(own.saturating_sub(start)))
+        .map(|f| serde_json::to_value(f).unwrap_or(Value::Null))
+        .collect();
+    page.extend(extras.iter().skip(start.saturating_sub(own)).take(end.saturating_sub(start.max(own))).cloned());
+    value["findings"] = Value::Array(page);
+    value["total"] = json!(report.total + extras.len());
+    value["cursor"] = if end < all {
+        match stack_prefix {
+            Some(prefix) => json!(format!("{prefix}+offset:{end}")),
+            None => json!(format!("offset:{end}")),
+        }
+    } else if !report.complete {
+        json!(report.cursor)
+    } else {
+        Value::Null
+    };
+    for (map, key) in [("by_rule", "broken-style-binding"), ("by_severity", "warning")] {
+        let n = value[map].get(key).and_then(Value::as_u64).unwrap_or(0) + extras.len() as u64;
+        value[map][key] = json!(n);
+    }
+    value
 }
 
 pub struct Engine {
@@ -635,7 +683,7 @@ impl Engine {
                             && c.include_ignored == cfg.include_ignored
                             && c.stack_cursor == stack_cursor
                     }) {
-                        return Ok(cached.report.paginate_with_prefix(offset, limit, true, stack_cursor.as_deref()).to_value());
+                        return Ok(page_with_extras(&cached.report, &cached.extra_findings, offset, limit, true, stack_cursor.as_deref()));
                     }
                 }
 
@@ -659,8 +707,15 @@ impl Engine {
                 if stack_cursor.is_none() && report.complete {
                     self.refresh_node_lint_cache(&roots);
                 }
-                let rules_unrestricted = a.rules.is_none();
-                let page_report = report.paginate_with_prefix(offset_cursor.unwrap_or(0), limit, false, stack_cursor.as_deref());
+                // Style findings belong to the whole document, not to a node chunk: fold them into the
+                // first chunk only (a resumed `stack:` chunk never repeats them), and into the cached
+                // report so every page of that chunk shares one total and honours `limit`.
+                let extra_findings = if stack_cursor.is_none() && a.rules.is_none() {
+                    designos_doc::lint::broken_style_binding_findings_for(&self.doc, &cfg)
+                } else {
+                    Vec::new()
+                };
+                let value = page_with_extras(&report, &extra_findings, offset_cursor.unwrap_or(0), limit, false, stack_cursor.as_deref());
                 self.lint_report_cache = Some(CachedLintReport {
                     runtime_id: self.doc.runtime_id(),
                     mutation_epoch: self.doc.mutation_epoch(),
@@ -671,19 +726,8 @@ impl Engine {
                     include_ignored: cfg.include_ignored,
                     stack_cursor,
                     report,
+                    extra_findings,
                 });
-                let mut value = page_report.to_value();
-                if offset_cursor.unwrap_or(0) == 0 && rules_unrestricted {
-                    let style_findings = designos_doc::lint::broken_style_binding_findings(&self.doc);
-                    if !style_findings.is_empty() {
-                        if let Some(arr) = value.get_mut("findings").and_then(Value::as_array_mut) {
-                            arr.extend(style_findings.iter().cloned());
-                        }
-                        if let Some(total) = value.get("total").and_then(Value::as_u64) {
-                            value["total"] = json!(total + style_findings.len() as u64);
-                        }
-                    }
-                }
                 Ok(value)
             }
             "designos_get_guidelines" | "get_guidelines" => crate::tools::guidelines::call_get_guidelines(&self.doc, args),
@@ -2268,6 +2312,75 @@ mod tests {
 
         let catalog = tools();
         assert!(catalog.iter().any(|t| t["name"] == "designos_lint_fix" && t["annotations"]["readOnlyHint"] == false));
+    }
+
+    fn bind_style_to_missing_variable(e: &mut Engine) {
+        let mut bindings = std::collections::BTreeMap::new();
+        bindings.insert("fill".to_string(), "var-deleted".to_string());
+        e.doc.style_meta.insert(
+            "Brand/Primary".into(),
+            designos_doc::StyleMeta {
+                name: "Brand/Primary".into(),
+                key: None,
+                description: String::new(),
+                property: designos_doc::StyleProperty::Fill,
+                bindings,
+            },
+        );
+    }
+
+    #[test]
+    fn mcp_lint_broken_style_binding_appears_once_across_budgeted_chunks_with_consistent_totals() {
+        let mut e = Engine::default();
+        for i in 1..=20 {
+            create(&mut e, "frame", &format!("Frame {i}"));
+        }
+        bind_style_to_missing_variable(&mut e);
+        e.lint_call_max_nodes = 8;
+        e.clear_lint_cache();
+
+        let mut cursor: Option<String> = None;
+        let mut style_hits = 0usize;
+        let mut chunk_totals: Vec<(bool, u64)> = Vec::new();
+        let mut saw_incomplete_chunk = false;
+        for _ in 0..40 {
+            let mut req = json!({"preset": "strict", "limit": 3});
+            if let Some(ref c) = cursor {
+                req["cursor"] = json!(c);
+            }
+            let res = e.call("designos_lint", req).unwrap();
+            let batch = res["findings"].as_array().unwrap();
+            assert!(batch.len() <= 3, "page must not exceed limit: {}", batch.len());
+            style_hits += batch.iter().filter(|f| f["rule"] == "broken-style-binding").count();
+            let resumed = cursor.as_deref().is_some_and(|c| c.starts_with("stack:"));
+            let by_rule_hits = res["by_rule"]["broken-style-binding"].as_u64().unwrap_or(0);
+            assert_eq!(by_rule_hits, u64::from(!resumed), "by_rule counts the style finding only in the first chunk");
+            chunk_totals.push((resumed, res["total"].as_u64().unwrap()));
+            saw_incomplete_chunk |= res["complete"] == false;
+            match res["cursor"].as_str() {
+                Some(next) => cursor = Some(next.to_string()),
+                None => break,
+            }
+        }
+        assert!(saw_incomplete_chunk, "test must exercise budgeted chunks");
+        assert_eq!(style_hits, 1, "the style finding must be returned exactly once across all chunks");
+        let first: Vec<u64> = chunk_totals.iter().take_while(|(resumed, _)| !resumed).map(|(_, t)| *t).collect();
+        assert!(first.len() > 1, "first chunk must span several cached pages");
+        assert!(first.windows(2).all(|w| w[0] == w[1]), "cached pages must report the first page total: {first:?}");
+    }
+
+    #[test]
+    fn mcp_lint_layout_preset_omits_broken_style_binding() {
+        let mut e = Engine::default();
+        create(&mut e, "frame", "Frame 1");
+        bind_style_to_missing_variable(&mut e);
+        let strict = e.call("designos_lint", json!({"preset": "strict", "limit": 500})).unwrap();
+        assert!(strict["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "broken-style-binding"));
+        for preset in ["layout", "agent"] {
+            let res = e.call("designos_lint", json!({"preset": preset, "limit": 500})).unwrap();
+            assert!(res["findings"].as_array().unwrap().iter().all(|f| f["rule"] != "broken-style-binding"), "{preset}");
+            assert!(res["by_rule"].get("broken-style-binding").is_none(), "{preset}");
+        }
     }
 
     #[test]
