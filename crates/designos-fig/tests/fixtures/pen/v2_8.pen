@@ -1,0 +1,51 @@
+{
+  "version": "2.8",
+  "name": "Fixture v2.8",
+  "children": [
+    {
+      "id": "btn-comp",
+      "type": "component",
+      "name": "Legacy Component",
+      "width": 160,
+      "height": 44,
+      "layout": "horizontal",
+      "gap": 8,
+      "padding": [10, 16],
+      "fill": "#111827",
+      "cornerRadius": 6,
+      "children": [
+        {
+          "id": "btn-icon",
+          "type": "icon",
+          "name": "Search Icon",
+          "icon": "search",
+          "width": 16,
+          "height": 16,
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "btn-text",
+          "type": "text",
+          "name": "Label",
+          "content": "Search",
+          "fontSize": 14,
+          "fontWeight": 500,
+          "fill": "#FFFFFF"
+        }
+      ]
+    },
+    {
+      "id": "btn-inst",
+      "type": "instance",
+      "componentId": "btn-comp",
+      "name": "Legacy Instance",
+      "x": 200,
+      "y": 0,
+      "overrides": {
+        "btn-text": {
+          "content": "Find Docs"
+        }
+      }
+    }
+  ]
+}

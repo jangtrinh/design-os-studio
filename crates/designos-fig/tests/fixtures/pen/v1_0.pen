@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "name": "Fixture v1.0",
+  "themes": {
+    "mode": ["Light", "Dark"]
+  },
+  "variables": {
+    "brand": {
+      "type": "color",
+      "value": [
+        { "theme": { "mode": "Light" }, "value": "#2563EB" },
+        { "theme": { "mode": "Dark" }, "value": "#60A5FA" }
+      ]
+    }
+  },
+  "children": [
+    {
+      "id": "card-1",
+      "type": "frame",
+      "name": "Legacy Card",
+      "x": 16,
+      "y": 24,
+      "width": 240,
+      "height": 120,
+      "layout": "vertical",
+      "gap": 8,
+      "padding": { "top": 12, "right": 20, "bottom": 12, "left": 20 },
+      "cornerRadius": { "topLeft": 8, "topRight": 8, "bottomRight": 8, "bottomLeft": 8 },
+      "fillColor": "$brand",
+      "strokeColor": "#1E40AF",
+      "strokeThickness": 2,
+      "children": [
+        {
+          "id": "title-1",
+          "type": "text",
+          "name": "Card Title",
+          "content": "Hello v1.0",
+          "fontFamily": "Inter",
+          "fontSize": 16,
+          "fontWeight": 600,
+          "fillColor": "#FFFFFF"
+        }
+      ]
+    }
+  ]
+}
