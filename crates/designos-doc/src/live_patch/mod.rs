@@ -177,6 +177,19 @@ pub enum LiveOp {
     Remove {
         id: NodeId,
     },
+    /// Variables and collections the agent added, replaced or removed, by id. The agent's copy can
+    /// lack variables the editor has (a scoped canvas), so the editor merges these into its own
+    /// maps instead of taking the agent's maps whole.
+    Variables {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        collections: Vec<VariableCollection>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        variables: Vec<Variable>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_collections: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_variables: Vec<String>,
+    },
     /// Comment threads the agent created, edited or deleted, by thread id. The agent's copy can
     /// lack threads the editor has, so ids it picks may already be taken there.
     Comments {
@@ -200,17 +213,6 @@ pub enum LiveOp {
         removed: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed_meta: Vec<String>,
-    },
-    /// Variables and variable collections added, updated or removed.
-    Variables {
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted_collections: BTreeMap<String, VariableCollection>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed_collections: Vec<String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted_variables: BTreeMap<String, Variable>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed_variables: Vec<String>,
     },
     /// Library state and hidden library page changes.
     LibraryState {

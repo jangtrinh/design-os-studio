@@ -391,6 +391,9 @@ impl Engine {
                     "instances": report.instances,
                     "imported_assets": report.imported_assets,
                     "issues": report.issues,
+                    "bindings_created": report.bindings_created,
+                    "styles_linked": report.styles_linked,
+                    "warnings": report.warnings,
                 });
                 if !report.stale_library_assets.is_empty() {
                     resp["stale_library_assets"] = json!(report.stale_library_assets);
@@ -1040,7 +1043,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "apply_spec",
-        "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step.",
+        "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).",
         json!({"parent_id":id,"spec":{"type":"object","description":"Declarative NodeSpec tree (kind, name, preset, width, height, width_sizing, height_sizing, fill, stroke, corner_radius, text, font_size, layout, dev_status, annotations, children)."},"diff_image":{"type":"boolean","default":false}}),
         vec!["spec"],
         false,
@@ -1463,6 +1466,77 @@ mod tests {
         e.doc.get_mut(frame).unwrap().size.x = 500.0;
         e.call("designos_create_node", json!({"parent_id":frame.0,"kind":"rectangle","name":"Extra"})).unwrap();
         assert_settled(&e, last, "create_node");
+    }
+
+    #[test]
+    fn apply_spec_commits_variables_with_the_nodes_and_reports_them() {
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        let applied = e
+            .call(
+                "designos_apply_spec",
+                json!({"parent_id": page.0, "spec": {"name": "Panel", "kind": "frame", "fill": "$easeui.bg.panel", "stroke": "$easeui.border.subtle"}}),
+            )
+            .unwrap();
+        let root = applied["root_node_id"].as_u64().unwrap();
+
+        // The collection the bindings point at is part of the document, not only of a discarded copy.
+        let collection = e.doc.variable_collections.get("easeui-deprecated").expect("EaseUI (deprecated) collection");
+        assert_eq!(collection.name, "EaseUI (deprecated)");
+        assert_eq!(e.doc.get(NodeId(root)).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("easeui-deprecated/bg/panel"));
+        assert!(e.doc.variables.contains_key("easeui-deprecated/bg/panel"));
+
+        // The reply carries the report.
+        assert_eq!(applied["bindings_created"], 2, "{applied}");
+        assert_eq!(applied["styles_linked"], 0);
+        let warnings = applied["warnings"].as_array().unwrap();
+        let deprecated: Vec<_> = warnings.iter().filter(|w| w["code"] == "DEPRECATED_EASEUI_TOKEN").collect();
+        assert_eq!(deprecated.len(), 2, "{warnings:?}");
+        assert_eq!(deprecated[0]["token"], "$easeui.bg.panel");
+        assert_eq!(deprecated[0]["replacement"], "var:EaseUI (deprecated)/bg/panel");
+        assert_eq!(deprecated[0]["path"], "spec.fill");
+
+        // export_spec keeps the binding, so export then apply keeps the colour linked.
+        let exported = e.call("designos_export_spec", json!({"node_id": root})).unwrap();
+        assert_eq!(exported["spec"]["fill"], "var:EaseUI (deprecated)/bg/panel", "{exported}");
+        let again = e.call("designos_apply_spec", json!({"parent_id": page.0, "spec": exported["spec"]})).unwrap();
+        let copy = again["root_node_id"].as_u64().unwrap();
+        assert_eq!(e.doc.get(NodeId(copy)).unwrap().variables.bindings.get("fills/0"), e.doc.get(NodeId(root)).unwrap().variables.bindings.get("fills/0"));
+        assert_eq!(again["warnings"].as_array().unwrap().iter().filter(|w| w["code"] == "DEPRECATED_EASEUI_TOKEN").count(), 0);
+
+        // The second apply added no data, so one undo removes only its nodes; one more undo removes the
+        // first apply's nodes and the collection together, and redo restores both.
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(NodeId(copy)).is_none());
+        assert!(e.doc.variable_collections.contains_key("easeui-deprecated"));
+        e.call("designos_undo", json!({})).unwrap();
+        assert!(e.doc.get(NodeId(root)).is_none());
+        assert!(!e.doc.variable_collections.contains_key("easeui-deprecated"));
+        assert!(e.doc.variables.is_empty());
+        e.call("designos_redo", json!({})).unwrap();
+        assert!(e.doc.get(NodeId(root)).is_some());
+        assert!(e.doc.variable_collections.contains_key("easeui-deprecated"));
+        assert!(e.doc.variables.contains_key("easeui-deprecated/bg/panel"));
+    }
+
+    #[test]
+    fn a_failed_apply_spec_leaves_variables_and_undo_depth_untouched() {
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+        let depth = e.history.undo_depth();
+        let err = e
+            .call(
+                "designos_apply_spec",
+                json!({"parent_id": page.0, "spec": {"kind": "frame", "children": [
+                    {"kind": "rectangle", "fill": "$easeui.bg.panel"},
+                    {"kind": "rectangle", "fill": "var:Color/Nope"}
+                ]}}),
+            )
+            .unwrap_err();
+        assert!(err.contains("UNKNOWN_VARIABLE"), "{err}");
+        assert!(e.doc.variable_collections.is_empty());
+        assert!(e.doc.variables.is_empty());
+        assert_eq!(e.history.undo_depth(), depth);
     }
 
     #[test]

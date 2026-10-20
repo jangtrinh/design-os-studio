@@ -82,7 +82,7 @@ impl std::fmt::Display for SpecError {
 impl std::error::Error for SpecError {}
 
 /// Non-fatal design issue / warning produced during `apply_spec_with_libraries` (E15-2 / E15-5).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpecIssue {
     pub rule: String,
     pub severity: String,
@@ -95,7 +95,7 @@ pub struct SpecIssue {
 }
 
 /// Metadata for one placed component instance returned by `apply_spec_with_libraries`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlacedInstanceInfo {
     pub node_id: u64,
     pub component_id: u64,
@@ -106,18 +106,7 @@ pub struct PlacedInstanceInfo {
 }
 
 /// Structured report produced by `apply_spec_with_libraries` / `apply_spec_command`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ApplySpecReport {
-    pub root_node_id: NodeId,
-    pub parent_id: NodeId,
-    pub name_to_id: BTreeMap<String, u64>,
-    pub instances: Vec<PlacedInstanceInfo>,
-    pub imported_assets: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub stale_library_assets: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub issues: Vec<SpecIssue>,
-}
+pub type ApplySpecReport = crate::SpecApplyReport;
 
 #[derive(Clone, Debug)]
 struct ExternalCompEntry {
@@ -158,6 +147,9 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub stale_library_assets: Vec<String>,
     pub instances: Vec<PlacedInstanceInfo>,
     pub issues: Vec<SpecIssue>,
+    pub bindings_created: usize,
+    pub styles_linked: usize,
+    pub warnings: Vec<crate::SpecWarning>,
     pub touched_slot_containers: HashMap<NodeId, String>,
 }
 
@@ -181,6 +173,9 @@ impl<'a> SpecBuildCtx<'a> {
             stale_library_assets: Vec::new(),
             instances: Vec::new(),
             issues: Vec::new(),
+            bindings_created: 0,
+            styles_linked: 0,
+            warnings: Vec::new(),
             touched_slot_containers: HashMap::new(),
         }
     }
@@ -1813,14 +1808,14 @@ impl Document {
             }
         }
 
-        // Apply root component properties (`props`)
-        apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)?;
-
-        // Apply root component slots (`slots`, E15-2)
-        apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx)?;
-
-        // Apply descendant overrides (`overrides`)
-        apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx)?;
+        // Apply root component properties (`props`), slots (`slots`, E15-2), and descendant overrides (`overrides`)
+        if let Err(e) = apply_instance_props_with_ctx(self, inst_id, &spec.props, ctx)
+            .and_then(|()| apply_instance_slots_with_ctx(self, inst_id, &spec.slots, "slots", ctx))
+            .and_then(|()| apply_overrides_with_ctx(self, inst_id, &spec.overrides, ctx))
+        {
+            let _ = Command::Remove { id: inst_id }.apply(self);
+            return Err(e);
+        }
 
         // Apply root geometry, sizing, opacity, name, and dev metadata (§3.4)
         if let Some(inst_node) = self.get_mut(inst_id) {
@@ -1853,9 +1848,11 @@ impl Document {
                     }
                 }
             }
-            if (spec.opacity - 1.0).abs() >= 1e-6 {
-                inst_node.opacity = spec.opacity.clamp(0.0, 1.0);
-                inst_node.component.overrides.insert(OverrideField::Opacity);
+            if let Some(op) = spec.opacity.as_num() {
+                if (op - 1.0).abs() >= 1e-6 {
+                    inst_node.opacity = op.clamp(0.0, 1.0);
+                    inst_node.component.overrides.insert(OverrideField::Opacity);
+                }
             }
             if let Some(ws) = &spec.width_sizing {
                 let s = parse_sizing(ws);
@@ -1915,18 +1912,6 @@ impl Document {
         Ok(inst_id)
     }
 
-    /// Materializes `spec` under `parent` with access to enabled library `snapshots`.
-    /// Atomic: on any error `self` is unchanged.
-    pub fn apply_spec_with_libraries(&mut self, parent: NodeId, spec: &NodeSpec, snapshots: &[LibrarySnapshot]) -> Result<ApplySpecReport, SpecError> {
-        let (cmd, report) = apply_spec_command(self, parent, spec, snapshots)?;
-        cmd.apply(self).map_err(|e| SpecError::plain(e.to_string()))?;
-        let relayout_root =
-            if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { report.root_node_id };
-        self.relayout_subtree(relayout_root);
-        self.flush_pending_relayout();
-        Ok(report)
-    }
-
     #[allow(clippy::type_complexity)]
     fn collect_instance_slots(
         &self,
@@ -1939,6 +1924,7 @@ impl Document {
         let Some(comp_id) = self.get(instance_id).and_then(instance_component) else {
             return Ok((slots, skip_containers, skip_children));
         };
+        let bind_index = crate::SpecBindIndex::build(self);
         for slot_name in declared_slots_of_component(self, comp_id) {
             let Some(slot_cid) = find_instance_slot_container(self, instance_id, &slot_name, &slot_name) else {
                 continue;
@@ -1947,7 +1933,7 @@ impl Document {
             if sn.component.overrides.contains(&OverrideField::SlotContent) {
                 let mut child_specs = Vec::with_capacity(sn.children.len());
                 for &child_id in &sn.children {
-                    child_specs.push(self.export_spec_inner(child_id, all_comments)?);
+                    child_specs.push(self.export_spec_inner(child_id, all_comments, &bind_index)?);
                 }
                 slots.insert(slot_name, SlotFillSpec::Fill(child_specs));
                 skip_children.insert(slot_cid);
@@ -2043,22 +2029,20 @@ impl Document {
             stroke_weight: None,
             corner_radius: None,
             corner_radii: None,
-            opacity,
-            visible: (!n.visible).then_some(false),
+            opacity: NumberOrVar::Num(opacity),
             clips_content: None,
             text: None,
             font_size: None,
-            font_weight: None,
             line_height: None,
+            font_weight: None,
             text_color: None,
             text_style: None,
             effect_style: None,
-            grid_style: None,
+            mode: BTreeMap::new(),
             layout: None,
             dev_status,
             annotation: None,
             annotations,
-            var_bindings: BTreeMap::new(),
             comments,
             children: Vec::new(),
         })
@@ -2211,115 +2195,10 @@ impl Document {
     }
 }
 
-fn preimport_spec_styles_and_vars(doc: &mut Document, spec: &NodeSpec, snapshots: &[LibrarySnapshot], ctx: &mut SpecBuildCtx<'_>) {
-    if snapshots.is_empty() {
-        return;
-    }
-    let style_refs: [Option<&str>; 5] = [
-        spec.fill.as_deref().filter(|s| s.trim().starts_with("style:")),
-        spec.stroke.as_deref().filter(|s| s.trim().starts_with("style:")),
-        spec.text_style.as_deref(),
-        spec.effect_style.as_deref(),
-        spec.grid_style.as_deref(),
-    ];
-    for s_ref in style_refs.into_iter().flatten() {
-        let body = s_ref.trim().strip_prefix("style:").unwrap_or(s_ref.trim()).trim();
-        if !body.is_empty() && doc.resolve_spec_style_key(body, None).is_none() {
-            'style_search: for snap in snapshots {
-                let prefix = format!("{}/", snap.library_id);
-                let stripped = body.strip_prefix(&prefix);
-                for style_key in snap.styles.keys() {
-                    let name = snap.style_meta.get(style_key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(style_key);
-                    let matches_direct = style_key == body || name == body || name.eq_ignore_ascii_case(body);
-                    let matches_scoped = stripped.is_some_and(|rest| style_key == rest || name == rest || name.eq_ignore_ascii_case(rest));
-                    if matches_direct || matches_scoped {
-                        let asset_key = format!("style:{style_key}");
-                        let cmd = import_asset(doc, snap, &asset_key, None);
-                        if let Ok(inv) = cmd.clone().apply(doc) {
-                            ctx.import_cmds.push(cmd);
-                            ctx.import_invs.push(inv);
-                        }
-                        break 'style_search;
-                    }
-                }
-            }
-        }
-    }
-
-    let mut var_refs: Vec<&str> = spec.var_bindings.values().map(String::as_str).collect();
-    for opt in [&spec.fill, &spec.stroke, &spec.text_color, &spec.text] {
-        if let Some(s) = opt.as_deref().filter(|s| s.trim().starts_with("var:")) {
-            var_refs.push(s);
-        }
-    }
-    for v_ref in var_refs {
-        let body = v_ref.trim().strip_prefix("var:").unwrap_or(v_ref.trim()).trim();
-        if body.is_empty() {
-            continue;
-        }
-        if let Some(id_target) = body.strip_prefix("id:").map(str::trim) {
-            if id_target.is_empty() {
-                continue;
-            }
-            if let Some((lib_id, raw_var_id)) = id_target.split_once('/') {
-                if let Some(snap) = snapshots.iter().find(|s| s.library_id == lib_id && s.variables.contains_key(raw_var_id)) {
-                    let asset_key = format!("var:{raw_var_id}");
-                    let cmd = import_asset(doc, snap, &asset_key, None);
-                    if let Ok(inv) = cmd.clone().apply(doc) {
-                        ctx.import_cmds.push(cmd);
-                        ctx.import_invs.push(inv);
-                    }
-                    continue;
-                }
-            }
-            if doc.resolve_spec_variable_id(v_ref).is_none() {
-                for snap in snapshots {
-                    if snap.variables.contains_key(id_target) {
-                        let asset_key = format!("var:{id_target}");
-                        let cmd = import_asset(doc, snap, &asset_key, None);
-                        if let Ok(inv) = cmd.clone().apply(doc) {
-                            ctx.import_cmds.push(cmd);
-                            ctx.import_invs.push(inv);
-                        }
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-
-        for snap in snapshots {
-            for (var_id, var) in &snap.variables {
-                if var.hidden_from_publishing {
-                    continue;
-                }
-                let coll_match = snap.variable_collections.get(&var.collection).is_some_and(|c| {
-                    format!("{}/{}", c.name, var.name) == body
-                        || format!("{}/{}", c.id, var.name) == body
-                        || format!("{}/{}", c.name, var.name).eq_ignore_ascii_case(body)
-                });
-                let bare_match = !body.contains('/') && (var.name == body || var.name.eq_ignore_ascii_case(body));
-                if var_id == body || coll_match || bare_match {
-                    let asset_key = format!("var:{var_id}");
-                    let cmd = import_asset(doc, snap, &asset_key, None);
-                    if let Ok(inv) = cmd.clone().apply(doc) {
-                        ctx.import_cmds.push(cmd);
-                        ctx.import_invs.push(inv);
-                    }
-                }
-            }
-        }
-    }
-
-    for child in &spec.children {
-        preimport_spec_styles_and_vars(doc, child, snapshots, ctx);
-    }
-}
-
 /// Builds `spec` in-place on `doc`, rolls back the trial mutations, and returns a single undoable
-/// [`Command`] (combining any library `import_asset` commands and the subtree `Command::Insert`)
-/// along with [`ApplySpecReport`]. Both before `Command::apply` runs and on any error, `doc` is
-/// left completely untouched.
+/// [`Command`] (combining any library `import_asset` commands, variable/style data commands, and the
+/// subtree `Command::Insert`) along with [`ApplySpecReport`]. Both before `Command::apply` runs and
+/// on any error, `doc` is left completely untouched.
 pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, snapshots: &[LibrarySnapshot]) -> Result<(Command, ApplySpecReport), SpecError> {
     let pnode = doc.get(parent).ok_or_else(|| SpecError::plain(format!("Parent node {} not found", parent.0)))?;
     if !pnode.kind.is_container() {
@@ -2332,6 +2211,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     let prev_library_state = doc.library.clone();
     let prev_dirty = doc.dirty.clone();
     let prev_pending_relayout = doc.pending_relayout.clone();
+    let data_before = crate::spec_data::SpecDataSnapshot::of(doc);
     let parent_index = pnode.children.len();
     let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
     let mut saved_parent_geom = Vec::new();
@@ -2339,7 +2219,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
         doc.walk(parent, |n, _| saved_parent_geom.push((n.id, n.transform, n.size)));
     }
 
-    let rollback = |doc: &mut Document, ctx: &mut SpecBuildCtx<'_>| {
+    let rollback = |doc: &mut Document, ctx: &mut SpecBuildCtx<'_>, data_before: crate::spec_data::SpecDataSnapshot| {
         if let Some(added) = doc.get(parent).map(|p| p.children.get(parent_index..).unwrap_or_default().to_vec()) {
             for cid in added {
                 let _ = Command::Remove { id: cid }.apply(doc);
@@ -2359,6 +2239,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
                 doc.nodes.remove(&lp_id);
             }
         }
+        data_before.restore(doc);
         doc.next_id = prev_next_id;
         doc.gap_cursor = prev_gap_cursor;
         doc.dirty = prev_dirty.clone();
@@ -2366,12 +2247,14 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     };
 
     let mut ctx = SpecBuildCtx::new(doc, snapshots);
-    preimport_spec_styles_and_vars(doc, spec, snapshots, &mut ctx);
-    let root_id = match doc.build_spec_node_with_ctx(parent, spec, &mut ctx) {
+    let mut bind_index = crate::SpecBindIndex::build(doc);
+    let mut report = ApplySpecReport { parent_id: parent, ..Default::default() };
+    let mut inserted_ids = Vec::new();
+    let root_id = match doc.build_spec_node_bound(parent, spec, "spec", &mut bind_index, snapshots, &mut ctx, &mut report, &mut inserted_ids) {
         Ok(id) => id,
         Err(e) => {
-            rollback(doc, &mut ctx);
-            return Err(e);
+            rollback(doc, &mut ctx, data_before);
+            return Err(SpecError::from(e));
         }
     };
 
@@ -2384,38 +2267,37 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     let insert_cmd = Command::Insert { parent, index: parent_index, nodes };
 
     // Build slash-separated name_to_id map from the spec root
-    let mut name_to_id = BTreeMap::new();
-    populate_name_to_id(doc, root_id, "", &mut name_to_id);
+    populate_name_to_id(doc, root_id, "", &mut report.name_to_id);
+    report.root_node_id = root_id;
+    report.instances = ctx.instances.clone();
+    report.imported_assets = ctx.imported_assets.clone();
+    report.stale_library_assets = ctx.stale_library_assets.clone();
+    report.issues = ctx.issues.clone();
+    report.bindings_created += ctx.bindings_created;
+    report.styles_linked += ctx.styles_linked;
+    report.warnings.extend(ctx.warnings.clone());
 
     let created_library_page = prev_library_page.is_none().then_some(doc.library_page).flatten();
-    rollback(doc, &mut ctx);
+    let data_after = crate::spec_data::SpecDataSnapshot::of(doc);
+    rollback(doc, &mut ctx, data_before.clone());
 
-    let final_cmd = if ctx.import_cmds.is_empty() {
-        insert_cmd
-    } else {
-        let mut cmds = Vec::with_capacity(ctx.import_cmds.len() + 2);
-        if let Some(lp_id) = created_library_page {
-            cmds.push(Command::SetLibraryState { state: prev_library_state, library_page: Some(lp_id) });
-        }
-        cmds.extend(ctx.import_cmds);
-        cmds.push(insert_cmd);
-        Command::Batch(cmds)
-    };
-
-    let report = ApplySpecReport {
-        root_node_id: root_id,
-        parent_id: parent,
-        name_to_id,
-        instances: ctx.instances,
-        imported_assets: ctx.imported_assets,
-        stale_library_assets: ctx.stale_library_assets,
-        issues: ctx.issues,
-    };
+    let mut cmds = Vec::new();
+    if let Some(lp_id) = created_library_page {
+        cmds.push(Command::SetLibraryState { state: prev_library_state, library_page: Some(lp_id) });
+    }
+    cmds.extend(ctx.import_cmds);
+    let mut after_imports = data_before;
+    for icmd in &cmds {
+        after_imports.apply_cmd_data(icmd);
+    }
+    cmds.extend(after_imports.commands_to(&data_after));
+    cmds.push(insert_cmd);
+    let final_cmd = if cmds.len() == 1 { cmds.remove(0) } else { Command::Batch(cmds) };
 
     Ok((final_cmd, report))
 }
 
-fn populate_name_to_id(doc: &Document, id: NodeId, prefix: &str, out: &mut BTreeMap<String, u64>) {
+pub(crate) fn populate_name_to_id(doc: &Document, id: NodeId, prefix: &str, out: &mut BTreeMap<String, u64>) {
     let Some(n) = doc.get(id) else {
         return;
     };

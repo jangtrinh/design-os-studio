@@ -2182,12 +2182,17 @@ impl App {
     pub fn apply_node_spec(&mut self, spec: &NodeSpec, label: &str) {
         let parent = self.page;
         let mut trial = self.doc.clone();
-        match trial.apply_spec(parent, spec) {
-            Ok(root_id) => {
+        match trial.apply_spec_with_report(parent, spec) {
+            Ok(report) => {
+                let root_id = report.root_node_id;
                 let mut nodes = Vec::new();
                 trial.walk(root_id, |n, _| nodes.push(n.clone()));
                 let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
-                if self.hist.exec(&mut self.doc, Command::Insert { parent, index, nodes }).is_ok() {
+                // The variables and styles the spec created go in the same undo step as its nodes.
+                let mut commands = self.doc.spec_data_commands(&trial);
+                commands.push(Command::Insert { parent, index, nodes });
+                let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
+                if self.hist.exec(&mut self.doc, command).is_ok() {
                     self.doc.relayout_subtree(parent);
                     self.selection = vec![root_id];
                     self.changed();

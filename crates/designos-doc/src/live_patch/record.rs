@@ -93,7 +93,7 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
             }
         }
         Command::SetVariables { variables, collections } => {
-            if let Some(op) = variable_changes(&doc.variables, &doc.variable_collections, variables, collections) {
+            if let Some(op) = variable_changes(doc, variables, collections) {
                 out.push(op);
             }
         }
@@ -175,6 +175,19 @@ fn layout_child_changes(old_lc: &Map<String, Value>, new_lc: &Map<String, Value>
     Ok(diff)
 }
 
+/// What `SetVariables` changes in `doc`'s variables and collections, by id.
+fn variable_changes(doc: &Document, variables: &BTreeMap<String, Variable>, collections: &BTreeMap<String, VariableCollection>) -> Option<LiveOp> {
+    fn diff<T: Clone + PartialEq>(before: &BTreeMap<String, T>, after: &BTreeMap<String, T>) -> (Vec<T>, Vec<String>) {
+        let changed = after.iter().filter(|(id, v)| before.get(*id) != Some(*v)).map(|(_, v)| v.clone()).collect();
+        let removed = before.keys().filter(|id| !after.contains_key(*id)).cloned().collect();
+        (changed, removed)
+    }
+    let (variables, removed_variables) = diff(&doc.variables, variables);
+    let (collections, removed_collections) = diff(&doc.variable_collections, collections);
+    let any = !variables.is_empty() || !collections.is_empty() || !removed_variables.is_empty() || !removed_collections.is_empty();
+    any.then_some(LiveOp::Variables { collections, variables, removed_collections, removed_variables })
+}
+
 fn comment_changes(before: &[CommentThread], after: &[CommentThread]) -> Option<LiveOp> {
     let find = |list: &[CommentThread], id: &str| list.iter().find(|t| t.id == id).cloned();
     let added: Vec<_> = after.iter().filter(|t| find(before, &t.id).is_none()).cloned().collect();
@@ -211,21 +224,6 @@ fn style_changes(
         removed,
         removed_meta,
     })
-}
-
-fn variable_changes(
-    before_vars: &BTreeMap<String, Variable>,
-    before_colls: &BTreeMap<String, VariableCollection>,
-    after_vars: &BTreeMap<String, Variable>,
-    after_colls: &BTreeMap<String, VariableCollection>,
-) -> Option<LiveOp> {
-    let upserted_collections: BTreeMap<_, _> =
-        after_colls.iter().filter(|(k, v)| before_colls.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let removed_collections: Vec<_> = before_colls.keys().filter(|k| !after_colls.contains_key(*k)).cloned().collect();
-    let upserted_variables: BTreeMap<_, _> = after_vars.iter().filter(|(k, v)| before_vars.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let removed_variables: Vec<_> = before_vars.keys().filter(|k| !after_vars.contains_key(*k)).cloned().collect();
-    (!upserted_collections.is_empty() || !removed_collections.is_empty() || !upserted_variables.is_empty() || !removed_variables.is_empty())
-        .then_some(LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables })
 }
 
 fn library_state_changes(before: &LibraryState, before_page: Option<NodeId>, after: &LibraryState, after_page: Option<NodeId>) -> Option<LiveOp> {

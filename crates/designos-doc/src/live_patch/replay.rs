@@ -3,7 +3,7 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
-use crate::{Command, DocError, Document, Node, NodeId, NodeKind};
+use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -24,6 +24,10 @@ pub struct LivePatchState {
     /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
+    /// Variable and collection ids this session's replays added to the editor. An agent undo
+    /// removes only these; anything the editor had before is left alone.
+    introduced_variables: BTreeSet<String>,
+    introduced_collections: BTreeSet<String>,
 }
 
 impl LivePatchState {
@@ -107,6 +111,10 @@ pub fn replay_live_patch(
         // now send its edits to the wrong node or thread.
         state.remap.clear();
         state.comments = CommentRemap::default();
+        // The reloaded canvas already carries what earlier replays added, and the editor's own
+        // layers may use it by now, so an undo of an older edit must not remove it.
+        state.introduced_variables.clear();
+        state.introduced_collections.clear();
         // Its replaced layers are gone from that canvas, so their old ids mean nothing there. The
         // first patch of a session has no earlier canvas to be newer than.
         if state.base.is_some() {
@@ -114,8 +122,9 @@ pub fn replay_live_patch(
         }
         state.base = patch.base;
     }
+    let is_spec_undo = patch.ops.iter().any(|o| matches!(o, LiveOp::Remove { .. }));
     for op in &patch.ops {
-        if let Some(cmd) = resolve(doc, op, state, &mut report) {
+        if let Some(cmd) = resolve(doc, op, is_spec_undo, state, &mut report) {
             if let Err(e) = exec(doc, cmd) {
                 *state = saved;
                 return Err(e);
@@ -126,7 +135,7 @@ pub fn replay_live_patch(
     Ok(report)
 }
 
-fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
+fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
@@ -232,6 +241,9 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             report.touched.push((id, TouchKind::Removed));
             Some(Command::Remove { id })
         }
+        LiveOp::Variables { collections, variables, removed_collections, removed_variables } => {
+            resolve_variables(doc, collections, variables, removed_collections, removed_variables, is_spec_undo, state, report)
+        }
         LiveOp::Comments { added, changed, removed } => {
             let (remap, replaced) = (&state.remap, &state.replaced);
             let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
@@ -257,36 +269,6 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                 None
             } else {
                 Some(Command::SetStyles { styles, style_meta })
-            }
-        }
-        LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables } => {
-            let mut collections = doc.variable_collections.clone();
-            let mut variables = doc.variables.clone();
-            for k in removed_collections {
-                collections.remove(k);
-            }
-            for k in removed_variables {
-                variables.remove(k);
-            }
-            for (k, v) in upserted_collections {
-                let mut merged = v.clone();
-                if let Some(cur) = doc.variable_collections.get(k) {
-                    for vid in &cur.variables {
-                        if !removed_variables.contains(vid) && !merged.variables.contains(vid) {
-                            merged.variables.push(vid.clone());
-                        }
-                    }
-                }
-                collections.insert(k.clone(), merged);
-            }
-            for (k, v) in upserted_variables {
-                variables.insert(k.clone(), v.clone());
-            }
-            if collections == doc.variable_collections && variables == doc.variables {
-                report.duplicates += 1;
-                None
-            } else {
-                Some(Command::SetVariables { variables, collections })
             }
         }
         LiveOp::LibraryState { published, upserted_enabled, removed_enabled, upserted_external, removed_external, library_page } => {
@@ -362,6 +344,74 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             }
         }
     }
+}
+
+/// The agent's variable and collection changes merged into the editor's own maps, which can hold
+/// more than the agent's copy did. Changed variables and collections are upserted (unioning member
+/// lists for existing collections so editor-only members are preserved). On an agent spec-undo
+/// (`is_spec_undo`), only ids this session introduced are removed so pre-existing editor variables
+/// survive; standalone `SetVariables` deletes apply directly. Entries without an id are refused.
+#[allow(clippy::too_many_arguments)]
+fn resolve_variables(
+    doc: &Document,
+    collections: &[VariableCollection],
+    variables: &[Variable],
+    removed_collections: &[String],
+    removed_variables: &[String],
+    is_spec_undo: bool,
+    state: &mut LivePatchState,
+    report: &mut LivePatchReport,
+) -> Option<Command> {
+    let mut merged_vars = doc.variables.clone();
+    let mut merged_colls = doc.variable_collections.clone();
+    for id in removed_variables {
+        if state.introduced_variables.remove(id) || !is_spec_undo {
+            merged_vars.remove(id);
+            for coll in merged_colls.values_mut() {
+                coll.variables.retain(|vid| vid != id);
+            }
+        }
+    }
+    for id in removed_collections {
+        if state.introduced_collections.remove(id) || !is_spec_undo {
+            merged_colls.remove(id);
+        }
+    }
+    for v in variables {
+        if v.id.is_empty() {
+            report.skipped.push("a variable without an id was not replayed".to_string());
+        } else {
+            if !merged_vars.contains_key(&v.id) {
+                state.introduced_variables.insert(v.id.clone());
+            }
+            merged_vars.insert(v.id.clone(), v.clone());
+        }
+    }
+    for c in collections {
+        if c.id.is_empty() {
+            report.skipped.push("a variable collection without an id was not replayed".to_string());
+        } else {
+            let mut merged = c.clone();
+            if let Some(cur) = merged_colls.get(&c.id) {
+                let mut members: Vec<String> =
+                    cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
+                for vid in &c.variables {
+                    if !members.contains(vid) {
+                        members.push(vid.clone());
+                    }
+                }
+                merged.variables = members;
+            } else {
+                state.introduced_collections.insert(c.id.clone());
+            }
+            merged_colls.insert(c.id.clone(), merged);
+        }
+    }
+    if merged_vars == doc.variables && merged_colls == doc.variable_collections {
+        report.duplicates += 1;
+        return None;
+    }
+    Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
 }
 
 /// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
