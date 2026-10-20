@@ -58,6 +58,9 @@ pub const ICON_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
 pub const ICON_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
 pub const ICON_SELECTED: Color32 = ICON;
 pub const DANGER: Color32 = rgb(0xFE5938);
+pub const INFO: Color32 = rgb(0x0D99FF);
+pub const SUCCESS: Color32 = rgb(0x14AE5C);
+pub const WARNING: Color32 = rgb(0xF59E0B);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const BG_ELEVATED: Color32 = rgb(0x18181B);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json

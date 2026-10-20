@@ -27,7 +27,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         let actions = crate::agent_selection_chip::with_selection_summary(&app.doc, app.page, &app.selection, |summary| {
             crate::terminal::show_left_with_selection(&mut app.terminal, ui, term_rect, fp.as_deref(), summary)
         });
-        crate::shell::execute_terminal_actions(app, actions);
+        crate::shell::execute_terminal_actions_with_ctx(app, actions, Some(ui.ctx()));
         let tab_idx = app.terminal.active_tab;
         let card_h = crate::agent_turn_card::desired_card_height(app, tab_idx);
         if card_h > 0.0 {

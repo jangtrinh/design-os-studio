@@ -1,5 +1,6 @@
 mod agent_a11y;
 pub mod agent_cli_catalog;
+pub mod agent_notify;
 pub mod agent_open_flow;
 pub mod agent_picker;
 mod agent_presence;
@@ -9,6 +10,7 @@ mod agent_start_failure;
 pub mod agent_turn_card;
 pub mod agent_turn_ledger;
 pub mod agent_turn_marks;
+pub mod agent_turn_status;
 mod app;
 mod board;
 mod canvas;

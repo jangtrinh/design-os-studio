@@ -155,11 +155,35 @@ pub fn apply_live_patches_with_offsets(app: &mut App, patches: &[LivePatch], off
     }
 }
 
+fn collect_command_node_ids(cmd: &designos_doc::Command, out: &mut Vec<u64>) {
+    match cmd {
+        designos_doc::Command::Insert { nodes, .. } | designos_doc::Command::InsertPage { nodes, .. } => {
+            out.extend(nodes.iter().map(|n| n.id.0));
+        }
+        designos_doc::Command::Remove { id } | designos_doc::Command::Reparent { id, .. } | designos_doc::Command::RemovePage { id } => {
+            out.push(id.0);
+        }
+        designos_doc::Command::Update { node } => {
+            out.push(node.id.0);
+        }
+        designos_doc::Command::Batch(cmds) => {
+            for c in cmds {
+                collect_command_node_ids(c, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(LivePatchReport, bool), String> {
     let saved = app.terminal.live_patch.state.clone();
     let (pre_names, pre_fps) = crate::agent_turn_ledger::snapshot_pre_step(&app.doc, patch);
     let mut tx = Tx::new();
-    let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| tx.cmd(doc, cmd));
+    let mut touched_ids = Vec::new();
+    let replayed = replay_live_patch(&mut app.doc, patch, &mut app.terminal.live_patch.state, &mut |doc, cmd| {
+        collect_command_node_ids(&cmd, &mut touched_ids);
+        tx.cmd(doc, cmd)
+    });
     let report = match replayed {
         Ok(r) => r,
         Err(e) => {
@@ -181,6 +205,7 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             let hist_ref = &app.hist;
             app.terminal.active_turn_ledger_mut().record_step(doc_ref, hist_ref, patch_offset, hist_depth, inv, &report.touched, &pre_names, pre_fps, now);
         }
+        app.terminal.record_touched_layers(&touched_ids);
     }
     Ok((report, committed))
 }

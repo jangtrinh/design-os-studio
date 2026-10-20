@@ -101,6 +101,9 @@ CORE_RUST_CONSTANTS = [
     "AGENT_2",
     "AGENT_3",
     "AGENT_4",
+    "INFO",
+    "SUCCESS",
+    "WARNING",
 ]
 
 # Maps Rust `theme.rs` constants to canonical `design/design.tokens.json` paths under `colors.<key>`
@@ -122,6 +125,9 @@ RUST_TO_DESIGN_TOKEN_MAP: Dict[str, str] = {
     "AGENT_2": "agent-2",
     "AGENT_3": "agent-3",
     "AGENT_4": "agent-4",
+    "INFO": "info",
+    "SUCCESS": "success",
+    "WARNING": "warning",
 }
 
 EXPECTED_STANDALONE_HEX: Dict[str, str] = {

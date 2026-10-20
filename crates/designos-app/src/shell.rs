@@ -1324,9 +1324,11 @@ impl Shell {
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
         }
+        self.app.terminal.window_focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        self.app.terminal.surface_visible = (!self.app.ui.left_collapsed && is_ai_panel) || self.app.terminal.dock_open;
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
-            execute_terminal_actions(&mut self.app, bridge_actions);
+            execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
         }
         // Agent edits that arrived during a drag or text edit land once it has ended.
         crate::live_patch_apply::apply_pending_live_patches(&mut self.app);
@@ -1368,7 +1370,7 @@ impl Shell {
                 let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
                     crate::terminal::show_dock_with_selection(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary)
                 });
-                execute_terminal_actions(&mut self.app, term_actions);
+                execute_terminal_actions_with_ctx(&mut self.app, term_actions, Some(&ctx));
                 let dock_handle_rect =
                     Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
                 widgets::record(ui, "dock-resize-handle", dock_handle_rect);
@@ -1472,7 +1474,12 @@ impl Shell {
     }
 }
 
+#[cfg(test)]
 pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::TerminalAction>) {
+    execute_terminal_actions_with_ctx(app, actions, None);
+}
+
+pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::terminal::TerminalAction>, ctx: Option<&egui::Context>) {
     for action in actions {
         match action {
             crate::terminal::TerminalAction::ApplySpecJson(json) => match serde_json::from_str::<designos_doc::NodeSpec>(&json) {
@@ -1521,6 +1528,26 @@ pub fn execute_terminal_actions(app: &mut App, actions: Vec<crate::terminal::Ter
                 if let Err(e) = crate::terminal::send_selection_to_agent_pty(&mut app.terminal, &app.doc, app.page, &app.selection) {
                     app.show_toast(e, true);
                 }
+            }
+            crate::terminal::TerminalAction::OpenTurnReceipt(tab_id) => {
+                if let Some(tab) = app.terminal.tabs.iter().find(|t| t.id == tab_id) {
+                    let existing: Vec<designos_doc::NodeId> =
+                        tab.turn_tracker.touched_layers.iter().copied().map(designos_doc::NodeId).filter(|id| app.doc.get(*id).is_some()).collect();
+                    if !existing.is_empty() {
+                        app.selection = existing;
+                    }
+                    if let Some(receipt) = tab.last_turn_receipt() {
+                        app.show_toast(receipt.format_line(), false);
+                    }
+                }
+            }
+            crate::terminal::TerminalAction::FocusAgentTab(tab_id) => {
+                if let Some(ctx) = ctx {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                let _ = app.terminal.focus_tab_by_id(tab_id);
             }
         }
     }
