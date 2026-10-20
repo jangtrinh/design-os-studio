@@ -2193,12 +2193,15 @@ impl App {
                 commands.push(Command::Insert { parent, index, nodes });
                 let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
                 if self.hist.exec(&mut self.doc, command).is_ok() {
-                    if let Some(mut ip) = trial.in_progress.get(&root_id).cloned() {
-                        // The live-spec writer is the active agent tab; Stop clears flags by run id only.
-                        if ip.run_id.is_none() {
-                            ip.run_id = self.terminal.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone());
+                    // The live-spec writer is the active agent tab; Stop clears flags by run id only.
+                    let run_id = self.terminal.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone());
+                    for (id, mut ip) in trial.in_progress {
+                        if self.doc.get(id).is_some() {
+                            if ip.run_id.is_none() {
+                                ip.run_id = run_id.clone();
+                            }
+                            self.doc.set_in_progress(id, Some(ip));
                         }
-                        self.doc.set_in_progress(root_id, Some(ip));
                     }
                     self.doc.relayout_subtree(parent);
                     self.selection = vec![root_id];

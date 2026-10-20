@@ -193,8 +193,16 @@ impl App {
             self.changed();
             return true;
         }
+        let before_nodes = tx.ed.before_nodes().clone();
         match tx.commit(&mut self.doc, &mut self.hist) {
             Ok(changed) => {
+                if changed {
+                    for (id, before) in &before_nodes {
+                        if let Some(after) = self.doc.get(*id) {
+                            self.agent_busy_frames.record_user_node_update(before, after);
+                        }
+                    }
+                }
                 self.changed();
                 self.sanitize();
                 changed
@@ -212,13 +220,9 @@ impl App {
         let mut relayout_roots = Vec::new();
         let mut seen_parents = Vec::new();
         for id in ids {
-            let before = self.doc.get(*id).cloned();
             let old_horiz = self.doc.get(*id).and_then(|n| n.kind.frame_props()).and_then(|fp| fp.auto_layout.as_ref()).map(AutoLayout::primary_is_horizontal);
             if let Some(n) = tx.ed.node(&mut self.doc, *id) {
                 f(n);
-            }
-            if let (Some(b), Some(after)) = (before.as_ref(), self.doc.get(*id)) {
-                self.agent_busy_frames.record_user_node_update(b, after);
             }
             let new_horiz = self.doc.get(*id).and_then(|n| n.kind.frame_props()).and_then(|fp| fp.auto_layout.as_ref()).map(AutoLayout::primary_is_horizontal);
             if let (Some(old_h), Some(new_h)) = (old_horiz, new_horiz) {
@@ -336,12 +340,16 @@ impl App {
         if self.try_undo_restore() {
             return;
         }
+        let copy_undo_match =
+            self.agent_busy_frames.last_copy_undo.as_ref().is_some_and(|(cid, _, depth)| self.hist.undo_depth() == *depth && self.doc.get(*cid).is_some());
         match self.hist.undo(&mut self.doc) {
             Ok(true) => {
-                if let Some((copy_id, prev_sel)) = self.agent_busy_frames.last_copy_undo.clone() {
-                    if self.doc.get(copy_id).is_none() {
-                        self.selection = prev_sel;
-                        self.agent_busy_frames.last_copy_undo = None;
+                if copy_undo_match {
+                    if let Some((copy_id, prev_sel, _)) = self.agent_busy_frames.last_copy_undo.clone() {
+                        if self.doc.get(copy_id).is_none() {
+                            self.selection = prev_sel;
+                            self.agent_busy_frames.last_copy_undo = None;
+                        }
                     }
                 }
                 self.relayout_moved_geometry();
@@ -639,7 +647,7 @@ impl App {
         if !self.run_tx(tx) {
             return None;
         }
-        self.agent_busy_frames.last_copy_undo = Some((copy_id, prev_selection));
+        self.agent_busy_frames.last_copy_undo = Some((copy_id, prev_selection, self.hist.undo_depth()));
         self.selection = vec![copy_id];
         self.sync_busy_frame_banner();
         Some(copy_id)

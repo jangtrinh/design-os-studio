@@ -29,6 +29,11 @@ impl Edit {
         self.before.keys().copied().collect()
     }
 
+    /// Original state of every node touched in this edit session.
+    pub fn before_nodes(&self) -> &BTreeMap<NodeId, Node> {
+        &self.before
+    }
+
     /// Mutable access to a node, recording its original state.
     pub fn node<'a>(&mut self, doc: &'a mut Document, id: NodeId) -> Option<&'a mut Node> {
         self.touch(doc, id);

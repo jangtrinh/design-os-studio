@@ -72,9 +72,9 @@ pub struct AgentBusyFrames {
     pub agent_edited_fields: BTreeMap<(NodeId, String), TurnNo>,
     /// Active run ownership from `#572` (`frame_id -> Vec<(run_key, agent_label)>`), if any.
     pub frame_owners: BTreeMap<NodeId, Vec<(RunKey, String)>>,
-    /// Undo bookmark for `"Make a copy"` so `App::undo` restores the selection that was active
-    /// before duplicating (`Edge case 8`).
-    pub last_copy_undo: Option<(NodeId, Vec<NodeId>)>,
+    /// Undo bookmark for `"Make a copy"` (`(copy_id, prev_selection, undo_depth)`) so `App::undo`
+    /// restores the selection only when undoing the exact duplicate command (`Edge case 8`).
+    pub last_copy_undo: Option<(NodeId, Vec<NodeId>, usize)>,
 }
 
 /// Checks whether `node_id` itself is a busy frame (`#592` `in_progress` flag or `#572` `frame_owners`).
@@ -256,7 +256,6 @@ impl AgentBusyFrames {
     }
 
     /// Starts or advances to `turn_no`, clearing per-turn field-edit sets from earlier turns.
-    #[allow(dead_code)]
     pub fn start_turn(&mut self, turn_no: TurnNo) {
         self.current_turn = turn_no;
         self.user_edited_fields.retain(|_, t| *t == turn_no);
@@ -277,7 +276,6 @@ impl AgentBusyFrames {
     }
 
     /// Clears `#572` frame ownership when a run ends or is stopped (`§3.6`).
-    #[allow(dead_code)]
     pub fn clear_run(&mut self, run_key: &str) {
         for owners in self.frame_owners.values_mut() {
             owners.retain(|(r, _)| r != run_key);
@@ -336,11 +334,11 @@ impl AgentBusyFrames {
     }
 
     /// Records agent `LiveOp::Update` field writes for concurrent-edit reporting (`§3.5`).
-    pub fn record_agent_patch_ops(&mut self, ops: &[LiveOp], _state: &LivePatchState) {
+    pub fn record_agent_patch_ops(&mut self, ops: &[LiveOp], state: &LivePatchState) {
         let turn = self.current_turn;
         for op in ops {
             if let LiveOp::Update { id, set, unset } = op {
-                let resolved_id = *id;
+                let resolved_id = state.resolve_node_id(*id);
                 for field in set.keys().chain(unset.iter()) {
                     if matches!(field.as_str(), "id" | "parent" | "children") {
                         continue;
@@ -666,5 +664,109 @@ mod tests {
         assert_eq!(app.view.offset, view_before.offset);
         assert_eq!(app.view.zoom, view_before.zoom);
         assert_eq!(app.selection, sel_before);
+    }
+
+    #[test]
+    fn undo_of_unrelated_edit_after_deleting_copy_does_not_reset_selection() {
+        let (mut app, frame_id, child_id, grandchild_id) = setup_app_with_busy_frame();
+        app.select_only(child_id);
+        let copy_id = app.duplicate_into_free_spot(frame_id).expect("copy created");
+        assert_eq!(app.selection, vec![copy_id]);
+
+        // Delete the copy, then select grandchild_id and perform an unrelated edit.
+        app.delete_selection();
+        assert!(app.doc.get(copy_id).is_none());
+        app.select_only(grandchild_id);
+        app.edit_nodes(&[grandchild_id], |n| {
+            n.opacity = 0.4;
+        });
+
+        // Undoing the unrelated opacity edit must NOT restore `prev_selection` (`child_id`).
+        app.undo();
+        assert_eq!(app.selection, vec![grandchild_id], "undo of unrelated edit must not overwrite selection with Make a copy's prev_selection");
+    }
+
+    #[test]
+    fn drag_and_text_tx_commits_record_into_both_changed_and_clear_in_progress_advances_turn() {
+        let (mut app, frame_id, _child_id, _grandchild_id) = setup_app_with_busy_frame();
+        assert_eq!(app.agent_busy_frames.current_turn, 0);
+
+        // Commit a raw Tx (the path used by canvas drag `interact/end.rs` and text session `finish_text`).
+        let mut tx = crate::edit::Tx::new();
+        tx.ed.node(&mut app.doc, frame_id).unwrap().transform.tx += 25.0;
+        assert!(app.run_tx(tx));
+
+        let mut agent_tf = app.doc.get(frame_id).unwrap().transform;
+        agent_tf.tx += 50.0;
+        let mut set = serde_json::Map::new();
+        set.insert("transform".into(), serde_json::to_value(agent_tf).unwrap());
+        let patch = LivePatch::new(vec![LiveOp::Update { id: frame_id, set, unset: Vec::new() }]);
+        crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+
+        assert_eq!(
+            app.agent_busy_frames.both_changed_for_turn(0),
+            vec![(frame_id, "transform".to_string())],
+            "Tx-based user edits (drag / text session) must record into both_changed"
+        );
+
+        // Finishing the agent run via ClearInProgress advances `current_turn` and clears per-turn edit sets.
+        crate::shell::execute_terminal_actions(
+            &mut app,
+            vec![crate::terminal::TerminalAction::ClearInProgress { run_id: Some("run-claude-1".into()), agent: Some("Claude".into()) }],
+        );
+        assert_eq!(app.agent_busy_frames.current_turn, 1);
+        assert!(app.agent_busy_frames.user_edited_fields.is_empty());
+        assert!(app.agent_busy_frames.agent_edited_fields.is_empty());
+    }
+
+    #[test]
+    fn remapped_agent_patch_node_id_matches_user_edited_field() {
+        let (mut app, frame_id, _child_id, _grandchild_id) = setup_app_with_busy_frame();
+        let orig_agent_id = NodeId(999);
+        app.terminal.live_patch.state.record_replacement(orig_agent_id, frame_id);
+
+        app.edit_nodes(&[frame_id], |n| {
+            n.opacity = 0.5;
+        });
+
+        let mut set = serde_json::Map::new();
+        set.insert("opacity".into(), serde_json::json!(0.9));
+        let ops = vec![LiveOp::Update { id: orig_agent_id, set, unset: Vec::new() }];
+        app.agent_busy_frames.record_agent_patch_ops(&ops, &app.terminal.live_patch.state);
+
+        assert_eq!(
+            app.agent_busy_frames.both_changed_for_turn(0),
+            vec![(frame_id, "opacity".to_string())],
+            "record_agent_patch_ops must resolve remapped/replaced node IDs through LivePatchState"
+        );
+    }
+
+    #[test]
+    fn apply_node_spec_preserves_descendant_in_progress_flags() {
+        let (mut app, _frame_id, _child_id, _grandchild_id) = setup_app_with_busy_frame();
+        let spec_json = serde_json::json!({
+            "kind": "section",
+            "name": "Spec Section",
+            "w": 800.0,
+            "h": 600.0,
+            "children": [
+                {
+                    "kind": "frame",
+                    "name": "Nested Busy Frame",
+                    "w": 400.0,
+                    "h": 300.0,
+                    "in_progress": {
+                        "agent": "Claude",
+                        "run_id": "run-nested-spec"
+                    }
+                }
+            ]
+        });
+        let spec: designos_doc::NodeSpec = serde_json::from_value(spec_json).expect("valid NodeSpec");
+        app.apply_node_spec(&spec, "Nested Spec");
+
+        let section_id = app.selection[0];
+        let nested_frame_id = app.doc.get(section_id).unwrap().children[0];
+        assert!(app.doc.get_in_progress(nested_frame_id).is_some(), "apply_node_spec must preserve in_progress flags on descendant frames inside the spec");
     }
 }

@@ -1609,6 +1609,12 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                 if !app.doc.clear_in_progress_for_run_or_agent(run_id.as_deref(), None).is_empty() {
                     app.in_progress_changed();
                 }
+                if let Some(rid) = run_id.as_deref() {
+                    app.agent_busy_frames.clear_run(rid);
+                }
+                let next_turn = app.agent_busy_frames.current_turn.saturating_add(1);
+                app.agent_busy_frames.start_turn(next_turn);
+                app.sync_busy_frame_banner();
             }
         }
     }

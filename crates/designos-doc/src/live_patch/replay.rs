@@ -46,6 +46,12 @@ impl LivePatchState {
         self.replaced.insert(old, new);
     }
 
+    /// The editor-side id for an id from the agent's document, resolving remaps and replacements.
+    pub fn resolve_node_id(&self, id: NodeId) -> NodeId {
+        let mapped = self.remap.get(&id).copied().unwrap_or(id);
+        self.replaced.get(&mapped).copied().unwrap_or(mapped)
+    }
+
     /// The editor-side id for an id from the agent's document.
     fn target(&self, doc: &Document, id: NodeId) -> NodeId {
         resolve_id(&self.remap, &self.replaced, doc, id).0
