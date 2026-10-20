@@ -13,6 +13,11 @@ fn snapshot_cache() -> &'static Mutex<HashMap<CacheKey, Arc<LibrarySnapshot>>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn doc_roots() -> &'static Mutex<HashMap<u64, PathBuf>> {
+    static ROOTS: OnceLock<Mutex<HashMap<u64, PathBuf>>> = OnceLock::new();
+    ROOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Resolves the active library root directory (`$DESIGNOS_LIBRARY`, `$DESIGNOS_LIBRARY_DIR`, or platform default).
 pub fn resolve_library_root() -> PathBuf {
     Library::default_root()
@@ -45,19 +50,20 @@ pub fn load_cached_snapshot_at(root: &Path, library_id: &str, version: Option<u3
             return Some(Arc::clone(found));
         }
     }
-    let snap = match lib.load_snapshot(library_id, Some(resolved_version)) {
-        Ok(s) => Arc::new(s),
+    let (actual_version, snap) = match lib.load_snapshot(library_id, Some(resolved_version)) {
+        Ok(s) => (resolved_version, Arc::new(s)),
         Err(_) => {
             // Fall back to latest version if the pinned version file is absent.
             let latest = lib.library_index(library_id).ok()?.latest_version();
             if latest == 0 || latest == resolved_version {
                 return None;
             }
-            Arc::new(lib.load_snapshot(library_id, Some(latest)).ok()?)
+            (latest, Arc::new(lib.load_snapshot(library_id, Some(latest)).ok()?))
         }
     };
+    let actual_key = (root.to_path_buf(), library_id.to_string(), actual_version);
     if let Ok(mut guard) = snapshot_cache().lock() {
-        guard.insert(key, Arc::clone(&snap));
+        guard.insert(actual_key, Arc::clone(&snap));
     }
     Some(snap)
 }
@@ -65,12 +71,31 @@ pub fn load_cached_snapshot_at(root: &Path, library_id: &str, version: Option<u3
 /// Returns the snapshots for all libraries enabled on `doc`, resolved from [`resolve_library_root`]
 /// and cached per session by `(id, version)` (`T7.38` §3.5).
 pub fn enabled_snapshots(doc: &Document) -> Vec<LibrarySnapshot> {
+    let doc_root = doc_roots().lock().ok().and_then(|g| g.get(&doc.runtime_id()).cloned()).filter(|p| p.is_dir());
     let root = resolve_library_root();
-    enabled_snapshots_from_root(doc, &root)
+    doc.library
+        .enabled
+        .iter()
+        .filter_map(|en| {
+            if let Some(ref dr) = doc_root {
+                if let Some(arc) = load_cached_snapshot_at(dr, &en.id, Some(en.version)) {
+                    return Some((*arc).clone());
+                }
+            }
+            if let Some(arc) = load_cached_snapshot_at(&root, &en.id, Some(en.version)) {
+                return Some((*arc).clone());
+            }
+            let guard = snapshot_cache().lock().ok()?;
+            guard.iter().find(|((_, id, ver), _)| id == &en.id && (en.version == 0 || *ver == en.version)).map(|(_, arc)| (**arc).clone())
+        })
+        .collect()
 }
 
 /// Like [`enabled_snapshots`], using an explicit library `root`.
 pub fn enabled_snapshots_from_root(doc: &Document, root: &Path) -> Vec<LibrarySnapshot> {
+    if let Ok(mut guard) = doc_roots().lock() {
+        guard.insert(doc.runtime_id(), root.to_path_buf());
+    }
     doc.library.enabled.iter().filter_map(|en| load_cached_snapshot_at(root, &en.id, Some(en.version)).map(|arc| (*arc).clone())).collect()
 }
 

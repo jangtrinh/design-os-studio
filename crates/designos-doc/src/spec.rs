@@ -3,6 +3,7 @@
 
 use crate::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 fn is_zero_f32(v: &f32) -> bool {
     *v == 0.0
@@ -43,6 +44,7 @@ pub struct LayoutSpec {
 
 /// Declarative node specification used by Agents and CLI/MCP tools (`apply_spec` / `export_spec`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub struct NodeSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
@@ -97,10 +99,10 @@ pub struct NodeSpec {
     pub col_span: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_span: Option<u16>,
-    /// Hex color (`"#18181B"`) or EaseUI token (`"$easeui.bg.panel"`, `"$easeui.accent.orange"`, etc.).
+    /// Hex color (`"#18181B"`), EaseUI token (`"$easeui.bg.panel"`), variable ref (`"var:..."`), or style ref (`"style:..."`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
-    /// Hex color or EaseUI token for stroke.
+    /// Hex color, EaseUI token, variable ref (`"var:..."`), or style ref (`"style:..."`) for stroke.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<String>,
     #[serde(default, alias = "stroke_width", skip_serializing_if = "Option::is_none")]
@@ -112,16 +114,29 @@ pub struct NodeSpec {
     #[serde(default = "default_one_f32", skip_serializing_if = "is_one_f32")]
     pub opacity: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clips_content: Option<bool>,
-    /// Text content (for `"text"` nodes, or automatically creates a child label if set on a button/badge frame!).
+    /// Text content (for `"text"` nodes, or `"var:..."` string variable ref, or child label if set on a button/badge frame!).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_size: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_weight: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_height: Option<f32>,
     #[serde(default, alias = "color", skip_serializing_if = "Option::is_none")]
     pub text_color: Option<String>,
+    /// Shared text style name or reference (`"Heading L"` or `"style:Heading L"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_style: Option<String>,
+    /// Shared effect style name or reference (`"Elevation/Card"` or `"style:Elevation/Card"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_style: Option<String>,
+    /// Shared grid style name or reference (`"Grid12Col"` or `"style:Grid12Col"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutSpec>,
     /// `"ready"` (`ReadyForDev`) or `"completed"` (`Completed`).
@@ -131,6 +146,9 @@ pub struct NodeSpec {
     pub annotation: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
+    /// Variable bindings (`boundVariables` property key -> `"var:..."` reference) extracted from `"var:..."` spec values.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub var_bindings: BTreeMap<String, String>,
     /// Attached canvas comments when exporting a subtree spec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<ResolvedCommentThread>,
@@ -193,6 +211,76 @@ pub struct OverrideSpec {
     pub props: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub slots: BTreeMap<String, SlotFillSpec>,
+}
+
+fn take_var_string(map: &mut serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    let is_var = map.get(key).and_then(|v| v.as_str()).is_some_and(|s| s.trim().starts_with("var:"));
+    if is_var {
+        map.remove(key).and_then(|v| v.as_str().map(|s| s.trim().to_string()))
+    } else {
+        None
+    }
+}
+
+fn extract_var_bindings_from_spec_value(value: &mut serde_json::Value) -> BTreeMap<String, String> {
+    let mut bindings = BTreeMap::new();
+    let Some(map) = value.as_object_mut() else {
+        return bindings;
+    };
+    for (field, prop_key) in [
+        ("width", "width"),
+        ("height", "height"),
+        ("stroke_weight", "strokeWeight"),
+        ("stroke_width", "strokeWeight"),
+        ("opacity", "opacity"),
+        ("font_size", "fontSize"),
+        ("font_weight", "fontWeight"),
+        ("line_height", "lineHeight"),
+        ("visible", "visible"),
+    ] {
+        if let Some(var_ref) = take_var_string(map, field) {
+            bindings.insert(prop_key.to_string(), var_ref);
+        }
+    }
+    for radius_field in ["corner_radius", "radius"] {
+        if let Some(var_ref) = take_var_string(map, radius_field) {
+            for r_key in ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"] {
+                bindings.insert(r_key.to_string(), var_ref.clone());
+            }
+        }
+    }
+    if let Some(layout_map) = map.get_mut("layout").and_then(|v| v.as_object_mut()) {
+        if let Some(var_ref) = take_var_string(layout_map, "gap") {
+            bindings.insert("itemSpacing".to_string(), var_ref);
+        }
+        if let Some(var_ref) = take_var_string(layout_map, "counter_gap") {
+            bindings.insert("counterAxisSpacing".to_string(), var_ref);
+        }
+        if let Some(var_ref) = take_var_string(layout_map, "padding") {
+            for p_key in ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"] {
+                bindings.insert(p_key.to_string(), var_ref.clone());
+            }
+        }
+    }
+    bindings
+}
+
+impl Serialize for NodeSpec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Self::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for NodeSpec {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let extracted = extract_var_bindings_from_spec_value(&mut value);
+        let mut spec = Self::deserialize(value).map_err(serde::de::Error::custom)?;
+        for (k, v) in extracted {
+            spec.var_bindings.entry(k).or_insert(v);
+        }
+        Ok(spec)
+    }
 }
 
 /// A canvas comment thread enriched with its resolved world position and the
@@ -426,11 +514,336 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
     }
 }
 
+fn is_library_component_key(s: &str) -> bool {
+    let tail = s.rsplit('/').next().unwrap_or(s);
+    if let Some(digits) = tail.strip_prefix('c').or_else(|| tail.strip_prefix('s')) {
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    } else {
+        false
+    }
+}
+
 impl Document {
     /// Materializes a declarative [`NodeSpec`] subtree under `parent` and runs
     /// Auto-Layout 5.0 reflow across the created hierarchy.
     pub fn apply_spec(&mut self, parent: NodeId, spec: &NodeSpec) -> Result<NodeId, String> {
         self.apply_spec_with_libraries(parent, spec, &[]).map(|r| r.root_node_id).map_err(|e| e.to_string())
+    }
+
+    /// Resolves a spec component/component-set reference (`"node:<id>"` or library key) and optional variant map
+    /// to the concrete [`NodeKind::Component`] `NodeId` to instantiate.
+    pub fn resolve_spec_component(&self, comp_ref: &str, variant: &BTreeMap<String, String>) -> Result<NodeId, String> {
+        let trimmed = comp_ref.trim();
+        let base_id = if let Some(rest) = trimmed.strip_prefix("node:") {
+            let raw = rest.trim().parse::<u64>().map_err(|_| format!("Invalid component node reference '{comp_ref}'"))?;
+            let nid = NodeId(raw);
+            self.get(nid).ok_or_else(|| format!("Component node {} not found", nid.0))?;
+            nid
+        } else if let Ok(raw) = trimmed.parse::<u64>() {
+            let nid = NodeId(raw);
+            if self.get(nid).is_some() {
+                nid
+            } else {
+                return Err(format!("Component node {} not found", nid.0));
+            }
+        } else if let Some(nid) = self
+            .library
+            .external
+            .iter()
+            .find_map(|(k, ext)| {
+                if !matches!(ext.kind, LibraryAssetKind::Component | LibraryAssetKind::ComponentSet) {
+                    return None;
+                }
+                (k == trimmed).then_some(ext.node).flatten().filter(|&id| self.get(id).is_some())
+            })
+            .or_else(|| {
+                self.library.external.iter().find_map(|(k, ext)| {
+                    if !matches!(ext.kind, LibraryAssetKind::Component | LibraryAssetKind::ComponentSet) {
+                        return None;
+                    }
+                    if !self.library.enabled.iter().any(|r| r.id == ext.library_id) {
+                        return None;
+                    }
+                    let prefix = format!("{}/", ext.library_id);
+                    (k.strip_prefix(&prefix) == Some(trimmed)).then_some(ext.node).flatten().filter(|&id| self.get(id).is_some())
+                })
+            })
+        {
+            nid
+        } else if is_library_component_key(trimmed) {
+            return Err(format!("Library component '{comp_ref}' not found in imported library assets"));
+        } else if let Some(n) = self.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) && n.name == trimmed) {
+            n.id
+        } else {
+            return Err(format!("Component '{comp_ref}' not found"));
+        };
+
+        let base = self.get(base_id).ok_or_else(|| format!("Component {} not found", base_id.0))?;
+        match &base.kind {
+            NodeKind::Component(_) => Ok(base_id),
+            NodeKind::ComponentSet(_) => {
+                let variants = components_of(self, base_id);
+                if variants.is_empty() {
+                    return Err(format!("ComponentSet '{comp_ref}' has no variant children"));
+                }
+                if !variant.is_empty() {
+                    if let Some(exact) = variants.iter().copied().find(|&cid| {
+                        let Some(cn) = self.get(cid) else { return false };
+                        let pairs: BTreeMap<String, String> = parse_variant_name(&cn.name).into_iter().collect();
+                        variant.iter().all(|(k, v)| pairs.get(k) == Some(v))
+                    }) {
+                        return Ok(exact);
+                    }
+                    if let Some(ci) = variants.iter().copied().find(|&cid| {
+                        let Some(cn) = self.get(cid) else { return false };
+                        let pairs = parse_variant_name(&cn.name);
+                        variant.iter().all(|(rk, rv)| pairs.iter().any(|(k, v)| k.eq_ignore_ascii_case(rk) && v.eq_ignore_ascii_case(rv)))
+                    }) {
+                        return Ok(ci);
+                    }
+                    return Err(format!("Variant {:?} not found in ComponentSet '{comp_ref}'", variant));
+                }
+                Ok(variants[0])
+            }
+            _ => Err(format!("Node {} is not a component or component set", base_id.0)),
+        }
+    }
+
+    /// Resolves a `"var:..."` spec reference (by `"var:id:<id>"`, direct ID, `<Collection>/<Name>`, or imported library key)
+    /// to a local variable ID in `self.variables`, returning `AMBIGUOUS_VARIABLE` when a path matches multiple variables.
+    pub fn resolve_spec_variable_checked(&self, raw_ref: &str) -> Result<String, String> {
+        let trimmed = raw_ref.trim();
+        let body = trimmed.strip_prefix("var:").unwrap_or(trimmed).trim();
+        if body.is_empty() {
+            return Err(format!("Variable '{raw_ref}' not found"));
+        }
+        let is_lib_enabled = |lib_id: &str| self.library.enabled.iter().any(|r| r.id == lib_id);
+        let is_var_from_disabled_lib = |v: &Variable| -> bool {
+            if let Some(coll) = self.variable_collections.get(&v.collection) {
+                if let Some(lib_id) = coll.source_library_key.as_deref() {
+                    return !is_lib_enabled(lib_id);
+                }
+            }
+            self.library
+                .external
+                .values()
+                .any(|ext| ext.kind == LibraryAssetKind::Variable && ext.local_key.as_deref() == Some(v.id.as_str()) && !is_lib_enabled(&ext.library_id))
+        };
+
+        if let Some(id_ref) = body.strip_prefix("id:") {
+            let id_ref = id_ref.trim();
+            if id_ref.is_empty() {
+                return Err(format!("Variable '{raw_ref}' not found"));
+            }
+            if self.variables.get(id_ref).is_some_and(|v| !is_var_from_disabled_lib(v) || id_ref.contains('/')) {
+                return Ok(id_ref.to_string());
+            }
+            for (k, ext) in &self.library.external {
+                if ext.kind == LibraryAssetKind::Variable {
+                    let prefix = format!("{}/", ext.library_id);
+                    let raw_k = k.strip_prefix(&prefix).unwrap_or(k);
+                    let raw_var_id = raw_k.strip_prefix("var:").unwrap_or(raw_k);
+                    let scoped_var_id = format!("{}/{raw_var_id}", ext.library_id);
+                    let matches_scoped = id_ref == scoped_var_id || k == id_ref;
+                    let matches_bare = (id_ref == raw_var_id || raw_k == id_ref) && is_lib_enabled(&ext.library_id);
+                    if matches_scoped || matches_bare {
+                        if let Some(lk) = &ext.local_key {
+                            if self.variables.contains_key(lk) {
+                                return Ok(lk.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            return Err(format!("Variable '{raw_ref}' not found"));
+        }
+
+        if self.variables.get(body).is_some_and(|v| !is_var_from_disabled_lib(v) || body.contains('/')) {
+            return Ok(body.to_string());
+        }
+        for (k, ext) in &self.library.external {
+            if ext.kind == LibraryAssetKind::Variable {
+                let prefix = format!("{}/", ext.library_id);
+                let raw_k = k.strip_prefix(&prefix).unwrap_or(k);
+                let matches_scoped = k == trimmed;
+                let matches_bare = (raw_k == trimmed || raw_k.strip_prefix("var:") == Some(body)) && is_lib_enabled(&ext.library_id);
+                if matches_scoped || matches_bare {
+                    if let Some(lk) = &ext.local_key {
+                        if self.variables.contains_key(lk) {
+                            return Ok(lk.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut exact_matches: Vec<String> = Vec::new();
+        let mut ci_matches: Vec<String> = Vec::new();
+        for is_lib_pass in [false, true] {
+            for coll in self.variable_collections.values() {
+                if coll.is_library() != is_lib_pass {
+                    continue;
+                }
+                if is_lib_pass
+                    && !body.starts_with(&format!("{}/", coll.id))
+                    && coll.source_library_key.as_deref().is_some_and(|lib_id| !is_lib_enabled(lib_id))
+                {
+                    continue;
+                }
+                for label in [coll.id.as_str(), coll.name.as_str()] {
+                    if label.is_empty() {
+                        continue;
+                    }
+                    if let Some(var_name) = body.strip_prefix(label).and_then(|r| r.strip_prefix('/')) {
+                        for v in self.variables.values().filter(|v| v.collection == coll.id) {
+                            if v.name == var_name && !exact_matches.contains(&v.id) {
+                                exact_matches.push(v.id.clone());
+                            } else if v.name.eq_ignore_ascii_case(var_name) && !ci_matches.contains(&v.id) {
+                                ci_matches.push(v.id.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let path_matches = if !exact_matches.is_empty() { exact_matches } else { ci_matches };
+        if path_matches.len() > 1 {
+            return Err(format!(
+                "AMBIGUOUS_VARIABLE: variable reference '{raw_ref}' matches multiple variables ({}); use 'var:id:<id>'",
+                path_matches.join(", ")
+            ));
+        }
+        if let Some(found) = path_matches.into_iter().next() {
+            return Ok(found);
+        }
+
+        let suffix = format!("/{body}");
+        let suffix_matches: Vec<String> =
+            self.variables.values().filter(|v| v.id.ends_with(&suffix) && !is_var_from_disabled_lib(v)).map(|v| v.id.clone()).collect();
+        if suffix_matches.len() > 1 {
+            return Err(format!(
+                "AMBIGUOUS_VARIABLE: variable reference '{raw_ref}' matches multiple variables ({}); use 'var:id:<id>'",
+                suffix_matches.join(", ")
+            ));
+        }
+        if let Some(found) = suffix_matches.into_iter().next() {
+            return Ok(found);
+        }
+
+        let bare_exact: Vec<String> = self.variables.values().filter(|v| v.name == body && !is_var_from_disabled_lib(v)).map(|v| v.id.clone()).collect();
+        if bare_exact.len() > 1 {
+            return Err(format!(
+                "AMBIGUOUS_VARIABLE: variable reference '{raw_ref}' matches multiple variables ({}); use 'var:id:<id>'",
+                bare_exact.join(", ")
+            ));
+        }
+        if let Some(found) = bare_exact.into_iter().next() {
+            return Ok(found);
+        }
+
+        let bare_ci: Vec<String> =
+            self.variables.values().filter(|v| v.name.eq_ignore_ascii_case(body) && !is_var_from_disabled_lib(v)).map(|v| v.id.clone()).collect();
+        if bare_ci.len() > 1 {
+            return Err(format!("AMBIGUOUS_VARIABLE: variable reference '{raw_ref}' matches multiple variables ({}); use 'var:id:<id>'", bare_ci.join(", ")));
+        }
+        if let Some(found) = bare_ci.into_iter().next() {
+            return Ok(found);
+        }
+
+        Err(format!("Variable '{raw_ref}' not found"))
+    }
+
+    /// Resolves a `"var:..."` spec reference (by ID, `<Collection>/<Name>`, or imported library key) to a local variable ID in `self.variables`.
+    pub fn resolve_spec_variable_id(&self, raw_ref: &str) -> Option<String> {
+        self.resolve_spec_variable_checked(raw_ref).ok()
+    }
+
+    fn resolve_spec_variable_value(&self, context_node: NodeId, var_id: &str) -> Option<VariableValue> {
+        if let Some(val) = self.resolve_variable(context_node, var_id) {
+            return Some(val);
+        }
+        let v = self.variables.get(var_id)?;
+        if let Some(coll) = self.variable_collections.get(&v.collection) {
+            if let Some(val) = v.values.get(&coll.default_mode) {
+                return Some(val.clone());
+            }
+        }
+        v.values.values().next().cloned()
+    }
+
+    /// Resolves a `"style:..."` or style-name spec reference to a key in `self.styles`.
+    pub fn resolve_spec_style_key(&self, raw_ref: &str, expected_prop: Option<StyleProperty>) -> Option<String> {
+        let trimmed = raw_ref.trim();
+        let body = trimmed.strip_prefix("style:").unwrap_or(trimmed).trim();
+        if body.is_empty() {
+            return None;
+        }
+        let prop_matches = |key: &str| match expected_prop {
+            None => true,
+            Some(ep) => {
+                let p = style_property(self, key);
+                p == ep || matches!((ep, self.styles.get(key)), (StyleProperty::Fill | StyleProperty::Stroke, Some(Style::Fill(_))))
+            }
+        };
+        let mut imported_style_keys = BTreeSet::new();
+        let mut enabled_imported_style_keys = BTreeSet::new();
+        for ext in self.library.external.values() {
+            if ext.kind == LibraryAssetKind::Style {
+                if let Some(lk) = ext.local_key.as_deref() {
+                    imported_style_keys.insert(lk);
+                    if self.library.enabled.iter().any(|r| r.id == ext.library_id) {
+                        enabled_imported_style_keys.insert(lk);
+                    }
+                }
+            }
+        }
+        if self.styles.contains_key(body)
+            && (!imported_style_keys.contains(body) || enabled_imported_style_keys.contains(body) || body.contains('/'))
+            && prop_matches(body)
+        {
+            return Some(body.to_string());
+        }
+        if let Some((lib_id, style_target)) = body.split_once('/') {
+            let lib_prefix = format!("{lib_id}/");
+            if let Some((k, _)) = self.style_meta.iter().find(|(k, m)| {
+                k.starts_with(&lib_prefix)
+                    && self.styles.contains_key(*k)
+                    && prop_matches(k)
+                    && (m.name == style_target || m.name.eq_ignore_ascii_case(style_target))
+            }) {
+                return Some(k.clone());
+            }
+        }
+        if let Some((k, _)) =
+            self.style_meta.iter().find(|(k, m)| !imported_style_keys.contains(k.as_str()) && self.styles.contains_key(*k) && prop_matches(k) && m.name == body)
+        {
+            return Some(k.clone());
+        }
+        if let Some((k, _)) = self
+            .style_meta
+            .iter()
+            .find(|(k, m)| !imported_style_keys.contains(k.as_str()) && self.styles.contains_key(*k) && prop_matches(k) && m.name.eq_ignore_ascii_case(body))
+        {
+            return Some(k.clone());
+        }
+        if let Some((k, _)) = self
+            .style_meta
+            .iter()
+            .find(|(k, m)| enabled_imported_style_keys.contains(k.as_str()) && self.styles.contains_key(*k) && prop_matches(k) && m.name == body)
+        {
+            return Some(k.clone());
+        }
+        if let Some((k, _)) = self.style_meta.iter().find(|(k, m)| {
+            enabled_imported_style_keys.contains(k.as_str()) && self.styles.contains_key(*k) && prop_matches(k) && m.name.eq_ignore_ascii_case(body)
+        }) {
+            return Some(k.clone());
+        }
+        let suffix = format!("/{body}");
+        if let Some(k) = self.styles.keys().find(|k| enabled_imported_style_keys.contains(k.as_str()) && k.ends_with(&suffix) && prop_matches(k)) {
+            return Some(k.clone());
+        }
+        (self.styles.contains_key(body) && (!imported_style_keys.contains(body) || enabled_imported_style_keys.contains(body) || body.contains('/')))
+            .then(|| body.to_string())
     }
 
     #[allow(clippy::result_large_err)]
@@ -445,7 +858,15 @@ impl Document {
                 "instance"
             } else if spec.preset.is_some() || spec.layout.is_some() || !spec.children.is_empty() {
                 "frame"
-            } else if spec.text.is_some() {
+            } else if spec.text.is_some()
+                || spec.text_style.is_some()
+                || spec.font_size.is_some()
+                || spec.line_height.is_some()
+                || spec.var_bindings.contains_key("characters")
+                || spec.var_bindings.contains_key("fontSize")
+                || spec.var_bindings.contains_key("fontWeight")
+                || spec.var_bindings.contains_key("lineHeight")
+            {
                 "text"
             } else {
                 "frame"
@@ -462,8 +883,9 @@ impl Document {
         }
 
         let id = self.try_alloc_id().ok_or_else(|| crate::spec_instance::SpecError::plain("Document has exhausted node IDs"))?;
-        let w = spec.width.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 120.0 } else { 200.0 });
-        let h = spec.height.unwrap_or(if spec.kind.eq_ignore_ascii_case("text") { 24.0 } else { 100.0 });
+        let is_text_kind = kind_str.eq_ignore_ascii_case("text");
+        let w = spec.width.unwrap_or(if is_text_kind { 120.0 } else { 200.0 });
+        let h = spec.height.unwrap_or(if is_text_kind { 24.0 } else { 100.0 });
         let rect = Rect::new(spec.x, spec.y, w.max(0.0), h.max(0.0));
 
         let mut node = match kind_str.to_ascii_lowercase().as_str() {
@@ -486,9 +908,16 @@ impl Document {
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.unwrap_or(14.0);
                 style.font_weight = spec.font_weight.unwrap_or(400);
+                if let Some(lh) = spec.line_height {
+                    style.line_height = LineHeight::Pixels(lh.max(0.0));
+                }
                 let col = spec.text_color.as_deref().or(spec.fill.as_deref()).and_then(resolve_easeui_color).unwrap_or_else(|| Color::rgb(0xF4, 0xF4, 0xF5));
                 style.fills = vec![Paint::solid(col)];
-                Node::text(id, rect, spec.text.clone().unwrap_or_default(), style)
+                let initial_text = match &spec.text {
+                    Some(t) if !t.trim().starts_with("var:") => t.clone(),
+                    _ => String::new(),
+                };
+                Node::text(id, rect, initial_text, style)
             }
             other => return Err(crate::spec_instance::SpecError::plain(format!("Unsupported spec node kind: {other}"))),
         };
@@ -501,7 +930,9 @@ impl Document {
         } else if let Some(preset) = &spec.preset {
             node.name = preset.clone();
         } else if let Some(t) = &spec.text {
-            node.name = t.chars().take(32).collect();
+            if !t.trim().starts_with("var:") {
+                node.name = t.chars().take(32).collect();
+            }
         }
         // LayoutSpec on frame (applied BEFORE width/height sizing so al.direction is final)
         if let Some(ls) = &spec.layout {
@@ -557,19 +988,109 @@ impl Document {
             }
         }
         node.opacity = spec.opacity.clamp(0.0, 1.0);
+        if let Some(vis) = spec.visible {
+            node.visible = vis;
+        }
 
         if let Some(fill_str) = &spec.fill {
-            if !matches!(node.kind, NodeKind::Text(_)) {
-                if fill_str.eq_ignore_ascii_case("none") || fill_str.eq_ignore_ascii_case("transparent") {
+            let trimmed = fill_str.trim();
+            if trimmed.starts_with("var:") {
+                let var_id = self.resolve_spec_variable_checked(trimmed).map_err(crate::spec_instance::SpecError::plain)?;
+                match &mut node.kind {
+                    NodeKind::Text(tp) => {
+                        if tp.style.fills.is_empty() {
+                            tp.style.fills.push(Paint::solid(Color::BLACK));
+                        }
+                    }
+                    _ => {
+                        if node.fills.is_empty() {
+                            node.fills.push(Paint::solid(Color::BLACK));
+                        }
+                    }
+                }
+                node.variables.bindings.insert("fills/0".into(), var_id.clone());
+                if let Some(val) = self.resolve_spec_variable_value(parent, &var_id) {
+                    set_bound_property(&mut node, "fills/0", &val);
+                }
+            } else if trimmed.starts_with("style:") {
+                let style_key = self
+                    .resolve_spec_style_key(trimmed, Some(StyleProperty::Fill))
+                    .ok_or_else(|| crate::spec_instance::SpecError::plain(format!("Style '{trimmed}' not found")))?;
+                if let Some(style) = self.styles.get(&style_key).cloned() {
+                    node.style_refs.insert("fill".into(), style_key.clone());
+                    apply_style_values(&mut node, &style, &style_key);
+                }
+            } else if !matches!(node.kind, NodeKind::Text(_)) {
+                if trimmed.eq_ignore_ascii_case("none") || trimmed.eq_ignore_ascii_case("transparent") {
                     node.fills.clear();
-                } else if let Some(c) = resolve_easeui_color(fill_str) {
+                } else if let Some(c) = resolve_easeui_color(trimmed) {
                     node.fills = vec![Paint::solid(c)];
                 }
             }
         }
+        if let Some(tc_str) = &spec.text_color {
+            let trimmed = tc_str.trim();
+            if trimmed.starts_with("var:") && matches!(node.kind, NodeKind::Text(_)) {
+                let var_id = self.resolve_spec_variable_checked(trimmed).map_err(crate::spec_instance::SpecError::plain)?;
+                if let NodeKind::Text(tp) = &mut node.kind {
+                    if tp.style.fills.is_empty() {
+                        tp.style.fills.push(Paint::solid(Color::BLACK));
+                    }
+                }
+                node.variables.bindings.insert("fills/0".into(), var_id.clone());
+                if let Some(val) = self.resolve_spec_variable_value(parent, &var_id) {
+                    set_bound_property(&mut node, "fills/0", &val);
+                }
+            }
+        }
         if let Some(stroke_str) = &spec.stroke {
-            if let Some(c) = resolve_easeui_color(stroke_str) {
+            let trimmed = stroke_str.trim();
+            if trimmed.starts_with("var:") {
+                let var_id = self.resolve_spec_variable_checked(trimmed).map_err(crate::spec_instance::SpecError::plain)?;
+                if node.stroke.paints.is_empty() {
+                    node.stroke.paints.push(Paint::solid(Color::BLACK));
+                }
+                node.variables.bindings.insert("strokes/0".into(), var_id.clone());
+                if let Some(val) = self.resolve_spec_variable_value(parent, &var_id) {
+                    set_bound_property(&mut node, "strokes/0", &val);
+                }
+            } else if trimmed.starts_with("style:") {
+                let style_key = self
+                    .resolve_spec_style_key(trimmed, Some(StyleProperty::Stroke))
+                    .ok_or_else(|| crate::spec_instance::SpecError::plain(format!("Style '{trimmed}' not found")))?;
+                if let Some(style) = self.styles.get(&style_key).cloned() {
+                    node.style_refs.insert("stroke".into(), style_key.clone());
+                    apply_style_values(&mut node, &style, &style_key);
+                }
+            } else if let Some(c) = resolve_easeui_color(trimmed) {
                 node.stroke.paints = vec![Paint::solid(c)];
+            }
+        }
+        if let Some(ts_ref) = &spec.text_style {
+            let style_key = self
+                .resolve_spec_style_key(ts_ref, Some(StyleProperty::Text))
+                .ok_or_else(|| crate::spec_instance::SpecError::plain(format!("Text style '{ts_ref}' not found")))?;
+            if let Some(style) = self.styles.get(&style_key).cloned() {
+                node.style_refs.insert("text".into(), style_key.clone());
+                apply_style_values(&mut node, &style, &style_key);
+            }
+        }
+        if let Some(es_ref) = &spec.effect_style {
+            let style_key = self
+                .resolve_spec_style_key(es_ref, Some(StyleProperty::Effect))
+                .ok_or_else(|| crate::spec_instance::SpecError::plain(format!("Effect style '{es_ref}' not found")))?;
+            if let Some(style) = self.styles.get(&style_key).cloned() {
+                node.style_refs.insert("effect".into(), style_key.clone());
+                apply_style_values(&mut node, &style, &style_key);
+            }
+        }
+        if let Some(gs_ref) = &spec.grid_style {
+            let style_key = self
+                .resolve_spec_style_key(gs_ref, Some(StyleProperty::Grid))
+                .ok_or_else(|| crate::spec_instance::SpecError::plain(format!("Grid style '{gs_ref}' not found")))?;
+            if let Some(style) = self.styles.get(&style_key).cloned() {
+                node.style_refs.insert("grid".into(), style_key.clone());
+                apply_style_values(&mut node, &style, &style_key);
             }
         }
         if let Some(sw) = spec.stroke_weight {
@@ -584,6 +1105,55 @@ impl Document {
         if let Some(clips) = spec.clips_content {
             if let Some(f) = node.kind.frame_props_mut() {
                 f.clips_content = clips;
+            }
+        }
+
+        if let Some(t) = &spec.text {
+            let trimmed = t.trim();
+            if trimmed.starts_with("var:") && matches!(node.kind, NodeKind::Text(_)) {
+                let var_id = self.resolve_spec_variable_checked(trimmed).map_err(crate::spec_instance::SpecError::plain)?;
+                node.variables.bindings.insert("characters".into(), var_id.clone());
+                if let Some(val) = self.resolve_spec_variable_value(parent, &var_id) {
+                    set_bound_property(&mut node, "characters", &val);
+                    if spec.name.is_empty() && spec.preset.is_none() {
+                        if let NodeKind::Text(tp) = &node.kind {
+                            if !tp.content.is_empty() {
+                                node.name = tp.content.chars().take(32).collect();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (prop_key, raw_var_ref) in &spec.var_bindings {
+            let var_id = self.resolve_spec_variable_checked(raw_var_ref).map_err(crate::spec_instance::SpecError::plain)?;
+            if matches!(prop_key.as_str(), "itemSpacing" | "counterAxisSpacing" | "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft") {
+                if let Some(f) = node.kind.frame_props_mut() {
+                    f.auto_layout.get_or_insert_with(AutoLayout::v1);
+                }
+            }
+            if prop_key == "width" && spec.width_sizing.is_none() {
+                if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+                    if al.primary_is_horizontal() {
+                        al.primary_sizing = Sizing::Fixed;
+                    } else {
+                        al.counter_sizing = Sizing::Fixed;
+                    }
+                }
+            }
+            if prop_key == "height" && spec.height_sizing.is_none() {
+                if let Some(al) = node.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+                    if !al.primary_is_horizontal() {
+                        al.primary_sizing = Sizing::Fixed;
+                    } else {
+                        al.counter_sizing = Sizing::Fixed;
+                    }
+                }
+            }
+            node.variables.bindings.insert(prop_key.clone(), var_id.clone());
+            if let Some(val) = self.resolve_spec_variable_value(parent, &var_id) {
+                set_bound_property(&mut node, prop_key, &val);
             }
         }
 
@@ -643,19 +1213,21 @@ impl Document {
         }
 
         // Estimate intrinsic text bounds for text nodes
+        let has_explicit_w = spec.width.is_some() || spec.var_bindings.contains_key("width");
+        let has_explicit_h = spec.height.is_some() || spec.var_bindings.contains_key("height");
         if let NodeKind::Text(tp) = &mut node.kind {
             let est = estimate_intrinsic_text_size(tp);
-            if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
+            if has_explicit_w || spec.width_sizing.as_deref() == Some("fill") {
                 tp.auto_resize = TextAutoResize::Height;
-                if spec.height.is_none() {
+                if !has_explicit_h {
                     let lines = (est.x / node.size.x.max(20.0)).ceil().max(1.0);
                     node.size.y = (lines * tp.style.font_size.max(8.0) * 1.45).ceil();
                 }
             } else {
-                if spec.width.is_none() {
+                if !has_explicit_w {
                     node.size.x = est.x;
                 }
-                if spec.height.is_none() {
+                if !has_explicit_h {
                     node.size.y = est.y;
                 }
             }
@@ -665,7 +1237,7 @@ impl Document {
 
         // Convenience: if a frame/preset (like easeui-button-primary or easeui-badge) specifies `text`,
         // automatically insert a child Text node inside it!
-        if !matches!(kind_str.to_ascii_lowercase().as_str(), "text") {
+        if !is_text_kind {
             if let Some(label) = &spec.text {
                 let tid = self.try_alloc_id().ok_or_else(|| crate::spec_instance::SpecError::plain("Document has exhausted node IDs"))?;
                 let mut style = TextStyle::default();
@@ -780,15 +1352,21 @@ impl Document {
             corner_radius,
             corner_radii,
             opacity: n.opacity,
+            visible: (!n.visible).then_some(false),
             clips_content: n.kind.frame_props().and_then(|f| f.clips_content.then_some(true)),
             text,
             font_size,
             font_weight,
+            line_height: None,
             text_color,
+            text_style: None,
+            effect_style: None,
+            grid_style: None,
             layout,
             dev_status,
             annotation: None,
             annotations,
+            var_bindings: BTreeMap::new(),
             comments,
             children,
         })

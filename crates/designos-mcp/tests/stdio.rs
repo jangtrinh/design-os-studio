@@ -14,7 +14,7 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let client = ().serve(TokioChildProcess::new(command).unwrap()).await.unwrap();
         assert_eq!(client.peer_info().unwrap().server_info.as_ref().unwrap().name, "designos-mcp");
         let tools = client.list_all_tools().await.unwrap();
-        assert_eq!(tools.len(), 27);
+        assert_eq!(tools.len(), 28);
         assert!(tools.iter().all(|t| t.annotations.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
         assert_eq!(prompts.len(), 1);
@@ -30,6 +30,9 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let guidelines_ds = client.call_tool(call("designos_get_guidelines", json!({"topic":"design-system"}))).await.unwrap();
         assert_eq!(guidelines_ds.is_error, Some(false));
         assert!(guidelines_ds.structured_content.unwrap()["content"].as_str().unwrap().contains("# Design system rules"));
+        let searched = client.call_tool(call("designos_search_design_system", json!({"query":"button"}))).await.unwrap();
+        assert_eq!(searched.is_error, Some(false));
+        assert_eq!(searched.structured_content.unwrap()["libraries_searched"], json!(["local"]));
         let doc = client.call_tool(call("designos_get_document", json!({}))).await.unwrap();
         assert_eq!(doc.is_error, Some(false));
         let page = doc.structured_content.unwrap()["pages"][0]["node_id"].clone();

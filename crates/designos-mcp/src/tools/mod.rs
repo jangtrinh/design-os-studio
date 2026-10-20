@@ -6,6 +6,7 @@ pub mod libraries;
 pub mod library_source;
 pub mod metadata;
 pub mod screenshot;
+pub mod search_design_system;
 
 use designos_doc::{resolve_easeui_color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle};
 

@@ -509,12 +509,30 @@ impl<'a> SpecBuildCtx<'a> {
             }
         }
 
-        // Rule 3c: Library prefix "<Library Name>/<Component Name>"
+        // Rule 3c: Library prefix "<Library Name>/<Component Name>" or "<Library ID>/<Component Key>"
         if let Some((lib_prefix, comp_rest)) = r.split_once('/') {
             let mut combined: Vec<ResolvedLibraryHit> = Vec::new();
-            if let Some(ext_list) = self.ext_by_name.get(comp_rest) {
+            if let Some(ext_list) = self.ext_by_raw_key.get(comp_rest) {
                 for e in ext_list {
                     if e.library_name == lib_prefix || e.library_id == lib_prefix {
+                        combined.push(ResolvedLibraryHit::External(e.clone()));
+                    }
+                }
+            }
+            if let Some(snap_list) = self.snap_by_key.get(comp_rest) {
+                for s in snap_list {
+                    if (s.library_name == lib_prefix || s.library_id == lib_prefix)
+                        && !combined.iter().any(|h| h.library_id() == s.library_id && h.raw_key() == s.asset_key)
+                    {
+                        combined.push(ResolvedLibraryHit::Snapshot(s.clone()));
+                    }
+                }
+            }
+            if let Some(ext_list) = self.ext_by_name.get(comp_rest) {
+                for e in ext_list {
+                    if (e.library_name == lib_prefix || e.library_id == lib_prefix)
+                        && !combined.iter().any(|h| h.library_id() == e.library_id && h.raw_key() == e.raw_key)
+                    {
                         combined.push(ResolvedLibraryHit::External(e.clone()));
                     }
                 }
@@ -2026,15 +2044,21 @@ impl Document {
             corner_radius: None,
             corner_radii: None,
             opacity,
+            visible: (!n.visible).then_some(false),
             clips_content: None,
             text: None,
             font_size: None,
             font_weight: None,
+            line_height: None,
             text_color: None,
+            text_style: None,
+            effect_style: None,
+            grid_style: None,
             layout: None,
             dev_status,
             annotation: None,
             annotations,
+            var_bindings: BTreeMap::new(),
             comments,
             children: Vec::new(),
         })
@@ -2187,6 +2211,111 @@ impl Document {
     }
 }
 
+fn preimport_spec_styles_and_vars(doc: &mut Document, spec: &NodeSpec, snapshots: &[LibrarySnapshot], ctx: &mut SpecBuildCtx<'_>) {
+    if snapshots.is_empty() {
+        return;
+    }
+    let style_refs: [Option<&str>; 5] = [
+        spec.fill.as_deref().filter(|s| s.trim().starts_with("style:")),
+        spec.stroke.as_deref().filter(|s| s.trim().starts_with("style:")),
+        spec.text_style.as_deref(),
+        spec.effect_style.as_deref(),
+        spec.grid_style.as_deref(),
+    ];
+    for s_ref in style_refs.into_iter().flatten() {
+        let body = s_ref.trim().strip_prefix("style:").unwrap_or(s_ref.trim()).trim();
+        if !body.is_empty() && doc.resolve_spec_style_key(body, None).is_none() {
+            'style_search: for snap in snapshots {
+                let prefix = format!("{}/", snap.library_id);
+                let stripped = body.strip_prefix(&prefix);
+                for style_key in snap.styles.keys() {
+                    let name = snap.style_meta.get(style_key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(style_key);
+                    let matches_direct = style_key == body || name == body || name.eq_ignore_ascii_case(body);
+                    let matches_scoped = stripped.is_some_and(|rest| style_key == rest || name == rest || name.eq_ignore_ascii_case(rest));
+                    if matches_direct || matches_scoped {
+                        let asset_key = format!("style:{style_key}");
+                        let cmd = import_asset(doc, snap, &asset_key, None);
+                        if let Ok(inv) = cmd.clone().apply(doc) {
+                            ctx.import_cmds.push(cmd);
+                            ctx.import_invs.push(inv);
+                        }
+                        break 'style_search;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut var_refs: Vec<&str> = spec.var_bindings.values().map(String::as_str).collect();
+    for opt in [&spec.fill, &spec.stroke, &spec.text_color, &spec.text] {
+        if let Some(s) = opt.as_deref().filter(|s| s.trim().starts_with("var:")) {
+            var_refs.push(s);
+        }
+    }
+    for v_ref in var_refs {
+        let body = v_ref.trim().strip_prefix("var:").unwrap_or(v_ref.trim()).trim();
+        if body.is_empty() {
+            continue;
+        }
+        if let Some(id_target) = body.strip_prefix("id:").map(str::trim) {
+            if id_target.is_empty() {
+                continue;
+            }
+            if let Some((lib_id, raw_var_id)) = id_target.split_once('/') {
+                if let Some(snap) = snapshots.iter().find(|s| s.library_id == lib_id && s.variables.contains_key(raw_var_id)) {
+                    let asset_key = format!("var:{raw_var_id}");
+                    let cmd = import_asset(doc, snap, &asset_key, None);
+                    if let Ok(inv) = cmd.clone().apply(doc) {
+                        ctx.import_cmds.push(cmd);
+                        ctx.import_invs.push(inv);
+                    }
+                    continue;
+                }
+            }
+            if doc.resolve_spec_variable_id(v_ref).is_none() {
+                for snap in snapshots {
+                    if snap.variables.contains_key(id_target) {
+                        let asset_key = format!("var:{id_target}");
+                        let cmd = import_asset(doc, snap, &asset_key, None);
+                        if let Ok(inv) = cmd.clone().apply(doc) {
+                            ctx.import_cmds.push(cmd);
+                            ctx.import_invs.push(inv);
+                        }
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+
+        for snap in snapshots {
+            for (var_id, var) in &snap.variables {
+                if var.hidden_from_publishing {
+                    continue;
+                }
+                let coll_match = snap.variable_collections.get(&var.collection).is_some_and(|c| {
+                    format!("{}/{}", c.name, var.name) == body
+                        || format!("{}/{}", c.id, var.name) == body
+                        || format!("{}/{}", c.name, var.name).eq_ignore_ascii_case(body)
+                });
+                let bare_match = !body.contains('/') && (var.name == body || var.name.eq_ignore_ascii_case(body));
+                if var_id == body || coll_match || bare_match {
+                    let asset_key = format!("var:{var_id}");
+                    let cmd = import_asset(doc, snap, &asset_key, None);
+                    if let Ok(inv) = cmd.clone().apply(doc) {
+                        ctx.import_cmds.push(cmd);
+                        ctx.import_invs.push(inv);
+                    }
+                }
+            }
+        }
+    }
+
+    for child in &spec.children {
+        preimport_spec_styles_and_vars(doc, child, snapshots, ctx);
+    }
+}
+
 /// Builds `spec` in-place on `doc`, rolls back the trial mutations, and returns a single undoable
 /// [`Command`] (combining any library `import_asset` commands and the subtree `Command::Insert`)
 /// along with [`ApplySpecReport`]. Both before `Command::apply` runs and on any error, `doc` is
@@ -2237,6 +2366,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     };
 
     let mut ctx = SpecBuildCtx::new(doc, snapshots);
+    preimport_spec_styles_and_vars(doc, spec, snapshots, &mut ctx);
     let root_id = match doc.build_spec_node_with_ctx(parent, spec, &mut ctx) {
         Ok(id) => id,
         Err(e) => {

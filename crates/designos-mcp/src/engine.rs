@@ -111,6 +111,7 @@ impl Engine {
                 let _: Empty = parse(args)?;
                 Ok(crate::tools::libraries::get_libraries(&self.doc))
             }
+            "designos_search_design_system" => crate::tools::search_design_system::search_design_system(&self.doc, args),
             "designos_list_nodes" => {
                 let a: ListArgs = parse(args)?;
                 if a.limit == 0 || a.limit > 500 {
@@ -843,6 +844,19 @@ pub fn tools() -> Vec<Value> {
         "Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree.",
         crate::tools::metadata::properties_schema(),
         vec![],
+        true,
+        true,
+    );
+    add(
+        "search_design_system",
+        "Search components, component sets, shared styles, and variables across this file and its enabled libraries, returning ranked instance-ready references and NodeSpec examples.",
+        json!({
+            "query": {"type": "string", "minLength": 1, "maxLength": 256},
+            "kinds": {"type": "array", "items": {"enum": ["component", "style", "variable"]}},
+            "property": {"type": "string", "description": "Bindable property key to filter variables by scope, e.g. fills/0, itemSpacing."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}
+        }),
+        vec!["query"],
         true,
         true,
     );
