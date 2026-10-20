@@ -191,7 +191,13 @@ mod tests {
         doc.styles.insert("S:body".into(), Style::Text(TextStyle { font_size: 15.0, ..Default::default() }));
         doc.style_meta.insert(
             "S:body".into(),
-            StyleMeta { name: "Body/Regular".into(), key: Some("k-body".into()), description: "Body copy".into(), property: StyleProperty::Text },
+            StyleMeta {
+                name: "Body/Regular".into(),
+                key: Some("k-body".into()),
+                description: "Body copy".into(),
+                property: StyleProperty::Text,
+                bindings: Default::default(),
+            },
         );
         doc.styles.insert("S:surface".into(), Style::Fill(vec![Paint::solid(Color::WHITE)]));
         doc.style_meta.insert("S:surface".into(), StyleMeta { name: "Surface/Card".into(), property: StyleProperty::Fill, ..Default::default() });
