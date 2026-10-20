@@ -141,6 +141,17 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
                     continue;
                 }
             }
+            if k == "component" {
+                if let Value::Object(new_comp) = v {
+                    let empty = Map::new();
+                    let old_comp = old.get("component").and_then(Value::as_object).unwrap_or(&empty);
+                    let comp_diff = component_changes(old_comp, new_comp, &after.component)?;
+                    if !comp_diff.is_empty() {
+                        set.insert(k.clone(), Value::Object(comp_diff));
+                    }
+                    continue;
+                }
+            }
             set.insert(k.clone(), v.clone());
         }
     }
@@ -186,6 +197,39 @@ fn variable_changes(doc: &Document, variables: &BTreeMap<String, Variable>, coll
     let (collections, removed_collections) = diff(&doc.variable_collections, collections);
     let any = !variables.is_empty() || !collections.is_empty() || !removed_variables.is_empty() || !removed_collections.is_empty();
     any.then_some(LiveOp::Variables { collections, variables, removed_collections, removed_variables })
+}
+
+fn component_changes(old_comp: &Map<String, Value>, new_comp: &Map<String, Value>, after: &crate::ComponentLink) -> Result<Map<String, Value>, String> {
+    let mut diff = Map::new();
+    for (k, v) in new_comp {
+        if old_comp.get(k) != Some(v) {
+            if k == "overrides" {
+                if let (Some(Value::Array(old_ovs)), Value::Array(new_ovs)) = (old_comp.get("overrides"), v) {
+                    if old_ovs.iter().all(|ov| new_ovs.contains(ov)) {
+                        let added: Vec<Value> = new_ovs.iter().filter(|ov| !old_ovs.contains(ov)).cloned().collect();
+                        diff.insert(k.clone(), Value::Array(added));
+                        continue;
+                    }
+                }
+            }
+            diff.insert(k.clone(), v.clone());
+        }
+    }
+    for k in old_comp.keys() {
+        if !new_comp.contains_key(k) {
+            let reset_val = match k.as_str() {
+                "source" | "slot_content_id" | "override_level" | "detached_symbol_id" => Value::Null,
+                "overrides" | "props" => Value::Array(Vec::new()),
+                "values" | "slot_configs" | "slot_content_ids" | "bindings" | "variant_props" => Value::Object(Map::new()),
+                "is_slot" | "is_slot_content" | "expose_nested_instances" | "layout_cleared" => Value::Bool(false),
+                "description" => Value::String(String::new()),
+                "grid_align_overrides" => serde_json::to_value(after.grid_align_overrides).map_err(|e| e.to_string())?,
+                _ => Value::Null,
+            };
+            diff.insert(k.clone(), reset_val);
+        }
+    }
+    Ok(diff)
 }
 
 fn comment_changes(before: &[CommentThread], after: &[CommentThread]) -> Option<LiveOp> {

@@ -3235,6 +3235,7 @@ mod tests {
         let mut e = Engine::default();
         let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
 
+        let mut editor_doc = e.doc.clone();
         e.live_ops = Some(Vec::new());
         let before = batch_doc_clones();
         let child_id = e.doc.alloc_id();
@@ -3245,5 +3246,25 @@ mod tests {
         let ops = e.take_live_ops();
         assert_eq!(ops.len(), 2, "must emit Update for the marked slot and Insert for the child");
         assert!(e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+
+        // Simulate the user recoloring the slot in the editor (`OverrideField::Fills`) before replaying the agent patch.
+        editor_doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Fills);
+        editor_doc.get_mut(inst_slot).unwrap().component.description = "User slot note".into();
+
+        let report = designos_doc::live_patch::replay_live_patch(
+            &mut editor_doc,
+            &designos_doc::live_patch::LivePatch::new(ops),
+            &mut designos_doc::live_patch::LivePatchState::default(),
+            &mut |d, c| c.apply(d).map(|_| ()),
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let editor_slot = editor_doc.get(inst_slot).unwrap();
+        assert!(editor_slot.component.overrides.contains(&designos_doc::OverrideField::SlotContent), "replayed slot must carry OverrideField::SlotContent");
+        assert!(
+            editor_slot.component.overrides.contains(&designos_doc::OverrideField::Fills),
+            "replaying the synthetic slot-mark Update must not wipe out OverrideField::Fills set in the editor"
+        );
+        assert_eq!(editor_slot.component.description, "User slot note");
     }
 }

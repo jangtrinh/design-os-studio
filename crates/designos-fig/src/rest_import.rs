@@ -1834,7 +1834,8 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Marks every instance slot that carries custom children (`component.source == None`) with
+    /// Marks every instance slot whose direct children are not pure mirrors of its main component
+    /// slot (including component instance children and emptied slots) with
     /// `OverrideField::SlotContent` so a subsequent `sync_component_instances` preserves them.
     fn mark_custom_instance_slots(&mut self) {
         let to_mark: Vec<NodeId> = self
@@ -1842,8 +1843,15 @@ impl<'a> Ctx<'a> {
             .nodes
             .values()
             .filter(|slot| {
-                designos_doc::is_instance_slot(&self.doc, slot.id)
-                    && slot.children.iter().any(|&c| self.doc.get(c).is_some_and(|ch| ch.component.source.is_none()))
+                if !designos_doc::is_instance_slot(&self.doc, slot.id) {
+                    return false;
+                }
+                if let Some(main_slot) = slot.component.source.and_then(|s| self.doc.get(s)) {
+                    slot.children.len() != main_slot.children.len()
+                        || slot.children.iter().zip(&main_slot.children).any(|(&ic, &rc)| self.doc.get(ic).and_then(|ch| ch.component.source) != Some(rc))
+                } else {
+                    slot.children.iter().any(|&c| self.doc.get(c).is_some_and(|ch| ch.component.source.is_none()))
+                }
             })
             .map(|slot| slot.id)
             .collect();

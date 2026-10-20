@@ -586,6 +586,37 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
                     continue;
                 }
             }
+            if k == "component" {
+                if let Value::Object(set_comp) = v {
+                    let cur_comp = match fields.entry("component".to_string()).or_insert_with(|| Value::Object(Map::new())) {
+                        Value::Object(m) => m,
+                        other => {
+                            *other = Value::Object(Map::new());
+                            other.as_object_mut().unwrap()
+                        }
+                    };
+                    for (sub_k, sub_v) in set_comp {
+                        if sub_k == "overrides" {
+                            if let Value::Array(set_ovs) = sub_v {
+                                if set_ovs.is_empty() {
+                                    cur_comp.insert(sub_k.clone(), Value::Array(Vec::new()));
+                                } else {
+                                    let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                    for ov in set_ovs {
+                                        if !merged_ovs.contains(ov) {
+                                            merged_ovs.push(ov.clone());
+                                        }
+                                    }
+                                    cur_comp.insert(sub_k.clone(), Value::Array(merged_ovs));
+                                }
+                                continue;
+                            }
+                        }
+                        cur_comp.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
             fields.insert(k.clone(), v.clone());
         }
     }
