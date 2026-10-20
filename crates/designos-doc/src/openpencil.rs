@@ -3,7 +3,7 @@
 
 use crate::*;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Canonical XPath upper-case node type name for a [`NodeKind`].
 pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
@@ -31,7 +31,7 @@ pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
     }
 }
 
-fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
+pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     if matches!(kind, NodeKind::Page { .. }) {
         return test.eq_ignore_ascii_case("PAGE");
     }
@@ -44,11 +44,11 @@ fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     }
     matches!(
         (canonical, test.to_ascii_uppercase().as_str()),
-        ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
+        ("RECTANGLE", "RECT") | ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
     )
 }
 
-fn layout_mode_str(n: &Node) -> &'static str {
+pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
     match n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         Some(al) => match al.direction {
             LayoutDirection::Horizontal => "HORIZONTAL",
@@ -106,19 +106,19 @@ pub fn node_to_xpath(doc: &Document, id: NodeId) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum XPathAxis {
+pub(crate) enum XPathAxis {
     Child,
     Descendant,
 }
 
 #[derive(Clone, Debug)]
-struct XPathStep {
-    axis: XPathAxis,
-    node_test: String,
-    predicates: Vec<String>,
+pub(crate) struct XPathStep {
+    pub(crate) axis: XPathAxis,
+    pub(crate) node_test: String,
+    pub(crate) predicates: Vec<String>,
 }
 
-fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
+pub(crate) fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Err("empty XPath expression".into());
@@ -331,7 +331,7 @@ fn parse_fn_two_args(inner: &str) -> Option<(String, String)> {
     None
 }
 
-fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
+pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Ok(true);
@@ -503,64 +503,36 @@ fn node_summary_json(doc: &Document, n: &Node) -> Value {
 }
 
 /// Evaluates an Open-Pencil XPath selector query on `doc` (scoped to `page` if provided).
+///
+/// Compatibility wrapper around [`crate::query::run`] (E15-17).
 pub fn query_xpath(doc: &Document, page: Option<NodeId>, expr: &str, limit: usize) -> Result<Vec<Value>, String> {
-    let steps = parse_xpath(expr)?;
-    let mut current: Vec<NodeId> = match page {
-        Some(p) => {
-            if !doc.nodes.contains_key(&p) {
-                return Err(format!("page {p:?} not found"));
-            }
-            vec![p]
+    if let Some(p) = page {
+        if !doc.nodes.contains_key(&p) {
+            return Err(format!("page {p:?} not found"));
         }
-        None => doc.pages.clone(),
-    };
-
-    for step in &steps {
-        let mut candidates = Vec::new();
-        let mut seen = BTreeSet::new();
-        for &root_id in &current {
-            match step.axis {
-                XPathAxis::Child => {
-                    if let Some(rn) = doc.get(root_id) {
-                        for &cid in &rn.children {
-                            if seen.insert(cid) {
-                                candidates.push(cid);
-                            }
-                        }
-                    }
-                }
-                XPathAxis::Descendant => {
-                    doc.walk(root_id, |node, depth| {
-                        if depth > 0 && seen.insert(node.id) {
-                            candidates.push(node.id);
-                        }
-                    });
-                }
-            }
-        }
-
-        let mut next = Vec::new();
-        for cid in candidates {
-            let Some(cn) = doc.get(cid) else { continue };
-            if !matches_node_test(&cn.kind, &step.node_test) {
-                continue;
-            }
-            let mut ok = true;
-            for pred in &step.predicates {
-                if !eval_predicate_expr(doc, cn, pred)? {
-                    ok = false;
-                    break;
-                }
-            }
-            if ok {
-                next.push(cid);
-            }
-        }
-        current = next;
     }
-
-    let max = if limit == 0 { usize::MAX } else { limit };
-    Ok(current.into_iter().take(max).filter_map(|id| doc.get(id).map(|n| node_summary_json(doc, n))).collect())
+    let max_limit = if limit == 0 { crate::query::MAX_LIMIT } else { limit.clamp(1, crate::query::MAX_LIMIT) };
+    let page_res = crate::query::run(
+        doc,
+        &crate::query::QueryOptions {
+            selector: expr.to_string(),
+            page,
+            within: None,
+            limit: Some(max_limit),
+            cursor: None,
+            projection: crate::query::Projection::Compact,
+            fields: Some(vec!["id".to_string()]),
+            max_depth: None,
+            node_budget: None,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(page_res
+        .matches
+        .into_iter()
+        .filter_map(|v| v.get("id").and_then(|id| id.as_u64()).and_then(|id| doc.get(NodeId(id))).map(|n| node_summary_json(doc, n)))
+        .collect())
 }
 
 /// Infers a semantic UI role hint (`"button"`, `"input"`, `"card"`, `"navbar"`, `"heading"`, `"badge"`, `"icon"`, `"container"`).

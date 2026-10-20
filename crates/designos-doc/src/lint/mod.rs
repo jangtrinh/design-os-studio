@@ -20,7 +20,7 @@ pub use registry::{
 };
 pub use rules::scale::{scales_for, ArchetypeScales, Scale, Scales};
 pub use style_bindings::{broken_style_binding_findings, broken_style_binding_findings_for, style_binding_check_enabled};
-pub use traverse::{lint_in_slices, lint_in_slices_with_budget, lint_subtree, lint_subtree_with_components, Budget, SliceRunStats};
+pub use traverse::{lint_in_slices, lint_in_slices_with_budget, lint_single_node, lint_subtree, lint_subtree_with_components, Budget, SliceRunStats};
 
 use crate::{Color, Document, LineHeight, Node, NodeId, Rect, TextAutoResize, TextProps, Vec2};
 
