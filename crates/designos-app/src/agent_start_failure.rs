@@ -51,6 +51,8 @@ pub fn install_url(preset: AgentCliPreset) -> &'static str {
         AgentCliPreset::Codex => "https://github.com/openai/codex",
         AgentCliPreset::Antigravity => "https://antigravity.google/",
         AgentCliPreset::Grok => "https://x.ai/cli",
+        AgentCliPreset::Gemini => "https://github.com/google-gemini/gemini-cli",
+        AgentCliPreset::OpenCode => "https://opencode.ai",
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "https://github.com/jangtrinh/design-os-studio",
     }
 }
@@ -60,8 +62,10 @@ pub fn login_command(preset: AgentCliPreset) -> &'static str {
         AgentCliPreset::Claude => "claude auth login",
         AgentCliPreset::Codex => "codex login",
         AgentCliPreset::Grok => "grok login",
-        // `agy` has no login subcommand; its first screen is the sign-in picker.
+        // `agy` and `gemini` have no dedicated login subcommand; their first screen is the sign-in picker.
         AgentCliPreset::Antigravity => "agy",
+        AgentCliPreset::Gemini => "gemini",
+        AgentCliPreset::OpenCode => "opencode auth login",
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "",
     }
 }
@@ -118,8 +122,17 @@ pub fn output_excerpt(raw: &str, cause_needles: &[&str]) -> Vec<String> {
 pub fn diagnose(preset: AgentCliPreset, installed: bool, exit_code: Option<u32>, raw_output: &str) -> StartFailure {
     let lower = strip_ansi_codes(raw_output).to_ascii_lowercase();
     const NOT_INSTALLED: &[&str] = &["command not found", ": not found", "is not recognized as an internal"];
-    const UNKNOWN_FLAG: &[&str] =
-        &["unexpected argument", "flags provided but not defined", "unknown option", "unrecognized option", "unknown flag", "invalid option"];
+    const UNKNOWN_FLAG: &[&str] = &[
+        "unexpected argument",
+        "flags provided but not defined",
+        "unknown option",
+        "unrecognized option",
+        "unknown flag",
+        "invalid option",
+        "unknown argument",
+        "unknown arguments",
+        "invalid values",
+    ];
     const NOT_LOGGED_IN: &[&str] = &[
         "not logged in",
         "please log in",
@@ -130,6 +143,10 @@ pub fn diagnose(preset: AgentCliPreset, installed: bool, exit_code: Option<u32>,
         "unauthorized",
         "sign in",
         "invalid api key",
+        "please set an auth method",
+        "gemini_api_key",
+        "no provider configured",
+        "opencode auth",
     ];
     let has = |needles: &[&str]| needles.iter().any(|n| lower.contains(n));
     let (cause, needles) = if has(UNKNOWN_FLAG) {
@@ -471,5 +488,50 @@ mod tests {
         }
         run_frame(&ctx, vec![], rect, &failure, &mut clicked);
         assert_eq!(clicked, Some(FixAction::OpenShell));
+    }
+
+    #[test]
+    fn failure_classification_for_the_new_clis() {
+        // 1. NotInstalled -> FixAction::OpenInstallPage(url)
+        let gemini_missing = d(AgentCliPreset::Gemini, false, Some(127), "zsh: command not found: gemini\n");
+        assert_eq!(gemini_missing.cause, StartFailureCause::NotInstalled);
+        assert_eq!(gemini_missing.fix, FixAction::OpenInstallPage("https://github.com/google-gemini/gemini-cli"));
+        assert_eq!(gemini_missing.headline(), "Gemini CLI is not installed");
+
+        let opencode_missing = d(AgentCliPreset::OpenCode, false, Some(127), "zsh: command not found: opencode\n");
+        assert_eq!(opencode_missing.cause, StartFailureCause::NotInstalled);
+        assert_eq!(opencode_missing.fix, FixAction::OpenInstallPage("https://opencode.ai"));
+        assert_eq!(opencode_missing.headline(), "OpenCode is not installed");
+
+        // 2. UnknownFlag -> FixAction::OpenShell
+        let gemini_flag = d(AgentCliPreset::Gemini, true, Some(1), "Unknown arguments: mcp-config, dangerously-skip-permissions\n");
+        assert_eq!(gemini_flag.cause, StartFailureCause::UnknownFlag);
+        assert_eq!(gemini_flag.fix, FixAction::OpenShell);
+        assert_eq!(gemini_flag.headline(), "gemini rejected a launch flag");
+
+        let opencode_flag = d(AgentCliPreset::OpenCode, true, Some(1), "Unknown argument: mcp-config\n");
+        assert_eq!(opencode_flag.cause, StartFailureCause::UnknownFlag);
+        assert_eq!(opencode_flag.fix, FixAction::OpenShell);
+        assert_eq!(opencode_flag.headline(), "opencode rejected a launch flag");
+
+        // 3. NotLoggedIn -> FixAction::RunLogin(cmd)
+        let gemini_auth = d(AgentCliPreset::Gemini, true, Some(1), "Please set an Auth method or set GEMINI_API_KEY before continuing.\n");
+        assert_eq!(gemini_auth.cause, StartFailureCause::NotLoggedIn);
+        assert_eq!(gemini_auth.fix, FixAction::RunLogin("gemini"));
+        assert_eq!(gemini_auth.headline(), "Gemini CLI is not signed in");
+
+        let opencode_auth = d(AgentCliPreset::OpenCode, true, Some(1), "Error: No provider configured. Run `opencode auth login` to authenticate.\n");
+        assert_eq!(opencode_auth.cause, StartFailureCause::NotLoggedIn);
+        assert_eq!(opencode_auth.fix, FixAction::RunLogin("opencode auth login"));
+        assert_eq!(opencode_auth.headline(), "OpenCode is not signed in");
+
+        // 4. ExitedEarly -> FixAction::OpenShell
+        let gemini_crash = d(AgentCliPreset::Gemini, true, Some(1), "Unhandled rejection in worker\n");
+        assert_eq!(gemini_crash.cause, StartFailureCause::ExitedEarly);
+        assert_eq!(gemini_crash.fix, FixAction::OpenShell);
+
+        let opencode_crash = d(AgentCliPreset::OpenCode, true, Some(1), "panic: runtime error\n");
+        assert_eq!(opencode_crash.cause, StartFailureCause::ExitedEarly);
+        assert_eq!(opencode_crash.fix, FixAction::OpenShell);
     }
 }

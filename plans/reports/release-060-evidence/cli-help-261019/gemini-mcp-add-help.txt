@@ -1,0 +1,18 @@
+Usage: gemini mcp add [options] <name> <commandOrUrl> [args...]
+
+Positionals:
+  name          Name of the server  [string] [required]
+  commandOrUrl  Command (stdio) or URL (sse, http)  [string] [required]
+
+Options:
+  -d, --debug              Run in debug mode (open debug console with F12)  [boolean] [default: false]
+  -s, --scope              Configuration scope (user or project)  [string] [choices: "user", "project"] [default: "project"]
+  -t, --transport, --type  Transport type (stdio, sse, http)  [string] [choices: "stdio", "sse", "http"] [default: "stdio"]
+  -e, --env                Set environment variables (e.g. -e KEY=value)  [array]
+  -H, --header             Set HTTP headers for SSE and HTTP transports (e.g. -H "X-Api-Key: abc123" -H "Authorization: Bearer abc123")  [array]
+      --timeout            Set connection timeout in milliseconds  [number]
+      --trust              Trust the server (bypass all tool call confirmation prompts)  [boolean]
+      --description        Set the description for the server  [string]
+      --include-tools      A comma-separated list of tools to include  [array]
+      --exclude-tools      A comma-separated list of tools to exclude  [array]
+  -h, --help               Show help  [boolean]

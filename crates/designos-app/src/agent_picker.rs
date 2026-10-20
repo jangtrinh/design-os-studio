@@ -137,7 +137,9 @@ enum PickerInteraction {
     ResumeLastSession,
 }
 
-fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_path: Option<&Path>) {
+/// Executes selecting `row` in the new-session picker or `+` menu.
+/// Returns `Some(FixAction)` when an uninstalled CLI row's install action is triggered without spawning a tab.
+pub fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_path: Option<&Path>) -> Option<FixAction> {
     match &row.kind {
         PickerRowKind::CatalogCli { preset, installed, install_action, .. } => {
             if *installed {
@@ -145,24 +147,31 @@ fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_path: 
                 state.picker.on_close();
                 state.active_runtime = *preset;
                 let _ = state.spawn_tab(*preset, file_path);
+                None
             } else if let Some(fix) = install_action.clone() {
                 state.picker.on_close();
-                state.apply_start_fix(fix, file_path);
+                state.apply_start_fix(fix.clone(), file_path);
+                Some(fix)
+            } else {
+                None
             }
         }
         PickerRowKind::CustomCli { entry } => {
             state.runtime_dropdown_open = false;
             state.picker.on_close();
             let _ = state.spawn_custom_cli_tab(&entry.label, &entry.command, file_path);
+            None
         }
         PickerRowKind::OtherCli => {
             state.picker.open_other_form();
+            None
         }
         PickerRowKind::Shell => {
             state.runtime_dropdown_open = false;
             state.picker.on_close();
             state.active_runtime = AgentCliPreset::Shell;
             let _ = state.spawn_tab(AgentCliPreset::Shell, file_path);
+            None
         }
     }
 }
@@ -189,7 +198,7 @@ fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow]
     } else if ui.input(|i| i.key_pressed(Key::Enter)) {
         if let Some(row) = rows.get(state.picker.selected_index) {
             if row.selectable {
-                execute_row_selection(state, row, file_path);
+                let _ = execute_row_selection(state, row, file_path);
             }
         }
     } else if ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -222,12 +231,12 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     let row_h = theme::CONTROL_ROW;
     let row_gap = theme::SPACE_ROW;
     let form_h = if state.picker.other_form_open { 108.0 } else { 0.0 };
-    let header_h = 24.0;
+    let header_h = theme::SPACE_SECTION;
     let footer_h = 22.0;
     let content_h = pad * 2.0 + header_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h;
     let card_w = (rect.width() - pad * 2.0).clamp(220.0, 380.0);
     let card_h = content_h.min((rect.height() - pad).max(160.0));
-    let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(8.0);
+    let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(theme::SPACE_INLINE);
     let card_y = rect.top() + pad;
     let card_r = Rect::from_min_size(Pos2::new(card_x, card_y), Vec2::new(card_w, card_h));
 
@@ -245,6 +254,9 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     y += header_h;
 
     let mut interaction = PickerInteraction::None;
+    let caption_top_offset = theme::SPACE_GROUP;
+    let caption_bottom_offset = theme::INSET_CONTROL;
+    let st_reserve = 90.0;
 
     for (idx, row) in rows.iter().enumerate() {
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
@@ -268,8 +280,7 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
         );
 
         let text_col = if row.selectable { theme::TEXT } else { theme::TEXT_DISABLED };
-        let top_row_offset = theme::INSET_BUTTON;
-        let top_line_y = if row.caption.is_some() { r_rect.top() + top_row_offset } else { r_rect.center().y };
+        let top_line_y = if row.caption.is_some() { r_rect.top() + caption_top_offset } else { r_rect.center().y };
 
         // Left: Name + Version (`SPACE_INLINE` = 8 px)
         let name_str = widgets::elide(&p, &row.label, &theme::font_body_medium(), (inner_w * 0.45).max(48.0));
@@ -298,8 +309,7 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
             widgets::record(ui, &format!("{}-install", row.id), btn_r);
 
             if let Some(ref st_lbl) = row.state_label {
-                let name_reserve = theme::CONTROL_STANDARD * 3.0;
-                let st_w = (btn_r.left() - r_rect.left() - name_reserve).max(36.0);
+                let st_w = (btn_r.left() - r_rect.left() - st_reserve).max(36.0);
                 let st_elided = widgets::elide(&p, st_lbl, &theme::font_caption(), st_w);
                 p.text(Pos2::new(btn_r.left() - theme::SPACE_INLINE, top_line_y), Align2::RIGHT_CENTER, st_elided, theme::font_caption(), theme::TEXT_DISABLED);
             }
@@ -309,21 +319,22 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
         } else if let PickerRowKind::CatalogCli { signed_in, installed, .. } = row.kind {
             if let Some(ref st_lbl) = row.state_label {
                 let (p_bg, p_border, p_fg) = state_pill_colors(signed_in, installed);
-                let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + 12.0;
+                let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + theme::SPACE_GROUP;
                 let pill_w = lbl_w.clamp(48.0, (inner_w * 0.46).max(64.0));
-                let pill_r = Rect::from_min_size(Pos2::new(r_rect.right() - theme::INSET_CONTROL - pill_w, top_line_y - 9.0), Vec2::new(pill_w, 18.0));
+                let pill_h = 18.0;
+                let pill_r =
+                    Rect::from_min_size(Pos2::new(r_rect.right() - theme::INSET_CONTROL - pill_w, top_line_y - pill_h * 0.5), Vec2::new(pill_w, pill_h));
                 p.rect_filled(pill_r, theme::cr_pill(pill_r.height()), p_bg);
                 p.rect_stroke(pill_r, theme::cr_pill(pill_r.height()), Stroke::new(theme::BORDER_WIDTH, p_border), StrokeKind::Inside);
-                let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - 8.0).max(24.0));
+                let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - theme::SPACE_INLINE).max(24.0));
                 p.text(pill_r.center(), Align2::CENTER_CENTER, pill_txt, theme::font_caption(), p_fg);
             }
         }
 
         if let Some(ref cap) = row.caption {
             let cap_elided = widgets::elide(&p, cap, &theme::font_caption(), (inner_w - theme::INSET_CONTROL * 2.0).max(48.0));
-            let bottom_cap_offset = theme::INSET_CONTROL;
             p.text(
-                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - bottom_cap_offset),
+                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - caption_bottom_offset),
                 Align2::LEFT_CENTER,
                 cap_elided,
                 theme::font_caption(),
@@ -349,7 +360,7 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     }
 
     // Footer: Default permission caption (`Skip permissions`, `#652` §3 rule 9)
-    let footer_y = (card_r.bottom() - theme::INSET_BUTTON).max(y + theme::SPACE_INLINE);
+    let footer_y = (card_r.bottom() - theme::SPACE_GROUP).max(y + theme::SPACE_INLINE);
     let perm_elided = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w);
     p.text(Pos2::new(inner_left, footer_y), Align2::LEFT_CENTER, perm_elided, theme::font_caption(), theme::TEXT_TERTIARY);
 
@@ -365,7 +376,9 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     handle_picker_keyboard(state, ui, &rows, file_path);
 
     let last_resume = state.resumable_sessions().first().map(|e| (e.title.clone(), e.cli.clone()));
-    let menu_w = (panel_rect.width() - theme::INSET_BUTTON).clamp(196.0, 232.0);
+    let menu_inset = theme::SPACE_GROUP;
+    let menu_edge = theme::INSET_CONTROL;
+    let menu_w = (panel_rect.width() - menu_inset).clamp(196.0, 232.0);
     let row_h = theme::CONTROL_STANDARD; // 28 px compact row height
     let row_gap = theme::INSET_SEGMENT;
     let header_h = 22.0;
@@ -373,8 +386,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let resume_h = if last_resume.is_some() { row_h + row_gap } else { 0.0 };
     let form_h = if state.picker.other_form_open { 104.0 } else { 0.0 };
     let menu_h = header_h + resume_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h + theme::SPACE_INLINE;
-    let menu_pad = theme::INSET_CONTROL - theme::INSET_SEGMENT;
-    let menu_x = (panel_rect.right() - menu_w - menu_pad).max(panel_rect.left() + menu_pad);
+    let menu_x = (panel_rect.right() - menu_w - menu_edge).max(panel_rect.left() + menu_edge);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
 
     let p = ui.painter().clone();
@@ -382,12 +394,12 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     p.rect_stroke(menu_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
     widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
 
-    let inner_left = menu_r.left() + menu_pad;
-    let inner_w = (menu_w - theme::INSET_BUTTON).max(120.0);
+    let inner_left = menu_r.left() + menu_edge;
+    let inner_w = (menu_w - menu_edge * 2.0).max(120.0);
     let hdr_txt = widgets::elide(&p, "New session", &theme::font_caption_medium(), inner_w);
-    let hdr_cy = menu_r.top() + header_h * 0.5;
-    p.text(Pos2::new(inner_left + theme::SPACE_ROW, hdr_cy), Align2::LEFT_CENTER, hdr_txt, theme::font_caption_medium(), theme::TEXT_SECONDARY);
-    widgets::hline(&p, inner_left, menu_r.right() - menu_pad, menu_r.top() + header_h, theme::BORDER);
+    let hdr_center_y = menu_r.top() + header_h * 0.5;
+    p.text(Pos2::new(inner_left + theme::SPACE_FACT, hdr_center_y), Align2::LEFT_CENTER, hdr_txt, theme::font_caption_medium(), theme::TEXT_SECONDARY);
+    widgets::hline(&p, inner_left, menu_r.right() - menu_edge, menu_r.top() + header_h, theme::BORDER);
 
     let mut y = menu_r.top() + header_h + theme::SPACE_ROW;
     let mut interaction = PickerInteraction::None;
@@ -399,7 +411,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         let resume_txt = format!("Resume {prev_title} ({prev_cli})");
-        let elided = widgets::elide(&p, &resume_txt, &theme::font_caption_medium(), (inner_w - 16.0).max(40.0));
+        let elided = widgets::elide(&p, &resume_txt, &theme::font_caption_medium(), (inner_w - theme::INSET_PANEL).max(40.0));
         p.text(Pos2::new(row_r.left() + theme::INSET_CONTROL, row_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), STATUS_OK_TEXT);
         widgets::record(ui, "agents-dropdown-resume-last", row_r);
         if resp.clicked() {
@@ -421,11 +433,11 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         let fg = if row.selectable { theme::TEXT } else { theme::TEXT_DISABLED };
 
         // Right-hand status / action in compact row
-        let mut right_limit = row_r.right() - menu_pad;
+        let mut right_limit = row_r.right() - theme::INSET_CONTROL;
         if let Some(ref fix) = row.install_action {
             let btn_w = 48.0;
             let btn_h = 20.0;
-            let btn_r = Rect::from_min_size(Pos2::new(row_r.right() - btn_w - theme::SPACE_ROW, row_r.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
+            let btn_r = Rect::from_min_size(Pos2::new(row_r.right() - btn_w - theme::SPACE_FACT, row_r.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
             let btn_resp = ui.interact(btn_r, Id::new((&row.id, "install")), Sense::click());
             p.rect_filled(btn_r, theme::cr(theme::RADIUS_CONTROL), if btn_resp.hovered() { theme::BG_HOVER } else { STATUS_INFO_BG });
             p.rect_stroke(btn_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, STATUS_INFO_BORDER), StrokeKind::Inside);
@@ -434,7 +446,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             if btn_resp.clicked() {
                 interaction = PickerInteraction::ActivateInstall(fix.clone());
             }
-            right_limit = btn_r.left() - menu_pad;
+            right_limit = btn_r.left() - theme::SPACE_FACT;
         } else if let Some(ref st_lbl) = row.state_label {
             let st_col = match &row.kind {
                 PickerRowKind::CatalogCli { signed_in: SignIn::Yes, .. } => STATUS_OK_TEXT,
@@ -445,24 +457,24 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             let st_str = widgets::elide(&p, st_lbl, &theme::font_caption(), max_st_w);
             let st_w = widgets::text_width(&p, &st_str, &theme::font_caption());
             p.text(Pos2::new(right_limit, row_r.center().y), Align2::RIGHT_CENTER, &st_str, theme::font_caption(), st_col);
-            right_limit -= st_w + menu_pad;
+            right_limit -= st_w + theme::SPACE_FACT;
         } else if let Some(ref cap) = row.caption {
             let max_cap_w = (inner_w * 0.48).max(48.0);
             let cap_str = widgets::elide(&p, cap, &theme::font_caption(), max_cap_w);
             let cap_w = widgets::text_width(&p, &cap_str, &theme::font_caption());
             p.text(Pos2::new(right_limit, row_r.center().y), Align2::RIGHT_CENTER, &cap_str, theme::font_caption(), theme::TEXT_TERTIARY);
-            right_limit -= cap_w + menu_pad;
+            right_limit -= cap_w + theme::SPACE_FACT;
         }
 
         // Left: Label (+ version if available and fits)
-        let left_text_x = row_r.left() + theme::INSET_CONTROL;
-        let avail_left_w = (right_limit - left_text_x).max(36.0);
+        let left_x = row_r.left() + theme::INSET_CONTROL;
+        let avail_left_w = (right_limit - left_x).max(36.0);
         let title_str = widgets::elide(&p, &row.label, &theme::font_caption_medium(), avail_left_w);
         let title_w = widgets::text_width(&p, &title_str, &theme::font_caption_medium());
-        p.text(Pos2::new(left_text_x, row_r.center().y), Align2::LEFT_CENTER, &title_str, theme::font_caption_medium(), fg);
+        p.text(Pos2::new(left_x, row_r.center().y), Align2::LEFT_CENTER, &title_str, theme::font_caption_medium(), fg);
 
         if let Some(ref ver) = row.version {
-            let ver_x = left_text_x + title_w + menu_pad;
+            let ver_x = left_x + title_w + theme::SPACE_FACT;
             let ver_avail = right_limit - ver_x;
             if ver_avail >= 28.0 {
                 let ver_str = widgets::elide(&p, ver, &theme::font_mono(), ver_avail);
@@ -488,9 +500,9 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     }
 
     // Footer permission caption (`Skip permissions`, `#652` §3 rule 9)
-    let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + menu_pad);
+    let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + theme::SPACE_FACT);
     let perm_str = widgets::elide(&p, DEFAULT_PERMISSION_CAPTION, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
-    p.text(Pos2::new(inner_left + theme::SPACE_ROW, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
+    p.text(Pos2::new(inner_left + theme::SPACE_FACT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
 
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
@@ -509,21 +521,22 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
 
 fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: Rect, interaction: &mut PickerInteraction) {
     let p = ui.painter().clone();
-    p.rect_filled(form_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    p.rect_stroke(form_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+    p.rect_filled(form_r, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
+    p.rect_stroke(form_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     widgets::record(ui, "agents-other-cli-form", form_r);
 
-    let pad = theme::SPACE_ROW;
+    let pad = theme::INSET_FRAME;
     let field_w = (form_r.width() - pad * 2.0).max(80.0);
     let field_h = 22.0;
+    let field_inset = Vec2::new(theme::INSET_CONTROL, theme::INSET_SEGMENT);
 
     let lbl_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, form_r.top() + pad), Vec2::new(field_w, field_h));
-    p.rect_filled(lbl_rect, theme::cr(theme::RADIUS_SEGMENT), theme::BG_TERTIARY);
-    p.rect_stroke(lbl_rect, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-    ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(Vec2::new(theme::INSET_CONTROL - theme::INSET_SEGMENT, theme::INSET_SEGMENT))), |ui| {
+    p.rect_filled(lbl_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
+    p.rect_stroke(lbl_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(lbl_rect.shrink2(field_inset)), |ui| {
         let te = TextEdit::singleline(&mut state.picker.other_label_input)
             .id(Id::new("agents-other-cli-label-input"))
-            .desired_width(field_w - theme::INSET_BUTTON)
+            .desired_width(field_w - theme::SPACE_GROUP)
             .frame(egui::Frame::NONE)
             .font(theme::font_caption())
             .text_color(theme::TEXT)
@@ -536,13 +549,13 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     widgets::record(ui, "agents-other-cli-label-input", lbl_rect);
 
     let cmd_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, lbl_rect.bottom() + theme::SPACE_ROW), Vec2::new(field_w, field_h));
-    p.rect_filled(cmd_rect, theme::cr(theme::RADIUS_SEGMENT), theme::BG_TERTIARY);
-    p.rect_stroke(cmd_rect, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+    p.rect_filled(cmd_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
+    p.rect_stroke(cmd_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     let mut enter_pressed = false;
-    ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(Vec2::new(theme::INSET_CONTROL - theme::INSET_SEGMENT, theme::INSET_SEGMENT))), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(cmd_rect.shrink2(field_inset)), |ui| {
         let te = TextEdit::singleline(&mut state.picker.other_command_input)
             .id(Id::new("agents-other-cli-command-input"))
-            .desired_width(field_w - theme::INSET_BUTTON)
+            .desired_width(field_w - theme::SPACE_GROUP)
             .frame(egui::Frame::NONE)
             .font(theme::font_mono())
             .text_color(theme::TEXT)
@@ -557,7 +570,7 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     });
     widgets::record(ui, "agents-other-cli-command-input", cmd_rect);
 
-    let warn_y = cmd_rect.bottom() + theme::INSET_CONTROL;
+    let warn_y = cmd_rect.bottom() + theme::SPACE_INLINE;
     let warn_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
     let warn_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
     let warn_elided = widgets::elide(&p, warn_txt, &theme::font_caption(), (field_w - 96.0).max(36.0));
@@ -567,16 +580,16 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     let cancel_w = 44.0;
     let btn_y = cmd_rect.bottom() + theme::SPACE_ROW;
     let save_r = Rect::from_min_size(Pos2::new(form_r.right() - pad - save_w, btn_y), Vec2::new(save_w, 20.0));
-    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - theme::SPACE_ROW - cancel_w, btn_y), Vec2::new(cancel_w, 20.0));
+    let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - theme::SPACE_FACT - cancel_w, btn_y), Vec2::new(cancel_w, 20.0));
 
     let cancel_resp = ui.interact(cancel_r, Id::new("agents-other-cli-cancel"), Sense::click());
-    p.rect_filled(cancel_r, theme::cr(theme::RADIUS_SEGMENT), if cancel_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
-    p.rect_stroke(cancel_r, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+    p.rect_filled(cancel_r, theme::cr(theme::RADIUS_CONTROL), if cancel_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
+    p.rect_stroke(cancel_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     p.text(cancel_r.center(), Align2::CENTER_CENTER, "Cancel", theme::font_caption(), theme::TEXT_SECONDARY);
     widgets::record(ui, "agents-other-cli-cancel", cancel_r);
 
     let save_resp = ui.interact(save_r, Id::new("agents-other-cli-save"), Sense::click());
-    p.rect_filled(save_r, theme::cr(theme::RADIUS_SEGMENT), if save_resp.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
+    p.rect_filled(save_r, theme::cr(theme::RADIUS_CONTROL), if save_resp.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
     p.text(save_r.center(), Align2::CENTER_CENTER, "Save", theme::font_caption_medium(), Color32::WHITE);
     widgets::record(ui, "agents-other-cli-save", save_r);
 
@@ -598,7 +611,7 @@ fn apply_picker_interaction(state: &mut TerminalState, rows: &[PickerRow], inter
         PickerInteraction::SelectRow(idx) => {
             state.picker.selected_index = idx;
             if let Some(row) = rows.get(idx) {
-                execute_row_selection(state, row, file_path);
+                let _ = execute_row_selection(state, row, file_path);
             }
         }
         PickerInteraction::ActivateInstall(fix) => {
@@ -636,6 +649,7 @@ mod tests {
         st.picker.cache.set_probe(AgentCliPreset::Claude, CliProbe { installed: true, version: Some("2.1.302".into()), signed_in: SignIn::Yes });
         st.picker.cache.set_probe(AgentCliPreset::Codex, CliProbe { installed: true, version: Some("0.163.0".into()), signed_in: SignIn::Yes });
         st.picker.cache.set_probe(AgentCliPreset::Grok, CliProbe { installed: true, version: Some("1.0.62".into()), signed_in: SignIn::Unknown });
+        st.picker.cache.set_probe(AgentCliPreset::Gemini, CliProbe { installed: true, version: Some("0.38.2".into()), signed_in: SignIn::Unknown });
         st.picker.cache.set_probe(AgentCliPreset::Antigravity, CliProbe { installed: false, version: None, signed_in: SignIn::Unknown });
         st.picker.probe_started = true;
     }
@@ -681,7 +695,7 @@ mod tests {
 
         let expected_rows = rows_for_state(&mut st);
         let expected_labels: Vec<&str> = expected_rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(expected_labels, vec!["Claude", "Codex", "Grok", "Antigravity", "Aider", "Other CLI...", "Shell"]);
+        assert_eq!(expected_labels, vec!["Claude", "Codex", "Grok", "Gemini CLI", "Antigravity", "Aider", "Other CLI...", "Shell"]);
 
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
@@ -804,6 +818,35 @@ mod tests {
         assert!(rows.iter().any(|r| r.label == "Aider"), "custom CLI must remain visible in unsaved/.fig fallback mode");
 
         lib_state.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // #679 4. `uninstalled_cli_opens_its_install_page_not_a_tab`
+    #[test]
+    fn uninstalled_cli_opens_its_install_page_not_a_tab() {
+        let root = temp_test_dir("uninstalled-install-page");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.picker.cache.set_probe(AgentCliPreset::Gemini, CliProbe { installed: false, version: None, signed_in: SignIn::Unknown });
+
+        let rows = rows_for_state(&mut st);
+
+        let gemini_row = rows.iter().find(|r| r.label == "Gemini CLI").expect("Gemini CLI row").clone();
+        assert!(!gemini_row.selectable);
+        let gemini_fix = execute_row_selection(&mut st, &gemini_row, None);
+        assert_eq!(gemini_fix, Some(FixAction::OpenInstallPage("https://github.com/google-gemini/gemini-cli")));
+        assert!(st.tabs.is_empty(), "uninstalled Gemini CLI must not spawn a tab");
+        assert_eq!(st.status_msg.as_deref(), Some("Open https://github.com/google-gemini/gemini-cli in your browser"));
+
+        let agy_row = rows.iter().find(|r| r.label == "Antigravity").expect("Antigravity row").clone();
+        assert!(!agy_row.selectable);
+        let agy_fix = execute_row_selection(&mut st, &agy_row, None);
+        assert_eq!(agy_fix, Some(FixAction::OpenInstallPage("https://antigravity.google/")));
+        assert!(st.tabs.is_empty(), "uninstalled Antigravity must not spawn a tab");
+        assert_eq!(st.status_msg.as_deref(), Some("Open https://antigravity.google/ in your browser"));
+
+        st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -72,6 +72,16 @@ macro_rules! codex_mcp_overrides {
     };
 }
 
+/// How Studio launches an agent CLI with respect to tool-approval prompts (`#645`, `#679`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PermissionMode {
+    /// Skip approval prompts using the CLI's documented bypass flag (default in Studio).
+    #[default]
+    Skip,
+    /// Ask for approval using the CLI's default interactive mode.
+    Ask,
+}
+
 /// Presets for launching an interactive PTY session inside DESIGN:OS Studio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentCliPreset {
@@ -80,6 +90,8 @@ pub enum AgentCliPreset {
     Codex,
     Antigravity,
     Grok,
+    Gemini,
+    OpenCode,
     #[allow(dead_code)]
     DesignOsHelp,
 }
@@ -93,6 +105,8 @@ impl AgentCliPreset {
     pub const ClaudeCode: AgentCliPreset = AgentCliPreset::Claude;
     pub const CodexCli: AgentCliPreset = AgentCliPreset::Codex;
     pub const GrokCli: AgentCliPreset = AgentCliPreset::Grok;
+    pub const GeminiCli: AgentCliPreset = AgentCliPreset::Gemini;
+    pub const OpenCodeCli: AgentCliPreset = AgentCliPreset::OpenCode;
     pub const DefaultShell: AgentCliPreset = AgentCliPreset::Shell;
 
     pub const QUICK_LAUNCH: [AgentCliPreset; 5] =
@@ -113,6 +127,8 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => "Codex CLI",
             AgentCliPreset::Antigravity => "Antigravity (agy)",
             AgentCliPreset::Grok => "Grok Build",
+            AgentCliPreset::Gemini => "Gemini CLI",
+            AgentCliPreset::OpenCode => "OpenCode",
             AgentCliPreset::DesignOsHelp => "design:os studio Agent CLI",
         }
     }
@@ -124,6 +140,8 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => "Codex CLI",
             AgentCliPreset::Antigravity => "Antigravity",
             AgentCliPreset::Grok => "Grok CLI",
+            AgentCliPreset::Gemini => "Gemini CLI",
+            AgentCliPreset::OpenCode => "OpenCode",
             AgentCliPreset::DesignOsHelp => "Agent Guide",
         }
     }
@@ -135,6 +153,8 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => "CODEX",
             AgentCliPreset::Antigravity => "AGY",
             AgentCliPreset::Grok => "GROK",
+            AgentCliPreset::Gemini => "GEMINI",
+            AgentCliPreset::OpenCode => "OPENCODE",
             AgentCliPreset::DesignOsHelp => "DESIGNOS",
         }
     }
@@ -146,14 +166,16 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => "codex",
             AgentCliPreset::Antigravity => "agy",
             AgentCliPreset::Grok => "grok",
+            AgentCliPreset::Gemini => "gemini",
+            AgentCliPreset::OpenCode => "opencode",
             AgentCliPreset::DesignOsHelp => "designos",
         }
     }
 
-    /// True when this tab preset is an agent CLI tab (`Claude`, `Codex`, `Antigravity`, `Grok`)
+    /// True when this tab preset is an agent CLI tab (`Claude`, `Codex`, `Antigravity`, `Grok`, `Gemini`, `OpenCode`)
     /// rather than an interactive `Shell` or `DesignOsHelp` tab (`#685`).
     pub fn is_agent(self) -> bool {
-        matches!(self, AgentCliPreset::Claude | AgentCliPreset::Codex | AgentCliPreset::Antigravity | AgentCliPreset::Grok)
+        !matches!(self, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
     }
 
     /// True when this preset reserves `Ctrl+Z` inside the terminal on Windows/Linux (`#685`).
@@ -161,33 +183,53 @@ impl AgentCliPreset {
         crate::terminal_undo_chord::preset_ctrl_z_policy(self).1
     }
 
+    /// Documented permission / approval flags for `mode` (`#679` §3).
+    /// Returns `&[]` when the CLI has no permission flag (e.g. `OpenCode`, `Shell`).
+    pub fn permission_flags(self, mode: PermissionMode) -> &'static [&'static str] {
+        match (self, mode) {
+            (AgentCliPreset::Claude, PermissionMode::Skip) => &["--dangerously-skip-permissions"],
+            (AgentCliPreset::Claude, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Codex, PermissionMode::Skip) => &["--dangerously-bypass-approvals-and-sandbox"],
+            (AgentCliPreset::Codex, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Grok, PermissionMode::Skip) => &["--always-approve"],
+            (AgentCliPreset::Grok, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Antigravity, PermissionMode::Skip) => &["--dangerously-skip-permissions"],
+            (AgentCliPreset::Antigravity, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Gemini, PermissionMode::Skip) => &["--approval-mode", "yolo"],
+            (AgentCliPreset::Gemini, PermissionMode::Ask) => &["--approval-mode", "default"],
+            (AgentCliPreset::OpenCode | AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp, _) => &[],
+        }
+    }
+
+    /// Interactive CLI launch command for `mode` (`PermissionMode::Skip` vs `PermissionMode::Ask`).
+    pub fn cli_launch_command_for_mode(self, mode: PermissionMode) -> &'static str {
+        match (self, mode) {
+            (AgentCliPreset::Claude, PermissionMode::Skip) => {
+                "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+            }
+            (AgentCliPreset::Claude, PermissionMode::Ask) => {
+                "claude --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
+            }
+            (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
+            (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
+            (AgentCliPreset::Grok, PermissionMode::Skip) => "grok --always-approve --cwd \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Grok, PermissionMode::Ask) => "grok --cwd \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Antigravity, PermissionMode::Skip) => "agy --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Antigravity, PermissionMode::Ask) => "agy --add-dir \"$DESIGNOS_SESSION_DIR\"",
+            // `gemini` reads `<session_dir>/.gemini/settings.json` from its cwd (written by
+            // `write_gemini_session_config`) and never touches `~/.gemini/settings.json`.
+            (AgentCliPreset::Gemini, PermissionMode::Skip) => "gemini --approval-mode yolo --include-directories \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Gemini, PermissionMode::Ask) => "gemini --approval-mode default --include-directories \"$DESIGNOS_SESSION_DIR\"",
+            // `opencode` starts in `session_dir` (`opencode <project>`).
+            (AgentCliPreset::OpenCode, _) => "opencode \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp, _) => "",
+        }
+    }
+
     /// Interactive CLI launch command with dangerous-permission prompts skipped (`DIR-29`)
     /// and per-file `designos-mcp` + live current-page system prompt pre-wired.
     pub fn cli_launch_command(self) -> &'static str {
-        match self {
-            AgentCliPreset::Claude => {
-                "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Always read $DESIGNOS_CONTEXT_JSON for the current selected page (current_page_id / current_page_name) and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
-            }
-            // Codex hands an MCP child only the `env` / `env_vars` entries of its config, never the parent
-            // env, so the session variables `designos-mcp` reads are listed in `env_vars` and the
-            // workspace goes in as an argument (same server config as the other tabs' mcp-config.json).
-            //
-            // Status: Codex tabs keep the OSC / PTY-heuristic status path (`parse_osc_agent_status_and_strip`,
-            // `agent_status`); no session hooks are loaded here. Codex runs only hooks the user has reviewed
-            // (`hooks.state.*.trusted_hash` in `~/.codex/config.toml`), and Studio must not write or forge that
-            // trust, so hooks passed through `-c` were not run (checked on codex 0.163). `notify` is not used
-            // either: it would replace the user's own `notify` program in this tab, and it fires only when a
-            // turn ends, so it could never report `working`.
-            AgentCliPreset::Codex => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
-            // `grok` has no `--mcp-config` either. It reads the project config `<cwd>/.grok/config.toml`
-            // (see `write_grok_session_config`), so it is started inside the per-file session dir.
-            AgentCliPreset::Grok => "grok --always-approve --cwd \"$DESIGNOS_SESSION_DIR\"",
-            // `agy` has no `--mcp-config`. It discovers `<dir>/.agents/plugins/<name>/mcp_config.json` in every
-            // `--add-dir`, so the per-file session dir carries the `designos` server (see
-            // `write_agy_session_plugin`) without touching the user's global `~/.gemini/config/mcp_config.json`.
-            AgentCliPreset::Antigravity => "agy --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"",
-            AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "",
-        }
+        self.cli_launch_command_for_mode(PermissionMode::Skip)
     }
 
     /// Dropdown menu label and flag summary shown in the `+` runtime selector menu.
@@ -197,6 +239,8 @@ impl AgentCliPreset {
             AgentCliPreset::Codex => ("agents-runtime-codex", "Codex", "--dangerously-bypass-approvals-and-sandbox"),
             AgentCliPreset::Grok => ("agents-runtime-grok", "Grok", "--always-approve"),
             AgentCliPreset::Antigravity => ("agents-runtime-agy", "Antigravity", "--dangerously-skip-permissions"),
+            AgentCliPreset::Gemini => ("agents-runtime-gemini", "Gemini CLI", "--approval-mode yolo"),
+            AgentCliPreset::OpenCode => ("agents-runtime-opencode", "OpenCode", "opencode"),
             AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => ("agents-runtime-pty-toggle", "Shell", "$SHELL"),
         }
     }
@@ -226,6 +270,8 @@ pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
             dirs.push(PathBuf::from(format!("{home}/.antigravity/bin")));
             dirs.push(PathBuf::from(format!("{home}/.antigravity/antigravity/bin")));
             dirs.push(PathBuf::from(format!("{home}/.grok/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.npm-global/bin")));
+            dirs.push(PathBuf::from(format!("{home}/.opencode/bin")));
         }
     }
     if cfg!(windows) {
@@ -327,7 +373,7 @@ impl SessionEnv {
     }
 }
 
-/// Builds a shell-escaped real CLI invocation for `preset` (`claude`, `codex`, `agy`, `grok`, or shell)
+/// Builds a shell-escaped real CLI invocation for `preset` (`claude`, `codex`, `agy`, `grok`, `gemini`, `opencode`, or shell)
 /// with dangerous-permissions skipped (`DIR-29`) and per-file MCP/context environment exported.
 pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &Path, selection_json: &Path) -> String {
     let clean = sanitize_pty_paste_text(prompt);
@@ -365,6 +411,17 @@ pub fn build_real_cli_command(preset: AgentCliPreset, prompt: &str, live_spec: &
         ),
         AgentCliPreset::Grok => format!(
             "{env_prefix} GROK_FOLDER_TRUST='0' grok --always-approve -p '{escaped}' --cwd '{}'",
+            session_dir.display()
+        ),
+        AgentCliPreset::Gemini => format!(
+            "cd '{}' && {env_prefix} GEMINI_CLI_TRUSTED_FOLDERS_PATH='{}' gemini --approval-mode yolo -p '{escaped}' --include-directories '{}'",
+            session_dir.display(),
+            session_dir.join(".gemini").join("trustedFolders.json").display(),
+            session_dir.display()
+        ),
+        AgentCliPreset::OpenCode => format!(
+            "cd '{}' && {env_prefix} opencode -p '{escaped}' '{}'",
+            session_dir.display(),
             session_dir.display()
         ),
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => clean,
@@ -520,6 +577,8 @@ impl TerminalTab {
                     AgentCliPreset::Codex => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Codex.cli_launch_command()),
                     AgentCliPreset::Antigravity => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Antigravity.cli_launch_command()),
                     AgentCliPreset::Grok => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Grok.cli_launch_command()),
+                    AgentCliPreset::Gemini => build_agent_shell_cmd(&shell_bin, AgentCliPreset::Gemini.cli_launch_command()),
+                    AgentCliPreset::OpenCode => build_agent_shell_cmd(&shell_bin, AgentCliPreset::OpenCode.cli_launch_command()),
                 }
             }
         };
@@ -1118,6 +1177,7 @@ impl TerminalState {
             let _ = atomic_write_session_file(&mcp_config_path, &bytes);
             write_agy_session_plugin(&self.session_dir, &bytes);
         }
+        write_gemini_session_config(&self.session_dir, &mcp_config);
         write_grok_session_config(&self.session_dir, &mcp_config);
 
         let page_context = serde_json::json!({
@@ -1180,8 +1240,9 @@ impl TerminalState {
         let _ = atomic_write_session_file(&self.session_dir.join("SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".agents/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
-        // Codex, Grok and Antigravity read `AGENTS.md` from their cwd (the session dir).
+        // Codex, Grok, Antigravity, Gemini CLI, and OpenCode read `AGENTS.md` / `GEMINI.md` from their cwd (the session dir).
         let _ = atomic_write_session_file(&self.session_dir.join("AGENTS.md"), skill_md.as_bytes());
+        let _ = atomic_write_session_file(&self.session_dir.join("GEMINI.md"), skill_md.as_bytes());
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
@@ -1205,7 +1266,9 @@ impl TerminalState {
     pub fn apply_start_fix(&mut self, fix: FixAction, file_path: Option<&Path>) {
         match fix {
             FixAction::OpenInstallPage(url) => {
-                if let Err(e) = crate::home::open_link(url) {
+                if cfg!(test) {
+                    self.status_msg = Some(format!("Open {url} in your browser"));
+                } else if let Err(e) = crate::home::open_link(url) {
                     self.status_msg = Some(e);
                 }
             }
@@ -1913,10 +1976,17 @@ impl TerminalState {
     /// AI CLI preset if no PTY tab is open yet) and records a structured chat turn.
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         if self.tabs.is_empty() {
-            let preferred = [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok]
-                .into_iter()
-                .find(|p| p.is_installed())
-                .unwrap_or(AgentCliPreset::Shell);
+            let preferred = [
+                AgentCliPreset::Claude,
+                AgentCliPreset::Codex,
+                AgentCliPreset::Antigravity,
+                AgentCliPreset::Grok,
+                AgentCliPreset::Gemini,
+                AgentCliPreset::OpenCode,
+            ]
+            .into_iter()
+            .find(|p| p.is_installed())
+            .unwrap_or(AgentCliPreset::Shell);
             let _ = self.spawn_tab(preferred, file_path);
         }
         self.dock_open = true;
@@ -2570,13 +2640,13 @@ fn paint_orca_tab_status_and_provider(ui: &Ui, p: &Painter, tab: &TerminalTab, t
         }
     }
 
-    // Provider Color Badge / Vector Glyph (`Claude` #D97757, `Codex` #FAFAFA, `Grok` #E4E4E7, `Antigravity` #60A5FA, `Shell` `>_`)
+    // Provider Color Badge / Vector Glyph (`Claude` #D97757, `Codex`/`OpenCode` #FAFAFA, `Grok` #E4E4E7, `Antigravity`/`Gemini` #60A5FA, `Shell` `>_`)
     match tab.preset {
         AgentCliPreset::Claude => {
             let col = Color32::from_rgb(0xD9, 0x77, 0x57);
             p.circle_filled(provider_center, 2.3, col);
         }
-        AgentCliPreset::Codex => {
+        AgentCliPreset::Codex | AgentCliPreset::OpenCode => {
             let col = Color32::from_rgb(0xFA, 0xFA, 0xFA);
             p.circle_stroke(provider_center, 2.2, Stroke::new(1.2, col));
         }
@@ -2587,7 +2657,7 @@ fn paint_orca_tab_status_and_provider(ui: &Ui, p: &Painter, tab: &TerminalTab, t
                 Stroke::new(1.4, col),
             );
         }
-        AgentCliPreset::Antigravity => {
+        AgentCliPreset::Antigravity | AgentCliPreset::Gemini => {
             let col = Color32::from_rgb(0x60, 0xA5, 0xFA);
             p.circle_filled(provider_center, 2.3, col);
         }
@@ -2692,6 +2762,65 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) {
     let manifest = br#"{"name":"designos"}"#;
     let _ = atomic_write_session_file(&plugin_dir.join("plugin.json"), manifest);
     let _ = atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes);
+}
+
+/// Publishes the session's MCP server config as Gemini CLI's project settings at
+/// `<session_dir>/.gemini/settings.json` (`"trust": true`, identical to the output of
+/// `gemini mcp add --scope project --trust`) plus `<session_dir>/.gemini/trustedFolders.json`
+/// (`GEMINI_CLI_TRUSTED_FOLDERS_PATH`), leaving `~/.gemini/` untouched (`#679` §3 rule 4).
+pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
+    let _argv = build_gemini_mcp_add_argv(mcp_config);
+    let mut gemini_cfg = mcp_config.clone();
+    if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
+        designos.insert("trust".to_string(), serde_json::Value::Bool(true));
+    }
+    if let Ok(bytes) = serde_json::to_vec_pretty(&gemini_cfg) {
+        let settings_path = session_dir.join(".gemini").join("settings.json");
+        let _ = atomic_write_session_file(&settings_path, &bytes);
+    }
+
+    let mut trusted = serde_json::Map::new();
+    trusted.insert(session_dir.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
+    if let Ok(canon) = session_dir.canonicalize() {
+        trusted.insert(canon.display().to_string(), serde_json::Value::String("TRUST_FOLDER".to_string()));
+    }
+    if let Ok(bytes) = serde_json::to_vec_pretty(&serde_json::Value::Object(trusted)) {
+        let trusted_path = session_dir.join(".gemini").join("trustedFolders.json");
+        let _ = atomic_write_session_file(&trusted_path, &bytes);
+    }
+}
+
+/// Builds the project-scoped `gemini mcp add` argv (`#679` §3 rule 4) using only flags
+/// documented in `gemini mcp add --help` (`--scope project`, `--trust`, `-e KEY=value`),
+/// separating trailing server flags (`--workspace <dir>`) with `--`.
+pub fn build_gemini_mcp_add_argv(mcp_config: &serde_json::Value) -> Vec<String> {
+    let Some(server) = mcp_config.get("mcpServers").and_then(|s| s.get("designos")) else {
+        return Vec::new();
+    };
+    let command = server.get("command").and_then(|v| v.as_str()).unwrap_or("designos-mcp");
+    let mut argv = vec!["gemini".to_string(), "mcp".to_string(), "add".to_string(), "--scope".to_string(), "project".to_string(), "--trust".to_string()];
+    if let Some(env_obj) = server.get("env").and_then(|v| v.as_object()) {
+        for (k, v) in env_obj {
+            if let Some(val) = v.as_str() {
+                argv.push("-e".to_string());
+                argv.push(format!("{k}={val}"));
+            }
+        }
+    }
+    argv.push("designos".to_string());
+    argv.push(command.to_string());
+    if let Some(args) = server.get("args").and_then(|v| v.as_array()) {
+        let trailing: Vec<&str> = args.iter().filter_map(|a| a.as_str()).collect();
+        if !trailing.is_empty() {
+            if trailing.iter().any(|a| a.starts_with('-')) {
+                argv.push("--".to_string());
+            }
+            for arg in trailing {
+                argv.push(arg.to_string());
+            }
+        }
+    }
+    argv
 }
 
 /// Renders `s` as a TOML basic string. JSON string escapes are a valid subset of TOML's.
@@ -2855,6 +2984,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_TARGET_PAGE_ID", sess.current_page_id.to_string());
         cmd.env("DESIGNOS_TARGET_PAGE_NAME", &sess.current_page_name);
         cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
+        if preset == AgentCliPreset::Gemini {
+            cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
+        }
     } else {
         cmd.env("DESIGNOS_LIVE_SPEC", "/tmp/designos-live-agent-out.spec.json");
         cmd.env("DESIGNOS_SELECTION_JSON", "/tmp/designos-live-selection.spec.json");
@@ -6283,6 +6415,10 @@ Done!
             let agy_dirs = AgentCliPreset::Antigravity.install_dirs();
             assert!(agy_dirs.contains(&PathBuf::from(format!("{home}/.antigravity/bin"))), "{agy_dirs:?}");
             assert!(agy_dirs.contains(&PathBuf::from(format!("{home}/.antigravity/antigravity/bin"))), "{agy_dirs:?}");
+            let gemini_dirs = AgentCliPreset::Gemini.install_dirs();
+            assert!(gemini_dirs.contains(&PathBuf::from(format!("{home}/.npm-global/bin"))), "{gemini_dirs:?}");
+            let opencode_dirs = AgentCliPreset::OpenCode.install_dirs();
+            assert!(opencode_dirs.contains(&PathBuf::from(format!("{home}/.opencode/bin"))), "{opencode_dirs:?}");
         }
     }
 
@@ -6775,5 +6911,262 @@ Done!
     #[test]
     fn context_reply_still_excludes_the_selection() {
         prompt_hooks_print_only_what_each_cli_can_read_and_never_the_selection();
+    }
+
+    /// Every option `gemini --help` lists in Gemini CLI 0.38.2 (`plans/reports/release-060-evidence/cli-help-261019/gemini-help.txt`).
+    const GEMINI_0_38_2_FLAGS: &[&str] = &[
+        "-d",
+        "--debug",
+        "-m",
+        "--model",
+        "-p",
+        "--prompt",
+        "-i",
+        "--prompt-interactive",
+        "-s",
+        "--sandbox",
+        "-y",
+        "--yolo",
+        "--approval-mode",
+        "--experimental-acp",
+        "--allowed-mcp-server-names",
+        "--allowed-tools",
+        "-e",
+        "--extensions",
+        "-l",
+        "--list-extensions",
+        "-r",
+        "--resume",
+        "--list-sessions",
+        "--delete-session",
+        "--include-directories",
+        "-o",
+        "--output-format",
+        "--raw-output",
+        "--accept-raw-output-risk",
+        "--screen-reader",
+        "--worktree",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
+    ];
+
+    /// Every option `gemini mcp add --help` lists in Gemini CLI 0.38.2 (`plans/reports/release-060-evidence/cli-help-261019/gemini-mcp-add-help.txt`).
+    const GEMINI_MCP_ADD_0_38_2_FLAGS: &[&str] = &[
+        "-d",
+        "--debug",
+        "-s",
+        "--scope",
+        "-t",
+        "--transport",
+        "--type",
+        "-e",
+        "--env",
+        "-H",
+        "--header",
+        "--timeout",
+        "--trust",
+        "--description",
+        "--include-tools",
+        "--exclude-tools",
+        "-h",
+        "--help",
+    ];
+
+    /// Every option `opencode --help` lists in OpenCode 1.14.19 (`plans/reports/release-060-evidence/cli-help-261019/opencode-help.txt`).
+    const OPENCODE_1_14_19_FLAGS: &[&str] = &[
+        "-h",
+        "--help",
+        "-v",
+        "--version",
+        "--print-logs",
+        "--log-level",
+        "--port",
+        "--hostname",
+        "--mdns",
+        "--mdns-domain",
+        "--cors",
+        "-m",
+        "--model",
+        "-c",
+        "--continue",
+        "-s",
+        "--session",
+        "--fork",
+        "-p",
+        "--prompt",
+        "--agent",
+    ];
+
+    #[test]
+    fn gemini_launch_uses_only_flags_its_help_lists() {
+        for mode in [PermissionMode::Skip, PermissionMode::Ask] {
+            let interactive = AgentCliPreset::Gemini.cli_launch_command_for_mode(mode);
+            assert_eq!(unknown_flags(interactive, GEMINI_0_38_2_FLAGS), Vec::<String>::new(), "gemini tab launch ({mode:?}): {interactive}");
+            assert!(!interactive.contains("--mcp-config"), "gemini has no --mcp-config: {interactive}");
+            assert!(!interactive.contains("--dangerously-skip-permissions"), "gemini uses --approval-mode: {interactive}");
+            assert!(interactive.contains("--include-directories \"$DESIGNOS_SESSION_DIR\""), "{interactive}");
+        }
+
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let one_shot = build_real_cli_command(AgentCliPreset::Gemini, "Design card", live_spec, sel_json);
+        assert_eq!(unknown_flags(&one_shot, GEMINI_0_38_2_FLAGS), Vec::<String>::new(), "gemini one-shot launch: {one_shot}");
+
+        let resume_entry = crate::agent_sessions::SessionEntry {
+            tab_id: 1,
+            title: "Gemini CLI #1".to_string(),
+            cli: "gemini".to_string(),
+            session_id: None,
+            created_at: 100,
+            last_active_at: 200,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: std::collections::BTreeMap::new(),
+        };
+        let resume = crate::agent_sessions::build_resume_command(&resume_entry, false).expect("gemini resume");
+        assert_eq!(unknown_flags(&resume, GEMINI_0_38_2_FLAGS), Vec::<String>::new(), "gemini resume launch: {resume}");
+
+        let mcp_cfg = serde_json::json!({
+            "mcpServers": {
+                "designos": {
+                    "command": "designos-mcp",
+                    "args": ["--workspace", "/tmp/work"],
+                    "env": { "DESIGNOS_SESSION_DIR": "/tmp/sess" }
+                }
+            }
+        });
+        let mcp_add_argv = build_gemini_mcp_add_argv(&mcp_cfg);
+        // Only flags before the positional `<name> <commandOrUrl> [args...]` belong to `gemini mcp add`
+        let name_pos = mcp_add_argv.iter().position(|t| t == "designos").expect("server name positional");
+        let mcp_add_flags: Vec<String> =
+            mcp_add_argv[..name_pos].iter().filter(|t| t.starts_with('-')).filter(|t| !GEMINI_MCP_ADD_0_38_2_FLAGS.contains(&t.as_str())).cloned().collect();
+        assert_eq!(mcp_add_flags, Vec::<String>::new(), "gemini mcp add flags: {mcp_add_argv:?}");
+        assert!(mcp_add_argv.windows(2).any(|w| w == ["--scope", "project"]), "must use project scope: {mcp_add_argv:?}");
+    }
+
+    #[test]
+    fn opencode_launch_uses_only_flags_its_help_lists() {
+        for mode in [PermissionMode::Skip, PermissionMode::Ask] {
+            let interactive = AgentCliPreset::OpenCode.cli_launch_command_for_mode(mode);
+            assert_eq!(unknown_flags(interactive, OPENCODE_1_14_19_FLAGS), Vec::<String>::new(), "opencode tab launch ({mode:?}): {interactive}");
+            assert!(!interactive.contains("--mcp-config"), "opencode has no --mcp-config: {interactive}");
+        }
+
+        let live_spec = std::path::Path::new("/tmp/designos-session-x/live-agent-out.spec.json");
+        let sel_json = std::path::Path::new("/tmp/designos-session-x/selection.spec.json");
+        let one_shot = build_real_cli_command(AgentCliPreset::OpenCode, "Design card", live_spec, sel_json);
+        assert_eq!(unknown_flags(&one_shot, OPENCODE_1_14_19_FLAGS), Vec::<String>::new(), "opencode one-shot launch: {one_shot}");
+
+        for sid in [None, Some("ses_abc123".to_string())] {
+            let resume_entry = crate::agent_sessions::SessionEntry {
+                tab_id: 1,
+                title: "OpenCode #1".to_string(),
+                cli: "opencode".to_string(),
+                session_id: sid,
+                created_at: 100,
+                last_active_at: 200,
+                status: crate::agent_sessions::SessionEntryStatus::Exited,
+                extra: std::collections::BTreeMap::new(),
+            };
+            let resume = crate::agent_sessions::build_resume_command(&resume_entry, false).expect("opencode resume");
+            assert_eq!(unknown_flags(&resume, OPENCODE_1_14_19_FLAGS), Vec::<String>::new(), "opencode resume launch: {resume}");
+        }
+    }
+
+    #[test]
+    fn gemini_project_settings_written_in_the_session_folder_only() {
+        let home_settings = std::env::var("HOME").ok().filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".gemini").join("settings.json"));
+        let home_before = home_settings.as_ref().and_then(|p| std::fs::read(p).ok());
+
+        let mut st = TerminalState::for_tab(779);
+        let mut doc = Document::new("Gemini Session Settings File");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/gemini-session-file.designos")));
+
+        let session_settings_path = st.session_dir.join(".gemini").join("settings.json");
+        let session_settings = std::fs::read_to_string(&session_settings_path).expect("<session_dir>/.gemini/settings.json");
+        let parsed: serde_json::Value = serde_json::from_str(&session_settings).expect("parse .gemini/settings.json");
+        assert!(parsed["mcpServers"]["designos"]["command"].as_str().is_some());
+        assert_eq!(parsed["mcpServers"]["designos"]["trust"].as_bool(), Some(true));
+        assert_eq!(parsed["mcpServers"]["designos"]["env"]["DESIGNOS_FILE"].as_str(), Some("/tmp/gemini-session-file.designos"));
+        assert!(st.session_dir.join(".gemini").join("trustedFolders.json").is_file(), "trustedFolders.json must be written in session_dir/.gemini/");
+        assert!(st.session_dir.join("GEMINI.md").is_file(), "GEMINI.md must be written in session_dir");
+
+        let home_after = home_settings.as_ref().and_then(|p| std::fs::read(p).ok());
+        assert_eq!(home_before, home_after, "$HOME/.gemini/settings.json must never be modified by Studio");
+    }
+
+    #[test]
+    fn gemini_live_check() {
+        let mut st = TerminalState::for_tab(780);
+        let mut doc = Document::new("Gemini Live Check File");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/gemini-live-check.designos")));
+
+        let settings_path = st.session_dir.join(".gemini").join("settings.json");
+        let trusted_path = st.session_dir.join(".gemini").join("trustedFolders.json");
+        assert!(settings_path.is_file());
+        assert!(trusted_path.is_file());
+
+        // Verify the one-shot launch changes directory into `session_dir` and exports `GEMINI_CLI_TRUSTED_FOLDERS_PATH`.
+        let one_shot = build_real_cli_command(AgentCliPreset::Gemini, "List designos tools", &st.live_spec_path, &st.selection_spec_path);
+        assert!(one_shot.starts_with(&format!("cd '{}' && ", st.session_dir.display())), "one-shot must cd to session_dir: {one_shot}");
+        assert!(one_shot.contains("GEMINI_CLI_TRUSTED_FOLDERS_PATH="), "one-shot must set GEMINI_CLI_TRUSTED_FOLDERS_PATH: {one_shot}");
+
+        // Verify `build_gemini_mcp_add_argv` uses `--` before `--workspace` and when `gemini` is installed,
+        // `gemini mcp list` discovers the project-scoped `designos` server from `session_dir`.
+        let shared_mcp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("mcp-config.json")).unwrap()).unwrap();
+        let argv = build_gemini_mcp_add_argv(&shared_mcp);
+        assert!(argv.windows(2).any(|w| w == ["--", "--workspace"]), "must separate --workspace with --: {argv:?}");
+
+        if runtime_binary_available("gemini") {
+            let mut list_cmd = std::process::Command::new("gemini");
+            list_cmd.args(["mcp", "list"]).current_dir(&st.session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", &trusted_path);
+            if let Ok(out) = list_cmd.output() {
+                let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+                assert!(combined.contains("designos:"), "gemini mcp list must discover the session-scoped designos server: {combined}");
+            }
+        }
+
+        // Verify an edit written to the session's `doc-patch.jsonl` (as `designos-mcp` does) is polled by the session bridge.
+        let rect_id = doc.alloc_id();
+        let mut rect = designos_doc::Node::new(rect_id, designos_doc::NodeKind::Rectangle);
+        rect.name = "Gemini Card".into();
+        let patch = designos_doc::live_patch::LivePatch::new(vec![designos_doc::live_patch::LiveOp::Insert {
+            parent: page,
+            at: designos_doc::live_patch::SiblingHint::default(),
+            nodes: vec![rect],
+        }]);
+        let patch_line = format!("{}\n", serde_json::to_string(&patch).expect("serialize patch"));
+        std::fs::write(&st.live_patch.path, patch_line).expect("write patch to doc-patch.jsonl");
+        let actions = st.poll_live_agent_bridge();
+        assert!(actions.iter().any(|a| matches!(a, TerminalAction::ApplyLiveLog(_))), "edit in doc-patch.jsonl must reach Studio live bridge");
+    }
+
+    #[test]
+    fn permission_flags_per_mode() {
+        assert_eq!(AgentCliPreset::Claude.permission_flags(PermissionMode::Skip), &["--dangerously-skip-permissions"]);
+        assert_eq!(AgentCliPreset::Claude.permission_flags(PermissionMode::Ask), &[] as &[&str]);
+
+        assert_eq!(AgentCliPreset::Codex.permission_flags(PermissionMode::Skip), &["--dangerously-bypass-approvals-and-sandbox"]);
+        assert_eq!(AgentCliPreset::Codex.permission_flags(PermissionMode::Ask), &[] as &[&str]);
+
+        assert_eq!(AgentCliPreset::Grok.permission_flags(PermissionMode::Skip), &["--always-approve"]);
+        assert_eq!(AgentCliPreset::Grok.permission_flags(PermissionMode::Ask), &[] as &[&str]);
+
+        assert_eq!(AgentCliPreset::Antigravity.permission_flags(PermissionMode::Skip), &["--dangerously-skip-permissions"]);
+        assert_eq!(AgentCliPreset::Antigravity.permission_flags(PermissionMode::Ask), &[] as &[&str]);
+
+        assert_eq!(AgentCliPreset::Gemini.permission_flags(PermissionMode::Skip), &["--approval-mode", "yolo"]);
+        assert_eq!(AgentCliPreset::Gemini.permission_flags(PermissionMode::Ask), &["--approval-mode", "default"]);
+        assert!(AgentCliPreset::Gemini.cli_launch_command_for_mode(PermissionMode::Skip).contains("--approval-mode yolo"));
+        assert!(AgentCliPreset::Gemini.cli_launch_command_for_mode(PermissionMode::Ask).contains("--approval-mode default"));
+
+        // OpenCode has no permission bypass flag in `opencode --help`, so both modes omit the flag and pass `$DESIGNOS_SESSION_DIR`
+        assert_eq!(AgentCliPreset::OpenCode.permission_flags(PermissionMode::Skip), &[] as &[&str]);
+        assert_eq!(AgentCliPreset::OpenCode.permission_flags(PermissionMode::Ask), &[] as &[&str]);
+        assert_eq!(AgentCliPreset::OpenCode.cli_launch_command_for_mode(PermissionMode::Skip), "opencode \"$DESIGNOS_SESSION_DIR\"");
+        assert_eq!(AgentCliPreset::OpenCode.cli_launch_command_for_mode(PermissionMode::Ask), "opencode \"$DESIGNOS_SESSION_DIR\"");
     }
 }
