@@ -30,8 +30,12 @@ pub enum MentionPopupMode {
 pub struct MentionPopupState {
     pub open: bool,
     pub mode: MentionPopupMode,
+    /// Surface id that opened the popup when `mode == MentionPopupMode::TerminalHeader`.
+    pub terminal_surface: &'static str,
     /// Byte offset of `@` in `input_line` when `mode == MentionPopupMode::Composer`.
     pub at_byte: usize,
+    /// Byte offset where the composer cursor should be placed after acomposer mention pick.
+    pub post_pick_cursor_byte: Option<usize>,
     /// Current query text after `@` (or typed into the terminal-mode filter).
     pub query: String,
     /// Currently highlighted candidate index (`0..candidates.len()`).
@@ -64,14 +68,20 @@ impl MentionPopupState {
         self.open
     }
 
-    /// Opens or toggles the popup in terminal-header mode (`Mention` button).
-    pub fn toggle_terminal_mode(&mut self, doc: &Document, current_page: NodeId) {
-        if self.open && self.mode == MentionPopupMode::TerminalHeader {
+    /// Returns `true` when the popup is open in terminal-header mode for `surface`.
+    pub fn is_open_for_surface(&self, surface: &str) -> bool {
+        self.open && self.mode == MentionPopupMode::TerminalHeader && (self.terminal_surface.is_empty() || self.terminal_surface == surface)
+    }
+
+    /// Opens or toggles the popup in terminal-header mode bound to `surface`.
+    pub fn toggle_terminal_mode_for(&mut self, surface: &'static str, doc: &Document, current_page: NodeId) {
+        if self.open && self.mode == MentionPopupMode::TerminalHeader && (self.terminal_surface.is_empty() || self.terminal_surface == surface) {
             self.close();
             return;
         }
         self.open = true;
         self.mode = MentionPopupMode::TerminalHeader;
+        self.terminal_surface = surface;
         self.at_byte = 0;
         self.query.clear();
         self.active_index = 0;
@@ -82,6 +92,7 @@ impl MentionPopupState {
 
     pub fn close(&mut self) {
         self.open = false;
+        self.terminal_surface = "";
         self.search_job = None;
     }
 
@@ -239,24 +250,30 @@ impl MentionPopupState {
     }
 
     /// Replaces `@<query>` in `input_line` with `@<label> ` (in composer mode), records the
-    /// [`Mention`] in `active_mentions`, and closes the popup.
+    /// [`Mention`] in `active_mentions`, and closes the popup in composer mode.
+    /// In terminal-header mode, returns [`MentionPopupOutcome::PickedTerminal`] without closing so
+    /// the caller can keep the popup open when no agent tab accepted the paste.
     pub fn apply_pick(&mut self, cand: &MentionCandidate, input_line: &mut String, active_mentions: &mut Vec<Mention>) -> MentionPopupOutcome {
         let mention = Mention::from_candidate(cand);
         let mode = self.mode;
         if mode == MentionPopupMode::Composer {
             let start = self.at_byte.min(input_line.len());
-            let end = (start + 1 + self.query.len()).min(input_line.len());
-            let replacement = format!("@{} ", mention.label);
+            let token_end = start + input_line.get(start..).and_then(|s| s.find(char::is_whitespace)).unwrap_or_else(|| input_line.len().saturating_sub(start));
+            let end = token_end.max((start + 1 + self.query.len()).min(input_line.len()));
+            let trailing_ws_len = input_line.get(end..).and_then(|s| s.chars().next()).filter(|c| c.is_whitespace()).map(|c| c.len_utf8()).unwrap_or(0);
+            let replacement = if trailing_ws_len > 0 { format!("@{}", mention.label) } else { format!("@{} ", mention.label) };
             if input_line.is_char_boundary(start) && input_line.is_char_boundary(end) && start <= end {
                 input_line.replace_range(start..end, &replacement);
+                self.post_pick_cursor_byte = Some((start + replacement.len() + trailing_ws_len).min(input_line.len()));
             } else {
                 input_line.push_str(&replacement);
+                self.post_pick_cursor_byte = Some(input_line.len());
             }
             active_mentions.push(mention.clone());
             self.close();
+            self.dismissed_token = Some((start, mention.label.clone()));
             MentionPopupOutcome::PickedComposer(mention)
         } else {
-            self.close();
             MentionPopupOutcome::PickedTerminal(mention)
         }
     }

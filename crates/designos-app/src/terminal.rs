@@ -1123,6 +1123,8 @@ pub struct TerminalState {
     pub active_mentions: Vec<crate::agent_mention::Mention>,
     /// `@`-mention popup state (`#655`).
     pub mention_popup: crate::agent_mention_popup::MentionPopupState,
+    /// Last observed byte offset of the caret inside the composer `TextEdit` (`#655`).
+    pub composer_cursor_byte: Option<usize>,
 }
 
 impl Default for TerminalState {
@@ -1257,6 +1259,7 @@ impl TerminalState {
             approval_notifier,
             active_mentions: Vec::new(),
             mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
+            composer_cursor_byte: None,
         }
     }
 
@@ -2919,6 +2922,22 @@ impl TerminalState {
         false
     }
 
+    /// Pastes a terminal-header `@`-mention pick into the active agent tab (`#655`).
+    /// Closes the popup and reports the pasted label when accepted; keeps the popup open and sets
+    /// `"No agent tab open - nothing sent"` when no agent tab accepted the paste.
+    pub fn handle_terminal_mention_pick(&mut self, mention: &crate::agent_mention::Mention) -> bool {
+        let snippet = crate::agent_mention::format_terminal_paste_mention(mention);
+        if self.paste_into_agent_tab(&snippet) {
+            self.mention_popup.close();
+            self.status_msg = Some(format!("Pasted @{} into agent tab (press Enter to send)", mention.label));
+            true
+        } else {
+            self.mention_popup.open = true;
+            self.status_msg = Some("No agent tab open - nothing sent".to_string());
+            false
+        }
+    }
+
     /// Copies the `product-os-spec-driven` block citation to the system clipboard and a session
     /// file. Pastes only a single-line file reference into an already-open agent tab (never a
     /// shell tab, never auto-Enter, never spawns a tab).
@@ -4277,10 +4296,10 @@ pub fn show_left_with_doc(
             "agent-mention-btn-left",
             ctx_r.right() - theme::INSET_CONTROL,
             ctx_r,
-            state.mention_popup.is_open(),
+            state.mention_popup.is_open_for_surface("agents-left-pty"),
         );
         if mention_clicked {
-            state.mention_popup.toggle_terminal_mode(doc, current_page);
+            state.mention_popup.toggle_terminal_mode_for("agents-left-pty", doc, current_page);
         }
         let strip_right = (mention_btn_r.left() - theme::SPACE_INLINE).max(strip_left + theme::TARGET_MIN);
         let mut chip_right = strip_right;
@@ -4316,12 +4335,11 @@ pub fn show_left_with_doc(
             actions.push(TerminalAction::SendSelectionToAgent);
         }
 
-        if state.mention_popup.is_open() {
+        if state.mention_popup.is_open_for_surface("agents-left-pty") {
             state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
             let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
             if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
-                let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
-                let _ = state.paste_into_agent_tab(&snippet);
+                state.handle_terminal_mention_pick(&mention);
             }
         }
 
@@ -4343,11 +4361,10 @@ pub fn show_left_with_doc(
             state.apply_start_fix(fix, file_path);
         }
 
-        if state.mention_popup.is_open() {
+        if state.mention_popup.is_open_for_surface("agents-left-pty") {
             let show_outcome = state.mention_popup.show(ui, rect, ctx_r, &mut state.input_line, &mut state.active_mentions);
             if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
-                let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
-                let _ = state.paste_into_agent_tab(&snippet);
+                state.handle_terminal_mention_pick(&mention);
             }
         }
 
@@ -4681,9 +4698,24 @@ pub fn show_left_with_doc(
     p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 
-    state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
-    if state.mention_popup.is_open() {
+    let composer_id = Id::new("agents-ask-for-changes-input");
+    let pre_cursor_byte = egui::widgets::text_edit::TextEditState::load(ui.ctx(), composer_id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| state.input_line.char_indices().nth(usize::from(r.primary.index)).map(|(b, _)| b).unwrap_or(state.input_line.len()))
+        .or(state.composer_cursor_byte)
+        .unwrap_or(state.input_line.len())
+        .min(state.input_line.len());
+    state.mention_popup.sync_from_composer_text(&state.input_line, pre_cursor_byte, doc, current_page);
+    if state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer {
         let _ = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
+        if let Some(new_byte) = state.mention_popup.post_pick_cursor_byte.take() {
+            state.composer_cursor_byte = Some(new_byte);
+            if let Some(mut ts) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), composer_id) {
+                let cidx = state.input_line.get(..new_byte).map(|s| s.chars().count()).unwrap_or_else(|| state.input_line.chars().count());
+                ts.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cidx))));
+                ts.store(ui.ctx(), composer_id);
+            }
+        }
     }
 
     let input_rect = Rect::from_min_max(
@@ -4693,13 +4725,18 @@ pub fn show_left_with_doc(
     let mut submit_composer = false;
     ui.scope_builder(egui::UiBuilder::new().max_rect(input_rect), |ui| {
         let te = TextEdit::singleline(&mut state.input_line)
-            .id(Id::new("agents-ask-for-changes-input"))
+            .id(composer_id)
             .desired_width(input_rect.width())
             .frame(egui::Frame::NONE)
             .font(theme::font_body())
             .text_color(Color32::WHITE)
             .hint_text(RichText::new("Ask for changes").font(theme::font_body()).color(Color32::from_rgb(0x8C, 0x8C, 0x8C)));
-        let resp = ui.add(te);
+        let out = te.show(ui);
+        if let Some(cr) = out.cursor_range {
+            state.composer_cursor_byte =
+                Some(state.input_line.char_indices().nth(usize::from(cr.primary.index)).map(|(b, _)| b).unwrap_or(state.input_line.len()));
+        }
+        let resp = out.response;
         if resp.clicked() || resp.has_focus() {
             state.viewport_focused = false;
         }
@@ -4708,10 +4745,19 @@ pub fn show_left_with_doc(
         }
     });
 
-    state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
+    let post_cursor_byte = state.composer_cursor_byte.unwrap_or(state.input_line.len()).min(state.input_line.len());
+    state.mention_popup.sync_from_composer_text(&state.input_line, post_cursor_byte, doc, current_page);
     crate::agent_mention::prune_deleted_mentions(&state.input_line, &mut state.active_mentions);
-    if state.mention_popup.is_open() {
+    if state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer {
         let _ = state.mention_popup.show(ui, rect, composer_rect, &mut state.input_line, &mut state.active_mentions);
+        if let Some(new_byte) = state.mention_popup.post_pick_cursor_byte.take() {
+            state.composer_cursor_byte = Some(new_byte);
+            if let Some(mut ts) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), composer_id) {
+                let cidx = state.input_line.get(..new_byte).map(|s| s.chars().count()).unwrap_or_else(|| state.input_line.chars().count());
+                ts.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(cidx))));
+                ts.store(ui.ctx(), composer_id);
+            }
+        }
     }
 
     let off_20 = theme::SPACE_BLOCK + theme::SPACE_ROW;
@@ -5220,11 +5266,16 @@ fn render_terminal_surface(
     // `@ Mention` button in the terminal header (#655)
     let min_tabs_left = tab_bar_rect.left() + 148.0;
     if right_x - min_tabs_left >= theme::TARGET_MIN {
-        let (mention_btn_r, mention_clicked) =
-            crate::agent_mention_popup::paint_terminal_mention_button(ui, "agent-mention-btn-dock", right_x, tab_bar_rect, state.mention_popup.is_open());
+        let (mention_btn_r, mention_clicked) = crate::agent_mention_popup::paint_terminal_mention_button(
+            ui,
+            "agent-mention-btn-dock",
+            right_x,
+            tab_bar_rect,
+            state.mention_popup.is_open_for_surface(surface_id),
+        );
         right_x = mention_btn_r.left() - theme::SPACE_INLINE;
         if mention_clicked {
-            state.mention_popup.toggle_terminal_mode(doc, current_page);
+            state.mention_popup.toggle_terminal_mode_for(surface_id, doc, current_page);
         }
     }
 
@@ -5352,12 +5403,11 @@ fn render_terminal_surface(
         }
     }
 
-    if state.mention_popup.is_open() {
+    if state.mention_popup.is_open_for_surface(surface_id) {
         state.mention_popup.sync_from_composer_text(&state.input_line, state.input_line.len(), doc, current_page);
         let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut state.input_line, &mut state.active_mentions, doc, current_page);
         if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
-            let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
-            let _ = state.paste_into_agent_tab(&snippet);
+            state.handle_terminal_mention_pick(&mention);
         }
     }
 
@@ -5375,11 +5425,10 @@ fn render_terminal_surface(
         state.apply_start_fix(fix, file_path);
     }
 
-    if state.mention_popup.is_open() {
+    if state.mention_popup.is_open_for_surface(surface_id) {
         let show_outcome = state.mention_popup.show(ui, rect, tab_bar_rect, &mut state.input_line, &mut state.active_mentions);
         if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
-            let snippet = crate::agent_mention::format_terminal_paste_mention(&mention);
-            let _ = state.paste_into_agent_tab(&snippet);
+            state.handle_terminal_mention_pick(&mention);
         }
     }
 
@@ -9758,6 +9807,174 @@ Done!
         assert!(!user_turn.text.contains("9999"), "deleted mention must not be included in sent prompt");
         let ref_count = user_turn.text.lines().filter(|l| l.starts_with("References:")).count();
         assert_eq!(ref_count, 1, "duplicate @Hero/Title must be listed once");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn mention_pick_in_shell_tab_sends_zero_bytes_keeps_popup_and_claude_tab_receives_reference() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65503);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab");
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.mention_popup.toggle_terminal_mode_for("agents-left-pty", &doc, page);
+        assert!(st.mention_popup.is_open());
+
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 600.0));
+        let enter_raw = || egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            events: vec![egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+
+        // 1) Active tab is a Shell tab: Enter must write zero bytes, keep popup open, and set status.
+        let _ = ctx.run_ui(enter_raw(), |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
+            });
+        });
+        assert!(rec.lock().unwrap().is_empty(), "Shell tab must receive zero bytes when picking a mention");
+        assert!(st.mention_popup.is_open(), "popup must stay open when no agent tab accepted the paste");
+        assert_eq!(st.status_msg.as_deref(), Some("No agent tab open - nothing sent"));
+
+        // 2) Active tab is a live Claude tab: Enter pastes `@A (designos:node/<id>)` and closes popup.
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let _ = ctx.run_ui(enter_raw(), |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
+            });
+        });
+        assert!(!st.mention_popup.is_open(), "popup must close once live Claude tab accepts the paste");
+        let bytes = rec.lock().unwrap().clone();
+        let pasted = String::from_utf8_lossy(&bytes);
+        let expected_ref = format!("@A (designos:node/{})", ids[0].0);
+        assert!(pasted.contains(&expected_ref), "expected live Claude tab to receive {expected_ref}, got {pasted:?}");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn at_mention_typed_before_trailing_words_opens_popup_and_replaces_only_that_token() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, _ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65504);
+        st.side_panel_pty_open = false;
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.input_line = "make @a red".to_string();
+
+        let input_id = Id::new("agents-ask-for-changes-input");
+        let mut te_state = egui::widgets::text_edit::TextEditState::default();
+        te_state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(7))));
+        te_state.store(&ctx, input_id);
+        ctx.memory_mut(|m| m.request_focus(input_id));
+
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 600.0));
+        let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
+            });
+        });
+        assert!(st.mention_popup.is_open(), "@a typed before trailing words must open the mention popup");
+        assert_eq!(st.mention_popup.query, "a");
+
+        // Press Enter in the next frame -> replaces only `@a` with `@A` and preserves trailing `red`.
+        let raw_enter = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            events: vec![egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_enter, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
+            });
+        });
+        assert!(
+            !st.mention_popup.is_open(),
+            "Enter must close the popup after replacing the token: input={:?}, cursor={:?}, popup={:?}",
+            st.input_line,
+            st.composer_cursor_byte,
+            st.mention_popup
+        );
+        assert_eq!(st.input_line, "make @A red");
+        assert_eq!(st.active_mentions.len(), 1);
+        assert_eq!(st.active_mentions[0].label, "A");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn mention_popup_renders_only_on_the_surface_that_opened_it() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let mut st = TerminalState::for_tab(65505);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
+        let rec = attach_recorder(st.active_tab_mut().unwrap());
+        st.sync_live_file_context(&doc, page, &[], None);
+
+        let left_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+        let dock_rect = Rect::from_min_size(Pos2::new(340.0, 500.0), Vec2::new(900.0, 360.0));
+
+        // Frame 1: paint both left PTY and dock surface to record `agent-mention-btn-dock`.
+        let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
+                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
+            });
+        });
+        let dock_btn: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-btn-dock".to_string())))).expect("dock mention button rect");
+
+        // Frame 2: click `agent-mention-btn-dock` while both surfaces are rendered.
+        let click_ev = |pos: Pos2| egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(click_ev(dock_btn.center()), |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
+                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
+            });
+        });
+        assert!(st.mention_popup.is_open(), "clicking dock @ Mention must open popup");
+
+        // Frame 3: paint so dock popup records `agent-mention-row-0` inside `dock_rect`, then click it.
+        let raw1 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw1, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
+                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
+            });
+        });
+        let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-row-0".to_string())))).expect("row 0 rect");
+        assert!(dock_rect.contains(row0.center()), "popup must render inside the dock surface that opened it, got {row0:?}");
+
+        let _ = ctx.run_ui(click_ev(row0.center()), |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
+                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
+            });
+        });
+        assert!(!st.mention_popup.is_open(), "clicking a row in the dock popup must pick and close");
+        let pasted = String::from_utf8_lossy(&rec.lock().unwrap()).to_string();
+        assert!(pasted.contains(&format!("@A (designos:node/{})", ids[0].0)), "dock row click must paste mention into Claude tab, got {pasted:?}");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
