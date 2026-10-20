@@ -42,7 +42,8 @@ pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
 pub use pen::{export_pen_json, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenImport, PenImportOptions, PenWarning};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{
-    image_refs, import_rest_json, import_rest_json_with_budget, import_rest_json_with_report, ImportReport, CLONE_BUDGET_TOTAL, MAX_IMPORT_CLONES,
+    image_refs, import_rest_json, import_rest_json_with_budget, import_rest_json_with_report, ImportReport as RestImportReport, CLONE_BUDGET_TOTAL,
+    MAX_IMPORT_CLONES,
 };
 pub use variables::{export_variables_json, export_variables_meta, import_variables_json, import_variables_value};
 pub use variables_dtcg::{
