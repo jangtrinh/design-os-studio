@@ -139,9 +139,10 @@ struct SnapCompEntry {
     snap_node: Option<NodeId>,
 }
 
-/// Per-call component lookup cache (O(components) one-time build per `apply_spec` call).
+/// Per-call component lookup cache (lazily indexed on first component lookup).
 pub(crate) struct SpecBuildCtx<'a> {
     pub snapshots: &'a [LibrarySnapshot],
+    indexed: bool,
     local_by_name: HashMap<String, Vec<NodeId>>,
     local_list: Vec<(NodeId, String)>,
     ext_by_full_key: HashMap<String, ExternalCompEntry>,
@@ -152,6 +153,7 @@ pub(crate) struct SpecBuildCtx<'a> {
     snap_list: Vec<SnapCompEntry>,
     imported_in_call: HashMap<(String, String), NodeId>,
     pub import_cmds: Vec<Command>,
+    pub import_invs: Vec<Command>,
     pub imported_assets: Vec<String>,
     pub stale_library_assets: Vec<String>,
     pub instances: Vec<PlacedInstanceInfo>,
@@ -160,7 +162,35 @@ pub(crate) struct SpecBuildCtx<'a> {
 }
 
 impl<'a> SpecBuildCtx<'a> {
-    pub fn new(doc: &Document, snapshots: &'a [LibrarySnapshot]) -> Self {
+    pub fn new(_doc: &Document, snapshots: &'a [LibrarySnapshot]) -> Self {
+        Self {
+            snapshots,
+            indexed: false,
+            local_by_name: HashMap::new(),
+            local_list: Vec::new(),
+            ext_by_full_key: HashMap::new(),
+            ext_by_raw_key: HashMap::new(),
+            ext_by_name: HashMap::new(),
+            snap_by_key: HashMap::new(),
+            snap_by_name: HashMap::new(),
+            snap_list: Vec::new(),
+            imported_in_call: HashMap::new(),
+            import_cmds: Vec::new(),
+            import_invs: Vec::new(),
+            imported_assets: Vec::new(),
+            stale_library_assets: Vec::new(),
+            instances: Vec::new(),
+            issues: Vec::new(),
+            touched_slot_containers: HashMap::new(),
+        }
+    }
+
+    fn ensure_indexed(&mut self, doc: &Document) {
+        if self.indexed {
+            return;
+        }
+        self.indexed = true;
+        let snapshots = self.snapshots;
         let enabled_snap_indices: Vec<usize> = snapshots
             .iter()
             .enumerate()
@@ -250,24 +280,14 @@ impl<'a> SpecBuildCtx<'a> {
             }
         }
 
-        Self {
-            snapshots,
-            local_by_name,
-            local_list,
-            ext_by_full_key,
-            ext_by_raw_key,
-            ext_by_name,
-            snap_by_key,
-            snap_by_name,
-            snap_list,
-            imported_in_call: HashMap::new(),
-            import_cmds: Vec::new(),
-            imported_assets: Vec::new(),
-            stale_library_assets: Vec::new(),
-            instances: Vec::new(),
-            issues: Vec::new(),
-            touched_slot_containers: HashMap::new(),
-        }
+        self.local_by_name = local_by_name;
+        self.local_list = local_list;
+        self.ext_by_full_key = ext_by_full_key;
+        self.ext_by_raw_key = ext_by_raw_key;
+        self.ext_by_name = ext_by_name;
+        self.snap_by_key = snap_by_key;
+        self.snap_by_name = snap_by_name;
+        self.snap_list = snap_list;
     }
 
     fn record_stale(&mut self, raw_key: &str) {
@@ -298,8 +318,9 @@ impl<'a> SpecBuildCtx<'a> {
 
         let snap = &self.snapshots[entry.snap_idx];
         let cmd = import_asset(doc, snap, &entry.asset_key, None);
-        cmd.clone().apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
+        let inv = cmd.clone().apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
         self.import_cmds.push(cmd);
+        self.import_invs.push(inv);
         if !self.imported_assets.contains(&entry.asset_key) {
             self.imported_assets.push(entry.asset_key.clone());
         }
@@ -339,6 +360,7 @@ impl<'a> SpecBuildCtx<'a> {
     }
 
     pub fn resolve_component(&mut self, doc: &mut Document, reference: &str, spec_for_example: Option<&NodeSpec>) -> Result<NodeId, SpecError> {
+        self.ensure_indexed(doc);
         let r = reference.trim();
         if r.is_empty() {
             let valid = self.closest_component_names("");
@@ -1243,21 +1265,6 @@ pub(crate) fn apply_overrides_with_ctx(
 
         // 7. Visibility (`visible`)
         if let Some(vis) = ov.visible {
-            if is_slot_container(doc, target_id) {
-                if let Some(prev_op) = ctx.touched_slot_containers.get(&target_id) {
-                    return Err(SpecError::named(
-                        "INVALID_SLOT_VALUE",
-                        format!(
-                            "Conflicting slot operations on '{}' (already touched via {prev_op})",
-                            doc.get(target_id).map(|n| n.name.as_str()).unwrap_or("")
-                        ),
-                        Some("overrides.visible".into()),
-                        vec!["false".into(), "[NodeSpec...]".into()],
-                        None,
-                    ));
-                }
-                ctx.touched_slot_containers.insert(target_id, "overrides.visible".into());
-            }
             if let Some(node) = doc.get_mut(target_id) {
                 node.visible = vis;
                 node.component.overrides.insert(OverrideField::Visible);
@@ -1902,34 +1909,36 @@ impl Document {
         Ok(report)
     }
 
+    #[allow(clippy::type_complexity)]
     fn collect_instance_slots(
         &self,
         instance_id: NodeId,
         all_comments: &[ResolvedCommentThread],
-    ) -> Result<(BTreeMap<String, SlotFillSpec>, BTreeSet<NodeId>), String> {
+    ) -> Result<(BTreeMap<String, SlotFillSpec>, BTreeSet<NodeId>, BTreeSet<NodeId>), String> {
         let mut slots = BTreeMap::new();
-        let mut handled_containers = BTreeSet::new();
+        let mut skip_containers = BTreeSet::new();
+        let mut skip_children = BTreeSet::new();
         let Some(comp_id) = self.get(instance_id).and_then(instance_component) else {
-            return Ok((slots, handled_containers));
+            return Ok((slots, skip_containers, skip_children));
         };
         for slot_name in declared_slots_of_component(self, comp_id) {
             let Some(slot_cid) = find_instance_slot_container(self, instance_id, &slot_name, &slot_name) else {
                 continue;
             };
             let Some(sn) = self.get(slot_cid) else { continue };
-            if sn.component.overrides.contains(&OverrideField::Visible) && !sn.visible {
-                slots.insert(slot_name, SlotFillSpec::Disabled(FalseLiteral));
-                handled_containers.insert(slot_cid);
-            } else if sn.component.overrides.contains(&OverrideField::SlotContent) {
+            if sn.component.overrides.contains(&OverrideField::SlotContent) {
                 let mut child_specs = Vec::with_capacity(sn.children.len());
                 for &child_id in &sn.children {
                     child_specs.push(self.export_spec_inner(child_id, all_comments)?);
                 }
                 slots.insert(slot_name, SlotFillSpec::Fill(child_specs));
-                handled_containers.insert(slot_cid);
+                skip_children.insert(slot_cid);
+            } else if sn.component.overrides.contains(&OverrideField::Visible) && !sn.visible {
+                slots.insert(slot_name, SlotFillSpec::Disabled(FalseLiteral));
+                skip_containers.insert(slot_cid);
             }
         }
-        Ok((slots, handled_containers))
+        Ok((slots, skip_containers, skip_children))
     }
 
     pub(crate) fn export_instance_spec_node(&self, id: NodeId, all_comments: &[ResolvedCommentThread]) -> Result<NodeSpec, String> {
@@ -1975,9 +1984,9 @@ impl Document {
             }
         }
 
-        let (slots, mut handled_containers) = self.collect_instance_slots(id, all_comments)?;
+        let (slots, mut skip_containers, mut skip_children) = self.collect_instance_slots(id, all_comments)?;
         let mut overrides = Vec::new();
-        self.collect_exported_overrides(id, "", all_comments, &mut handled_containers, &mut overrides);
+        self.collect_exported_overrides(id, "", all_comments, &mut skip_containers, &mut skip_children, &mut overrides);
 
         let size_overridden = n.component.overrides.contains(&OverrideField::Size);
         let opacity = if n.component.overrides.contains(&OverrideField::Opacity) { n.opacity } else { 1.0 };
@@ -2036,7 +2045,8 @@ impl Document {
         parent: NodeId,
         prefix: &str,
         all_comments: &[ResolvedCommentThread],
-        handled_slot_containers: &mut BTreeSet<NodeId>,
+        skip_slot_containers: &mut BTreeSet<NodeId>,
+        skip_slot_children: &mut BTreeSet<NodeId>,
         out: &mut Vec<OverrideSpec>,
     ) {
         let Some(pnode) = self.get(parent) else {
@@ -2051,7 +2061,7 @@ impl Document {
         let mut seen: HashMap<&str, usize> = HashMap::new();
 
         for &cid in &pnode.children {
-            if handled_slot_containers.contains(&cid) {
+            if skip_slot_containers.contains(&cid) {
                 continue;
             }
             let Some(cn) = self.get(cid) else {
@@ -2113,12 +2123,13 @@ impl Document {
                         }
                     }
                 }
-                if let Ok((nested_slots, nested_handled)) = self.collect_instance_slots(cid, all_comments) {
+                if let Ok((nested_slots, nested_skip_containers, nested_skip_children)) = self.collect_instance_slots(cid, all_comments) {
                     if !nested_slots.is_empty() {
                         spec_ov.slots = nested_slots;
                         any_field = true;
                     }
-                    handled_slot_containers.extend(nested_handled);
+                    skip_slot_containers.extend(nested_skip_containers);
+                    skip_slot_children.extend(nested_skip_children);
                 }
             }
 
@@ -2169,41 +2180,94 @@ impl Document {
                 out.push(spec_ov);
             }
 
-            self.collect_exported_overrides(cid, &rel_path, all_comments, handled_slot_containers, out);
+            if !skip_slot_children.contains(&cid) {
+                self.collect_exported_overrides(cid, &rel_path, all_comments, skip_slot_containers, skip_slot_children, out);
+            }
         }
     }
 }
 
-/// Builds `spec` on a trial clone of `doc` and returns a single undoable [`Command`]
-/// (combining any library `import_asset` commands and the subtree `Command::Insert`)
-/// along with [`ApplySpecReport`]. On any error, `doc` is untouched.
+/// Builds `spec` in-place on `doc`, rolls back the trial mutations, and returns a single undoable
+/// [`Command`] (combining any library `import_asset` commands and the subtree `Command::Insert`)
+/// along with [`ApplySpecReport`]. Both before `Command::apply` runs and on any error, `doc` is
+/// left completely untouched.
 pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, snapshots: &[LibrarySnapshot]) -> Result<(Command, ApplySpecReport), SpecError> {
     let pnode = doc.get(parent).ok_or_else(|| SpecError::plain(format!("Parent node {} not found", parent.0)))?;
     if !pnode.kind.is_container() {
         return Err(SpecError::plain(format!("Parent node {} is not a container", parent.0)));
     }
 
-    let mut trial = doc.clone();
-    let mut ctx = SpecBuildCtx::new(&trial, snapshots);
-    let root_id = trial.build_spec_node_with_ctx(parent, spec, &mut ctx)?;
+    let prev_next_id = doc.next_id;
+    let prev_gap_cursor = doc.gap_cursor;
+    let prev_library_page = doc.library_page;
+    let prev_library_state = doc.library.clone();
+    let prev_dirty = doc.dirty.clone();
+    let prev_pending_relayout = doc.pending_relayout.clone();
+    let parent_index = pnode.children.len();
+    let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
+    let mut saved_parent_geom = Vec::new();
+    if parent_has_al {
+        doc.walk(parent, |n, _| saved_parent_geom.push((n.id, n.transform, n.size)));
+    }
 
-    let relayout_root = if trial.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
-    trial.relayout_subtree(relayout_root);
-    trial.flush_pending_relayout();
+    let rollback = |doc: &mut Document, ctx: &mut SpecBuildCtx<'_>| {
+        if let Some(added) = doc.get(parent).map(|p| p.children.get(parent_index..).unwrap_or_default().to_vec()) {
+            for cid in added {
+                let _ = Command::Remove { id: cid }.apply(doc);
+            }
+        }
+        for &(nid, tf, sz) in &saved_parent_geom {
+            if let Some(n) = doc.get_mut(nid) {
+                n.transform = tf;
+                n.size = sz;
+            }
+        }
+        for inv in ctx.import_invs.drain(..).rev() {
+            let _ = inv.apply(doc);
+        }
+        if prev_library_page.is_none() {
+            if let Some(lp_id) = doc.library_page.take() {
+                doc.nodes.remove(&lp_id);
+            }
+        }
+        doc.next_id = prev_next_id;
+        doc.gap_cursor = prev_gap_cursor;
+        doc.dirty = prev_dirty.clone();
+        doc.pending_relayout = prev_pending_relayout.clone();
+    };
+
+    let mut ctx = SpecBuildCtx::new(doc, snapshots);
+    let root_id = match doc.build_spec_node_with_ctx(parent, spec, &mut ctx) {
+        Ok(id) => id,
+        Err(e) => {
+            rollback(doc, &mut ctx);
+            return Err(e);
+        }
+    };
+
+    let relayout_root = if parent_has_al { parent } else { root_id };
+    doc.relayout_subtree(relayout_root);
+    doc.flush_pending_relayout();
 
     let mut nodes = Vec::new();
-    trial.walk(root_id, |n, _| nodes.push(n.clone()));
-    let index = doc.get(parent).ok_or_else(|| SpecError::plain("parent not found"))?.children.len();
-    let insert_cmd = Command::Insert { parent, index, nodes };
+    doc.walk(root_id, |n, _| nodes.push(n.clone()));
+    let insert_cmd = Command::Insert { parent, index: parent_index, nodes };
 
     // Build slash-separated name_to_id map from the spec root
     let mut name_to_id = BTreeMap::new();
-    populate_name_to_id(&trial, root_id, "", &mut name_to_id);
+    populate_name_to_id(doc, root_id, "", &mut name_to_id);
+
+    let created_library_page = prev_library_page.is_none().then_some(doc.library_page).flatten();
+    rollback(doc, &mut ctx);
 
     let final_cmd = if ctx.import_cmds.is_empty() {
         insert_cmd
     } else {
-        let mut cmds = ctx.import_cmds;
+        let mut cmds = Vec::with_capacity(ctx.import_cmds.len() + 2);
+        if let Some(lp_id) = created_library_page {
+            cmds.push(Command::SetLibraryState { state: prev_library_state, library_page: Some(lp_id) });
+        }
+        cmds.extend(ctx.import_cmds);
         cmds.push(insert_cmd);
         Command::Batch(cmds)
     };
@@ -2680,7 +2744,7 @@ mod tests {
         assert!(history.undo(&mut consumer).unwrap());
         assert!(consumer.get(page).unwrap().children.is_empty());
         assert!(consumer.library.external.is_empty());
-        assert!(consumer.get(lp).unwrap().children.is_empty());
+        assert!(consumer.get(lp).is_none_or(|n| n.children.is_empty()));
     }
 
     #[test]
@@ -3325,13 +3389,33 @@ mod tests {
         let err_cycle = doc.apply_spec_with_libraries(page, &cycle_spec, &[]).unwrap_err();
         assert_eq!(err_cycle.code, "INSTANCE_CYCLE");
 
-        // §8.4: Disabling and filling / touching the same slot container in one spec -> INVALID_SLOT_VALUE
-        let conflict_spec: NodeSpec = serde_json::from_value(json!({
+        // §8.4: Disabling a slot via `slots: {"footer": false}` then re-enabling via `overrides`
+        // succeeds and records `OverrideField::Visible` on the slot container.
+        let reenable_spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Card",
+            "slots": {
+                "footer": false
+            },
+            "overrides": [
+                { "path": "footer", "visible": true }
+            ]
+        }))
+        .unwrap();
+        let reenabled_id = doc.apply_spec(page, &reenable_spec).unwrap();
+        let reenabled_footer_id = resolve_override_path(&doc, reenabled_id, "footer").unwrap();
+        let reenabled_footer = doc.get(reenabled_footer_id).unwrap();
+        assert!(reenabled_footer.visible, "override visible: true must re-enable disabled slot");
+        assert!(reenabled_footer.component.overrides.contains(&OverrideField::Visible));
+
+        // Filling a slot and hiding it via `overrides: [{"path": "body", "visible": false}]`
+        // succeeds AND round-trips both `slots` and `overrides` through `export_spec`.
+        let fill_and_hide_spec: NodeSpec = serde_json::from_value(json!({
             "kind": "instance",
             "component": "Card",
             "slots": {
                 "body": [
-                    { "kind": "instance", "component": "FormRow" }
+                    { "kind": "instance", "name": "HiddenRow", "component": "FormRow" }
                 ]
             },
             "overrides": [
@@ -3339,8 +3423,25 @@ mod tests {
             ]
         }))
         .unwrap();
-        let err_conflict = doc.apply_spec_with_libraries(page, &conflict_spec, &[]).unwrap_err();
-        assert_eq!(err_conflict.code, "INVALID_SLOT_VALUE");
+        let fill_hide_id = doc.apply_spec(page, &fill_and_hide_spec).unwrap();
+        let fill_hide_body_id = resolve_override_path(&doc, fill_hide_id, "body").unwrap();
+        let fill_hide_body = doc.get(fill_hide_body_id).unwrap();
+        assert!(!fill_hide_body.visible);
+        assert_eq!(fill_hide_body.children.len(), 1);
+        assert!(fill_hide_body.component.overrides.contains(&OverrideField::SlotContent));
+        assert!(fill_hide_body.component.overrides.contains(&OverrideField::Visible));
+
+        let exported_fill_hide = doc.export_spec(fill_hide_id).unwrap();
+        assert!(
+            matches!(exported_fill_hide.slots.get("body"), Some(SlotFillSpec::Fill(children)) if children.len() == 1 && children[0].name == "HiddenRow"),
+            "export_spec must preserve filled slot children even when slot container has visible=false: {:?}",
+            exported_fill_hide.slots
+        );
+        assert!(
+            exported_fill_hide.overrides.iter().any(|o| o.path.as_deref() == Some("body") && o.visible == Some(false)),
+            "export_spec must also emit visible=false override for hidden filled slot: {:?}",
+            exported_fill_hide.overrides
+        );
 
         // Raw JSON `"footer": true` pre-validation -> INVALID_SLOT_VALUE
         let err_true = validate_raw_spec_slots(&json!({
@@ -3368,5 +3469,55 @@ mod tests {
         let fixed_row = doc.get(doc.get(body_id).unwrap().children[0]).unwrap();
         assert_eq!(fixed_row.size.x, 120.0);
         assert_eq!(fixed_row.layout_child.horizontal, Sizing::Fixed);
+    }
+
+    #[test]
+    fn apply_spec_command_leaves_doc_unmutated_until_command_apply_and_undoes_library_import() {
+        // Build a library document with a component that uses an image fill
+        let mut lib_doc = fixtures::card_with_slots();
+        lib_doc.images.insert("dot_hash".into(), vec![0x89, 0x50, 0x4E, 0x47]);
+        let card_comp_id = lib_doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Card").unwrap().id;
+        lib_doc.get_mut(card_comp_id).unwrap().fills.push(Paint {
+            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        });
+        let snap = snapshot(&lib_doc, "ui_kit", "UI Kit", 1);
+
+        let mut doc = Document::new("Consumer");
+        let page = doc.add_page("Page 1");
+        doc.library.enabled.push(LibraryRef { id: "ui_kit".into(), name: "UI Kit".into(), version: 1 });
+        let before_json = doc.to_json().unwrap();
+
+        let spec: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "name": "ImportedCard",
+            "component": "Card",
+            "slots": {
+                "body": [
+                    { "kind": "instance", "name": "Row1", "component": "FormRow" }
+                ],
+                "footer": false
+            }
+        }))
+        .unwrap();
+
+        // Building the command must NOT leave `doc` mutated before `cmd.apply` runs.
+        let (cmd, report) = apply_spec_command(&mut doc, page, &spec, std::slice::from_ref(&snap)).unwrap();
+        assert_eq!(doc.to_json().unwrap(), before_json, "apply_spec_command must not mutate doc before cmd.apply");
+
+        // Applying `cmd` creates the library page, imports components & image, and places the instance.
+        let inv = cmd.apply(&mut doc).unwrap();
+        assert!(doc.library_page.is_some());
+        assert!(doc.get(doc.library_page.unwrap()).is_some());
+        assert!(!doc.images.is_empty());
+        assert!(doc.get(report.root_node_id).is_some());
+
+        // Applying `inv` (undo) restores `doc` completely, removing the library page node and imported images.
+        inv.apply(&mut doc).unwrap();
+        assert!(doc.library_page.is_none());
+        assert!(doc.images.is_empty());
+        assert_eq!(doc.nodes.len(), 1, "only Page 1 should remain in doc.nodes after undo");
     }
 }

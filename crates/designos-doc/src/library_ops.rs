@@ -350,14 +350,38 @@ pub fn snapshot(doc: &Document, library_id: &str, name: &str, version: u32) -> L
             LibraryAssetKind::Component | LibraryAssetKind::ComponentSet => {
                 let root = comp_entries.iter().find(|(k, _)| *k == key).map(|(_, id)| *id);
                 let mut deps: Vec<String> = Vec::new();
+                let mut add_dep = |c: &NodeId| {
+                    if let Some(r) = refs.get(c) {
+                        let dep = r.split('#').next().unwrap_or(r).to_string();
+                        if dep != key && !deps.contains(&dep) {
+                            deps.push(dep);
+                        }
+                    }
+                };
                 if let Some(root) = root {
                     for id in subtree(&snap.nodes, root) {
-                        if let NodeKind::Instance { component: Some(c), .. } = &snap.nodes[&id].kind {
-                            if let Some(r) = refs.get(c) {
-                                let dep = r.split('#').next().unwrap_or(r).to_string();
-                                if dep != key && !deps.contains(&dep) {
-                                    deps.push(dep);
+                        let sn = &snap.nodes[&id];
+                        if let NodeKind::Instance { component: Some(c), .. } = &sn.kind {
+                            add_dep(c);
+                        }
+                        for prop in &sn.component.props {
+                            if let PropValue::Instance(c) = &prop.default {
+                                add_dep(c);
+                            }
+                            if let PropKind::InstanceSwap { preferred } = &prop.kind {
+                                for p in preferred {
+                                    add_dep(p);
                                 }
+                            }
+                        }
+                        for val in sn.component.values.values() {
+                            if let PropValue::Instance(c) = val {
+                                add_dep(c);
+                            }
+                        }
+                        for cfg in sn.component.slot_configs.values() {
+                            for p in &cfg.preferred {
+                                add_dep(p);
                             }
                         }
                     }
@@ -839,7 +863,9 @@ impl<'a> Trial<'a> {
         n.parent = parent;
         n.children = n.children.iter().filter_map(|c| idmap.get(c).copied()).collect();
         n.source_id = None;
-        n.component.source = n.component.source.and_then(|s| idmap.get(&s).copied());
+        let mapped_source = n.component.source.and_then(|s| idmap.get(&s).copied());
+        crate::renumber_ids::remap_component_link(&mut n.component, &|cid| idmap.get(&cid).copied().unwrap_or(cid));
+        n.component.source = mapped_source;
         if let NodeKind::Instance { component, .. } = &mut n.kind {
             *component = component.and_then(|c| idmap.get(&c).copied());
         }

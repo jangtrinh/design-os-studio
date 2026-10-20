@@ -157,15 +157,20 @@ impl Command {
                 Command::SetComments { comments: std::mem::replace(&mut doc.comments, comments) }
             }
             Command::SetLibraryState { state, library_page } => {
-                if let Some(lp_id) = library_page {
-                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp_id) {
-                        let mut n = Node::new(lp_id, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
+                if let Some(lp) = library_page {
+                    if let std::collections::btree_map::Entry::Vacant(e) = doc.nodes.entry(lp) {
+                        let mut n = Node::new(lp, NodeKind::Page { background: Color::rgb(0x5A, 0x5A, 0x5A) });
                         n.name = "Library".into();
                         e.insert(n);
-                        doc.bump_ids();
+                        doc.mark_node_dirty(lp);
+                    }
+                    doc.bump_ids();
+                } else if let Some(old_lp) = doc.library_page {
+                    if !doc.pages.contains(&old_lp) && doc.nodes.get(&old_lp).is_some_and(|n| n.children.is_empty()) {
+                        doc.nodes.remove(&old_lp);
+                        doc.mark_node_dirty(old_lp);
                     }
                 }
-                doc.mark_full_dirty();
                 Command::SetLibraryState {
                     state: std::mem::replace(&mut doc.library, state),
                     library_page: std::mem::replace(&mut doc.library_page, library_page),

@@ -282,6 +282,8 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                                 state.remap.insert(*agent_lp, existing_lp);
                             }
                             Some(existing_lp)
+                        } else if let Some(&mapped) = state.remap.get(agent_lp) {
+                            Some(mapped)
                         } else if doc.get(*agent_lp).is_some() {
                             let Some(fresh_lp) = doc.try_alloc_id() else {
                                 report.skipped.push("library page allocation failed: no node ids left".into());
@@ -294,7 +296,13 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                             Some(*agent_lp)
                         }
                     }
-                    None => None,
+                    None => {
+                        if doc.library_page.is_none_or(|p| doc.get(p).is_none_or(|n| n.children.is_empty())) {
+                            None
+                        } else {
+                            doc.library_page
+                        }
+                    }
                 };
             }
             if let Some(pub_info) = published {
@@ -376,36 +384,34 @@ fn resolve_insert(
         report.skipped.push(format!("insert of node {} into missing parent {}", root.id.0, parent.0));
         return None;
     }
-    let mut nodes: Vec<Node> = nodes.to_vec();
-    remap_subtree(&mut nodes, &state.remap);
     // Before anything below reserves ids for it.
-    if let Some(why) = insert_problem(doc, parent, &nodes) {
-        report.skipped.push(format!("insert of node {}: {why}", nodes[0].id.0));
+    if let Some(why) = insert_problem(doc, parent, nodes) {
+        report.skipped.push(format!("insert of node {}: {why}", root.id.0));
         return None;
     }
-    if let Some(existing) = doc.get(nodes[0].id) {
-        if existing.parent == Some(parent) && same_props(existing, &nodes[0]) {
+    let mut preview: Vec<Node> = nodes.to_vec();
+    remap_subtree(&mut preview, &state.remap);
+    if let Some(existing) = doc.get(preview[0].id) {
+        if existing.parent == Some(parent) && same_props(existing, &preview[0]) {
             report.duplicates += 1;
             return None;
         }
     }
     // Ids the editor already uses (created while the agent worked) get fresh ones.
-    let largest = nodes.iter().map(|n| n.id).max().unwrap_or(NodeId(0));
+    let largest = preview.iter().map(|n| n.id).max().unwrap_or(NodeId(0));
     doc.reserve_ids(largest);
-    let mut fresh = BTreeMap::new();
-    for n in &nodes {
-        if doc.get(n.id).is_some() {
+    for orig in nodes {
+        let candidate = state.remap.get(&orig.id).copied().unwrap_or(orig.id);
+        if doc.get(candidate).is_some() {
             let Some(id) = doc.try_alloc_id() else {
-                report.skipped.push(format!("insert of node {}: the document has no node ids left", nodes[0].id.0));
+                report.skipped.push(format!("insert of node {}: the document has no node ids left", preview[0].id.0));
                 return None;
             };
-            fresh.insert(n.id, id);
+            state.remap.insert(orig.id, id);
         }
     }
-    if !fresh.is_empty() {
-        remap_subtree(&mut nodes, &fresh);
-        state.remap.extend(fresh);
-    }
+    let mut nodes: Vec<Node> = nodes.to_vec();
+    remap_subtree(&mut nodes, &state.remap);
     // Children outside the subtree are existing nodes; their own Reparent ops move them here.
     let ids: BTreeSet<NodeId> = nodes.iter().map(|n| n.id).collect();
     for n in &mut nodes {
@@ -460,30 +466,7 @@ fn remap_subtree(nodes: &mut [Node], map: &BTreeMap<NodeId, NodeId>) {
     }
     let m = |id: NodeId| map.get(&id).copied().unwrap_or(id);
     for n in nodes {
-        n.id = m(n.id);
-        n.parent = n.parent.map(m);
-        for c in &mut n.children {
-            *c = m(*c);
-        }
-        n.component.source = n.component.source.map(m);
-        if let NodeKind::Instance { component, .. } = &mut n.kind {
-            *component = component.map(m);
-        }
-        for v in n.component.values.values_mut() {
-            if let crate::PropValue::Instance(cid) = v {
-                *cid = m(*cid);
-            }
-        }
-        for p in &mut n.component.props {
-            if let crate::PropKind::InstanceSwap { preferred } = &mut p.kind {
-                for cid in preferred {
-                    *cid = m(*cid);
-                }
-            }
-            if let crate::PropValue::Instance(cid) = &mut p.default {
-                *cid = m(*cid);
-            }
-        }
+        crate::renumber_ids::remap_node(n, &m);
     }
 }
 

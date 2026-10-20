@@ -328,3 +328,134 @@ fn live_patch_update_flip() {
     assert_eq!(replay_doc.get(r_cid).unwrap().layout_child.align_self, AlignSelf::Auto);
     assert_eq!(replay_doc.get(r_cid).unwrap().layout_child.vertical, Sizing::Fill);
 }
+
+#[test]
+fn apply_spec_library_import_with_styles_variables_images_and_slots_replays_and_remaps_ids() {
+    use crate::{
+        fixtures, instance_component, snapshot, BlendMode, Color, ImageScaleMode, LibraryRef, NodeKind, NodeSpec, Paint, PaintKind, PropValue, Style, Variable,
+        VariableCollection, VariableKind, VariableMode, VariableValue,
+    };
+    use serde_json::json;
+
+    let mut lib_doc = fixtures::card_with_slots();
+    lib_doc.styles.insert("Brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(12, 34, 56))]));
+    let coll = VariableCollection {
+        id: "c1".into(),
+        name: "Tokens".into(),
+        modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
+        default_mode: "m1".into(),
+        variables: vec!["v1".into()],
+        key: None,
+        source_library_key: None,
+    };
+    lib_doc.variable_collections.insert("c1".into(), coll);
+    lib_doc.variables.insert(
+        "v1".into(),
+        Variable {
+            id: "v1".into(),
+            name: "Pad".into(),
+            collection: "c1".into(),
+            kind: VariableKind::Number,
+            values: [("m1".to_string(), VariableValue::Number(12.0))].into(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+        },
+    );
+    lib_doc.images.insert("dot_hash".into(), vec![0x89, 0x50, 0x4E, 0x47]);
+    let card_comp_id = lib_doc.nodes.values().find(|n| matches!(n.kind, NodeKind::Component(_)) && n.name == "Card").unwrap().id;
+    {
+        let card = lib_doc.get_mut(card_comp_id).unwrap();
+        card.style_refs.insert("fill".into(), "Brand".into());
+        card.variables.bindings.insert("itemSpacing".into(), "v1".into());
+        card.fills.push(Paint {
+            kind: PaintKind::Image { image_ref: "dot_hash".into(), scale_mode: ImageScaleMode::Fill },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        });
+    }
+    let snap = snapshot(&lib_doc, "ui_kit", "UI Kit", 1);
+
+    let (mut full, page, _) = full_doc(1, 0);
+    full.library.enabled.push(LibraryRef { id: "ui_kit".into(), name: "UI Kit".into(), version: 1 });
+    let mut agent = full.clone();
+    let mut hist = History::default();
+
+    // Editor creates local nodes whose IDs collide with the IDs the agent will allocate for
+    // `library_page`, imported components, and placed instances.
+    for _ in 0..8 {
+        let eid = full.alloc_id();
+        full.insert(page, Node::rectangle(eid, Rect::new(0.0, 0.0, 8.0, 8.0))).unwrap();
+    }
+
+    let spec: NodeSpec = serde_json::from_value(json!({
+        "kind": "instance",
+        "name": "MirroredCard",
+        "component": "Card",
+        "slots": {
+            "body": [
+                { "kind": "instance", "name": "MirroredRow", "component": "FormRow" }
+            ],
+            "footer": false
+        }
+    }))
+    .unwrap();
+
+    let (cmd, _report) = crate::apply_spec_command(&mut agent, page, &spec, std::slice::from_ref(&snap)).unwrap();
+    let mut ops = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops, cmd);
+
+    let mut state = LivePatchState::default();
+    let rep = replay(&mut full, ops, &mut state);
+    assert!(rep.skipped.is_empty(), "no live ops may be skipped: {:?}", rep.skipped);
+
+    let editor_lp = full.library_page.expect("editor must have library_page after replay");
+    assert!(full.get(editor_lp).is_some(), "editor library_page node must exist in full.nodes");
+    assert!(full.styles.contains_key("ui_kit/Brand"), "imported style must reach editor");
+    assert!(full.variables.contains_key("ui_kit/v1"), "imported variable must reach editor");
+    assert!(full.images.contains_key("dot_hash"), "imported image must reach editor");
+
+    let editor_inst = full
+        .nodes
+        .values()
+        .find(|n| matches!(n.kind, NodeKind::Instance { .. }) && n.name == "MirroredCard")
+        .expect("MirroredCard instance must exist on editor");
+    let editor_comp_id = instance_component(editor_inst).expect("MirroredCard must stay linked to a component");
+    let editor_comp = full.get(editor_comp_id).expect("linked component must exist in editor.nodes");
+    assert_eq!(editor_comp.parent, Some(editor_lp), "imported component must sit under editor's library_page");
+
+    // Every PropValue::Slot on the imported component must reference a valid default child inside a slot container of `editor_comp`.
+    for def in &editor_comp.component.props {
+        if let PropValue::Slot(sids) = &def.default {
+            for sid in sids {
+                assert!(full.is_ancestor(editor_comp_id, *sid), "remapped PropValue::Slot({sid:?}) must be a descendant of editor_comp");
+            }
+        }
+    }
+    for cfg in editor_comp.component.slot_configs.values() {
+        for &pref_id in &cfg.preferred {
+            let pref = full.get(pref_id).expect("remapped slot_configs.preferred must exist on editor");
+            assert_eq!(pref.parent, Some(editor_lp), "remapped preferred component must sit under editor's library_page");
+        }
+    }
+    // Every direct slot container of `editor_inst` must have `component.source` pointing into `editor_comp`.
+    for &cid in &editor_inst.children {
+        let child = full.get(cid).unwrap();
+        let src = child.component.source.expect("slot container on instance must keep component.source");
+        assert!(editor_comp.children.contains(&src), "remapped component.source {src:?} must point to a child of editor_comp");
+    }
+
+    // Undo on agent and replay onto editor cleans up the instance, imported component, styles, vars, and images.
+    let undo_cmd = hist_peek(&hist);
+    let undo_ops = live_ops_for_command(&agent, &undo_cmd).unwrap();
+    hist.undo(&mut agent).unwrap();
+    let undo_rep = replay(&mut full, undo_ops, &mut state);
+    assert!(undo_rep.skipped.is_empty(), "undo replay must not skip ops: {:?}", undo_rep.skipped);
+    assert!(full.nodes.values().all(|n| n.name != "MirroredCard"));
+    assert!(!full.styles.contains_key("ui_kit/Brand"));
+    assert!(!full.variables.contains_key("ui_kit/v1"));
+    assert!(!full.images.contains_key("dot_hash"));
+}

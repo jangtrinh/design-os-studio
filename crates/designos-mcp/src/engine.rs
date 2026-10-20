@@ -1426,7 +1426,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< HEAD
     fn engine_exec_applies_the_boundary() {
         use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchState};
         use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
@@ -1580,7 +1579,8 @@ mod tests {
 
     #[test]
     fn apply_spec_slots_issues_and_fig_round_trip() {
-        let mut e = Engine { doc: designos_doc::fixtures::card_with_slots(), history: History::default(), active_page_id: None, live_ops: None, ..Engine::default() };
+        let mut e =
+            Engine { doc: designos_doc::fixtures::card_with_slots(), history: History::default(), active_page_id: None, live_ops: None, ..Engine::default() };
         let page = e.doc.pages[0];
         e.active_page_id = Some(page);
 

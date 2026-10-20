@@ -80,7 +80,7 @@ impl Document {
     }
 }
 
-fn remap_node(node: &mut Node, f: &impl Fn(NodeId) -> NodeId) {
+pub(crate) fn remap_node(node: &mut Node, f: &impl Fn(NodeId) -> NodeId) {
     node.id = f(node.id);
     node.parent = node.parent.map(f);
     node.children.iter_mut().for_each(|c| *c = f(*c));
@@ -99,7 +99,7 @@ fn remap_node(node: &mut Node, f: &impl Fn(NodeId) -> NodeId) {
     }
 }
 
-fn remap_component_link(link: &mut ComponentLink, f: &impl Fn(NodeId) -> NodeId) {
+pub(crate) fn remap_component_link(link: &mut ComponentLink, f: &impl Fn(NodeId) -> NodeId) {
     link.source = link.source.map(f);
     for prop in &mut link.props {
         remap_prop_value(&mut prop.default, f);
