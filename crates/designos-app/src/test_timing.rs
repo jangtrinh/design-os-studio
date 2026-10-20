@@ -22,6 +22,35 @@ pub fn fastest_within<T>(budget: Duration, patience: Duration, mut work: impl Fn
     }
 }
 
+/// Budget for a test that waits on a stub CLI child process. Under a loaded parallel run a spawned shell can
+/// take many seconds to start; the wait returns as soon as the condition holds, so the budget only matters
+/// when the stub never runs.
+pub const STUB_WAIT: Duration = Duration::from_secs(20);
+
+/// Polls `condition` every 25 ms until it holds or `budget` passes. Returns whether it held.
+pub fn poll_until(budget: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + budget;
+    loop {
+        if condition() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// Waits up to `budget` for `path` to hold non-empty text and returns what it holds (empty on timeout).
+pub fn wait_for_nonempty_file(path: &std::path::Path, budget: Duration) -> String {
+    let mut text = String::new();
+    poll_until(budget, || {
+        text = std::fs::read_to_string(path).unwrap_or_default();
+        !text.is_empty()
+    });
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

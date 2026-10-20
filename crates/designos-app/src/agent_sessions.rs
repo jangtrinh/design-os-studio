@@ -684,13 +684,7 @@ mod tests {
             st1.path_prepend.push(bin_dir.clone());
             st1.spawn_tab(AgentCliPreset::Claude, None).expect("spawn first claude");
             let uuid = st1.tabs[0].session_uuid.clone().expect("uuid");
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while std::time::Instant::now() < deadline {
-                if std::fs::read_to_string(st1.session_dir.join("argv.log")).map(|s| s.lines().count() >= 1).unwrap_or(false) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(25));
-            }
+            crate::test_timing::wait_for_nonempty_file(&st1.session_dir.join("argv.log"), crate::test_timing::STUB_WAIT);
             st1.shutdown();
             uuid
         };
@@ -702,15 +696,11 @@ mod tests {
         assert_eq!(st2.resumable_sessions()[0].session_id.as_deref(), Some(first_uuid.as_str()));
 
         st2.resume_last_session(None).expect("resume last session");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let mut log_contents = String::new();
-        while std::time::Instant::now() < deadline {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             log_contents = std::fs::read_to_string(st2.session_dir.join("argv.log")).unwrap_or_default();
-            if log_contents.lines().count() >= 2 {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+            log_contents.lines().count() >= 2
+        });
 
         let canonical_session_dir = st2.session_dir.canonicalize().unwrap_or_else(|_| st2.session_dir.clone());
         let lines: Vec<&str> = log_contents.lines().collect();
@@ -796,14 +786,10 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
 
         st.resume_last_session(None).expect("spawn resume");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        while std::time::Instant::now() < deadline {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
+            st.active_tab().is_some_and(|t| t.start_failure.is_some())
+        });
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
@@ -994,15 +980,7 @@ mod tests {
         assert_eq!(st.tabs[0].preset, AgentCliPreset::Claude, "must resume Claude instead of spawning Shell");
         assert!(st.tabs[0].is_resumed);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut argv_log = String::new();
-        while std::time::Instant::now() < deadline {
-            argv_log = std::fs::read_to_string(st.session_dir.join("argv.log")).unwrap_or_default();
-            if !argv_log.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        let argv_log = crate::test_timing::wait_for_nonempty_file(&st.session_dir.join("argv.log"), crate::test_timing::STUB_WAIT);
         assert!(argv_log.contains(&format!("--resume {planted_uuid}")), "child argv must contain --resume {planted_uuid}, got: {argv_log}");
 
         st.shutdown();
@@ -1041,10 +1019,7 @@ mod tests {
         st.open_for_agent_use(None);
         assert_eq!(st.tabs.len(), 1, "opening resumes the file's session");
         let resumes = |st: &TerminalState| std::fs::read_to_string(st.session_dir.join("argv.log")).unwrap_or_default().matches("--resume").count();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while resumes(&st) == 0 && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || resumes(&st) > 0);
         st.close_tab(0);
         assert!(st.tabs.is_empty(), "closing the last tab leaves no tab");
         assert!(st.picker_open, "closing the last tab shows the new-session picker");

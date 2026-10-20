@@ -682,15 +682,7 @@ mod tests {
         assert_eq!(st.tabs[0].title, "Newest Claude");
         assert!(st.tabs[0].is_resumed);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut recorded = String::new();
-        while std::time::Instant::now() < deadline {
-            recorded = std::fs::read_to_string(&argv_file).unwrap_or_default();
-            if !recorded.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        let recorded = crate::test_timing::wait_for_nonempty_file(&argv_file, crate::test_timing::STUB_WAIT);
         assert!(recorded.contains("--resume 22222222-2222-4222-8222-222222222222"), "Expected newest session UUID in resume argv, got: {recorded:?}");
 
         st.shutdown();
@@ -978,15 +970,7 @@ mod tests {
         assert!(st.tabs[0].is_resumed);
         assert!(!st.picker_open);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut argv = String::new();
-        while std::time::Instant::now() < deadline {
-            argv = std::fs::read_to_string(&argv_file).unwrap_or_default();
-            if !argv.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        let argv = crate::test_timing::wait_for_nonempty_file(&argv_file, crate::test_timing::STUB_WAIT);
         assert!(argv.contains("--resume 55555555-5555-4555-8555-555555555555"), "Expected resume argv, got: {argv:?}");
         st.shutdown();
 
@@ -1156,14 +1140,10 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save registry");
 
         st.open_for_agent_use(None);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        while std::time::Instant::now() < deadline {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+            st.active_tab().is_some_and(|t| t.start_failure.is_some())
+        });
 
         let fix = st.active_tab().and_then(|t| t.start_failure.as_ref()).map(|f| f.fix.clone()).expect("start_failure must be recorded");
         assert_eq!(fix, FixAction::StartNewSession(AgentCliPreset::Claude));
