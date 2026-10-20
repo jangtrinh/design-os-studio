@@ -376,6 +376,7 @@ pub struct SessionEnv {
     pub current_page_name: String,
     pub doc_name: String,
     pub path_prepend: Vec<PathBuf>,
+    pub tab_session_uuid: Option<String>,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
 }
@@ -402,6 +403,7 @@ impl SessionEnv {
             current_page_name: "Page 1".to_string(),
             doc_name: "Untitled".to_string(),
             path_prepend: Vec::new(),
+            tab_session_uuid: None,
             #[cfg(test)]
             path_override: None,
         }
@@ -495,6 +497,10 @@ pub struct TerminalTab {
     /// Slave PTY handle retained until the reader drains the first chunk (or the child exits silently)
     /// so macOS XNU `ptsclose`/`ttyflush` cannot discard unread output on immediate child exit (`#782`).
     slave: Arc<Mutex<Option<Box<dyn portable_pty::SlavePty + Send>>>>,
+    /// Asynchronous token and cost usage tracker (`#678`).
+    pub usage: crate::agent_usage::TabUsageTracker,
+    /// Last observed `AgentTabStatus` used to trigger event-driven usage refreshes on turn transitions (`#678`).
+    pub last_usage_status: Option<AgentTabStatus>,
     /// Set to `true` once the background PTY reader thread has reached EOF or exited.
     pub reader_eof: Arc<std::sync::atomic::AtomicBool>,
     /// When set, the PTY reader also reports an approval prompt in the output as `WaitingForInput` for a tab whose
@@ -767,6 +773,8 @@ impl TerminalTab {
             composer: crate::agent_composer::ComposerState::default(),
             spawned_command: None,
             slave,
+            usage: crate::agent_usage::TabUsageTracker::default(),
+            last_usage_status: None,
             reader_eof,
             pty_waiting_heuristic,
             exited_at: None,
@@ -850,6 +858,25 @@ impl TerminalTab {
             }
             AgentTabStatus::Idle | AgentTabStatus::Done | AgentTabStatus::Stopped => None,
         }
+    }
+
+    /// Validated [`crate::agent_usage::UsageReading`] for this tab (`None` for CLIs without a usable source).
+    pub fn usage_reading(&self) -> Option<crate::agent_usage::UsageReading> {
+        if !crate::agent_usage::cli_has_usable_usage_source(self.spawn_preset) {
+            return None;
+        }
+        self.usage.reading()
+    }
+
+    /// Compact header strip caption (`"in 12.4k · out 3.1k"` or `"in 12.4k · out 3.1k · $0.42 ref."`),
+    /// or `None` when no reading is available (`#678` §3.1, §7).
+    pub fn header_usage_caption(&self) -> Option<String> {
+        crate::agent_usage::header_usage_caption_for_tab(self.spawn_preset, self.usage_reading().as_ref())
+    }
+
+    /// Hover tooltip text for this tab (`#678` §3.7, §7).
+    pub fn usage_tooltip_text(&self) -> Option<String> {
+        crate::agent_usage::tooltip_usage_text_for_tab(self.spawn_preset, self.usage_reading().as_ref())
     }
 
     /// Test helper: Claude `spawn_preset` running a stub that prints and exits (no `$SHELL` fallback).
@@ -1687,6 +1714,7 @@ impl TerminalState {
             path_prepend: self.path_prepend.clone(),
             #[cfg(test)]
             path_override: self.path_override.clone(),
+            tab_session_uuid: None,
         }
     }
 
@@ -1869,11 +1897,13 @@ impl TerminalState {
         let status_path = self.session_dir.join("agent-status.json");
         let approve_script_path = (self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask)
             .then(|| crate::agent_permissions::write_approval_hook_script(&self.session_dir));
-        let claude_hooks = session_hooks_settings_with_approval(&status_path, Some(&context_reply_path), approve_script_path.as_deref());
+        let transcript_capture_path = self.session_dir.join(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
+        let claude_hooks =
+            session_hooks_settings_with_approval(&status_path, Some(&context_reply_path), approve_script_path.as_deref(), Some(&transcript_capture_path));
         if let Ok(bytes) = serde_json::to_vec_pretty(&claude_hooks) {
             let _ = atomic_write_session_file(&self.session_dir.join("hooks.json"), &bytes);
         }
-        if let Ok(bytes) = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None)) {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&session_hooks_settings(&status_path, None, None)) {
             let _ = atomic_write_session_file(&self.session_dir.join(".grok").join("hooks").join("designos-status.json"), &bytes);
         }
         if let Ok(bytes) = serde_json::to_vec_pretty(&agy_session_hooks(&status_path)) {
@@ -2185,7 +2215,8 @@ impl TerminalState {
         self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
         let _ = std::fs::create_dir_all(&self.session_dir);
         self.provision_session_agent_files(file_path);
-        let env = self.session_env();
+        let mut env = self.session_env();
+        env.tab_session_uuid = session_uuid.clone();
         let cmd_override = command.map(|c| {
             let cmd = build_agent_shell_cmd(&default_shell_program(), c);
             #[cfg(test)]
@@ -2219,6 +2250,12 @@ impl TerminalState {
                 if let Some(title) = custom_title {
                     tab.title = title;
                 }
+                if is_resumed && crate::agent_usage::cli_has_usable_usage_source(preset) {
+                    let cache_key = session_uuid.as_deref().unwrap_or(preset.binary_name());
+                    if let Some(cached) = crate::agent_usage::load_cached_usage(&self.session_dir, cache_key) {
+                        tab.usage.set_reading(Some(cached));
+                    }
+                }
                 if self.tabs.is_empty() {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
@@ -2251,6 +2288,9 @@ impl TerminalState {
                 self.picker_open = false;
                 self.sessions_popover_open = false;
                 self.sync_active_tab_approvals();
+                if is_resumed {
+                    self.refresh_tab_usage(self.active_tab);
+                }
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", preset.tab_title(), self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
@@ -2264,6 +2304,29 @@ impl TerminalState {
                 self.status_msg = Some(format!("PTY error: {e}"));
                 Err(e)
             }
+        }
+    }
+
+    /// Triggers an asynchronous, off-UI-thread usage refresh for `tab_idx` (`#678` §3.4, §3.5, §11).
+    /// Does nothing for CLIs without a verified usage source (`Codex`, `Antigravity`, `Gemini`, `OpenCode`, `Shell`).
+    pub fn refresh_tab_usage(&mut self, tab_idx: usize) {
+        let Some(tab) = self.tabs.get(tab_idx) else { return };
+        match tab.spawn_preset {
+            AgentCliPreset::Claude => {
+                tab.usage.trigger_claude_transcript_poll(self.session_dir.clone(), tab.session_uuid.clone());
+            }
+            AgentCliPreset::Grok => {
+                if let Some(sid) = tab.session_uuid.clone() {
+                    let grok_bin = crate::agent_usage::resolve_grok_binary(&self.path_prepend);
+                    tab.usage.trigger_grok_usage(grok_bin, sid, crate::agent_usage::GROK_USAGE_TIMEOUT, Some(self.session_dir.clone()));
+                }
+            }
+            AgentCliPreset::Codex
+            | AgentCliPreset::Antigravity
+            | AgentCliPreset::Gemini
+            | AgentCliPreset::OpenCode
+            | AgentCliPreset::Shell
+            | AgentCliPreset::DesignOsHelp => {}
         }
     }
 
@@ -2617,6 +2680,35 @@ impl TerminalState {
                     self.last_agent_status_done = false;
                 }
             }
+        }
+
+        // Channel 4: Event-driven per-tab token & cost usage refresh (`#678` §3.4, §3.5, §11).
+        // Refreshes on turn-status transitions (e.g. turn end -> `Done`) and every 5 s while a Claude tab is `Working`.
+        let mut usage_refresh_indices = Vec::new();
+        for (idx, tab) in self.tabs.iter_mut().enumerate() {
+            if !crate::agent_usage::cli_has_usable_usage_source(tab.spawn_preset) {
+                continue;
+            }
+            let current_status = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
+            let status_changed = tab.last_usage_status.as_ref() != Some(&current_status);
+            if status_changed {
+                let prev = tab.last_usage_status.replace(current_status.clone());
+                if matches!(current_status, AgentTabStatus::Done | AgentTabStatus::Stopped | AgentTabStatus::WaitingForInput(_))
+                    || (prev.is_some() && matches!(current_status, AgentTabStatus::Working(_)))
+                {
+                    usage_refresh_indices.push(idx);
+                    continue;
+                }
+            }
+            if tab.spawn_preset == AgentCliPreset::Claude
+                && matches!(current_status, AgentTabStatus::Working(_))
+                && tab.usage.elapsed_since_last_poll().is_none_or(|d| d >= crate::agent_usage::WORKING_POLL_INTERVAL)
+            {
+                usage_refresh_indices.push(idx);
+            }
+        }
+        for idx in usage_refresh_indices {
+            self.refresh_tab_usage(idx);
         }
 
         let mut agent_exited = false;
@@ -3700,8 +3792,12 @@ fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
     format!("{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > '{}'", status_path.display())
 }
 
-fn command_handler_group(command: String) -> serde_json::Value {
-    serde_json::json!([{ "matcher": "*", "hooks": [{ "type": "command", "command": command }] }])
+fn command_handler_group(command: String, capture_command: Option<&str>) -> serde_json::Value {
+    let mut hooks = vec![serde_json::json!({ "type": "command", "command": command })];
+    if let Some(cap) = capture_command {
+        hooks.push(serde_json::json!({ "type": "command", "command": cap }));
+    }
+    serde_json::json!([{ "matcher": "*", "hooks": hooks }])
 }
 
 /// Session hooks in Claude's settings shape (`{"hooks": {Event: [{matcher, hooks: [...]}]}}`) for the
@@ -3709,13 +3805,20 @@ fn command_handler_group(command: String) -> serde_json::Value {
 /// `additionalContext` reply carrying the page (never the selection). Without it the prompt hook prints
 /// nothing: Grok reads any stdout that starts with `{` as a decision (a context reply shows as a
 /// failed hook) and discards an allowing hook's context anyway.
-fn session_hooks_settings(status_path: &Path, context_reply: Option<&Path>) -> serde_json::Value {
-    session_hooks_settings_with_approval(status_path, context_reply, None)
+fn session_hooks_settings(status_path: &Path, context_reply: Option<&Path>, transcript_capture: Option<&Path>) -> serde_json::Value {
+    session_hooks_settings_with_approval(status_path, context_reply, None, transcript_capture)
 }
 
 /// [`session_hooks_settings`] plus, in `Ask` permission mode (`approval_script` is `Some`), `approve-hook.sh` as a second
 /// handler of the `PermissionRequest` group so one request both records the turn status and raises the in-panel approval (`#656`).
-fn session_hooks_settings_with_approval(status_path: &Path, context_reply: Option<&Path>, approval_script: Option<&Path>) -> serde_json::Value {
+/// With `transcript_capture`, each Claude hook event also includes a capture handler that records
+/// `session_id` and `transcript_path` once per session to `claude-transcript.json` (`#678`).
+fn session_hooks_settings_with_approval(
+    status_path: &Path,
+    context_reply: Option<&Path>,
+    approval_script: Option<&Path>,
+    transcript_capture: Option<&Path>,
+) -> serde_json::Value {
     let session_dir = status_path.parent().unwrap_or_else(|| Path::new("/tmp"));
     let mark_path = session_dir.join("turn-marks.jsonl");
     let patch_path = session_dir.join("doc-patch.jsonl");
@@ -3726,23 +3829,25 @@ fn session_hooks_settings_with_approval(status_path: &Path, context_reply: Optio
         Some(reply) => format!("{}; {}; cat '{}'", status_hook_command(status_path, "UserPromptSubmit", "working"), start_mark, reply.display()),
         None => format!("{}; {}", status_hook_command(status_path, "UserPromptSubmit", "working"), start_mark),
     };
+    let capture_cmd = transcript_capture.map(crate::agent_usage::claude_transcript_capture_command);
+    let cap = capture_cmd.as_deref();
     let stop_cmd = |event: &str, state: &str| format!("{}; {}", status_hook_command(status_path, event, state), end_mark);
-    let mut permission_request = command_handler_group(status_hook_command(status_path, "PermissionRequest", "waiting"));
+    let mut permission_request = command_handler_group(status_hook_command(status_path, "PermissionRequest", "waiting"), cap);
     if let (Some(script), Some(handlers)) = (approval_script, permission_request[0]["hooks"].as_array_mut()) {
         handlers.push(crate::agent_permissions::approval_hook_handler(script));
     }
     serde_json::json!({
         "hooks": {
-            "UserPromptSubmit": command_handler_group(prompt),
-            "PreToolUse": command_handler_group(status_hook_command(status_path, "PreToolUse", "working")),
-            "PostToolUse": command_handler_group(status_hook_command(status_path, "PostToolUse", "working")),
-            "PostToolUseFailure": command_handler_group(status_hook_command(status_path, "PostToolUseFailure", "working")),
+            "UserPromptSubmit": command_handler_group(prompt, cap),
+            "PreToolUse": command_handler_group(status_hook_command(status_path, "PreToolUse", "working"), cap),
+            "PostToolUse": command_handler_group(status_hook_command(status_path, "PostToolUse", "working"), cap),
+            "PostToolUseFailure": command_handler_group(status_hook_command(status_path, "PostToolUseFailure", "working"), None),
             "PermissionRequest": permission_request,
-            "Notification": command_handler_group(status_hook_command(status_path, "Notification", "waiting")),
-            "Stop": command_handler_group(stop_cmd("Stop", "done")),
-            "StopFailure": command_handler_group(stop_cmd("StopFailure", "error")),
-            "StopCancelled": command_handler_group(stop_cmd("StopCancelled", "stopped")),
-            "SessionStart": command_handler_group(status_hook_command(status_path, "SessionStart", "idle")),
+            "Notification": command_handler_group(status_hook_command(status_path, "Notification", "waiting"), None),
+            "Stop": command_handler_group(stop_cmd("Stop", "done"), cap),
+            "StopFailure": command_handler_group(stop_cmd("StopFailure", "error"), None),
+            "StopCancelled": command_handler_group(stop_cmd("StopCancelled", "stopped"), None),
+            "SessionStart": command_handler_group(status_hook_command(status_path, "SessionStart", "idle"), None),
         }
     })
 }
@@ -3840,6 +3945,9 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
         cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
+        }
+        if let Some(tab_uuid) = sess.tab_session_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            cmd.env("DESIGNOS_TAB_SESSION_UUID", tab_uuid);
         }
     } else {
         cmd.env("DESIGNOS_AGENT_RUN_ID", format!("p{}-tab-1-1-1", std::process::id()));
@@ -4048,6 +4156,11 @@ pub fn show_left(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: 
     show_left_with_selection(state, ui, rect, file_path, &summary)
 }
 
+/// Narrowest the selection chip may get before the header strip drops the token/cost readout (`#678`).
+const STRIP_CHIP_MIN_W: f32 = 72.0;
+/// Narrowest the token/cost readout is worth drawing in the header strip (`#678`); below it the tab tooltip carries the numbers.
+const STRIP_USAGE_MIN_W: f32 = 56.0;
+
 /// Renders the `Agents` Left Side Panel with the live [`crate::agent_selection_chip::SelectionSummary`]
 /// computed in the current frame from `app`.
 pub fn show_left_with_selection(
@@ -4141,7 +4254,12 @@ pub fn show_left_with_doc(
                 if can_close { Rect::from_min_max(t_rect.min, Pos2::new((close_rect.left() - 2.0).max(t_rect.left() + 16.0), t_rect.max.y)) } else { t_rect };
             let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
             let tab_resp = ui.interact(t_hit_rect, Id::new(("agents-left-tab-select", tab.id)), Sense::click());
-            let tab_resp = if tab_waiting { tab_resp.on_hover_text("Needs approval") } else { tab_resp };
+            let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
+                (true, Some(usage)) => Some(format!("Needs approval\n{usage}")),
+                (true, None) => Some("Needs approval".to_string()),
+                (false, usage) => usage,
+            };
+            let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
             let close_resp = if can_close { Some(ui.interact(close_rect, Id::new(("agents-left-tab-close", tab.id)), Sense::click())) } else { None };
 
             let bg = if is_active {
@@ -4193,6 +4311,7 @@ pub fn show_left_with_doc(
             state.sessions_popover_open = false;
             state.picker.on_close();
             state.sessions_popover_open = false;
+            state.refresh_tab_usage(idx);
         }
         if state.surface_visible {
             if let Some(tab) = state.active_tab_mut() {
@@ -4231,7 +4350,8 @@ pub fn show_left_with_doc(
         }
 
         // Header strip (`CONTROL_DENSE` = 24px): the live selection chip (#654) stays on the left; the live turn status (`#683` §7,
-        // running dot + text) is right-aligned at a capped width. The chip shrinks to the space left of the status.
+        // running dot + text) and the active tab's verified token/cost readout (`#678` §7) sit right of it, left of `@ Mention`.
+        // The chip shrinks to the space left of them; the usage readout is dropped when the chip would get too narrow.
         let ctx_h = theme::CONTROL_DENSE;
         let ctx_r = Rect::from_min_size(Pos2::new(rect.left(), bar_r.bottom()), Vec2::new(rect.width(), ctx_h));
         p.rect_filled(ctx_r, 0.0, theme::BG_PRIMARY);
@@ -4260,20 +4380,48 @@ pub fn show_left_with_doc(
         } else {
             state.active_tab().and_then(|t| t.header_status_indicator(now_secs))
         };
-        if let Some((dot_col, status_txt)) = strip_status {
-            const DOT_DIAMETER: f32 = 6.0;
-            let text_x_off = DOT_DIAMETER + theme::INSET_CONTROL;
+        const DOT_DIAMETER: f32 = 6.0;
+        let text_x_off = DOT_DIAMETER + theme::INSET_CONTROL;
+        let status_font = theme::font_caption();
+        let status_w = strip_status.as_ref().map(|(_, status_txt)| {
             let cap_w = (((ctx_r.right() - theme::INSET_CONTROL) - strip_left) * 0.4).max(text_x_off + theme::TARGET_MIN).min(strip_right - strip_left);
-            let font = theme::font_caption();
-            let text_w = widgets::text_width(&p, &status_txt, &font);
-            let status_w = (text_x_off + text_w).min(cap_w);
-            let status_r = Rect::from_min_max(Pos2::new(strip_right - status_w, ctx_r.top()), Pos2::new(strip_right, ctx_r.bottom()));
-            let status_elided = widgets::elide(&p, &status_txt, &font, (status_w - text_x_off).max(0.0));
+            (text_x_off + widgets::text_width(&p, status_txt, &status_font)).min(cap_w)
+        });
+        // The active tab's usage readout (`#678`) takes the slot next to `@ Mention`. It yields to the chip and the turn status:
+        // when the room left would be too small to read, only the tab tooltip carries the numbers.
+        let mut status_right = strip_right;
+        let mut usage_drawn = false;
+        if let Some(usage_caption) = state.active_tab().and_then(|t| t.header_usage_caption()) {
+            let status_take = status_w.map_or(0.0, |w| w + theme::INSET_CONTROL);
+            let usage_room = strip_right - strip_left - STRIP_CHIP_MIN_W - status_take;
+            if usage_room >= STRIP_USAGE_MIN_W {
+                let mono = theme::font_mono();
+                let usage_text = widgets::elide(&p, &usage_caption, &mono, usage_room);
+                let usage_w = widgets::text_width(&p, &usage_text, &mono);
+                let usage_r = Rect::from_min_max(Pos2::new(strip_right - usage_w, ctx_r.top()), Pos2::new(strip_right, ctx_r.bottom()));
+                p.text(Pos2::new(usage_r.right(), usage_r.center().y), Align2::RIGHT_CENTER, usage_text, mono, theme::TEXT_SECONDARY);
+                let usage_resp = ui.interact(usage_r, Id::new("agents-header-usage"), Sense::hover());
+                if let Some(tip) = state.active_tab().and_then(|t| t.usage_tooltip_text()) {
+                    let _ = usage_resp.on_hover_text(tip);
+                }
+                widgets::record(ui, "agents-header-usage", usage_r);
+                status_right = usage_r.left() - theme::INSET_CONTROL;
+                usage_drawn = true;
+            }
+        }
+        if !usage_drawn {
+            ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
+        }
+        if let (Some((dot_col, status_txt)), Some(status_w)) = (strip_status, status_w) {
+            let status_r = Rect::from_min_max(Pos2::new(status_right - status_w, ctx_r.top()), Pos2::new(status_right, ctx_r.bottom()));
+            let status_elided = widgets::elide(&p, &status_txt, &status_font, (status_w - text_x_off).max(0.0));
             p.circle_filled(Pos2::new(status_r.left() + DOT_DIAMETER * 0.5, status_r.center().y), DOT_DIAMETER * 0.5, dot_col);
             let text_col = if needs_approval { STATUS_WARN_TEXT } else { theme::TEXT_SECONDARY };
-            p.text(Pos2::new(status_r.left() + text_x_off, status_r.center().y), Align2::LEFT_CENTER, status_elided, font, text_col);
+            p.text(Pos2::new(status_r.left() + text_x_off, status_r.center().y), Align2::LEFT_CENTER, status_elided, status_font, text_col);
             widgets::record(ui, if needs_approval { "agents-needs-approval-pill" } else { "agents-header-turn-status" }, status_r);
             chip_right = (status_r.left() - theme::INSET_CONTROL).max(strip_left + theme::TARGET_MIN);
+        } else if usage_drawn {
+            chip_right = (status_right).max(strip_left + theme::TARGET_MIN);
         }
         let chip_bounds = Rect::from_min_max(Pos2::new(strip_left, ctx_r.top()), Pos2::new(chip_right, ctx_r.bottom()));
         if let Some((_chip_rect, true)) =
@@ -4763,6 +4911,27 @@ fn render_terminal_surface(
         }
     }
 
+    if let Some(cap) = state.active_tab().and_then(|t| t.header_usage_caption()) {
+        let cap_w = widgets::text_width(&p, &cap, &theme::font_mono());
+        if right_x - cap_w - theme::SPACE_GROUP > tab_bar_rect.left() + 180.0 {
+            let cap_rect = Rect::from_min_max(
+                Pos2::new(right_x - cap_w - theme::INSET_CONTROL, tab_bar_rect.top() + theme::SPACE_ROW),
+                Pos2::new(right_x, tab_bar_rect.bottom() - theme::SPACE_ROW),
+            );
+            p.text(Pos2::new(right_x - theme::INSET_SEGMENT, btn_cy), Align2::RIGHT_CENTER, cap, theme::font_mono(), theme::TEXT_SECONDARY);
+            let cap_resp = ui.interact(cap_rect, Id::new((surface_id, "agents-header-usage")), Sense::hover());
+            if let Some(tip) = state.active_tab().and_then(|t| t.usage_tooltip_text()) {
+                let _ = cap_resp.on_hover_text(tip);
+            }
+            widgets::record(ui, "agents-header-usage", cap_rect);
+            right_x = cap_rect.left() - theme::SPACE_INLINE;
+        } else {
+            ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
+        }
+    } else {
+        ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
+    }
+
     // Left side of Tab Bar: Session Tabs + Quick-Launch Preset Buttons
     let mut left_x = tab_bar_rect.left() + 8.0;
     let mut tab_to_select: Option<usize> = None;
@@ -4779,7 +4948,12 @@ fn render_terminal_surface(
         let t_hit_rect = Rect::from_min_max(t_rect.min, Pos2::new((close_rect.left() - 2.0).max(t_rect.left() + 16.0), t_rect.max.y));
         let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
         let tab_resp = ui.interact(t_hit_rect, Id::new((surface_id, "term-tab-select", tab.id)), Sense::click());
-        let tab_resp = if tab_waiting { tab_resp.on_hover_text("Needs approval") } else { tab_resp };
+        let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
+            (true, Some(usage)) => Some(format!("Needs approval\n{usage}")),
+            (true, None) => Some("Needs approval".to_string()),
+            (false, usage) => usage,
+        };
+        let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
         let close_resp = ui.interact(close_rect, Id::new((surface_id, "term-tab-close", tab.id)), Sense::click());
 
         let bg = if is_active {
@@ -4825,6 +4999,7 @@ fn render_terminal_surface(
         }
         state.sync_active_tab_approvals();
         state.viewport_focused = true;
+        state.refresh_tab_usage(idx);
     }
     if state.surface_visible {
         if let Some(tab) = state.active_tab_mut() {
@@ -8139,8 +8314,8 @@ Done!
     fn hook_files_carry_both_the_event_stream_and_the_turn_marks() {
         let status_path = std::path::Path::new("/tmp/designos-683-677-hooks/agent-status.json");
         let command_of = |v: &serde_json::Value, event: &str| v["hooks"][event][0]["hooks"][0]["command"].as_str().unwrap_or_default().to_string();
-        let claude = session_hooks_settings(status_path, Some(std::path::Path::new("/tmp/designos-683-677-hooks/reply.json")));
-        let grok = session_hooks_settings(status_path, None);
+        let claude = session_hooks_settings(status_path, Some(std::path::Path::new("/tmp/designos-683-677-hooks/reply.json")), None);
+        let grok = session_hooks_settings(status_path, None, None);
         for (cli, settings) in [("claude", &claude), ("grok", &grok)] {
             let start = command_of(settings, "UserPromptSubmit");
             assert!(start.contains("agent-events.jsonl") && start.contains("\"turn_mark\":\"start\"") && start.contains(cli), "{cli} prompt hook: {start}");
@@ -8215,7 +8390,15 @@ Done!
             }
 
             // #656 approval: only Claude in Ask mode runs approve-hook.sh, next to (not instead of) the status handler.
-            let claude_permission = hook_handlers(&claude, "PermissionRequest");
+            let claude_permission_all = hook_handlers(&claude, "PermissionRequest");
+            // #678: Claude's hooks also carry the transcript capture handler; it is neither status nor approval.
+            let is_capture = |h: &&serde_json::Value| h["command"].as_str().unwrap_or_default().contains(crate::agent_usage::CLAUDE_TRANSCRIPT_META_FILENAME);
+            assert_eq!(
+                claude_permission_all.iter().filter(is_capture).count(),
+                1,
+                "Claude PermissionRequest carries the transcript capture once: {claude_permission_all:?}"
+            );
+            let claude_permission: Vec<_> = claude_permission_all.iter().filter(|h| !is_capture(h)).collect();
             let approve: Vec<_> = claude_permission.iter().filter(|h| h["command"].as_str().unwrap_or_default().contains("approve-hook.sh")).collect();
             if ask {
                 assert_eq!(claude_permission.len(), 2, "Claude PermissionRequest = status handler + approval handler: {claude_permission:?}");
@@ -8379,6 +8562,52 @@ Done!
             assert!(popout.right() <= panel_rect.right(), "pop-out inside panel");
             assert!(stop.bottom() <= chip.top().min(mention.top()), "Stop sits in the chrome bar above the strip");
 
+            // A token/cost readout (`#678`) joins the strip: it never overlaps the chip, the turn status or `@ Mention`,
+            // and it yields (is not drawn) when the notice leaves it no room.
+            st.tabs[idx].usage = crate::agent_usage::TabUsageTracker::new(Some(crate::agent_usage::UsageReading {
+                input: 412_000,
+                output: 13_000,
+                cost: Some(crate::agent_usage::CostLabel::Reference(0.42)),
+                source: crate::agent_usage::UsageSource::ClaudeTranscript,
+                as_of_ms: 1,
+            }));
+            let run_frame = |st: &mut TerminalState| {
+                let _ =
+                    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() }, |ui| {
+                        crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                            let _ = show_left_with_selection(st, ui, panel_rect, None, summary);
+                        });
+                    });
+            };
+            run_frame(&mut st);
+            let chip = rect_of("agent-selection-chip-left").expect("chip");
+            let notice = rect_of("agents-header-turn-status").expect("notice");
+            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
+            let mut strip = vec![("chip", chip), ("notice", notice), ("mention", mention)];
+            if let Some(usage) = rect_of("agents-header-usage") {
+                assert!(
+                    chip.right() <= usage.left() && usage.right() <= mention.left() && notice.right() <= usage.left(),
+                    "chip | notice | usage | mention order"
+                );
+                strip.push(("usage", usage));
+            }
+            for (i, (an, a)) in strip.iter().enumerate() {
+                assert!(a.left() >= panel_rect.left() && a.right() <= panel_rect.right(), "{an} {a:?} inside {width}px panel");
+                for (bn, b) in strip.iter().skip(i + 1) {
+                    assert!(!a.intersects(*b), "{an} {a:?} overlaps {bn} {b:?} at {width}px with usage");
+                }
+            }
+
+            // Idle tab: no status competes, so the readout is drawn between the chip and `@ Mention`.
+            st.tabs[idx].still_running_notice = None;
+            *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+            run_frame(&mut st);
+            let chip = rect_of("agent-selection-chip-left").expect("chip");
+            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
+            let usage = rect_of("agents-header-usage").expect("usage readout fits beside the chip on an idle tab");
+            assert!(chip.right() <= usage.left() && usage.right() <= mention.left(), "chip | usage | mention order at {width}px");
+            assert!(usage.left() >= panel_rect.left() && usage.right() <= panel_rect.right(), "usage inside {width}px panel");
+
             kill_tabs(&mut st);
             let _ = std::fs::remove_dir_all(&st.session_dir);
         }
@@ -8529,7 +8758,7 @@ Done!
     #[test]
     fn works_for_each_cli_hook_file() {
         let status_path = std::path::Path::new("/tmp/designos-683-hooks-check/agent-status.json");
-        let claude_grok = session_hooks_settings(status_path, None);
+        let claude_grok = session_hooks_settings(status_path, None, None);
         for &(event, _) in crate::agent_turn_status::CLAUDE_GROK_HOOK_EVENTS {
             let cmd = claude_grok["hooks"][event][0]["hooks"][0]["command"].as_str().unwrap_or_default();
             assert!(cmd.contains("agent-events.jsonl"), "Claude/Grok hook for {event} must append to agent-events.jsonl: {cmd}");
@@ -10489,5 +10718,74 @@ Done!
         assert!(st.tabs[1].composer.draft.is_empty(), "moved, not copied");
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&stub_dir);
+    }
+
+    #[test]
+    fn a_user_stop_refreshes_the_tab_usage_like_any_other_turn_end() {
+        let mut st = isolated_683_state(67801);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-usage-stop"));
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].usage.elapsed_since_last_poll().is_none(), "an idle Claude tab has not polled usage yet");
+
+        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Stopped;
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].usage.elapsed_since_last_poll().is_some(), "a stopped turn consumed tokens, so the readout refreshes");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn header_strip_shows_usage_only_when_active_tab_has_a_reading() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
+
+        let mut st = TerminalState::for_tab(760);
+        // Active Codex tab: no reading -> no agents-header-usage rect.
+        let mut codex_tab = TerminalTab::spawn(1, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
+        codex_tab.spawn_preset = AgentCliPreset::Codex;
+        codex_tab.usage = crate::agent_usage::TabUsageTracker::new(None);
+
+        let mut claude_tab = TerminalTab::spawn(2, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
+        claude_tab.spawn_preset = AgentCliPreset::Claude;
+        claude_tab.usage = crate::agent_usage::TabUsageTracker::new(Some(crate::agent_usage::UsageReading {
+            input: 41_000,
+            output: 1_300,
+            cost: None,
+            source: crate::agent_usage::UsageSource::ClaudeTranscript,
+            as_of_ms: 1,
+        }));
+
+        let mut agy_tab = TerminalTab::spawn(3, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
+        agy_tab.spawn_preset = AgentCliPreset::Antigravity;
+        agy_tab.usage = crate::agent_usage::TabUsageTracker::new(None);
+
+        st.tabs = vec![codex_tab, claude_tab, agy_tab];
+        st.active_tab = 0;
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw.clone(), |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let codex_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
+        assert!(codex_rect.is_none(), "Codex tab must not paint agents-header-usage: {codex_rect:?}");
+
+        // Switch to the Claude tab with a reading -> agents-header-usage is painted.
+        st.active_tab = 1;
+        let _ = ctx.run_ui(raw.clone(), |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let claude_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
+        assert!(claude_rect.is_some(), "Claude tab with reading must paint agents-header-usage");
+
+        // Switch to the Antigravity tab -> agents-header-usage is not painted.
+        st.active_tab = 2;
+        let _ = ctx.run_ui(raw, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let agy_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
+        assert!(agy_rect.is_none(), "Antigravity tab must not paint agents-header-usage: {agy_rect:?}");
+        kill_tabs(&mut st);
     }
 }

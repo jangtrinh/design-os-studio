@@ -18,6 +18,7 @@ pub mod agent_turn_card;
 pub mod agent_turn_ledger;
 pub mod agent_turn_marks;
 pub mod agent_turn_status;
+pub mod agent_usage;
 mod app;
 #[cfg(test)]
 mod apply_node_spec_variable_tests;
