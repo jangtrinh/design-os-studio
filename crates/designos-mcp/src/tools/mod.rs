@@ -1,8 +1,9 @@
-//! Shared tool validation helpers, batched transaction dispatcher (`tools::batch`),
+//! Shared tool validation helpers, named error catalogue (`tools::errors`), batched transaction dispatcher (`tools::batch`),
 //! per-call lint issues block (`tools::issues`), and session options (`tools::session_options`).
 
 pub mod batch;
 pub mod design_context;
+pub mod errors;
 pub mod guidelines;
 pub mod issues;
 pub mod libraries;
@@ -12,29 +13,42 @@ pub mod screenshot;
 pub mod search_design_system;
 pub mod session_options;
 
+use crate::tools::errors::{ErrorCode, ToolError};
 use designos_doc::{resolve_easeui_color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle};
+use serde_json::json;
 
-pub(crate) fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), String> {
+pub(crate) fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), ToolError> {
     if value.len() > max {
-        Err(format!("{field} exceeds {max} UTF-8 bytes"))
+        Err(ToolError::new(ErrorCode::TextTooLong, format!("/{field}"), format!("{field} exceeds {max} UTF-8 bytes"))
+            .with_received(json!(value.len()))
+            .with_expected(format!("<= {max} UTF-8 bytes")))
     } else {
         Ok(())
     }
 }
 
-pub(crate) fn geometry(x: f32, y: f32, width: f32, height: f32) -> Result<(), String> {
-    if [x, y, width, height].iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
-        return Err("geometry must be finite and within +/-1000000".into());
+pub(crate) fn geometry(x: f32, y: f32, width: f32, height: f32) -> Result<(), ToolError> {
+    for (field, v) in [("x", x), ("y", y), ("width", width), ("height", height)] {
+        if !v.is_finite() || v.abs() > 1_000_000.0 {
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, format!("/{field}"), "geometry must be finite and within +/-1000000")
+                .with_expected("finite number within -1000000..=1000000"));
+        }
     }
     if width < 0.0 || height < 0.0 {
-        return Err("width and height must be non-negative".into());
+        let field = if width < 0.0 { "/width" } else { "/height" };
+        let bad = if width < 0.0 { width } else { height };
+        return Err(ToolError::new(ErrorCode::InvalidGeometry, field, "width and height must be non-negative").with_received(json!(bad)).with_expected(">= 0"));
     }
     Ok(())
 }
 
-pub(crate) fn validate_fill_color(fill: Option<&str>) -> Result<Option<Paint>, String> {
+pub(crate) fn validate_fill_color(fill: Option<&str>) -> Result<Option<Paint>, ToolError> {
     let Some(f) = fill else { return Ok(None) };
-    let c = resolve_easeui_color(f).ok_or_else(|| format!("invalid fill color '{f}'"))?;
+    let c = resolve_easeui_color(f).ok_or_else(|| {
+        ToolError::new(ErrorCode::ValueOutOfRange, "/fill", format!("invalid fill color '{f}'"))
+            .with_received(json!(f))
+            .with_expected("valid #RRGGBB/#RRGGBBAA hex or $easeui.* color token")
+    })?;
     Ok(Some(Paint::solid(c)))
 }
 
@@ -46,7 +60,7 @@ pub(crate) fn validate_create_fields(
     y: f32,
     width: f32,
     height: f32,
-) -> Result<fn(NodeId, Rect) -> Node, String> {
+) -> Result<fn(NodeId, Rect) -> Node, ToolError> {
     geometry(x, y, width, height)?;
     if let Some(name) = name {
         bounded_text("name", name, 1024)?;
@@ -55,14 +69,19 @@ pub(crate) fn validate_create_fields(
         bounded_text("text", text, 100_000)?;
     }
     if kind != "text" && text.is_some() {
-        return Err("text can only be set on text nodes".into());
+        return Err(ToolError::new(ErrorCode::NotATextNode, "/text", "text can only be set on text nodes")
+            .with_received(json!(kind))
+            .with_expected("kind == \"text\""));
     }
     match kind {
         "frame" => Ok(Node::frame),
         "rectangle" => Ok(Node::rectangle),
         "ellipse" => Ok(Node::ellipse),
         "text" => Ok(|id, r| Node::text(id, r, "", TextStyle::default())),
-        _ => Err("kind must be frame, rectangle, ellipse, or text".into()),
+        other => Err(ToolError::new(ErrorCode::UnsupportedNodeKind, "/kind", "kind must be frame, rectangle, ellipse, or text")
+            .with_received(json!(other))
+            .with_valid_options(vec!["frame", "rectangle", "ellipse", "text"])
+            .with_corrected_example(json!({"kind": "frame"}))),
     }
 }
 
@@ -78,19 +97,25 @@ pub(crate) fn build_created_node(
     y: f32,
     width: f32,
     height: f32,
-) -> Result<(NodeId, usize, Node), String> {
+) -> Result<(NodeId, usize, Node), ToolError> {
     if parent_id.0 == 0 {
-        return Err("node IDs must be positive integers".into());
+        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/parent_id", "node IDs must be positive integers")
+            .with_received(json!(0))
+            .with_expected(">= 1"));
     }
-    let parent = doc.get(parent_id).ok_or_else(|| format!("node {} not found", parent_id.0))?;
+    let parent = doc
+        .get(parent_id)
+        .ok_or_else(|| ToolError::new(ErrorCode::NodeNotFound, "/parent_id", format!("node {} not found", parent_id.0)).with_received(json!(parent_id.0)))?;
     if !parent.kind.is_container() {
-        return Err("parent_id must identify a container".into());
+        return Err(ToolError::new(ErrorCode::NotAContainer, "/parent_id", "parent_id must identify a container")
+            .with_received(json!(parent_id.0))
+            .with_expected("page, frame, component, section, or boolean group"));
     }
     let children_len = parent.children.len();
     let target_index = index.unwrap_or(children_len).min(children_len);
     let constructor = validate_create_fields(kind, name.as_deref(), text.as_deref(), x, y, width, height)?;
     let rect = Rect::new(x, y, width, height);
-    let id = doc.try_alloc_id().ok_or("Document has exhausted node IDs")?;
+    let id = doc.try_alloc_id().ok_or_else(|| ToolError::new(ErrorCode::IdExhausted, "", "Document has exhausted node IDs"))?;
     let mut node = constructor(id, rect);
     if let Some(name) = name {
         node.name = name;
@@ -115,39 +140,49 @@ pub(crate) struct UpdateFields {
     pub fills: Option<Vec<Paint>>,
 }
 
-pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), String> {
+pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), ToolError> {
     if let Some(name) = &u.name {
         bounded_text("name", name, 1024)?;
     }
     if let Some(x) = u.x {
         if !x.is_finite() || x.abs() > 1_000_000.0 {
-            return Err("geometry must be finite and within +/-1000000".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/x", "geometry must be finite and within +/-1000000")
+                .with_expected("finite number within -1000000..=1000000"));
         }
     }
     if let Some(y) = u.y {
         if !y.is_finite() || y.abs() > 1_000_000.0 {
-            return Err("geometry must be finite and within +/-1000000".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/y", "geometry must be finite and within +/-1000000")
+                .with_expected("finite number within -1000000..=1000000"));
         }
     }
     if let Some(w) = u.width {
         if !w.is_finite() || w.abs() > 1_000_000.0 {
-            return Err("geometry must be finite and within +/-1000000".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/width", "geometry must be finite and within +/-1000000")
+                .with_expected("finite number within 0..=1000000"));
         }
         if w < 0.0 {
-            return Err("width and height must be non-negative".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/width", "width and height must be non-negative")
+                .with_received(json!(w))
+                .with_expected(">= 0"));
         }
     }
     if let Some(h) = u.height {
         if !h.is_finite() || h.abs() > 1_000_000.0 {
-            return Err("geometry must be finite and within +/-1000000".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/height", "geometry must be finite and within +/-1000000")
+                .with_expected("finite number within 0..=1000000"));
         }
         if h < 0.0 {
-            return Err("width and height must be non-negative".into());
+            return Err(ToolError::new(ErrorCode::InvalidGeometry, "/height", "width and height must be non-negative")
+                .with_received(json!(h))
+                .with_expected(">= 0"));
         }
     }
     if let Some(opacity) = u.opacity {
         if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
-            return Err("opacity must be between 0 and 1".into());
+            return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/opacity", "opacity must be between 0 and 1")
+                .with_received(json!(opacity))
+                .with_expected("0.0..=1.0"));
         }
     }
     if let Some(text) = &u.text {
@@ -157,13 +192,14 @@ pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) -> Result<(Node, bool), String> {
+pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) -> Result<(Node, bool), ToolError> {
     if id.0 == 0 {
-        return Err("node IDs must be positive integers".into());
+        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/node_id", "node IDs must be positive integers").with_received(json!(0)).with_expected(">= 1"));
     }
-    let mut node = doc.get(id).ok_or_else(|| format!("node {} not found", id.0))?.clone();
+    let mut node =
+        doc.get(id).ok_or_else(|| ToolError::new(ErrorCode::NodeNotFound, "/node_id", format!("node {} not found", id.0)).with_received(json!(id.0)))?.clone();
     if node.parent.is_none() {
-        return Err("page roots cannot be updated by this tool".into());
+        return Err(ToolError::new(ErrorCode::PageRootProtected, "/node_id", "page roots cannot be updated by this tool").with_received(json!(id.0)));
     }
     validate_update_fields(&u)?;
     if let Some(name) = u.name {
@@ -196,7 +232,7 @@ pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) ->
     }
     if let Some(text) = u.text {
         let NodeKind::Text(props) = &mut node.kind else {
-            return Err("text can only be set on text nodes".into());
+            return Err(ToolError::new(ErrorCode::NotATextNode, "/text", "text can only be set on text nodes").with_received(json!(node.id.0)));
         };
         if props.content != text {
             props.content = text;

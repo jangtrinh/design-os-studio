@@ -41,8 +41,14 @@ pub const ALLOWED_INSTANCE_SPEC_FIELDS: &[&str] = &[
 pub struct SpecError {
     pub code: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub valid_options: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,11 +64,31 @@ impl SpecError {
         valid_options: Vec<String>,
         corrected_example: Option<Value>,
     ) -> Self {
-        Self { code: code.into(), message: message.into(), field_path, valid_options, corrected_example, safe_to_retry: true }
+        Self {
+            code: code.into(),
+            message: message.into(),
+            path: field_path.clone().unwrap_or_default(),
+            field_path,
+            received: None,
+            expected: None,
+            valid_options,
+            corrected_example,
+            safe_to_retry: true,
+        }
     }
 
     pub fn plain(message: impl Into<String>) -> Self {
-        Self { code: String::new(), message: message.into(), field_path: None, valid_options: Vec::new(), corrected_example: None, safe_to_retry: true }
+        Self {
+            code: String::new(),
+            message: message.into(),
+            path: String::new(),
+            field_path: None,
+            received: None,
+            expected: None,
+            valid_options: Vec::new(),
+            corrected_example: None,
+            safe_to_retry: true,
+        }
     }
 }
 
@@ -1070,7 +1096,28 @@ pub(crate) fn apply_overrides_with_ctx(
     overrides: &[OverrideSpec],
     ctx: &mut SpecBuildCtx<'_>,
 ) -> Result<(), SpecError> {
-    for ov in overrides {
+    for (ov_idx, ov) in overrides.iter().enumerate() {
+        apply_single_override_with_ctx(doc, instance_root, ov, ctx).map_err(|mut e| {
+            let sub = if e.path == "overrides" {
+                String::new()
+            } else if let Some(rest) = e.path.strip_prefix("overrides.") {
+                format!(".{rest}")
+            } else if e.path == "component" {
+                ".swap".to_string()
+            } else if !e.path.is_empty() {
+                format!(".{}", e.path)
+            } else {
+                String::new()
+            };
+            e.path = format!("overrides[{ov_idx}]{sub}");
+            e
+        })?;
+    }
+    Ok(())
+}
+
+fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov: &OverrideSpec, ctx: &mut SpecBuildCtx<'_>) -> Result<(), SpecError> {
+    {
         let target_id = resolve_override_target(doc, instance_root, ov)?;
 
         // 1. Instance swap (`swap`)
@@ -1657,7 +1704,7 @@ pub(crate) fn apply_instance_slots_with_ctx(
                 let mut built_ids = Vec::with_capacity(child_specs.len());
                 for (idx, child_spec) in child_specs.iter().enumerate() {
                     let item_path = format!("{field_path}[{idx}]");
-                    let child_id = doc.build_spec_node_with_ctx(slot_container_id, child_spec, ctx)?;
+                    let child_id = doc.build_spec_node_with_ctx(slot_container_id, child_spec, &item_path, ctx)?;
 
                     // Validate against preferred components (§3.2 / §4 / §5.2)
                     if !cfg.preferred.is_empty() {

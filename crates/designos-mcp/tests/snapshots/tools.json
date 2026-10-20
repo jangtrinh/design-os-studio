@@ -620,7 +620,7 @@
   },
   {
     "name": "designos_apply_spec",
-    "description": "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).",
+    "description": "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).\n\nExamples:\n1) Token-bound frame with auto-layout:\n{\"parent_id\":1,\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"layout\":{\"direction\":\"column\",\"gap\":16,\"padding\":[24,24,24,24]},\"fill\":\"var:Color/Surface\",\"children\":[{\"kind\":\"text\",\"name\":\"Title\",\"text\":\"Welcome\"}]}}\n2) Component instance with variant and overrides:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"PrimaryCTA\",\"component\":\"Button\",\"variant\":{\"Size\":\"lg\",\"State\":\"default\"},\"overrides\":[{\"path\":\"Label\",\"text\":\"Continue\"}]}}\n3) Component instance with filled slots:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"SettingsCard\",\"component\":\"Card\",\"slots\":{\"header\":[{\"kind\":\"instance\",\"component\":\"CardHeader\"}],\"body\":[{\"kind\":\"instance\",\"component\":\"FormRow\"}],\"footer\":false}}}",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -751,43 +751,8 @@
     }
   },
   {
-    "name": "designos_get_guidelines",
-    "description": "List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules').",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {
-        "max_tokens": {
-          "default": 8000,
-          "maximum": 25000,
-          "minimum": 500,
-          "type": "integer"
-        },
-        "platform": {
-          "default": "web",
-          "enum": [
-            "web",
-            "ios",
-            "android"
-          ],
-          "type": "string"
-        },
-        "topic": {
-          "type": "string"
-        }
-      },
-      "required": [],
-      "type": "object"
-    },
-    "annotations": {
-      "destructiveHint": false,
-      "idempotentHint": true,
-      "openWorldHint": false,
-      "readOnlyHint": true
-    }
-  },
-  {
     "name": "designos_query_xpath",
-    "description": "Query layers on a page using an XPath-like selector (e.g. //FRAME, //FRAME[@name='Card'], //TEXT[contains(@name, 'Title')]) or a kind/name substring.",
+    "description": "Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant steps).\n\nExamples:\n1) Find instances by component name:\n{\"selector\":\"//INSTANCE[@component='Button']\"}\n2) Find text descendants inside a named frame:\n{\"selector\":\"//FRAME[@name='Hero']//TEXT\"}\n3) Find layers that have a fill:\n{\"selector\":\"//RECTANGLE[@fill]\",\"page_id\":1}",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -797,10 +762,12 @@
           "type": "integer"
         },
         "query": {
+          "description": "Kind or name substring query (alternative to selector).",
           "maxLength": 1024,
           "type": "string"
         },
         "selector": {
+          "description": "XPath-style selector (e.g. //FRAME[@name='Card']//TEXT).",
           "maxLength": 1024,
           "type": "string"
         }
@@ -870,6 +837,41 @@
     }
   },
   {
+    "name": "designos_get_guidelines",
+    "description": "List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules').",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_tokens": {
+          "default": 8000,
+          "maximum": 25000,
+          "minimum": 500,
+          "type": "integer"
+        },
+        "platform": {
+          "default": "web",
+          "enum": [
+            "web",
+            "ios",
+            "android"
+          ],
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
     "name": "designos_import_web_capture",
     "description": "Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable auto-layout frame tree in one undoable step, returning the ImportReport.",
     "inputSchema": {
@@ -902,6 +904,22 @@
           "type": "number"
         }
       },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_undo",
+    "description": "Undo the latest successful edit in this session; returns changed=false if the stack is empty.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
       "required": [],
       "type": "object"
     },
@@ -948,22 +966,6 @@
           "type": "array"
         }
       },
-      "required": [],
-      "type": "object"
-    },
-    "annotations": {
-      "destructiveHint": true,
-      "idempotentHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false
-    }
-  },
-  {
-    "name": "designos_undo",
-    "description": "Undo the latest successful edit in this session; returns changed=false if the stack is empty.",
-    "inputSchema": {
-      "additionalProperties": false,
-      "properties": {},
       "required": [],
       "type": "object"
     },
@@ -1078,9 +1080,94 @@
   },
   {
     "name": "designos_apply_batch",
-    "description": "Execute 1..=200 write operations (apply_spec, insert, update, move, delete, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '@<as>' or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload.",
+    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
     "inputSchema": {
       "additionalProperties": false,
+      "examples": [
+        {
+          "ops": [
+            {
+              "height": 64,
+              "kind": "frame",
+              "name": "Header",
+              "op": "create",
+              "parent": 1,
+              "width": 320
+            },
+            {
+              "kind": "text",
+              "name": "Title",
+              "op": "create",
+              "parent": "$prev",
+              "text": "Dashboard"
+            }
+          ]
+        },
+        {
+          "ops": [
+            {
+              "as": "hero",
+              "op": "apply_spec",
+              "parent": 1,
+              "spec": {
+                "children": [
+                  {
+                    "kind": "text",
+                    "name": "Child",
+                    "text": "Welcome"
+                  }
+                ],
+                "kind": "frame",
+                "name": "Hero"
+              }
+            },
+            {
+              "node": "@hero/Child",
+              "op": "update",
+              "opacity": 0.9
+            }
+          ]
+        },
+        {
+          "ops": [
+            {
+              "as": "card",
+              "op": "apply_spec",
+              "parent": 1,
+              "spec": {
+                "component": "Card",
+                "kind": "instance"
+              }
+            },
+            {
+              "fill": [
+                {
+                  "kind": "text",
+                  "name": "BodyText",
+                  "text": "Filled slot"
+                }
+              ],
+              "node": "@card",
+              "op": "set_slot",
+              "slot": "body"
+            }
+          ]
+        },
+        {
+          "dry_run": true,
+          "ops": [
+            {
+              "as": "preview",
+              "height": 80,
+              "kind": "rectangle",
+              "name": "PreviewBox",
+              "op": "insert",
+              "parent": 1,
+              "width": 160
+            }
+          ]
+        }
+      ],
       "properties": {
         "diff_image": {
           "default": false,
@@ -1137,8 +1224,7 @@
                 "type": "array"
               },
               "fill": {
-                "maxLength": 1024,
-                "type": "string"
+                "maxLength": 1024
               },
               "fills": {
                 "items": {
@@ -1175,11 +1261,11 @@
                     "type": "integer"
                   },
                   {
-                    "pattern": "^@[A-Za-z0-9_-]{1,64}(/.+)?$",
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
                     "type": "string"
                   }
                 ],
-                "description": "Numeric node ID or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
               "node_id": {
                 "anyOf": [
@@ -1188,19 +1274,21 @@
                     "type": "integer"
                   },
                   {
-                    "pattern": "^@[A-Za-z0-9_-]{1,64}(/.+)?$",
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
                     "type": "string"
                   }
                 ],
-                "description": "Numeric node ID or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
               "op": {
                 "enum": [
                   "apply_spec",
                   "insert",
+                  "create",
                   "update",
                   "move",
                   "delete",
+                  "set_slot",
                   "set_variables",
                   "set_style"
                 ],
@@ -1218,11 +1306,11 @@
                     "type": "integer"
                   },
                   {
-                    "pattern": "^@[A-Za-z0-9_-]{1,64}(/.+)?$",
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
                     "type": "string"
                   }
                 ],
-                "description": "Numeric node ID or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
               "parent_id": {
                 "anyOf": [
@@ -1231,11 +1319,17 @@
                     "type": "integer"
                   },
                   {
-                    "pattern": "^@[A-Za-z0-9_-]{1,64}(/.+)?$",
+                    "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
                     "type": "string"
                   }
                 ],
-                "description": "Numeric node ID or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+              },
+              "slot": {
+                "type": "string"
+              },
+              "slots": {
+                "type": "object"
               },
               "spec": {
                 "type": "object"

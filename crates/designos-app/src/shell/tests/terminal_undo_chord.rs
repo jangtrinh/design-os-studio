@@ -366,13 +366,13 @@ fn granularity_is_one_step_per_tool_call() {
             serde_json::json!({
                 "parent_id": page_id,
                 "spec": {
-                    "type": "frame",
+                    "kind": "frame",
                     "name": "BatchFrame",
                     "width": 200,
                     "height": 100,
                     "children": [
-                        { "type": "rect", "name": "BatchChildA", "width": 80, "height": 40 },
-                        { "type": "rect", "name": "BatchChildB", "width": 80, "height": 40 }
+                        { "kind": "rectangle", "name": "BatchChildA", "width": 80, "height": 40 },
+                        { "kind": "rectangle", "name": "BatchChildB", "width": 80, "height": 40 }
                     ]
                 }
             }),

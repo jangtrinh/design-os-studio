@@ -1,5 +1,6 @@
 //! Opening or creating a document in a session bound to an open editor is announced in the edit
 //! log, so the editor can tell the edits made before it from the edits made after it.
+#![allow(clippy::result_large_err)]
 
 use designos_doc::live_patch::{LiveLogLine, LiveOp};
 use designos_doc::Document;
@@ -47,7 +48,7 @@ impl Drop for Dirs {
     }
 }
 
-fn create(session: &mut Session, name: &str) -> Result<serde_json::Value, String> {
+fn create(session: &mut Session, name: &str) -> Result<serde_json::Value, designos_mcp::tools::errors::ToolError> {
     session.call("designos_create_node", json!({ "kind": "frame", "name": name, "width": 10.0, "height": 10.0 }))
 }
 

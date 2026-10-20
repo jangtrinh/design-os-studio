@@ -19,7 +19,7 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");
         assert_eq!(tools.len(), snapshot.len());
         assert!(tools.iter().any(|t| t.name == "designos_lint_fix"));
-        assert!(tools.iter().all(|t| t.annotations.is_some()));
+        assert!(tools.iter().all(|t| t.annotations.is_some() && t.output_schema.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
         assert_eq!(prompts.len(), 1);
         assert_eq!(prompts[0].name, "create_design_system_rules");
@@ -50,6 +50,8 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         assert_eq!(shot_meta["bounds"]["width"], 120.0);
         let invalid = client.call_tool(call("designos_update_node", json!({"node_id":id,"width":-1}))).await.unwrap();
         assert_eq!(invalid.is_error, Some(true));
+        assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["code"], "VALUE_OUT_OF_RANGE");
+        assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["safe_to_retry"], true);
         let code = client.call_tool(call("designos_generate_code", json!({"node_id":id,"language":"css"}))).await.unwrap();
         assert!(code.structured_content.unwrap()["code"].as_str().unwrap().contains("120px"));
         client.call_tool(call("designos_undo", json!({}))).await.unwrap();

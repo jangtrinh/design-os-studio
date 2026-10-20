@@ -100,6 +100,32 @@ pub fn tool_descriptor() -> Value {
                 "include_screenshot": {"type": "boolean", "default": true}
             }
         },
+        "outputSchema": crate::tools::errors::tool_output_schema(
+            json!({
+                "node_id": {"type": "integer"},
+                "language": {"type": "string"},
+                "code": {"type": "string"},
+                "truncated": {"type": "boolean"},
+                "truncated_reason": {"type": "string"},
+                "variables": {"type": "array"},
+                "variables_total": {"type": "integer"},
+                "styles": {"type": "array"},
+                "styles_total": {"type": "integer"},
+                "components": {"type": "array"},
+                "components_total": {"type": "integer"},
+                "annotations": {"type": "array"},
+                "annotations_total": {"type": "integer"},
+                "dev_status": {},
+                "code_connect": {},
+                "code_connect_reason": {"type": "string"},
+                "screenshot": {"type": "object"},
+                "box_models": {"type": "array"},
+                "box_models_total": {"type": "integer"},
+                "scoped": {"type": "boolean"},
+                "hidden": {"type": "boolean"}
+            }),
+            &["node_id", "language", "code", "truncated", "screenshot"],
+        ),
         "annotations": {
             "readOnlyHint": true,
             "destructiveHint": false,

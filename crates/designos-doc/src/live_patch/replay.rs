@@ -3,7 +3,7 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
-use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Variable, VariableCollection};
+use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,9 +25,17 @@ pub struct LivePatchState {
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
     /// Variable and collection ids this session's replays added to the editor. An agent undo
-    /// removes only these; anything the editor had before is left alone.
-    introduced_variables: BTreeSet<String>,
+    /// removes only these; anything the editor had before is left alone. Variables also keep the
+    /// last value this session wrote, so a later agent edit never overwrites a value the user
+    /// changed in the editor since.
+    introduced_variables: BTreeMap<String, Variable>,
     introduced_collections: BTreeSet<String>,
+    /// Styles and style metadata this session introduced into the editor document, mapped to the
+    /// last value this session wrote. An agent edit or undo touches one only while the editor still
+    /// holds exactly that value, so a style the editor already had (or the user changed) is never
+    /// overwritten or removed.
+    introduced_styles: BTreeMap<String, Style>,
+    introduced_style_meta: BTreeMap<String, StyleMeta>,
 }
 
 impl LivePatchState {
@@ -115,6 +123,8 @@ pub fn replay_live_patch(
         // layers may use it by now, so an undo of an older edit must not remove it.
         state.introduced_variables.clear();
         state.introduced_collections.clear();
+        state.introduced_styles.clear();
+        state.introduced_style_meta.clear();
         // Its replaced layers are gone from that canvas, so their old ids mean nothing there. The
         // first patch of a session has no earlier canvas to be newer than.
         if state.base.is_some() {
@@ -253,16 +263,30 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             let mut styles = doc.styles.clone();
             let mut style_meta = doc.style_meta.clone();
             for k in removed {
-                styles.remove(k);
+                if state.introduced_styles.get(k).is_some_and(|prev| styles.get(k) == Some(prev)) {
+                    state.introduced_styles.remove(k);
+                    styles.remove(k);
+                }
             }
             for k in removed_meta {
-                style_meta.remove(k);
+                if state.introduced_style_meta.get(k).is_some_and(|prev| style_meta.get(k) == Some(prev)) {
+                    state.introduced_style_meta.remove(k);
+                    style_meta.remove(k);
+                }
             }
             for (k, v) in upserted {
-                styles.insert(k.clone(), v.clone());
+                if k.is_empty() {
+                    report.skipped.push("a style without an id was not replayed".to_string());
+                } else if !styles.contains_key(k) || state.introduced_styles.get(k).is_some_and(|prev| styles.get(k) == Some(prev)) {
+                    styles.insert(k.clone(), v.clone());
+                    state.introduced_styles.insert(k.clone(), v.clone());
+                }
             }
             for (k, v) in upserted_meta {
-                style_meta.insert(k.clone(), v.clone());
+                if !k.is_empty() && (!style_meta.contains_key(k) || state.introduced_style_meta.get(k).is_some_and(|prev| style_meta.get(k) == Some(prev))) {
+                    style_meta.insert(k.clone(), v.clone());
+                    state.introduced_style_meta.insert(k.clone(), v.clone());
+                }
             }
             if styles == doc.styles && style_meta == doc.style_meta {
                 report.duplicates += 1;
@@ -365,7 +389,7 @@ fn resolve_variables(
     let mut merged_vars = doc.variables.clone();
     let mut merged_colls = doc.variable_collections.clone();
     for id in removed_variables {
-        if state.introduced_variables.remove(id) || !is_spec_undo {
+        if state.introduced_variables.remove(id).is_some() || !is_spec_undo {
             merged_vars.remove(id);
             for coll in merged_colls.values_mut() {
                 coll.variables.retain(|vid| vid != id);
@@ -381,8 +405,12 @@ fn resolve_variables(
         if v.id.is_empty() {
             report.skipped.push("a variable without an id was not replayed".to_string());
         } else {
-            if !merged_vars.contains_key(&v.id) {
-                state.introduced_variables.insert(v.id.clone());
+            let user_changed = state.introduced_variables.get(&v.id).is_some_and(|written| merged_vars.get(&v.id).is_some_and(|cur| cur != written));
+            if user_changed {
+                continue;
+            }
+            if !merged_vars.contains_key(&v.id) || state.introduced_variables.contains_key(&v.id) {
+                state.introduced_variables.insert(v.id.clone(), v.clone());
             }
             merged_vars.insert(v.id.clone(), v.clone());
         }

@@ -679,3 +679,85 @@ fn apply_spec_library_import_with_styles_variables_images_and_slots_replays_and_
     assert!(!full.variables.contains_key("ui_kit/v1"));
     assert!(!full.images.contains_key("dot_hash"));
 }
+
+#[test]
+fn styles_the_agent_adds_merge_into_the_editors_and_undo_removes_only_those() {
+    let (mut full, page, _) = full_doc(1, 1);
+    let user_styles = (full.styles.clone(), full.style_meta.clone());
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut styles = agent.styles.clone();
+    styles.insert("s_agent".into(), crate::Style::Fill(vec![crate::Paint::solid(crate::Color::rgb(10, 20, 30))]));
+    let mut meta = agent.style_meta.clone();
+    meta.insert(
+        "s_agent".into(),
+        crate::StyleMeta {
+            name: "Agent/Fill".into(),
+            key: None,
+            description: String::new(),
+            property: crate::StyleProperty::Fill,
+            bindings: Default::default(),
+        },
+    );
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetStyles { styles, style_meta: meta });
+
+    let mut state = LivePatchState::default();
+    let r = replay(&mut full, ops, &mut state);
+    assert_eq!(r.applied, 1);
+    assert!(full.styles.contains_key("s_agent"));
+    assert_eq!(full.styles.len(), 2, "editor style and agent style both present");
+
+    let undo = hist_peek(&hist);
+    let undo_ops = live_ops_for_command(&agent, &undo).unwrap();
+    hist.undo(&mut agent).unwrap();
+    let _ = replay(&mut full, undo_ops, &mut state);
+    assert_eq!((full.styles.clone(), full.style_meta.clone()), user_styles);
+}
+
+#[test]
+fn later_edit_to_agent_introduced_variable_replays_while_user_edit_is_preserved() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    // 1. Agent introduces easeui/v = 16.0
+    let mut ops1 = Vec::new();
+    let mut v16 = variable("easeui/v", "easeui");
+    v16.values.insert("m".into(), crate::VariableValue::Number(16.0));
+    let mut vars1 = agent.variables.clone();
+    vars1.insert("easeui/v".into(), v16);
+    let mut colls1 = agent.variable_collections.clone();
+    colls1.insert("easeui".into(), collection("easeui"));
+    agent_exec(&mut agent, &mut hist, &mut ops1, Command::SetVariables { variables: vars1, collections: colls1 });
+    let r1 = replay(&mut full, ops1, &mut state);
+    assert_eq!(r1.applied, 1);
+    assert_eq!(full.variables["easeui/v"].values["m"], crate::VariableValue::Number(16.0));
+
+    // 2. Agent updates easeui/v from 16.0 to 24.0 in the same session
+    let mut ops2 = Vec::new();
+    let mut v24 = variable("easeui/v", "easeui");
+    v24.values.insert("m".into(), crate::VariableValue::Number(24.0));
+    let mut vars2 = agent.variables.clone();
+    vars2.insert("easeui/v".into(), v24);
+    let colls2 = agent.variable_collections.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops2, Command::SetVariables { variables: vars2, collections: colls2 });
+    let r2 = replay(&mut full, ops2, &mut state);
+    assert_eq!(r2.applied, 1, "follow-up edit to agent-introduced variable must apply, not be dropped as duplicate");
+    assert_eq!(r2.duplicates, 0);
+    assert_eq!(full.variables["easeui/v"].values["m"], crate::VariableValue::Number(24.0));
+
+    // 3. User edits easeui/v in the editor to 99.0; a later agent edit to 32.0 must NOT overwrite it
+    full.variables.get_mut("easeui/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(99.0));
+    let mut ops3 = Vec::new();
+    let mut v32 = variable("easeui/v", "easeui");
+    v32.values.insert("m".into(), crate::VariableValue::Number(32.0));
+    let mut vars3 = agent.variables.clone();
+    vars3.insert("easeui/v".into(), v32);
+    let colls3 = agent.variable_collections.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops3, Command::SetVariables { variables: vars3, collections: colls3 });
+    let _ = replay(&mut full, ops3, &mut state);
+    assert_eq!(full.variables["easeui/v"].values["m"], crate::VariableValue::Number(99.0));
+}

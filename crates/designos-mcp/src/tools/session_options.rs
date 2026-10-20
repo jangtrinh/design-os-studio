@@ -228,6 +228,13 @@ pub fn tool_descriptor() -> Value {
                 }
             }
         },
+        "outputSchema": crate::tools::errors::tool_output_schema(
+            json!({
+                "issues": {"type": "object"},
+                "auto_fix": {"type": "object"}
+            }),
+            &["issues", "auto_fix"],
+        ),
         "annotations": {
             "readOnlyHint": false,
             "destructiveHint": false,

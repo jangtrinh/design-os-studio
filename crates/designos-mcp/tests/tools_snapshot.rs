@@ -46,7 +46,7 @@ fn every_dispatched_tool_is_declared() {
     let engine_src = fs::read_to_string(crate_dir.join("src/engine.rs")).expect("read src/engine.rs");
     let call_body = engine_src
         .split_once("pub fn call(&mut self, name: &str, args: Value)")
-        .and_then(|(_, rest)| rest.split_once("_ => Err(format!(\"unknown tool: {name}\"))"))
+        .and_then(|(_, rest)| rest.split_once("_ => Err(ToolError::new(ErrorCode::UnknownTool, \"\", format!(\"unknown tool: {name}\")))"))
         .map(|(body, _)| body)
         .expect("locate Engine::call match body in src/engine.rs");
     for line in call_body.lines() {
@@ -62,7 +62,10 @@ fn every_dispatched_tool_is_declared() {
 
     let mut probe_engine = designos_mcp::engine::Engine::default();
     let unhandled_err = probe_engine.call("__unhandled_tool_probe__", json!({})).expect_err("unhandled tool probe must fail");
-    assert_eq!(unhandled_err, "unknown tool: __unhandled_tool_probe__", "Engine::call default error prefix changed; keep this test aligned with Engine::call");
+    assert_eq!(
+        unhandled_err.message, "unknown tool: __unhandled_tool_probe__",
+        "Engine::call default error prefix changed; keep this test aligned with Engine::call"
+    );
 
     for &name in designos_mcp::engine::DISPATCHED {
         assert!(
@@ -73,7 +76,7 @@ fn every_dispatched_tool_is_declared() {
         let res = engine.call(name, json!({}));
         if let Err(err) = &res {
             assert!(
-                !err.starts_with("unknown tool: ") && err != &format!("unknown tool: {name}"),
+                !err.starts_with("unknown tool: ") && err.message != format!("unknown tool: {name}"),
                 "DISPATCHED entry `{name}` is not handled by Engine::call (got `{err}`)"
             );
         }

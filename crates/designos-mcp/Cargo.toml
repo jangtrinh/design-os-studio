@@ -27,5 +27,6 @@ rmcp = { version = "=3.5.1", default-features = false, features = ["server", "tr
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 [dev-dependencies]
+jsonschema = { version = "0.59", default-features = false }
 quick-xml = "0.41"
 rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }

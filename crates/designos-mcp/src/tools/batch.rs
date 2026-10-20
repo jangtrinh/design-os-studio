@@ -7,6 +7,7 @@
 //! document and undo history untouched on any error or when `dry_run: true`.
 
 use crate::engine::Engine;
+use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
@@ -24,14 +25,14 @@ pub const MAX_BATCH_OPS: usize = 200;
 /// Maximum number of nodes a single `designos_apply_batch` call may create across all ops.
 pub const MAX_BATCH_CREATED_NODES: usize = 20_000;
 
-/// JSON Schema descriptor for `designos_apply_batch` (§5).
+/// JSON Schema descriptor for `designos_apply_batch` (§3.5, §5).
 pub fn tool_descriptor() -> Value {
     let node_or_ref = json!({
         "anyOf": [
             { "type": "integer", "minimum": 1 },
-            { "type": "string", "pattern": "^@[A-Za-z0-9_-]{1,64}(/.+)?$" }
+            { "type": "string", "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$" }
         ],
-        "description": "Numeric node ID or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+        "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
     });
     let coordinate = json!({ "type": "number", "minimum": -1000000, "maximum": 1000000 });
     let size = json!({ "type": "number", "minimum": 0, "maximum": 1000000 });
@@ -40,7 +41,7 @@ pub fn tool_descriptor() -> Value {
         "op".into(),
         json!({
             "type": "string",
-            "enum": ["apply_spec", "insert", "update", "move", "delete", "set_variables", "set_style"]
+            "enum": ["apply_spec", "insert", "create", "update", "move", "delete", "set_slot", "set_variables", "set_style"]
         }),
     );
     op_properties.insert("as".into(), json!({ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }));
@@ -50,6 +51,9 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("node_id".into(), node_or_ref);
     op_properties.insert("index".into(), json!({ "type": "integer", "minimum": 0 }));
     op_properties.insert("spec".into(), json!({ "type": "object" }));
+    op_properties.insert("slot".into(), json!({ "type": "string" }));
+    op_properties.insert("fill".into(), json!({ "maxLength": 1024 }));
+    op_properties.insert("slots".into(), json!({ "type": "object" }));
     op_properties.insert("kind".into(), json!({ "type": "string", "enum": ["frame", "rectangle", "ellipse", "text"] }));
     op_properties.insert("name".into(), json!({ "type": "string", "maxLength": 1024 }));
     op_properties.insert("text".into(), json!({ "type": "string", "maxLength": 100000 }));
@@ -59,7 +63,6 @@ pub fn tool_descriptor() -> Value {
     op_properties.insert("height".into(), size);
     op_properties.insert("visible".into(), json!({ "type": "boolean" }));
     op_properties.insert("opacity".into(), json!({ "type": "number", "minimum": 0, "maximum": 1 }));
-    op_properties.insert("fill".into(), json!({ "type": "string", "maxLength": 1024 }));
     op_properties.insert("fills".into(), json!({ "type": "array", "items": { "type": "object" } }));
     op_properties.insert("upsert_collections".into(), json!({ "type": "array", "items": { "type": "object" } }));
     op_properties.insert("upsert_variables".into(), json!({ "type": "array", "items": { "type": "object" } }));
@@ -73,9 +76,56 @@ pub fn tool_descriptor() -> Value {
         "additionalProperties": false,
         "properties": Value::Object(op_properties)
     });
+    let examples = json!([
+        {
+            "ops": [
+                { "op": "create", "parent": 1, "kind": "frame", "name": "Header", "width": 320, "height": 64 },
+                { "op": "create", "parent": "$prev", "kind": "text", "name": "Title", "text": "Dashboard" }
+            ]
+        },
+        {
+            "ops": [
+                {
+                    "op": "apply_spec",
+                    "as": "hero",
+                    "parent": 1,
+                    "spec": { "kind": "frame", "name": "Hero", "children": [{ "kind": "text", "name": "Child", "text": "Welcome" }] }
+                },
+                { "op": "update", "node": "@hero/Child", "opacity": 0.9 }
+            ]
+        },
+        {
+            "ops": [
+                { "op": "apply_spec", "as": "card", "parent": 1, "spec": { "kind": "instance", "component": "Card" } },
+                { "op": "set_slot", "node": "@card", "slot": "body", "fill": [{ "kind": "text", "name": "BodyText", "text": "Filled slot" }] }
+            ]
+        },
+        {
+            "dry_run": true,
+            "ops": [
+                { "op": "insert", "as": "preview", "parent": 1, "kind": "rectangle", "name": "PreviewBox", "width": 160, "height": 80 }
+            ]
+        }
+    ]);
+    let success_schema = json!({
+        "type": "object",
+        "required": ["dry_run", "created", "created_count", "name_to_id", "changed", "touched_roots", "touched_bounds", "undo_label", "issues", "issues_total"],
+        "properties": {
+            "dry_run": { "type": "boolean" },
+            "created": { "type": "array", "items": { "type": "integer" } },
+            "created_count": { "type": "integer", "minimum": 0 },
+            "name_to_id": { "type": "object" },
+            "changed": { "type": "object" },
+            "touched_roots": { "type": "array", "items": { "type": "object" } },
+            "touched_bounds": { "type": "object" },
+            "undo_label": { "type": "string" },
+            "issues": { "type": "array", "items": { "type": "object" } },
+            "issues_total": { "type": "integer", "minimum": 0 }
+        }
+    });
     json!({
         "name": "designos_apply_batch",
-        "description": "Execute 1..=200 write operations (apply_spec, insert, update, move, delete, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '@<as>' or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload.",
+        "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
         "inputSchema": {
             "type": "object",
             "required": ["ops"],
@@ -97,8 +147,10 @@ pub fn tool_descriptor() -> Value {
                     ],
                     "description": "Optional per-call lint override (false or 'off' skips the per-call lint pass)."
                 }
-            }
+            },
+            "examples": examples
         },
+        "outputSchema": tool_output_schema_from_object(success_schema),
         "annotations": {
             "readOnlyHint": false,
             "destructiveHint": true,
@@ -311,6 +363,20 @@ struct SetStyleOp {
     apply: Vec<ApplyStyleLinkInput>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetSlotOp {
+    #[allow(dead_code)]
+    op: String,
+    #[serde(rename = "as")]
+    alias: Option<String>,
+    #[serde(alias = "node_id", alias = "instance")]
+    node: NodeRef,
+    slot: String,
+    #[serde(alias = "fill")]
+    value: designos_doc::SlotFillSpec,
+}
+
 #[derive(Clone, Debug)]
 enum ParsedOp {
     ApplySpec(Box<ApplySpecOp>),
@@ -320,6 +386,7 @@ enum ParsedOp {
     Delete(DeleteOp),
     SetVariables(SetVariablesOp),
     SetStyle(SetStyleOp),
+    SetSlot(SetSlotOp),
 }
 
 impl ParsedOp {
@@ -332,6 +399,7 @@ impl ParsedOp {
             Self::Delete(_) => "delete",
             Self::SetVariables(_) => "set_variables",
             Self::SetStyle(_) => "set_style",
+            Self::SetSlot(_) => "set_slot",
         }
     }
 
@@ -344,6 +412,7 @@ impl ParsedOp {
             Self::Delete(o) => o.alias.as_deref(),
             Self::SetVariables(o) => o.alias.as_deref(),
             Self::SetStyle(o) => o.alias.as_deref(),
+            Self::SetSlot(o) => o.alias.as_deref(),
         }
     }
 }
@@ -376,64 +445,89 @@ struct TouchedRootRecord {
     before_bounds: Rect,
 }
 
-fn batch_error(code: &str, failed_op: Option<usize>, op: Option<&str>, path: &str, message: impl Into<String>) -> String {
-    let msg = message.into();
-    let mut obj = Map::new();
-    obj.insert("code".into(), json!(code));
-    if let Some(idx) = failed_op {
-        obj.insert("failed_op".into(), json!(idx));
-    }
-    if let Some(op_name) = op {
-        obj.insert("op".into(), json!(op_name));
-    }
-    obj.insert("path".into(), json!(path));
-    obj.insert("message".into(), json!(msg));
-    obj.insert("safe_to_retry".into(), json!(true));
-    serde_json::to_string(&Value::Object(obj)).unwrap_or(msg)
+fn batch_error(code: ErrorCode, failed_op: Option<usize>, op: Option<&str>, path: &str, message: impl Into<String>) -> ToolError {
+    let mut err = ToolError::new(code, path, message);
+    err.failed_op = failed_op;
+    err.op = op.map(ToOwned::to_owned);
+    err
 }
 
-fn op_failed_error(failed_op: usize, op: &str, inner_code: &str, path: &str, message: impl Into<String>) -> String {
-    let msg = message.into();
-    let envelope = json!({
-        "code": "BATCH_OP_FAILED",
-        "failed_op": failed_op,
-        "op": op,
-        "path": path,
-        "message": msg,
-        "safe_to_retry": true,
-        "cause": {
-            "code": inner_code,
-            "path": path,
-            "message": msg,
-            "safe_to_retry": true
+fn op_failed_error(failed_op: usize, op: &str, inner_code: ErrorCode, path: &str, message: impl Into<String>) -> ToolError {
+    let cause = ToolError::new(inner_code, path, message);
+    ToolError::batch_op_failed(failed_op, op, cause)
+}
+
+fn wrap_op_err(failed_op: usize, op: &str, op_path: &str, mut cause: ToolError) -> ToolError {
+    if cause.path.is_empty() {
+        cause.path = op_path.to_string();
+    } else if !cause.path.starts_with("/ops/") {
+        if cause.path.starts_with('/') {
+            cause.path = format!("{op_path}{}", cause.path);
+        } else {
+            cause.path = format!("{op_path}/{}", cause.path);
         }
-    });
-    serde_json::to_string(&envelope).unwrap_or(msg)
+    }
+    ToolError::batch_op_failed(failed_op, op, cause)
 }
 
 fn is_valid_as(s: &str) -> bool {
     !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-fn validate_ref_pre_run(r: &NodeRef, declared_as: &BTreeSet<String>, op_idx: usize, op_name: &str, field: &str) -> Result<(), String> {
+fn validate_ref_pre_run(r: &NodeRef, declared_as: &BTreeSet<String>, has_prev: bool, op_idx: usize, op_name: &str, field: &str) -> Result<(), ToolError> {
     let path = format!("/ops/{op_idx}/{field}");
     match r {
-        NodeRef::Id(0) => Err(op_failed_error(op_idx, op_name, "VALUE_OUT_OF_RANGE", &path, "node IDs must be positive integers")),
+        NodeRef::Id(0) => Err(op_failed_error(op_idx, op_name, ErrorCode::ValueOutOfRange, &path, "node IDs must be positive integers")),
         NodeRef::Id(_) => Ok(()),
         NodeRef::Ref(s) => {
+            if s == "$prev" {
+                if !has_prev {
+                    let mut err = batch_error(
+                        ErrorCode::NoPreviousNode,
+                        Some(op_idx),
+                        Some(op_name),
+                        &path,
+                        "$prev cannot be used before an earlier operation has produced a node",
+                    );
+                    err.corrected_example = Some(json!({ "parent": 1 }));
+                    return Err(err);
+                }
+                return Ok(());
+            }
+            let valid: Vec<String> = declared_as.iter().map(|a| format!("@{a}")).collect();
+            let first_ref = valid.first().cloned();
             let Some(rest) = s.strip_prefix('@') else {
-                return Err(batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("invalid reference '{s}'; references must start with '@'")));
+                let mut err = batch_error(
+                    ErrorCode::UnknownBatchHandle,
+                    Some(op_idx),
+                    Some(op_name),
+                    &path,
+                    format!("invalid reference '{s}'; references must start with '@'"),
+                )
+                .with_valid_options(valid);
+                err.corrected_example = first_ref.map(|r| json!({ field: r }));
+                return Err(err);
             };
             let (alias, subpath) = match rest.split_once('/') {
                 Some((a, p)) => (a, Some(p)),
                 None => (rest, None),
             };
             if alias.is_empty() || !declared_as.contains(alias) {
-                return Err(batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("unknown or forward reference '{s}'")));
+                let mut err = batch_error(ErrorCode::UnknownBatchHandle, Some(op_idx), Some(op_name), &path, format!("unknown or forward reference '{s}'"))
+                    .with_valid_options(valid);
+                err.corrected_example = first_ref.map(|r| json!({ field: r }));
+                return Err(err);
             }
             if let Some(p) = subpath {
                 if p.is_empty() || p.split('/').any(str::is_empty) {
-                    return Err(batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("malformed descendant path in reference '{s}'")));
+                    return Err(batch_error(
+                        ErrorCode::UnknownBatchHandle,
+                        Some(op_idx),
+                        Some(op_name),
+                        &path,
+                        format!("malformed descendant path in reference '{s}'"),
+                    )
+                    .with_valid_options(valid));
                 }
             }
             Ok(())
@@ -441,58 +535,78 @@ fn validate_ref_pre_run(r: &NodeRef, declared_as: &BTreeSet<String>, op_idx: usi
     }
 }
 
-fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, String> {
+fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolError> {
     if raw_ops.is_empty() {
-        return Err(batch_error("INVALID_ARGUMENTS", None, None, "/ops", "ops must contain at least 1 operation"));
+        return Err(batch_error(ErrorCode::InvalidArguments, None, None, "/ops", "ops must contain at least 1 operation"));
     }
     if raw_ops.len() > MAX_BATCH_OPS {
-        return Err(batch_error(
-            "BATCH_TOO_LARGE",
+        let mut err = batch_error(
+            ErrorCode::BatchTooManyOps,
             None,
             None,
             "/ops",
             format!("batch contains {} ops, exceeding the {} op limit", raw_ops.len(), MAX_BATCH_OPS),
-        ));
+        );
+        err.corrected_example = Some(json!({ "ops": [{ "op": "insert", "kind": "frame", "name": "Root" }] }));
+        return Err(err);
     }
 
     let mut declared_as = BTreeSet::new();
+    let mut has_prev = false;
     let mut parsed = Vec::with_capacity(raw_ops.len());
 
     for (idx, val) in raw_ops.into_iter().enumerate() {
         let op_str = val
             .get("op")
             .and_then(Value::as_str)
-            .ok_or_else(|| batch_error("INVALID_ARGUMENTS", Some(idx), None, &format!("/ops/{idx}/op"), "missing or non-string 'op' field"))?
+            .ok_or_else(|| batch_error(ErrorCode::InvalidArguments, Some(idx), None, &format!("/ops/{idx}/op"), "missing or non-string 'op' field"))?
             .to_string();
 
         let op_path = format!("/ops/{idx}");
+        let raw_op = val.clone();
         let op = match op_str.as_str() {
             "apply_spec" => {
-                let a: ApplySpecOp =
-                    serde_json::from_value(val).map_err(|e| op_failed_error(idx, "apply_spec", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
-                if let Some(p) = &a.parent {
-                    if !matches!(p, NodeRef::Id(0)) {
-                        validate_ref_pre_run(p, &declared_as, idx, "apply_spec", "parent")?;
+                if let Some(raw_spec) = val.get("spec") {
+                    if let Err(se) = designos_doc::validate_raw_spec_slots(raw_spec) {
+                        let cause = crate::tools::errors::from_spec_error(se, &format!("/ops/{idx}/spec"));
+                        return Err(ToolError::batch_op_failed(idx, "apply_spec", cause));
                     }
                 }
+                let a: ApplySpecOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, true, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "apply_spec", cause)
+                })?;
+                if let Some(p) = &a.parent {
+                    if !matches!(p, NodeRef::Id(0)) {
+                        validate_ref_pre_run(p, &declared_as, has_prev, idx, "apply_spec", "parent")?;
+                    }
+                }
+                has_prev = true;
                 ParsedOp::ApplySpec(Box::new(a))
             }
-            "insert" => {
-                let a: InsertOp = serde_json::from_value(val).map_err(|e| op_failed_error(idx, "insert", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
+            "insert" | "create" => {
+                let a: InsertOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "insert", cause)
+                })?;
                 if let Some(p) = &a.parent {
-                    validate_ref_pre_run(p, &declared_as, idx, "insert", "parent")?;
+                    validate_ref_pre_run(p, &declared_as, has_prev, idx, "insert", "parent")?;
                 }
                 validate_create_fields(&a.kind, a.name.as_deref(), a.text.as_deref(), a.x, a.y, a.width, a.height)
-                    .map_err(|e| op_failed_error(idx, "insert", "VALUE_OUT_OF_RANGE", &op_path, e))?;
+                    .map_err(|e| wrap_op_err(idx, "insert", &op_path, e))?;
                 if let Some(fill_str) = &a.fill {
                     resolve_easeui_color(fill_str)
-                        .ok_or_else(|| op_failed_error(idx, "insert", "VALUE_OUT_OF_RANGE", &op_path, format!("invalid fill color '{fill_str}'")))?;
+                        .ok_or_else(|| op_failed_error(idx, "insert", ErrorCode::ValueOutOfRange, &op_path, format!("invalid fill color '{fill_str}'")))?;
                 }
+                has_prev = true;
                 ParsedOp::Insert(a)
             }
             "update" => {
-                let a: UpdateOp = serde_json::from_value(val).map_err(|e| op_failed_error(idx, "update", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
-                validate_ref_pre_run(&a.node, &declared_as, idx, "update", "node")?;
+                let a: UpdateOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "update", cause)
+                })?;
+                validate_ref_pre_run(&a.node, &declared_as, has_prev, idx, "update", "node")?;
                 validate_update_fields(&UpdateFields {
                     name: a.name.clone(),
                     text: a.text.clone(),
@@ -505,34 +619,69 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, String> 
                     fill: a.fill.clone(),
                     fills: a.fills.clone(),
                 })
-                .map_err(|e| op_failed_error(idx, "update", "VALUE_OUT_OF_RANGE", &op_path, e))?;
+                .map_err(|e| wrap_op_err(idx, "update", &op_path, e))?;
+                has_prev = true;
                 ParsedOp::Update(a)
             }
             "move" => {
-                let a: MoveOp = serde_json::from_value(val).map_err(|e| op_failed_error(idx, "move", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
-                validate_ref_pre_run(&a.node, &declared_as, idx, "move", "node")?;
-                validate_ref_pre_run(&a.parent, &declared_as, idx, "move", "parent")?;
+                let a: MoveOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "move", cause)
+                })?;
+                validate_ref_pre_run(&a.node, &declared_as, has_prev, idx, "move", "node")?;
+                validate_ref_pre_run(&a.parent, &declared_as, has_prev, idx, "move", "parent")?;
+                has_prev = true;
                 ParsedOp::Move(a)
             }
             "delete" => {
-                let a: DeleteOp = serde_json::from_value(val).map_err(|e| op_failed_error(idx, "delete", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
-                validate_ref_pre_run(&a.node, &declared_as, idx, "delete", "node")?;
+                let a: DeleteOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "delete", cause)
+                })?;
+                validate_ref_pre_run(&a.node, &declared_as, has_prev, idx, "delete", "node")?;
                 ParsedOp::Delete(a)
             }
             "set_variables" => {
-                let a: SetVariablesOp =
-                    serde_json::from_value(val).map_err(|e| op_failed_error(idx, "set_variables", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
+                let a: SetVariablesOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "set_variables", cause)
+                })?;
                 ParsedOp::SetVariables(a)
             }
             "set_style" => {
-                let a: SetStyleOp = serde_json::from_value(val).map_err(|e| op_failed_error(idx, "set_style", "INVALID_ARGUMENTS", &op_path, e.to_string()))?;
+                let a: SetStyleOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, false, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "set_style", cause)
+                })?;
                 for (link_idx, link) in a.apply.iter().enumerate() {
-                    validate_ref_pre_run(&link.node, &declared_as, idx, "set_style", &format!("apply/{link_idx}/node"))?;
+                    validate_ref_pre_run(&link.node, &declared_as, has_prev, idx, "set_style", &format!("apply/{link_idx}/node"))?;
                 }
                 ParsedOp::SetStyle(a)
             }
+            "set_slot" => {
+                if let Some(raw_val) = val.get("value") {
+                    if let Err(se) = designos_doc::validate_raw_spec_slots(raw_val) {
+                        let cause = crate::tools::errors::from_spec_error(se, &format!("/ops/{idx}/value"));
+                        return Err(ToolError::batch_op_failed(idx, "set_slot", cause));
+                    }
+                }
+                let a: SetSlotOp = serde_json::from_value(val).map_err(|e| {
+                    let cause = crate::tools::errors::from_serde_error_with_args(&e, &op_path, true, Some(&raw_op));
+                    ToolError::batch_op_failed(idx, "set_slot", cause)
+                })?;
+                validate_ref_pre_run(&a.node, &declared_as, has_prev, idx, "set_slot", "node")?;
+                has_prev = true;
+                ParsedOp::SetSlot(a)
+            }
             other => {
-                return Err(batch_error("INVALID_ARGUMENTS", Some(idx), Some(other), &format!("/ops/{idx}/op"), format!("unsupported batch op '{other}'")));
+                return Err(batch_error(
+                    ErrorCode::InvalidArguments,
+                    Some(idx),
+                    Some(other),
+                    &format!("/ops/{idx}/op"),
+                    format!("unsupported batch op '{other}'"),
+                )
+                .with_valid_options(vec!["apply_spec", "insert", "update", "move", "delete", "set_variables", "set_style", "set_slot"]));
             }
         };
 
@@ -541,13 +690,21 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, String> 
                 return Err(op_failed_error(
                     idx,
                     op.op_name(),
-                    "INVALID_ARGUMENTS",
+                    ErrorCode::InvalidArguments,
                     &format!("/ops/{idx}/as"),
                     format!("invalid 'as' alias '{alias}'; must match ^[A-Za-z0-9_-]{{1,64}}$"),
                 ));
             }
             if !declared_as.insert(alias.to_string()) {
-                return Err(batch_error("DUPLICATE_AS", Some(idx), Some(op.op_name()), &format!("/ops/{idx}/as"), format!("duplicate 'as' alias '{alias}'")));
+                let mut err = batch_error(
+                    ErrorCode::DuplicateBatchHandle,
+                    Some(idx),
+                    Some(op.op_name()),
+                    &format!("/ops/{idx}/as"),
+                    format!("duplicate 'as' alias '{alias}'"),
+                );
+                err.corrected_example = Some(json!({ "as": format!("{alias}_2") }));
+                return Err(err);
             }
         }
 
@@ -564,39 +721,76 @@ fn parse_indexed_segment(seg: &str) -> Option<(&str, usize)> {
     (idx >= 1 && !base.is_empty()).then_some((base, idx))
 }
 
-fn resolve_node_ref(doc: &Document, alias_roots: &BTreeMap<String, NodeId>, r: &NodeRef, op_idx: usize, op_name: &str, field: &str) -> Result<NodeId, String> {
+fn resolve_node_ref(
+    doc: &Document,
+    alias_roots: &BTreeMap<String, NodeId>,
+    prev_node: Option<NodeId>,
+    r: &NodeRef,
+    op_idx: usize,
+    op_name: &str,
+    field: &str,
+) -> Result<NodeId, ToolError> {
     let path = format!("/ops/{op_idx}/{field}");
     match r {
         NodeRef::Id(id) => {
             if *id == 0 {
-                return Err(op_failed_error(op_idx, op_name, "VALUE_OUT_OF_RANGE", &path, "node IDs must be positive integers"));
+                return Err(op_failed_error(op_idx, op_name, ErrorCode::ValueOutOfRange, &path, "node IDs must be positive integers"));
             }
-            doc.get(NodeId(*id)).map(|n| n.id).ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &path, format!("node {id} not found")))
+            doc.get(NodeId(*id)).map(|n| n.id).ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &path, format!("node {id} not found")))
         }
         NodeRef::Ref(s) => {
+            if s == "$prev" {
+                let Some(id) = prev_node else {
+                    return Err(batch_error(
+                        ErrorCode::NoPreviousNode,
+                        Some(op_idx),
+                        Some(op_name),
+                        &path,
+                        "$prev cannot be used before an earlier operation has produced a node",
+                    ));
+                };
+                if doc.get(id).is_none() {
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &path, format!("node {} not found", id.0)));
+                }
+                return Ok(id);
+            }
+            let valid: Vec<String> = alias_roots.keys().map(|a| format!("@{a}")).collect();
             let rest = s.strip_prefix('@').unwrap_or(s);
             let (alias, subpath) = match rest.split_once('/') {
                 Some((a, p)) => (a, Some(p)),
                 None => (rest, None),
             };
             let Some(&root_id) = alias_roots.get(alias) else {
-                return Err(batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("unknown reference '{s}'")));
+                return Err(batch_error(ErrorCode::UnknownBatchHandle, Some(op_idx), Some(op_name), &path, format!("unknown reference '{s}'"))
+                    .with_valid_options(valid));
             };
             if doc.get(root_id).is_none() {
-                return Err(batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("reference '{s}' points to a deleted node")));
+                return Err(batch_error(
+                    ErrorCode::UnknownBatchHandle,
+                    Some(op_idx),
+                    Some(op_name),
+                    &path,
+                    format!("reference '{s}' points to a deleted node"),
+                )
+                .with_valid_options(valid));
             }
             let Some(sub) = subpath else {
                 return Ok(root_id);
             };
             let mut cur = root_id;
             for seg in sub.split('/') {
-                let children =
-                    &doc.get(cur).ok_or_else(|| batch_error("UNKNOWN_REF", Some(op_idx), Some(op_name), &path, format!("unknown reference '{s}'")))?.children;
+                let children = &doc
+                    .get(cur)
+                    .ok_or_else(|| {
+                        batch_error(ErrorCode::UnknownBatchHandle, Some(op_idx), Some(op_name), &path, format!("unknown reference '{s}'"))
+                            .with_valid_options(valid.clone())
+                    })?
+                    .children;
                 if let Some((base, idx_1)) = parse_indexed_segment(seg) {
                     let matched = children.iter().copied().filter(|&cid| doc.get(cid).is_some_and(|n| n.name == base)).nth(idx_1 - 1);
                     cur = matched.ok_or_else(|| {
                         batch_error(
-                            "UNKNOWN_REF",
+                            ErrorCode::UnknownBatchHandle,
                             Some(op_idx),
                             Some(op_name),
                             &path,
@@ -608,17 +802,24 @@ fn resolve_node_ref(doc: &Document, alias_roots: &BTreeMap<String, NodeId>, r: &
                     match matches.as_slice() {
                         [only] => cur = *only,
                         [] => {
+                            let child_opts: Vec<String> = children
+                                .iter()
+                                .filter_map(|&cid| doc.get(cid))
+                                .filter(|n| !n.name.is_empty())
+                                .map(|n| format!("@{alias}/{}", n.name))
+                                .collect();
                             return Err(batch_error(
-                                "UNKNOWN_REF",
+                                ErrorCode::UnknownBatchHandle,
                                 Some(op_idx),
                                 Some(op_name),
                                 &path,
                                 format!("descendant segment '{seg}' not found in '{s}'"),
-                            ))
+                            )
+                            .with_valid_options(child_opts));
                         }
                         _ => {
                             return Err(batch_error(
-                                "UNKNOWN_REF",
+                                ErrorCode::UnknownBatchHandle,
                                 Some(op_idx),
                                 Some(op_name),
                                 &path,
@@ -637,7 +838,7 @@ fn resolve_node_ref(doc: &Document, alias_roots: &BTreeMap<String, NodeId>, r: &
 }
 
 /// Checks RD-3 frame ownership lock when `engine.owned_frames` or `DESIGNOS_OWNED_FRAMES` is active (§13).
-fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: NodeId, op_idx: usize, op_name: &str) -> Result<(), String> {
+fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: NodeId, op_idx: usize, op_name: &str) -> Result<(), ToolError> {
     let env_owned: Option<Vec<NodeId>> = std::env::var("DESIGNOS_OWNED_FRAMES")
         .ok()
         .map(|s| s.split(',').filter_map(|p| p.trim().parse::<u64>().ok()).filter(|&id| id > 0).map(NodeId).collect())
@@ -650,7 +851,7 @@ fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: No
         return Err(op_failed_error(
             op_idx,
             op_name,
-            "OUTSIDE_OWNED_FRAMES",
+            ErrorCode::OutsideOwnedFrames,
             &format!("/ops/{op_idx}"),
             format!("node {} is outside this agent run's owned frames", target.0),
         ));
@@ -659,7 +860,7 @@ fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: No
 }
 
 /// Refuses document-wide edits (`set_variables`, `set_style` upsert/delete) while a frame lease is active (§13).
-fn check_document_lease_guard(owned_frames: Option<&[NodeId]>, op_idx: usize, op_name: &str) -> Result<(), String> {
+fn check_document_lease_guard(owned_frames: Option<&[NodeId]>, op_idx: usize, op_name: &str) -> Result<(), ToolError> {
     let env_owned: Option<Vec<NodeId>> = std::env::var("DESIGNOS_OWNED_FRAMES")
         .ok()
         .map(|s| s.split(',').filter_map(|p| p.trim().parse::<u64>().ok()).filter(|&id| id > 0).map(NodeId).collect())
@@ -668,7 +869,7 @@ fn check_document_lease_guard(owned_frames: Option<&[NodeId]>, op_idx: usize, op
         return Err(op_failed_error(
             op_idx,
             op_name,
-            "OUTSIDE_OWNED_FRAMES",
+            ErrorCode::OutsideOwnedFrames,
             &format!("/ops/{op_idx}"),
             format!("{op_name} modifies document-wide definitions outside this agent run's owned frames"),
         ));
@@ -750,7 +951,7 @@ fn parse_variable_kind(s: &str) -> Result<VariableKind, String> {
     }
 }
 
-fn parse_variable_value(val: &Value, kind: VariableKind) -> Result<VariableValue, String> {
+fn parse_variable_value(val: &Value, kind: VariableKind) -> Result<VariableValue, (ErrorCode, String)> {
     if let Ok(vv) = serde_json::from_value::<VariableValue>(val.clone()) {
         return Ok(vv);
     }
@@ -765,39 +966,39 @@ fn parse_variable_value(val: &Value, kind: VariableKind) -> Result<VariableValue
                 if let Some(alias) = s.strip_prefix("var:") {
                     return Ok(VariableValue::Alias(alias.trim().to_string()));
                 }
-                let c = resolve_easeui_color(s).ok_or_else(|| format!("invalid color value '{s}'"))?;
+                let c = resolve_easeui_color(s).ok_or_else(|| (ErrorCode::InvalidColor, format!("invalid color value '{s}'")))?;
                 Ok(VariableValue::Color(c))
             } else {
-                let c: Color = serde_json::from_value(val.clone()).map_err(|e| format!("invalid color value: {e}"))?;
+                let c: Color = serde_json::from_value(val.clone()).map_err(|e| (ErrorCode::InvalidColor, format!("invalid color value: {e}")))?;
                 Ok(VariableValue::Color(c))
             }
         }
         VariableKind::Number => {
-            let n = val.as_f64().ok_or_else(|| format!("expected number value, got {val}"))? as f32;
+            let n = val.as_f64().ok_or_else(|| (ErrorCode::InvalidArguments, format!("expected number value, got {val}")))? as f32;
             if !n.is_finite() {
-                return Err("variable number value must be finite".into());
+                return Err((ErrorCode::ValueOutOfRange, "variable number value must be finite".into()));
             }
             Ok(VariableValue::Number(n))
         }
         VariableKind::String => {
-            let s = val.as_str().ok_or_else(|| format!("expected string value, got {val}"))?;
+            let s = val.as_str().ok_or_else(|| (ErrorCode::InvalidArguments, format!("expected string value, got {val}")))?;
             Ok(VariableValue::String(s.to_string()))
         }
         VariableKind::Boolean => {
-            let b = val.as_bool().ok_or_else(|| format!("expected boolean value, got {val}"))?;
+            let b = val.as_bool().ok_or_else(|| (ErrorCode::InvalidArguments, format!("expected boolean value, got {val}")))?;
             Ok(VariableValue::Boolean(b))
         }
     }
 }
 
-fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) -> Result<(Option<Command>, usize), String> {
+fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) -> Result<(Option<Command>, usize), ToolError> {
     let path = format!("/ops/{op_idx}");
     let mut collections = doc.variable_collections.clone();
     let mut variables = doc.variables.clone();
 
     for c_in in &op.upsert_collections {
         if c_in.id.trim().is_empty() {
-            return Err(op_failed_error(op_idx, "set_variables", "INVALID_ARGUMENTS", &path, "collection id must not be empty"));
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "collection id must not be empty"));
         }
         let existing = collections.get(&c_in.id).cloned();
         let modes = if !c_in.modes.is_empty() {
@@ -831,11 +1032,11 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
 
     for v_in in &op.upsert_variables {
         if v_in.id.trim().is_empty() {
-            return Err(op_failed_error(op_idx, "set_variables", "INVALID_ARGUMENTS", &path, "variable id must not be empty"));
+            return Err(op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, "variable id must not be empty"));
         }
         let existing = variables.get(&v_in.id).cloned();
         let kind = match (&v_in.kind, &existing) {
-            (Some(k), _) => parse_variable_kind(k).map_err(|e| op_failed_error(op_idx, "set_variables", "INVALID_ARGUMENTS", &path, e))?,
+            (Some(k), _) => parse_variable_kind(k).map_err(|e| op_failed_error(op_idx, "set_variables", ErrorCode::InvalidArguments, &path, e))?,
             (None, Some(ex)) => ex.kind,
             (None, None) => VariableKind::Color,
         };
@@ -857,11 +1058,17 @@ fn apply_set_variables_op(doc: &Document, op: &SetVariablesOp, op_idx: usize) ->
                 },
             );
         if !collections.contains_key(&collection_id) {
-            return Err(op_failed_error(op_idx, "set_variables", "INVALID_ARGUMENTS", &path, format!("variable collection '{collection_id}' not found")));
+            return Err(op_failed_error(
+                op_idx,
+                "set_variables",
+                ErrorCode::UnknownVariableCollection,
+                &path,
+                format!("variable collection '{collection_id}' not found"),
+            ));
         }
         let mut values = existing.as_ref().map(|e| e.values.clone()).unwrap_or_default();
         for (mode_id, raw_val) in &v_in.values {
-            let parsed_val = parse_variable_value(raw_val, kind).map_err(|e| op_failed_error(op_idx, "set_variables", "INVALID_ARGUMENTS", &path, e))?;
+            let parsed_val = parse_variable_value(raw_val, kind).map_err(|(code, msg)| op_failed_error(op_idx, "set_variables", code, &path, msg))?;
             values.insert(mode_id.clone(), parsed_val);
         }
         let name = v_in.name.clone().or_else(|| existing.as_ref().map(|e| e.name.clone())).unwrap_or_else(|| v_in.id.clone());
@@ -915,10 +1122,11 @@ fn parse_style_property(s: &str) -> Result<StyleProperty, String> {
 fn apply_set_style_op(
     doc: &Document,
     alias_roots: &BTreeMap<String, NodeId>,
+    prev_node: Option<NodeId>,
     owned_frames: Option<&[NodeId]>,
     op: &SetStyleOp,
     op_idx: usize,
-) -> Result<(Vec<Command>, usize, Option<NodeId>), String> {
+) -> Result<(Vec<Command>, usize, Option<NodeId>), ToolError> {
     if !op.upsert.is_empty() || !op.delete.is_empty() {
         check_document_lease_guard(owned_frames, op_idx, "set_style")?;
     }
@@ -933,9 +1141,9 @@ fn apply_set_style_op(
             .clone()
             .or_else(|| s_in.id.clone())
             .or_else(|| s_in.name.clone())
-            .ok_or_else(|| op_failed_error(op_idx, "set_style", "MISSING_FIELD", &path, "style upsert entry requires 'key', 'id', or 'name'"))?;
+            .ok_or_else(|| op_failed_error(op_idx, "set_style", ErrorCode::MissingField, &path, "style upsert entry requires 'key', 'id', or 'name'"))?;
         if key.trim().is_empty() {
-            return Err(op_failed_error(op_idx, "set_style", "INVALID_ARGUMENTS", &path, "style key must not be empty"));
+            return Err(op_failed_error(op_idx, "set_style", ErrorCode::InvalidArguments, &path, "style key must not be empty"));
         }
         let existing_style = styles.get(&key).cloned();
         let existing_meta = style_meta.get(&key).cloned();
@@ -943,7 +1151,7 @@ fn apply_set_style_op(
             st.clone()
         } else if let Some(fill_str) = &s_in.fill {
             let c = resolve_easeui_color(fill_str)
-                .ok_or_else(|| op_failed_error(op_idx, "set_style", "INVALID_COLOR", &path, format!("invalid style color '{fill_str}'")))?;
+                .ok_or_else(|| op_failed_error(op_idx, "set_style", ErrorCode::InvalidColor, &path, format!("invalid style color '{fill_str}'")))?;
             Style::Fill(vec![Paint::solid(c)])
         } else if let Some(paints) = &s_in.paints {
             Style::Fill(paints.clone())
@@ -959,14 +1167,14 @@ fn apply_set_style_op(
             return Err(op_failed_error(
                 op_idx,
                 "set_style",
-                "MISSING_FIELD",
+                ErrorCode::MissingField,
                 &path,
                 format!("style '{key}' requires 'style', 'fill', 'paints', 'text_style', 'effects', or 'grids'"),
             ));
         };
 
         let prop = match &s_in.property {
-            Some(p) => parse_style_property(p).map_err(|e| op_failed_error(op_idx, "set_style", "INVALID_ARGUMENTS", &path, e))?,
+            Some(p) => parse_style_property(p).map_err(|e| op_failed_error(op_idx, "set_style", ErrorCode::InvalidArguments, &path, e))?,
             None => existing_meta.as_ref().map(|m| m.property).unwrap_or(match &style_val {
                 Style::Fill(_) => StyleProperty::Fill,
                 Style::Text(_) => StyleProperty::Text,
@@ -993,7 +1201,7 @@ fn apply_set_style_op(
 
     let mut first_applied_node = None;
     for (link_idx, link) in op.apply.iter().enumerate() {
-        let node_id = resolve_node_ref(doc, alias_roots, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
+        let node_id = resolve_node_ref(doc, alias_roots, prev_node, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
         check_lease_guard(doc, owned_frames, node_id, op_idx, "set_style")?;
         if first_applied_node.is_none() {
             first_applied_node = Some(node_id);
@@ -1006,14 +1214,14 @@ fn apply_set_style_op(
             return Err(op_failed_error(
                 op_idx,
                 "set_style",
-                "UNKNOWN_STYLE",
+                ErrorCode::UnknownStyle,
                 &format!("/ops/{op_idx}/apply/{link_idx}/style"),
                 format!("style '{}' not found", link.style),
             ));
         };
         let st = styles.get(&resolved_key).unwrap();
         let prop = match &link.property {
-            Some(p) => parse_style_property(p).map_err(|e| op_failed_error(op_idx, "set_style", "INVALID_ARGUMENTS", &path, e))?,
+            Some(p) => parse_style_property(p).map_err(|e| op_failed_error(op_idx, "set_style", ErrorCode::InvalidArguments, &path, e))?,
             None => style_meta.get(&resolved_key).map(|m| m.property).unwrap_or_else(|| style_property(doc, &resolved_key)),
         };
         let ref_slot = match prop {
@@ -1023,7 +1231,8 @@ fn apply_set_style_op(
             StyleProperty::Effect => "effect",
             StyleProperty::Grid => "grid",
         };
-        let cur = doc.get(node_id).ok_or_else(|| op_failed_error(op_idx, "set_style", "NODE_NOT_FOUND", &path, format!("node {} not found", node_id.0)))?;
+        let cur =
+            doc.get(node_id).ok_or_else(|| op_failed_error(op_idx, "set_style", ErrorCode::NodeNotFound, &path, format!("node {} not found", node_id.0)))?;
         let mut updated = cur.clone();
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
         apply_style_values(&mut updated, st, &resolved_key);
@@ -1121,12 +1330,11 @@ fn walk_named_descendants(
 }
 
 /// Executes `designos_apply_batch` on `engine` (§3.1–§3.5).
-pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
-    let batch_args: BatchArgs =
-        serde_json::from_value(args).map_err(|e| batch_error("INVALID_ARGUMENTS", None, None, "", format!("invalid arguments: {e}")))?;
+pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
+    let batch_args: BatchArgs = serde_json::from_value(args).map_err(|e| crate::tools::errors::from_serde_error(&e, "", false))?;
     if let Some(key) = &batch_args.idempotency_key {
         if key.len() > 128 {
-            return Err(batch_error("VALUE_OUT_OF_RANGE", None, None, "/idempotency_key", "idempotency_key exceeds 128 UTF-8 bytes"));
+            return Err(batch_error(ErrorCode::ValueOutOfRange, None, None, "/idempotency_key", "idempotency_key exceeds 128 UTF-8 bytes"));
         }
     }
 
@@ -1140,6 +1348,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
     let mut recorded_live_ops: Vec<LiveOp> = Vec::new();
     let mut relayout_targets: Vec<NodeId> = Vec::new();
     let mut alias_roots: BTreeMap<String, NodeId> = BTreeMap::new();
+    let mut prev_node: Option<NodeId> = None;
     let mut created_roots: Vec<CreatedRootRecord> = Vec::new();
     let mut all_created_ids: BTreeSet<NodeId> = BTreeSet::new();
     let mut created_root_ids: Vec<u64> = Vec::new();
@@ -1158,19 +1367,24 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
             ParsedOp::ApplySpec(a) => {
                 let parent = match &a.parent {
                     Some(NodeRef::Id(0)) | None => {
-                        default_page.ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, "Document has no pages"))?
+                        default_page.ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?
                     }
-                    Some(r) => resolve_node_ref(&trial, &alias_roots, r, op_idx, op_name, "parent")?,
+                    Some(r) => resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "parent")?,
                 };
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), parent, op_idx, op_name)?;
-                let pnode =
-                    trial.get(parent).ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, format!("node {} not found", parent.0)))?;
+                let pnode = trial
+                    .get(parent)
+                    .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", parent.0)))?;
                 if !pnode.kind.is_container() {
-                    return Err(op_failed_error(op_idx, op_name, "NOT_A_CONTAINER", &op_path, "parent must identify a container"));
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::NotAContainer, &op_path, "parent must identify a container"));
                 }
                 let prev_children = pnode.children.clone();
                 let data_before = SpecDataSnapshot::of(&trial);
-                let root_id = trial.apply_spec(parent, &a.spec).map_err(|e| op_failed_error(op_idx, op_name, "INVALID_ARGUMENTS", &op_path, e))?;
+                let report = trial.apply_spec_with_report(parent, &a.spec).map_err(|se| {
+                    let cause = crate::tools::errors::from_spec_error(designos_doc::SpecError::from(se), &format!("{op_path}/spec"));
+                    ToolError::batch_op_failed(op_idx, op_name, cause)
+                })?;
+                let root_id = report.root_node_id;
                 // Variables, styles and library state the spec wrote (an `$easeui.*` token creates its collection) are
                 // committed as their own commands ahead of the insert, so the bound nodes never outlive their variables
                 // and one undo step removes both.
@@ -1179,10 +1393,11 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                     data_before.restore(&mut trial);
                     for cmd in data_cmds {
                         if recording_live {
-                            let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                            let ops =
+                                live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                             recorded_live_ops.extend(ops);
                         }
-                        cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                        cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                         collected_cmds.push(cmd);
                     }
                 }
@@ -1204,7 +1419,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 });
                 if created_count + nodes.len() > MAX_BATCH_CREATED_NODES {
                     return Err(batch_error(
-                        "BATCH_TOO_LARGE",
+                        ErrorCode::BatchTooManyOps,
                         Some(op_idx),
                         Some(op_name),
                         &op_path,
@@ -1227,6 +1442,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), root_id);
                 }
+                prev_node = Some(root_id);
                 created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id, created_ids: subtree_ids });
                 collected_cmds.push(Command::Insert { parent, index: target_idx, nodes });
                 relayout_targets.push(parent);
@@ -1236,13 +1452,13 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
             }
             ParsedOp::Insert(a) => {
                 let parent = match &a.parent {
-                    None => default_page.ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, "Document has no pages"))?,
-                    Some(r) => resolve_node_ref(&trial, &alias_roots, r, op_idx, op_name, "parent")?,
+                    None => default_page.ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::PageNotFound, &op_path, "Document has no pages"))?,
+                    Some(r) => resolve_node_ref(&trial, &alias_roots, prev_node, r, op_idx, op_name, "parent")?,
                 };
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), parent, op_idx, op_name)?;
                 if created_count + 1 > MAX_BATCH_CREATED_NODES {
                     return Err(batch_error(
-                        "BATCH_TOO_LARGE",
+                        ErrorCode::BatchTooManyOps,
                         Some(op_idx),
                         Some(op_name),
                         &op_path,
@@ -1251,7 +1467,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 }
                 let (id, target_idx, mut node) =
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
-                        .map_err(|e| op_failed_error(op_idx, op_name, "INVALID_ARGUMENTS", &op_path, e))?;
+                        .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
                 if let Some(fills) = &a.fills {
                     node.fills = fills.clone();
                 } else if let Some(fill_str) = &a.fill {
@@ -1262,10 +1478,10 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
 
                 let cmd = Command::Insert { parent, index: target_idx, nodes: vec![node] };
                 if recording_live {
-                    let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                    let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                     recorded_live_ops.extend(ops);
                 }
-                cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                 relayout_for_node(&mut trial, id);
 
                 created_root_ids.push(id.0);
@@ -1277,6 +1493,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), id);
                 }
+                prev_node = Some(id);
                 created_roots.push(CreatedRootRecord { alias: a.alias.clone(), root_id: id, created_ids: set });
                 collected_cmds.push(cmd);
                 relayout_targets.push(id);
@@ -1284,7 +1501,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
             }
             ParsedOp::Update(a) => {
-                let id = resolve_node_ref(&trial, &alias_roots, &a.node, op_idx, op_name, "node")?;
+                let id = resolve_node_ref(&trial, &alias_roots, prev_node, &a.node, op_idx, op_name, "node")?;
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
                 let (updated_node, node_changed) = build_updated_node(
                     &trial,
@@ -1302,19 +1519,20 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                         fills: a.fills.clone(),
                     },
                 )
-                .map_err(|e| op_failed_error(op_idx, op_name, "INVALID_ARGUMENTS", &op_path, e))?;
+                .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
 
                 let before_bounds = node_page_bounds(&trial, id);
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), id);
                 }
+                prev_node = Some(id);
                 if node_changed {
                     let cmd = Command::Update { node: Box::new(updated_node) };
                     if recording_live {
-                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                         recorded_live_ops.extend(ops);
                     }
-                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     relayout_for_node(&mut trial, id);
                     collected_cmds.push(cmd);
                     relayout_targets.push(id);
@@ -1323,26 +1541,27 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
             }
             ParsedOp::Move(a) => {
-                let id = resolve_node_ref(&trial, &alias_roots, &a.node, op_idx, op_name, "node")?;
-                let new_parent = resolve_node_ref(&trial, &alias_roots, &a.parent, op_idx, op_name, "parent")?;
+                let id = resolve_node_ref(&trial, &alias_roots, prev_node, &a.node, op_idx, op_name, "node")?;
+                let new_parent = resolve_node_ref(&trial, &alias_roots, prev_node, &a.parent, op_idx, op_name, "parent")?;
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), new_parent, op_idx, op_name)?;
 
-                let cur_node = trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, format!("node {} not found", id.0)))?;
+                let cur_node =
+                    trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?;
                 let Some(old_parent) = cur_node.parent else {
-                    return Err(op_failed_error(op_idx, op_name, "PAGE_ROOT_PROTECTED", &op_path, "page roots cannot be moved by this tool"));
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be moved by this tool"));
                 };
                 let pnode = trial
                     .get(new_parent)
-                    .ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, format!("node {} not found", new_parent.0)))?;
+                    .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", new_parent.0)))?;
                 if !pnode.kind.is_container() {
-                    return Err(op_failed_error(op_idx, op_name, "NOT_A_CONTAINER", &op_path, "parent must identify a container"));
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::NotAContainer, &op_path, "parent must identify a container"));
                 }
                 if id == new_parent || trial.is_ancestor(id, new_parent) {
-                    return Err(batch_error(
-                        "MOVE_CYCLE",
-                        Some(op_idx),
-                        Some(op_name),
+                    return Err(op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::MoveCycle,
                         &op_path,
                         format!("cannot move node {} into its own subtree ({})", id.0, new_parent.0),
                     ));
@@ -1356,13 +1575,14 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), id);
                 }
+                prev_node = Some(id);
                 if old_parent != new_parent || cur_idx != Some(target_idx) {
                     let cmd = Command::Reparent { id, parent: new_parent, index: target_idx };
                     if recording_live {
-                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                         recorded_live_ops.extend(ops);
                     }
-                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "MOVE_CYCLE", &op_path, e.to_string()))?;
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::MoveCycle, &op_path, e.to_string()))?;
                     relayout_for_node(&mut trial, old_parent);
                     relayout_for_node(&mut trial, new_parent);
                     collected_cmds.push(cmd);
@@ -1373,11 +1593,12 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
             }
             ParsedOp::Delete(a) => {
-                let id = resolve_node_ref(&trial, &alias_roots, &a.node, op_idx, op_name, "node")?;
+                let id = resolve_node_ref(&trial, &alias_roots, prev_node, &a.node, op_idx, op_name, "node")?;
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
-                let cur_node = trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, "NODE_NOT_FOUND", &op_path, format!("node {} not found", id.0)))?;
+                let cur_node =
+                    trial.get(id).ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?;
                 let Some(former_parent) = cur_node.parent else {
-                    return Err(op_failed_error(op_idx, op_name, "PAGE_ROOT_PROTECTED", &op_path, "page roots cannot be deleted by this tool"));
+                    return Err(op_failed_error(op_idx, op_name, ErrorCode::PageRootProtected, &op_path, "page roots cannot be deleted by this tool"));
                 };
                 let deleted_bounds = node_page_bounds(&trial, id);
                 let parent_bounds_before = {
@@ -1390,10 +1611,10 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 };
                 let cmd = Command::Remove { id };
                 if recording_live {
-                    let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                    let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                     recorded_live_ops.extend(ops);
                 }
-                cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                 relayout_for_node(&mut trial, former_parent);
                 collected_cmds.push(cmd);
                 relayout_targets.push(former_parent);
@@ -1406,10 +1627,10 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
-                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                         recorded_live_ops.extend(ops);
                     }
-                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     if let Some(p) = default_page {
                         if let Some(pnode) = trial.get(p) {
                             let children = pnode.children.clone();
@@ -1427,13 +1648,13 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: root_node, before_bounds });
             }
             ParsedOp::SetStyle(a) => {
-                let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, engine.owned_frames.as_deref(), a, op_idx)?;
+                let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, prev_node, engine.owned_frames.as_deref(), a, op_idx)?;
                 for cmd in cmds {
                     if recording_live {
-                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
+                        let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
                         recorded_live_ops.extend(ops);
                     }
-                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e.to_string()))?;
+                    cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
                     collected_cmds.push(cmd);
                 }
                 if let Some(nid) = first_node {
@@ -1444,6 +1665,45 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 let root_node = first_node.or(default_page).unwrap_or(NodeId(1));
                 let before_bounds = node_page_bounds(&trial, root_node);
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: root_node, before_bounds });
+            }
+            ParsedOp::SetSlot(a) => {
+                let id = resolve_node_ref(&trial, &alias_roots, prev_node, &a.node, op_idx, op_name, "node")?;
+                check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
+                let cur_node = trial
+                    .get(id)
+                    .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("node {} not found", id.0)))?
+                    .clone();
+                let comp_id = designos_doc::instance_component(&cur_node).ok_or_else(|| {
+                    op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InvalidNodeKind,
+                        &format!("{op_path}/node"),
+                        format!("node {} is not a component instance", id.0),
+                    )
+                })?;
+                let mut slots_map = BTreeMap::new();
+                slots_map.insert(a.slot.clone(), a.value.clone());
+                let spec_node = designos_doc::NodeSpec {
+                    kind: "instance".to_string(),
+                    component: Some(format!("node:{}", comp_id.0)),
+                    slots: slots_map,
+                    ..Default::default()
+                };
+                let snapshots = engine.collect_library_snapshots(&spec_node);
+                let mut temp_doc = trial.clone();
+                let parent = cur_node.parent.or(default_page).unwrap_or(NodeId(1));
+                let (_cmd, built_id) = designos_doc::apply_spec_command(&mut temp_doc, parent, &spec_node, &snapshots).map_err(|se| {
+                    let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
+                    ToolError::batch_op_failed(op_idx, op_name, cause)
+                })?;
+                if let Some(alias) = &a.alias {
+                    alias_roots.insert(alias.clone(), id);
+                }
+                prev_node = Some(id);
+                let _ = built_id;
+                let before_bounds = node_page_bounds(&trial, id);
+                touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
             }
         }
     }
@@ -1512,7 +1772,11 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
     // Step 4: Dry run returns the trial result without committing or publishing (§3.2.4).
     // Step 5 & Edge case 5: Empty effective change skips commit, undo entry, and patch line (§8.5).
     if !batch_args.dry_run && !collected_cmds.is_empty() && changed.any() {
-        engine.history.exec(&mut engine.doc, Command::Batch(collected_cmds)).map_err(|e| batch_error("INTERNAL_ERROR", None, None, "", e.to_string()))?;
+        engine
+            .history
+            .exec(&mut engine.doc, Command::Batch(collected_cmds))
+            .map_err(|e| batch_error(ErrorCode::InternalError, None, None, "", e.to_string()))?;
+        engine.revision = engine.revision.wrapping_add(1);
         for target in &relayout_targets {
             relayout_for_node(&mut engine.doc, *target);
         }
@@ -1819,7 +2083,7 @@ mod tests {
             )
             .expect_err("op 2 has opacity 2.0 and must fail the whole batch");
 
-        let err_val: Value = serde_json::from_str(&err_str).expect("structured error JSON");
+        let err_val = err_str.to_json_value();
         assert_eq!(err_val["failed_op"], 2, "failed_op must be 2: {err_val}");
         assert_eq!(err_val["op"], "update");
         assert_eq!(err_val["safe_to_retry"], true);
@@ -2133,7 +2397,7 @@ mod tests {
             )
             .expect_err("unknown ref @nope must be rejected before anything runs");
 
-        let err_val: Value = serde_json::from_str(&err_str).expect("structured error JSON");
+        let err_val = err_str.to_json_value();
         assert_eq!(err_val["code"], "UNKNOWN_REF", "{err_val}");
         assert_eq!(err_val["failed_op"], 1);
         assert_eq!(err_val["safe_to_retry"], true);
@@ -2344,7 +2608,7 @@ mod tests {
                 }),
             )
             .expect_err("set_style apply on unleased node must fail");
-        let v1: Value = serde_json::from_str(&err1).unwrap();
+        let v1 = err1.to_json_value();
         assert_eq!(v1["cause"]["code"], "OUTSIDE_OWNED_FRAMES", "{v1}");
         assert!(engine.doc.get(other_frame).unwrap().style_refs.is_empty());
 
@@ -2362,7 +2626,7 @@ mod tests {
                 }),
             )
             .expect_err("set_variables must fail while frame lease is active");
-        let v2: Value = serde_json::from_str(&err2).unwrap();
+        let v2 = err2.to_json_value();
         assert_eq!(v2["cause"]["code"], "OUTSIDE_OWNED_FRAMES", "{v2}");
 
         // 3. set_style apply to leased node (without document-wide style upserts/deletes) succeeds

@@ -1523,7 +1523,7 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     app.apply_node_spec(&spec, "Agent Terminal");
                 }
                 Err(e) => {
-                    app.show_toast(format!("Spec parse error: {e}"), true);
+                    app.show_toast(format!("Spec parse error: {}", designos_doc::format_spec_serde_error(&e)), true);
                 }
             },
             crate::terminal::TerminalAction::ApplySpecFile(path) => match std::fs::read_to_string(&path) {
@@ -1532,7 +1532,7 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
                         app.apply_node_spec(&spec, label);
                     }
-                    Err(e) => app.show_toast(format!("Invalid spec JSON: {e}"), true),
+                    Err(e) => app.show_toast(format!("Invalid spec JSON: {}", designos_doc::format_spec_serde_error(&e)), true),
                 },
                 Err(e) => app.show_toast(format!("Failed to read {}: {e}", path.display()), true),
             },
