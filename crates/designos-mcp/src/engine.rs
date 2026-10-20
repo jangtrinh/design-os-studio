@@ -1,5 +1,5 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
-use designos_doc::live_patch::{live_ops_for_command, LiveOp};
+use designos_doc::live_patch::{live_ops_for_command, live_ops_for_independent, LiveOp};
 use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -437,9 +437,10 @@ impl Engine {
         self.doc.get(NodeId(id)).ok_or_else(|| format!("node {id} not found"))
     }
 
-    pub(crate) fn exec(&mut self, command: Command) -> Result<(), String> {
-        let ops = self.live_ops_for(&command)?;
-        self.history.exec(&mut self.doc, command).map_err(|e| e.to_string())?;
+    pub fn exec(&mut self, command: Command) -> Result<(), String> {
+        let w = designos_doc::writer_command(&self.doc, command);
+        let ops = self.live_ops_for_parts(&w.parts)?;
+        self.history.exec(&mut self.doc, w.cmd).map_err(|e| e.to_string())?;
         self.record(ops);
         Ok(())
     }
@@ -449,7 +450,21 @@ impl Engine {
         if self.live_ops.is_none() {
             return Ok(Vec::new());
         }
+        if let Command::Batch(cmds) = command {
+            if designos_doc::live_patch::is_independent_batch(&self.doc, cmds) {
+                return live_ops_for_independent(&self.doc, cmds);
+            }
+        }
         live_ops_for_command(&self.doc, command)
+    }
+
+    /// Records independent command parts (from [`designos_doc::writer_command`]) without cloning
+    /// the document when `parts` came from a boundary-expanded batch.
+    fn live_ops_for_parts(&self, parts: &[Command]) -> Result<Vec<LiveOp>, String> {
+        if self.live_ops.is_none() {
+            return Ok(Vec::new());
+        }
+        live_ops_for_independent(&self.doc, parts)
     }
 
     pub(crate) fn record(&mut self, ops: Vec<LiveOp>) {
@@ -1323,5 +1338,157 @@ mod tests {
         e.call("designos_undo", json!({})).unwrap();
         assert!(e.doc.get(root2).is_none());
         assert!(e.doc.get(root_id).is_some());
+    }
+
+    #[test]
+    fn engine_exec_applies_the_boundary() {
+        use designos_doc::live_patch::{replay_live_patch, LivePatch, LivePatchState};
+        use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
+
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+        let fid = e.doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 120.0));
+        let mut al = AutoLayout::v1();
+        al.direction = LayoutDirection::Horizontal;
+        al.primary_sizing = Sizing::Fixed;
+        al.counter_sizing = Sizing::Fixed;
+        frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), grids: Vec::new() });
+        e.doc.insert(page, frame).unwrap();
+
+        let cid = e.doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 50.0, 30.0));
+        child.layout_child.horizontal = Sizing::Fixed;
+        child.layout_child.vertical = Sizing::Fill;
+        child.layout_child.align_self = AlignSelf::Stretch;
+        e.doc.insert(fid, child).unwrap();
+
+        let mut mirror_doc = e.doc.clone();
+        e.live_ops = Some(Vec::new());
+
+        let mut flipped = e.doc.get(fid).unwrap().clone();
+        flipped.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().direction = LayoutDirection::Vertical;
+        e.exec(Command::Update { node: Box::new(flipped) }).unwrap();
+        e.relayout(fid);
+
+        let ops = e.take_live_ops();
+        assert_eq!(ops.len(), 2, "recorded live ops must include parent update and child update");
+        assert!(matches!(&ops[0], LiveOp::Update { id, .. } if *id == fid));
+        match &ops[1] {
+            LiveOp::Update { id, set, .. } => {
+                assert_eq!(*id, cid);
+                assert_eq!(
+                    set.get("layout_child"),
+                    Some(&json!({"align_self": "Auto"})),
+                    "child LiveOp::Update must carry only the changed layout_child subfields"
+                );
+            }
+            other => panic!("expected child LiveOp::Update, got {other:?}"),
+        }
+
+        // Simulate a concurrent editor edit to the child's margin before the agent patch arrives.
+        mirror_doc.get_mut(cid).unwrap().layout_child.margin = [4.0, 8.0, 4.0, 8.0];
+
+        let report = replay_live_patch(&mut mirror_doc, &LivePatch::new(ops), &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        assert_eq!(
+            mirror_doc.get(cid).unwrap().layout_child.margin,
+            [4.0, 8.0, 4.0, 8.0],
+            "replaying the child update must preserve concurrent editor layout_child subfields"
+        );
+        mirror_doc.get_mut(cid).unwrap().layout_child.margin = [0.0; 4];
+        mirror_doc.relayout_subtree(fid);
+        mirror_doc.flush_pending_relayout();
+
+        assert_eq!(mirror_doc.get(fid).unwrap(), e.doc.get(fid).unwrap());
+        assert_eq!(mirror_doc.get(cid).unwrap(), e.doc.get(cid).unwrap());
+        assert_eq!(e.doc.get(cid).unwrap().layout_child.align_self, AlignSelf::Auto);
+        assert_eq!(e.doc.get(cid).unwrap().layout_child.vertical, Sizing::Fill);
+    }
+
+    #[test]
+    fn engine_exec_does_not_clone_the_document_for_a_flip() {
+        use designos_doc::live_patch::batch_doc_clones;
+        use designos_doc::{AlignSelf, AutoLayout, FrameProps, LayoutDirection, Rect, Sizing};
+        use std::time::Instant;
+
+        let mut e = Engine::default();
+        let page = e.active_page_id.unwrap();
+
+        let fid = e.doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 300.0));
+        let mut al = AutoLayout::v1();
+        al.direction = LayoutDirection::Horizontal;
+        al.primary_sizing = Sizing::Fixed;
+        al.counter_sizing = Sizing::Fixed;
+        frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), grids: Vec::new() });
+        e.doc.insert(page, frame).unwrap();
+
+        // Populate 10,000 direct children under `fid` with the duplicate stretch pair.
+        let mut child_ids = Vec::with_capacity(10_000);
+        for i in 0..10_000usize {
+            let cid = e.doc.alloc_id();
+            let mut c = Node::rectangle(cid, Rect::new((i % 100) as f32 * 4.0, (i / 100) as f32 * 4.0, 20.0, 10.0));
+            c.parent = Some(fid);
+            c.layout_child.horizontal = Sizing::Fixed;
+            c.layout_child.vertical = Sizing::Fill;
+            c.layout_child.align_self = AlignSelf::Stretch;
+            e.doc.nodes.insert(cid, c);
+            child_ids.push(cid);
+        }
+        e.doc.get_mut(fid).unwrap().children = child_ids;
+
+        // Populate the remaining nodes on `page` so total document size is 100,000 nodes.
+        let existing = e.doc.nodes.len();
+        let remaining = 100_000usize.saturating_sub(existing);
+        let mut page_extra = Vec::with_capacity(remaining);
+        for i in 0..remaining {
+            let id = e.doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new((i % 200) as f32 * 6.0, (i / 200) as f32 * 6.0, 4.0, 4.0));
+            n.parent = Some(page);
+            e.doc.nodes.insert(id, n);
+            page_extra.push(id);
+        }
+        e.doc.get_mut(page).unwrap().children.extend(page_extra);
+        assert_eq!(e.doc.nodes.len(), 100_000);
+
+        let mut flipped = e.doc.get(fid).unwrap().clone();
+        flipped.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().direction = LayoutDirection::Vertical;
+        let update_cmd = Command::Update { node: Box::new(flipped) };
+
+        // Compute the reference batch ops via `live_ops_for_command` on the batch BEFORE mutating `e.doc`.
+        let w_ref = designos_doc::writer_command(&e.doc, update_cmd.clone());
+        let clones_before_batch = batch_doc_clones();
+        let batch_ops = live_ops_for_command(&e.doc, &w_ref.cmd).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_batch + 1, "batch path clones the document once");
+
+        // Now run through `Engine::exec` and verify zero document clones and identical live ops.
+        e.live_ops = Some(Vec::new());
+        let clones_before_exec = batch_doc_clones();
+        let t0 = Instant::now();
+        e.exec(update_cmd).unwrap();
+        let elapsed = t0.elapsed();
+        assert_eq!(batch_doc_clones(), clones_before_exec, "Engine::exec must not clone the document");
+
+        let exec_ops = e.take_live_ops();
+        assert_eq!(exec_ops.len(), 10_001);
+        assert_eq!(exec_ops, batch_ops);
+
+        // Undo and redo must also record live ops without cloning the 100k-node document.
+        e.live_ops = Some(Vec::new());
+        let clones_before_undo = batch_doc_clones();
+        e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_undo, "designos_undo must not clone the document");
+        assert_eq!(e.take_live_ops().len(), 10_001);
+
+        e.live_ops = Some(Vec::new());
+        let clones_before_redo = batch_doc_clones();
+        e.call("designos_redo", json!({})).unwrap();
+        assert_eq!(batch_doc_clones(), clones_before_redo, "designos_redo must not clone the document");
+        assert_eq!(e.take_live_ops().len(), 10_001);
+
+        let budget_ms: u128 = if cfg!(debug_assertions) { 2_500 } else { 100 };
+        eprintln!("[#583 bench] 10k-children on 100k-node doc Engine::exec={}ms (budget={}ms)", elapsed.as_secs_f64() * 1000.0, budget_ms);
+        assert!(elapsed.as_millis() <= budget_ms, "Engine::exec took {}ms > {}ms budget", elapsed.as_millis(), budget_ms);
     }
 }

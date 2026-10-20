@@ -164,7 +164,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
                 report.needs_layout.push(id);
             }
-            Some(Command::Update { node: Box::new(merged) })
+            Some(crate::writer_command(doc, Command::Update { node: Box::new(merged) }).cmd)
         }
         LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
             let (id, id_redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_id);
@@ -426,6 +426,14 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
     };
     for (k, v) in set {
         if !STRUCTURAL_FIELDS.contains(&k.as_str()) {
+            if k == "layout_child" {
+                if let (Some(Value::Object(cur_lc)), Value::Object(set_lc)) = (fields.get_mut("layout_child"), v) {
+                    for (sub_k, sub_v) in set_lc {
+                        cur_lc.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
             fields.insert(k.clone(), v.clone());
         }
     }

@@ -63,6 +63,7 @@ mod variables_apply;
 mod variables_edit;
 pub mod vector;
 mod vector_fit;
+mod writer_command;
 
 pub use board::*;
 pub use branch_diff::{diff3, Conflict, ConflictKind, Diff3, DiffStats, EntityChange, EntityConflict, EntityKey, Group, SideChanges};
@@ -96,6 +97,7 @@ pub use variables_apply::*;
 pub use variables_edit::*;
 pub use vector::{HandleMirror, VectorNetwork};
 pub use vector_fit::{fit_polyline, Anchor};
+pub use writer_command::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

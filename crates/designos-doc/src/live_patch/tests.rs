@@ -276,3 +276,55 @@ fn agent_comments_keep_the_editor_threads_and_follow_their_new_ids() {
     assert_eq!(t.messages.iter().map(|m| m.id.as_str()).collect::<std::collections::BTreeSet<_>>().len(), 3);
     assert!(!full.comments.iter().find(|t| t.id == "t-2").unwrap().resolved, "the user's thread stays open");
 }
+
+#[test]
+fn live_patch_update_flip() {
+    use crate::{writer_command, AlignSelf, AutoLayout, FrameProps, LayoutDirection, NodeKind, Sizing};
+
+    let build_unsolved = || {
+        let mut doc = Document::new("live_flip");
+        let page = doc.add_page("Page");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 120.0));
+        let mut al = AutoLayout::v1();
+        al.direction = LayoutDirection::Horizontal;
+        al.primary_sizing = Sizing::Fixed;
+        al.counter_sizing = Sizing::Fixed;
+        frame.kind = NodeKind::Frame(FrameProps { clips_content: false, auto_layout: Some(al), grids: Vec::new() });
+        doc.insert(page, frame).unwrap();
+
+        let cid = doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 50.0, 30.0));
+        child.layout_child.horizontal = Sizing::Fixed;
+        child.layout_child.vertical = Sizing::Fill;
+        child.layout_child.align_self = AlignSelf::Stretch;
+        doc.insert(fid, child).unwrap();
+        (doc, fid, cid)
+    };
+
+    // Direct flip through writer_command
+    let (mut direct_doc, fid, cid) = build_unsolved();
+    let mut flipped_frame = direct_doc.get(fid).unwrap().clone();
+    flipped_frame.kind.frame_props_mut().unwrap().auto_layout.as_mut().unwrap().direction = LayoutDirection::Vertical;
+    let w = writer_command(&direct_doc, Command::Update { node: Box::new(flipped_frame.clone()) });
+    w.cmd.apply(&mut direct_doc).unwrap();
+    direct_doc.relayout_subtree(fid);
+    direct_doc.flush_pending_relayout();
+
+    // Replay a single LiveOp::Update carrying only the frame's updated `kind` (as when the agent
+    // edited a scoped copy that did not hold the frame's children).
+    let (mut replay_doc, r_fid, r_cid) = build_unsolved();
+    let mut set = serde_json::Map::new();
+    let serialized = serde_json::to_value(&flipped_frame).unwrap();
+    set.insert("kind".into(), serialized["kind"].clone());
+    let report = replay(&mut replay_doc, vec![LiveOp::Update { id: r_fid, set, unset: Vec::new() }], &mut LivePatchState::default());
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.needs_layout, vec![r_fid]);
+    replay_doc.relayout_subtree(r_fid);
+    replay_doc.flush_pending_relayout();
+
+    assert_eq!(replay_doc.get(r_fid).unwrap(), direct_doc.get(fid).unwrap());
+    assert_eq!(replay_doc.get(r_cid).unwrap(), direct_doc.get(cid).unwrap());
+    assert_eq!(replay_doc.get(r_cid).unwrap().layout_child.align_self, AlignSelf::Auto);
+    assert_eq!(replay_doc.get(r_cid).unwrap().layout_child.vertical, Sizing::Fill);
+}

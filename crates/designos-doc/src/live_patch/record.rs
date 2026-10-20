@@ -3,7 +3,54 @@
 use super::{LiveOp, SiblingHint, ThreadChange, STRUCTURAL_FIELDS};
 use crate::{Command, CommentThread, Document, LibraryState, Node, NodeId, Style, StyleMeta, Variable, VariableCollection};
 use serde_json::{Map, Value};
+use std::cell::Cell;
 use std::collections::BTreeMap;
+
+thread_local! {
+    static BATCH_DOC_CLONES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Number of scratch [`Document`] clones taken by the [`Command::Batch`] arm of
+/// [`live_ops_for_command`] on the current thread (used by performance / zero-clone tests).
+pub fn batch_doc_clones() -> usize {
+    BATCH_DOC_CLONES.with(Cell::get)
+}
+
+/// Whether `cmds` can be recorded against `doc` via [`live_ops_for_independent`] without cloning
+/// `doc` (each `Update` targets a distinct node already present in `doc`, and at most one
+/// structural child-list edit occurs).
+pub fn is_independent_batch(doc: &Document, cmds: &[Command]) -> bool {
+    let mut updated_ids = std::collections::HashSet::with_capacity(cmds.len());
+    let mut structural_edits = 0usize;
+    for cmd in cmds {
+        match cmd {
+            Command::Update { node } => {
+                if doc.get(node.id).is_none() || !updated_ids.insert(node.id) {
+                    return false;
+                }
+            }
+            Command::Insert { .. } | Command::Remove { .. } | Command::Reparent { .. } => {
+                structural_edits += 1;
+                if structural_edits > 1 {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Records [`LiveOp`]s for a slice of commands that are independent of one another (such as the
+/// `parts` produced by [`crate::writer_command`]), inspecting each part against `doc` without
+/// cloning the scene graph.
+pub fn live_ops_for_independent(doc: &Document, parts: &[Command]) -> Result<Vec<LiveOp>, String> {
+    let mut out = Vec::new();
+    for part in parts {
+        out.extend(live_ops_for_command(doc, part)?);
+    }
+    Ok(out)
+}
 
 /// The [`LiveOp`]s `cmd` performs when applied to `doc`, read from the state before it runs.
 ///
@@ -62,6 +109,7 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
         }
         Command::Batch(cmds) => {
             // Later commands see the state earlier ones leave behind.
+            BATCH_DOC_CLONES.with(|c| c.set(c.get() + 1));
             let mut scratch = doc.clone();
             for c in cmds {
                 out.extend(live_ops_for_command(&scratch, c)?);
@@ -84,11 +132,47 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
     let mut set = Map::new();
     for (k, v) in &new {
         if !STRUCTURAL_FIELDS.contains(&k.as_str()) && old.get(k) != Some(v) {
+            if k == "layout_child" {
+                if let (Some(Value::Object(old_lc)), Value::Object(new_lc)) = (old.get("layout_child"), v) {
+                    let lc_diff = layout_child_changes(old_lc, new_lc, &after.layout_child)?;
+                    if !lc_diff.is_empty() {
+                        set.insert(k.clone(), Value::Object(lc_diff));
+                    }
+                    continue;
+                }
+            }
             set.insert(k.clone(), v.clone());
         }
     }
     let unset = old.keys().filter(|k| !STRUCTURAL_FIELDS.contains(&k.as_str()) && !new.contains_key(*k)).cloned().collect();
     Ok((set, unset))
+}
+
+fn layout_child_changes(old_lc: &Map<String, Value>, new_lc: &Map<String, Value>, after: &crate::LayoutChild) -> Result<Map<String, Value>, String> {
+    let mut diff = Map::new();
+    for (k, v) in new_lc {
+        if old_lc.get(k) != Some(v) {
+            diff.insert(k.clone(), v.clone());
+        }
+    }
+    for k in old_lc.keys() {
+        if !new_lc.contains_key(k) {
+            let reset_val = match k.as_str() {
+                "align_self" => serde_json::to_value(after.align_self).map_err(|e| e.to_string())?,
+                "grid_column" => serde_json::to_value(after.grid_column).map_err(|e| e.to_string())?,
+                "grid_row" => serde_json::to_value(after.grid_row).map_err(|e| e.to_string())?,
+                "col_span" => serde_json::to_value(after.col_span).map_err(|e| e.to_string())?,
+                "row_span" => serde_json::to_value(after.row_span).map_err(|e| e.to_string())?,
+                "grid_align_h" => serde_json::to_value(after.grid_align_h).map_err(|e| e.to_string())?,
+                "grid_align_v" => serde_json::to_value(after.grid_align_v).map_err(|e| e.to_string())?,
+                "margin" => serde_json::to_value(after.margin).map_err(|e| e.to_string())?,
+                "stretched" => serde_json::to_value(after.stretched).map_err(|e| e.to_string())?,
+                _ => Value::Null,
+            };
+            diff.insert(k.clone(), reset_val);
+        }
+    }
+    Ok(diff)
 }
 
 fn comment_changes(before: &[CommentThread], after: &[CommentThread]) -> Option<LiveOp> {
