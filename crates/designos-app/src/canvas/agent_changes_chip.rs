@@ -826,9 +826,9 @@ mod tests {
         apply_live_patches(&mut app, &[LivePatch::new(vec![update_name_op(off_children[0], "Off 0")])]);
         assert_eq!(app.agent_changes_chip.chips.len(), 1);
 
-        // Opening a new project tab calls `ProjectTabs::apply_to_app`, which must clear chips and agent presence.
-        let mut tabs = crate::tabs::ProjectTabs::new();
-        tabs.sync_from_app(&app);
+        // Opening a new project tab calls `TabsState::apply_to_app`, which must clear chips and agent presence.
+        let mut tabs = crate::tabs::TabsState::default();
+        tabs.sync_from_app(&mut app);
         tabs.open_new_design_tab(&mut app);
         assert!(app.agent_changes_chip.chips.is_empty(), "switching/opening project tab must clear off-screen chips");
         assert!(app.agent_presence.sessions.is_empty(), "switching/opening project tab must reset agent presence");
