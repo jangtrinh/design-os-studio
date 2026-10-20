@@ -31,83 +31,157 @@ pub struct GuidelinesArgs {
     pub max_tokens: Option<usize>,
 }
 
-/// YAML front-matter header for `crates/designos-mcp/guidelines/surfaces/<topic>.md` (§4.1).
+include!(concat!(env!("OUT_DIR"), "/embedded_guidelines.rs"));
+
+/// YAML front-matter header for `crates/designos-mcp/guidelines/surfaces/<topic>.md` (§4).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SurfaceFrontMatter {
-    pub id: String,
     pub title: String,
     pub summary: String,
-    pub tokens_estimate: u32,
+    pub applies_to: Vec<String>,
 }
 
-/// Top-level schema for `crates/designos-mcp/guidelines/archetypes/<id>.toml` (§4.2).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeFile {
-    pub archetype: ArchetypeMeta,
-    pub tokens: ArchetypeTokens,
+#[serde(deny_unknown_fields)]
+pub struct FontSlot {
+    pub role: String,
+    pub family: String,
     #[serde(default)]
-    pub component: Vec<ArchetypeComponent>,
-    pub content: ArchetypeContent,
-    pub code: ArchetypeCode,
+    pub weights: Vec<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeMeta {
+#[serde(deny_unknown_fields)]
+pub struct Roundness {
+    pub sm: f32,
+    pub md: f32,
+    pub lg: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowSpec {
+    pub name: String,
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur: f32,
+    #[serde(default)]
+    pub spread: f32,
+    pub color: String,
+}
+
+/// Top-level schema for `crates/designos-mcp/guidelines/archetypes/<id>.toml` (§4).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchetypeFile {
     pub id: String,
     pub name: String,
-    pub category: String,
-    pub summary: String,
-    pub density: String,
-    pub motion: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeTokens {
-    pub font_sans: String,
-    pub font_mono: String,
-    pub font_display: Option<String>,
-    pub radius_sm: f32,
-    pub radius_md: f32,
-    pub radius_lg: f32,
-    pub spacing_unit: f32,
-    pub surface_light: String,
-    pub surface_dark: String,
-    pub text_primary_light: String,
-    pub text_primary_dark: String,
-    pub accent_primary: String,
-    pub semantic_positive: String,
-    pub semantic_warning: String,
-    pub semantic_danger: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeComponent {
-    pub name: String,
-    pub required_variants: Vec<String>,
-    pub required_states: Vec<String>,
-    pub notes: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeContent {
-    pub forbidden_strings: Vec<String>,
-    pub number_format: String,
-    pub samples: BTreeMap<String, Vec<String>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ArchetypeCode {
-    pub layout_rules: Vec<String>,
-    pub a11y_rules: Vec<String>,
+    pub brief: String,
+    #[serde(default)]
+    pub fonts: Option<[FontSlot; 4]>,
+    #[serde(default)]
+    pub palette: BTreeMap<String, String>,
+    #[serde(default)]
+    pub roundness: Option<Roundness>,
+    #[serde(default)]
+    pub elevation: Vec<ShadowSpec>,
+    #[serde(default)]
+    pub imagery: Option<String>,
 }
 
 pub fn guidelines_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("guidelines")
 }
 
-/// Executes `designos_get_guidelines` against `doc`.
+/// Executes `designos_get_guidelines` against `doc` using compile-time embedded guidelines (`include_str!`).
 pub fn call_get_guidelines(doc: &Document, raw_args: Value) -> Result<Value, String> {
-    call_get_guidelines_with_dir(doc, raw_args, &guidelines_dir())
+    let args: GuidelinesArgs = serde_json::from_value(raw_args).map_err(|e| format!("INVALID_ARGUMENTS: {e}"))?;
+    let opts = RulesOptions::parse(Some("file"), args.platform.as_deref(), Some(args.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS)))?;
+
+    let Some(topic) = args.topic.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(list_embedded_topics_value());
+    };
+
+    if topic == "design-system" {
+        let generated = generate_design_system_rules(doc, &opts)?;
+        return Ok(json!({
+            "topic": "design-system",
+            "content": generated.content,
+            "truncated": generated.truncated,
+            "sources": generated.sources,
+        }));
+    }
+
+    if SURFACE_TOPICS.iter().any(|(id, _)| *id == topic) {
+        let Some((_, Some(raw))) = EMBEDDED_SURFACES.iter().find(|(id, _)| *id == topic) else {
+            return Err(format!("TOPIC_NOT_AVAILABLE: topic '{topic}' is not available yet (provided by E15-21)"));
+        };
+        let (fm, body) = parse_surface_guide(raw)?;
+        let (content, truncated) = truncate_markdown(&body, opts.max_tokens, &fm.title);
+        return Ok(json!({
+            "topic": topic,
+            "title": fm.title,
+            "summary": fm.summary,
+            "applies_to": fm.applies_to,
+            "content": content,
+            "truncated": truncated,
+            "sources": ["guidelines/surfaces"],
+        }));
+    }
+
+    if topic == "archetypes" {
+        let archetypes = validate_embedded_archetypes()?;
+        if archetypes.is_empty() {
+            return Err("TOPIC_NOT_AVAILABLE: topic 'archetypes' is not available yet (provided by E15-18)".to_string());
+        }
+        let mut md = String::from("# Design Archetypes\n\n");
+        for a in &archetypes {
+            md.push_str(&format!("- **`{}`** ({}): {}\n", a.id, a.name, a.brief));
+        }
+        let (content, truncated) = truncate_markdown(&md, opts.max_tokens, "archetypes");
+        return Ok(json!({
+            "topic": "archetypes",
+            "content": content,
+            "truncated": truncated,
+            "sources": ["guidelines/archetypes"],
+        }));
+    }
+
+    if let Some(arch_id) = topic.strip_prefix("archetype:") {
+        let arch_id = arch_id.trim();
+        if arch_id.is_empty() || !arch_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err(format!("UNKNOWN_TOPIC: invalid archetype topic '{topic}'; valid_options: {}", valid_options_json()));
+        }
+        let Some((_, raw)) = EMBEDDED_ARCHETYPES.iter().find(|(id, _)| *id == arch_id) else {
+            return Err(format!("TOPIC_NOT_AVAILABLE: topic '{topic}' is not available yet (provided by E15-18)"));
+        };
+        let parsed = parse_archetype_toml(raw)?;
+        let body = serde_json::to_string_pretty(&parsed).map_err(|e| e.to_string())?;
+        let (content, truncated) = truncate_markdown(&body, opts.max_tokens, topic);
+        return Ok(json!({
+            "topic": topic,
+            "archetype": parsed,
+            "content": content,
+            "truncated": truncated,
+            "sources": [format!("guidelines/archetypes/{arch_id}.toml")],
+        }));
+    }
+
+    if topic == "rules" {
+        let Some(raw) = EMBEDDED_RULES else {
+            return Err("TOPIC_NOT_AVAILABLE: topic 'rules' is not available yet (provided by E15-15)".to_string());
+        };
+        let (content, truncated) = truncate_markdown(raw, opts.max_tokens, "rules");
+        return Ok(json!({
+            "topic": "rules",
+            "content": content,
+            "truncated": truncated,
+            "sources": ["guidelines/rules.md"],
+        }));
+    }
+
+    Err(format!("UNKNOWN_TOPIC: unknown topic '{topic}'; valid_options: {}", valid_options_json()))
 }
 
 pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &Path) -> Result<Value, String> {
@@ -128,7 +202,7 @@ pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &
         }));
     }
 
-    if let Some((_, _default_summary)) = SURFACE_TOPICS.iter().find(|(id, _)| *id == topic) {
+    if SURFACE_TOPICS.iter().any(|(id, _)| *id == topic) {
         let path = base_dir.join("surfaces").join(format!("{topic}.md"));
         if !path.is_file() {
             return Err(format!("TOPIC_NOT_AVAILABLE: topic '{topic}' is not available yet (provided by E15-21)"));
@@ -140,6 +214,7 @@ pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &
             "topic": topic,
             "title": fm.title,
             "summary": fm.summary,
+            "applies_to": fm.applies_to,
             "content": content,
             "truncated": truncated,
             "sources": ["guidelines/surfaces"],
@@ -154,7 +229,7 @@ pub fn call_get_guidelines_with_dir(doc: &Document, raw_args: Value, base_dir: &
         }
         let mut md = String::from("# Design Archetypes\n\n");
         for a in &archetypes {
-            md.push_str(&format!("- **`{}`** ({}, {}): {}\n", a.archetype.id, a.archetype.name, a.archetype.category, a.archetype.summary));
+            md.push_str(&format!("- **`{}`** ({}): {}\n", a.id, a.name, a.brief));
         }
         let (content, truncated) = truncate_markdown(&md, opts.max_tokens, "archetypes");
         return Ok(json!({
@@ -214,6 +289,49 @@ fn valid_options_json() -> String {
     opts.push("archetype:<id>");
     opts.push("rules");
     serde_json::to_string(&opts).unwrap_or_default()
+}
+
+fn list_embedded_topics_value() -> Value {
+    let mut topics = Vec::new();
+    topics.push(json!({
+        "id": "design-system",
+        "summary": "Design-system rules generated from the open document's variables, styles, and components.",
+        "available": true,
+        "provided_by": "T7.40",
+    }));
+
+    for (id, default_summary) in SURFACE_TOPICS {
+        let (available, summary) = if let Some((_, Some(raw))) = EMBEDDED_SURFACES.iter().find(|(sid, _)| sid == id) {
+            match parse_surface_guide(raw) {
+                Ok((fm, _)) => (true, fm.summary),
+                Err(_) => (true, (*default_summary).to_string()),
+            }
+        } else {
+            (false, (*default_summary).to_string())
+        };
+        topics.push(json!({
+            "id": id,
+            "summary": summary,
+            "available": available,
+            "provided_by": "E15-21",
+        }));
+    }
+
+    topics.push(json!({
+        "id": "archetypes",
+        "summary": "Index of vertical design archetypes (fintech, saas, healthcare, consumer, etc.).",
+        "available": !EMBEDDED_ARCHETYPES.is_empty(),
+        "provided_by": "E15-18",
+    }));
+
+    topics.push(json!({
+        "id": "rules",
+        "summary": "Catalogue of 85 automated design critique and linting rules.",
+        "available": EMBEDDED_RULES.is_some(),
+        "provided_by": "E15-15",
+    }));
+
+    json!({ "topics": topics })
 }
 
 fn list_topics_value(base_dir: &Path) -> Value {
@@ -289,7 +407,7 @@ fn truncate_markdown(body: &str, max_tokens: usize, section_name: &str) -> (Stri
     (format!("{}\n… truncated: {omitted} more tokens in {section_name}", out.trim_end()), true)
 }
 
-/// Parses a surface guide markdown file with YAML front-matter (§4.1).
+/// Parses a surface guide markdown file with YAML front-matter (§4).
 pub fn parse_surface_guide(raw: &str) -> Result<(SurfaceFrontMatter, String), String> {
     let trimmed = raw.trim_start_matches('\u{feff}');
     let Some(rest) = trimmed.strip_prefix("---\n").or_else(|| trimmed.strip_prefix("---\r\n")) else {
@@ -302,11 +420,7 @@ pub fn parse_surface_guide(raw: &str) -> Result<(SurfaceFrontMatter, String), St
     let after = &rest[end_idx + 4..];
     let body = after.strip_prefix("\r\n").or_else(|| after.strip_prefix('\n')).unwrap_or(after).to_string();
 
-    let mut id = None;
-    let mut title = None;
-    let mut summary = None;
-    let mut tokens_estimate = None;
-
+    let mut map = serde_json::Map::new();
     for line in yaml_block.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -315,29 +429,21 @@ pub fn parse_surface_guide(raw: &str) -> Result<(SurfaceFrontMatter, String), St
         let Some((k, v)) = line.split_once(':') else {
             return Err(format!("Malformed front-matter line: '{line}'"));
         };
-        let key = k.trim();
-        let val = unquote(v.trim());
-        match key {
-            "id" => id = Some(val),
-            "title" => title = Some(val),
-            "summary" => summary = Some(val),
-            "tokens_estimate" => {
-                let n = val.parse::<u32>().map_err(|_| format!("Front-matter 'tokens_estimate' must be an integer, got '{val}'"))?;
-                tokens_estimate = Some(n);
-            }
-            _ => {}
-        }
+        let key = k.trim().to_string();
+        let val_trimmed = v.trim();
+        let json_val = if val_trimmed.starts_with('[') && val_trimmed.ends_with(']') {
+            let inner = &val_trimmed[1..val_trimmed.len() - 1];
+            let items: Vec<Value> =
+                if inner.trim().is_empty() { Vec::new() } else { split_top_level(inner, ',').into_iter().map(|s| Value::String(unquote(s.trim()))).collect() };
+            Value::Array(items)
+        } else {
+            Value::String(unquote(val_trimmed))
+        };
+        map.insert(key, json_val);
     }
 
-    Ok((
-        SurfaceFrontMatter {
-            id: id.ok_or("Front-matter missing 'id'")?,
-            title: title.ok_or("Front-matter missing 'title'")?,
-            summary: summary.ok_or("Front-matter missing 'summary'")?,
-            tokens_estimate: tokens_estimate.ok_or("Front-matter missing 'tokens_estimate'")?,
-        },
-        body,
-    ))
+    let fm: SurfaceFrontMatter = serde_json::from_value(Value::Object(map)).map_err(|e| format!("Surface front-matter validation failed: {e}"))?;
+    Ok((fm, body))
 }
 
 fn unquote(s: &str) -> String {
@@ -347,6 +453,16 @@ fn unquote(s: &str) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// Validates and parses all compile-time embedded archetype files.
+pub fn validate_embedded_archetypes() -> Result<Vec<ArchetypeFile>, String> {
+    let mut out = Vec::with_capacity(EMBEDDED_ARCHETYPES.len());
+    for (id, raw) in EMBEDDED_ARCHETYPES {
+        let parsed = parse_archetype_toml(raw).map_err(|e| format!("Invalid embedded archetype '{id}': {e}"))?;
+        out.push(parsed);
+    }
+    Ok(out)
 }
 
 /// Validates and parses all `.toml` files in `crates/designos-mcp/guidelines/archetypes/`.
@@ -371,7 +487,7 @@ pub fn validate_archetypes_dir(dir: &Path) -> Result<Vec<ArchetypeFile>, String>
     Ok(out)
 }
 
-/// Parses a TOML (or JSON) archetype definition into [`ArchetypeFile`] (§4.2).
+/// Parses a TOML (or JSON) archetype definition into [`ArchetypeFile`] (§4).
 pub fn parse_archetype_toml(raw: &str) -> Result<ArchetypeFile, String> {
     let trimmed = raw.trim();
     if trimmed.starts_with('{') {
@@ -685,72 +801,89 @@ mod tests {
 
     #[test]
     fn archetype_files_validate() {
-        // 1. Validate every file currently under `crates/designos-mcp/guidelines/archetypes/`
+        // 1. Validate every compile-time embedded archetype file and every file in guidelines/archetypes/
+        let embedded = validate_embedded_archetypes().expect("all embedded archetype files must validate");
+        let _ = embedded;
         let dir = guidelines_dir().join("archetypes");
         let files = validate_archetypes_dir(&dir).expect("all archetype files must validate");
         let _ = files;
 
-        // 2. Also verify the TOML schema parser against a complete sample ArchetypeFile (§4.2)
+        // 2. Also verify the TOML schema parser against a complete sample ArchetypeFile (§4)
         let sample_toml = r##"
-[archetype]
 id = "fintech-precision"
 name = "Fintech Precision"
-category = "fintech"
-summary = "High-trust financial workspace with tabular numbers and crisp borders."
-density = "compact"
-motion = "subtle"
+brief = "High-trust financial workspace with tabular numbers and crisp borders."
+imagery = "Data-dense charts, subtle monochrome gradients, no decorative illustrations."
 
-[tokens]
-font_sans = "Inter"
-font_mono = "JetBrains Mono"
-font_display = "Plus Jakarta Sans"
-radius_sm = 4.0
-radius_md = 6.0
-radius_lg = 10.0
-spacing_unit = 4.0
-surface_light = "#FFFFFF"
-surface_dark = "#0B0F17"
-text_primary_light = "#0F172A"
-text_primary_dark = "#F8FAFC"
-accent_primary = "#2563EB"
-semantic_positive = "#16A34A"
-semantic_warning = "#D97706"
-semantic_danger = "#DC2626"
+[[fonts]]
+role = "display"
+family = "Plus Jakarta Sans"
+weights = [600, 700]
 
-[[component]]
-name = "Button"
-required_variants = ["primary", "secondary", "destructive"]
-required_states = ["default", "hover", "disabled"]
-notes = "Use 32px height in dense tables."
+[[fonts]]
+role = "heading"
+family = "Inter"
+weights = [600]
 
-[content]
-forbidden_strings = ["Lorem ipsum", "John Doe", "$99.99"]
-number_format = "tabular-nums"
+[[fonts]]
+role = "body"
+family = "Inter"
+weights = [400, 500]
 
-[content.samples]
-account_names = ["Operating Account · 4821", "Treasury Reserve · 9014"]
+[[fonts]]
+role = "mono"
+family = "JetBrains Mono"
+weights = [400, 500]
 
-[code]
-layout_rules = ["Align currency columns right with tabular-nums"]
-a11y_rules = ["Maintain >= 4.5:1 text contrast on all status badges"]
+[palette]
+"surface.primary" = "#FFFFFF"
+"surface.dark" = "#0B0F17"
+"accent.primary" = "#2563EB"
+
+[roundness]
+sm = 4.0
+md = 6.0
+lg = 10.0
+
+[[elevation]]
+name = "card"
+offset_x = 0.0
+offset_y = 4.0
+blur = 12.0
+spread = 0.0
+color = "#00000014"
 "##;
 
         let parsed = parse_archetype_toml(sample_toml).expect("valid sample archetype TOML");
-        assert_eq!(parsed.archetype.id, "fintech-precision");
-        assert_eq!(parsed.tokens.radius_md, 6.0);
-        assert_eq!(parsed.component.len(), 1);
-        assert_eq!(parsed.component[0].name, "Button");
-        assert_eq!(parsed.content.samples.get("account_names").unwrap().len(), 2);
-        assert_eq!(parsed.code.layout_rules.len(), 1);
+        assert_eq!(parsed.id, "fintech-precision");
+        assert_eq!(parsed.name, "Fintech Precision");
+        assert_eq!(parsed.fonts.as_ref().unwrap()[0].family, "Plus Jakarta Sans");
+        assert_eq!(parsed.roundness.as_ref().unwrap().md, 6.0);
+        assert_eq!(parsed.palette.get("accent.primary").unwrap(), "#2563EB");
+        assert_eq!(parsed.elevation.len(), 1);
     }
 
     #[test]
     fn surface_front_matter_parses() {
-        let sample = "---\nid: landing-page\ntitle: Landing Page Guidelines\nsummary: Layout and rhythm for marketing pages.\ntokens_estimate: 1200\n---\n# Landing Page\nUse clear hero hierarchy.\n";
+        let sample = "---\ntitle: Landing Page Guidelines\nsummary: Layout and rhythm for marketing pages.\napplies_to: [\"web\", \"landing-page\"]\n---\n# Landing Page\nUse clear hero hierarchy.\n";
         let (fm, body) = parse_surface_guide(sample).unwrap();
-        assert_eq!(fm.id, "landing-page");
         assert_eq!(fm.title, "Landing Page Guidelines");
-        assert_eq!(fm.tokens_estimate, 1200);
+        assert_eq!(fm.summary, "Layout and rhythm for marketing pages.");
+        assert_eq!(fm.applies_to, vec!["web".to_string(), "landing-page".to_string()]);
         assert!(body.starts_with("# Landing Page"));
+    }
+
+    #[test]
+    fn spec_archetype_and_surface_schema_and_deny_unknown_fields() {
+        // Spec §4 interim archetype validates id, name, brief and rejects unknown fields.
+        let interim_toml = "id = \"fintech\"\nname = \"Fintech\"\nbrief = \"Precision financial UI.\"\n";
+        assert!(parse_archetype_toml(interim_toml).is_ok(), "spec §4 interim archetype (id, name, brief) must parse");
+
+        let unknown_field_toml = "id = \"fintech\"\nname = \"Fintech\"\nbrief = \"Precision.\"\nbogus_field = 123\n";
+        assert!(parse_archetype_toml(unknown_field_toml).is_err(), "deny_unknown_fields must reject bogus_field");
+
+        // Spec §4 surface front matter has title, summary, applies_to.
+        let spec_surface = "---\ntitle: Landing Page\nsummary: Marketing layout guide.\napplies_to: [\"web\", \"mobile-web\"]\n---\n# Body\n";
+        assert!(parse_surface_guide(spec_surface).is_ok(), "spec §4 surface front matter (title, summary, applies_to) must parse");
     }
 }

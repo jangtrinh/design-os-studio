@@ -12,9 +12,6 @@ pub const MIN_MAX_TOKENS: usize = 500;
 pub const MAX_MAX_TOKENS: usize = 25_000;
 pub const DEFAULT_MAX_TOKENS: usize = 8_000;
 
-const SPACING_SCALE_PX: &[u32] = &[0, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96];
-const TYPE_SCALE_PX: &[u32] = &[10, 11, 12, 13, 14, 15, 16, 18, 20, 24, 28, 30, 32, 36, 40, 48, 56, 60, 64, 72, 80, 96];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RulesScope {
     File,
@@ -225,7 +222,7 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
             }
             token_section.push_str(" --- |\n");
 
-            let default_mode_id = if !rc.col.default_mode.is_empty() { rc.col.default_mode.as_str() } else { modes[0].id.as_str() };
+            let default_mode = modes.iter().find(|m| m.id == rc.col.default_mode).unwrap_or(&modes[0]);
 
             for var in &rc.vars {
                 let name_cell = if var.hidden_from_publishing {
@@ -238,13 +235,13 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
 
                 token_section.push_str(&format!("| {} | {} | {} |", name_cell, escape_table_cell(&rc.origin), kind_str));
                 for mode in &modes {
-                    let val_cell = format_variable_mode_value(var, &mode.id, &all_vars);
+                    let val_cell = format_variable_mode_value(var, &mode.id, &mode.name, &all_vars, &doc.variable_collections);
                     token_section.push_str(&format!(" {} |", escape_table_cell(&val_cell)));
                 }
                 token_section.push_str(&format!(" {} |\n", code_cell));
 
                 if matches!(var.kind, VariableKind::Color | VariableKind::Number) {
-                    if let Some(lit) = resolve_literal_string(var, default_mode_id, &all_vars) {
+                    if let Some(lit) = resolve_literal_string(var, &default_mode.id, &default_mode.name, &all_vars, &doc.variable_collections) {
                         usage_rules.push(format!("- Use `{}` instead of literal `{}` (source: {})", code_token, lit, rc.origin));
                     }
                 }
@@ -264,7 +261,7 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
                     format!("`{}`", escape_table_cell(&var.name))
                 };
                 let mode_id = var.values.keys().next().map(String::as_str).unwrap_or("default");
-                let val_cell = format_variable_mode_value(var, mode_id, &all_vars);
+                let val_cell = format_variable_mode_value(var, mode_id, mode_id, &all_vars, &doc.variable_collections);
                 let (code_token, code_cell) = format_code_syntax(var, opts.platform, opts.platform_label);
                 token_section.push_str(&format!(
                     "| {} | {} | {} | {} | {} |\n",
@@ -275,7 +272,7 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
                     code_cell
                 ));
                 if matches!(var.kind, VariableKind::Color | VariableKind::Number) {
-                    if let Some(lit) = resolve_literal_string(var, mode_id, &all_vars) {
+                    if let Some(lit) = resolve_literal_string(var, mode_id, mode_id, &all_vars, &doc.variable_collections) {
                         usage_rules.push(format!("- Use `{}` instead of literal `{}` (source: {})", code_token, lit, origin));
                     }
                 }
@@ -319,10 +316,12 @@ pub fn generate_design_system_rules(doc: &Document, opts: &RulesOptions) -> Resu
             usage_section.push('\n');
         }
     }
-    let spacing_list: Vec<String> = SPACING_SCALE_PX.iter().map(|v| format!("{v}px")).collect();
-    let type_list: Vec<String> = TYPE_SCALE_PX.iter().map(|v| format!("{v}px")).collect();
-    usage_section.push_str(&format!("- Spacing scale: {}\n", spacing_list.join(", ")));
-    usage_section.push_str(&format!("- Type scale: {}\n", type_list.join(", ")));
+    let spacing_list = derive_spacing_scale(doc, opts.scope, &all_vars);
+    let type_list = derive_type_scale(doc, opts.scope);
+    let spacing_summary = if spacing_list.is_empty() { "none defined in this file".to_string() } else { spacing_list.join(", ") };
+    let type_summary = if type_list.is_empty() { "none defined in this file".to_string() } else { type_list.join(", ") };
+    usage_section.push_str(&format!("- Spacing scale: {spacing_summary}\n"));
+    usage_section.push_str(&format!("- Type scale: {type_summary}\n"));
 
     let header = format!(
         "# Design system rules — {}\n\n- **Scope:** {}\n- **Platform:** `{}`\n\n",
@@ -418,30 +417,76 @@ fn variable_kind_label(kind: VariableKind) -> &'static str {
     }
 }
 
-fn format_variable_mode_value(var: &Variable, mode_id: &str, all_vars: &BTreeMap<String, &Variable>) -> String {
-    let val = var.values.get(mode_id).or_else(|| var.values.values().next());
-    let Some(val) = val else {
+fn lookup_mode_value<'a>(
+    var: &'a Variable,
+    preferred_mode_id: &str,
+    preferred_mode_name: &str,
+    collections: &BTreeMap<String, VariableCollection>,
+) -> Option<&'a VariableValue> {
+    if let Some(v) = var.values.get(preferred_mode_id) {
+        return Some(v);
+    }
+    if let Some(col) = collections.get(&var.collection) {
+        if let Some(m) = col.modes.iter().find(|m| m.name.eq_ignore_ascii_case(preferred_mode_name) && var.values.contains_key(&m.id)) {
+            if let Some(v) = var.values.get(&m.id) {
+                return Some(v);
+            }
+        }
+        if !col.default_mode.is_empty() {
+            if let Some(v) = var.values.get(&col.default_mode) {
+                return Some(v);
+            }
+        }
+        if let Some(first) = col.modes.first() {
+            if let Some(v) = var.values.get(&first.id) {
+                return Some(v);
+            }
+        }
+    }
+    var.values.values().next()
+}
+
+fn format_variable_mode_value(
+    var: &Variable,
+    mode_id: &str,
+    mode_name: &str,
+    all_vars: &BTreeMap<String, &Variable>,
+    collections: &BTreeMap<String, VariableCollection>,
+) -> String {
+    let Some(val) = lookup_mode_value(var, mode_id, mode_name, collections) else {
         return "—".to_string();
     };
     match val {
         VariableValue::Alias(target_id) => {
             let target_name = all_vars.get(target_id.as_str()).map(|t| t.name.as_str()).unwrap_or(target_id.as_str());
-            let resolved = resolve_alias_value(target_id, mode_id, all_vars).unwrap_or_else(|| "unresolved".to_string());
+            let resolved = resolve_alias_value(target_id, mode_id, mode_name, all_vars, collections).unwrap_or_else(|| "unresolved".to_string());
             format!("→ {target_name} ({resolved})")
         }
         other => format_literal_value(other),
     }
 }
 
-fn resolve_literal_string(var: &Variable, mode_id: &str, all_vars: &BTreeMap<String, &Variable>) -> Option<String> {
-    let val = var.values.get(mode_id).or_else(|| var.values.values().next())?;
+fn resolve_literal_string(
+    var: &Variable,
+    mode_id: &str,
+    mode_name: &str,
+    all_vars: &BTreeMap<String, &Variable>,
+    collections: &BTreeMap<String, VariableCollection>,
+) -> Option<String> {
+    let val = lookup_mode_value(var, mode_id, mode_name, collections)?;
     match val {
-        VariableValue::Alias(target_id) => resolve_alias_value(target_id, mode_id, all_vars),
+        VariableValue::Alias(target_id) => resolve_alias_value(target_id, mode_id, mode_name, all_vars, collections),
         other => Some(format_literal_value(other)),
     }
 }
 
-fn resolve_alias_value(start_id: &str, preferred_mode_id: &str, all_vars: &BTreeMap<String, &Variable>) -> Option<String> {
+fn resolve_alias_value(
+    start_id: &str,
+    preferred_mode_id: &str,
+    preferred_mode_name: &str,
+    all_vars: &BTreeMap<String, &Variable>,
+    collections: &BTreeMap<String, VariableCollection>,
+) -> Option<String> {
     let mut cur_id = start_id;
     let mut visited = BTreeSet::new();
     for _ in 0..16 {
@@ -449,13 +494,79 @@ fn resolve_alias_value(start_id: &str, preferred_mode_id: &str, all_vars: &BTree
             return None;
         }
         let target = all_vars.get(cur_id)?;
-        let val = target.values.get(preferred_mode_id).or_else(|| target.values.values().next())?;
+        let val = lookup_mode_value(target, preferred_mode_id, preferred_mode_name, collections)?;
         match val {
             VariableValue::Alias(next_id) => cur_id = next_id.as_str(),
             other => return Some(format_literal_value(other)),
         }
     }
     None
+}
+
+fn derive_spacing_scale(doc: &Document, scope: RulesScope, all_vars: &BTreeMap<String, &Variable>) -> Vec<String> {
+    let mut values_milli = BTreeSet::new();
+    for var in doc.variables.values() {
+        if matches!(scope, RulesScope::Page(_)) && var.hidden_from_publishing {
+            continue;
+        }
+        if var.kind == VariableKind::Number {
+            let default_mode_id = doc
+                .variable_collections
+                .get(&var.collection)
+                .map(|c| if !c.default_mode.is_empty() { c.default_mode.as_str() } else { c.modes.first().map(|m| m.id.as_str()).unwrap_or("default") })
+                .unwrap_or("default");
+            if let Some(lit) = resolve_literal_string(var, default_mode_id, default_mode_id, all_vars, &doc.variable_collections) {
+                if let Ok(n) = lit.parse::<f32>() {
+                    if n >= 0.0 {
+                        values_milli.insert((n * 100.0).round() as i64);
+                    }
+                }
+            }
+        }
+    }
+    for node in doc.nodes.values() {
+        if let RulesScope::Page(pid) = scope {
+            if doc.page_of(node.id) != Some(pid) {
+                continue;
+            }
+        }
+        let fp = match &node.kind {
+            NodeKind::Frame(fp) | NodeKind::Component(fp) | NodeKind::ComponentSet(fp) => Some(fp),
+            _ => None,
+        };
+        if let Some(al) = fp.and_then(|f| f.auto_layout.as_ref()) {
+            for v in [al.item_spacing, al.counter_spacing, al.padding[0], al.padding[1], al.padding[2], al.padding[3]] {
+                if v > 0.0 {
+                    values_milli.insert((v * 100.0).round() as i64);
+                }
+            }
+        }
+    }
+    values_milli.into_iter().map(|m| format!("{}px", format_number(m as f32 / 100.0))).collect()
+}
+
+fn derive_type_scale(doc: &Document, scope: RulesScope) -> Vec<String> {
+    let mut sizes_milli = BTreeSet::new();
+    for style in doc.styles.values() {
+        if let Style::Text(ts) = style {
+            if ts.font_size > 0.0 {
+                sizes_milli.insert((ts.font_size * 100.0).round() as i64);
+            }
+        }
+    }
+    for node in doc.nodes.values() {
+        if let RulesScope::Page(pid) = scope {
+            if doc.page_of(node.id) != Some(pid) {
+                continue;
+            }
+        }
+        if let NodeKind::Text(tp) = &node.kind {
+            if tp.style.font_size > 0.0 {
+                sizes_milli.insert((tp.style.font_size * 100.0).round() as i64);
+            }
+        }
+    }
+    sizes_milli.into_iter().map(|m| format!("{}px", format_number(m as f32 / 100.0))).collect()
 }
 
 fn format_literal_value(val: &VariableValue) -> String {
@@ -490,18 +601,33 @@ fn format_code_syntax(var: &Variable, platform: CodeSyntaxPlatform, platform_lab
     if let Some(syntax) = var.code_syntax.get(&platform).map(String::as_str).map(str::trim).filter(|s| !s.is_empty()) {
         return (syntax.to_string(), format!("`{}`", escape_table_cell(syntax)));
     }
-    let fallback = sanitize_token_name(&var.name, platform_label);
+    let fallback = match platform {
+        CodeSyntaxPlatform::Web => designos_export::css_variable_reference(var),
+        _ => sanitize_token_name(&var.name, platform_label),
+    };
     let cell = format!("`{}` (sanitized fallback)", escape_table_cell(&fallback));
     (fallback, cell)
 }
 
 pub fn sanitize_token_name(name: &str, platform_label: &str) -> String {
+    if !matches!(platform_label, "ios" | "android") {
+        let dummy = Variable {
+            id: "sanitized".into(),
+            name: name.to_string(),
+            collection: String::new(),
+            kind: VariableKind::String,
+            values: BTreeMap::new(),
+            description: String::new(),
+            scopes: Vec::new(),
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: BTreeMap::new(),
+        };
+        return designos_export::css_variable_reference(&dummy);
+    }
     let words: Vec<String> = name.split(|c: char| !c.is_ascii_alphanumeric()).filter(|s| !s.is_empty()).map(|s| s.to_ascii_lowercase()).collect();
     if words.is_empty() {
-        return match platform_label {
-            "ios" | "android" => "token".to_string(),
-            _ => "--token".to_string(),
-        };
+        return "token".to_string();
     }
     match platform_label {
         "ios" => {
@@ -515,8 +641,7 @@ pub fn sanitize_token_name(name: &str, platform_label: &str) -> String {
             }
             out
         }
-        "android" => words.join("_"),
-        _ => format!("--{}", words.join("-")),
+        _ => words.join("_"),
     }
 }
 
@@ -987,7 +1112,7 @@ mod tests {
         assert!(out.content.contains("`color/blue/500`"), "{}", out.content);
         assert!(out.content.contains("`var(--color-blue-500)`"), "{}", out.content);
         assert!(out.content.contains("`space/md`"), "{}", out.content);
-        assert!(out.content.contains("`--space-md` (sanitized fallback)"), "{}", out.content);
+        assert!(out.content.contains("`var(--space-md)` (sanitized fallback)"), "{}", out.content);
         assert!(out.content.contains("`internal/debug-grid` (not published)"), "{}", out.content);
         assert!(out.content.contains("`semantic/primary`"), "{}", out.content);
         assert!(out.content.contains("`var(--semantic-primary)`"), "{}", out.content);
@@ -1003,6 +1128,8 @@ mod tests {
         assert!(out.content.contains("### `Button` (ComponentSet)"), "{}", out.content);
         assert!(out.content.contains("options [sm, md, lg]"), "{}", out.content);
         assert!(out.content.contains("`LeadingSlot` (slot): recommended components [`Icon/Check`]"), "{}", out.content);
+        assert!(out.content.contains("- Spacing scale: 8px, 16px"), "{}", out.content);
+        assert!(out.content.contains("- Type scale: 24px"), "{}", out.content);
     }
 
     #[test]
@@ -1108,5 +1235,90 @@ mod tests {
         assert!(out.content.contains("No variables in this file"));
         assert!(out.content.contains("No styles in this file"));
         assert!(out.content.contains("No components in this file"));
+    }
+
+    #[test]
+    fn alias_resolves_across_collections_with_distinct_mode_ids() {
+        let mut doc = Document::new("Distinct Mode IDs");
+        doc.add_page("Page 1");
+
+        // Primitives collection uses mode IDs "1:0" (Light) and "1:1" (Dark), default_mode = "1:1" (Dark).
+        doc.variable_collections.insert(
+            "col_prim".into(),
+            VariableCollection {
+                id: "col_prim".into(),
+                name: "Primitives".into(),
+                modes: vec![VariableMode { id: "1:0".into(), name: "Light".into() }, VariableMode { id: "1:1".into(), name: "Dark".into() }],
+                default_mode: "1:1".into(),
+                variables: vec!["v_surface".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "v_surface".into(),
+            Variable {
+                id: "v_surface".into(),
+                name: "Color/Surface".into(),
+                collection: "col_prim".into(),
+                kind: VariableKind::Color,
+                values: [
+                    ("1:0".into(), VariableValue::Color(Color::rgb(0xFF, 0xFF, 0xFF))),
+                    ("1:1".into(), VariableValue::Color(Color::rgb(0x0B, 0x0F, 0x17))),
+                ]
+                .into_iter()
+                .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+            },
+        );
+
+        // Semantic collection uses distinct mode IDs "2:0" (Light) and "2:1" (Dark), default_mode = "2:1".
+        doc.variable_collections.insert(
+            "col_sem".into(),
+            VariableCollection {
+                id: "col_sem".into(),
+                name: "Semantic".into(),
+                modes: vec![VariableMode { id: "2:0".into(), name: "Light".into() }, VariableMode { id: "2:1".into(), name: "Dark".into() }],
+                default_mode: "2:1".into(),
+                variables: vec!["v_bg".into()],
+                key: None,
+                source_library_key: None,
+            },
+        );
+        doc.variables.insert(
+            "v_bg".into(),
+            Variable {
+                id: "v_bg".into(),
+                name: "Color/Primary".into(),
+                collection: "col_sem".into(),
+                kind: VariableKind::Color,
+                values: [("2:0".into(), VariableValue::Alias("v_surface".into())), ("2:1".into(), VariableValue::Alias("v_surface".into()))]
+                    .into_iter()
+                    .collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+            },
+        );
+
+        let out = generate_design_system_rules(&doc, &RulesOptions::default()).unwrap();
+        let sem_row = out.content.lines().find(|l| l.starts_with("| `Color/Primary`")).expect("Color/Primary row in Semantic table");
+        // Light column must resolve to #FFFFFF and Dark column must resolve to #0B0F17.
+        assert!(
+            sem_row.contains("| → Color/Surface (#FFFFFF) | → Color/Surface (#0B0F17) |"),
+            "expected Light (#FFFFFF) and Dark (#0B0F17) cells, got: {sem_row}"
+        );
+        // Default mode of Semantic is "2:1" (Dark), so usage rule literal must be #0B0F17 and Dev Mode fallback var(--Color-Primary).
+        assert!(
+            out.content.contains("- Use `var(--Color-Primary)` instead of literal `#0B0F17`"),
+            "expected usage rule with Dev Mode fallback and default mode value, got:\n{}",
+            out.content
+        );
     }
 }
