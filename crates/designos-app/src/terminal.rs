@@ -1055,9 +1055,17 @@ pub struct TerminalState {
 
 impl Default for TerminalState {
     fn default() -> Self {
-        let mut st = Self::for_tab(1);
+        #[cfg(test)]
+        let tab_id = {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT_TEST_TAB_ID: AtomicU64 = AtomicU64::new(100_000);
+            NEXT_TEST_TAB_ID.fetch_add(1, Ordering::Relaxed)
+        };
+        #[cfg(not(test))]
+        let tab_id = 1;
+        let mut st = Self::for_tab(tab_id);
         if cfg!(test) {
-            st.live_spec_path = PathBuf::from("/tmp/designos-live-agent-out-test-isolated.spec.json");
+            st.live_spec_path = st.session_dir.join("live-agent-out-test-isolated.spec.json");
             st.last_watched_mtime = std::fs::metadata(&st.live_spec_path).and_then(|m| m.modified()).ok();
         }
         st
@@ -6695,7 +6703,6 @@ Done!
     #[test]
     fn export_selection_pastes_fixed_sentence_only() {
         let mut st = TerminalState::default();
-        st.bind_session(&format!("test-export-sel-{}", std::process::id()));
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
@@ -6723,6 +6730,7 @@ Done!
         assert!(comments.iter().any(|c| c.as_str().is_some_and(|s| s.contains(comment))), "open_comments must contain the pin comment: {comments:?}");
 
         kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]
@@ -6752,7 +6760,6 @@ Done!
         let _ = std::fs::remove_file(&marker);
 
         let mut st = TerminalState::default();
-        st.bind_session(&format!("test-dead-tab-{}", std::process::id()));
         spawn_stub_exiting_agent_into(&mut st);
         assert!(wait_until_tab_exits(&mut st, 8), "stub agent must exit");
         assert!(!st.active_tab_mut().unwrap().is_alive());
@@ -6778,6 +6785,7 @@ Done!
 
         let _ = std::fs::remove_file(&marker);
         kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     #[test]
@@ -7226,7 +7234,6 @@ Done!
     /// bridge is not polled here, so each test decides the spawn time the exit is judged against.
     fn exited_stub_state() -> TerminalState {
         let mut st = TerminalState::default();
-        st.bind_session(&format!("test-dead-tab-{}", std::process::id()));
         spawn_stub_exiting_agent_into(&mut st);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while st.active_tab_mut().unwrap().is_alive() || !st.active_tab().unwrap().reader_eof.load(std::sync::atomic::Ordering::Acquire) {
@@ -9395,5 +9402,38 @@ Done!
 
         let _ = std::fs::remove_dir_all(&st.session_dir);
         kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn export_selection_paste_does_not_race_under_parallel_stress() {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let mut handles = Vec::new();
+        for tid in 0..8usize {
+            let barrier = std::sync::Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                let mut st = TerminalState::default();
+                barrier.wait();
+                for iter in 0..10usize {
+                    let node_name = format!("x'; touch /tmp/never-t{tid}-i{iter} #");
+                    let comment = format!("see $(touch /tmp/never-t{tid}-i{iter})");
+                    let (doc, page, fid) = injection_doc(&node_name, &comment);
+                    let written_path = export_selection_and_comments_to_pty(&mut st, &doc, page, &[fid], None).expect("export selection");
+                    assert_eq!(written_path, st.selection_spec_path);
+                    let json = std::fs::read_to_string(&st.selection_spec_path).expect("selection.spec.json");
+                    let value: serde_json::Value = serde_json::from_str(&json).expect("json");
+                    let ctx = value.get("designos_context").expect("designos_context");
+                    assert_eq!(ctx["node_name"].as_str(), Some(node_name.as_str()));
+                    let comments = ctx["open_comments"].as_array().expect("open_comments");
+                    assert!(
+                        comments.iter().any(|c| c.as_str().is_some_and(|s| s.contains(&comment))),
+                        "open_comments must contain thread {tid} iter {iter} comment: {comments:?}"
+                    );
+                }
+                let _ = std::fs::remove_dir_all(&st.session_dir);
+            }));
+        }
+        for h in handles {
+            h.join().expect("stress worker must not panic");
+        }
     }
 }
