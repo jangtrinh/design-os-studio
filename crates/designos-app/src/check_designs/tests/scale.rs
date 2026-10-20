@@ -78,14 +78,50 @@ fn sliced_audit_equals_synchronous_audit() {
     assert!(slices >= 2, "expected multiple 0.05ms slices on 5,000 nodes, got {slices}");
     let sliced_report = cur.into_report(&doc);
     assert_eq!(sliced_report, sync_report);
+
+    // 3. Instance/mirror-heavy page: sliced scan equals both one-shot and cheap_skip=false.
+    let mut f = fx();
+    white_page(&mut f);
+    f.color_var("Color/Primary", BLUE, BLUE);
+    let comp = component(&mut f, "scale:inst");
+    f.doc.get_mut(comp).unwrap().size = designos_doc::Vec2::new(200.0, 100.0);
+    f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
+    let comp_rect = f.rect(comp, "Dot", gray(0x20));
+    let _comp_label = f.text(comp, "Caption", 14.0, 400, gray(0x77));
+    for i in 0..20 {
+        let cmd = designos_doc::create_instance(&mut f.doc, comp, f.page, designos_doc::Vec2::new(260.0 * (i as f32 + 1.0), 0.0));
+        let inst = match &cmd {
+            designos_doc::Command::Insert { nodes, .. } => nodes[0].id,
+            other => panic!("expected Insert, got {other:?}"),
+        };
+        cmd.apply(&mut f.doc).unwrap();
+        for _ in 0..50 {
+            let id = f.doc.alloc_id();
+            let mut r = Node::rectangle(id, Rect::new(10.0, 10.0, 40.0, 40.0));
+            r.name = "Dot".into();
+            r.fills = vec![Paint::solid(gray(0x20))];
+            r.component.source = Some(comp_rect);
+            f.doc.insert(inst, r).unwrap();
+        }
+        if i == 10 {
+            let first_kid = f.doc.get(inst).unwrap().children[0];
+            f.doc.get_mut(first_kid).unwrap().fills = vec![Paint::solid(BLUE)];
+            f.doc.get_mut(first_kid).unwrap().component.overrides.insert(designos_doc::OverrideField::Fills);
+        }
+    }
+    let scope_inst = Scope::Page(f.page);
+    let sync_inst = audit(&f.doc, &scope_inst);
+    let no_skip_inst = super::super::audit_with_cheap_skip(&f.doc, &scope_inst, &LibrarySources::default(), false);
+    assert_eq!(sync_inst, no_skip_inst);
+    let mut cur_inst = ScanCursor::new(&f.doc, scope_inst);
+    while !audit_step(&f.doc, &mut cur_inst, Duration::from_micros(50)) {}
+    assert_eq!(cur_inst.into_report(&f.doc), sync_inst);
 }
 
 #[test]
 fn no_layer_cut_off_on_large_page() {
     let (doc, page) = build_synthetic_page(30_000);
-    let mut cur = ScanCursor::new(&doc, Scope::Page(page));
-    while !audit_step(&doc, &mut cur, Duration::from_secs(3600)) {}
-    let report = cur.into_report(&doc);
+    let report = audit(&doc, &Scope::Page(page));
     assert_eq!(report.scanned, 30_000);
     assert!(report.complete);
     assert!(!report.findings.is_empty());
@@ -144,9 +180,7 @@ fn a_large_detached_frame_does_not_stall_one_slice() {
     let (doc, page) = (f.doc, f.page);
     let (worst, _) = worst_slice(&doc, &Scope::Page(page));
     assert!(worst <= Duration::from_millis(4), "worst slice {worst:?} exceeded 4ms budget");
-    let mut cur = ScanCursor::new(&doc, Scope::Page(page));
-    while !audit_step(&doc, &mut cur, Duration::from_secs(3600)) {}
-    let report = cur.into_report(&doc);
+    let report = audit(&doc, &Scope::Page(page));
     let found = report.of(Rule::DetachedInstance).find(|x| x.node == frame).expect("the copy is reported");
     assert!(matches!(found.fix, Some(Fix::Reconnect { component }) if component == comp), "an unedited copy still gets its reconnect");
 }

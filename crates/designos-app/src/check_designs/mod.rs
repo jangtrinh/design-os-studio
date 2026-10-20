@@ -34,30 +34,6 @@ use std::time::{Duration, Instant};
 /// Default per-frame time slice budget (2.0 ms) for incremental page scanning.
 pub const SLICE_BUDGET: Duration = Duration::from_millis(2);
 
-/// Meaningful layers scanned per audit. A page of several hundred thousand layers must never stall
-/// the UI thread, so the audit stops here and the panel says so.
-pub const MAX_SCANNED_LAYERS: usize = 20_000;
-
-/// Total visible layers examined per audit, including quiet mirrors inside component instances.
-///
-/// Measured release-mode `audit_with_libraries` wall times on the synthetic mirror page:
-/// - 10,000 visited layers: 0.91 ms (`0.908 ms`)
-/// - 50,000 visited layers: 6.19 ms (`6.187 ms`)
-/// - 100,000 visited layers: 13.18 ms (`13.184 ms`)
-/// - 200,000 visited layers: 26.08 ms (`26.084 ms`, well under the 150 ms UI-thread budget)
-/// - 112,474-node synthetic large fixture: 3.71 ms (`3.713 ms`) vs 3.78 ms (`3.777 ms`) pre-change
-pub const MAX_VISITED_LAYERS: usize = 200_000;
-
-/// Which scan cap stopped an audit early.
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Truncation {
-    /// Stopped at [`MAX_SCANNED_LAYERS`] meaningful layers.
-    Scanned,
-    /// Stopped at [`MAX_VISITED_LAYERS`] total examined layers.
-    Work,
-}
-
 /// The kind of problem a [`Finding`] reports; also the group it is listed under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Rule {
@@ -189,10 +165,6 @@ pub struct Report {
     pub scanned: usize,
     /// Whether the scan has finished visiting every layer in the scope.
     pub complete: bool,
-    /// The scan stopped at [`MAX_SCANNED_LAYERS`] or [`MAX_VISITED_LAYERS`].
-    pub truncated: bool,
-    /// Which limit stopped the scan, when [`Self::truncated`] is `true`.
-    pub truncated_by: Option<Truncation>,
     /// Display names of enabled libraries whose pinned snapshot could not be read.
     pub unreadable_libraries: Vec<String>,
 }
@@ -249,6 +221,8 @@ pub struct ScanCursor {
     pub(super) unreadable_libraries: Vec<String>,
     pub(super) full_key: Option<(u64, Scope, Vec<LibraryRef>, CheckDesignsSettings)>,
     pub(super) updating: bool,
+    #[cfg(test)]
+    pub(super) cheap_skip: bool,
 }
 
 impl ScanCursor {
@@ -281,6 +255,8 @@ impl ScanCursor {
             unreadable_libraries: Vec::new(),
             full_key: None,
             updating: false,
+            #[cfg(test)]
+            cheap_skip: true,
         }
     }
 
@@ -291,8 +267,6 @@ impl ScanCursor {
             ignored: Vec::new(),
             scanned: self.examined,
             complete: self.phase == Phase::Done,
-            truncated: false,
-            truncated_by: None,
             unreadable_libraries: self.unreadable_libraries,
         };
         for f in self.partial {
@@ -403,7 +377,11 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
             if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
                 continue;
             }
-            if is_quiet_mirror(doc, n) {
+            #[cfg(test)]
+            let allow_quiet_skip = cur.cheap_skip;
+            #[cfg(not(test))]
+            let allow_quiet_skip = true;
+            if allow_quiet_skip && is_quiet_mirror(doc, n) {
                 cur.scanned += 1;
                 steps += 1;
                 cur.stack.extend(n.children.iter().rev().copied());
@@ -516,91 +494,16 @@ pub fn audit(doc: &Document, scope: &Scope) -> Report {
 
 #[cfg(test)]
 pub(super) fn audit_with_cheap_skip(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
-    audit_impl(doc, scope, libs, cheap_skip)
+    let mut cur = ScanCursor::with_libraries(doc, scope.clone(), libs.clone());
+    cur.cheap_skip = cheap_skip;
+    while !audit_step(doc, &mut cur, Duration::from_secs(3600)) {}
+    cur.into_report(doc)
 }
 
 /// Scans `scope` and includes variables and styles from enabled `libs` snapshots.
 #[cfg(test)]
 pub fn audit_with_libraries(doc: &Document, scope: &Scope, libs: &LibrarySources) -> Report {
-    audit_impl(doc, scope, libs, true)
-}
-
-#[cfg(test)]
-fn audit_impl(doc: &Document, scope: &Scope, libs: &LibrarySources, cheap_skip: bool) -> Report {
-    let roots: Vec<NodeId> = match scope {
-        Scope::Page(page) => doc.get(*page).map(|p| p.children.clone()).unwrap_or_default(),
-        Scope::Layers(ids) => ids.clone(),
-    };
-    let index = hardcoded::Index::with_libraries(doc, libs);
-    let components = detached::Components::new(doc);
-    let bounds = contrast::SubtreeBounds::default();
-    let contrast_on = !doc.check_designs.disabled_rules.contains(Rule::Contrast.figma_id());
-    let detached_on = !doc.check_designs.disabled_rules.contains(Rule::DetachedInstance.figma_id());
-    let library_assets_on = !doc.check_designs.disabled_rules.contains(Rule::LibraryAssets.figma_id());
-    let mut report = Report::default();
-    let mut partial = Vec::new();
-    let mut visited = 0usize;
-    let mut checked = 0usize;
-    let mut stack: Vec<NodeId> = roots.into_iter().rev().collect();
-    while let Some(id) = stack.pop() {
-        let Some(n) = doc.get(id) else { continue };
-        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
-            continue;
-        }
-        if visited >= MAX_VISITED_LAYERS {
-            report.truncated = true;
-            report.truncated_by = Some(Truncation::Work);
-            break;
-        }
-        if cheap_skip && is_quiet_mirror(doc, n) {
-            visited += 1;
-            stack.extend(n.children.iter().rev().copied());
-            continue;
-        }
-        let always_counted = n.component.source.is_none() || !n.component.overrides.is_empty();
-        if (always_counted && report.scanned >= MAX_SCANNED_LAYERS) || checked >= MAX_SCANNED_LAYERS {
-            report.truncated = true;
-            report.truncated_by = Some(Truncation::Scanned);
-            break;
-        }
-        visited += 1;
-        checked += 1;
-        let before = partial.len();
-        hardcoded::check(doc, &index, n, &mut partial);
-        if contrast_on {
-            contrast::check(doc, &bounds, n, &mut partial);
-        }
-        if detached_on {
-            match detached::plan(doc, &components, n) {
-                detached::Detached::Nothing => {}
-                detached::Detached::Found(f) => partial.push(f),
-                detached::Detached::Compare { component } => {
-                    let equal = detached::matches_component(doc, id, component);
-                    partial.push(detached::compared(doc, n, component, equal));
-                }
-            }
-        }
-        if library_assets_on {
-            library_assets::check(doc, libs, n, n.component.source.and_then(|s| doc.get(s)), &mut partial);
-        }
-        if always_counted || partial.len() > before {
-            if report.scanned >= MAX_SCANNED_LAYERS {
-                partial.truncate(before);
-                report.truncated = true;
-                report.truncated_by = Some(Truncation::Scanned);
-                break;
-            }
-            report.scanned += 1;
-        }
-        stack.extend(n.children.iter().rev().copied());
-    }
-    report.complete = !report.truncated;
-    for f in partial {
-        if doc.check_designs.ignored.contains(&f.ignore_key()) {
-            report.ignored.push(f);
-        } else {
-            report.findings.push(f);
-        }
-    }
-    report
+    let mut cur = ScanCursor::with_libraries(doc, scope.clone(), libs.clone());
+    while !audit_step(doc, &mut cur, Duration::from_secs(3600)) {}
+    cur.into_report(doc)
 }

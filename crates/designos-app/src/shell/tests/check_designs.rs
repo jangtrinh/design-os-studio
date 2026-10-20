@@ -2,7 +2,7 @@
 //! one finding as one undo step, Fix all is one undo step, and a row click selects its layer.
 
 use super::*;
-use crate::check_designs::{audit, Report, Scope, Truncation, FIXTURE, MAX_SCANNED_LAYERS, MAX_VISITED_LAYERS};
+use crate::check_designs::{audit, Report, Scope, FIXTURE};
 
 fn sim() -> Sim {
     Sim::with(Options { fixture: Some(FIXTURE.into()), panel: Some("check-designs".into()), ..Options::default() })
@@ -15,17 +15,6 @@ fn report(s: &Sim) -> Report {
 /// Whether the panel drew a rect under `name` this frame.
 fn has_rect(s: &Sim, name: &str) -> bool {
     s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).is_some()
-}
-
-fn has_painted_text(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
-    fn in_shape(shape: &egui::epaint::Shape, needle: &str) -> bool {
-        match shape {
-            egui::epaint::Shape::Text(t) => t.galley.job.text.contains(needle),
-            egui::epaint::Shape::Vec(v) => v.iter().any(|s| in_shape(s, needle)),
-            _ => false,
-        }
-    }
-    shapes.iter().any(|cs| in_shape(&cs.shape, needle))
 }
 
 #[test]
@@ -144,39 +133,4 @@ fn fix_all_disabled_while_scanning() {
     s.click(fix_all.center());
     assert!(!s.app().hist.can_undo(), "Fix all is disabled while scanning and does not push an undo step");
     assert_eq!(report(&s).findings.len(), 8, "no findings were modified while scanning");
-}
-
-#[test]
-fn truncation_notes_name_the_checked_and_work_limits_in_the_panel() {
-    let mut s = Sim::with(Options { panel: Some("check-designs".into()), ..Options::default() });
-    s.shell.app.open_check_designs();
-    s.shell.app.check_designs.scope = Some(Scope::Layers(vec![]));
-    s.shell.app.check_designs.invalidate();
-    s.frame(vec![]);
-
-    // 1. Checked-layers cap (`Truncation::Scanned`).
-    s.shell.app.check_designs.report = Report {
-        findings: Vec::new(),
-        ignored: Vec::new(),
-        scanned: MAX_SCANNED_LAYERS,
-        complete: true,
-        truncated: true,
-        truncated_by: Some(Truncation::Scanned),
-        unreadable_libraries: Vec::new(),
-    };
-    s.frame(vec![]);
-    assert!(has_painted_text(&s.shapes, &format!("Stopped after {MAX_SCANNED_LAYERS} checked layers. Check a smaller selection to see the rest.")));
-
-    // 2. Work cap (`Truncation::Work`).
-    s.shell.app.check_designs.report = Report {
-        findings: Vec::new(),
-        ignored: Vec::new(),
-        scanned: 3,
-        complete: true,
-        truncated: true,
-        truncated_by: Some(Truncation::Work),
-        unreadable_libraries: Vec::new(),
-    };
-    s.frame(vec![]);
-    assert!(has_painted_text(&s.shapes, &format!("Stopped after {MAX_VISITED_LAYERS} layers examined. Check a smaller selection to see the rest.")));
 }

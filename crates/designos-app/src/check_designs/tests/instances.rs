@@ -335,50 +335,16 @@ fn mirror_heavy_page_still_reaches_the_later_frame() {
     let mut f = fx();
     white_page(&mut f);
     let frame_a = f.frame(f.page, "Frame A", Some(Color::WHITE));
-    add_quiet_mirrors(&mut f, frame_a, MAX_SCANNED_LAYERS + 5_000);
+    add_quiet_mirrors(&mut f, frame_a, 25_000);
 
     let frame_b = f.frame(f.page, "Frame B", Some(Color::WHITE));
     let failing_text = f.text(frame_b, "Low contrast", 14.0, 400, gray(0x77));
 
     let report = f.report();
-    assert!(!report.truncated, "mirror-heavy frame A must not truncate before frame B");
-    assert_eq!(report.truncated_by, None);
+    assert!(report.complete, "mirror-heavy frame A must complete and reach frame B");
     assert!(report.scanned < 20, "scanned should count only meaningful layers, got {}", report.scanned);
     let found = only(&report, Rule::Contrast);
     assert_eq!(found.node, failing_text);
-}
-
-#[test]
-fn instance_text_mirrors_stop_at_checker_cap_instead_of_running_to_visited_cap() {
-    let mut f = fx();
-    white_page(&mut f);
-    let comp = component(&mut f, "663:text-mirror-cap");
-    place(&mut f, comp, 0.0, 200.0);
-    f.doc.get_mut(comp).unwrap().fills = vec![Paint::solid(Color::WHITE)];
-    let comp_row = f.frame(comp, "Row", Some(Color::WHITE));
-    let comp_text = f.text(comp_row, "Label", 14.0, 400, gray(0x11));
-
-    let inst = spawn_instance(&mut f, comp, 0.0, 0.0);
-    // Group into quiet `Row` mirror frames of 10 text mirrors each (`2,001 * 10 = 20,010` text mirrors)
-    // so each parent has only 10 children while total text mirrors exceed `MAX_SCANNED_LAYERS` (20,000).
-    for _ in 0..(MAX_SCANNED_LAYERS / 10) + 1 {
-        let row_id = f.frame(inst, "Row", Some(Color::WHITE));
-        f.doc.get_mut(row_id).unwrap().component.source = Some(comp_row);
-        for _ in 0..10 {
-            let tid = f.text(row_id, "Label", 14.0, 400, gray(0x11));
-            f.doc.get_mut(tid).unwrap().component.source = Some(comp_text);
-        }
-    }
-
-    // Place a failing text layer after `inst`: because every instance text mirror runs `contrast::check`,
-    // the audit must stop after `MAX_SCANNED_LAYERS` (20,000) checker runs rather than running up to `MAX_VISITED_LAYERS` (200,000).
-    let frame_b = f.frame(f.page, "Frame B", Some(Color::WHITE));
-    let _later_failing_text = f.text(frame_b, "Low contrast", 14.0, 400, gray(0x77));
-
-    let report = f.report();
-    assert!(report.truncated, "un-overridden instance text layers that run checkers must stop at MAX_SCANNED_LAYERS");
-    assert_eq!(report.truncated_by, Some(Truncation::Scanned));
-    assert!(report.findings.is_empty(), "audit must stop before reaching Frame B after 20,000 checker runs");
 }
 
 #[test]
@@ -386,7 +352,7 @@ fn quiet_mirror_predicate_keeps_the_ancestor_opacity_row() {
     let mut f = fx();
     white_page(&mut f);
     let frame_a = f.frame(f.page, "Frame A", Some(Color::WHITE));
-    add_quiet_mirrors(&mut f, frame_a, MAX_SCANNED_LAYERS + 5_000);
+    add_quiet_mirrors(&mut f, frame_a, 25_000);
 
     // Add the 3.2 ancestor-opacity fixture after the 25,000 quiet mirrors.
     let comp = component(&mut f, "663:op-main");
@@ -407,7 +373,7 @@ fn quiet_mirror_predicate_keeps_the_ancestor_opacity_row() {
     }
 
     let report = f.report();
-    assert!(!report.truncated);
+    assert!(report.complete);
     let found = only(&report, Rule::Contrast);
     assert_eq!(found.node, inst_text, "text under an ancestor with overridden opacity is not a quiet mirror");
 }
