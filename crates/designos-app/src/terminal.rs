@@ -696,9 +696,6 @@ pub struct TerminalState {
     /// Test-only override for `preset.uses_ctrl_z()` when routing terminal undo/redo chords (`#685`).
     #[cfg(test)]
     pub cli_uses_ctrl_z_override: Option<bool>,
-    /// Test-only executable overriding the active runtime's CLI binary inside `submit_chat_prompt`.
-    #[cfg(test)]
-    pub stub_cli: Option<PathBuf>,
     /// Test-only `PATH` override for binary availability checks and spawned agent tabs.
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
@@ -794,8 +791,6 @@ impl TerminalState {
             #[cfg(test)]
             cli_uses_ctrl_z_override: None,
             #[cfg(test)]
-            stub_cli: None,
-            #[cfg(test)]
             path_override: None,
         }
     }
@@ -811,23 +806,6 @@ impl TerminalState {
             st.bind_session(file_id);
         }
         st
-    }
-
-    #[cfg(test)]
-    fn resolve_test_cli_stub(&self, runtime: AgentCliPreset) -> PathBuf {
-        if let Some(ref stub) = self.stub_cli {
-            return stub.clone();
-        }
-        if let Some(ref path_os) = self.path_override {
-            let bin = runtime.binary_name();
-            for dir in std::env::split_paths(path_os) {
-                let candidate = dir.join(bin);
-                if candidate.is_file() {
-                    return candidate;
-                }
-            }
-        }
-        default_test_stub_cli()
     }
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
@@ -1216,13 +1194,6 @@ impl TerminalState {
         }
     }
 
-    /// Lazily spawns a Shell PTY tab for the Agent Chat UI composer on first submit (`#651` §3 rule 1 & §5).
-    pub fn ensure_shell_for_chat(&mut self, file_path: Option<&Path>) {
-        if self.tabs.is_empty() {
-            let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
-        }
-    }
-
     /// Switches the active CLI runtime (`Claude Code`, `Codex`, `Antigravity CLI`, `Grok`, `Shell`)
     /// and binds the active PTY tab label to that runtime (`DIR-21`).
     ///
@@ -1240,6 +1211,30 @@ impl TerminalState {
 
     /// Submits a user message from the Agent composer into the active tab's live CLI session (`#689` §3 rules 1, 8).
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
+        let _ = self.send_to_agent(prompt, file_path);
+    }
+
+    /// Submits a system-generated image task prompt to the target agent runtime (`#667`).
+    pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.preset == preset && t.start_failure.is_none() && !t.exited_notice_shown) {
+            self.active_tab = idx;
+            self.active_runtime = preset;
+        } else {
+            let active_dead = self.active_tab().is_some_and(|t| !t.is_shell_process() && t.exited_notice_shown);
+            if self.tabs.is_empty() || active_dead {
+                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
+            }
+            self.set_active_runtime(preset, file_path);
+            if let Some(tab) = self.active_tab_mut() {
+                tab.spawn_preset = preset;
+                tab.preset = preset;
+            }
+        }
+        if let Some(tab) = self.active_tab() {
+            if let Ok(mut st) = tab.agent_status.lock() {
+                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
+            }
+        }
         let _ = self.send_to_agent(prompt, file_path);
     }
 
@@ -5518,22 +5513,16 @@ Done!
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    fn write_test_stub_script(name: &str, body: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("designos-681-stubs-{}-{name}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dir);
-        let script = dir.join("claude");
-        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).expect("write stub script");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
+    fn spawn_live_claude_stub_tab(st: &mut TerminalState) {
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
+        if let Some(tab) = st.active_tab_mut() {
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
         }
-        script
     }
 
     #[test]
     fn prompt_with_a_stub_cli_that_writes_nothing_leaves_the_document_hash_unchanged() {
-        let stub = write_test_stub_script("noop", "exit 0");
         let mut doc = Document::new("681 Noop Stub Doc");
         let page = doc.add_page("Page 1");
         let doc_hash = |d: &Document| -> u64 {
@@ -5547,14 +5536,12 @@ Done!
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState {
-            side_panel_pty_open: false,
-            chat_mode: true,
-            active_runtime: AgentCliPreset::Claude,
-            input_line: "Design a pricing card".to_string(),
-            stub_cli: Some(stub),
-            ..TerminalState::for_tab(68101)
-        };
+        let mut st = TerminalState::for_tab(68101);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.active_runtime = AgentCliPreset::Claude;
+        spawn_live_claude_stub_tab(&mut st);
+        st.set_composer_draft("Design a pricing card");
         st.sync_live_file_context(&doc, page, &[], None);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
@@ -5582,34 +5569,27 @@ Done!
             !actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_) | TerminalAction::ApplySpecFile(_))),
             "submitting prompt with noop stub must emit no ApplySpecJson or ApplySpecFile: {actions:?}"
         );
-        assert_eq!(st.chat_turns.len(), 2);
-        for turn in &st.chat_turns {
-            assert!(turn.extracted_spec_json.is_none(), "turn extracted_spec_json must be None: {turn:?}");
-        }
         assert_eq!(doc_hash(&doc), hash_before, "document hash must remain unchanged");
         kill_tabs(&mut st);
     }
 
     #[test]
     fn design_words_do_not_apply_a_template() {
-        let stub = write_test_stub_script("design-words-noop", "exit 0");
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
-        let mut st = TerminalState {
-            side_panel_pty_open: false,
-            chat_mode: true,
-            active_runtime: AgentCliPreset::Claude,
-            stub_cli: Some(stub),
-            ..TerminalState::for_tab(68102)
-        };
+        let mut st = TerminalState::for_tab(68102);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.active_runtime = AgentCliPreset::Claude;
+        spawn_live_claude_stub_tab(&mut st);
 
         for prompt in
             ["create a card", "build a dashboard", "make a hero", "generate a form", "landing page", " template ", "ui for login", "screen for checkout"]
         {
-            st.input_line = prompt.to_string();
+            st.set_composer_draft(prompt);
             let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
                 let _ = show_left(&mut st, ui, panel_rect, None);
             });
@@ -5628,9 +5608,6 @@ Done!
                 actions = show_left(&mut st, ui, panel_rect, None);
             });
             assert!(!actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_))), "prompt {prompt:?} must not produce ApplySpecJson: {actions:?}");
-            for turn in &st.chat_turns {
-                assert!(turn.extracted_spec_json.is_none(), "prompt {prompt:?} must not populate extracted_spec_json");
-            }
         }
 
         let terminal_src = include_str!("terminal.rs");
@@ -5642,15 +5619,12 @@ Done!
     #[test]
     fn missing_cli_shows_the_start_failure_surface_and_no_executed_text() {
         assert!(!runtime_binary_available_in("claude", Some(std::ffi::OsStr::new("")), false), "empty PATH must report claude as unavailable");
-        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, path_override: Some(std::ffi::OsString::new()), ..TerminalState::for_tab(68103) };
-        st.submit_chat_prompt("Design a card", None);
-        st.sync_chat_from_pty();
+        let mut st = TerminalState::for_tab(68103);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.path_override = Some(std::ffi::OsString::new());
+        let _ = st.spawn_tab(AgentCliPreset::Claude, None);
         let _ = st.poll_live_agent_bridge();
 
-        for turn in &st.chat_turns {
-            assert!(!turn.text.contains("Executed via"), "turn text must not claim Executed via: {:?}", turn.text);
-            assert!(!turn.text.contains("streamed to Canvas"), "turn text must not claim streamed to Canvas: {:?}", turn.text);
-        }
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("missing CLI must populate start_failure on the active tab");
         assert_eq!(failure.preset, AgentCliPreset::Claude);
         assert_eq!(failure.cause, agent_start_failure::StartFailureCause::NotInstalled);
@@ -5659,39 +5633,31 @@ Done!
 
     #[test]
     fn no_planning_path_reaches_the_transcript() {
-        let stub = write_test_stub_script("echo-ok", "echo ok");
-        let mut st = TerminalState { active_runtime: AgentCliPreset::Claude, stub_cli: Some(stub), ..TerminalState::for_tab(68104) };
+        let mut st = TerminalState::for_tab(68104);
+        st.active_runtime = AgentCliPreset::Claude;
+        spawn_live_claude_stub_tab(&mut st);
         st.submit_chat_prompt("@prd check req-01 and us-02 in fc-001", None);
+        st.flush_pending_enter_now();
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        let mut synced = false;
-        while std::time::Instant::now() < deadline {
-            st.sync_chat_from_pty();
-            if st.chat_turns.get(1).is_some_and(|t| t.text.contains("ok")) {
-                synced = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(40));
-        }
-        assert!(synced, "stub CLI output 'ok' must reach assistant turn: {:?}", st.chat_turns);
-
-        for turn in &st.chat_turns {
-            for forbidden in ["plans/specs/", "PRD.md", "FC-001", "REQ-01..REQ-20", "US-01..US-17", "G1..G5"] {
-                assert!(!turn.text.contains(forbidden), "turn {:?} text must not contain {forbidden:?}: {:?}", turn.role, turn.text);
-            }
+        let written = String::from_utf8_lossy(&st.active_tab().unwrap().written_bytes).into_owned();
+        assert!(written.contains("@prd check req-01 and us-02 in fc-001"), "written={written:?}");
+        for forbidden in ["plans/specs/", "PRD.md", "FC-001", "REQ-01..REQ-20", "US-01..US-17", "G1..G5"] {
+            assert!(!written.contains(forbidden), "written bytes must not contain {forbidden:?}: {written:?}");
         }
         kill_tabs(&mut st);
     }
 
     #[test]
     fn make_design_sends_a_prompt_and_applies_nothing() {
-        let stub = write_test_stub_script("make-design-noop", "exit 0");
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
-        let mut st =
-            TerminalState { side_panel_pty_open: false, chat_mode: true, expanded_agent_cat: Some(1), stub_cli: Some(stub), ..TerminalState::for_tab(68105) };
+        let mut st = TerminalState::for_tab(68105);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.expanded_agent_cat = Some(1);
+        spawn_live_claude_stub_tab(&mut st);
 
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
@@ -5714,11 +5680,8 @@ Done!
             actions = show_left(&mut st, ui, panel_rect, None);
         });
 
-        assert!(
-            st.chat_turns.iter().any(|t| t.role == AgentChatRole::User && t.text == MAKE_DESIGN_FIRST_DRAFT_PROMPT),
-            "clicking term-ai-make-design must record a User turn with MAKE_DESIGN_FIRST_DRAFT_PROMPT: {:?}",
-            st.chat_turns
-        );
+        let written = String::from_utf8_lossy(&st.active_tab().unwrap().written_bytes).into_owned();
+        assert!(written.contains(MAKE_DESIGN_FIRST_DRAFT_PROMPT), "clicking term-ai-make-design must send MAKE_DESIGN_FIRST_DRAFT_PROMPT to PTY: {written:?}");
         assert!(
             !actions.iter().any(|a| matches!(a, TerminalAction::ApplySpecJson(_) | TerminalAction::ApplySpecFile(_))),
             "clicking term-ai-make-design must not return ApplySpecJson or ApplySpecFile: {actions:?}"
@@ -5732,7 +5695,9 @@ Done!
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
-        let mut st = TerminalState { side_panel_pty_open: false, chat_mode: true, ..TerminalState::for_tab(68106) };
+        let mut st = TerminalState::for_tab(68106);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
 
         let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);

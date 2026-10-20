@@ -1305,7 +1305,7 @@ mod tests {
         app.terminal.path_prepend.push(bin_dir.clone());
         assert!(app.terminal.tabs.is_empty());
 
-        let spec = crate::cmdk::synthesize_spec_from_prompt("Pricing card");
+        let spec: designos_doc::spec::NodeSpec = serde_json::from_str(r#"{"type":"FRAME","name":"Pricing card","width":320,"height":200}"#).expect("spec");
         let spec_name = spec.name.clone();
         crate::shell::execute_cmdk_action(&mut app, crate::cmdk::CmdKAction::ApplySpec(Box::new(spec)));
         assert!(app.terminal.tabs.is_empty(), "No process may auto-spawn when no resumable session exists");

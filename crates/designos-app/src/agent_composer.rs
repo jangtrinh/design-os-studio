@@ -52,7 +52,6 @@ const CHIP_MAX_WIDTH: f32 = 148.0;
 const CHIP_TEXT_PAD: f32 = theme::INSET_BUTTON * 2.0;
 const PRD_CHIP_WIDTH: f32 = theme::CONTROL_ROW;
 const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_TOOL * 2.0;
-const SIM_FRAME_STEP_SECS: f64 = 0.015;
 
 /// Why [`TerminalState::send_to_agent`] refused to write a prompt (`#689` §3 rules 3, 7, 10 & §8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,7 +131,9 @@ pub struct ComposerState {
     pub notice: Option<String>,
     /// Wall-clock deadline at which the trailing `\r` for the last bracketed paste must be written.
     pub pending_enter_deadline: Option<Instant>,
-    /// Synthetic `egui` input time (`i.time`) when the paste was written, so headless `Sim` frames advance it.
+    /// Exact per-CLI delay (`CLAUDE_ENTER_DELAY` or `OTHER_CLI_BASE_ENTER_DELAY + 1ms/4096B`) required before writing `\r`.
+    pub pending_enter_delay: Option<Duration>,
+    /// Synthetic `egui` input time (`i.time`) when the paste was written, so headless `Sim` frames advance it after `pending_enter_delay`.
     pub pending_enter_sim_time: Option<f64>,
     /// When the last `Written` prompt was sent while waiting for turn-start or PTY output confirmation.
     pub awaiting_confirm_since: Option<Instant>,
@@ -254,6 +255,7 @@ impl ComposerState {
         }
         self.cursor = None;
         self.pending_enter_deadline = None;
+        self.pending_enter_delay = None;
         self.pending_enter_sim_time = None;
         self.awaiting_confirm_since = None;
         self.last_outcome = Some(SendOutcome::Refused(reason));
@@ -365,6 +367,7 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mu
     let delay = enter_delay_for_preset(tab.spawn_preset, paste_bytes.len());
     let now = Instant::now();
     tab.composer.pending_enter_deadline = Some(now + delay);
+    tab.composer.pending_enter_delay = Some(delay);
     tab.composer.awaiting_confirm_since = Some(now);
     tab.composer.log_len_at_send = tab.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
     if tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
@@ -412,6 +415,7 @@ impl TerminalState {
     pub fn flush_pending_enter_now(&mut self) {
         for tab in &mut self.tabs {
             if tab.composer.pending_enter_deadline.take().is_some() {
+                tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
                 if tab.accepts_agent_input() {
                     let _ = tab.try_write_bytes(b"\r");
@@ -458,6 +462,7 @@ impl TerminalState {
             if let Some(deadline) = tab.composer.pending_enter_deadline {
                 if now >= deadline {
                     tab.composer.pending_enter_deadline = None;
+                    tab.composer.pending_enter_delay = None;
                     tab.composer.pending_enter_sim_time = None;
                     if tab.accepts_agent_input() {
                         let _ = tab.try_write_bytes(b"\r");
@@ -604,12 +609,14 @@ pub fn show_composer(
     actions: &mut Vec<TerminalAction>,
 ) -> Rect {
     let sim_now = ui.input(|i| i.time);
-    // Advance delayed `\r` writes when either real wall-clock or `Sim` frame time has elapsed.
+    // Advance delayed `\r` writes when either real wall-clock or `Sim` frame time has elapsed by `pending_enter_delay`.
     for tab in &mut state.tabs {
         if let Some(deadline) = tab.composer.pending_enter_deadline {
-            let sim_elapsed = tab.composer.pending_enter_sim_time.is_some_and(|t0| sim_now - t0 >= SIM_FRAME_STEP_SECS);
+            let sim_elapsed =
+                tab.composer.pending_enter_sim_time.zip(tab.composer.pending_enter_delay).is_some_and(|(t0, d)| sim_now + 1e-6 >= t0 + d.as_secs_f64());
             if Instant::now() >= deadline || sim_elapsed {
                 tab.composer.pending_enter_deadline = None;
+                tab.composer.pending_enter_delay = None;
                 tab.composer.pending_enter_sim_time = None;
                 if tab.accepts_agent_input() {
                     let _ = tab.try_write_bytes(b"\r");
@@ -638,7 +645,7 @@ pub fn show_composer(
     let mut submit_composer = false;
     if was_focused && !is_shell_tab {
         state.viewport_focused = false;
-        let can_start_history = !state.active_composer().draft.contains('\n') || state.active_composer().cursor.is_some();
+        let can_start_history = state.active_composer().draft.trim().is_empty() || state.active_composer().cursor.is_some();
         let browsing_history = state.active_composer().cursor.is_some();
         let mut walk_up = false;
         let mut walk_down = false;
@@ -1118,13 +1125,72 @@ mod tests {
         assert_eq!(st.composer_draft(), "", "Plain Enter must clear the draft after sending");
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Bracketed paste payload must be written first, before the delayed Enter");
 
-        // Frame 3 (+30ms simulated time): delayed `\r` is flushed on the next frame.
-        let raw_next = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), time: Some(1.060), ..Default::default() };
+        // Intermediate frame (+24ms < 50ms CLAUDE_ENTER_DELAY): `\r` must NOT flush early.
+        let raw_early =
+            egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), time: Some(1.040), ..Default::default() };
+        let _ = ctx.run_ui(raw_early, |ui| {
+            let mut acts = Vec::new();
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+        });
+        assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Delayed \\r must not flush before CLAUDE_ENTER_DELAY (50ms) has elapsed");
+
+        // Frame 3 (1.016 + CLAUDE_ENTER_DELAY = 1.066): delayed `\r` is flushed once the 50ms delay elapses.
+        let raw_next = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
+            time: Some(1.016 + CLAUDE_ENTER_DELAY.as_secs_f64()),
+            ..Default::default()
+        };
         let _ = ctx.run_ui(raw_next, |ui| {
             let mut acts = Vec::new();
             let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
         });
-        assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~\r", "Delayed \\r must be written on the next frame after bracketed paste");
+        assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~\r", "Delayed \\r must be written once CLAUDE_ENTER_DELAY elapses");
+
+        // Also verify a non-Claude CLI (`Codex`, 500ms base delay) does not flush on an 83ms spinner frame.
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Codex;
+            tab.preset = AgentCliPreset::Codex;
+        }
+        rec.lock().unwrap().clear();
+        st.set_composer_draft("codex line");
+        ctx.memory_mut(|m| m.request_focus(input_id));
+        let raw_codex_enter = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
+            time: Some(2.0),
+            events: vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_codex_enter, |ui| {
+            let mut acts = Vec::new();
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+        });
+        assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~");
+
+        // +83ms spinner frame (< 500ms OTHER_CLI_BASE_ENTER_DELAY): `\r` must NOT flush yet.
+        let raw_spinner =
+            egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), time: Some(2.083), ..Default::default() };
+        let _ = ctx.run_ui(raw_spinner, |ui| {
+            let mut acts = Vec::new();
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+        });
+        assert_eq!(
+            &*rec.lock().unwrap(),
+            b"\x1b[200~codex line\x1b[201~",
+            "Non-Claude CLI must not flush \\r on an 83ms spinner frame before OTHER_CLI_BASE_ENTER_DELAY (500ms)"
+        );
+
+        // +500ms (2.0 + OTHER_CLI_BASE_ENTER_DELAY): `\r` flushes now.
+        let raw_codex_due = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
+            time: Some(2.0 + OTHER_CLI_BASE_ENTER_DELAY.as_secs_f64()),
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_codex_due, |ui| {
+            let mut acts = Vec::new();
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+        });
+        assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~\r");
 
         st.shutdown();
     }
@@ -1180,7 +1246,6 @@ mod tests {
 
         assert_eq!(st.send_to_agent("First sent prompt", None), SendOutcome::Written);
         assert_eq!(st.send_to_agent("Second sent prompt", None), SendOutcome::Written);
-        st.set_composer_draft("Unsent third draft");
 
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 720.0));
         let input_id = Id::new("agents-ask-for-changes-input");
@@ -1197,6 +1262,16 @@ mod tests {
             });
         };
 
+        // `#689` §3 rule 4 & §8 edge case 2: Up arrow in a non-empty draft (even a single line) must NOT
+        // replace the draft with history; history starts only on an empty field (or while already browsing).
+        st.set_composer_draft("make the button blue");
+        press_key(&ctx, &mut st, Key::ArrowUp);
+        assert_eq!(st.composer_draft(), "make the button blue", "Up arrow on a non-empty single-line draft must not overwrite it with history");
+        assert!(st.active_composer().cursor.is_none(), "History browsing must not start when the field is non-empty");
+
+        // Empty the field so Up arrow starts history browsing from the empty draft.
+        st.set_composer_draft("");
+
         press_key(&ctx, &mut st, Key::ArrowUp);
         assert_eq!(st.composer_draft(), "Second sent prompt");
 
@@ -1207,7 +1282,18 @@ mod tests {
         assert_eq!(st.composer_draft(), "Second sent prompt");
 
         press_key(&ctx, &mut st, Key::ArrowDown);
-        assert_eq!(st.composer_draft(), "Unsent third draft", "Down past the end must restore the unsent third message");
+        assert_eq!(st.composer_draft(), "", "Down past the newest entry must restore the empty draft that was in the field before Up");
+
+        // Direct unit check on `ComposerState::history_up` / `history_down` stashing and restoring an unsent draft.
+        st.set_composer_draft("Unsent third draft");
+        assert!(st.active_composer_mut().history_up());
+        assert_eq!(st.composer_draft(), "Second sent prompt");
+        assert!(st.active_composer_mut().history_up());
+        assert_eq!(st.composer_draft(), "First sent prompt");
+        assert!(st.active_composer_mut().history_down());
+        assert_eq!(st.composer_draft(), "Second sent prompt");
+        assert!(st.active_composer_mut().history_down());
+        assert_eq!(st.composer_draft(), "Unsent third draft", "Down past the end must restore the stashed unsent third message");
 
         st.shutdown();
     }

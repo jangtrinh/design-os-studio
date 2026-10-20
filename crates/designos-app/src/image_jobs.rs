@@ -1801,19 +1801,16 @@ mod tests {
 
         let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts via terminal");
         app.cancel_image_job(Some(orig_id));
+        let tab = app.terminal.active_tab().expect("active agent tab spawned or selected");
+        let written = String::from_utf8_lossy(&tab.written_bytes).into_owned();
+        let history = tab.composer.history.clone();
         app.terminal.shutdown();
 
         assert_ne!(app.terminal.active_runtime, AgentCliPreset::Shell, "default image job flow must select an agent CLI preset, never Shell");
-        assert!(app.terminal.chat_turns.len() >= 2, "expected system + assistant turns recorded in terminal");
-        let first_turn = &app.terminal.chat_turns[0];
-        assert_eq!(first_turn.role, crate::terminal::AgentChatRole::System, "image job prompt must be recorded as a System turn, not a User message");
-        assert!(first_turn.text.contains(&format!("Image task {job_id}")), "expected image task prompt in first turn: {}", first_turn.text);
-        let cmd = &first_turn.shell_cmd;
-        let invokes_real_cli = cmd.contains("claude --dangerously-skip-permissions -p")
-            || cmd.contains("codex --dangerously-bypass-approvals-and-sandbox exec")
-            || cmd.contains("agy --dangerously-skip-permissions -p")
-            || cmd.contains("grok --always-approve -p");
-        assert!(invokes_real_cli, "expected real agent CLI invocation in shell_cmd, got: {cmd}");
+        assert!(
+            written.contains(&format!("Image task {job_id}")) || history.iter().any(|h| h.contains(&format!("Image task {job_id}"))),
+            "expected image task prompt written to live PTY tab: written={written:?}, history={history:?}"
+        );
     }
 
     #[test]
