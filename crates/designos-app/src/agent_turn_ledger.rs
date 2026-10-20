@@ -451,9 +451,8 @@ impl AgentTurnLedger {
         // landed between those two touches AND `pre_fingerprints[id]` before this step differs from
         // `summary.post_fingerprint`. Drop the earlier steps' inverses for `id` so reverting this
         // turn restores the state right before the agent's latest write (preserving the user's
-        // mid-turn edit). Auto-layout reflow updates on `id` where only `transform` / `size` /
-        // `layout_child` changed while the parent is auto-layout are ignored by `targets_node` so
-        // earlier inverses for `id` are preserved.
+        // mid-turn edit). Auto-layout reflow updates on `id` (see `history.rs::is_auto_layout_reflow`)
+        // are ignored by `targets_node` so earlier inverses for `id` are preserved.
         for &(id, _, _) in &step.touched {
             let pre_node = node_from_inverses(&step.atomic_inverses, id).or_else(|| doc_after.get(id));
             let user_targeted_id = if let Some(last_pos) = turn.steps.iter().rposition(|s| s.touched.iter().any(|(tid, _, _)| *tid == id)) {
@@ -769,7 +768,11 @@ pub fn snapshot_pre_step(doc: &Document, patch: &designos_doc::live_patch::LiveP
                     fps.insert(*id, None);
                 }
             }
-            designos_doc::live_patch::LiveOp::Comments { .. } => {}
+            designos_doc::live_patch::LiveOp::Comments { .. }
+            | designos_doc::live_patch::LiveOp::Styles { .. }
+            | designos_doc::live_patch::LiveOp::Variables { .. }
+            | designos_doc::live_patch::LiveOp::LibraryState { .. }
+            | designos_doc::live_patch::LiveOp::Images { .. } => {}
         }
     }
     (names, fps)
@@ -1601,5 +1604,92 @@ mod tests {
         );
         let report = r.app.terminal.active_turn_ledger().turns.last().unwrap().last_revert_report.as_ref().unwrap();
         assert!(report.kept_user_changed.is_empty(), "Hero was not edited by the user: {:?}", report.kept_user_changed);
+    }
+
+    #[test]
+    fn user_drag_of_auto_layout_frame_between_two_agent_writes_survives_revert() {
+        let mut r = rig();
+        let page = r.app.page;
+        let container = r.app.doc.alloc_id();
+        let mut container_node = Node::frame(container, Rect::new(0.0, 0.0, 800.0, 200.0));
+        container_node.name = "Auto Container".into();
+        if let designos_doc::NodeKind::Frame(fp) = &mut container_node.kind {
+            fp.auto_layout = Some(designos_doc::AutoLayout::v1());
+        }
+        r.app.doc.insert(page, container_node).unwrap();
+
+        r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
+        r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
+
+        r.run_hook("start", "claude");
+        // Agent step 1: rename the auto-layout container.
+        r.agent_rename(container, "Auto Container Renamed");
+        r.deliver();
+
+        // Mid-turn, user drags the auto-layout frame on the canvas.
+        let mut tx = Tx::new();
+        tx.ed.node(&mut r.app.doc, container).unwrap().transform.tx = 250.0;
+        tx.ed.node(&mut r.app.doc, container).unwrap().transform.ty = 140.0;
+        tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
+
+        // Agent step 2: set the auto-layout container's opacity to 0.5.
+        r.session.call("designos_update_node", json!({ "node_id": container.0, "opacity": 0.5 })).expect("update container opacity");
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        let c_after = r.app.doc.get(container).unwrap();
+        assert_eq!(c_after.transform.tx, 250.0, "Revert must preserve the user's mid-turn canvas drag X on the auto-layout frame");
+        assert_eq!(c_after.transform.ty, 140.0, "Revert must preserve the user's mid-turn canvas drag Y on the auto-layout frame");
+        assert!((c_after.opacity - 1.0).abs() < 1e-5, "Revert must undo the agent's post-drag opacity write");
+    }
+
+    #[test]
+    fn inspector_width_change_on_fixed_child_after_turn_is_kept() {
+        let mut r = rig();
+        let page = r.app.page;
+        let container = r.app.doc.alloc_id();
+        let mut container_node = Node::frame(container, Rect::new(0.0, 0.0, 800.0, 200.0));
+        container_node.name = "Auto Container".into();
+        if let designos_doc::NodeKind::Frame(fp) = &mut container_node.kind {
+            let mut al = designos_doc::AutoLayout::v1();
+            al.item_spacing = 16.0;
+            fp.auto_layout = Some(al);
+        }
+        r.app.doc.insert(page, container_node).unwrap();
+
+        let card = r.card;
+        let hero = r.hero;
+        r.app.doc.reparent(card, container, 0).unwrap();
+        r.app.doc.reparent(hero, container, 1).unwrap();
+        r.app.doc.relayout_subtree(container);
+
+        r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
+        r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
+
+        r.run_hook("start", "claude");
+        r.agent_rename(card, "Card By Agent");
+        r.agent_rename(hero, "Hero By Agent");
+        r.run_hook("end", "claude");
+        r.deliver();
+
+        // After the turn, user resizes Fixed-width `card` in the inspector (`apply_resize(..., true)`),
+        // which also triggers auto-layout reflow on sibling `hero`.
+        let mut tx = Tx::new();
+        let card_t = r.app.doc.get(card).unwrap().transform;
+        crate::ops::apply_resize(&mut r.app.doc, &mut tx.ed, card, designos_doc::Vec2::new(340.0, 120.0), card_t, true);
+        tx.commit(&mut r.app.doc, &mut r.app.hist).unwrap();
+
+        let turn_id = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible turn").id;
+        agent_turn_card::apply_card_action(&mut r.app, 0, TurnCardAction::Revert(turn_id));
+
+        assert_eq!(r.app.doc.get(card).unwrap().size.x, 340.0, "User's inspector width edit on Fixed child Card must be kept");
+        assert_eq!(r.app.doc.get(card).unwrap().name, "Card By Agent", "User-edited Card must not be overwritten by Revert");
+        assert_eq!(r.app.doc.get(hero).unwrap().name, "Hero", "Sibling Hero only reflowed and must still have its agent rename reverted");
+        let report = r.app.terminal.active_turn_ledger().turns.last().unwrap().last_revert_report.as_ref().unwrap();
+        assert!(report.kept_user_changed.iter().any(|(id, _)| *id == card), "Card must be reported in kept_user_changed");
+        assert!(!report.kept_user_changed.iter().any(|(id, _)| *id == hero), "Hero only reflowed and must not be in kept_user_changed");
     }
 }

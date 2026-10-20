@@ -193,7 +193,6 @@ fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
     total.applied += r.applied;
     total.duplicates += r.duplicates;
     total.skipped.extend(r.skipped);
-    total.touched.extend(r.touched);
 }
 
 /// Lays out again, with their real children, the auto-layout containers an edit can have
