@@ -1099,7 +1099,12 @@ impl TerminalState {
         if self.key == target_key && self.lock_owner.as_deref() == Some(win.as_str()) {
             return;
         }
-        self.release_lock();
+        if self.key != target_key {
+            self.shutdown();
+            self.next_tab_id = 1;
+        } else {
+            self.release_lock();
+        }
         self.session_id = win.clone();
         match crate::agent_sessions::acquire_stable_session_dir_with(lib_root, clean_file_id, &win, &win, pid_alive) {
             crate::agent_sessions::LockOutcome::Acquired(dir) => {
@@ -1130,9 +1135,15 @@ impl TerminalState {
 
     /// Detaches from any library file and binds to an ephemeral fallback `/tmp/designos-sessions/<session_id>`.
     pub fn unbind_library_file(&mut self, session_id: &str) {
-        self.release_lock();
         let clean = if session_id.trim().is_empty() { self.session_id.clone() } else { session_id.trim().to_string() };
-        self.key = crate::agent_sessions::SessionKey::Fallback(clean.clone());
+        let target_key = crate::agent_sessions::SessionKey::Fallback(clean.clone());
+        if self.key != target_key {
+            self.shutdown();
+            self.next_tab_id = 1;
+        } else {
+            self.release_lock();
+        }
+        self.key = target_key;
         self.session_id = String::new();
         self.session_registry = crate::agent_sessions::SessionRegistry::default();
         self.bind_session(&clean);
@@ -1372,7 +1383,7 @@ impl TerminalState {
         let now = crate::agent_sessions::unix_timestamp_secs();
         for mut tab in self.tabs.drain(..) {
             let _ = tab.child.kill();
-            if let Some(entry) = self.session_registry.sessions.iter_mut().find(|s| s.tab_id == tab.id as u64) {
+            if let Some(entry) = self.session_registry.find_entry_mut(tab.id as u64, tab.session_uuid.as_deref()) {
                 if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
                     entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
                     entry.last_active_at = now;
@@ -1380,6 +1391,7 @@ impl TerminalState {
                 }
             }
         }
+        self.active_tab = 0;
         if reg_dirty {
             let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
         }
@@ -1424,7 +1436,8 @@ impl TerminalState {
         (is_mac, tab_is_agent, cli_uses_ctrl_z)
     }
 
-    /// Ensures at least one interactive Shell PTY tab is running (`DIR-29`).
+    /// Ensures at least one interactive Shell PTY tab is running (`DIR-29`). Never resumes a recorded
+    /// session: that happens only on open via `open_for_agent_use` (`#651` §3 rules 2 and 9).
     pub fn ensure_default_tab(&mut self, file_path: Option<&Path>) {
         if self.tabs.is_empty() {
             let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
@@ -1813,7 +1826,11 @@ impl TerminalState {
                             status: crate::agent_sessions::SessionEntryStatus::Active,
                             extra: std::collections::BTreeMap::new(),
                         };
-                        self.session_registry.sessions.retain(|s| s.tab_id != id as u64);
+                        if let Some(ref uuid) = entry.session_id {
+                            self.session_registry.sessions.retain(|s| s.session_id.as_deref() != Some(uuid.as_str()));
+                        } else {
+                            self.session_registry.sessions.retain(|s| !(s.session_id.is_none() && s.tab_id == id as u64));
+                        }
                         self.session_registry.sessions.push(entry);
                     }
                     let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
@@ -1836,40 +1853,36 @@ impl TerminalState {
         }
     }
 
-    /// Returns entries in `self.session_registry` that can be resumed (`status != Missing` and a valid
-    /// resume command exists for the CLI), ordered most-recently-active first.
-    pub fn resumable_sessions(&self) -> Vec<&crate::agent_sessions::SessionEntry> {
-        let mut list: Vec<&crate::agent_sessions::SessionEntry> = self
-            .session_registry
+    /// Returns the single most recently active non-`Missing` session in `self.session_registry`,
+    /// regardless of whether its CLI currently supports safe resume.
+    pub fn newest_recorded_session(&self) -> Option<&crate::agent_sessions::SessionEntry> {
+        self.session_registry
             .sessions
             .iter()
-            .filter(|e| {
-                e.status != crate::agent_sessions::SessionEntryStatus::Missing
-                    && crate::agent_sessions::build_resume_command_scoped(e, self.codex_cwd_scoped, self.agy_cwd_scoped).is_some()
-            })
-            .collect();
-        list.sort_by(|a, b| (b.last_active_at, b.tab_id).cmp(&(a.last_active_at, a.tab_id)));
-        list
+            .filter(|e| e.status != crate::agent_sessions::SessionEntryStatus::Missing)
+            .max_by(|a, b| (a.last_active_at, a.tab_id).cmp(&(b.last_active_at, b.tab_id)))
     }
 
-    /// Resumes the recorded session with `entry_tab_id` from `self.session_registry`.
-    pub fn resume_session_by_tab_id(&mut self, entry_tab_id: u64, file_path: Option<&Path>) -> Result<usize, String> {
-        let entry_idx = self
-            .session_registry
-            .sessions
-            .iter()
-            .position(|e| e.tab_id == entry_tab_id && e.status != crate::agent_sessions::SessionEntryStatus::Missing)
-            .ok_or_else(|| format!("No resumable session with tab_id {entry_tab_id}"))?;
-        let entry_clone = self.session_registry.sessions[entry_idx].clone();
+    /// Returns the newest session in `self.session_registry` if and only if that newest entry
+    /// can be safely resumed (`status != Missing` and a valid resume command exists for the CLI).
+    /// Never skips an unresumable newest entry to return an older session.
+    pub fn resumable_sessions(&self) -> Vec<&crate::agent_sessions::SessionEntry> {
+        self.newest_recorded_session()
+            .into_iter()
+            .filter(|e| crate::agent_sessions::build_resume_command_scoped(e, self.codex_cwd_scoped, self.agy_cwd_scoped).is_some())
+            .collect()
+    }
+
+    fn resume_session_entry(&mut self, entry_clone: &crate::agent_sessions::SessionEntry, file_path: Option<&Path>) -> Result<usize, String> {
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
-        let cmd_str = crate::agent_sessions::build_resume_command_scoped(&entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped)
+        let cmd_str = crate::agent_sessions::build_resume_command_scoped(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped)
             .ok_or_else(|| format!("CLI '{}' does not support safe session resume", entry_clone.cli))?;
 
         let tab_idx =
             self.spawn_tab_with_registration(preset, file_path, Some(&cmd_str), entry_clone.session_id.clone(), true, Some(entry_clone.title.clone()), false)?;
         let new_tab_id = self.tabs[tab_idx].id as u64;
-        if let Some(entry) = self.session_registry.sessions.get_mut(entry_idx) {
+        if let Some(entry) = self.session_registry.find_entry_mut(entry_clone.tab_id, entry_clone.session_id.as_deref()) {
             entry.tab_id = new_tab_id;
             entry.status = crate::agent_sessions::SessionEntryStatus::Active;
             entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
@@ -1878,10 +1891,28 @@ impl TerminalState {
         Ok(tab_idx)
     }
 
-    /// Resumes the most recently active session in `self.session_registry`.
+    /// Resumes the recorded session with `entry_tab_id` from `self.session_registry`.
+    pub fn resume_session_by_tab_id(&mut self, entry_tab_id: u64, file_path: Option<&Path>) -> Result<usize, String> {
+        let entry_clone = self
+            .session_registry
+            .sessions
+            .iter()
+            .find(|e| e.tab_id == entry_tab_id && e.status != crate::agent_sessions::SessionEntryStatus::Missing)
+            .cloned()
+            .ok_or_else(|| format!("No resumable session with tab_id {entry_tab_id}"))?;
+        self.resume_session_entry(&entry_clone, file_path)
+    }
+
+    /// Resumes only the single newest non-`Missing` session in `self.session_registry`.
+    /// If the newest entry cannot be resumed, opens the new-session picker (`self.runtime_dropdown_open = true`)
+    /// rather than skipping to an older entry.
     pub fn resume_last_session(&mut self, file_path: Option<&Path>) -> Result<usize, String> {
-        let target_tab_id = self.resumable_sessions().first().map(|e| e.tab_id).ok_or_else(|| "No previous agent session to resume".to_string())?;
-        self.resume_session_by_tab_id(target_tab_id, file_path)
+        let newest = self.newest_recorded_session().cloned().ok_or_else(|| "No previous agent session to resume".to_string())?;
+        if crate::agent_sessions::build_resume_command_scoped(&newest, self.codex_cwd_scoped, self.agy_cwd_scoped).is_none() {
+            self.runtime_dropdown_open = true;
+            return Err(format!("CLI '{}' does not support safe session resume", newest.cli));
+        }
+        self.resume_session_entry(&newest, file_path)
     }
 
     /// Renames tab `idx` and updates its `title` in `sessions.json` if registered.
@@ -1892,7 +1923,8 @@ impl TerminalState {
         }
         self.tabs[idx].title = clean.to_string();
         let tab_id = self.tabs[idx].id as u64;
-        if let Some(entry) = self.session_registry.sessions.iter_mut().find(|e| e.tab_id == tab_id) {
+        let session_uuid = self.tabs[idx].session_uuid.clone();
+        if let Some(entry) = self.session_registry.find_entry_mut(tab_id, session_uuid.as_deref()) {
             entry.title = clean.to_string();
             entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
             let _ = crate::agent_sessions::save_registry(&self.session_dir, &self.session_registry);
@@ -1905,7 +1937,7 @@ impl TerminalState {
         if idx < self.tabs.len() {
             let mut removed = self.tabs.remove(idx);
             let _ = removed.child.kill();
-            if let Some(entry) = self.session_registry.sessions.iter_mut().find(|e| e.tab_id == removed.id as u64) {
+            if let Some(entry) = self.session_registry.find_entry_mut(removed.id as u64, removed.session_uuid.as_deref()) {
                 if entry.status == crate::agent_sessions::SessionEntryStatus::Active {
                     entry.status = crate::agent_sessions::SessionEntryStatus::Exited;
                     entry.last_active_at = crate::agent_sessions::unix_timestamp_secs();
@@ -2038,7 +2070,7 @@ impl TerminalState {
                     }
                     tab.start_failure = Some(diag);
                 }
-                if let Some(entry) = self.session_registry.sessions.iter_mut().find(|s| s.tab_id == tab.id as u64) {
+                if let Some(entry) = self.session_registry.find_entry_mut(tab.id as u64, tab.session_uuid.as_deref()) {
                     entry.last_active_at = now_secs;
                     entry.status = if failed_start && tab.is_resumed {
                         crate::agent_sessions::SessionEntryStatus::Missing
