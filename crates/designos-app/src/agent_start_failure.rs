@@ -23,7 +23,7 @@ pub enum StartFailureCause {
     ExitedEarly,
 }
 
-/// The single action the panel offers.
+/// The single action the panel or mid-session failure banner offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FixAction {
     /// Opens the CLI's install page in the browser.
@@ -34,6 +34,14 @@ pub enum FixAction {
     OpenShell,
     /// Starts a fresh session for the same CLI when a resumed session failed to start.
     StartNewSession(AgentCliPreset),
+    /// Opens the provider's billing / quota page in the browser (`#686`).
+    OpenBilling(&'static str),
+    /// Sends `"continue"` into the active agent tab (`#686`).
+    RetryText,
+    /// Spawns a fresh session tab for the same agent preset (`#686`).
+    NewSession,
+    /// Runs one connectivity check and retries when online (`#686`).
+    RetryWhenOnline,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,6 +75,18 @@ pub fn login_command(preset: AgentCliPreset) -> &'static str {
         AgentCliPreset::Gemini => "gemini",
         AgentCliPreset::OpenCode => "opencode auth login",
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "",
+    }
+}
+
+pub fn billing_url(preset: AgentCliPreset) -> &'static str {
+    match preset {
+        AgentCliPreset::Claude => "https://console.anthropic.com/settings/billing",
+        AgentCliPreset::Codex => "https://platform.openai.com/settings/organization/billing/overview",
+        AgentCliPreset::Grok => "https://console.x.ai/team/billing",
+        AgentCliPreset::Antigravity => "https://antigravity.google/",
+        AgentCliPreset::Gemini => "https://aistudio.google.com/apikey",
+        AgentCliPreset::OpenCode => "https://opencode.ai",
+        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => "https://github.com/jangtrinh/design-os-studio",
     }
 }
 
@@ -202,6 +222,10 @@ impl StartFailure {
             FixAction::RunLogin(_) => "Run login".to_string(),
             FixAction::OpenShell => "Open a shell".to_string(),
             FixAction::StartNewSession(_) => "Start a new session".to_string(),
+            FixAction::OpenBilling(_) => "Open billing".to_string(),
+            FixAction::RetryText => "Retry".to_string(),
+            FixAction::NewSession => "Start a new session".to_string(),
+            FixAction::RetryWhenOnline => "Retry when online".to_string(),
         }
     }
 }
@@ -533,5 +557,24 @@ mod tests {
         let opencode_crash = d(AgentCliPreset::OpenCode, true, Some(1), "panic: runtime error\n");
         assert_eq!(opencode_crash.cause, StartFailureCause::ExitedEarly);
         assert_eq!(opencode_crash.fix, FixAction::OpenShell);
+    }
+
+    #[test]
+    fn mid_session_fix_actions_and_billing_urls_cover_all_agent_clis() {
+        for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity] {
+            let url = billing_url(preset);
+            assert!(url.starts_with("https://"), "billing_url({preset:?}) = {url}");
+            let cmd = login_command(preset);
+            assert!(cmd.starts_with(preset.binary_name()), "login_command({preset:?}) = {cmd}");
+        }
+        let mut f = d(AgentCliPreset::Claude, true, Some(1), "err\n");
+        f.fix = FixAction::OpenBilling(billing_url(AgentCliPreset::Claude));
+        assert_eq!(f.fix_label(), "Open billing");
+        f.fix = FixAction::RetryText;
+        assert_eq!(f.fix_label(), "Retry");
+        f.fix = FixAction::NewSession;
+        assert_eq!(f.fix_label(), "Start a new session");
+        f.fix = FixAction::RetryWhenOnline;
+        assert_eq!(f.fix_label(), "Retry when online");
     }
 }

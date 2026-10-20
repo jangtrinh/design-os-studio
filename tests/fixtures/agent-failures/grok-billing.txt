@@ -1,0 +1,1 @@
+grok error: 402 billing — Team has exhausted prepaid credits. Visit xAI console billing to top up.
