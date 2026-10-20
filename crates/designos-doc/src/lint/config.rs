@@ -41,8 +41,8 @@ pub enum RuleSeverityConfig {
 pub enum RuleSeverityLevel {
     Off,
     Error,
-    Warning,
     #[serde(alias = "warn")]
+    Warning,
     Info,
 }
 
@@ -107,6 +107,8 @@ pub struct LintConfig {
     pub include_ignored: bool,
     /// Include unoverridden layers inside component instances.
     pub include_instances: bool,
+    /// WCAG contrast conformance level (`AA` or `AAA`).
+    pub contrast_level: ContrastLevel,
     /// Numeric thresholds for rules.
     pub thresholds: LintThresholds,
     /// Optional archetype scales overriding document variables/styles and defaults for `off-scale`.
@@ -136,6 +138,7 @@ impl LintConfig {
             enabled_rules,
             include_ignored: false,
             include_instances: false,
+            contrast_level: ContrastLevel::AA,
             thresholds: LintThresholds::default(),
             archetype: None,
             limit: None,
@@ -172,6 +175,7 @@ impl LintConfig {
                 enabled_rules,
                 include_ignored: false,
                 include_instances: false,
+                contrast_level: ContrastLevel::AA,
                 thresholds: LintThresholds::default(),
                 archetype: None,
                 limit: None,
@@ -189,6 +193,7 @@ impl LintConfig {
                 enabled_rules,
                 include_ignored: false,
                 include_instances: false,
+                contrast_level: ContrastLevel::AA,
                 thresholds: LintThresholds::default(),
                 archetype: None,
                 limit: None,
@@ -211,6 +216,7 @@ impl LintConfig {
             enabled_rules,
             include_ignored: false,
             include_instances: false,
+            contrast_level: ContrastLevel::AA,
             thresholds: LintThresholds::default(),
             archetype: None,
             limit: None,
@@ -268,6 +274,19 @@ impl LintConfig {
         self
     }
 
+    /// Returns the effective contrast level for a document (`AAA` if configured on `self`,
+    /// `self.thresholds`, or `doc.check_designs.contrast_level`).
+    pub fn effective_contrast_level(&self, doc: &crate::Document) -> ContrastLevel {
+        if self.contrast_level == ContrastLevel::AAA
+            || self.thresholds.contrast_level == ContrastLevel::AAA
+            || doc.check_designs.contrast_level == ContrastLevel::AAA
+        {
+            ContrastLevel::AAA
+        } else {
+            ContrastLevel::AA
+        }
+    }
+
     /// Returns the effective severity of `rule_id` (or alias) if enabled.
     pub fn rule_severity(&self, rule_id: &str) -> Option<Severity> {
         let spec = resolve_rule(rule_id)?;
@@ -277,5 +296,22 @@ impl LintConfig {
     /// Whether `rule_id` (or alias) is enabled.
     pub fn is_enabled(&self, rule_id: &str) -> bool {
         self.rule_severity(rule_id).is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn warn_alias_deserializes_as_warning() {
+        let level: RuleSeverityLevel = serde_json::from_str("\"warn\"").unwrap();
+        assert_eq!(level, RuleSeverityLevel::Warning);
+        let overrides: BTreeMap<String, RuleSeverityConfig> = serde_json::from_value(serde_json::json!({
+            "contrast": "warn"
+        }))
+        .unwrap();
+        let cfg = LintConfig::from_preset(LintPreset::Recommended).with_rule_overrides(&overrides).unwrap();
+        assert_eq!(cfg.rule_severity("contrast"), Some(Severity::Warning));
     }
 }

@@ -395,6 +395,15 @@ pub const RULES: &[RuleSpec] = &[
         needs: Geometry,
         presets: &[Strict],
     },
+    RuleSpec {
+        id: "contrast",
+        aliases: &["low-contrast-text", "low-contrast"],
+        category: Accessibility,
+        default_severity: Error,
+        fixable: false,
+        needs: RuleNeeds::Pixels,
+        presets: &[Agent, CheckDesigns, Recommended, Strict],
+    },
     // --- document-level rule (E1-4 §8.1): no owning node, evaluated by `style_bindings.rs` ---
     RuleSpec {
         id: "broken-style-binding",

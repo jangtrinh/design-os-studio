@@ -3,11 +3,14 @@
 use super::config::LintConfig;
 use super::finding::{Finding, LintReport, LintSummary, SkippedRule};
 use super::registry::{Category, RuleNeeds, RULES};
-use super::rules::{aabb_of_transformed_rect, detached, evaluate_node, severity_rank, ActiveRules, NodeEvalCtx, ParentEvalCtx};
+use super::rules::{aabb_of_transformed_rect, contrast, detached, evaluate_node, severity_rank, ActiveRules, NodeEvalCtx, ParentEvalCtx};
 use super::LintEnv;
 use crate::{Affine, Document, Node, NodeId, NodeKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
+
+/// Maximum number of pixel-path contrast renders per `lint_subtree` call before yielding a continuation cursor.
+const MAX_PIXEL_EVALS: usize = 2_000;
 
 /// Execution budget for [`lint_subtree`], capping visited nodes and/or wall-clock duration.
 #[derive(Clone, Debug)]
@@ -235,11 +238,13 @@ fn scan_stack_slice<'a>(
     scales: &super::rules::scale::Scales,
     token_index: &super::token_match::Index,
     shallow_nodes: &BTreeSet<NodeId>,
+    contrast_bounds: &contrast::SubtreeBounds,
     max_nodes: usize,
     max_duration: Option<Duration>,
     raw_findings: &mut Vec<Finding>,
 ) -> (usize, bool, Option<String>) {
     let mut scanned = 0usize;
+    let mut pixel_evals = 0usize;
     let mut complete = true;
     let mut next_cursor: Option<String> = None;
     let loop_start = Instant::now();
@@ -253,7 +258,10 @@ fn scan_stack_slice<'a>(
             continue;
         }
 
-        if scanned >= max_nodes || max_duration.is_some_and(|max_d| scanned >= 32 && (scanned & 31) == 0 && loop_start.elapsed() >= max_d) {
+        if scanned >= max_nodes
+            || pixel_evals >= MAX_PIXEL_EVALS
+            || max_duration.is_some_and(|max_d| scanned >= 32 && (scanned & 31) == 0 && loop_start.elapsed() >= max_d)
+        {
             stack.push(item);
             complete = false;
             next_cursor = Some(format!("stack:{}", item.id.0));
@@ -287,8 +295,11 @@ fn scan_stack_slice<'a>(
                 components,
                 scales,
                 token_index,
+                contrast_bounds,
             };
-            evaluate_node(&ctx, raw_findings);
+            if evaluate_node(&ctx, raw_findings) {
+                pixel_evals += 1;
+            }
         }
 
         if !shallow_nodes.contains(&item.id) {
@@ -337,6 +348,7 @@ pub fn lint_subtree_with_components(
     let scales = super::rules::scale::scales_for(doc, config.archetype.as_ref());
     let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
 
+    let contrast_bounds = contrast::SubtreeBounds::default();
     let active_cursor = budget.cursor.as_deref().or(config.cursor.as_deref());
     let mut page_offset = 0usize;
     let mut stack = build_initial_stack(doc, roots, active_cursor, &active, &mut page_offset);
@@ -352,6 +364,7 @@ pub fn lint_subtree_with_components(
         &scales,
         &token_index,
         &budget.shallow_nodes,
+        &contrast_bounds,
         budget.max_nodes,
         budget.max_duration,
         &mut raw_findings,
@@ -491,6 +504,8 @@ pub fn lint_in_slices_with_budget(
     let components = if active.detached_instance { detached::Components::new(doc) } else { detached::Components::default() };
     let scales = super::rules::scale::scales_for(doc, config.archetype.as_ref());
     let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
+    // Shared across slices so each layer's bounds are computed once for the whole run.
+    let contrast_bounds = contrast::SubtreeBounds::default();
 
     let initial_cursor = total_budget.cursor.as_deref().or_else(|| config.cursor.as_deref().filter(|c| c.starts_with("stack:")));
     let mut unused_offset = 0usize;
@@ -522,6 +537,7 @@ pub fn lint_in_slices_with_budget(
             &scales,
             &token_index,
             &total_budget.shallow_nodes,
+            &contrast_bounds,
             slice_nodes,
             Some(max_slice_duration),
             &mut raw_findings,

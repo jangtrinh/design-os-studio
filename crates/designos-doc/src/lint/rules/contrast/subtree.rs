@@ -1,10 +1,9 @@
 //! Where each subtree paints, in page space, kept so that the scan for layers behind a text can
 //! pass over an earlier sibling that cannot reach it instead of visiting everything inside it for
-//! every text. The bounds are a superset of what the exact scan would find: they only ever rule a
-//! subtree out.
+//! every text.
 
 use super::extent::{clipped, grown, painted_box};
-use designos_doc::{Affine, Document, NodeId, Rect};
+use crate::{Affine, Document, NodeId, Rect};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -24,7 +23,7 @@ struct Frame {
 
 /// Bounds per layer, computed on first use. Valid for the document they were computed from.
 #[derive(Default)]
-pub(in crate::check_designs) struct SubtreeBounds {
+pub struct SubtreeBounds {
     cache: RefCell<HashMap<NodeId, Option<Rect>>>,
     stack: RefCell<Vec<Frame>>,
 }
@@ -40,7 +39,7 @@ impl SubtreeBounds {
     /// Warms the cached bounds of every earlier sibling of `id` and of its ancestors up to
     /// `deadline`, returning `true` when all of them are cached and `false` if the slice budget
     /// expired mid-walk (preserving progress in `self.cache` and `self.stack` for the next slice).
-    pub(in crate::check_designs) fn warm_for_text(&self, doc: &Document, id: NodeId, deadline: Instant) -> bool {
+    pub fn warm_for_text(&self, doc: &Document, id: NodeId, deadline: Instant) -> bool {
         if !self.drain_stack(doc, deadline) {
             return false;
         }
@@ -125,12 +124,7 @@ impl SubtreeBounds {
 
     /// The box that everything painted by layer `id` and its descendants fits in, or `None` when
     /// the layer and everything in it is hidden. `world` is the transform of `id` to the page.
-    ///
-    /// The box holds each layer's painted box (its stroke and effects included, whether or not it
-    /// paints anything), and the effects of a layer grow the bounds of its content. A frame that
-    /// clips cuts the bounds of its children to its own box. The growth that effects on ancestors
-    /// of `id` add is not in the box: the caller grows it by that.
-    pub(super) fn of(&self, doc: &Document, id: NodeId, world: Affine) -> Option<Rect> {
+    pub fn of(&self, doc: &Document, id: NodeId, world: Affine) -> Option<Rect> {
         self.bounds(doc, id, world, 0)
     }
 
@@ -166,6 +160,6 @@ impl SubtreeBounds {
 
 /// Whether the subtree of `id`, whose bounds are `bounds` and which sits under ancestors whose
 /// effects add `inherited` page units of growth, can reach `text_box` at all.
-pub(super) fn may_reach(bounds: Option<Rect>, inherited: f32, text_box: &Rect) -> bool {
+pub fn may_reach(bounds: Option<Rect>, inherited: f32, text_box: &Rect) -> bool {
     bounds.is_some_and(|b| grown(&b, inherited).intersects(text_box))
 }

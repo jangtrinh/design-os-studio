@@ -39,6 +39,13 @@ pub struct FixSuggestion {
 /// Alias for [`FixSuggestion`].
 pub type LintFix = FixSuggestion;
 
+/// Sampled point in page coordinates for contrast findings.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SamplePoint {
+    pub x: f32,
+    pub y: f32,
+}
+
 /// One lint finding on a node, with page-space bounds and optional fix suggestion.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Finding {
@@ -52,6 +59,22 @@ pub struct Finding {
     #[serde(serialize_with = "serialize_rect_wh")]
     pub bounds: Rect,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measured_ratio: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_ratio: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<&'static str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub large: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<&'static str>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worst_sample: Option<SamplePoint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_hex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop_hex: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fix: Option<FixSuggestion>,
     pub fixable: bool,

@@ -1,5 +1,6 @@
 //! Evaluation of all registered design lint rules.
 
+pub mod contrast;
 pub mod detached;
 pub mod scale;
 
@@ -134,6 +135,7 @@ pub struct ActiveRules {
     pub non_4px_grid: bool,
     pub hardcoded_color: bool,
     pub small_touch_target: bool,
+    pub contrast: bool,
 }
 
 impl ActiveRules {
@@ -162,6 +164,7 @@ impl ActiveRules {
             non_4px_grid: config.is_enabled("non-4px-grid"),
             hardcoded_color: config.is_enabled("hardcoded-color"),
             small_touch_target: config.is_enabled("small-touch-target"),
+            contrast: config.is_enabled("contrast"),
         }
     }
 }
@@ -189,16 +192,19 @@ pub struct NodeEvalCtx<'a> {
     pub components: &'a detached::Components,
     pub scales: &'a scale::Scales,
     pub token_index: &'a super::token_match::Index,
+    pub contrast_bounds: &'a contrast::SubtreeBounds,
 }
 
-/// Evaluates all enabled rules on `ctx.node` and appends any findings to `out`.
-pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
+/// Evaluates all enabled rules on `ctx.node`, appends any findings to `out`, and returns `true`
+/// if a pixel-path contrast evaluation was executed.
+pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
     let doc = ctx.doc;
     let n = ctx.node;
     let config = ctx.config;
     let active = ctx.active;
     let tol = config.thresholds.geometry_tolerance;
     let node_xpath = scale::LazyXPath::new(doc, n.id);
+    let mut used_pixel_path = false;
 
     let mut emit = |rule_id: &'static str,
                     category: Category,
@@ -220,6 +226,14 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
             xpath,
             bounds: target_bounds,
             message,
+            measured_ratio: None,
+            required_ratio: None,
+            level: None,
+            large: None,
+            method: None,
+            worst_sample: None,
+            foreground_hex: None,
+            backdrop_hex: None,
             suggested_fix,
             fixable,
             safe: rule_id == "sizing-conflict" && fixable,
@@ -756,6 +770,11 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) {
     }
     let suppressed_props = scale::evaluate_hardcoded_value(doc, ctx.token_index, config, n, ctx.page_bounds, &node_xpath, out);
     scale::evaluate_off_scale(doc, ctx.scales, config, n, ctx.page_bounds, &node_xpath, &suppressed_props, out);
+    if active.contrast {
+        used_pixel_path |= contrast::evaluate_contrast(ctx, ctx.contrast_bounds, out);
+    }
+
+    used_pixel_path
 }
 
 /// Sweep-and-prune sibling overlap detector (`O(n log n + k)`, `k` capped at 1,000 pairs per container).

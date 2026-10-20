@@ -219,6 +219,7 @@ pub struct ScanCursor {
     libs: LibrarySources,
     /// A detached frame whose comparison with its main component is still running.
     detach: Option<DetachJob>,
+    pixel_evals: usize,
     pub(super) unreadable_libraries: Vec<String>,
     pub(super) full_key: Option<(u64, Scope, Vec<LibraryRef>, CheckDesignsSettings)>,
     pub(super) updating: bool,
@@ -253,6 +254,7 @@ impl ScanCursor {
             bounds: contrast::SubtreeBounds::default(),
             libs,
             detach: None,
+            pixel_evals: 0,
             unreadable_libraries: Vec::new(),
             full_key: None,
             updating: false,
@@ -408,8 +410,12 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
             if let Some(index) = cur.index.as_ref() {
                 hardcoded::check(doc, index, n, &mut cur.partial);
             }
+            let mut used_pixels = false;
             if contrast_on {
-                contrast::check(doc, &cur.bounds, n, &mut cur.partial);
+                used_pixels = contrast::check(doc, &cur.bounds, n, cur.pixel_evals < 2000, &mut cur.partial);
+                if used_pixels {
+                    cur.pixel_evals += 1;
+                }
             }
             if detached_on {
                 match detached::plan(doc, &cur.components, n) {
@@ -422,7 +428,7 @@ pub fn audit_step(doc: &Document, cur: &mut ScanCursor, budget: Duration) -> boo
                 }
             }
             finish_layer(doc, cur, n, before);
-            if !cur.stack.is_empty() && steps >= min_steps && start.elapsed() >= budget {
+            if !cur.stack.is_empty() && (used_pixels || steps >= min_steps) && start.elapsed() >= budget {
                 return false;
             }
         }

@@ -2,22 +2,22 @@
 //! far its stroke, shadows and blurs reach beyond the box. Reaches are over-estimates on purpose:
 //! the rule skips text whose backdrop is unknown, so a reach that is too long only costs a finding.
 
-use designos_doc::{Affine, Document, Effect, Node, NodeId, NodeKind, Paint, PaintKind, Rect, StrokeAlign, StrokeJoin, Vec2};
+use crate::{Affine, Document, Effect, Node, NodeId, NodeKind, Paint, PaintKind, Rect, StrokeAlign, StrokeJoin, Vec2};
 
 /// The four corners of a box of `size` at the origin of its layer.
-pub(super) fn box_corners(size: Vec2) -> [Vec2; 4] {
+pub fn box_corners(size: Vec2) -> [Vec2; 4] {
     [Vec2::new(0.0, 0.0), Vec2::new(size.x, 0.0), Vec2::new(0.0, size.y), Vec2::new(size.x, size.y)]
 }
 
 /// The extent of `corners` as `(x0, x1, y0, y1)`.
-pub(super) fn bounds(corners: &[Vec2; 4]) -> (f32, f32, f32, f32) {
+pub fn bounds(corners: &[Vec2; 4]) -> (f32, f32, f32, f32) {
     let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.x), hi.max(c.x)));
     let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
     (x0, x1, y0, y1)
 }
 
 /// The layer's bounds in page space (the box of its transformed corners).
-pub(super) fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
+pub fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
     let t = doc.world_transform(id);
     let (x0, x1, y0, y1) = bounds(&box_corners(doc.get(id)?.size).map(|c| t.apply(c)));
     Some(Rect::new(x0, y0, x1 - x0, y1 - y0))
@@ -25,7 +25,7 @@ pub(super) fn page_box(doc: &Document, id: NodeId) -> Option<Rect> {
 
 /// Whether a paint draws anything: it is visible, has some opacity, and is not a fully transparent
 /// solid.
-pub(super) fn paint_seen(p: &Paint) -> bool {
+pub fn paint_seen(p: &Paint) -> bool {
     p.visible && p.opacity > 0.0 && !matches!(&p.kind, PaintKind::Solid(c) if c.a <= 0.0)
 }
 
@@ -44,10 +44,8 @@ fn stroke_band(n: &Node) -> Option<(f32, f32)> {
 }
 
 /// Whether a painted stroke of layer `n` lies under `corners`, the text box in the layer's own
-/// space. The stroke is a band along the layer's edge: inside, centred on it, or outside it. Text
-/// is under the band when it reaches the band's outer edge without lying wholly within its inner
-/// edge, so text nowhere near the stroke is not.
-pub(super) fn stroke_under(n: &Node, corners: &[Vec2; 4]) -> bool {
+/// space.
+pub fn stroke_under(n: &Node, corners: &[Vec2; 4]) -> bool {
     let Some((inset, reach)) = stroke_band(n) else { return false };
     let (x0, x1, y0, y1) = bounds(corners);
     let reaches_band = x1 > -reach && y1 > -reach && x0 < n.size.x + reach && y0 < n.size.y + reach;
@@ -58,13 +56,10 @@ pub(super) fn stroke_under(n: &Node, corners: &[Vec2; 4]) -> bool {
 /// How far the stroke of `n` is painted beyond its box, in the layer's units.
 fn stroke_outset(n: &Node) -> f32 {
     let Some((_, mut reach)) = stroke_band(n) else { return 0.0 };
-    // An open path (a line, a vector) is always stroked centred on its path, whatever the alignment.
     if matches!(n.kind, NodeKind::Line | NodeKind::Vector { .. }) {
         let weight = n.stroke.side_weights.map_or(n.stroke.weight, |s| s.into_iter().fold(n.stroke.weight, f32::max));
         reach = reach.max(weight / 2.0);
     }
-    // A mitred corner of a polygon or a path can stick out up to the miter limit; the corners of a
-    // box reach no further than the band itself.
     if n.stroke.join == StrokeJoin::Miter
         && matches!(n.kind, NodeKind::Polygon { .. } | NodeKind::Star { .. } | NodeKind::Vector { .. } | NodeKind::BooleanOp(_))
     {
@@ -73,9 +68,7 @@ fn stroke_outset(n: &Node) -> f32 {
     reach
 }
 
-/// How far the shadows and blurs of `n` reach beyond its box, in the layer's units. Inner shadows,
-/// grain, glass and background blur stay within the shape. The numbers are the renderer's own
-/// culling margins for these effects (`designos_render::node_margin`), the reach it assumes.
+/// How far the shadows and blurs of `n` reach beyond its box, in the layer's units.
 fn effect_outset(n: &Node) -> f32 {
     n.effects.iter().fold(0.0, |m, e| {
         m.max(match e {
@@ -90,33 +83,30 @@ fn effect_outset(n: &Node) -> f32 {
 }
 
 /// `b` cut down to `clip`; `None` when nothing is left.
-pub(super) fn clipped(b: Rect, clip: Option<Rect>) -> Option<Rect> {
+pub fn clipped(b: Rect, clip: Option<Rect>) -> Option<Rect> {
     let Some(c) = clip else { return Some(b) };
     let (x0, y0, x1, y1) = (b.x.max(c.x), b.y.max(c.y), (b.x + b.w).min(c.x + c.w), (b.y + b.h).min(c.y + c.h));
     (x1 > x0 && y1 > y0).then(|| Rect::new(x0, y0, x1 - x0, y1 - y0))
 }
 
 /// `r` grown by `by` on every side.
-pub(super) fn grown(r: &Rect, by: f32) -> Rect {
+pub fn grown(r: &Rect, by: f32) -> Rect {
     Rect::new(r.x - by, r.y - by, r.w + 2.0 * by, r.h + 2.0 * by)
 }
 
 /// A layer's box in page space, and that box grown by everything the layer paints beyond it.
-pub(super) struct PaintedBox {
+pub struct PaintedBox {
     /// The layer's own box.
     pub own: Rect,
     /// The own box grown by the layer's stroke and effects and by the `inherited` growth.
     pub rect: Rect,
-    /// The growth, in page units, that this layer's own effects add to everything inside it: the
-    /// effects of a group act on all of its content.
+    /// The growth, in page units, that this layer's own effects add to everything inside it.
     pub effects: f32,
 }
 
-/// The painted box of layer `n`, whose transform to the page is `world`. `inherited` is the growth,
-/// in page units, that the effects of its ancestors inside the same subtree add to it.
-pub(super) fn painted_box(world: &Affine, n: &Node, inherited: f32) -> PaintedBox {
+/// The painted box of layer `n`, whose transform to the page is `world`.
+pub fn painted_box(world: &Affine, n: &Node, inherited: f32) -> PaintedBox {
     let (x0, x1, y0, y1) = bounds(&box_corners(n.size).map(|c| world.apply(c)));
-    // The largest stretch the layer's transform applies along either axis.
     let scale = world.a.hypot(world.b).max(world.c.hypot(world.d));
     let effects = effect_outset(n) * scale;
     let own = Rect::new(x0, y0, x1 - x0, y1 - y0);

@@ -315,20 +315,33 @@ fn the_backdrop_is_composited_from_the_page_through_every_ancestor_fill() {
 }
 
 #[test]
-fn a_gradient_backdrop_is_unknown_so_nothing_is_flagged() {
+fn grey_on_gradient_fails_where_old_check_passed() {
     let mut f = fx();
+    f.color_var("text/subtle", gray(0xCC), gray(0xCC));
+    let _strong_var = f.color_var("text/strong", Color::rgb(0x11, 0x11, 0x11), Color::rgb(0x11, 0x11, 0x11));
     let frame = f.frame(f.page, "Hero", None);
-    f.doc.get_mut(frame).unwrap().fills = vec![Paint {
-        kind: PaintKind::LinearGradient {
-            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
-            stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: gray(0xEE) }],
+    f.doc.get_mut(frame).unwrap().fills = vec![
+        Paint::solid(Color::BLACK),
+        Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: gray(0xDD) }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
         },
-        opacity: 1.0,
-        visible: true,
-        blend: designos_doc::BlendMode::Normal,
-    }];
-    f.text(frame, "Low", 14.0, 400, gray(0xCC));
-    assert!(f.report().findings.is_empty());
+    ];
+    let txt = f.text(frame, "Low", 14.0, 400, gray(0xCC));
+    let report = f.report();
+    let hit = report
+        .findings
+        .iter()
+        .find(|x| x.node == txt && x.rule == Rule::Contrast)
+        .expect("Check designs must flag #CCCCCC 14px over [solid #000000, linear #FFFFFF->#DDDDDD]");
+    assert!(hit.message.contains("is below 4.5:1 (WCAG AA)"), "message should include measured/required ratio: {}", hit.message);
+    assert!(hit.message.contains("suggest var:text/strong on fills/0"), "message should include suggest-only variable bind: {}", hit.message);
+    assert!(hit.fix.is_none(), "pixel-sampled finding must keep one-click recolor on the analytic path only, got: {:?}", hit.fix);
 }
 
 #[test]

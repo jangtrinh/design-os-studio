@@ -486,8 +486,10 @@ fn check_designs_property_ignore_does_not_suppress_other_hardcoded_colors() {
 }
 
 #[test]
-fn heuristic_low_contrast_text_is_not_registered_before_e15_10() {
-    assert!(resolve_rule("low-contrast-text").is_none(), "low-contrast-text must not be registered with a heuristic before E15-10 lands");
+fn low_contrast_text_is_an_alias_of_the_pixel_backed_contrast_rule() {
+    let spec = resolve_rule("low-contrast-text").expect("low-contrast-text must resolve");
+    assert_eq!(spec.id, "contrast");
+    assert_eq!(spec.needs, designos_doc::lint::RuleNeeds::Pixels);
 }
 
 #[test]
