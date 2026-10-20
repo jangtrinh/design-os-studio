@@ -570,6 +570,8 @@ pub(crate) fn import_rest_value_owned<'a>(
             }
         }
     }
+    let doc_lint_ignores =
+        v.get("document").and_then(|d| d.get("pluginData")).and_then(|pd| pd.get("designos:lint_ignores")).and_then(Value::as_str).map(str::to_string);
     let pages: Vec<Value> = if has_doc {
         let root = v.get_mut("document").unwrap();
         if fstr(root, "type") == Some("CANVAS") {
@@ -607,6 +609,7 @@ pub(crate) fn import_rest_value_owned<'a>(
         crate::fig::release_os_memory();
     }
     cx.finish(expand_instances);
+    restore_lint_ignores(&mut cx.doc, &cx.ids, doc_lint_ignores.as_deref());
     cx.register_library_assets();
     cx.doc.kind = DocumentKind::Design;
     if !cx.connectors.is_empty() {
@@ -630,6 +633,20 @@ pub(crate) fn import_rest_value_owned<'a>(
     Ok(doc)
 }
 
+fn restore_lint_ignores(doc: &mut Document, ids: &BTreeMap<String, NodeId>, raw_ignores: Option<&str>) {
+    let Some(raw) = raw_ignores else { return };
+    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(raw) else { return };
+    for item in items {
+        let Some(rule) = fstr(&item, "rule") else { continue };
+        let node = fstr(&item, "guid")
+            .and_then(|g| ids.get(g).copied())
+            .or_else(|| item.get("node").and_then(Value::as_u64).map(NodeId).filter(|&nid| doc.get(nid).is_some()));
+        let Some(node) = node else { continue };
+        let property = fstr(&item, "property").unwrap_or("").to_string();
+        doc.check_designs.ignored.insert(designos_doc::IgnoreKey { node, rule: rule.to_string(), property });
+    }
+}
+
 pub(crate) fn import_rest_value_with_blobs<'a>(
     v: &'a Value,
     expand_instances: bool,
@@ -641,6 +658,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         None if fstr(v, "type").is_some() => v,
         None => return Err(FigError::Format("REST JSON has no `document`".into())),
     };
+    let doc_lint_ignores = root.get("pluginData").and_then(|pd| pd.get("designos:lint_ignores")).and_then(Value::as_str);
     let large_file = fast_derived_map.is_some();
     let mut cx = Ctx {
         doc: Document::new(fstr(v, "name").unwrap_or("Untitled")),
@@ -702,6 +720,7 @@ pub(crate) fn import_rest_value_with_blobs<'a>(
         }
     }
     cx.finish(expand_instances);
+    restore_lint_ignores(&mut cx.doc, &cx.ids, doc_lint_ignores);
     cx.register_library_assets();
     cx.doc.kind = if crate::board::is_figjam(v) { DocumentKind::Board } else { DocumentKind::Design };
     if cx.doc.kind == DocumentKind::Board {

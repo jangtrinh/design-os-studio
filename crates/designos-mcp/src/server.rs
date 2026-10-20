@@ -227,6 +227,7 @@ impl Session {
                         if let Ok(raw) = fs::read_to_string(&canvas_path) {
                             if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
                                 self.engine.doc = doc;
+                                self.engine.clear_lint_cache();
                                 // Ops recorded against the replaced copy no longer apply, and neither
                                 // does its undo history: it names the agent's old ids, which the
                                 // editor may have given to the user's layers.
@@ -317,6 +318,7 @@ impl Session {
                 true
             })),
         };
+        self.engine.clear_lint_cache();
         self.engine.take_live_ops();
         self.engine.live_patch_label = None;
     }
@@ -609,9 +611,10 @@ impl Session {
                         | "designos_reply_comment"
                         | "designos_resolve_comment"
                         | "designos_set_dev_status"
+                        | "designos_lint_fix"
                         | "designos_undo"
                         | "designos_redo"
-                );
+                ) || (matches!(name, "designos_lint" | "check_design") && args.get("fix").and_then(Value::as_bool) == Some(true));
                 let is_dry_run_req = name == "designos_apply_batch" && args.get("dry_run").and_then(Value::as_bool) == Some(true);
                 let live = mutating && !is_dry_run_req && self.bridge.live_doc_patch_path.is_some();
                 // What a failed write to the editor rolls back to. Undo and redo revert each other.

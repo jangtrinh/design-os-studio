@@ -753,14 +753,46 @@
   },
   {
     "name": "designos_lint",
-    "description": "Audit layers on a page for zero-bounds geometry and default layer names, returning structured findings and pass status.",
+    "description": "Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "cursor": {
+          "type": "string"
+        },
+        "include_ignored": {
+          "default": false,
+          "type": "boolean"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_ids": {
+          "items": {
+            "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "type": "array"
+        },
         "page_id": {
           "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
           "minimum": 1,
           "type": "integer"
+        },
+        "preset": {
+          "default": "agent",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [],
@@ -804,6 +836,52 @@
           "maximum": 1000000,
           "minimum": -1000000,
           "type": "number"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "designos_lint_fix",
+    "description": "Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "node_ids": {
+          "items": {
+            "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 500,
+          "type": "array"
+        },
+        "page_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "preset": {
+          "default": "strict",
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [],

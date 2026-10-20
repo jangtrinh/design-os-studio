@@ -39,6 +39,7 @@ mod layout_solver_grid_placement;
 mod layout_solver_types;
 mod library;
 mod library_ops;
+pub mod lint;
 pub mod live_patch;
 mod load_repair;
 #[cfg(test)]
@@ -402,6 +403,82 @@ impl Document {
     /// Display name of a shared style: its metadata name, else the key.
     pub fn style_name<'a>(&'a self, key: &'a str) -> &'a str {
         self.style_meta.get(key).map(|m| m.name.as_str()).filter(|n| !n.is_empty()).unwrap_or(key)
+    }
+
+    /// Record a per-(rule, node) lint suppression in the unified `check_designs.ignored` store.
+    pub fn ignore_lint(&mut self, rule_id: &str, node: NodeId) {
+        let canonical = crate::lint::canonical_rule_id(rule_id).unwrap_or(rule_id);
+        self.check_designs.ignored.insert(IgnoreKey { node, rule: canonical.to_string(), property: String::new() });
+    }
+
+    /// Remove a per-(rule, node) lint suppression (matching either canonical or alias rule IDs).
+    pub fn unignore_lint(&mut self, rule_id: &str, node: NodeId) {
+        let target_canonical = crate::lint::canonical_rule_id(rule_id);
+        self.check_designs.ignored.retain(|key| {
+            if key.node != node {
+                return true;
+            }
+            if key.rule == rule_id {
+                return false;
+            }
+            if let Some(tc) = target_canonical {
+                if crate::lint::canonical_rule_id(&key.rule) == Some(tc) {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    /// Check whether a finding on `(rule_id, node)` with an optional `property` key is suppressed in
+    /// `check_designs.ignored`.
+    ///
+    /// - Whole-node ignores (`k.property.is_empty()`) match when `k.rule == rule_id` or when `k.rule`
+    ///   maps to the same canonical rule.
+    /// - Per-property ignores (`!k.property.is_empty()`, such as `"fills/0"`) only match when the
+    ///   caller queries that exact `property` (including Check designs per-property `"RECOMMEND_VARIABLES"`
+    ///   ignores on `"hardcoded-color"`).
+    pub fn is_lint_property_ignored(&self, rule_id: &str, node: NodeId, property: &str) -> bool {
+        if self.check_designs.ignored.is_empty() {
+            return false;
+        }
+        if !property.is_empty() && self.check_designs.ignored.contains(&IgnoreKey { node, rule: rule_id.to_string(), property: property.to_string() }) {
+            return true;
+        }
+        if self.check_designs.ignored.contains(&IgnoreKey { node, rule: rule_id.to_string(), property: String::new() }) {
+            return true;
+        }
+        let Some(target_canonical) = crate::lint::canonical_rule_id(rule_id) else {
+            return false;
+        };
+        if self.check_designs.ignored.contains(&IgnoreKey { node, rule: target_canonical.to_string(), property: String::new() }) {
+            return true;
+        }
+        if !property.is_empty() {
+            if self.check_designs.ignored.contains(&IgnoreKey { node, rule: target_canonical.to_string(), property: property.to_string() }) {
+                return true;
+            }
+            if target_canonical == "hardcoded-color"
+                && self.check_designs.ignored.contains(&IgnoreKey { node, rule: "RECOMMEND_VARIABLES".to_string(), property: property.to_string() })
+            {
+                return true;
+            }
+        }
+        self.check_designs.ignored.iter().any(|k| {
+            if k.node != node || crate::lint::canonical_rule_id(&k.rule) != Some(target_canonical) {
+                return false;
+            }
+            if k.property.is_empty() {
+                true
+            } else {
+                !property.is_empty() && k.property == property
+            }
+        })
+    }
+
+    /// Check whether a whole-node finding on `(rule_id, node)` is suppressed in `check_designs.ignored`.
+    pub fn is_lint_ignored(&self, rule_id: &str, node: NodeId) -> bool {
+        self.is_lint_property_ignored(rule_id, node, "")
     }
 
     #[inline]

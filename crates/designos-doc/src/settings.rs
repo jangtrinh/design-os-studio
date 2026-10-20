@@ -28,6 +28,12 @@ pub struct IgnoreKey {
     pub property: String,
 }
 
+impl IgnoreKey {
+    pub fn new(rule: impl Into<String>, node: NodeId) -> Self {
+        Self { node, rule: rule.into(), property: String::new() }
+    }
+}
+
 /// Per-document Check designs configuration: disabled rules, contrast level, and ignored findings.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckDesignsSettings {

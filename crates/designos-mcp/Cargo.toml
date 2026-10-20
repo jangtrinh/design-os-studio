@@ -20,6 +20,7 @@ designos-export.workspace = true
 designos-fig.workspace = true
 designos-library.workspace = true
 designos-webcapture.workspace = true
+designos-render.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }

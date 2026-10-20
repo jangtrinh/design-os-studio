@@ -18,6 +18,7 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
             .expect("read tests/snapshots/tools.json");
         let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");
         assert_eq!(tools.len(), snapshot.len());
+        assert!(tools.iter().any(|t| t.name == "designos_lint_fix"));
         assert!(tools.iter().all(|t| t.annotations.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
         assert_eq!(prompts.len(), 1);
@@ -122,6 +123,11 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
             .await
             .unwrap();
         assert_eq!(imported.is_error, Some(false));
+        let linted = client.call_tool(call("designos_lint", json!({"preset":"agent"}))).await.unwrap();
+        assert_eq!(linted.is_error, Some(false));
+        let lint_body = linted.structured_content.unwrap();
+        assert!(lint_body["findings"].is_array());
+        assert!(lint_body.get("passed").is_none());
         let comments = client.call_tool(call("designos_list_comments", json!({}))).await.unwrap();
         assert_eq!(comments.is_error, Some(false));
         client.cancel().await.unwrap();
