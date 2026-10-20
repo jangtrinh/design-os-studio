@@ -120,7 +120,7 @@ fn apply_one(app: &mut App, patch: &LivePatch) -> Result<(LivePatchReport, bool)
             return Err(e.to_string());
         }
     };
-    let committed = tx.commit(&mut app.doc, &mut app.hist).map_err(|e| {
+    let committed = tx.commit_labeled(&mut app.doc, &mut app.hist, patch.label.clone()).map_err(|e| {
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
         e.to_string()

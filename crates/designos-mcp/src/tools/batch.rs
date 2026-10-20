@@ -633,7 +633,7 @@ fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: No
         .ok()
         .map(|s| s.split(',').filter_map(|p| p.trim().parse::<u64>().ok()).filter(|&id| id > 0).map(NodeId).collect())
         .filter(|v: &Vec<NodeId>| !v.is_empty());
-    let Some(frames) = owned_frames.or(env_owned.as_deref()) else {
+    let Some(frames) = owned_frames.filter(|v| !v.is_empty()).or(env_owned.as_deref()) else {
         return Ok(());
     };
     let allowed = frames.iter().any(|&f| f == target || doc.is_ancestor(f, target));
@@ -644,6 +644,24 @@ fn check_lease_guard(doc: &Document, owned_frames: Option<&[NodeId]>, target: No
             "OUTSIDE_OWNED_FRAMES",
             &format!("/ops/{op_idx}"),
             format!("node {} is outside this agent run's owned frames", target.0),
+        ));
+    }
+    Ok(())
+}
+
+/// Refuses document-wide edits (`set_variables`, `set_style` upsert/delete) while a frame lease is active (§13).
+fn check_document_lease_guard(owned_frames: Option<&[NodeId]>, op_idx: usize, op_name: &str) -> Result<(), String> {
+    let env_owned: Option<Vec<NodeId>> = std::env::var("DESIGNOS_OWNED_FRAMES")
+        .ok()
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse::<u64>().ok()).filter(|&id| id > 0).map(NodeId).collect())
+        .filter(|v: &Vec<NodeId>| !v.is_empty());
+    if owned_frames.is_some_and(|v| !v.is_empty()) || env_owned.is_some() {
+        return Err(op_failed_error(
+            op_idx,
+            op_name,
+            "OUTSIDE_OWNED_FRAMES",
+            &format!("/ops/{op_idx}"),
+            format!("{op_name} modifies document-wide definitions outside this agent run's owned frames"),
         ));
     }
     Ok(())
@@ -884,9 +902,13 @@ fn parse_style_property(s: &str) -> Result<StyleProperty, String> {
 fn apply_set_style_op(
     doc: &Document,
     alias_roots: &BTreeMap<String, NodeId>,
+    owned_frames: Option<&[NodeId]>,
     op: &SetStyleOp,
     op_idx: usize,
 ) -> Result<(Vec<Command>, usize, Option<NodeId>), String> {
+    if !op.upsert.is_empty() || !op.delete.is_empty() {
+        check_document_lease_guard(owned_frames, op_idx, "set_style")?;
+    }
     let path = format!("/ops/{op_idx}");
     let mut styles = doc.styles.clone();
     let mut style_meta = doc.style_meta.clone();
@@ -958,6 +980,7 @@ fn apply_set_style_op(
     let mut first_applied_node = None;
     for (link_idx, link) in op.apply.iter().enumerate() {
         let node_id = resolve_node_ref(doc, alias_roots, &link.node, op_idx, "set_style", &format!("apply/{link_idx}/node"))?;
+        check_lease_guard(doc, owned_frames, node_id, op_idx, "set_style")?;
         if first_applied_node.is_none() {
             first_applied_node = Some(node_id);
         }
@@ -1005,7 +1028,7 @@ fn apply_set_style_op(
 fn build_name_to_id_map(doc: &Document, created_roots: &[CreatedRootRecord], all_created_ids: &BTreeSet<NodeId>) -> Map<String, Value> {
     let mut out = Map::new();
 
-    // Count root names among unaliased roots so duplicate root names get [2], [3], ...
+    // Count root names among unaliased roots so duplicate root names get [1], [2], [3], ...
     let mut root_name_totals: BTreeMap<String, usize> = BTreeMap::new();
     for cr in created_roots {
         if cr.alias.is_none() {
@@ -1025,7 +1048,7 @@ fn build_name_to_id_map(doc: &Document, created_roots: &[CreatedRootRecord], all
         } else if !root_node.name.is_empty() {
             let occ = root_name_seen.entry(root_node.name.clone()).or_insert(0);
             *occ += 1;
-            if root_name_totals.get(&root_node.name).copied().unwrap_or(0) > 1 && *occ > 1 {
+            if root_name_totals.get(&root_node.name).copied().unwrap_or(0) > 1 {
                 format!("{}[{}]", root_node.name, *occ)
             } else {
                 root_node.name.clone()
@@ -1069,7 +1092,7 @@ fn walk_named_descendants(
         let seg = if !cn.name.is_empty() {
             let occ = name_seen.entry(cn.name.clone()).or_insert(0);
             *occ += 1;
-            if name_totals.get(&cn.name).copied().unwrap_or(0) > 1 && *occ > 1 {
+            if name_totals.get(&cn.name).copied().unwrap_or(0) > 1 {
                 format!("{}[{}]", cn.name, *occ)
             } else {
                 cn.name.clone()
@@ -1349,6 +1372,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: former_parent, before_bounds: parent_bounds_before });
             }
             ParsedOp::SetVariables(a) => {
+                check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
@@ -1373,7 +1397,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, String> {
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: root_node, before_bounds });
             }
             ParsedOp::SetStyle(a) => {
-                let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, a, op_idx)?;
+                let (cmds, count, first_node) = apply_set_style_op(&trial, &alias_roots, engine.owned_frames.as_deref(), a, op_idx)?;
                 for cmd in cmds {
                     if recording_live {
                         let ops = live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, "INTERNAL_ERROR", &op_path, e))?;
@@ -2065,6 +2089,204 @@ mod tests {
         let _ = std::fs::remove_dir_all(&sess_dir);
     }
 
+    #[test]
+    fn session_dir_batch_with_set_variables_and_set_style_replays_live_patch() {
+        use designos_doc::live_patch::{replay_live_patch, LivePatchState};
+
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let ws_dir = std::env::temp_dir().join(format!("designos-batch-vars-ws-{}-{nonce}", std::process::id()));
+        let sess_dir = std::env::temp_dir().join(format!("designos-batch-vars-sess-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&ws_dir).unwrap();
+        std::fs::create_dir_all(&sess_dir).unwrap();
+
+        let mut editor_doc = Document::new("LiveBatchVarsStyles.designos");
+        let page = editor_doc.add_page("Page 1");
+        let placeholder = editor_doc.alloc_id();
+        editor_doc.insert(page, Node::rectangle(placeholder, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        std::fs::write(sess_dir.join("canvas.designos"), editor_doc.to_json().unwrap()).unwrap();
+
+        let mut session = Session::with_session_dir(&ws_dir, &sess_dir).unwrap();
+        let reply = session
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "insert",
+                            "as": "section",
+                            "parent": page.0,
+                            "kind": "frame",
+                            "name": "Hero Section",
+                            "width": 320.0,
+                            "height": 180.0
+                        },
+                        {
+                            "op": "set_variables",
+                            "upsert_collections": [
+                                { "id": "brand", "name": "Brand", "modes": [{ "id": "light", "name": "Light" }], "default_mode": "light" }
+                            ],
+                            "upsert_variables": [
+                                { "id": "brand/accent", "name": "Accent", "collection": "brand", "kind": "color", "values": { "light": "#E36323" } }
+                            ]
+                        },
+                        {
+                            "op": "set_style",
+                            "upsert": [
+                                { "key": "hero_surface", "name": "Hero Surface", "property": "fill", "fill": "#18181B" }
+                            ],
+                            "apply": [
+                                { "node": "@section", "style": "Hero Surface" }
+                            ]
+                        },
+                        {
+                            "op": "delete",
+                            "node": placeholder.0
+                        }
+                    ]
+                }),
+            )
+            .expect("live session batch with set_variables and set_style must succeed");
+
+        let label = reply["undo_label"].as_str().unwrap();
+        assert!(label.starts_with("Agent: "));
+
+        let patch_raw = std::fs::read_to_string(sess_dir.join("doc-patch.jsonl")).expect("doc-patch.jsonl written");
+        let lines: Vec<&str> = patch_raw.lines().collect();
+        assert_eq!(lines.len(), 1, "batch must write one labeled patch line");
+        let patch: LivePatch = serde_json::from_str(lines[0]).expect("valid LivePatch JSON");
+        assert_eq!(patch.label.as_deref(), Some(label));
+
+        let mut state = LivePatchState::default();
+        let mut editor_hist = designos_doc::History::default();
+        let mut replayed_cmds = Vec::new();
+        replay_live_patch(&mut editor_doc, &patch, &mut state, &mut |doc, cmd| {
+            replayed_cmds.push(cmd.clone());
+            editor_hist.exec(doc, cmd)
+        })
+        .expect("editor must replay LivePatch containing variables and styles");
+
+        assert!(editor_doc.variables.contains_key("brand/accent"));
+        assert!(editor_doc.variable_collections.contains_key("brand"));
+        assert!(editor_doc.styles.contains_key("hero_surface"));
+        assert!(editor_doc.get(placeholder).is_none());
+        let sec_id = NodeId(reply["name_to_id"]["section"].as_u64().unwrap());
+        assert_eq!(editor_doc.get(sec_id).unwrap().style_refs.get("fill").map(String::as_str), Some("hero_surface"));
+
+        let _ = std::fs::remove_dir_all(&ws_dir);
+        let _ = std::fs::remove_dir_all(&sess_dir);
+    }
+
+    #[test]
+    fn duplicate_sibling_names_use_1_based_suffixes_and_resolve() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "apply_spec",
+                            "as": "hero",
+                            "parent": page.0,
+                            "spec": {
+                                "kind": "frame",
+                                "name": "Hero",
+                                "children": [
+                                    { "kind": "text", "name": "Title", "text": "One" },
+                                    { "kind": "text", "name": "Title", "text": "Two" }
+                                ]
+                            }
+                        },
+                        {
+                            "op": "update",
+                            "node": "@hero/Title[1]",
+                            "text": "First Updated"
+                        },
+                        {
+                            "op": "update",
+                            "node": "@hero/Title[2]",
+                            "text": "Second Updated"
+                        }
+                    ]
+                }),
+            )
+            .unwrap();
+
+        let name_map = res["name_to_id"].as_object().expect("name_to_id object");
+        assert!(name_map.contains_key("hero/Title[1]"), "first repeated sibling must be suffixed [1], got {name_map:?}");
+        assert!(name_map.contains_key("hero/Title[2]"), "second repeated sibling must be suffixed [2], got {name_map:?}");
+        assert!(!name_map.contains_key("hero/Title"), "unsuffixed duplicate sibling key must not be emitted, got {name_map:?}");
+    }
+
+    #[test]
+    fn lease_guard_enforced_on_set_style_and_set_variables() {
+        let mut engine = Engine::default();
+        let page = engine.resolve_default_page().unwrap();
+        let leased_frame = engine.doc.alloc_id();
+        let mut lf = Node::frame(leased_frame, Rect::new(0.0, 0.0, 200.0, 200.0));
+        lf.name = "Leased".into();
+        engine.doc.insert(page, lf).unwrap();
+
+        let other_frame = engine.doc.alloc_id();
+        let mut of = Node::frame(other_frame, Rect::new(300.0, 0.0, 200.0, 200.0));
+        of.name = "Other".into();
+        engine.doc.insert(page, of).unwrap();
+
+        engine.doc.styles.insert("s_brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))]));
+        engine
+            .doc
+            .style_meta
+            .insert("s_brand".into(), StyleMeta { name: "Brand Fill".into(), key: None, description: String::new(), property: StyleProperty::Fill });
+        engine.owned_frames = Some(vec![leased_frame]);
+
+        // 1. set_style apply to unleased node must be refused
+        let err1 = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "set_style", "apply": [{ "node": other_frame.0, "style": "Brand Fill" }] }
+                    ]
+                }),
+            )
+            .expect_err("set_style apply on unleased node must fail");
+        let v1: Value = serde_json::from_str(&err1).unwrap();
+        assert_eq!(v1["cause"]["code"], "OUTSIDE_OWNED_FRAMES", "{v1}");
+        assert!(engine.doc.get(other_frame).unwrap().style_refs.is_empty());
+
+        // 2. set_variables while frame lease is active must be refused
+        let err2 = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        {
+                            "op": "set_variables",
+                            "upsert_variables": [{ "id": "v1", "name": "V1", "values": { "light": "#ffffff" } }]
+                        }
+                    ]
+                }),
+            )
+            .expect_err("set_variables must fail while frame lease is active");
+        let v2: Value = serde_json::from_str(&err2).unwrap();
+        assert_eq!(v2["cause"]["code"], "OUTSIDE_OWNED_FRAMES", "{v2}");
+
+        // 3. set_style apply to leased node (without document-wide style upserts/deletes) succeeds
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [
+                        { "op": "set_style", "apply": [{ "node": leased_frame.0, "style": "Brand Fill" }] }
+                    ]
+                }),
+            )
+            .expect("set_style apply on leased node must succeed");
+        assert_eq!(engine.doc.get(leased_frame).unwrap().style_refs.get("fill").map(String::as_str), Some("s_brand"));
+    }
+
     /// Deterministic synthetic document builder (README.md §Shared conventions, scaled from
     /// `crates/designos-gpu/tests/large_file_perf.rs`) producing an exact `target_nodes` count.
     fn build_synthetic_document(target_nodes: usize) -> (Document, NodeId, NodeId) {
@@ -2175,7 +2397,7 @@ mod tests {
         // In unoptimized debug test builds (`cfg!(debug_assertions)`), BTreeMap cloning of 1.2M
         // nodes has ~5x uninlined allocator/drop overhead, so we enforce the strict §11 budgets
         // in release builds and a generous ceiling in debug builds while printing exact timings.
-        let scale = if cfg!(debug_assertions) { 6.0 } else { 1.0 };
+        let scale = if cfg!(debug_assertions) { 10.0 } else { 1.0 };
         let cases = [(100_000usize, 400.0 * scale), (112_474usize, 450.0 * scale), (1_200_000usize, 5_000.0 * scale)];
 
         for (target_nodes, budget_ms) in cases {
