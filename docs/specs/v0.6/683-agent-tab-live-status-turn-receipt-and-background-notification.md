@@ -33,17 +33,17 @@ As a designer with several agent tabs, I want each tab to show what its agent is
 2. **Attribution.** A record belongs to the tab whose CLI session id equals the payload's session id (Studio chooses the id for Claude and Grok, #653 rule 5). A record whose id matches no tab goes to the only live tab of that CLI, else to none. It is never given to the active tab by default.
 3. **Status per tab.** `AgentTabStatus` gains `Error(Option<String>)` and `Stopped`. A tab also holds `unread: bool`, set when a turn ends while the tab is not visible and cleared when the user shows it.
    - running: from `UserPromptSubmit`, tool events;
-   - needs input: from `PermissionRequest` (and, for Grok, a `Notification` of type `permission_prompt`);
+   - waiting: from `PermissionRequest` (and, for Grok, a `Notification` of type `permission_prompt`). It reads `Needs approval` when an approval is pending and `Needs input` for any other wait;
    - done: from `Stop` (Grok: `reason == "end_turn"`);
    - error: from `StopFailure` (class kept for #686 and #687);
    - stopped: from `StopCancelled` with reason `user_interrupt`, or from #684's own stop.
-   Codex keeps the OSC and PTY heuristic and produces running, needs input and done only.
+   Codex keeps the OSC and PTY heuristic and produces running, waiting (`Needs input`, or `Needs approval` in Ask mode) and done only.
 4. **Status text** (panel header, only while running): a phrase from the current tool name. Names of Studio's own tools map to phrases ("Editing layers…", "Reading the file…", "Checking the design…"); any other tool shows "Using <tool name>…". With no tool step it shows "Working…", and after 30 s "Still working…". The text never contains a layer count unless the payload carries one (UNKNOWN for every CLI; do not estimate).
 5. **Turn receipt** after each turn: `Worked for 1m 20s · 12 tool calls · 7 layers changed`.
    - Duration is the difference of the start and end record times, rounded up to whole seconds, minimum 1 s; `Ns` under a minute, else `Nm Ns`.
    - Tool calls are the count of `PreToolUse` records of that turn. Layers changed is the number of distinct layers #677's ledger recorded for the turn. Neither is estimated; a count Studio cannot know is omitted from the line, not guessed.
    - Clicking the receipt opens #677's per-turn card. A turn that was stopped reads `Stopped by you after 42s` (#684); a failed turn reads `Failed after 42s · <class>`.
-6. **Notification.** When a turn ends or the tab needs input, and the window is unfocused or the tab is not visible, send one OS notification: "<agent name> finished in <file name>" or "<agent name> needs your input". One per finished turn. None when the window is focused and the tab is visible. Clicking it focuses the window and selects the tab (UNKNOWN, rule 8).
+6. **Notification.** When a turn ends or the tab needs input, and the window is unfocused or the tab is not visible, send one OS notification: "<agent name> is done in <file name>" or "<agent name> needs approval" (only permission requests raise the second). One per finished turn. None when the window is focused and the tab is visible. Clicking it focuses the window and selects the tab (UNKNOWN, rule 8).
 7. **Visible** means: the document tab is active, the Agents panel (or dock) is open, and this tab is the active agent tab.
 8. **Spike S1 (before coding the click).** Show whether the chosen notification mechanism can report a click on macOS, Windows and Linux. If it cannot, ship the notification without the click and record which platform lacks it (open question 2).
 9. Status changes are emitted as a drained list `Vec<StatusChange { tab, from, to, class }>` that #687 reads. This task adds no accessibility code.

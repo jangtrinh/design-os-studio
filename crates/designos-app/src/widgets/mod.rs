@@ -18,7 +18,6 @@ pub fn pointer_over_popup(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| ctx.layer_id_at(p).is_some_and(|l| l.order == egui::Order::Foreground))
 }
 
-/// Width of a string in the given font.
 /// `one` when `n == 1`, `many` otherwise, so a count never reads `1 layers`.
 pub fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
     if n == 1 {
@@ -28,6 +27,7 @@ pub fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
     }
 }
 
+/// Width of a string in the given font.
 pub fn text_width(p: &Painter, s: &str, font: &FontId) -> f32 {
     p.layout_no_wrap(s.to_string(), font.clone(), Color32::WHITE).size().x
 }
