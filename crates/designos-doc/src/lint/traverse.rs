@@ -331,62 +331,111 @@ fn scan_stack_slice<'a>(
 }
 
 /// Evaluates enabled lint rules on a single `node_id` without walking the rest of the page or its descendants.
+///
+/// Builds the document-wide state again on every call; use [`SingleNodeLinter`] to lint many nodes
+/// of one document with one configuration.
 pub fn lint_single_node(doc: &Document, node_id: NodeId, config: &LintConfig, env: &dyn LintEnv) -> Vec<Finding> {
-    let Some(n) = doc.get(node_id) else {
-        return Vec::new();
-    };
-    if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
-        return Vec::new();
+    SingleNodeLinter::new(doc, config).lint(node_id, env)
+}
+
+/// Lints one node at a time against a fixed document and configuration, keeping what every call
+/// needs besides the node itself (the detached-instance index, the resolved scales, the token index
+/// and the contrast bounds with the environment's pass cache). Each is built on the first node whose
+/// rules read it and reused for the rest, so a query that asks about thousands of nodes does not
+/// rescan the document's variables for each one. Valid only while `doc` is unchanged.
+pub struct SingleNodeLinter<'a> {
+    doc: &'a Document,
+    config: LintConfig,
+    active: ActiveRules,
+    components: std::cell::OnceCell<detached::Components>,
+    scales: std::cell::OnceCell<super::rules::scale::Scales>,
+    token_index: std::cell::OnceCell<super::token_match::Index>,
+    contrast_bounds: contrast::SubtreeBounds,
+    no_components: detached::Components,
+    no_token_index: super::token_match::Index,
+}
+
+impl<'a> SingleNodeLinter<'a> {
+    pub fn new(doc: &'a Document, config: &LintConfig) -> Self {
+        Self {
+            doc,
+            active: ActiveRules::from_config(config),
+            config: config.clone(),
+            components: std::cell::OnceCell::new(),
+            scales: std::cell::OnceCell::new(),
+            token_index: std::cell::OnceCell::new(),
+            contrast_bounds: contrast::SubtreeBounds::default(),
+            no_components: detached::Components::default(),
+            no_token_index: super::token_match::Index::default(),
+        }
     }
-    let is_instance_mirror = n.component.source.is_some() && n.component.overrides.is_empty();
-    if is_instance_mirror && !config.include_instances {
-        return Vec::new();
+
+    /// Findings of the enabled rules on `node_id` alone, with Check designs ignores applied and
+    /// sorted by severity.
+    pub fn lint(&self, node_id: NodeId, env: &dyn LintEnv) -> Vec<Finding> {
+        let doc = self.doc;
+        let config = &self.config;
+        let active = &self.active;
+        let Some(n) = doc.get(node_id) else {
+            return Vec::new();
+        };
+        if !n.visible || matches!(n.kind, NodeKind::Page { .. }) {
+            return Vec::new();
+        }
+        let is_instance_mirror = n.component.source.is_some() && n.component.overrides.is_empty();
+        if is_instance_mirror && !config.include_instances {
+            return Vec::new();
+        }
+        let (parent, parent_world, depth, in_component) = ancestor_state(doc, node_id, active);
+        let node_world = parent_world * n.transform;
+        let page_bounds = aabb_of_transformed_rect(node_world, n.size);
+        let node_in_comp = in_component || matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
+        let components = if active.detached_instance && detached::symbol_of(n).is_some() {
+            self.components.get_or_init(|| detached::Components::new(doc))
+        } else {
+            &self.no_components
+        };
+        // Only the rules that read the scales and the token index pay for them.
+        let scales = if config.is_enabled("off-scale") {
+            self.scales.get_or_init(|| super::rules::scale::scales_for(doc, config.archetype.as_ref()))
+        } else {
+            builtin_scales()
+        };
+        let token_index =
+            if config.is_enabled("hardcoded-value") { self.token_index.get_or_init(|| super::token_match::Index::new(doc)) } else { &self.no_token_index };
+        if active.contrast && matches!(n.kind, NodeKind::Text(_)) {
+            self.contrast_bounds.warm_for_text(doc, n.id, None);
+        }
+        let children: Vec<&Node> = n.children.iter().filter_map(|&cid| doc.get(cid)).collect();
+        let mut findings = Vec::new();
+        let ctx = NodeEvalCtx {
+            doc,
+            node: n,
+            parent,
+            children: &children,
+            depth,
+            in_component: node_in_comp,
+            is_instance_mirror,
+            page_bounds,
+            config,
+            active,
+            env,
+            components,
+            scales,
+            token_index,
+            contrast_bounds: &self.contrast_bounds,
+        };
+        evaluate_node(&ctx, &mut findings);
+        apply_check_designs_ignores(doc, config, &mut findings);
+        findings.sort_by_key(|f| severity_rank(f.severity));
+        findings
     }
-    let active = ActiveRules::from_config(config);
-    let (parent, parent_world, depth, in_component) = ancestor_state(doc, node_id, &active);
-    let node_world = parent_world * n.transform;
-    let page_bounds = aabb_of_transformed_rect(node_world, n.size);
-    let node_in_comp = in_component || matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
-    let components =
-        if active.detached_instance && detached::symbol_of(n).is_some() { detached::Components::new(doc) } else { detached::Components::default() };
-    let children: Vec<&Node> = n.children.iter().filter_map(|&cid| doc.get(cid)).collect();
-    // Only the rules that read them pay for the document-wide scales and token index, so a query
-    // that asks about one cheap rule per node never rebuilds them.
-    let scales_owned;
-    let scales = if config.is_enabled("off-scale") {
-        scales_owned = super::rules::scale::scales_for(doc, config.archetype.as_ref());
-        &scales_owned
-    } else {
-        builtin_scales()
-    };
-    let token_index = if config.is_enabled("hardcoded-value") { super::token_match::Index::new(doc) } else { super::token_match::Index::default() };
-    let contrast_bounds = contrast::SubtreeBounds::default();
-    if active.contrast && matches!(n.kind, NodeKind::Text(_)) {
-        contrast_bounds.warm_for_text(doc, n.id, None);
-    }
-    let mut raw_findings = Vec::new();
-    let ctx = NodeEvalCtx {
-        doc,
-        node: n,
-        parent,
-        children: &children,
-        depth,
-        in_component: node_in_comp,
-        is_instance_mirror,
-        page_bounds,
-        config,
-        active: &active,
-        env,
-        components: &components,
-        scales,
-        token_index: &token_index,
-        contrast_bounds: &contrast_bounds,
-    };
-    evaluate_node(&ctx, &mut raw_findings);
-    apply_check_designs_ignores(doc, config, &mut raw_findings);
-    let mut filtered = raw_findings;
-    filtered.sort_by_key(|f| severity_rank(f.severity));
-    filtered
+}
+
+/// Scales of a document without variables or styles: what a rule that never reads them is handed.
+fn builtin_scales() -> &'static super::rules::scale::Scales {
+    static BUILTIN: std::sync::OnceLock<super::rules::scale::Scales> = std::sync::OnceLock::new();
+    BUILTIN.get_or_init(|| super::rules::scale::scales_for(&Document::new("builtin-scales"), None))
 }
 
 /// Drops the findings Check designs ignores suppress, or marks them `ignored` when
@@ -406,12 +455,6 @@ fn apply_check_designs_ignores(doc: &Document, config: &LintConfig, findings: &m
     } else {
         findings.retain(|f| !f.ignored && !doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()));
     }
-}
-
-/// Scales of a document without variables or styles: what a rule that never reads them is handed.
-fn builtin_scales() -> &'static super::rules::scale::Scales {
-    static BUILTIN: std::sync::OnceLock<super::rules::scale::Scales> = std::sync::OnceLock::new();
-    BUILTIN.get_or_init(|| super::rules::scale::scales_for(&Document::new("builtin-scales"), None))
 }
 
 /// Evaluates enabled lint rules over `roots` within `budget`, returning a [`LintReport`].

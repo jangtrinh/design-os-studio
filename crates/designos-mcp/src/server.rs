@@ -2403,7 +2403,7 @@ mod tests {
         {
             let huge_path = ws_dir.join("huge.designos");
             let f = fs::File::create(&huge_path).unwrap();
-            f.set_len(65 * 1024 * 1024).unwrap();
+            f.set_len(513 * 1024 * 1024).unwrap();
             record(s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err(), ErrorCode::FileTooLarge, true);
             let _ = fs::remove_file(&huge_path);
         }

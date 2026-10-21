@@ -1,12 +1,12 @@
 //! Streaming document query visitor (`designos_query_xpath`) with paging,
 //! node budget, compact rows/objects, and solver-backed linter predicates (E15-17 / #602).
 
-use crate::lint::{canonical_rule_id, lint_single_node, resolve_rule, LintConfig, LintEnv, LintPreset, NoLintEnv, RuleNeeds};
+use crate::lint::{canonical_rule_id, resolve_rule, Finding, LintConfig, LintEnv, LintPreset, NoLintEnv, RuleNeeds, SingleNodeLinter};
 use crate::openpencil::{eval_predicate_expr, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep};
 use crate::{Document, Node, NodeId, NodeKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub const DEFAULT_LIMIT: usize = 100;
 pub const MAX_LIMIT: usize = 500;
@@ -262,12 +262,16 @@ fn unquote_arg(s: &str) -> String {
     t.to_string()
 }
 
-struct ScanBudget {
+struct ScanBudget<'a> {
     scanned: usize,
     max_scanned: usize,
+    doc: &'a Document,
+    /// One linter per rule set the selector asks about, so the document-wide state a rule needs
+    /// (token index, scales, contrast bounds) is built once per call, not once per candidate node.
+    linters: HashMap<String, SingleNodeLinter<'a>>,
 }
 
-impl ScanBudget {
+impl<'a> ScanBudget<'a> {
     fn try_charge(&mut self, units: usize) -> Result<(), StepError> {
         if self.scanned.saturating_add(units) > self.max_scanned {
             Err(StepError::BudgetExceeded)
@@ -275,6 +279,15 @@ impl ScanBudget {
             self.scanned += units;
             Ok(())
         }
+    }
+
+    /// Findings on `node` for the rule set named `key` (`config` builds it on first use).
+    fn lint_node(&mut self, key: &str, config: impl FnOnce() -> LintConfig, node: NodeId, env: &dyn LintEnv) -> Vec<Finding> {
+        let doc = self.doc;
+        if !self.linters.contains_key(key) {
+            self.linters.insert(key.to_string(), SingleNodeLinter::new(doc, &config()));
+        }
+        self.linters[key].lint(node, env)
     }
 }
 
@@ -383,11 +396,15 @@ fn is_property_bound(node: &Node, prop_key: &str) -> bool {
     }
 }
 
-fn has_hardcoded_property(doc: &Document, node: &Node, prop_key: &str, env: Option<&dyn LintEnv>) -> bool {
+fn has_hardcoded_property(doc: &Document, node: &Node, prop_key: &str, env: Option<&dyn LintEnv>, budget: &mut ScanBudget) -> bool {
     let no_env = NoLintEnv;
     let env_ref: &dyn LintEnv = env.unwrap_or(&no_env);
-    let cfg = LintConfig::from_rule_list(&["hardcoded-color".to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Strict));
-    let findings = lint_single_node(doc, node.id, &cfg, env_ref);
+    let findings = budget.lint_node(
+        "hardcoded-color",
+        || LintConfig::from_rule_list(&["hardcoded-color".to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Strict)),
+        node.id,
+        env_ref,
+    );
     if findings.is_empty() {
         return false;
     }
@@ -416,7 +433,10 @@ fn has_hardcoded_property(doc: &Document, node: &Node, prop_key: &str, env: Opti
 fn has_unbound_solid_paint(doc: &Document, node: &Node, fill: bool) -> bool {
     let (style_key, group_key, prefix, paints) =
         if fill { ("fill", "fill", "fills", &node.fills) } else { ("stroke", "stroke", "strokes", &node.stroke.paints) };
-    if node.style_refs.contains_key(style_key) || node.variables.bindings.contains_key(group_key) || doc.is_lint_property_ignored("hardcoded-color", node.id, group_key) {
+    if node.style_refs.contains_key(style_key)
+        || node.variables.bindings.contains_key(group_key)
+        || doc.is_lint_property_ignored("hardcoded-color", node.id, group_key)
+    {
         return false;
     }
     paints.iter().enumerate().any(|(i, p)| {
@@ -428,17 +448,11 @@ fn has_unbound_solid_paint(doc: &Document, node: &Node, fill: bool) -> bool {
     })
 }
 
-fn compute_node_problems(
-    doc: &Document,
-    node: &Node,
-    rule_filter: Option<&str>,
-    env: Option<&dyn LintEnv>,
-    budget: &mut ScanBudget,
-) -> Result<Vec<String>, StepError> {
+fn compute_node_problems(node: &Node, rule_filter: Option<&str>, env: Option<&dyn LintEnv>, budget: &mut ScanBudget) -> Result<Vec<String>, StepError> {
     let no_env = NoLintEnv;
     let env_ref: &dyn LintEnv = env.unwrap_or(&no_env);
 
-    let cfg = if let Some(rule_raw) = rule_filter {
+    let findings = if let Some(rule_raw) = rule_filter {
         let Some(canonical) = canonical_rule_id(rule_raw) else {
             return Err(StepError::Query(QueryError::UnknownRule { rule: rule_raw.to_string() }));
         };
@@ -453,15 +467,19 @@ fn compute_node_problems(
                 budget.try_charge(200)?;
             }
         }
-        LintConfig::from_rule_list(&[canonical.to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Agent))
+        budget.lint_node(
+            canonical,
+            || LintConfig::from_rule_list(&[canonical.to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Agent)),
+            node.id,
+            env_ref,
+        )
     } else {
         if node.kind.any_text().is_some() && env_ref.has_text_engine() {
             budget.try_charge(20)?;
         }
-        LintConfig::from_preset(LintPreset::Agent)
+        budget.lint_node("@agent", || LintConfig::from_preset(LintPreset::Agent), node.id, env_ref)
     };
 
-    let findings = lint_single_node(doc, node.id, &cfg, env_ref);
     let mut rules: Vec<String> = findings.into_iter().map(|f| f.rule.to_string()).collect();
     rules.sort();
     rules.dedup();
@@ -513,7 +531,7 @@ fn eval_single_predicate(
         let Some(canonical) = canonical_rule_id(&rule_name) else {
             return Err(StepError::Query(QueryError::UnknownRule { rule: rule_name }));
         };
-        let problems = compute_node_problems(doc, node, Some(canonical), env, budget)?;
+        let problems = compute_node_problems(node, Some(canonical), env, budget)?;
         return Ok(problems.iter().any(|r| r == canonical));
     }
 
@@ -524,7 +542,7 @@ fn eval_single_predicate(
 
     if let Some(inner) = s.strip_prefix("has-hardcoded(").and_then(|r| r.strip_suffix(')')) {
         let prop = unquote_arg(inner);
-        return Ok(has_hardcoded_property(doc, node, &prop, env));
+        return Ok(has_hardcoded_property(doc, node, &prop, env, budget));
     }
 
     if s == "@inProgress" || s == "@in_progress" {
@@ -535,7 +553,7 @@ fn eval_single_predicate(
         let probs = if let Some(ref p) = cached_problems {
             p.clone()
         } else {
-            let p = compute_node_problems(doc, node, None, env, budget)?;
+            let p = compute_node_problems(node, None, env, budget)?;
             *cached_problems = Some(p.clone());
             p
         };
@@ -671,7 +689,7 @@ fn evaluate_candidate_node(
     }
 
     if let Some(want_hc) = opts.hardcoded {
-        let is_hc = has_hardcoded_property(doc, node, "*", env);
+        let is_hc = has_hardcoded_property(doc, node, "*", env, budget);
         if is_hc != want_hc {
             return Ok((my_mask, None));
         }
@@ -680,7 +698,7 @@ fn evaluate_candidate_node(
     let problems_val: Value = if let Some(probs) = cached_problems {
         json!(probs)
     } else if opts.with_problems {
-        let probs = compute_node_problems(doc, node, None, env, budget)?;
+        let probs = compute_node_problems(node, None, env, budget)?;
         json!(probs)
     } else {
         Value::Null
@@ -807,7 +825,7 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
 
     let mut rows = Vec::new();
     let mut matches_obj = Vec::new();
-    let mut budget = ScanBudget { scanned: 0, max_scanned };
+    let mut budget = ScanBudget { scanned: 0, max_scanned, doc, linters: HashMap::new() };
     let mut nodes_completed = 0usize;
     let mut seen_nodes: HashSet<NodeId> = HashSet::new();
     for frame in &stack {
@@ -1330,6 +1348,85 @@ mod tests {
         assert!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]").is_empty(), "the ignored fill is not hard-coded for the query");
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), vec![id.0]);
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), vec![id.0]);
+    }
+
+    /// Number variables with a GAP scope, enough for the spacing scale and the token index to be costly to rebuild.
+    fn add_gap_variables(doc: &mut Document, count: usize) {
+        use crate::{Variable, VariableCollection, VariableKind, VariableMode, VariableValue};
+        doc.variable_collections.insert(
+            "space".into(),
+            VariableCollection {
+                id: "space".into(),
+                name: "space".into(),
+                modes: vec![VariableMode { id: "m".into(), name: "m".into() }],
+                default_mode: "m".into(),
+                variables: Vec::new(),
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for i in 0..count {
+            let id = format!("space-{i}");
+            doc.variable_collections.get_mut("space").unwrap().variables.push(id.clone());
+            doc.variables.insert(
+                id.clone(),
+                Variable {
+                    id: id.clone(),
+                    name: format!("space/{i}"),
+                    collection: "space".into(),
+                    kind: VariableKind::Number,
+                    values: [("m".to_string(), VariableValue::Number(i as f32 + 1.0))].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec!["GAP".to_string()],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn token_and_scale_predicates_build_document_state_once_per_call() {
+        // Rebuilding the token index and scales for every candidate node costs seconds on a
+        // document of this size in a release build and minutes in a debug build; built once per
+        // call, the whole query is milliseconds. The ceiling is far above the fixed cost so a loaded
+        // machine does not trip it, and far below the cost of rebuilding per node.
+        let (mut doc, page) = build_synthetic_doc(600, 4);
+        add_gap_variables(&mut doc, 3_000);
+        for selector in ["//*[has-problem('hardcoded-value')]", "//*[has-problem('off-scale')]", "//*[@problems]"] {
+            let started = std::time::Instant::now();
+            let res = run(&doc, &QueryOptions { selector: selector.to_string(), page: Some(page), max_scanned: Some(200_000), ..Default::default() }).unwrap();
+            assert_eq!(res.scanned_total, res.scanned, "{selector}");
+            assert!(started.elapsed() < std::time::Duration::from_secs(10), "{selector} took {:?}", started.elapsed());
+        }
+    }
+
+    #[test]
+    fn single_node_linter_matches_the_one_shot_call_node_after_node() {
+        let (mut doc, page) = build_synthetic_doc(20, 4);
+        add_gap_variables(&mut doc, 50);
+        for node in doc.nodes.values_mut().filter(|n| matches!(n.kind, NodeKind::Rectangle)) {
+            node.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
+            node.corner_radii = [7.0; 4];
+        }
+        let cfg = LintConfig::from_preset(LintPreset::Agent);
+        let linter = SingleNodeLinter::new(&doc, &cfg);
+        let mut compared = 0;
+        let mut stack = vec![page];
+        while let Some(id) = stack.pop() {
+            let node = doc.get(id).unwrap();
+            stack.extend(node.children.iter().copied());
+            let reused: Vec<(&str, Option<String>)> = linter.lint(id, &NoLintEnv).iter().map(|f| (f.rule, f.property.clone())).collect();
+            let fresh: Vec<(&str, Option<String>)> =
+                crate::lint::lint_single_node(&doc, id, &cfg, &NoLintEnv).iter().map(|f| (f.rule, f.property.clone())).collect();
+            assert_eq!(reused, fresh, "node {}", id.0);
+            compared += 1;
+        }
+        assert!(compared > 80);
     }
 
     #[test]
