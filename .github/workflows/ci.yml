@@ -81,6 +81,11 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace --locked
 
+      # The large-fixture lint wall-time budget is bounded in release builds only (debug builds skip it).
+      - name: Lint budget on a release build (large fixture)
+        if: runner.os == 'macOS'
+        run: cargo test -p designos-render --release --locked --test lint_rules large_fixture_off_thread_budget
+
   lint:
     name: Clippy
     runs-on: ubuntu-latest
