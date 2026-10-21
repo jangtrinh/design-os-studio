@@ -485,6 +485,8 @@ pub struct TerminalTab {
     pub agent_status: Arc<Mutex<AgentTabStatus>>,
     /// Last status observed by `TerminalState::drain_status_changes` (`#687`).
     pub reported_status: AgentTabStatus,
+    /// `needs_approval()` at the last status report: a wait is reported again when its label class changes.
+    pub reported_needs_approval: bool,
     pub last_output_at: Arc<Mutex<Option<std::time::Instant>>>,
     /// Set after the agent-exit notice is written into the vt100 parser. Never respawn a shell.
     pub exited_notice_shown: bool,
@@ -798,6 +800,7 @@ impl TerminalTab {
             selection: None,
             agent_status,
             reported_status: AgentTabStatus::Idle,
+            reported_needs_approval: false,
             last_output_at,
             exited_notice_shown: false,
             spawned_at: std::time::Instant::now(),
@@ -3535,15 +3538,20 @@ impl TerminalState {
         let mut out = Vec::new();
         for tab in &mut self.tabs {
             let current = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-            if current != tab.reported_status {
+            let needs_approval = tab.needs_approval();
+            // A wait is reported again when it turns from "needs input" into "needs approval" (or back), with the same status.
+            let class_changed = matches!(current, AgentTabStatus::WaitingForInput(_)) && needs_approval != tab.reported_needs_approval;
+            if current != tab.reported_status || class_changed {
                 let prev = std::mem::replace(&mut tab.reported_status, current.clone());
+                let prev_needs_approval = std::mem::replace(&mut tab.reported_needs_approval, needs_approval);
                 out.push(crate::agent_a11y::StatusChange {
                     tab_id: tab.id,
                     preset: tab.preset,
                     title: tab.title.clone(),
                     prev,
                     next: current,
-                    needs_approval: tab.needs_approval(),
+                    needs_approval,
+                    prev_needs_approval,
                 });
             }
         }
@@ -5085,7 +5093,7 @@ pub fn show_left_with_doc(
         for (idx, tab) in state.tabs.iter().enumerate() {
             let tab_w = if state.tabs.len() <= 1 {
                 // Grows from 104 px to fit the whole title (`Claude Code #1`), within the room the controls leave.
-                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + if can_close { 40.0 } else { 23.0 };
+                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + 40.0;
                 104.0f32.max(title_w).min((max_tabs_right - x).max(64.0))
             } else {
                 82.0f32.min(((max_tabs_right - x) / (state.tabs.len() as f32)).max(56.0))

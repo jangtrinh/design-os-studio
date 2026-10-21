@@ -165,7 +165,8 @@ impl TerminalState {
                     AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
                     // Same predicate as the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
                     AgentTabStatus::WaitingForInput(_) if tab.needs_approval() => AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.to_string())),
-                    AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
+                    // A heuristic's text match (Codex, Skip mode) is not a pending approval: the row says `Needs input`.
+                    AgentTabStatus::WaitingForInput(_) => AgentTabStatus::WaitingForInput(None),
                     _ if recent_pty => AgentTabStatus::Working(None),
                     other => other,
                 };
@@ -929,6 +930,12 @@ mod tests {
         if let Ok(mut status_guard) = st.tabs[0].agent_status.lock() {
             *status_guard = AgentTabStatus::WaitingForInput(Some("Bash".to_string()));
         }
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs input");
+        // A text-match wait that carries the approval label but has no pending request is still `Needs input`.
+        if let Ok(mut status_guard) = st.tabs[0].agent_status.lock() {
+            *status_guard = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.to_string()));
+        }
+        assert!(st.tabs[0].pending_approvals.is_empty());
         assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs input");
         st.tabs[0].pending_approvals.push(crate::agent_permissions::ApprovalRequest {
             id: "req-1".into(),
