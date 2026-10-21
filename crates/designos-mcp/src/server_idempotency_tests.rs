@@ -303,14 +303,16 @@ fn a_canvas_written_before_the_agents_append_is_not_taken_for_a_studio_undo() {
     let (ws, sess) = temp_dirs("canvas-older-than-write");
     let (doc, page, _) = doc_with_frames(&[]);
     write_canvas(&sess, &doc);
-    let first_canvas = canvas_mtime(&sess);
     let mut s = Session::with_session_dir(&ws, &sess).unwrap();
     let make = |key: &str, name: &str| json!({"idempotency_key": key, "parent_id": page.0, "kind": "frame", "name": name});
+    std::thread::sleep(Duration::from_millis(5));
     let a = s.call("designos_create_node", make("k1", "A")).unwrap()["node"]["id"].as_u64().unwrap();
 
-    // Studio wrote a canvas while the call ran: it is newer than the one the call read, older
-    // than the entry, and does not hold the agent's frame yet.
-    write_canvas_at(&sess, &doc, first_canvas + Duration::from_millis(1));
+    // Studio wrote a canvas while the call ran: it is newer than the one the call read, not newer
+    // than the entry (the same millisecond counts as before it), and lacks the agent's frame.
+    let created_ms = s.ledger.get("k1").unwrap().created_ms;
+    assert!(UNIX_EPOCH + Duration::from_millis(created_ms) > canvas_mtime(&sess), "precondition: the entry is newer than the first canvas");
+    write_canvas_at(&sess, &doc, UNIX_EPOCH + Duration::from_millis(created_ms));
     let err = s.call("designos_create_node", make("k1", "A")).unwrap_err();
     assert_eq!(err.code, ErrorCode::IdempotencyKeyStale, "the write is not in this canvas yet, so the retry must not run");
     assert_eq!(s.engine.doc.nodes.values().filter(|n| n.name == "A").count(), 0);
@@ -364,6 +366,25 @@ fn an_mcp_undone_key_stays_dead_after_a_studio_undo_and_a_reconnect() {
     assert_eq!(s2.call("designos_create_node", make("k1", "A")).unwrap_err().code, ErrorCode::IdempotencyKeyStale, "the undone key stays dead");
     let (_, meta) = s2.call_with_meta("designos_create_node", make("k2", "B")).unwrap();
     assert!(meta.is_none(), "the forgotten key is a new write");
+    cleanup(&ws);
+}
+
+#[test]
+fn a_different_document_does_not_resurrect_a_key_the_agent_undid() {
+    let (ws, sess) = temp_dirs("different-document-undone-key");
+    let (doc, page, _) = doc_with_frames(&[]);
+    write_canvas(&sess, &doc);
+    let mut s = Session::with_session_dir(&ws, &sess).unwrap();
+    let make = |key: &str, name: &str| json!({"idempotency_key": key, "parent_id": page.0, "kind": "frame", "name": name});
+    s.call("designos_create_node", make("k1", "A")).unwrap();
+    s.call("designos_create_node", make("k2", "B")).unwrap();
+    s.call("designos_undo", json!({})).unwrap();
+
+    // Studio now shows a canvas that holds neither frame: k1 is applied and missing, k2 was undone.
+    write_canvas(&sess, &doc);
+    assert_eq!(s.call("designos_create_node", make("k2", "B")).unwrap_err().code, ErrorCode::IdempotencyKeyStale, "the undone write stays refused");
+    let (_, meta) = s.call_with_meta("designos_create_node", make("k1", "A")).unwrap();
+    assert!(meta.is_none(), "the applied entry missing from the canvas is a new write on retry");
     cleanup(&ws);
 }
 

@@ -65,7 +65,8 @@ for a different payload, I get a named error and nothing changes.
    - It is cleared when the document closes or switches: `designos_open_file`,
      `designos_new_document`, and a canvas reload that replaces the document
      (`sync_from_live_canvas_if_newer`, `server.rs:194-219`). Clearing truncates the file. A canvas
-     reload that still holds the agent's writes does not clear it (item 6, Studio-side undo).
+     reload that replaces the document drops the applied entries and rewrites the file; one that
+     still holds the agent's writes does not clear it (item 6, Studio-side undo).
 5. Capacity: at most 5,000 entries or 16 MiB of stored replies; beyond that the oldest entries are
    dropped. A dropped key behaves as unknown. The cap and the drop count are reported by
    `designos_get_app_state` (E15-16).
@@ -92,9 +93,10 @@ for a different payload, I get a named error and nothing changes.
      kept this split. The reload does not clear the ledger while the agent's writes are still in the
      document, because Studio republishes the canvas after each edit it applies. It reconciles
      entry by entry (`Ledger::on_canvas_reload`):
-     - A snapshot in which no checkable applied entry is present is a different document: those
-       entries are dropped from memory and the file. Entries already stale for good stay (an undone
-       write is not resurrected).
+     - A snapshot in which no checkable applied entry is present is a different document: the
+       applied entries are dropped from memory and rewritten out of the file. Entries the agent
+       undid, entries with nothing to check and entries already stale stay stale (an undone write
+       is not resurrected).
      - A checkable applied entry whose result is missing is forgotten (a new write on retry) only
        when no later entry's result is still present and the canvas is not a scoped copy. This also
        covers a user deleting the agent's newest layer by hand, which cannot be told from an undo.

@@ -595,9 +595,10 @@ impl Ledger {
     ///   written after the editor applied the edit, decides it. No time margin is used: a real
     ///   Studio undo happens after Studio read the edit, so its snapshot is newer than the entry.
     /// - If there is at least one checkable applied entry (pending ones aside) and every one fails
-    ///   `entry_matches_document(entry, doc)`, the canvas is a different document: every entry is
-    ///   dropped from the ledger and its file, except the ones already stale for good (they keep
-    ///   answering STALE, so an undone write is not resurrected) and the pending ones.
+    ///   `entry_matches_document(entry, doc)`, the canvas is a different document: the applied
+    ///   entries are dropped from the ledger and rewritten out of its file. Entries the agent undid,
+    ///   entries with nothing to check and entries already stale for good turn or stay stale, so
+    ///   an undone write is not resurrected. Pending entries stay as they are.
     /// - Otherwise the ledger file is kept and the in-memory `undo_depth` is detached (`History` is
     ///   reset on canvas reload). Entries undone before the reload, or without checkable ids, turn
     ///   stale for good (`entry.dead = true` + `"stale"` transition).
@@ -629,9 +630,13 @@ impl Ledger {
             let uncheckable = !is_checkable(entry);
             let presence_failed = !uncheckable && !entry_matches_document(entry, doc);
             if !entry.dead && !is_pending(entry) {
-                if different_document || (presence_failed && !undone_before_reload && !scoped_canvas && newest_present.is_none_or(|newest| pos > newest)) {
+                if undone_before_reload || uncheckable {
+                    // Undone by the agent, or nothing to check: stale for good, even on a different document.
+                    entry.dead = true;
+                    newly_stale.push(entry.key.clone());
+                } else if different_document || (presence_failed && !scoped_canvas && newest_present.is_none_or(|newest| pos > newest)) {
                     forgotten.push(entry.key.clone());
-                } else if undone_before_reload || uncheckable || presence_failed {
+                } else if presence_failed {
                     entry.dead = true;
                     newly_stale.push(entry.key.clone());
                 }
