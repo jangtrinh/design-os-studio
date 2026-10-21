@@ -543,7 +543,9 @@ impl TerminalState {
 
     fn send_to_agent_from(&mut self, text: &str, file_path: Option<&Path>, source: SendSource) -> SendOutcome {
         // Poll first so any child that already exited within `START_FAILURE_WINDOW` has `start_failure` populated.
-        let _ = self.poll_live_agent_bridge();
+        // The actions it returns belong to the next bridge poll, not to this send.
+        let early_actions = self.poll_live_agent_bridge();
+        self.deferred_bridge_actions.extend(early_actions);
         let system = source == SendSource::System;
 
         let trimmed = text.trim();
@@ -1660,37 +1662,37 @@ mod tests {
         st.flush_pending_enter_now();
         assert_eq!(st.active_composer().send_count, 3);
 
-        // Entry point 4: Sample prompt card in `show_left` (`term-ai-rename-layers`).
+        // Entry point 4: a sample prompt row fills the composer, and the Send button then sends it through the same path.
         st.side_panel_pty_open = false;
-        st.expanded_agent_cat = Some(0);
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let sample_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "term-ai-rename-layers".to_string())))).expect("term-ai-rename-layers rect");
-        let _ = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))),
-                events: vec![
-                    Event::PointerMoved(sample_rect.center()),
-                    Event::PointerButton { pos: sample_rect.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                    Event::PointerButton { pos: sample_rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-                ],
-                ..Default::default()
-            },
-            |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            },
-        );
+        let frame = |st: &mut TerminalState, events: Vec<Event>| {
+            let _ = ctx.run_ui(
+                egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), events, ..Default::default() },
+                |ui| {
+                    let _ = show_left(st, ui, panel_rect, None);
+                },
+            );
+        };
+        let click = |rect: Rect| {
+            vec![
+                Event::PointerMoved(rect.center()),
+                Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ]
+        };
+        frame(&mut st, Vec::new());
+        let sample_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 rect");
+        frame(&mut st, click(sample_rect));
+        let sample_text = crate::agent_sample_prompts::sample_prompts(st.prompt_context)[0].text.clone();
+        assert_eq!(st.composer_draft(), sample_text, "the sample prompt row must only fill the composer");
+        assert_eq!(st.active_composer().send_count, 3, "filling the composer must not send");
+        frame(&mut st, Vec::new());
+        let send_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send rect");
+        frame(&mut st, click(send_rect));
         st.flush_pending_enter_now();
         assert_eq!(st.active_composer().send_count, 4);
 
         let all_written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
-        for expected in [
-            "Entry 1 from composer button",
-            "Entry 2 from submit_chat_prompt",
-            "Entry 3 from dispatch_figma_ai_prompt",
-            "Semantically rename generic Frame/Rect/Text layers across selection",
-        ] {
+        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", sample_text.as_str()] {
             assert!(all_written.contains(expected), "Entry point prompt `{expected}` missing from PTY stream: {all_written:?}");
             assert!(st.active_composer().history.iter().any(|h| h.contains(expected)), "Entry point prompt `{expected}` missing from composer history");
         }

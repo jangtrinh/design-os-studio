@@ -248,9 +248,29 @@ fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, C
     }
 }
 
+const OTHER_FORM_HEIGHT: f32 = 108.0;
+const PICKER_FOOTER_HEIGHT: f32 = 22.0;
+
+/// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI..."` form, footer).
+fn picker_card_height(row_count: usize, other_form_open: bool) -> f32 {
+    let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
+    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_ROW + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
+}
+
+/// Height [`show_picker_panel_with_rows`] needs for `row_count` rows: the card plus its top margin, so a caller can
+/// stack content below it (`#688` §3 rule 3).
+pub fn picker_outer_height(row_count: usize, other_form_open: bool) -> f32 {
+    theme::INSET_POPOVER + picker_card_height(row_count, other_form_open)
+}
+
 /// Renders the full new-session picker panel (`CONTROL_ROW` = 40 px rows, `#652` §7).
 pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) {
     let rows = rows_for_state(state);
+    show_picker_panel_with_rows(state, ui, rect, file_path, rows);
+}
+
+/// Renders the picker for `rows` built once by the caller this frame (`rows_for_state` reads `settings.json`).
+pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>, rows: Vec<PickerRow>) {
     if state.picker.cache.is_probing() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     }
@@ -260,10 +280,9 @@ pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, fil
     let pad = theme::INSET_POPOVER;
     let row_h = theme::CONTROL_ROW;
     let row_gap = theme::SPACE_ROW;
-    let form_h = if state.picker.other_form_open { 108.0 } else { 0.0 };
+    let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let header_h = theme::SPACE_SECTION;
-    let footer_h = 22.0;
-    let content_h = pad * 2.0 + header_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h;
+    let content_h = picker_card_height(rows.len(), state.picker.other_form_open);
     let card_w = (rect.width() - pad * 2.0).clamp(220.0, 380.0);
     let card_h = content_h.min((rect.height() - pad).max(160.0));
     let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(theme::SPACE_INLINE);

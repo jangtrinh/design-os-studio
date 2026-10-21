@@ -1,0 +1,67 @@
+# Sample prompts shown in the Agents panel empty state (#688).
+# Contexts: `no_selection`, `frame`, `empty_file` (up to 6 per context, <= 300 chars each).
+
+[[prompts]]
+context = "no_selection"
+label = "Describe this page"
+text = "Describe the screens on this page and how they relate."
+
+[[prompts]]
+context = "no_selection"
+label = "Find design problems"
+text = "Check this page against the file's variables and styles and list what breaks them."
+
+[[prompts]]
+context = "no_selection"
+label = "Build new screen"
+text = "Design a new screen for this file that follows its existing styles."
+
+[[prompts]]
+context = "no_selection"
+label = "Name layers"
+text = "Rename the layers on this page so each name says what the layer is."
+
+[[prompts]]
+context = "frame"
+label = "Review this frame"
+text = "Review the selected frame for spacing, alignment and contrast problems."
+
+[[prompts]]
+context = "frame"
+label = "Make frame responsive"
+text = "Make the selected frame resize well with auto layout."
+
+[[prompts]]
+context = "frame"
+label = "Bind variables"
+text = "Bind the selected frame's colours and spacing to this file's variables where they match."
+
+[[prompts]]
+context = "frame"
+label = "Shorten text"
+text = "Rewrite the text in the selected frame to be shorter and clearer."
+
+[[prompts]]
+context = "frame"
+label = "Try another layout"
+text = "Make a second version of the selected frame with a different layout."
+
+[[prompts]]
+context = "empty_file"
+label = "Start landing page"
+text = "Design a first draft of a landing page for this file."
+
+[[prompts]]
+context = "empty_file"
+label = "Start dashboard"
+text = "Design a first draft of a dashboard for this file."
+
+[[prompts]]
+context = "empty_file"
+label = "Start settings screen"
+text = "Design a first draft of a settings screen for this file."
+
+[[prompts]]
+context = "empty_file"
+label = "Start mobile sign-in"
+text = "Design a first draft of a mobile sign-in for this file."
