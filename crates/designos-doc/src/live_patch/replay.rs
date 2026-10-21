@@ -151,13 +151,7 @@ pub fn replay_live_patch(
     Ok(report)
 }
 
-fn resolve(
-    doc: &mut Document,
-    op: &LiveOp,
-    is_spec_undo: bool,
-    state: &mut LivePatchState,
-    report: &mut LivePatchReport,
-) -> Option<Command> {
+fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);

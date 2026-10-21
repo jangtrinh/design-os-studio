@@ -1356,7 +1356,7 @@ impl Document {
                             path: format!("{path}.font_size"),
                             token: spec.text_style.clone(),
                             replacement: None,
-                            message: Some("Explicit font_size overrides and detaches text_style.".to_string()),
+                            message: Some("A variable-bound font_size overrides and detaches text_style.".to_string()),
                         });
                     }
                 }
