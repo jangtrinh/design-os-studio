@@ -1431,11 +1431,20 @@ mod agent_a11y {
         // In default chat mode (`side_panel_pty_open == false`), composer and runtime pills are created;
         // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Send selection to agent`) must not be published.
         let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["Send", "New shell", "Attach context", "Show terminal", "Attach PRD context"] {
+        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal", "Attach PRD context"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in chat mode");
         }
-        let (shell_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "New shell").expect("Shell button");
-        assert_eq!(shell_node_id, egui::Id::new("agents-runtime-pty-toggle").accesskit_id(), "New shell label must target agents-runtime-pty-toggle");
+        // The Shell pill and the composer's book button both show the terminal, so both carry the same honest name.
+        let show_terminal_ids: Vec<_> =
+            update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button && n.label() == Some("Show terminal")).map(|(id, _)| *id).collect();
+        assert!(show_terminal_ids.contains(&egui::Id::new("agents-runtime-pty-toggle").accesskit_id()), "the Shell pill must be named Show terminal");
+        assert!(show_terminal_ids.contains(&egui::Id::new("agents-composer-book").accesskit_id()), "the composer book button must be named Show terminal");
+        let (claude_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Use Claude Code").expect("Claude pill");
+        assert_eq!(claude_node_id, egui::Id::new("agents-runtime-claude").accesskit_id(), "Use Claude Code must target agents-runtime-claude");
+        assert!(
+            find_accesskit_node(update, egui::accesskit::Role::Button, "New Claude Code session").is_none(),
+            "a runtime pill starts no session, so its name must not say so"
+        );
         for absent in ["Stop", "Send selection to agent", "New session", "Close tab", "Insert audit prompt"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in chat mode");
         }

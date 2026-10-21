@@ -183,6 +183,8 @@ pub struct StatusChange {
     pub title: String,
     pub prev: AgentTabStatus,
     pub next: AgentTabStatus,
+    /// `TerminalTab::needs_approval()` when the change was observed: a wait on an approval reads "needs approval", any other "needs input".
+    pub needs_approval: bool,
 }
 
 fn is_default_tab_title(preset: AgentCliPreset, title: &str) -> bool {
@@ -215,11 +217,20 @@ pub fn resolved_agent_name(preset: AgentCliPreset, title: &str) -> &str {
     }
 }
 
+/// The spoken form of a wait on the user: the status labels `Needs approval` and `Needs input` in running text.
+fn waiting_phrase(needs_approval: bool) -> &'static str {
+    if needs_approval {
+        "needs approval"
+    } else {
+        "needs input"
+    }
+}
+
 /// Returns the polite screen-reader announcement string for `agent` and `status`, or `None` when silent.
-pub fn announcement_for_status_named(agent: &str, status: &AgentTabStatus) -> Option<String> {
+pub fn announcement_for_status_named(agent: &str, status: &AgentTabStatus, needs_approval: bool) -> Option<String> {
     match status {
         AgentTabStatus::Done => Some(format!("{agent} is done")),
-        AgentTabStatus::WaitingForInput(_) => Some(format!("{agent} needs input")),
+        AgentTabStatus::WaitingForInput(_) => Some(format!("{agent} {}", waiting_phrase(needs_approval))),
         AgentTabStatus::Error(detail) => {
             let class = classify_error(detail.as_deref()).as_str();
             Some(format!("{agent} failed: {class}"))
@@ -233,7 +244,7 @@ pub fn announcement_for_status_named(agent: &str, status: &AgentTabStatus) -> Op
 /// Only `Done`, `WaitingForInput`, and `Error` are announced; `Idle`, `Working`, and `Stopped` are silent.
 #[cfg(test)]
 pub fn announcement_for_status(preset: AgentCliPreset, status: &AgentTabStatus) -> Option<String> {
-    announcement_for_status_named(preset.display_name(), status)
+    announcement_for_status_named(preset.display_name(), status, false)
 }
 
 /// Shell-level polite live-region announcer queue (`#687`).
@@ -247,11 +258,13 @@ pub struct Announcer {
 impl Announcer {
     /// Evaluates a tab status transition and queues an announcement when the target state is spoken.
     pub fn record_status_change(&mut self, change: &StatusChange) {
-        if change.prev == change.next {
+        // A wait whose detail changes (a hook's tool name, then the approval request) is one wait: announce it once.
+        let same_wait = matches!((&change.prev, &change.next), (AgentTabStatus::WaitingForInput(_), AgentTabStatus::WaitingForInput(_)));
+        if change.prev == change.next || same_wait {
             return;
         }
         let agent = resolved_agent_name(change.preset, &change.title);
-        if let Some(msg) = announcement_for_status_named(agent, &change.next) {
+        if let Some(msg) = announcement_for_status_named(agent, &change.next, change.needs_approval) {
             self.queue.push_back(msg);
         }
     }
@@ -309,11 +322,11 @@ pub fn poll_and_step(app: &mut App, ctx: &Context) {
 }
 
 /// Human-readable description for the `"Agent terminal"` region naming the active agent (`agent`) and its status.
-pub fn status_description_named(agent: &str, status: &AgentTabStatus) -> String {
+pub fn status_description_named(agent: &str, status: &AgentTabStatus, needs_approval: bool) -> String {
     let state_text = match status {
         AgentTabStatus::Idle => "idle",
         AgentTabStatus::Working(_) => "working",
-        AgentTabStatus::WaitingForInput(_) => "needs input",
+        AgentTabStatus::WaitingForInput(_) => waiting_phrase(needs_approval),
         AgentTabStatus::Done => "done",
         AgentTabStatus::Stopped => "stopped",
         AgentTabStatus::Error(detail) => {
@@ -341,7 +354,7 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
             (resolved_agent_name(tab.preset, &tab.title).to_string(), st)
         })
         .unwrap_or_else(|| (state.active_runtime.display_name().to_string(), AgentTabStatus::Idle));
-    let term_desc = status_description_named(&active_agent, &active_status);
+    let term_desc = status_description_named(&active_agent, &active_status, state.active_tab().is_some_and(|t| t.needs_approval()));
 
     // 1. Panel region + header controls created in this frame
     widgets::labelled(ui, Id::new("agents-panel-region"), Role::Region, "Agents panel");
@@ -367,11 +380,12 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
         }
         widgets::labelled(ui, Id::new("agents-runtime-add-btn"), Role::Button, "New session");
     } else {
-        widgets::labelled(ui, Id::new("agents-runtime-claude"), Role::Button, "New Claude Code session");
-        widgets::labelled(ui, Id::new("agents-runtime-codex"), Role::Button, "New Codex session");
-        widgets::labelled(ui, Id::new("agents-runtime-agy"), Role::Button, "New Antigravity session");
-        widgets::labelled(ui, Id::new("agents-runtime-grok"), Role::Button, "New Grok session");
-        widgets::labelled(ui, Id::new("agents-runtime-pty-toggle"), Role::Button, "New shell");
+        // A runtime pill switches the active CLI (it starts nothing) and the Shell pill shows or hides the terminal.
+        widgets::labelled(ui, Id::new("agents-runtime-claude"), Role::Button, "Use Claude Code");
+        widgets::labelled(ui, Id::new("agents-runtime-codex"), Role::Button, "Use Codex");
+        widgets::labelled(ui, Id::new("agents-runtime-agy"), Role::Button, "Use Antigravity (AGY)");
+        widgets::labelled(ui, Id::new("agents-runtime-grok"), Role::Button, "Use Grok");
+        widgets::labelled(ui, Id::new("agents-runtime-pty-toggle"), Role::Button, if state.side_panel_pty_open { "Hide terminal" } else { "Show terminal" });
     }
 
     // 3. Terminal region with description naming active agent and status
@@ -405,7 +419,7 @@ pub fn label_terminal_surface(state: &TerminalState, ui: &Ui, surface_id: &'stat
             (resolved_agent_name(tab.preset, &tab.title).to_string(), st)
         })
         .unwrap_or_else(|| (state.active_runtime.display_name().to_string(), AgentTabStatus::Idle));
-    let term_desc = status_description_named(&active_agent, &active_status);
+    let term_desc = status_description_named(&active_agent, &active_status, state.active_tab().is_some_and(|t| t.needs_approval()));
 
     widgets::labelled(ui, Id::new((surface_id, "term-tab-list")), Role::TabList, "Agent tabs");
     for tab in &state.tabs {
@@ -550,6 +564,7 @@ mod tests {
             title: String::new(),
             prev: AgentTabStatus::Working(None),
             next: AgentTabStatus::Done,
+            needs_approval: false,
         });
         announcer.record_status_change(&StatusChange {
             tab_id: 2,
@@ -557,6 +572,7 @@ mod tests {
             title: String::new(),
             prev: AgentTabStatus::Working(None),
             next: AgentTabStatus::Done,
+            needs_approval: false,
         });
 
         let out_n = ctx.run_ui(egui::RawInput::default(), |ui| {
@@ -597,9 +613,34 @@ mod tests {
             title: "UI Reviewer".to_string(),
             prev: AgentTabStatus::Working(None),
             next: AgentTabStatus::Done,
+            needs_approval: false,
         });
         assert_eq!(announcer.queue.front().map(String::as_str), Some("UI Reviewer is done"));
-        assert_eq!(status_description_named(resolved_agent_name(AgentCliPreset::Claude, "UI Reviewer"), &AgentTabStatus::Idle), "UI Reviewer, idle");
+        assert_eq!(status_description_named(resolved_agent_name(AgentCliPreset::Claude, "UI Reviewer"), &AgentTabStatus::Idle, false), "UI Reviewer, idle");
+    }
+
+    #[test]
+    fn an_approval_wait_is_announced_as_needs_approval_once() {
+        let claude = AgentCliPreset::Claude;
+        assert_eq!(
+            announcement_for_status_named("Claude Code", &AgentTabStatus::WaitingForInput(Some("Bash".into())), true).as_deref(),
+            Some("Claude Code needs approval")
+        );
+        assert_eq!(announcement_for_status_named("Claude Code", &AgentTabStatus::WaitingForInput(None), false).as_deref(), Some("Claude Code needs input"));
+        assert_eq!(status_description_named("Claude Code", &AgentTabStatus::WaitingForInput(None), true), "Claude Code, needs approval");
+        assert_eq!(status_description_named("Claude Code", &AgentTabStatus::WaitingForInput(None), false), "Claude Code, needs input");
+
+        let mut announcer = Announcer::default();
+        let change =
+            |prev: AgentTabStatus, next: AgentTabStatus| StatusChange { tab_id: 1, preset: claude, title: String::new(), prev, next, needs_approval: true };
+        // Working -> waiting on the hook's tool name is spoken ...
+        announcer.record_status_change(&change(AgentTabStatus::Working(None), AgentTabStatus::WaitingForInput(Some("Bash".into()))));
+        // ... and the same wait getting its approval request is not spoken a second time.
+        announcer.record_status_change(&change(
+            AgentTabStatus::WaitingForInput(Some("Bash".into())),
+            AgentTabStatus::WaitingForInput(Some("Needs approval".into())),
+        ));
+        assert_eq!(announcer.queue.iter().map(String::as_str).collect::<Vec<_>>(), vec!["Claude Code needs approval"]);
     }
 
     #[test]

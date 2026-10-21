@@ -1,4 +1,4 @@
-//! OS notifications when an agent turn finishes or needs input in the background (`#683`).
+//! OS notifications when an agent turn finishes or needs approval in the background (`#683`).
 //!
 //! ## Spike S1 — Notification click-to-focus across platforms (`#683` §3.8, Rule 8)
 //!
@@ -31,8 +31,8 @@ pub const NOTIFICATIONS_OFF_STATUS_MSG: &str = "Notifications are off. Turn them
 pub enum NotifyKind {
     /// A turn completed (or ended with an error) while the window was unfocused or the tab hidden.
     Finished,
-    /// The agent is waiting on a permission prompt or user input.
-    NeedsInput,
+    /// The agent is waiting on a permission prompt (only permission requests raise this).
+    NeedsApproval,
 }
 
 /// One formatted OS notification emitted for an agent tab (`#683` §3.6).
@@ -51,7 +51,7 @@ impl AgentNotification {
         let file_name = file_name.into();
         let message = match kind {
             NotifyKind::Finished => format!("{agent_name} is done in {file_name}"),
-            NotifyKind::NeedsInput => format!("{agent_name} needs input"),
+            NotifyKind::NeedsApproval => format!("{agent_name} needs approval"),
         };
         Self { tab_id, agent_name, file_name, kind, message }
     }

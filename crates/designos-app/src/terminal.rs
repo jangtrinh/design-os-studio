@@ -443,6 +443,11 @@ pub enum TerminalAction {
     ClearInProgress { run_id: Option<String>, agent: Option<String> },
 }
 
+/// Label of a wait on a pending approval (owner status set, 2026-10-21). Producers, the Sessions row matcher and the pill share it.
+pub const NEEDS_APPROVAL_LABEL: &str = "Needs approval";
+/// Label of any other wait on the user (owner status set, 2026-10-21).
+pub const NEEDS_INPUT_LABEL: &str = "Needs input";
+
 /// Orca live agent execution status (`Working` / `WaitingForInput` / `Done` / `Error` / `Stopped` / `Idle`).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum AgentTabStatus {
@@ -567,6 +572,15 @@ impl TerminalTab {
         self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
             && matches!(self.preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity)
             && self.agent_status.lock().ok().is_some_and(|g| matches!(*g, AgentTabStatus::WaitingForInput(_)))
+    }
+
+    /// The status label of a wait on the user: `Needs approval` for a pending approval, `Needs input` for any other wait.
+    pub fn waiting_label(&self) -> &'static str {
+        if self.needs_approval() {
+            NEEDS_APPROVAL_LABEL
+        } else {
+            NEEDS_INPUT_LABEL
+        }
     }
 
     /// Spawns a real interactive PTY session for `preset` with auto-injected `DESIGNOS_*` environment.
@@ -875,13 +889,14 @@ impl TerminalTab {
                 };
                 Some((theme::INFO, text))
             }
-            AgentTabStatus::WaitingForInput(detail) => {
-                // The same predicate as the tab pill: a pending approval is "Needs approval", any other wait is "Needs input".
-                let text = detail.unwrap_or_else(|| if self.needs_approval() { "Needs approval" } else { "Needs input" }.to_string());
-                Some((theme::WARNING, text))
-            }
+            // The wait detail is the tool name a hook reported; the header shows the status label, never the raw tool name.
+            AgentTabStatus::WaitingForInput(_) => Some((theme::WARNING, self.waiting_label().to_string())),
             AgentTabStatus::Error(reason) => {
-                let text = reason.unwrap_or_else(|| "Ended without reporting a result".to_string());
+                // `reason` is a raw failure slug (`rate_limited`, `unknown`): the header names the class the receipt and the screen reader use.
+                let text = match reason {
+                    Some(raw) => format!("Failed · {}", crate::agent_a11y::classify_error(Some(&raw)).as_str()),
+                    None => "Ended without reporting a result".to_string(),
+                };
                 Some((theme::DANGER, text))
             }
             AgentTabStatus::Idle | AgentTabStatus::Done | AgentTabStatus::Stopped => None,
@@ -1615,7 +1630,7 @@ impl TerminalState {
                     tab.preset = AgentCliPreset::Grok;
                     tab.title = "Grok CLI #1".into();
                     if let Ok(mut st) = tab.agent_status.lock() {
-                        *st = AgentTabStatus::WaitingForInput(Some("Needs approval".into()));
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
                     }
                 }
             }
@@ -3220,7 +3235,7 @@ impl TerminalState {
                 }
                 // While the window is unfocused the active Ask-mode tab raises its own "needs approval" notification
                 // (once per request, `#656`), so the turn-status banner for the same permission request would notify twice.
-                let covered_by_approval_latch = matches!(effect.notify, Some(crate::agent_notify::NotifyKind::NeedsInput))
+                let covered_by_approval_latch = matches!(effect.notify, Some(crate::agent_notify::NotifyKind::NeedsApproval))
                     && tab_idx == self.active_tab
                     && !self.window_focused
                     && self.tabs[tab_idx].permission_mode == crate::agent_permissions::AgentPermissionMode::Ask;
@@ -3280,7 +3295,7 @@ impl TerminalState {
                 }
                 if !tab.pending_approvals.is_empty() {
                     if let Ok(mut st) = tab.agent_status.lock() {
-                        *st = AgentTabStatus::WaitingForInput(Some("Needs approval".into()));
+                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
                     }
                 } else if had_pending {
                     if let Ok(mut st) = tab.agent_status.lock() {
@@ -3522,7 +3537,14 @@ impl TerminalState {
             let current = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
             if current != tab.reported_status {
                 let prev = std::mem::replace(&mut tab.reported_status, current.clone());
-                out.push(crate::agent_a11y::StatusChange { tab_id: tab.id, preset: tab.preset, title: tab.title.clone(), prev, next: current });
+                out.push(crate::agent_a11y::StatusChange {
+                    tab_id: tab.id,
+                    preset: tab.preset,
+                    title: tab.title.clone(),
+                    prev,
+                    next: current,
+                    needs_approval: tab.needs_approval(),
+                });
             }
         }
         out
@@ -3806,7 +3828,7 @@ pub fn parse_osc_agent_status_and_strip(chunk: &str) -> (String, Option<AgentTab
             || cleaned.contains("Allow ")
             || cleaned.contains("Approve ")
         {
-            status = Some(AgentTabStatus::WaitingForInput(Some("Needs approval".into())));
+            status = Some(AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into())));
         } else if cleaned.chars().any(|c| ('\u{2801}'..='\u{28FF}').contains(&c) || matches!(c, '◐' | '◓' | '◑' | '◒')) {
             status = Some(AgentTabStatus::Working(None));
         }
@@ -5062,7 +5084,9 @@ pub fn show_left_with_doc(
 
         for (idx, tab) in state.tabs.iter().enumerate() {
             let tab_w = if state.tabs.len() <= 1 {
-                104.0f32.min((max_tabs_right - x).max(64.0))
+                // Grows from 104 px to fit the whole title (`Claude Code #1`), within the room the controls leave.
+                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + if can_close { 34.0 } else { 23.0 };
+                104.0f32.max(title_w).min((max_tabs_right - x).max(64.0))
             } else {
                 82.0f32.min(((max_tabs_right - x) / (state.tabs.len() as f32)).max(56.0))
             };
@@ -5077,8 +5101,8 @@ pub fn show_left_with_doc(
             let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
             let tab_resp = ui.interact(t_hit_rect, Id::new(("agents-left-tab-select", tab.id)), Sense::click());
             let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
-                (true, Some(usage)) => Some(format!("Needs approval\n{usage}")),
-                (true, None) => Some("Needs approval".to_string()),
+                (true, Some(usage)) => Some(format!("{NEEDS_APPROVAL_LABEL}\n{usage}")),
+                (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
                 (false, usage) => usage,
             };
             let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
@@ -5203,7 +5227,7 @@ pub fn show_left_with_doc(
         // One right-hand slot: a pending approval (`#656`) takes it over from the live turn status (`#683`).
         let needs_approval = state.needs_approval();
         let strip_status = if needs_approval {
-            Some((STATUS_WARN_TEXT, "Needs approval".to_string()))
+            Some((STATUS_WARN_TEXT, NEEDS_APPROVAL_LABEL.to_string()))
         } else if let Some(notice) = state.active_tab().and_then(|t| t.still_running_notice.clone()) {
             // The CLI ignored both interrupt keys (`#684 §8.1`).
             Some((STATUS_WARN_TEXT, notice))
@@ -5367,10 +5391,10 @@ pub fn show_left_with_doc(
         Color32::from_rgb(0x8C, 0x8C, 0x8C),
     );
     if state.needs_approval() {
-        let pill_w = widgets::text_width(&p, "Needs approval", &theme::font_caption_medium()) + 16.0;
+        let pill_w = widgets::text_width(&p, NEEDS_APPROVAL_LABEL, &theme::font_caption_medium()) + 16.0;
         let pill_r = Rect::from_min_size(Pos2::new(header_rect.left() + 78.0, header_rect.top() + 24.0), Vec2::new(pill_w, 18.0));
         p.circle_filled(Pos2::new(pill_r.left() + 4.0, pill_r.center().y), 2.5, STATUS_WARN_TEXT);
-        p.text(Pos2::new(pill_r.left() + 10.0, pill_r.center().y), Align2::LEFT_CENTER, "Needs approval", theme::font_caption_medium(), STATUS_WARN_TEXT);
+        p.text(Pos2::new(pill_r.left() + 10.0, pill_r.center().y), Align2::LEFT_CENTER, NEEDS_APPROVAL_LABEL, theme::font_caption_medium(), STATUS_WARN_TEXT);
         widgets::record(ui, "agents-needs-approval-pill", pill_r);
     }
 
@@ -5773,8 +5797,8 @@ fn render_terminal_surface(
         let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
         let tab_resp = ui.interact(t_hit_rect, Id::new((surface_id, "term-tab-select", tab.id)), Sense::click());
         let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
-            (true, Some(usage)) => Some(format!("Needs approval\n{usage}")),
-            (true, None) => Some("Needs approval".to_string()),
+            (true, Some(usage)) => Some(format!("{NEEDS_APPROVAL_LABEL}\n{usage}")),
+            (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
             (false, usage) => usage,
         };
         let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
@@ -9383,6 +9407,63 @@ Done!
         }
         let _ = st.poll_live_agent_bridge();
         assert_eq!(sink.count(), 1, "focused and visible active tab must send 0 notifications");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn a_permission_request_in_the_background_notifies_needs_approval() {
+        let mut st = isolated_683_state(68304);
+        let sink = std::sync::Arc::new(crate::agent_notify::StubNotificationSink::new());
+        st.notifier = crate::agent_notify::AgentNotifier::with_sink(sink.clone());
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-notify-perm"));
+        st.active_tab = idx;
+        st.window_focused = false;
+        st.surface_visible = true;
+
+        std::fs::write(
+            st.session_dir.join("agent-events.jsonl"),
+            concat!(
+                "{\"t\":10.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-notify-perm\"}}\n",
+                "{\"t\":11.0,\"e\":\"PermissionRequest\",\"p\":{\"session_id\":\"sid-notify-perm\",\"tool_name\":\"Bash\"}}\n",
+            ),
+        )
+        .unwrap();
+        let _ = st.poll_live_agent_bridge();
+        let calls = sink.calls();
+        assert_eq!(calls.len(), 1, "one notification for the permission request");
+        assert_eq!(calls[0].kind, crate::agent_notify::NotifyKind::NeedsApproval);
+        assert!(calls[0].message.ends_with(" needs approval"), "{}", calls[0].message);
+        assert!(!calls[0].message.contains("Bash"), "the notification never names the tool: {}", calls[0].message);
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn the_header_names_the_status_not_the_hook_detail_or_the_raw_failure_slug() {
+        let mut st = TerminalState::default();
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-header-label"));
+        let set = |st: &TerminalState, status: AgentTabStatus| *st.tabs[idx].agent_status.lock().unwrap() = status;
+
+        set(&st, AgentTabStatus::WaitingForInput(Some("Bash".into())));
+        assert_eq!(st.tabs[idx].header_status_indicator(0).map(|(_, t)| t).as_deref(), Some("Needs input"));
+        st.tabs[idx].pending_approvals.push(crate::agent_permissions::ApprovalRequest {
+            id: "req-1".into(),
+            tool_name: "Bash".into(),
+            input_summary: "cargo test".into(),
+            timestamp: 1,
+        });
+        assert_eq!(st.tabs[idx].header_status_indicator(0).map(|(_, t)| t).as_deref(), Some("Needs approval"));
+
+        for (raw, shown) in [
+            ("rate_limited", "Failed · rate limited"),
+            ("rate_limit", "Failed · rate limited"),
+            ("login_expired", "Failed · login expired"),
+            ("unknown", "Failed · unknown error"),
+        ] {
+            set(&st, AgentTabStatus::Error(Some(raw.into())));
+            assert_eq!(st.tabs[idx].header_status_indicator(0).map(|(_, t)| t).as_deref(), Some(shown), "{raw}");
+        }
+        set(&st, AgentTabStatus::Error(None));
+        assert_eq!(st.tabs[idx].header_status_indicator(0).map(|(_, t)| t).as_deref(), Some("Ended without reporting a result"));
         kill_tabs(&mut st);
     }
 

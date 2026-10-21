@@ -688,13 +688,13 @@ impl TabTurnTracker {
             "PermissionRequest" => {
                 self.ensure_turn_started(record.t);
                 let detail = record.tool_name().map(str::to_string);
-                TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsInput), ..Default::default() }
+                TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
             }
             "Notification" => {
                 if record.notification_type() == Some("permission_prompt") {
                     self.ensure_turn_started(record.t);
                     let detail = record.tool_name().map(str::to_string);
-                    TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsInput), ..Default::default() }
+                    TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
                 } else {
                     TurnEventEffect::default()
                 }
@@ -830,6 +830,20 @@ impl TabTurnTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug() {
+        let failed = |class: &str| TurnReceipt {
+            started_s: 100.0,
+            ended_s: 142.0,
+            tool_calls: None,
+            layers_changed: None,
+            outcome: TurnOutcome::Failed { class: class.to_string() },
+        };
+        assert_eq!(failed("rate_limit").format_line(), "Failed after 42s \u{00b7} rate limited");
+        assert_eq!(failed("authentication_failed").format_line(), "Failed after 42s \u{00b7} login expired");
+        assert_eq!(failed("unknown").format_line(), "Failed after 42s \u{00b7} unknown error");
+    }
 
     #[test]
     fn streaming_parser_handles_multiline_and_incomplete_records() {
