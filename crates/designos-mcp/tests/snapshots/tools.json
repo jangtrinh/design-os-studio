@@ -825,7 +825,7 @@
           "type": "string"
         },
         "hardcoded": {
-          "description": "Optional filter: when true, only return nodes with hardcoded color values; when false, exclude them.",
+          "description": "Optional filter: true keeps only nodes with a hard-coded value that matches a variable or style (a hardcoded-value finding); false drops them.",
           "type": "boolean"
         },
         "limit": {

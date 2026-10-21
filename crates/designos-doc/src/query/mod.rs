@@ -2,7 +2,7 @@
 //! node budget, compact rows/objects, and solver-backed linter predicates (E15-17 / #602).
 
 use crate::lint::{canonical_rule_id, resolve_rule, Finding, LintConfig, LintEnv, LintPreset, NoLintEnv, RuleNeeds, SingleNodeLinter};
-use crate::openpencil::{eval_predicate_expr, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep};
+use crate::openpencil::{eval_predicate_expr, is_node_type_test, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep};
 use crate::{Document, Node, NodeId, NodeKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -302,6 +302,80 @@ impl From<QueryError> for StepError {
     }
 }
 
+/// A parsed step plus what the evaluator decided about its node test once per call: a node-type
+/// token (`FRAME`, `*`, `RECT`) tests the node's kind; any other word is a name and keeps its
+/// lower-cased needle, matched against node names by substring.
+struct QueryStep {
+    step: XPathStep,
+    name_needle: Option<String>,
+}
+
+impl QueryStep {
+    fn new(step: XPathStep) -> Self {
+        let name_needle = (!is_node_type_test(&step.node_test)).then(|| step.node_test.to_lowercase());
+        Self { step, name_needle }
+    }
+
+    fn test_matches(&self, node: &Node) -> bool {
+        match &self.name_needle {
+            Some(needle) => node.name.to_lowercase().contains(needle.as_str()),
+            None => matches_node_test(&node.kind, &self.step.node_test),
+        }
+    }
+}
+
+impl std::ops::Deref for QueryStep {
+    type Target = XPathStep;
+
+    fn deref(&self) -> &XPathStep {
+        &self.step
+    }
+}
+
+/// Characters XPath gives a meaning to, so a node test holding one is a malformed selector, not a name.
+const NODE_TEST_SYNTAX: &[char] = &['(', ')', '[', ']', '@', '=', '<', '>', '!', ',', '\'', '"', '*', '\\'];
+
+/// A selector that is only a name, optionally behind `//` (`Hero`, `//Card`, `Hero Banner`): the
+/// previous query tool matched it against node names by substring. Returns the name, which may hold
+/// spaces that the XPath parser would split on. `None` for a node-type token or anything with XPath syntax.
+fn bare_name_selector(selector: &str) -> Option<&str> {
+    let trimmed = selector.trim();
+    let name = trimmed.strip_prefix("//").unwrap_or(trimmed).trim();
+    let is_name = !name.is_empty() && !name.contains('/') && !name.contains(NODE_TEST_SYNTAX) && !is_node_type_test(name);
+    is_name.then_some(name)
+}
+
+/// A corrected example for a selector the parser rejected because a name inside it holds spaces
+/// (`//Hero Banner//TEXT`): each such segment becomes a `contains(@name, ...)` step.
+fn spaced_name_example(selector: &str) -> Option<String> {
+    let mut changed = false;
+    let segments: Vec<String> = selector
+        .trim()
+        .split("//")
+        .map(|segment| {
+            let segment = segment.trim();
+            if segment.contains(char::is_whitespace) && !segment.contains('/') && !segment.contains(NODE_TEST_SYNTAX) {
+                changed = true;
+                format!("*[contains(@name,'{segment}')]")
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect();
+    changed.then(|| segments.join("//"))
+}
+
+/// Parses `selector` into steps. A bare name becomes one descendant name step.
+fn parse_selector(selector: &str) -> Result<Vec<XPathStep>, QueryError> {
+    if let Some(name) = bare_name_selector(selector) {
+        return Ok(vec![XPathStep { axis: XPathAxis::Descendant, node_test: name.to_string(), predicates: Vec::new() }]);
+    }
+    parse_xpath(selector).map_err(|message| QueryError::InvalidSelector {
+        message,
+        corrected_example: spaced_name_example(selector).unwrap_or_else(|| "//FRAME[@name='Card']".to_string()),
+    })
+}
+
 /// Validates steps and checks `has-problem` rules and environment availability upfront.
 fn validate_steps(steps: &[XPathStep], doc: &Document, env: Option<&dyn LintEnv>) -> Result<(), QueryError> {
     if steps.is_empty() || steps.len() > 63 {
@@ -313,7 +387,7 @@ fn validate_steps(steps: &[XPathStep], doc: &Document, env: Option<&dyn LintEnv>
     let dummy_node = Node::frame(NodeId(1), crate::Rect::new(0.0, 0.0, 10.0, 10.0));
     for step in steps {
         for ch in step.node_test.chars() {
-            if !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '*') {
+            if step.node_test != "*" && NODE_TEST_SYNTAX.contains(&ch) {
                 return Err(QueryError::InvalidSelector {
                     message: format!("invalid character '{ch}' in node test '{}'", step.node_test),
                     corrected_example: "//FRAME[@name='Card']".to_string(),
@@ -574,12 +648,12 @@ fn node_in_progress(doc: &Document, node: &Node) -> bool {
 fn step_matches_node(
     doc: &Document,
     node: &Node,
-    step: &XPathStep,
+    step: &QueryStep,
     env: Option<&dyn LintEnv>,
     budget: &mut ScanBudget,
     cached_problems: &mut Option<Vec<String>>,
 ) -> Result<bool, StepError> {
-    if !matches_node_test(&node.kind, &step.node_test) {
+    if !step.test_matches(node) {
         return Ok(false);
     }
     for pred in &step.predicates {
@@ -627,7 +701,7 @@ fn build_row(doc: &Document, node: &Node, format: QueryFormat, problems_val: &Va
 fn evaluate_candidate_node(
     doc: &Document,
     node: &Node,
-    steps: &[XPathStep],
+    steps: &[QueryStep],
     depth: u32,
     parent_matched: u64,
     ancestor_matched: u64,
@@ -736,9 +810,9 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
         return Err(QueryError::ExactlyOneScope);
     }
 
-    let steps =
-        parse_xpath(&opts.selector).map_err(|message| QueryError::InvalidSelector { message, corrected_example: "//FRAME[@name='Card']".to_string() })?;
+    let steps = parse_selector(&opts.selector)?;
     validate_steps(&steps, doc, env)?;
+    let steps: Vec<QueryStep> = steps.into_iter().map(QueryStep::new).collect();
 
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let max_scanned = opts.max_scanned.or_else(|| opts.node_budget.map(|b| b as usize)).unwrap_or(DEFAULT_MAX_SCANNED).clamp(1, MAX_MAX_SCANNED);

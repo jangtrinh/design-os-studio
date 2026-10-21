@@ -253,6 +253,26 @@ mod tests {
     }
 
     #[test]
+    fn bare_name_queries_of_the_previous_tool_still_find_nodes_by_name() {
+        let (mut engine, page) = engine_with_text_frame();
+        let mut named = |name: &str| {
+            engine.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame", "name": name})).unwrap()["node"]["id"].as_u64().unwrap()
+        };
+        let hero = named("Hero Banner");
+        let card = named("Card");
+        let ids = |engine: &mut Engine, args: Value| -> Vec<u64> {
+            let reply = engine.call("designos_query_xpath", args).unwrap();
+            reply["rows"].as_array().unwrap().iter().map(|r| r[0].as_u64().unwrap()).collect()
+        };
+        assert_eq!(ids(&mut engine, json!({"selector": "//Card", "page_id": page.0})), vec![card]);
+        assert_eq!(ids(&mut engine, json!({"query": "Hero", "page_id": page.0})), vec![hero], "the `query` alias of the previous tool");
+        assert_eq!(ids(&mut engine, json!({"selector": "Hero Banner", "page_id": page.0})), vec![hero]);
+        let err = engine.call("designos_query_xpath", json!({"selector": "//Hero Banner//TEXT", "page_id": page.0})).unwrap_err();
+        assert_eq!((err.code, err.path.as_str()), (ErrorCode::InvalidSelector, "/selector"));
+        assert_eq!(err.corrected_example, Some(json!({"selector": "//*[contains(@name,'Hero Banner')]//TEXT"})));
+    }
+
+    #[test]
     fn unknown_page_and_conflicting_scope_are_named_errors() {
         let (mut engine, page) = engine_with_text_frame();
         let missing = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": 999_999})).unwrap_err();

@@ -48,6 +48,44 @@ pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     )
 }
 
+/// Node-type tokens a selector step may use: `*`, `NODE`, `PAGE`, every [`xpath_type_name`] value and
+/// the short aliases [`matches_node_test`] accepts. A step whose test is none of these names a node.
+const NODE_TYPE_TESTS: &[&str] = &[
+    "*",
+    "NODE",
+    "PAGE",
+    "FRAME",
+    "GROUP",
+    "SECTION",
+    "RECTANGLE",
+    "ELLIPSE",
+    "LINE",
+    "POLYGON",
+    "STAR",
+    "VECTOR",
+    "TEXT",
+    "BOOLEAN_OPERATION",
+    "COMPONENT",
+    "COMPONENT_SET",
+    "INSTANCE",
+    "STICKY",
+    "CONNECTOR",
+    "SHAPE_WITH_TEXT",
+    "STAMP",
+    "UNKNOWN",
+    "RECT",
+    "BOOLEAN_OP",
+    "BOOLEAN",
+    "COMPONENTSET",
+    "PATH",
+    "REF",
+];
+
+/// `true` when `test` is a node-type token (see [`NODE_TYPE_TESTS`]), ignoring case.
+pub(crate) fn is_node_type_test(test: &str) -> bool {
+    NODE_TYPE_TESTS.iter().any(|t| t.eq_ignore_ascii_case(test))
+}
+
 pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
     match n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         Some(al) => match al.direction {
@@ -1083,6 +1121,27 @@ pub fn analyze_clusters(doc: &Document, page: Option<NodeId>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_type_name_xpath_type_name_returns_is_a_node_type_token() {
+        // Reads the names out of the `xpath_type_name` source, so a new node kind whose name is not in
+        // `NODE_TYPE_TESTS` fails here instead of turning `//NEWKIND` into a name search.
+        let source = include_str!("openpencil.rs");
+        let start = source.find("pub fn xpath_type_name").expect("xpath_type_name source");
+        let body = &source[start..start + source[start..].find("\n}\n").expect("end of xpath_type_name")];
+        let names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
+        assert!(names.len() >= 20, "found only {names:?}");
+        for name in names {
+            assert!(is_node_type_test(name), "{name} is returned by xpath_type_name but is not a node type token");
+            assert!(is_node_type_test(&name.to_ascii_lowercase()), "{name} must match in lower case");
+        }
+        for token in ["*", "NODE", "RECT", "path", "Ref"] {
+            assert!(is_node_type_test(token), "{token}");
+        }
+        for word in ["Card", "Hero", "Text field", "Frame 12"] {
+            assert!(!is_node_type_test(word), "{word} is a name");
+        }
+    }
 
     #[test]
     fn new_page_default_background_is_5a5a5a() {
