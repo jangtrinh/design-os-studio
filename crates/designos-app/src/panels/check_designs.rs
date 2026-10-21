@@ -510,7 +510,7 @@ fn empty_state(ui: &mut Ui, scanned: usize) {
     let p = ui.painter();
     icons::paint(p, Icon::Check, Pos2::new(rect.center().x, rect.top() + EMPTY_ICON_Y), 20.0, STATUS_OK_TEXT);
     p.text(Pos2::new(rect.center().x, rect.top() + EMPTY_TITLE_Y), Align2::CENTER_CENTER, "No issues found", theme::font_body_strong(), theme::TEXT);
-    let note = format!("Enabled design rules were checked on {scanned} layers.");
+    let note = format!("{scanned} {} checked with enabled rules", if scanned == 1 { "layer" } else { "layers" });
     let galley = p.layout(note, theme::font_body(), theme::TEXT_SECONDARY, PANEL_W - 2.0 * PAD - 24.0);
     p.galley(Pos2::new(rect.center().x - galley.size().x / 2.0, rect.top() + EMPTY_NOTE_Y), galley, theme::TEXT_SECONDARY);
 }
