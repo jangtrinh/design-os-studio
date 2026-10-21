@@ -132,29 +132,6 @@ pub fn save_in_progress_stale_minutes(root: &Path, minutes: u32) -> Result<u32, 
     Ok(clamped)
 }
 
-/// Loads the user's chosen default skill names (`skills.default`) from `settings.json`.
-pub fn load_default_skills(root: &Path) -> Vec<String> {
-    read(root)
-        .get("skills")
-        .and_then(|s| s.get("default"))
-        .and_then(|d| d.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-        .unwrap_or_default()
-}
-
-/// Saves the user's chosen default skill names (`skills.default`) into `settings.json`,
-/// preserving all other keys in `settings.json` and any other sub-keys under `skills`.
-pub fn save_default_skills(root: &Path, names: &[String]) -> Result<(), String> {
-    let mut map = read(root);
-    let clean: Vec<serde_json::Value> = names.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| serde_json::Value::String(s.to_string())).collect();
-    let mut skills_obj = map.remove("skills").and_then(|v| v.as_object().cloned()).unwrap_or_default();
-    skills_obj.insert("default".into(), serde_json::Value::Array(clean));
-    map.insert("skills".into(), serde_json::Value::Object(skills_obj));
-    let _ = std::fs::create_dir_all(root);
-    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
-    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

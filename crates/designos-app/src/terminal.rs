@@ -958,28 +958,6 @@ impl TerminalTab {
         matches!(self.spawn_preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)
     }
 
-    /// True for a custom "Other CLI…" tab. It launches through the Claude preset (`spawn_preset`) but is shown as a shell, and its
-    /// command is the user's own, not Claude Code.
-    pub fn is_custom_cli(&self) -> bool {
-        self.preset == AgentCliPreset::Shell && self.spawned_command.is_some() && !self.is_shell_process()
-    }
-
-    /// True when this tab is Claude Code, which reads attached skills from its `UserPromptSubmit` hook. Every other CLI, a custom
-    /// command included, never reads that hook and gets the skills in the pasted prompt (`#573`).
-    pub fn reads_skills_from_hook(&self) -> bool {
-        self.spawn_preset == AgentCliPreset::Claude && !self.is_custom_cli()
-    }
-
-    /// The runtime recorded in `run.json` for skills sent to this tab: the CLI's binary name, `custom` for an "Other CLI…" command
-    /// (its label or command line is free text and may hold a secret).
-    pub fn skills_runtime_label(&self) -> &'static str {
-        if self.is_custom_cli() {
-            "custom"
-        } else {
-            self.spawn_preset.binary_name()
-        }
-    }
-
     /// True when the child has not yet exited (`child.try_wait() == Ok(None)`).
     pub fn is_alive(&mut self) -> bool {
         let alive = matches!(self.child.try_wait(), Ok(None));
@@ -1049,10 +1027,6 @@ impl TerminalTab {
         let _ = self.writer.flush();
     }
 }
-
-/// How long attached skills stay in their reply files after their prompt's `UserPromptSubmit` was seen. The skills handlers run in
-/// parallel with the handler that appends that event, so they may read a file a moment after the event was written.
-const SKILLS_HOOK_SETTLE: std::time::Duration = if cfg!(test) { std::time::Duration::from_millis(150) } else { std::time::Duration::from_secs(2) };
 
 /// Shared state of a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`).
 #[derive(Clone, Debug)]
@@ -1227,11 +1201,6 @@ pub struct TerminalState {
     pub composer_cursor_byte: Option<usize>,
     /// Most recent redacted failure details copied via `Copy details` (`AX-686`).
     pub last_copied_failure_details: Option<String>,
-    /// Built-in and user `SKILL.md` attachments for agent design runs (`RD-4`).
-    pub skills: crate::skills::SkillsAttachmentState,
-    /// Chunks of the skills hook reply files on disk per agent tab id (`skills/hook_delivery`); differs from what the tabs wait to
-    /// deliver while a file is stale, and tells which files to delete once a tab is gone.
-    pub reply_skills: std::collections::BTreeMap<usize, Vec<String>>,
 }
 
 impl Default for TerminalState {
@@ -1464,8 +1433,6 @@ impl TerminalState {
             mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
             composer_cursor_byte: None,
             last_copied_failure_details: None,
-            skills: crate::skills::SkillsAttachmentState::default(),
-            reply_skills: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1754,11 +1721,6 @@ impl TerminalState {
     }
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
-        // Skills replies written into the folder being left go with it. Tabs that still wait to deliver rewrite theirs, into the new
-        // folder, on the next `sync_hook_reply`.
-        for (tab_id, chunks) in std::mem::take(&mut self.reply_skills) {
-            crate::skills::hook_delivery::remove_replies(&self.session_dir, tab_id, 0..chunks.len());
-        }
         self.active_run_id = format!("{}-1-{}", self.session_id, self.next_run_seq.max(1));
         self.live_spec_path = session_dir.join("live-spec.json");
         self.live_doc_sync_path = session_dir.join("doc-sync.designos");
@@ -1768,8 +1730,6 @@ impl TerminalState {
         self.bootstrap_md_path = session_dir.join("bootstrap.md");
         self.bootstrap_json_path = session_dir.join("bootstrap.json");
         self.session_dir = session_dir;
-        // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
-        crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
         self.last_watched_mtime = std::fs::metadata(&self.live_spec_path).and_then(|m| m.modified()).ok();
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.session_dir.join("turn-marks.jsonl"));
@@ -1829,9 +1789,6 @@ impl TerminalState {
         F: Fn(u32) -> bool,
     {
         self.library_root = Some(lib_root.to_path_buf());
-        if self.skills.library_root != lib_root {
-            self.skills.set_library_root(lib_root.to_path_buf());
-        }
         let clean_file_id = file_id.trim();
         if clean_file_id.is_empty() {
             return;
@@ -2240,52 +2197,6 @@ impl TerminalState {
         }
     }
 
-    /// Brings the skills hook reply files in line with what Claude Code tabs wait to deliver (`#573`). Each tab has its own files
-    /// (`skills/hook_delivery`): written when a send armed skills, removed once their prompt was submitted ([`SKILLS_HOOK_SETTLE`]
-    /// after its `UserPromptSubmit` was seen), the tab closed or the send failed. The chunks are the text frozen when the send
-    /// attached them (`run.json` records the same text), never the live selection. The prompt hook prints these files, one handler
-    /// per chunk, next to the page or bootstrap reply, and prints nothing for a file that is missing. Runs after every send and
-    /// bridge poll.
-    pub(crate) fn sync_hook_reply(&mut self) {
-        // The common frame: no skills on disk and none waiting. No allocation, no file access.
-        if self.reply_skills.is_empty() && self.tabs.iter().all(|t| t.composer.skills_hook_chunks.is_empty()) {
-            return;
-        }
-        let now = std::time::Instant::now();
-        for composer in self.tabs.iter_mut().map(|t| &mut t.composer) {
-            if composer.skills_hook_submitted_at.is_some_and(|seen| now.saturating_duration_since(seen) >= SKILLS_HOOK_SETTLE) {
-                composer.skills_hook_chunks.clear();
-                composer.skills_hook_submitted_at = None;
-            }
-        }
-        let wanted: std::collections::BTreeMap<usize, Vec<String>> =
-            self.tabs.iter().filter(|t| !t.composer.skills_hook_chunks.is_empty()).map(|t| (t.id, t.composer.skills_hook_chunks.clone())).collect();
-        let ids: std::collections::BTreeSet<usize> = wanted.keys().chain(self.reply_skills.keys()).copied().collect();
-        let mut write_failed = false;
-        for id in ids {
-            let want = wanted.get(&id).map(Vec::as_slice).unwrap_or_default();
-            let on_disk = self.reply_skills.get(&id).map(Vec::as_slice).unwrap_or_default();
-            if on_disk == want {
-                continue;
-            }
-            write_failed |= !crate::skills::hook_delivery::write_replies(&self.session_dir, id, want, on_disk.len());
-            if want.is_empty() {
-                self.reply_skills.remove(&id);
-            } else {
-                self.reply_skills.insert(id, want.to_vec());
-            }
-        }
-        if write_failed {
-            self.status_msg = Some("Skills not attached: write failed".to_string());
-        }
-    }
-
-    /// Deletes the skills reply files of every tab in the session folder, including any an earlier run left (`#573`).
-    fn delete_skills_replies(&mut self) {
-        self.reply_skills.clear();
-        crate::skills::hook_delivery::remove_all_replies(&self.session_dir);
-    }
-
     fn provision_session_agent_files(&self, file_path: Option<&Path>) {
         let mcp_bin = designos_mcp_binary();
         let workspace_dir = session_workspace_dir(file_path);
@@ -2521,8 +2432,6 @@ impl TerminalState {
 
     /// Terminates all child PTY processes owned by this file's terminal state.
     pub fn shutdown(&mut self) {
-        // Skills waiting for a first prompt that never came must not reach a later prompt of this file (`#573`).
-        self.delete_skills_replies();
         crate::agent_permissions::withdraw_pending_requests(&self.session_dir);
         self.pending_approvals.clear();
         let mut reg_dirty = false;
@@ -3061,13 +2970,6 @@ impl TerminalState {
                 let is_turn_start = matches!(record.e.as_str(), "UserPromptSubmit" | "PreInvocation");
                 if is_turn_start {
                     self.tabs[tab_idx].clear_session_failure();
-                    // A record seen while the tab's Enter is still pending belongs to an earlier prompt. Otherwise the skills held
-                    // for the tab's first prompt were just read by the skills handler; they leave the reply a moment later
-                    // (`SKILLS_HOOK_SETTLE`, `sync_hook_reply`) (`#573`).
-                    let composer = &mut self.tabs[tab_idx].composer;
-                    if !composer.skills_hook_chunks.is_empty() && composer.skills_hook_submitted_at.is_none() && composer.pending_enter_deadline.is_none() {
-                        composer.skills_hook_submitted_at = Some(std::time::Instant::now());
-                    }
                 }
                 let effect = self.tabs[tab_idx].turn_tracker.on_event(&record);
                 if let Some(new_status) = effect.new_status {
@@ -4426,23 +4328,9 @@ fn session_hooks_settings_with_approval(
     if let (Some(script), Some(handlers)) = (approval_script, permission_request[0]["hooks"].as_array_mut()) {
         handlers.push(crate::agent_permissions::approval_hook_handler(script));
     }
-    let mut prompt_group = command_handler_group(prompt, cap);
-    if context_replies.is_some() {
-        // Attached skills (`#573`) are `additionalContext` of the prompt hook's own handlers, one per chunk of at most 9,500
-        // characters (Claude Code caps each string at 10,000), printed from the files of the tab running the hook. Claude
-        // receives every handler's `additionalContext`, so the skills never have to share a reply with the page or bootstrap
-        // block, which the first-turn branch above prints instead of the page reply. No file, no output, exit 0.
-        if let Some(handlers) = prompt_group[0]["hooks"].as_array_mut() {
-            handlers.extend(
-                crate::skills::hook_delivery::handler_commands(session_dir)
-                    .into_iter()
-                    .map(|command| serde_json::json!({ "type": "command", "command": command })),
-            );
-        }
-    }
     serde_json::json!({
         "hooks": {
-            "UserPromptSubmit": prompt_group,
+            "UserPromptSubmit": command_handler_group(prompt, cap),
             "PreToolUse": command_handler_group(status_hook_command(status_path, "PreToolUse", "working"), cap),
             "PostToolUse": command_handler_group(status_hook_command(status_path, "PostToolUse", "working"), cap),
             "PostToolUseFailure": command_handler_group(status_hook_command(status_path, "PostToolUseFailure", "working"), None),
@@ -4848,12 +4736,8 @@ pub fn show_left_with_doc(
 
         let stop_left = crate::agent_stop::paint_header_stop_controls(ui, &p, state, bar_r, pop_rect.left());
 
-        // The `Skills` button (`RD-4` §7) sits right of the `+` runtime selector: the tabs, `Sessions` and `+` end before it.
-        let skills_w = state.skills.chip_width(&p);
-        let controls_left = stop_left - skills_w - theme::SPACE_INLINE;
-
         // Left-aligned session tabs + `"Sessions"` ghost button + `+` runtime dropdown button
-        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(controls_left);
+        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(stop_left);
         let mut x = bar_r.left() + 6.0;
         let mut tab_to_select: Option<usize> = None;
         let mut tab_to_close: Option<usize> = None;
@@ -4944,7 +4828,7 @@ pub fn show_left_with_doc(
         }
 
         // `"Sessions"` ghost button (`#651` §3 rule 5 & §7) + top `+` button (`agents-runtime-add-btn`)
-        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, controls_left);
+        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, stop_left);
         let add_rect = Rect::from_min_size(Pos2::new(add_x, bar_r.center().y - 12.0), Vec2::new(28.0, 24.0));
         let add_resp = ui.interact(add_rect, Id::new("agents-runtime-add-btn"), Sense::click());
         let add_bg = if state.runtime_dropdown_open {
@@ -4970,13 +4854,6 @@ pub fn show_left_with_doc(
                 state.picker.on_close();
             }
         }
-
-        // `Skills` button, `CONTROL_STANDARD` (28 px) high: opens the picker of skills attached to an agent's runs, like the composer chip.
-        let skills_r = Rect::from_min_size(
-            Pos2::new(add_rect.right() + theme::SPACE_INLINE, bar_r.center().y - theme::CONTROL_STANDARD * 0.5),
-            Vec2::new(skills_w, theme::CONTROL_STANDARD),
-        );
-        state.skills.paint_chip(ui, &p, skills_r, "agents-header-skills");
 
         // Header strip (`CONTROL_DENSE` = 24px): the live selection chip (#654) stays on the left; the live turn status (`#683` §7,
         // running dot + text) and the active tab's verified token/cost readout (`#678` §7) sit right of it, left of `@ Mention`.
@@ -5126,7 +5003,6 @@ pub fn show_left_with_doc(
         if state.sessions_popover_open {
             crate::agent_open_flow::render_sessions_popover(state, ui, rect, bar_r.bottom() + theme::INSET_SEGMENT, file_path);
         }
-        state.skills.show_picker_popover(ui, rect, composer_rect.top());
 
         let repaint_ms = if state.viewport_focused { 50 } else { 500 };
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(repaint_ms));
@@ -5286,8 +5162,6 @@ pub fn show_left_with_doc(
 
     // Empty state: starter prompts, with the `#652` picker on top while no session is open (`#688`).
     crate::agent_sample_prompts::show_empty_state(state, ui, center_rect, file_path);
-
-    state.skills.show_picker_popover(ui, rect, composer_rect.top());
 
     actions
 }
@@ -9229,20 +9103,6 @@ Done!
             command_of(&claude, "UserPromptSubmit").contains("else cat '/tmp/designos-683-677-hooks/reply.json'; fi"),
             "Claude still answers with the page context once the bootstrap block was delivered"
         );
-        // Attached skills are `additionalContext` of the prompt hook's own handlers, one per slot: each prints nothing, and
-        // succeeds, while no skills wait (Claude receives every handler's `additionalContext`, so they need not share the page or
-        // bootstrap reply). The handler count is fixed when the hook is written.
-        let claude_prompt_handlers = hook_handlers(&claude, "UserPromptSubmit");
-        let skills_handlers: Vec<&str> = claude_prompt_handlers.iter().skip(1).filter_map(|h| h["command"].as_str()).collect();
-        assert_eq!(skills_handlers.len(), crate::skills::hook_delivery::HOOK_SKILL_SLOTS, "one skills handler per slot");
-        for (slot, handler) in skills_handlers.iter().enumerate() {
-            let expected = format!(
-                "f='/tmp/designos-683-677-hooks/skills-context-reply-'\"${{DESIGNOS_TAB_ID:-0}}\"'-{slot}.json'; if [ -s \"$f\" ]; then cat \"$f\"; fi"
-            );
-            assert_eq!(*handler, expected, "slot {slot}");
-            assert_eq!(run_hook_command(handler), "", "no file, no output, exit 0");
-        }
-        assert_eq!(hook_handlers(&grok, "UserPromptSubmit").len(), 1, "Grok never reads a context reply, so it gets no skills handler");
 
         let agy = agy_session_hooks(status_path);
         let agy_cmd = |event: &str| agy["designos-status"][event][0]["command"].as_str().unwrap_or_default().to_string();
