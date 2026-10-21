@@ -410,8 +410,14 @@ fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back(
     assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
     assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
     assert_eq!(app.terminal.last_synced_key, key_before, "the publish is retried on a later frame");
-    let leftovers: Vec<_> =
-        std::fs::read_dir(canvas.parent().unwrap()).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains(".tmp.")).collect();
+    // Only the canvas' own temporary files count: the background bootstrap build writes its own `bootstrap.*.tmp.*`
+    // files into the same session dir while this runs.
+    let canvas_tmp_prefix = format!("{}.tmp.", canvas.file_name().unwrap().to_string_lossy());
+    let leftovers: Vec<_> = std::fs::read_dir(canvas.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&canvas_tmp_prefix))
+        .collect();
     assert!(leftovers.is_empty(), "the temporary canvas file is removed: {leftovers:?}");
 
     let actions = app.terminal.poll_live_agent_bridge();

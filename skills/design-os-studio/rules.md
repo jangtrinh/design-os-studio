@@ -29,7 +29,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{}`
 
 ### `designos_get_metadata`
-- **Purpose:** Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props,...
+- **Purpose:** Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant...
 - **Args:** required: none (optional: `depth`, `include_hidden`, `lint`, `max_nodes`, `node_id`, `page_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":1,"depth":3}`
@@ -119,7 +119,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{"node_id":2}`
 
 ### `designos_set_dev_status`
-- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation.
+- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer...
 - **Args:** required: `node_id` (optional: `annotation`, `idempotency_key`, `status`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
@@ -131,7 +131,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
-- **Purpose:** Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant...
+- **Purpose:** Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and...
 - **Args:** required: none (optional: `page_id`, `query`, `selector`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
@@ -161,7 +161,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{}`
 
 ### `designos_lint_fix`
-- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active...
+- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the...
 - **Args:** required: none (optional: `node_id`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"page_id":1,"rules":["default-layer-name"]}`
@@ -173,7 +173,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{}`
 
 ### `designos_get_screenshot`
-- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region and return it inline as...
+- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region and return it...
 - **Args:** required: none (optional: `format`, `max_long_edge`, `node_id`, `node_ids`, `quality`, `region`, `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"scale":2.0}`
@@ -197,13 +197,19 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{"node_id":2,"language":"css"}`
 
 ### `designos_configure_session`
-- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset |...
+- **Purpose:** Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode:...
 - **Args:** required: none (optional: `auto_fix`, `issues`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"issues":{"mode":"preset","preset":"agent","max_items":25}}`
 
+### `designos_get_app_state`
+- **Purpose:** Return the pre-fetched design context block.
+- **Args:** required: none (optional: `include_selection`, `max_tokens`, `sections`, `target_node_ids`)
+- **Errors:** `INVALID_ARGUMENTS`
+- **Example:** `{}`
+
 ### `designos_open_file`
-- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated...
+- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this...
 - **Args:** required: `path` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"path":"design.designos","discard_changes":false}`
@@ -215,7 +221,7 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
 ### `designos_render_png`
-- **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic...
+- **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's...
 - **Args:** required: `path`, `node_id` (optional: `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"node_id":2,"path":"preview.png","scale":2.0}`

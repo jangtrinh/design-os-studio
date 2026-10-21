@@ -102,6 +102,17 @@ pub struct Engine {
     pub revision: u64,
     /// Optional set of enabled canonical tool names from `designos.enabled_tools` (`E15-15` §8.5).
     pub enabled_tools: Option<std::collections::BTreeSet<String>>,
+    /// Open file path synced from Studio (`context.json`) or `designos_open_file` / `designos_save_file`.
+    pub file_path: Option<String>,
+    /// Canvas selection node IDs synced from Studio (`context.json`).
+    /// Never exposed unless `designos_get_app_state` is called with `include_selection: true` (`#698`).
+    pub selected_node_ids: Vec<NodeId>,
+    /// True when attached to a live Studio session (`scoped` flag in `designos_get_app_state`).
+    pub scoped: bool,
+    /// Base document revision synced from Studio (`context.json` / `bootstrap.json`).
+    pub base_doc_revision: Option<u64>,
+    /// Timestamp synced from Studio's `bootstrap.json` when the session document has not mutated since sync.
+    pub bootstrap_generated_at: Option<String>,
 }
 
 impl Default for Engine {
@@ -125,12 +136,18 @@ impl Default for Engine {
             disable_text_lint_engine: false,
             revision: 0,
             enabled_tools: None,
+            file_path: None,
+            selected_node_ids: Vec::new(),
+            scoped: false,
+            base_doc_revision: None,
+            bootstrap_generated_at: None,
         }
     }
 }
 
 /// Every tool name and legacy alias accepted by [`Engine::call`].
 pub const DISPATCHED: &[&str] = &[
+    "designos_get_app_state",
     "designos_get_document",
     "designos_get_libraries",
     "designos_search_design_system",
@@ -336,6 +353,7 @@ impl Engine {
         // or serialize a document with deferred layout still in it.
         self.settle_layout();
         match name {
+            "designos_get_app_state" => crate::tools::bootstrap::call_get_app_state(self, args).map_err(ToolError::from),
             "designos_get_document" => {
                 let _: Empty = parse(args)?;
                 let in_progress_nodes: Vec<Value> = self
@@ -2139,6 +2157,7 @@ pub fn tools() -> Vec<Value> {
     out.push(crate::tools::batch::tool_descriptor());
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
+    out.push(crate::tools::bootstrap::tool_definition());
     out
 }
 

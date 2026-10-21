@@ -1,12 +1,201 @@
-//! Sparse XML node metadata builder (`T7.2`) for AI agent context orientation.
+//! Pre-fetched first-turn agent context (`E15-16`) and sparse XML node metadata (`T7.2`).
 //!
-//! Emits a compact, valid XML hierarchy containing each node's numeric ID, tag type,
-//! name, page-space bounding box, layout mode, component/variant metadata, text preview,
-//! in-progress marker, and lint issue count, bounded by `depth` and `max_nodes`.
+//! Builds the 7-section `Bootstrap` context pack (and compact fallback block) off the UI thread
+//! from a document snapshot so an agent's first turn in Studio already contains:
+//! 1. Freshness header (`generated_at` RFC 3339, `doc_revision`, and current-state notice)
+//! 2. Document summary (`name`, `file_path`, `kind`, `pages`, `current_page`)
+//! 3. Target frames outline (depth-3 `metadata_xml` of explicit target frames or current page's
+//!    top-level frames — **never** derived from the canvas selection)
+//! 4. Variables summary (per collection name, modes, count, and first 20 variables in default mode)
+//! 5. Components and libraries (first 50 local component sets / components + enabled libraries)
+//! 6. Active style (applied archetype id and parameters, else `none`)
+//! 7. Rules pack (`E15-15`) filtered to the session's enabled tools
+//!
+//! Only when `BootstrapOptions::include_selection` is explicitly `true` (used exclusively by
+//! `designos_get_app_state` with `include_selection: true`) is a `selection` section appended.
 
-use designos_doc::{parse_variant_name, variant_name, Affine, Document, LayoutDirection, Node, NodeId, NodeKind, PropValue, Rect, Vec2};
+use designos_doc::{
+    parse_variant_name, variant_name, Affine, Color, Document, DocumentKind, LayoutDirection, LibraryRef, Node, NodeId, NodeKind, PropKind, PropValue, Rect,
+    VariableValue, Vec2,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Default total token budget (`chars / 4`) for a `Bootstrap` block (`§3.1`, `§5`).
+pub const DEFAULT_BOOTSTRAP_MAX_TOKENS: usize = 12_000;
+/// Minimum allowed `max_tokens` for `designos_get_app_state` (`§5`).
+pub const MIN_BOOTSTRAP_MAX_TOKENS: usize = 2_000;
+/// Maximum allowed `max_tokens` for `designos_get_app_state` (`§5`).
+pub const MAX_BOOTSTRAP_MAX_TOKENS: usize = 25_000;
+
+/// Per-section token caps (`§3.1`, `§3.3`).
+pub const CAP_FRESHNESS_TOKENS: usize = 60;
+pub const CAP_DOCUMENT_TOKENS: usize = 300;
+pub const CAP_OUTLINE_TOKENS: usize = 2_500;
+pub const CAP_VARIABLES_TOKENS: usize = 1_200;
+pub const CAP_COMPONENTS_TOKENS: usize = 1_200;
+pub const CAP_STYLE_TOKENS: usize = 200;
+pub const CAP_RULES_TOKENS: usize = 6_000;
+pub const CAP_SELECTION_TOKENS: usize = 300;
+
+/// Canonical list of all built-in `designos-mcp` tool names.
+pub const ALL_TOOL_NAMES: &[&str] = &[
+    "designos_get_document",
+    "designos_get_app_state",
+    "designos_list_nodes",
+    "designos_get_node",
+    "designos_get_variables",
+    "designos_generate_code",
+    "designos_create_node",
+    "designos_update_node",
+    "designos_delete_node",
+    "designos_list_comments",
+    "designos_add_comment",
+    "designos_reply_comment",
+    "designos_resolve_comment",
+    "designos_apply_spec",
+    "designos_export_spec",
+    "designos_set_dev_status",
+    "designos_export_fig_file",
+    "designos_undo",
+    "designos_redo",
+    "designos_open_file",
+    "designos_save_file",
+    "designos_render_png",
+    "designos_new_document",
+];
+
+/// Default rules pack (`E15-15`) with per-tool `### \`designos_*\`` sections that can be filtered
+/// via [`filter_rules_for_enabled_tools`].
+pub const DEFAULT_RULES_PACK: &str = "\
+### Build-Verify-Fix Workflow (7 Steps)
+1. **Orient** — Read the pre-fetched bootstrap context (or call `designos_get_app_state`) to inspect pages, frame IDs, tokens, and components without redundant discovery reads.
+2. **Ground** — Use existing variables (`$collection.token` or `$easeui.*`), styles, and components listed in Sections 4–5. Never invent raw hex colors or off-scale pixel spacing when a token exists.
+3. **Plan** — Place new top-level frames beside existing frames on the current page; never stack new screens at `(0, 0)` over existing frames.
+4. **Build in sections** — Prefer `designos_apply_spec` for full subtrees (cards, headers, forms, screens) with Auto-Layout (`direction`, `gap`, `padding`, `hug`/`fill`) over single-node calls.
+5. **Check lint issues on every write** — Resolve any `zero-bounds`, `clipped-text`, or `default-layer-name` findings before moving to the next section.
+6. **Visual check** — Call `designos_render_png` on the finished frame and inspect alignment, hierarchy, contrast, and text wrapping.
+7. **Final audit** — Call `designos_get_node` and `designos_render_png` on the finished frame and confirm zero remaining error-severity findings before finishing.
+
+### Enabled MCP Tools Reference
+#### `designos_get_document`
+Summarize the in-memory document: pages, counts, shared styles, and undo state.
+#### `designos_get_app_state`
+Return the pre-fetched 7-section design context block (document, depth-3 outline, variables, components, active style, rules, and session state). Pass `include_selection: true` only when the user explicitly asks about their canvas selection.
+#### `designos_list_nodes`
+List node summaries in numeric ID order (`parent_id`, `query`, `offset`, `limit`).
+#### `designos_get_node`
+Read the full native node (`node_id`) including geometry, paints, text, bindings, and child IDs.
+#### `designos_get_variables`
+Read variable definitions and collections (`node_id` optional).
+#### `designos_generate_code`
+Generate developer handoff code (`css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml`, `svg`) for `node_id`.
+#### `designos_create_node`
+Create one layer (`frame`, `rectangle`, `ellipse`, `text`) in `parent_id`.
+#### `designos_update_node`
+Update fields (`name`, `text`, `x`, `y`, `width`, `height`, `visible`, `opacity`) of `node_id`.
+#### `designos_delete_node`
+Remove `node_id` and its subtree.
+#### `designos_list_comments`
+List canvas comment threads filtered by `resolved`, `page_id`, or `node_id`.
+#### `designos_add_comment`
+Pin a comment thread (`text`, `node_id`, `page_id`, `x`, `y`).
+#### `designos_reply_comment`
+Reply to `thread_id` with `text` and optional `resolved`.
+#### `designos_resolve_comment`
+Mark `thread_id` resolved (`true`) or unresolved (`false`).
+#### `designos_apply_spec`
+Build a complete UI subtree under `parent_id` from a declarative `NodeSpec` (`kind`, `name`, `preset`, `layout`, `fill`, `stroke`, `corner_radius`, `text`, `font_size`, `children`).
+#### `designos_export_spec`
+Export `node_id` and its descendants as a declarative `NodeSpec` JSON tree.
+#### `designos_set_dev_status`
+Set Dev Mode status (`ready`, `completed`, `clear`) and `annotation` on `node_id`.
+#### `designos_export_fig_file`
+Export the session document to `output_path` (`.fig`).
+#### `designos_undo`
+Undo the latest edit in this session.
+#### `designos_redo`
+Redo the most recently undone edit in this session.
+#### `designos_open_file`
+Import a `.designos`, `.fig`, SVG, or Figma JSON file at `path`.
+#### `designos_save_file`
+Save the current session document to `path` (`overwrite` optional).
+#### `designos_render_png`
+Rasterize `node_id` to a new PNG at `path` (`scale` `0.25..=4.0`).
+#### `designos_new_document`
+Start a blank document named `name` (`discard_changes` optional).
+
+### Design Quality Rules
+- Use semantic layer names (`HeroHeader`, `PrimaryActionBtn`, `RevenueMetricCard`); never leave default names (`Frame 1`, `Rectangle 2`).
+- Bind colors, spacing, and radii to document variables or shared styles whenever available.
+- Use Auto-Layout (`row` / `column`, `hug` / `fill`, 4-px spacing scale) on all container frames.";
+
+/// Filters a rules pack markdown string so that `#### \`designos_*\`` sections (and inline workflow
+/// mentions) for disabled tools are omitted (`§3.1`, `§8.6`).
+pub fn filter_rules_for_enabled_tools(rules: &str, enabled_tools: Option<&[String]>) -> String {
+    let Some(enabled) = enabled_tools else {
+        return rules.trim().to_string();
+    };
+    let set: BTreeSet<&str> = enabled.iter().map(String::as_str).collect();
+    let mut out = String::new();
+    let mut skip_section = false;
+
+    for line in rules.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("#### `").or_else(|| trimmed.strip_prefix("### `")) {
+            if let Some(tool_name) = rest.strip_suffix('`') {
+                skip_section = !set.contains(tool_name);
+            } else {
+                skip_section = false;
+            }
+        } else if trimmed.starts_with("### ") || trimmed.starts_with("## ") {
+            skip_section = false;
+        }
+        if skip_section {
+            continue;
+        }
+        if !set.contains("designos_render_png") && trimmed.starts_with("6. **Visual check**") {
+            out.push_str("6. **Visual check** — Inspect the frame hierarchy with `designos_get_node` for alignment, hierarchy, clipping, and contrast.\n");
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.trim().to_string()
+}
+
+/// Estimates token count using the project's `chars / 4` rule (`§3.1`).
+#[inline]
+pub fn estimate_tokens(s: &str) -> usize {
+    s.chars().count().div_ceil(4)
+}
+
+/// Formats `SystemTime` (or `SystemTime::now()`) as an UTC RFC 3339 timestamp (`YYYY-MM-DDTHH:MM:SSZ`).
+pub fn now_rfc3339() -> String {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    unix_secs_to_rfc3339(secs)
+}
+
+fn unix_secs_to_rfc3339(secs: u64) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let hour = rem / 3_600;
+    let min = (rem % 3_600) / 60;
+    let sec = rem % 60;
+
+    // Civil date from days since 1970-01-01 (Howard Hinnant algorithm).
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}T{hour:02}:{min:02}:{sec:02}Z")
+}
 
 /// Options controlling the sparse XML metadata walk.
 #[derive(Clone, Debug)]
@@ -583,4 +772,1248 @@ pub fn structural_lint_counts(doc: &Document, root: NodeId) -> HashMap<NodeId, u
     let emitted = emitted_metadata_nodes(doc, root, &MetadataOptions::default());
     let (rules, _) = structural_lint_rules_for_nodes(doc, &emitted, Duration::from_millis(50));
     rules.into_iter().filter_map(|(id, set)| (!set.is_empty()).then_some((id, set.len() as u16))).collect()
+}
+
+// ============================================================================
+// E15-16 First-Turn Bootstrap Context Builder
+// ============================================================================
+
+/// Options controlling [`bootstrap`].
+#[derive(Clone, Debug)]
+pub struct BootstrapOptions {
+    /// Optional path to the open document file on disk.
+    pub file_path: Option<String>,
+    /// Active page ID (defaults to `doc.pages.first()`).
+    pub current_page_id: Option<NodeId>,
+    /// Explicit target top-level frame/node IDs (`RD-3` lease frames or `target_node_ids`).
+    /// When empty, Section 3 uses the current page's top-level frames — **never** the canvas selection.
+    pub target_node_ids: Vec<NodeId>,
+    /// Total token budget (`2_000..=25_000`, default `12_000`).
+    pub max_tokens: usize,
+    /// Optional subset of section IDs to include (`"document"`, `"outline"`, `"variables"`,
+    /// `"components"`, `"style"`, `"rules"`, `"freshness"`). When `None`, all 7 sections are built.
+    pub sections: Option<Vec<String>>,
+    /// Whether to append the explicit `selection` section (`300` tokens).
+    /// **Always `false`** for Studio's first-turn bootstrap (`#698` owner ruling); only `true` when
+    /// an agent explicitly calls `designos_get_app_state` with `include_selection: true`.
+    pub include_selection: bool,
+    /// Selected node IDs consulted **only** when `include_selection == true`.
+    pub selected_node_ids: Vec<NodeId>,
+    /// Whether the document is a scoped canvas copy (`true` in MCP attached to a large Studio file).
+    pub scoped: bool,
+    /// Optional explicit RFC 3339 timestamp (defaults to `now_rfc3339()`).
+    pub generated_at: Option<String>,
+    /// Optional explicit document revision (defaults to `doc.mutation_epoch()`).
+    pub doc_revision: Option<u64>,
+    /// Optional active style / archetype label (`E15-19`).
+    pub active_style: Option<String>,
+    /// Optional enabled tool names filter (`E15-15`).
+    pub enabled_tools: Option<Vec<String>>,
+    /// Optional per-node in-progress markers (`E15-9`).
+    pub in_progress: BTreeMap<NodeId, String>,
+}
+
+impl Default for BootstrapOptions {
+    fn default() -> Self {
+        Self {
+            file_path: None,
+            current_page_id: None,
+            target_node_ids: Vec::new(),
+            max_tokens: DEFAULT_BOOTSTRAP_MAX_TOKENS,
+            sections: None,
+            include_selection: false,
+            selected_node_ids: Vec::new(),
+            scoped: false,
+            generated_at: None,
+            doc_revision: None,
+            active_style: None,
+            enabled_tools: None,
+            in_progress: BTreeMap::new(),
+        }
+    }
+}
+
+/// One section of a [`Bootstrap`] context block (`§4`, `§5`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BootstrapSection {
+    pub id: String,
+    pub title: String,
+    pub tokens: usize,
+    pub truncated: bool,
+    pub truncation_note: Option<String>,
+    pub content: String,
+}
+
+/// Complete pre-fetched first-turn agent context (`§4`, `§5`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bootstrap {
+    pub generated_at: String,
+    pub doc_revision: u64,
+    pub scoped: bool,
+    pub sections: Vec<BootstrapSection>,
+    pub markdown: String,
+    pub total_tokens: usize,
+}
+
+impl Bootstrap {
+    /// Serializes this [`Bootstrap`] to a deterministic JSON string matching the `§5` contract.
+    pub fn to_json(&self) -> String {
+        let mut out = String::with_capacity(self.markdown.len() * 2 + 512);
+        out.push_str("{\n");
+        out.push_str(&format!("  \"generated_at\": \"{}\",\n", escape_json_str(&self.generated_at)));
+        out.push_str(&format!("  \"doc_revision\": {},\n", self.doc_revision));
+        out.push_str(&format!("  \"scoped\": {},\n", self.scoped));
+        out.push_str("  \"sections\": [\n");
+        for (i, sec) in self.sections.iter().enumerate() {
+            out.push_str("    {\n");
+            out.push_str(&format!("      \"id\": \"{}\",\n", escape_json_str(&sec.id)));
+            out.push_str(&format!("      \"title\": \"{}\",\n", escape_json_str(&sec.title)));
+            out.push_str(&format!("      \"tokens\": {},\n", sec.tokens));
+            out.push_str(&format!("      \"truncated\": {},\n", sec.truncated));
+            if let Some(note) = &sec.truncation_note {
+                out.push_str(&format!("      \"truncation_note\": \"{}\",\n", escape_json_str(note)));
+            }
+            out.push_str(&format!("      \"content\": \"{}\"\n", escape_json_str(&sec.content)));
+            if i + 1 < self.sections.len() {
+                out.push_str("    },\n");
+            } else {
+                out.push_str("    }\n");
+            }
+        }
+        out.push_str("  ],\n");
+        out.push_str(&format!("  \"markdown\": \"{}\",\n", escape_json_str(&self.markdown)));
+        out.push_str(&format!("  \"total_tokens\": {}\n", self.total_tokens));
+        out.push('}');
+        out
+    }
+}
+
+fn escape_json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 16);
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn format_thousands(n: usize) -> String {
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(b as char);
+    }
+    out
+}
+
+/// Builds the full 7-section [`Bootstrap`] block (`§3.1`, `§4`).
+///
+/// The canvas selection is **never** read for Section 3 (`outline`); Section 3 uses
+/// `options.target_node_ids` when non-empty, else the current page's top-level frames in paint order.
+/// A `selection` section is added **only** when `options.include_selection == true`.
+pub fn bootstrap(doc: &Document, options: &BootstrapOptions, libraries: &[LibraryRef], rules: &str) -> Bootstrap {
+    let generated_at = options.generated_at.clone().unwrap_or_else(now_rfc3339);
+    let doc_revision = options.doc_revision.unwrap_or_else(|| doc.mutation_epoch());
+    let total_budget = options.max_tokens.clamp(MIN_BOOTSTRAP_MAX_TOKENS, MAX_BOOTSTRAP_MAX_TOKENS);
+
+    let want_section = |id: &str| -> bool {
+        match &options.sections {
+            None => true,
+            Some(list) => list.iter().any(|s| s == id),
+        }
+    };
+
+    // Scale per-section caps proportionally if `total_budget < DEFAULT_BOOTSTRAP_MAX_TOKENS`.
+    let scale_cap = |base_cap: usize| -> usize {
+        if total_budget >= DEFAULT_BOOTSTRAP_MAX_TOKENS {
+            base_cap
+        } else {
+            ((base_cap * total_budget) / DEFAULT_BOOTSTRAP_MAX_TOKENS).max(120)
+        }
+    };
+
+    let mut sections: Vec<BootstrapSection> = Vec::with_capacity(8);
+
+    // 1. Freshness header (cap: 60 tokens; never truncated below its content)
+    if want_section("freshness") || options.sections.is_none() {
+        let content = format!("Generated: {generated_at} | Revision: {doc_revision} — current as of now; do not re-read; your tool replies report changes.");
+        sections.push(BootstrapSection {
+            id: "freshness".to_string(),
+            title: "1. Freshness".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        });
+    }
+
+    // 2. Document summary (cap: 300 tokens; never truncated below its content)
+    let current_page = options.current_page_id.filter(|id| doc.pages.contains(id)).or_else(|| doc.pages.first().copied());
+
+    if want_section("document") {
+        let content = build_document_section(doc, options.file_path.as_deref(), current_page);
+        sections.push(BootstrapSection {
+            id: "document".to_string(),
+            title: "2. Document".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        });
+    }
+
+    // 3. Target frames outline (cap: 2,500 tokens, scaled if total_budget < 12,000)
+    if want_section("outline") {
+        let cap = scale_cap(CAP_OUTLINE_TOKENS);
+        sections.push(build_outline_section(doc, current_page, options, cap));
+    }
+
+    // 4. Variables summary (cap: 1,200 tokens)
+    if want_section("variables") {
+        let cap = scale_cap(CAP_VARIABLES_TOKENS);
+        sections.push(build_variables_section(doc, cap));
+    }
+
+    // 5. Components and libraries (cap: 1,200 tokens)
+    if want_section("components") {
+        let cap = scale_cap(CAP_COMPONENTS_TOKENS);
+        let effective_libs = if libraries.is_empty() { &doc.library.enabled[..] } else { libraries };
+        sections.push(build_components_section(doc, effective_libs, cap));
+    }
+
+    // 6. Active style (cap: 200 tokens)
+    if want_section("style") {
+        let cap = scale_cap(CAP_STYLE_TOKENS);
+        sections.push(build_style_section(doc, current_page, options.active_style.as_deref(), cap));
+    }
+
+    // 7. Rules pack (cap: 6,000 tokens)
+    if want_section("rules") {
+        let cap = scale_cap(CAP_RULES_TOKENS);
+        let base_rules = if rules.trim().is_empty() { DEFAULT_RULES_PACK } else { rules };
+        let filtered_rules = filter_rules_for_enabled_tools(base_rules, options.enabled_tools.as_deref());
+        sections.push(build_rules_section(&filtered_rules, cap));
+    }
+
+    // Optional explicit selection section (ONLY when `options.include_selection == true`)
+    if options.include_selection {
+        let cap = scale_cap(CAP_SELECTION_TOKENS);
+        sections.push(build_selection_section(doc, &options.selected_node_ids, cap));
+    }
+
+    // Enforce overall `total_budget` across sections 3..=7 without ever truncating sections 1-2.
+    enforce_total_budget(&mut sections, total_budget);
+
+    let markdown = render_bootstrap_markdown(&sections);
+    let total_tokens = estimate_tokens(&markdown);
+
+    Bootstrap { generated_at, doc_revision, scoped: options.scoped, sections, markdown, total_tokens }
+}
+
+/// Builds the compact fallback bootstrap block (`§8.5`) containing Sections 1–2, the rules pack,
+/// and a note to call `designos_get_app_state` for the rest when the background build takes `> 500 ms`.
+pub fn compact_bootstrap(doc: &Document, options: &BootstrapOptions, rules: &str) -> Bootstrap {
+    let mut compact_opts = options.clone();
+    compact_opts.sections = Some(vec!["freshness".to_string(), "document".to_string(), "rules".to_string()]);
+    let mut boot = bootstrap(doc, &compact_opts, &doc.library.enabled, rules);
+    let note = "Bootstrap build exceeded 500 ms; call designos_get_app_state {} for the full target frames outline, variables summary, and components.";
+    boot.sections.insert(
+        2,
+        BootstrapSection {
+            id: "outline".to_string(),
+            title: "3. Target frames outline".to_string(),
+            tokens: estimate_tokens(note),
+            truncated: true,
+            truncation_note: Some(note.to_string()),
+            content: format!("[truncated: {note}]"),
+        },
+    );
+    boot.markdown = render_bootstrap_markdown(&boot.sections);
+    boot.total_tokens = estimate_tokens(&boot.markdown);
+    boot
+}
+
+fn render_bootstrap_markdown(sections: &[BootstrapSection]) -> String {
+    let mut md = String::from("# design:os context\n\n");
+    for (i, sec) in sections.iter().enumerate() {
+        md.push_str("## ");
+        md.push_str(&sec.title);
+        md.push('\n');
+        md.push_str(&sec.content);
+        if i + 1 < sections.len() {
+            md.push_str("\n\n");
+        } else {
+            md.push('\n');
+        }
+    }
+    md
+}
+
+fn build_document_section(doc: &Document, file_path: Option<&str>, current_page: Option<NodeId>) -> String {
+    let doc_name = if doc.name.trim().is_empty() { "Untitled" } else { doc.name.trim() };
+    let path_str = file_path.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("unsaved");
+    let kind_str = match doc.kind {
+        DocumentKind::Design => "design",
+        DocumentKind::Board => "board",
+        DocumentKind::Deck => "deck",
+    };
+    let cur_page_str = match current_page.and_then(|pid| doc.get(pid).map(|n| (pid.0, n.name.as_str()))) {
+        Some((id, name)) => format!("`{name}` (id: `{id}`)"),
+        None => "none".to_string(),
+    };
+
+    let mut out = format!(
+        "- Name: `{doc_name}`\n\
+         - File path: `{path_str}`\n\
+         - Kind: `{kind_str}`\n\
+         - Current page: {cur_page_str}\n\
+         - Pages ({}):",
+        doc.pages.len()
+    );
+    if doc.pages.is_empty() {
+        out.push_str(" none");
+    } else {
+        for &pid in &doc.pages {
+            if let Some(pnode) = doc.get(pid) {
+                let top_count = pnode.children.len();
+                out.push_str(&format!("\n  - id `{}`: `{}` ({} top-level)", pid.0, pnode.name, top_count));
+            }
+        }
+    }
+    out
+}
+
+const MAX_OUTLINE_TARGET_FRAMES: usize = 12;
+const MAX_COMPONENT_SCAN_NODES: usize = 4_096;
+
+fn build_outline_section(doc: &Document, current_page: Option<NodeId>, options: &BootstrapOptions, cap_tokens: usize) -> BootstrapSection {
+    // Section 3 targets: explicit `target_node_ids` if non-empty, else the current page's top-level frames in paint order.
+    // NEVER derived from the canvas selection (`#698` owner ruling).
+    let targets: Vec<NodeId> = if !options.target_node_ids.is_empty() {
+        options.target_node_ids.clone()
+    } else if let Some(pid) = current_page {
+        doc.get(pid).map(|p| p.children.clone()).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    if targets.is_empty() {
+        let content = match current_page.and_then(|pid| doc.get(pid)) {
+            Some(p) => format!("<page id=\"{}\" name=\"{}\" children=\"0\"/>", p.id.0, escape_xml_attr(&p.name)),
+            None => "No target frames on current page.".to_string(),
+        };
+        return BootstrapSection {
+            id: "outline".to_string(),
+            title: "3. Target frames outline".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        };
+    }
+
+    // Reserve 140 chars (~35 tokens) for the `[truncated: ...]` marker if we hit `cap_tokens`.
+    let max_chars = cap_tokens.saturating_mul(4);
+    let body_budget_chars = max_chars.saturating_sub(160).max(160);
+
+    let mut xml_chunks: Vec<String> = Vec::new();
+    let mut used_chars = 0usize;
+    let mut truncated = false;
+    let mut first_truncated_id: Option<NodeId> = None;
+    let mut remaining_nodes = 0usize;
+
+    for (idx, &tid) in targets.iter().enumerate() {
+        if idx >= MAX_OUTLINE_TARGET_FRAMES {
+            truncated = true;
+            if first_truncated_id.is_none() {
+                first_truncated_id = Some(tid);
+            }
+            for &rem_tid in &targets[idx..] {
+                if let Some(rn) = doc.get(rem_tid) {
+                    remaining_nodes += 1 + rn.children.len();
+                } else {
+                    remaining_nodes += 1;
+                }
+            }
+            break;
+        }
+
+        let meta_opts = MetadataOptions { depth: 3, max_nodes: 500, include_hidden: true, scoped: false, in_progress: options.in_progress.clone() };
+        let meta = metadata_xml(doc, tid, &meta_opts, None);
+        let chunk_chars = meta.xml.chars().count();
+        let sep_chars = if xml_chunks.is_empty() { 0 } else { 1 };
+
+        if used_chars + sep_chars + chunk_chars <= body_budget_chars && !meta.truncated {
+            used_chars += sep_chars + chunk_chars;
+            xml_chunks.push(meta.xml);
+        } else {
+            truncated = true;
+            first_truncated_id = Some(tid);
+
+            // Fit as many complete lines of `meta.xml` as still fit in `body_budget_chars` if we haven't emitted anything yet
+            // or if partial lines fit cleanly.
+            let mut emitted_lines_in_this_frame = 0usize;
+            for line in meta.xml.lines() {
+                let line_chars = line.chars().count();
+                let sep = if xml_chunks.is_empty() { 0 } else { 1 };
+                if used_chars + sep + line_chars <= body_budget_chars {
+                    used_chars += sep + line_chars;
+                    xml_chunks.push(line.to_string());
+                    emitted_lines_in_this_frame += 1;
+                } else {
+                    break;
+                }
+            }
+
+            let subtree_total = (meta.node_count + meta.remaining_estimate).max(1);
+            let unemitted_in_this = subtree_total.saturating_sub(emitted_lines_in_this_frame).max(1);
+            remaining_nodes += unemitted_in_this;
+
+            // Count remaining targets without walking every descendant of 5,000 frames if there are many:
+            // each remaining top-level frame is at least `1 + direct_children.len()` nodes.
+            for &rem_tid in &targets[idx + 1..] {
+                if let Some(rn) = doc.get(rem_tid) {
+                    remaining_nodes += 1 + rn.children.len();
+                } else {
+                    remaining_nodes += 1;
+                }
+            }
+            break;
+        }
+    }
+
+    let mut content = xml_chunks.join("\n");
+    let truncation_note = if truncated {
+        let follow_id = first_truncated_id.unwrap_or(targets[0]).0;
+        let rem_fmt = format_thousands(remaining_nodes.max(1));
+        let note = format!("{rem_fmt} more nodes in outline; call designos_get_app_state {{\"target_node_ids\":[{follow_id}]}}");
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        content.push_str(&format!("[truncated: {note}]"));
+        Some(note)
+    } else {
+        None
+    };
+
+    BootstrapSection {
+        id: "outline".to_string(),
+        title: "3. Target frames outline".to_string(),
+        tokens: estimate_tokens(&content),
+        truncated,
+        truncation_note,
+        content,
+    }
+}
+
+fn format_color_hex(c: Color) -> String {
+    let r = (c.r.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let g = (c.g.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let b = (c.b.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let a = (c.a.clamp(0.0, 1.0) * 255.0).round() as u8;
+    if a == 255 {
+        format!("#{r:02X}{g:02X}{b:02X}")
+    } else {
+        format!("#{r:02X}{g:02X}{b:02X}{a:02X}")
+    }
+}
+
+fn format_variable_value(doc: &Document, val: &VariableValue) -> String {
+    match val {
+        VariableValue::Color(c) => format_color_hex(*c),
+        VariableValue::Number(n) => fmt_f32_2(*n),
+        VariableValue::String(s) => format!("\"{s}\""),
+        VariableValue::Boolean(b) => b.to_string(),
+        VariableValue::Alias(target_id) => {
+            let target_name = doc.variables.get(target_id).map(|v| v.name.as_str()).unwrap_or(target_id.as_str());
+            format!("-> {target_name}")
+        }
+    }
+}
+
+fn build_variables_section(doc: &Document, cap_tokens: usize) -> BootstrapSection {
+    if doc.variable_collections.is_empty() && doc.variables.is_empty() {
+        let content = "No variables in this file.".to_string();
+        return BootstrapSection {
+            id: "variables".to_string(),
+            title: "4. Variables summary".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        };
+    }
+
+    let max_chars = cap_tokens.saturating_mul(4);
+    let body_budget_chars = max_chars.saturating_sub(120).max(120);
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut used_chars = 0usize;
+    let mut truncated = false;
+    let mut omitted_vars = 0usize;
+
+    for col in doc.variable_collections.values() {
+        let mode_names: Vec<&str> = col.modes.iter().map(|m| m.name.as_str()).collect();
+        let default_mode_name = col.modes.iter().find(|m| m.id == col.default_mode).map(|m| m.name.as_str()).unwrap_or(col.default_mode.as_str());
+        let header =
+            format!("- Collection `{}` (modes: [{}], default: `{}`, count: {}):", col.name, mode_names.join(", "), default_mode_name, col.variables.len());
+        let sep = if lines.is_empty() { 0 } else { 1 };
+        if used_chars + sep + header.chars().count() > body_budget_chars {
+            truncated = true;
+            omitted_vars += col.variables.len().max(1);
+            continue;
+        }
+        used_chars += sep + header.chars().count();
+        lines.push(header);
+
+        for (i, vid) in col.variables.iter().enumerate() {
+            if i >= 20 {
+                let rem_in_col = col.variables.len() - 20;
+                omitted_vars += rem_in_col;
+                truncated = true;
+                break;
+            }
+            if let Some(var) = doc.variables.get(vid) {
+                let val_str = var
+                    .values
+                    .get(&col.default_mode)
+                    .or_else(|| var.values.values().next())
+                    .map(|v| format_variable_value(doc, v))
+                    .unwrap_or_else(|| "unset".to_string());
+                let row = format!("  - `{}` = `{}`", var.name, val_str);
+                if used_chars + 1 + row.chars().count() > body_budget_chars {
+                    truncated = true;
+                    omitted_vars += col.variables.len() - i;
+                    break;
+                }
+                used_chars += 1 + row.chars().count();
+                lines.push(row);
+            }
+        }
+    }
+
+    // Also handle orphan variables if any collection map was empty
+    if doc.variable_collections.is_empty() && !doc.variables.is_empty() {
+        for (i, var) in doc.variables.values().enumerate() {
+            if i >= 20 {
+                omitted_vars += doc.variables.len() - 20;
+                truncated = true;
+                break;
+            }
+            let val_str = var.values.values().next().map(|v| format_variable_value(doc, v)).unwrap_or_else(|| "unset".to_string());
+            let row = format!("- `{}` = `{}`", var.name, val_str);
+            if used_chars + 1 + row.chars().count() > body_budget_chars {
+                truncated = true;
+                omitted_vars += doc.variables.len() - i;
+                break;
+            }
+            used_chars += 1 + row.chars().count();
+            lines.push(row);
+        }
+    }
+
+    let mut content = lines.join("\n");
+    let truncation_note = if truncated {
+        let note = format!("{} more variables; call designos_get_variables {{}}", format_thousands(omitted_vars.max(1)));
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        content.push_str(&format!("[truncated: {note}]"));
+        Some(note)
+    } else {
+        None
+    };
+
+    BootstrapSection {
+        id: "variables".to_string(),
+        title: "4. Variables summary".to_string(),
+        tokens: estimate_tokens(&content),
+        truncated,
+        truncation_note,
+        content,
+    }
+}
+
+fn collect_variant_prop_names(doc: &Document, node: &Node) -> Vec<String> {
+    let mut props: BTreeSet<String> = BTreeSet::new();
+    for def in &node.component.props {
+        if matches!(def.kind, PropKind::Variant { .. }) {
+            props.insert(def.name.clone());
+        }
+    }
+    for k in node.component.variant_props.keys() {
+        props.insert(k.clone());
+    }
+    if matches!(node.kind, NodeKind::ComponentSet(_)) {
+        for &cid in &node.children {
+            if let Some(child) = doc.get(cid) {
+                for (k, _) in parse_variant_name(&child.name) {
+                    props.insert(k);
+                }
+                for k in child.component.variant_props.keys() {
+                    props.insert(k.clone());
+                }
+            }
+        }
+    } else {
+        for (k, _) in parse_variant_name(&node.name) {
+            props.insert(k);
+        }
+    }
+    props.into_iter().collect()
+}
+
+fn discover_local_components_bounded(doc: &Document) -> Vec<&Node> {
+    let mut local_components: Vec<&Node> = Vec::new();
+    let mut level2_containers: Vec<NodeId> = Vec::new();
+    let mut visited = 0usize;
+
+    // Pass 1: direct children of every non-library page (depth 1).
+    'pages: for &page_id in &doc.pages {
+        if Some(page_id) == doc.library_page {
+            continue;
+        }
+        let Some(page_node) = doc.get(page_id) else { continue };
+        for &cid in &page_node.children {
+            visited += 1;
+            let Some(node) = doc.get(cid) else { continue };
+            match &node.kind {
+                NodeKind::ComponentSet(_) | NodeKind::Component(_) => local_components.push(node),
+                NodeKind::Frame(_) | NodeKind::Section | NodeKind::Group => {
+                    if level2_containers.len() < MAX_COMPONENT_SCAN_NODES {
+                        level2_containers.push(cid);
+                    }
+                }
+                _ => {}
+            }
+            if visited >= MAX_COMPONENT_SCAN_NODES {
+                break 'pages;
+            }
+        }
+    }
+
+    // Pass 2: direct children of depth-1 containers (depth 2), bounded by `MAX_COMPONENT_SCAN_NODES`.
+    if visited < MAX_COMPONENT_SCAN_NODES {
+        'containers: for container_id in level2_containers {
+            let Some(container) = doc.get(container_id) else { continue };
+            for &cid in &container.children {
+                visited += 1;
+                let Some(node) = doc.get(cid) else { continue };
+                if matches!(node.kind, NodeKind::ComponentSet(_) | NodeKind::Component(_)) {
+                    local_components.push(node);
+                }
+                if visited >= MAX_COMPONENT_SCAN_NODES {
+                    break 'containers;
+                }
+            }
+        }
+    }
+
+    local_components
+}
+
+fn build_components_section(doc: &Document, libraries: &[LibraryRef], cap_tokens: usize) -> BootstrapSection {
+    let local_components = discover_local_components_bounded(doc);
+
+    if local_components.is_empty() && libraries.is_empty() {
+        let content = "No components in this file. No enabled libraries.".to_string();
+        return BootstrapSection {
+            id: "components".to_string(),
+            title: "5. Components and libraries".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        };
+    }
+
+    let max_chars = cap_tokens.saturating_mul(4);
+    let body_budget_chars = max_chars.saturating_sub(120).max(120);
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut used_chars = 0usize;
+    let mut truncated = false;
+    let mut omitted_components = 0usize;
+    let mut omitted_libraries: Vec<&str> = Vec::new();
+
+    if local_components.is_empty() {
+        let line = "Local components: none".to_string();
+        used_chars += line.chars().count();
+        lines.push(line);
+    } else {
+        let header = format!("Local components ({}):", local_components.len());
+        used_chars += header.chars().count();
+        lines.push(header);
+        for (i, comp) in local_components.iter().enumerate() {
+            if i >= 50 {
+                omitted_components += local_components.len() - 50;
+                truncated = true;
+                break;
+            }
+            let kind_label = if matches!(comp.kind, NodeKind::ComponentSet(_)) { "component-set" } else { "component" };
+            let vprops = collect_variant_prop_names(doc, comp);
+            let row = if vprops.is_empty() {
+                format!("  - id `{}`: `{}` ({})", comp.id.0, comp.name, kind_label)
+            } else {
+                format!("  - id `{}`: `{}` ({}, variant props: [{}])", comp.id.0, comp.name, kind_label, vprops.join(", "))
+            };
+            if used_chars + 1 + row.chars().count() > body_budget_chars {
+                truncated = true;
+                omitted_components += local_components.len() - i;
+                break;
+            }
+            used_chars += 1 + row.chars().count();
+            lines.push(row);
+        }
+    }
+
+    if libraries.is_empty() {
+        let line = "Enabled libraries: none".to_string();
+        if used_chars + 1 + line.chars().count() <= body_budget_chars {
+            lines.push(line);
+        }
+    } else {
+        let header = format!("Enabled libraries ({}):", libraries.len());
+        if used_chars + 1 + header.chars().count() <= body_budget_chars {
+            used_chars += 1 + header.chars().count();
+            lines.push(header);
+            for (idx, lib) in libraries.iter().enumerate() {
+                let row = format!("  - `{}` (id: `{}`, v{})", lib.name, lib.id, lib.version);
+                if used_chars + 1 + row.chars().count() <= body_budget_chars {
+                    used_chars += 1 + row.chars().count();
+                    lines.push(row);
+                } else {
+                    truncated = true;
+                    for rem in &libraries[idx..] {
+                        omitted_libraries.push(rem.name.as_str());
+                    }
+                    break;
+                }
+            }
+        } else {
+            truncated = true;
+            for lib in libraries {
+                omitted_libraries.push(lib.name.as_str());
+            }
+        }
+    }
+
+    let mut content = lines.join("\n");
+    let truncation_note = if truncated {
+        let note = match (omitted_components > 0, !omitted_libraries.is_empty()) {
+            (true, true) => format!(
+                "{} more components and {} enabled libraries ({}) omitted; call designos_list_nodes {{\"query\":\"\"}}",
+                format_thousands(omitted_components),
+                omitted_libraries.len(),
+                omitted_libraries.join(", ")
+            ),
+            (false, true) => format!(
+                "{} enabled libraries ({}) omitted; call designos_get_app_state {{\"sections\":[\"components\"]}}",
+                omitted_libraries.len(),
+                omitted_libraries.join(", ")
+            ),
+            _ => format!("{} more components; call designos_list_nodes {{\"query\":\"\"}}", format_thousands(omitted_components.max(1))),
+        };
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        content.push_str(&format!("[truncated: {note}]"));
+        Some(note)
+    } else {
+        None
+    };
+
+    BootstrapSection {
+        id: "components".to_string(),
+        title: "5. Components and libraries".to_string(),
+        tokens: estimate_tokens(&content),
+        truncated,
+        truncation_note,
+        content,
+    }
+}
+
+fn build_style_section(doc: &Document, current_page: Option<NodeId>, explicit_style: Option<&str>, _cap_tokens: usize) -> BootstrapSection {
+    let detected = explicit_style
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            current_page
+                .and_then(|pid| doc.get(pid))
+                .and_then(|p| p.plugin_data.get("archetype").or_else(|| p.plugin_data.get("active_style")).or_else(|| p.fig_metadata.get("archetype")).cloned())
+        })
+        .unwrap_or_else(|| "none".to_string());
+
+    let content = format!("Active style: {detected}");
+    BootstrapSection {
+        id: "style".to_string(),
+        title: "6. Active style".to_string(),
+        tokens: estimate_tokens(&content),
+        truncated: false,
+        truncation_note: None,
+        content,
+    }
+}
+
+fn build_rules_section(rules: &str, cap_tokens: usize) -> BootstrapSection {
+    truncate_section_by_lines("rules", "7. Rules pack", rules.trim(), cap_tokens, "tokens in rules; call designos_get_app_state {\"sections\":[\"rules\"]}")
+}
+
+fn build_selection_section(doc: &Document, selected_ids: &[NodeId], cap_tokens: usize) -> BootstrapSection {
+    if selected_ids.is_empty() {
+        let content = "Selected nodes: none".to_string();
+        return BootstrapSection {
+            id: "selection".to_string(),
+            title: "Selection".to_string(),
+            tokens: estimate_tokens(&content),
+            truncated: false,
+            truncation_note: None,
+            content,
+        };
+    }
+
+    let mut lines = Vec::with_capacity(selected_ids.len() + 1);
+    lines.push(format!("Selected nodes ({}):", selected_ids.len()));
+    for &sid in selected_ids {
+        if let Some(node) = doc.get(sid) {
+            let parent_world = parent_world_of(doc, sid);
+            let world = parent_world * node.transform;
+            let bbox = affine_rect_aabb(&world, node.size);
+            lines.push(format!(
+                "- id `{}`: `{}` (kind: `{}`, bounds: x={}, y={}, width={}, height={})",
+                node.id.0,
+                node.name,
+                xml_tag_name(&node.kind),
+                fmt_f32_2(bbox.x),
+                fmt_f32_2(bbox.y),
+                fmt_f32_2(bbox.w),
+                fmt_f32_2(bbox.h)
+            ));
+        }
+    }
+    let body = lines.join("\n");
+    truncate_section_by_lines("selection", "Selection", &body, cap_tokens, "selected nodes; call designos_get_node")
+}
+
+fn truncate_section_by_lines(id: &str, title: &str, body: &str, cap_tokens: usize, suffix_hint: &str) -> BootstrapSection {
+    let total_tokens = estimate_tokens(body);
+    if total_tokens <= cap_tokens {
+        return BootstrapSection {
+            id: id.to_string(),
+            title: title.to_string(),
+            tokens: total_tokens,
+            truncated: false,
+            truncation_note: None,
+            content: body.to_string(),
+        };
+    }
+
+    let max_chars = cap_tokens.saturating_mul(4);
+    let body_budget_chars = max_chars.saturating_sub(120).max(80);
+    let mut kept = String::new();
+    for line in body.lines() {
+        let sep = if kept.is_empty() { 0 } else { 1 };
+        if kept.chars().count() + sep + line.chars().count() > body_budget_chars {
+            break;
+        }
+        if !kept.is_empty() {
+            kept.push('\n');
+        }
+        kept.push_str(line);
+    }
+    let omitted = total_tokens.saturating_sub(estimate_tokens(&kept)).max(1);
+    let note = format!("{} more {suffix_hint}", format_thousands(omitted));
+    if !kept.is_empty() {
+        kept.push('\n');
+    }
+    kept.push_str(&format!("[truncated: {note}]"));
+    BootstrapSection {
+        id: id.to_string(),
+        title: title.to_string(),
+        tokens: estimate_tokens(&kept),
+        truncated: true,
+        truncation_note: Some(note),
+        content: kept,
+    }
+}
+
+fn extract_first_xml_node_id(content: &str) -> Option<u64> {
+    let marker = "id=\"";
+    let start = content.find(marker)? + marker.len();
+    let rest = &content[start..];
+    let end = rest.find('"')?;
+    rest[..end].parse::<u64>().ok()
+}
+
+fn strip_trailing_truncation_marker(content: &str) -> &str {
+    if let Some(pos) = content.rfind("\n[truncated:") {
+        &content[..pos]
+    } else if content.starts_with("[truncated:") {
+        ""
+    } else {
+        content
+    }
+}
+
+fn enforce_total_budget(sections: &mut [BootstrapSection], total_budget: usize) {
+    let current_md = render_bootstrap_markdown(sections);
+    if estimate_tokens(&current_md) <= total_budget {
+        return;
+    }
+
+    // Never truncate sections 1 (`freshness`) or 2 (`document`). Trim `rules`, `outline`, `variables`, `components` in order if needed.
+    for target_id in ["rules", "outline", "variables", "components"] {
+        let current_tokens = estimate_tokens(&render_bootstrap_markdown(sections));
+        if current_tokens <= total_budget {
+            break;
+        }
+        let excess = current_tokens - total_budget;
+        if let Some(sec) = sections.iter_mut().find(|s| s.id == target_id) {
+            if sec.tokens > excess + 80 {
+                let new_cap = sec.tokens.saturating_sub(excess + 40).max(80);
+                let clean_body = strip_trailing_truncation_marker(&sec.content).to_string();
+                let outline_hint: String;
+                let hint: &str = match target_id {
+                    "outline" => {
+                        let follow_id = extract_first_xml_node_id(&clean_body).unwrap_or(1);
+                        outline_hint = format!("nodes in outline; call designos_get_app_state {{\"target_node_ids\":[{follow_id}]}}");
+                        &outline_hint
+                    }
+                    "variables" => "variables; call designos_get_variables {}",
+                    "components" => "components; call designos_list_nodes {\"query\":\"\"}",
+                    _ => "tokens in rules; call designos_get_app_state {\"sections\":[\"rules\"]}",
+                };
+                *sec = truncate_section_by_lines(&sec.id, &sec.title, &clean_body, new_cap, hint);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use designos_doc::{ComponentLink, FrameProps, TextStyle, Variable, VariableCollection, VariableKind, VariableMode};
+
+    fn sample_tokens_doc() -> (Document, NodeId, Vec<NodeId>) {
+        let mut doc = Document::new("Tokens & Components Fixture");
+        let page = doc.add_page("Page 1");
+
+        // Variables
+        doc.variable_collections.insert(
+            "col_brand".into(),
+            VariableCollection {
+                id: "col_brand".into(),
+                name: "Brand Tokens".into(),
+                modes: vec![VariableMode { id: "light".into(), name: "Light".into() }, VariableMode { id: "dark".into(), name: "Dark".into() }],
+                default_mode: "light".into(),
+                variables: vec!["v_bg".into(), "v_fg".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        doc.variables.insert(
+            "v_bg".into(),
+            Variable {
+                id: "v_bg".into(),
+                name: "color/bg/surface".into(),
+                collection: "col_brand".into(),
+                kind: VariableKind::Color,
+                values: [("light".into(), VariableValue::Color(Color::rgb(255, 255, 255)))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        doc.variables.insert(
+            "v_fg".into(),
+            Variable {
+                id: "v_fg".into(),
+                name: "color/text/primary".into(),
+                collection: "col_brand".into(),
+                kind: VariableKind::Color,
+                values: [("light".into(), VariableValue::Color(Color::rgb(24, 24, 27)))].into_iter().collect(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+
+        // Component set
+        let set_id = doc.alloc_id();
+        let mut comp_set = Node::frame(set_id, Rect::new(0.0, 0.0, 200.0, 80.0));
+        comp_set.name = "Button".into();
+        comp_set.kind = NodeKind::ComponentSet(FrameProps::default());
+        doc.insert(page, comp_set).unwrap();
+
+        let var_id = doc.alloc_id();
+        let mut variant = Node::frame(var_id, Rect::new(0.0, 0.0, 120.0, 40.0));
+        variant.name = "Variant=Primary, Size=Md".into();
+        variant.kind = NodeKind::Component(FrameProps::default());
+        variant.component = ComponentLink::default();
+        doc.insert(set_id, variant).unwrap();
+
+        // Top-level frames & selectable children
+        let hero_id = doc.alloc_id();
+        let mut hero_node = Node::frame(hero_id, Rect::new(240.0, 0.0, 800.0, 400.0));
+        hero_node.name = "HeroFrame".into();
+        let hero = doc.insert(page, hero_node).unwrap();
+
+        let s1_id = doc.alloc_id();
+        let mut s1 = Node::rectangle(s1_id, Rect::new(10.0, 10.0, 50.0, 50.0));
+        s1.name = "SecretSelectedA".into();
+        let sel1 = doc.insert(hero, s1).unwrap();
+
+        let s2_id = doc.alloc_id();
+        let mut s2 = Node::rectangle(s2_id, Rect::new(70.0, 10.0, 50.0, 50.0));
+        s2.name = "SecretSelectedB".into();
+        let sel2 = doc.insert(hero, s2).unwrap();
+
+        let s3_id = doc.alloc_id();
+        let mut s3 = Node::text(s3_id, Rect::new(130.0, 10.0, 120.0, 24.0), "Selected label", TextStyle::default());
+        s3.name = "SecretSelectedC".into();
+        let sel3 = doc.insert(hero, s3).unwrap();
+
+        doc.library.enabled.push(LibraryRef { id: "lib-core".into(), name: "EaseUI Core".into(), version: 2 });
+
+        (doc, page, vec![sel1, sel2, sel3])
+    }
+
+    #[test]
+    fn first_turn_contains_every_section() {
+        let (doc, page, _) = sample_tokens_doc();
+        let opts = BootstrapOptions { file_path: Some("/workspace/tokens.designos".into()), current_page_id: Some(page), ..BootstrapOptions::default() };
+        let boot = bootstrap(&doc, &opts, &doc.library.enabled, DEFAULT_RULES_PACK);
+        assert_eq!(boot.sections.len(), 7);
+        let ids: Vec<&str> = boot.sections.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["freshness", "document", "outline", "variables", "components", "style", "rules"]);
+
+        for header in [
+            "## 1. Freshness",
+            "## 2. Document",
+            "## 3. Target frames outline",
+            "## 4. Variables summary",
+            "## 5. Components and libraries",
+            "## 6. Active style",
+            "## 7. Rules pack",
+        ] {
+            assert!(boot.markdown.contains(header), "missing section header '{header}' in:\n{}", boot.markdown);
+        }
+        assert!(boot.markdown.contains("current as of now; do not re-read; your tool replies report changes"));
+        assert!(boot.markdown.contains("Brand Tokens"));
+        assert!(boot.markdown.contains("EaseUI Core"));
+        assert!(boot.total_tokens <= DEFAULT_BOOTSTRAP_MAX_TOKENS);
+    }
+
+    #[test]
+    fn selection_never_injected_unless_explicitly_requested() {
+        let (doc, page, selected) = sample_tokens_doc();
+        let mut opts =
+            BootstrapOptions { current_page_id: Some(page), selected_node_ids: selected.clone(), include_selection: false, ..BootstrapOptions::default() };
+        let boot_default = bootstrap(&doc, &opts, &doc.library.enabled, DEFAULT_RULES_PACK);
+        assert!(!boot_default.sections.iter().any(|s| s.id == "selection"), "default bootstrap must never contain a selection section");
+        assert!(!boot_default.to_json().contains("\"id\": \"selection\""));
+        // Outline targets are the page's top-level frames (`Button` component set + `HeroFrame`).
+        let outline = boot_default.sections.iter().find(|s| s.id == "outline").unwrap();
+        assert!(outline.content.contains("name=\"Button\"") && outline.content.contains("name=\"HeroFrame\""));
+
+        // Now explicitly enable `include_selection: true`
+        opts.include_selection = true;
+        let boot_with_sel = bootstrap(&doc, &opts, &doc.library.enabled, DEFAULT_RULES_PACK);
+        let sel_sec = boot_with_sel.sections.iter().find(|s| s.id == "selection").expect("selection section present");
+        for &sid in &selected {
+            assert!(sel_sec.content.contains(&format!("id `{}`", sid.0)), "missing selected id {} in {}", sid.0, sel_sec.content);
+        }
+        assert!(sel_sec.content.contains("SecretSelectedA"));
+        assert!(sel_sec.content.contains("SecretSelectedB"));
+        assert!(sel_sec.content.contains("SecretSelectedC"));
+    }
+
+    #[test]
+    fn large_fixture_within_budget_with_markers() {
+        let mut doc = Document::new("Large Synthetic File");
+        let mut pages = Vec::new();
+        for p in 0..50 {
+            pages.push(doc.add_page(format!("Page {}", p + 1)));
+        }
+        let page = pages[0];
+        let mut created_nodes = 50usize;
+        // 25 top-level frames on Page 1, with Frame 0 containing a deep 2,000-node subtree
+        let mut first_frame_id = None;
+        for i in 0..25 {
+            let fid = doc.alloc_id();
+            let mut f = Node::frame(fid, Rect::new((i % 5) as f32 * 220.0, (i / 5) as f32 * 160.0, 200.0, 140.0));
+            f.name = format!("Frame_{i}");
+            doc.insert(page, f).unwrap();
+            created_nodes += 1;
+            if i == 0 {
+                first_frame_id = Some(fid);
+            }
+        }
+        // 80 components across pages
+        for c in 0..80 {
+            let cid = doc.alloc_id();
+            let mut comp = Node::frame(cid, Rect::new(0.0, 0.0, 120.0, 40.0));
+            comp.name = format!("Comp_{c:02}");
+            comp.kind = NodeKind::Component(FrameProps::default());
+            comp.component = ComponentLink::default();
+            doc.insert(pages[c % 50], comp).unwrap();
+            created_nodes += 1;
+        }
+        // Fill remaining up to 5,000 nodes inside first_frame_id
+        let host = first_frame_id.unwrap();
+        while created_nodes < 5_000 {
+            let nid = doc.alloc_id();
+            let mut rect = Node::rectangle(nid, Rect::new(0.0, 0.0, 20.0, 20.0));
+            rect.name = format!("Leaf_{created_nodes}");
+            doc.insert(host, rect).unwrap();
+            created_nodes += 1;
+        }
+        // 500 variables in a collection
+        let mut var_ids = Vec::with_capacity(500);
+        for v in 0..500 {
+            let vid = format!("var_{v:03}");
+            var_ids.push(vid.clone());
+            doc.variables.insert(
+                vid.clone(),
+                Variable {
+                    id: vid,
+                    name: format!("token/scale/{v:03}"),
+                    collection: "col_scale".into(),
+                    kind: VariableKind::Number,
+                    values: [("m1".into(), VariableValue::Number(v as f32))].into_iter().collect(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: BTreeMap::new(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+        doc.variable_collections.insert(
+            "col_scale".into(),
+            VariableCollection {
+                id: "col_scale".into(),
+                name: "Scale".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
+                default_mode: "m1".into(),
+                variables: var_ids,
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+
+        let opts = BootstrapOptions { current_page_id: Some(page), ..BootstrapOptions::default() };
+        let start = std::time::Instant::now();
+        let boot = bootstrap(&doc, &opts, &[], DEFAULT_RULES_PACK);
+        let elapsed = start.elapsed();
+
+        assert!(boot.total_tokens <= DEFAULT_BOOTSTRAP_MAX_TOKENS, "total_tokens {} exceeded {}", boot.total_tokens, DEFAULT_BOOTSTRAP_MAX_TOKENS);
+        let outline = boot.sections.iter().find(|s| s.id == "outline").expect("outline section");
+        assert!(outline.truncated, "25-frame outline must be marked truncated");
+        let note = outline.truncation_note.as_deref().expect("truncation_note required");
+        assert!(note.contains("more nodes in outline; call designos_get_app_state"), "unexpected note: {note}");
+        assert!(outline.content.contains("[truncated:"), "content must end with explicit truncation marker");
+        for banned in ["designos_get_metadata", "designos_query_xpath", "designos_lint", "designos_get_guidelines"] {
+            assert!(!boot.markdown.contains(banned), "bootstrap markdown must not advertise unregistered tool {banned}");
+            assert!(!ALL_TOOL_NAMES.contains(&banned), "ALL_TOOL_NAMES must not contain unregistered tool {banned}");
+        }
+        assert!(elapsed.as_millis() <= 300, "bootstrap build on large synthetic fixture took {:?} (> 300ms spec budget)", elapsed);
+    }
+
+    #[test]
+    fn components_section_reports_omitted_libraries_and_retrim_uses_real_frame_id() {
+        let mut doc = Document::new("Components & Re-trim Test");
+        let page = doc.add_page("Page 1");
+        // Allocate a dummy node first so the first real top-level frame on `page` has id > 1
+        let first_frame = doc.alloc_id();
+        assert!(first_frame.0 > 1);
+        for i in 0..8 {
+            let fid = if i == 0 { first_frame } else { doc.alloc_id() };
+            let mut f = Node::frame(fid, Rect::new(i as f32 * 300.0, 0.0, 280.0, 200.0));
+            f.name = format!("TargetScreen_{i}_With_Long_Descriptive_Header_Title");
+            doc.insert(page, f).unwrap();
+            for j in 0..25 {
+                let cid = doc.alloc_id();
+                let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 100.0, 40.0));
+                child.name = format!("NestedCardItem_{i}_{j}_With_Extended_Label");
+                doc.insert(fid, child).unwrap();
+            }
+        }
+        // Add 35 components with long names so the components section fills its tight cap before libraries fit
+        for i in 0..35 {
+            let cid = doc.alloc_id();
+            let mut comp = Node::frame(cid, Rect::new(0.0, 0.0, 120.0, 40.0));
+            comp.name = format!("DesignSystemComponent_LongName_{i:02}");
+            comp.kind = NodeKind::Component(FrameProps::default());
+            comp.component = ComponentLink::default();
+            doc.insert(page, comp).unwrap();
+        }
+        let libs = vec![
+            LibraryRef { id: "lib-alpha".into(), name: "Alpha UI Library".into(), version: 1 },
+            LibraryRef { id: "lib-beta".into(), name: "Beta Icons Library".into(), version: 2 },
+        ];
+
+        // Directly test `build_components_section` with a tight token cap where components fit partially or libraries are omitted
+        let comp_sec = build_components_section(&doc, &libs, 150);
+        assert!(comp_sec.truncated, "components section must be marked truncated when libraries do not fit");
+        let comp_note = comp_sec.truncation_note.as_deref().expect("truncation_note");
+        assert!(comp_note.contains("Alpha UI Library") && comp_note.contains("Beta Icons Library"), "truncation note must name omitted libraries: {comp_note}");
+
+        // Test `enforce_total_budget` re-trimming `outline` and `rules` under a minimum 2,000-token total budget
+        let long_rules = format!("{DEFAULT_RULES_PACK}\n{}", "Extra guideline line for budget pressure.\n".repeat(400));
+        let opts = BootstrapOptions { current_page_id: Some(page), max_tokens: MIN_BOOTSTRAP_MAX_TOKENS, ..BootstrapOptions::default() };
+        let boot = bootstrap(&doc, &opts, &libs, &long_rules);
+        let outline = boot.sections.iter().find(|s| s.id == "outline").unwrap();
+        if let Some(note) = &outline.truncation_note {
+            assert!(!note.contains("designos_get_metadata"), "must not reference unregistered tool: {note}");
+            assert!(
+                note.contains(&format!("{}", first_frame.0)) || !note.contains("[1]"),
+                "outline truncation note must use a real frame id, not hardcoded page id 1: {note}"
+            );
+        }
+        let rules = boot.sections.iter().find(|s| s.id == "rules").unwrap();
+        assert!(rules.truncated);
+        let rules_note = rules.truncation_note.as_deref().unwrap();
+        assert!(rules_note.contains("designos_get_app_state"), "rules truncation note must point to designos_get_app_state: {rules_note}");
+    }
+
+    #[test]
+    fn empty_variables_and_components_stated_explicitly_and_rules_filtered() {
+        let mut doc = Document::new("Empty Doc");
+        let page = doc.add_page("Page 1");
+        let enabled = vec!["designos_get_document".to_string(), "designos_apply_spec".to_string()];
+        let opts = BootstrapOptions { current_page_id: Some(page), enabled_tools: Some(enabled), ..BootstrapOptions::default() };
+        let boot = bootstrap(&doc, &opts, &[], DEFAULT_RULES_PACK);
+        let vars = boot.sections.iter().find(|s| s.id == "variables").unwrap();
+        assert_eq!(vars.content, "No variables in this file.");
+        let comps = boot.sections.iter().find(|s| s.id == "components").unwrap();
+        assert_eq!(comps.content, "No components in this file. No enabled libraries.");
+        let rules = boot.sections.iter().find(|s| s.id == "rules").unwrap();
+        assert!(rules.content.contains("#### `designos_apply_spec`"));
+        assert!(!rules.content.contains("#### `designos_render_png`"));
+    }
 }
