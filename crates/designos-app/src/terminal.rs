@@ -5085,7 +5085,7 @@ pub fn show_left_with_doc(
         for (idx, tab) in state.tabs.iter().enumerate() {
             let tab_w = if state.tabs.len() <= 1 {
                 // Grows from 104 px to fit the whole title (`Claude Code #1`), within the room the controls leave.
-                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + if can_close { 34.0 } else { 23.0 };
+                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + if can_close { 40.0 } else { 23.0 };
                 104.0f32.max(title_w).min((max_tabs_right - x).max(64.0))
             } else {
                 82.0f32.min(((max_tabs_right - x) / (state.tabs.len() as f32)).max(56.0))
