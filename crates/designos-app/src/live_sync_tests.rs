@@ -426,6 +426,7 @@ fn bind_then_merge_then_export_spec_round_trips() {
             variables: vec!["var:brand-primary".into(), "var:card-pad".into()],
             key: None,
             source_library_key: None,
+            extensions: Default::default(),
         },
     );
     doc.variables.insert(
@@ -441,6 +442,8 @@ fn bind_then_merge_then_export_spec_round_trips() {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     doc.variables.insert(
@@ -456,6 +459,8 @@ fn bind_then_merge_then_export_spec_round_trips() {
             hidden_from_publishing: false,
             key: None,
             code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
         },
     );
     doc.styles.insert("S:heading".into(), Style::Text(TextStyle { font_size: 28.0, font_weight: 700, ..Default::default() }));
