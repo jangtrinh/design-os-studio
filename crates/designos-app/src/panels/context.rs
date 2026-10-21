@@ -107,7 +107,7 @@ fn entries(app: &App) -> Vec<Entry> {
     if has_image_fill {
         list.push(ai_image_submenu(app));
     }
-    list.push(leaf(MenuItem::new("Mark as ready for dev").disabled(!can_mark), Action::MarkReadyForDev));
+    list.push(leaf(MenuItem::new("Ready for dev").disabled(!can_mark), Action::MarkReadyForDev));
     if is_grid_table {
         list.push(leaf(MenuItem::new("Insert row"), Action::InsertTableRow));
         list.push(leaf(MenuItem::new("Delete row"), Action::DeleteTableRow));

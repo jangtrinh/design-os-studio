@@ -64,7 +64,7 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let other = half.translate(Vec2::new(half.width() + 8.0, 0.0));
     match status {
         None => {
-            if primary_button(ui, row, "ready", "Mark as ready for dev") {
+            if primary_button(ui, row, "ready", "Ready for dev") {
                 app.dev_mark_ready(&[id]);
             }
         }

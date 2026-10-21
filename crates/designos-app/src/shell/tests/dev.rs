@@ -55,7 +55,7 @@ fn context_menu_marks_frames_ready_for_dev() {
     s.right_click(p);
     assert!(s.app().ui.ctx_menu.is_some());
     let labels = crate::panels::context::labels(s.app());
-    assert!(labels.contains(&"Mark as ready for dev".to_string()), "{labels:?}");
+    assert!(labels.contains(&"Ready for dev".to_string()), "{labels:?}");
     assert!(!labels.contains(&"Mark as completed".to_string()), "no status yet");
     s.shell.app.ui.ctx_menu = None;
     s.shell.app.select_only(card);

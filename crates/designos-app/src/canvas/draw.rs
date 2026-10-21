@@ -835,11 +835,10 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                 let exp_ms = ip.expiry_ms(now_ms, designos_doc::default_in_progress_stale_ms());
                 let agent_str = ip.agent.as_deref().unwrap_or("Agent");
                 let run_str = ip.run_id.as_deref().unwrap_or("none");
-                let stale_str = match exp_ms {
-                    Some(exp) => format!("{exp} ms ({}s remaining)", exp.saturating_sub(now_ms) / 1000),
-                    None => "never".to_string(),
+                let tip = match exp_ms {
+                    Some(exp) => format!("{agent_str} is working here · run {run_str} · stale in {}s", exp.saturating_sub(now_ms) / 1000),
+                    None => format!("{agent_str} is working here · run {run_str}"),
                 };
-                let tip = format!("Agent: {agent_str}\nRun ID: {run_str}\nStarted: {} ms\nStale at: {stale_str}", ip.since_ms);
                 resp.on_hover_text(tip);
             }
         }

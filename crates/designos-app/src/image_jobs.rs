@@ -24,7 +24,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Tooltip shown on disabled AI image commands when no agent CLI is installed.
-pub const DISABLED_TOOLTIP: &str = "Set up an agent CLI in the Agents panel to use AI image tools";
+pub const DISABLED_TOOLTIP: &str = "Needs an agent CLI. Set one up in Agents.";
 
 /// Maximum padding per side for `Expand…` (px).
 pub const EXPAND_MAX_SIDE_PX: u32 = 4096;
@@ -611,7 +611,7 @@ impl App {
         }
         if let ImageOp::Expand { top, right, bottom, left } = &op {
             if *top == 0 && *right == 0 && *bottom == 0 && *left == 0 {
-                self.show_toast("Expand requires at least one side greater than 0 px", true);
+                self.show_toast("Set at least one side above 0 px", true);
                 return None;
             }
             if *top > EXPAND_MAX_SIDE_PX || *right > EXPAND_MAX_SIDE_PX || *bottom > EXPAND_MAX_SIDE_PX || *left > EXPAND_MAX_SIDE_PX {
@@ -621,7 +621,7 @@ impl App {
         }
         if let ImageOp::Erase { instruction, .. } = &op {
             if instruction.trim().is_empty() {
-                self.show_toast("Enter what to erase before running Erase", true);
+                self.show_toast("Describe what to erase", true);
                 return None;
             }
         }
@@ -884,7 +884,7 @@ fn try_recv_watcher(image_jobs: &mut ImageJobsState) -> Option<WatcherOutcome> {
             Ok(out) => Some(out),
             Err(mpsc::TryRecvError::Empty) => None,
             Err(mpsc::TryRecvError::Disconnected) => {
-                Some(WatcherOutcome::Failed { job_id: w.job_id.clone(), reason: "Image job watcher disconnected unexpectedly".to_string() })
+                Some(WatcherOutcome::Failed { job_id: w.job_id.clone(), reason: "Image job stopped unexpectedly. Try again.".to_string() })
             }
         },
         None => None,
@@ -1128,7 +1128,7 @@ fn run_watcher_thread(
             return WatcherOutcome::Failed { job_id: job.id, reason: "Cancelled".to_string() };
         }
         if start.elapsed() > timeout {
-            return WatcherOutcome::Failed { job_id: job.id, reason: "AI image tool timed out after 5 minutes".to_string() };
+            return WatcherOutcome::Failed { job_id: job.id, reason: "AI image job timed out after 5 minutes. Try again.".to_string() };
         }
 
         if let Ok(meta) = std::fs::metadata(&job.output_path) {
@@ -1146,10 +1146,10 @@ fn run_watcher_thread(
                     }
                 }
             } else if is_agent_run_done(&tab_status, &status_file_path) {
-                return WatcherOutcome::Failed { job_id: job.id, reason: "Agent finished without writing output.png".to_string() };
+                return WatcherOutcome::Failed { job_id: job.id, reason: "Agent returned no image. Try again.".to_string() };
             }
         } else if is_agent_run_done(&tab_status, &status_file_path) {
-            return WatcherOutcome::Failed { job_id: job.id, reason: "Agent finished without writing output.png".to_string() };
+            return WatcherOutcome::Failed { job_id: job.id, reason: "Agent returned no image. Try again.".to_string() };
         }
         std::thread::sleep(poll_interval);
     }
@@ -1172,13 +1172,13 @@ fn validate_output_file(job: &ImageJob) -> WatcherOutcome {
     let (got_w, got_h) = decoded.dimensions();
     let (exp_w, exp_h) = job.expected_size;
     if (got_w, got_h) != (exp_w, exp_h) {
-        return WatcherOutcome::Failed { job_id: job.id.clone(), reason: format!("expected {exp_w}x{exp_h}, got {got_w}x{got_h}") };
+        return WatcherOutcome::Failed { job_id: job.id.clone(), reason: format!("Result is {got_w}×{got_h}, expected {exp_w}×{exp_h}. Try again.") };
     }
 
     let warning = if matches!(job.op, ImageOp::RemoveBackground | ImageOp::IsolateSubject) {
         let has_alpha = decoded.pixels().any(|px| px.0[3] < 255);
         if !has_alpha {
-            Some("Warning: output image has no transparent pixels".to_string())
+            Some("Applied, but the result has no transparency".to_string())
         } else {
             None
         }
@@ -1224,13 +1224,13 @@ pub fn paint_row_ai_button(app: &mut App, ui: &mut egui::Ui, rect: Rect, node: N
     }
 }
 
-/// Renders the `Agent working…` chip and `Cancel` button on a layer row with an active image job (`panels/layers.rs`).
+/// Renders the `Working…` chip and `Cancel` button on a layer row with an active image job (`panels/layers.rs`).
 /// Returns the x coordinate of the left edge of the chip so the layer name elides cleanly before it.
 pub fn layer_row_progress_chip(app: &mut App, ui: &mut egui::Ui, p: &egui::Painter, row_rect: Rect, right_limit: f32, node: NodeId) -> Option<f32> {
     let job = app.image_jobs.active_job_for_node(node)?;
     let status_text = match job.state {
         ImageJobState::Queued => "Queued…",
-        _ => "Agent working…",
+        _ => "Working…",
     };
     let font = theme::font_caption();
     let status_w = widgets::text_width(p, status_text, &font);
@@ -1714,7 +1714,7 @@ mod tests {
         app.image_jobs.override_agent_installed = Some(false);
 
         assert!(!has_available_agent_cli(&app));
-        assert_eq!(DISABLED_TOOLTIP, "Set up an agent CLI in the Agents panel to use AI image tools");
+        assert_eq!(DISABLED_TOOLTIP, "Needs an agent CLI. Set one up in Agents.");
         assert!(app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).is_none(), "starting an image job without an installed agent CLI is refused");
         assert_eq!(app.toast.as_ref().map(|t| t.text.as_str()), Some(DISABLED_TOOLTIP));
     }
@@ -1755,7 +1755,7 @@ mod tests {
         assert!(app.doc.get(orig_id).unwrap().visible, "original layer remains visible on failure");
         let toast = app.toast.as_ref().expect("error toast shown");
         assert!(toast.error);
-        assert!(toast.text.contains("expected 100x100, got 80x60"), "unexpected toast: {}", toast.text);
+        assert!(toast.text.contains("Result is 80×60, expected 100×100"), "unexpected toast: {}", toast.text);
     }
 
     #[test]
