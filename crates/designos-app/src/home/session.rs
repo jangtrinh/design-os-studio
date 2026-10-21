@@ -531,6 +531,15 @@ impl App {
         self.ui.ctx_menu = None;
     }
 
+    /// Binds the agent terminal to the stable session folder of the open file: its library file
+    /// id, or the hash of its disk path for a file opened from disk (`#653`). Needs a library root
+    /// for the folder; without one the terminal keeps its per-process folder.
+    pub(crate) fn bind_terminal_to_open_file(&mut self, window_id: &str) {
+        if let Some(lib) = &self.lib {
+            self.terminal.bind_open_file(lib.root(), self.lib_file.as_ref().map(|lf| lf.id.as_str()), self.file_path.as_deref(), window_id);
+        }
+    }
+
     /// Disk path of a library file; also the key of its cached pre-repair bytes.
     pub(crate) fn lib_file_disk_path(&self, lf: &LibFile) -> Option<PathBuf> {
         self.lib.as_ref().map(|lib| lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))

@@ -403,6 +403,9 @@ impl TabsState {
             if let Some(tab_id) = self.entries.get(self.active_idx).map(|t| t.id) {
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
+                if app.terminal.tabs.is_empty() {
+                    app.bind_terminal_to_open_file(&sid);
+                }
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             }
             return;
@@ -456,9 +459,7 @@ impl TabsState {
                     app.terminal.library_root = Some(lib.root().to_path_buf());
                 }
                 app.terminal.bind_session(&sid);
-                if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
-                    app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
-                }
+                app.bind_terminal_to_open_file(&sid);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                 app.image_jobs = crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs);
                 self.hist_in_app = true;
@@ -477,10 +478,8 @@ impl TabsState {
                 }
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
-                if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
-                    if app.terminal.tabs.is_empty() {
-                        app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
-                    }
+                if app.terminal.tabs.is_empty() {
+                    app.bind_terminal_to_open_file(&sid);
                 }
             }
         }
@@ -491,10 +490,8 @@ impl TabsState {
                 app.terminal.library_root = Some(lib.root().to_path_buf());
             }
             app.terminal.bind_session(&sid);
-            if let (Some(lib), Some(lf)) = (&app.lib, &app.lib_file) {
-                if app.terminal.tabs.is_empty() {
-                    app.terminal.bind_library_file(lib.root(), &lf.id, &sid);
-                }
+            if app.terminal.tabs.is_empty() {
+                app.bind_terminal_to_open_file(&sid);
             }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         }

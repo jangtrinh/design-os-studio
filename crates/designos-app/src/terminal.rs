@@ -1592,6 +1592,18 @@ impl TerminalState {
         }
     }
 
+    /// Binds to the stable folder of the open file (`#653` rules 1 and 2): the library file id when
+    /// there is one, else the hash key of its disk path ([`crate::agent_sessions::disk_file_session_key`]).
+    /// A document with neither (an unsaved scratch) keeps its per-process temp folder.
+    pub fn bind_open_file(&mut self, lib_root: &Path, lib_file_id: Option<&str>, disk_path: Option<&Path>, window_id: &str) {
+        let key = match (lib_file_id, disk_path) {
+            (Some(id), _) => id.to_string(),
+            (None, Some(path)) => crate::agent_sessions::disk_file_session_key(path),
+            (None, None) => return,
+        };
+        self.bind_library_file(lib_root, &key, window_id);
+    }
+
     /// Releases `<session_dir>/session.lock` if owned by this `TerminalState`.
     pub fn release_lock(&mut self) {
         if let Some(owner) = self.lock_owner.take() {

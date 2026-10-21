@@ -15,7 +15,8 @@ pub const ANOTHER_WINDOW_OWNS_SESSION_MSG: &str = "Another window owns this file
 /// How a `TerminalState` is bound to disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionKey {
-    /// Bound to a library file at `<lib_root>/agent-sessions/<file_id>/`.
+    /// Bound to `<lib_root>/agent-sessions/<file_id>/`: `file_id` is the library file id, or
+    /// `path-<hex>` ([`disk_file_session_key`]) for a file opened from disk.
     LibraryFile { lib_root: PathBuf, file_id: String },
     /// Ephemeral fallback at `/tmp/designos-sessions/<session_id>`.
     Fallback(String),
@@ -149,6 +150,22 @@ pub fn generate_session_uuid() -> String {
 pub fn stable_session_dir(lib_root: &Path, file_id: &str) -> PathBuf {
     let safe_id: String = file_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
     lib_root.join("agent-sessions").join(safe_id)
+}
+
+/// Session key for a file opened from disk without a library id: `path-<16 hex digits>`, the
+/// FNV-1a 64-bit hash of its canonical path (the path itself when it cannot be canonicalised).
+/// FNV-1a is spelled out here, not taken from `DefaultHasher`, because the key names a folder that
+/// must keep its name across Studio and Rust upgrades. Renaming or moving the file changes the key
+/// and so starts a fresh history (`#653` rule 2). The result only uses `[0-9a-z-]`, so
+/// [`stable_session_dir`] keeps it as is.
+pub fn disk_file_session_key(path: &Path) -> String {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in canonical.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("path-{hash:016x}")
 }
 
 /// Interprets `/bin/kill -0 <pid>` exit status and stderr: exit 0 or `EPERM` ("Operation not permitted")
@@ -490,6 +507,92 @@ mod tests {
         assert_eq!(app.terminal.session_dir, expected);
 
         app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // 1b. `disk_file_session_key_is_a_stable_hash_of_the_canonical_path`
+    #[test]
+    fn disk_file_session_key_is_a_stable_hash_of_the_canonical_path() {
+        let dir = temp_test_dir("disk-key");
+        let file = dir.join("brand.designos");
+        std::fs::write(&file, b"{}").expect("write file");
+        let other = dir.join("other.designos");
+        std::fs::write(&other, b"{}").expect("write other");
+
+        let key = disk_file_session_key(&file);
+        assert!(key.starts_with("path-"), "key shape: {key}");
+        let hex = &key["path-".len()..];
+        assert_eq!(hex.len(), 16, "16 lowercase hex digits: {key}");
+        assert!(hex.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "hex digits only: {key}");
+        assert_eq!(key, disk_file_session_key(&file), "deterministic");
+        assert_ne!(key, disk_file_session_key(&other), "a different path is a different key (rename/move starts fresh)");
+        let dotted = dir.join("sub").join("..").join("brand.designos");
+        std::fs::create_dir_all(dir.join("sub")).expect("sub dir");
+        assert_eq!(key, disk_file_session_key(&dotted), "the canonical path is hashed, not the spelling");
+        // Pinned value: a changed hash would orphan every existing disk-file session after an upgrade.
+        assert_eq!(disk_file_session_key(Path::new("/designos-pinned/does-not-exist.fig")), "path-236811fb7f1c15f7");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // 1c. `disk_file_session_dir_survives_a_restart`
+    #[test]
+    fn disk_file_session_dir_survives_a_restart() {
+        let root = temp_test_dir("disk-restart-lib");
+        let work = temp_test_dir("disk-restart-files");
+        let file = work.join("poster.designos");
+        crate::io::save_path(&Document::new("Poster"), &file).expect("save disk file");
+        let key = disk_file_session_key(&file);
+        let expected = root.join("agent-sessions").join(&key);
+
+        let first_dir = {
+            let mut app = App::new(Document::new("Scratch"));
+            app.attach_library(root.clone());
+            app.open_path(file.clone());
+            let mut tabs = std::mem::take(&mut app.tabs);
+            tabs.reconcile_frame(&mut app);
+            app.tabs = tabs;
+            assert_eq!(app.terminal.session_dir, expected, "a disk file lives under agent-sessions/path-<hex>, not the temp folder");
+            assert!(expected.join("session.lock").is_file(), "the folder is locked while open");
+            app.terminal.shutdown();
+            app.terminal.session_dir.clone()
+        };
+
+        // A new process: new App, same file, same folder.
+        let mut app2 = App::new(Document::new("Scratch"));
+        app2.attach_library(root.clone());
+        app2.open_path(file.clone());
+        let mut tabs = std::mem::take(&mut app2.tabs);
+        tabs.reconcile_frame(&mut app2);
+        app2.tabs = tabs;
+        assert_eq!(app2.terminal.session_dir, first_dir);
+
+        // Renaming (here: another path) starts a fresh history in another folder.
+        let moved = work.join("poster-renamed.designos");
+        std::fs::rename(&file, &moved).expect("rename");
+        app2.terminal.shutdown();
+        app2.open_path(moved.clone());
+        let mut tabs = std::mem::take(&mut app2.tabs);
+        tabs.reconcile_frame(&mut app2);
+        app2.tabs = tabs;
+        assert_eq!(app2.terminal.session_dir, root.join("agent-sessions").join(disk_file_session_key(&moved)));
+        assert_ne!(app2.terminal.session_dir, first_dir);
+
+        app2.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // 1d. an unsaved scratch document (no library id, no disk path) has no stable key
+    #[test]
+    fn unsaved_scratch_document_keeps_its_per_process_folder() {
+        let root = temp_test_dir("scratch-no-key");
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session("scratch-sid");
+        let before = st.session_dir.clone();
+        st.bind_open_file(&root, None, None, "scratch-sid");
+        assert_eq!(st.session_dir, before);
+        assert!(matches!(st.key, SessionKey::Fallback(_)));
+        assert!(!root.join("agent-sessions").exists(), "no stable folder is created for a scratch document");
         let _ = std::fs::remove_dir_all(&root);
     }
 
