@@ -168,12 +168,19 @@ impl App {
     }
 
     /// Enables or disables `rule` (by its `figma_id()`) as one undo step.
+    /// The single "Colours & contrast" switch toggles both `Rule::HardCodedValue` and `Rule::Contrast`.
     pub fn set_check_designs_rule(&mut self, rule: Rule, on: bool) -> bool {
         let mut next = self.doc.check_designs.clone();
-        if on {
-            next.disabled_rules.remove(rule.figma_id());
-        } else {
-            next.disabled_rules.insert(rule.figma_id().to_string());
+        let ids: &[&str] = match rule {
+            Rule::HardCodedValue | Rule::Contrast => &[Rule::HardCodedValue.figma_id(), Rule::Contrast.figma_id()],
+            other => &[other.figma_id()],
+        };
+        for &id in ids {
+            if on {
+                next.disabled_rules.remove(id);
+            } else {
+                next.disabled_rules.insert(id.to_string());
+            }
         }
         self.apply_check_designs_settings(next)
     }
@@ -196,6 +203,9 @@ impl App {
     pub fn check_designs_restore(&mut self, key: &IgnoreKey) -> bool {
         let mut next = self.doc.check_designs.clone();
         next.ignored.remove(key);
+        if key.rule == Rule::Contrast.figma_id() && key.property.is_empty() {
+            next.ignored.remove(&IgnoreKey { node: key.node, rule: Rule::HardCodedValue.figma_id().to_string(), property: String::new() });
+        }
         self.apply_check_designs_settings(next)
     }
 

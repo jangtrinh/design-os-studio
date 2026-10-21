@@ -31,7 +31,7 @@ struct TexEntry {
 
 #[derive(Default)]
 pub struct TileView {
-    cache: TileCache,
+    pub(crate) cache: TileCache,
     /// Document revision handed to the cache; bumped when `dirty` is consumed.
     rev: u64,
     textures: HashMap<TileKey, TexEntry>,
@@ -127,6 +127,8 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
     let (page, offset, zoom) = (app.page, app.view.offset, app.view.zoom);
     let now = ctx.input(|i| i.time);
     take_rev(app);
+    let runtime_opacities =
+        if app.canvas.tiles.unlimited_budget { Vec::new() } else { app.agent_presence.active_top_level_insert_opacities(&app.doc, page, app.now) };
     let c = &mut app.canvas;
     let tv = &mut c.tiles;
     tv.frame_no += 1;
@@ -154,6 +156,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) {
     let vp = Viewport { offset, zoom: rz, dpr: ppp };
     let size = ((w * ratio).ceil().max(1.0) as u32, (h * ratio).ceil().max(1.0) as u32);
     let budget = if tv.unlimited_budget { TileBudget::unlimited() } else { TileBudget::time(RENDER_BUDGET) };
+    tv.cache.set_runtime_opacities(&app.doc, page, runtime_opacities);
     let frame = tv.cache.render_tiles(&app.doc, page, &vp, size, tv.rev, budget);
     let pending = frame.pending() > 0 || frame.prefetch_pending > 0;
 

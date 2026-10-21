@@ -1,0 +1,45 @@
+{
+  "version": "2.17",
+  "name": "Fixture v2.17",
+  "children": [
+    {
+      "id": "chip-comp",
+      "type": "frame",
+      "reusable": true,
+      "name": "Chip",
+      "width": 80,
+      "height": 28,
+      "fill": "#E5E7EB"
+    },
+    {
+      "id": "shell-comp",
+      "type": "frame",
+      "reusable": true,
+      "name": "Shell",
+      "width": 280,
+      "height": 140,
+      "layout": "vertical",
+      "children": [
+        {
+          "id": "body-slot",
+          "type": "frame",
+          "name": "BodySlot",
+          "isPlaceholder": true,
+          "slots": ["chip-comp"]
+        },
+        {
+          "id": "badge-abs",
+          "type": "rectangle",
+          "name": "Corner Badge",
+          "x": 240,
+          "y": 8,
+          "width": 24,
+          "height": 24,
+          "position": "absolute",
+          "horizontalFlip": true,
+          "fill": "#EF4444"
+        }
+      ]
+    }
+  ]
+}

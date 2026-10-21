@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use designos_doc::{NodeId, NodeKind};
+use designos_doc::{Document, NodeId, NodeKind};
 use egui::{Align2, Event, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::icons::{self, Icon};
@@ -108,6 +108,13 @@ pub struct LayerChip {
     pub is_component: bool,
     /// `#655` canonical reference URI (`designos:node/<id>`).
     pub reference: String,
+}
+
+/// Document and page searched by the composer's `@`-mention picker (`#655`).
+#[derive(Clone, Copy)]
+pub struct MentionScope<'a> {
+    pub doc: &'a Document,
+    pub page: NodeId,
 }
 
 /// Per-tab composer state (`#689` §4).
@@ -510,8 +517,14 @@ impl TerminalState {
             return SendOutcome::Refused(RefuseReason::TooLong);
         }
 
-        // Format payload including any `#655` layer chip references.
-        let mut payload = if trimmed.is_empty() { chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ") } else { trimmed.to_string() };
+        // Format payload including any `#655` `@`-mention references and layer chip references.
+        let mut live_mentions = self.active_mentions.clone();
+        crate::agent_mention::prune_deleted_mentions(trimmed, &mut live_mentions);
+        let mut payload = if trimmed.is_empty() {
+            chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
+        } else {
+            crate::agent_mention::build_prompt_with_mentions(trimmed, &live_mentions)
+        };
         if !chips_snapshot.is_empty() {
             let refs: Vec<String> =
                 chips_snapshot.iter().map(|c| format!("@{} = {} ({})", c.name, c.reference, if c.is_component { "component" } else { "layer" })).collect();
@@ -558,6 +571,8 @@ impl TerminalState {
                 tab.composer.record_sent(trimmed);
                 tab.composer.draft.clear();
                 tab.composer.chips.clear();
+                self.active_mentions.clear();
+                self.mention_popup.close();
                 return write_prompt_to_live_tab(tab, &payload, &mut self.status_msg);
             }
         }
@@ -570,6 +585,8 @@ impl TerminalState {
             comp.draft.clear();
             comp.chips.clear();
         }
+        self.active_mentions.clear();
+        self.mention_popup.close();
         let tabs_before = self.tabs.len();
         self.open_for_agent_use(file_path);
 
@@ -598,16 +615,58 @@ impl TerminalState {
     }
 }
 
+fn composer_popup_open(state: &TerminalState) -> bool {
+    state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer
+}
+
+/// Runs `f` with the active composer draft, the `@`-mention popup and the active mentions as disjoint borrows.
+fn with_composer_draft<R>(
+    state: &mut TerminalState,
+    f: impl FnOnce(&mut String, &mut crate::agent_mention_popup::MentionPopupState, &mut Vec<crate::agent_mention::Mention>) -> R,
+) -> R {
+    let mut draft = std::mem::take(&mut state.active_composer_mut().draft);
+    let result = f(&mut draft, &mut state.mention_popup, &mut state.active_mentions);
+    state.active_composer_mut().draft = draft;
+    result
+}
+
+/// Byte offset of the caret inside the composer field: the live `TextEdit` state, else the last observed offset, else the end.
+fn composer_cursor_byte(ui: &Ui, input_id: Id, draft: &str, last_seen: Option<usize>) -> usize {
+    egui::widgets::text_edit::TextEditState::load(ui.ctx(), input_id)
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| draft.char_indices().nth(usize::from(r.primary.index)).map(|(b, _)| b).unwrap_or(draft.len()))
+        .or(last_seen)
+        .unwrap_or(draft.len())
+        .min(draft.len())
+}
+
+/// Moves the caret behind a freshly picked `@`-mention.
+fn apply_post_pick_cursor(ui: &Ui, state: &mut TerminalState, input_id: Id) {
+    let Some(new_byte) = state.mention_popup.post_pick_cursor_byte.take() else {
+        return;
+    };
+    state.composer_cursor_byte = Some(new_byte);
+    let draft = state.composer_draft();
+    let char_idx = draft.get(..new_byte).map(|s| s.chars().count()).unwrap_or_else(|| draft.chars().count());
+    if let Some(mut text_state) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), input_id) {
+        text_state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(char_idx))));
+        text_state.store(ui.ctx(), input_id);
+    }
+}
+
 /// Renders the multi-line Agent composer box at the bottom of `panel_rect` (`#689` §7)
 /// and returns the outer `composer_rect` so the center viewport/content area can bound above it.
+/// `scope` is the open document and page the `@`-mention picker (`#655`) searches.
 pub fn show_composer(
     state: &mut TerminalState,
     ui: &mut Ui,
     panel_rect: Rect,
     min_top_y: f32,
     file_path: Option<&Path>,
+    scope: MentionScope<'_>,
     actions: &mut Vec<TerminalAction>,
 ) -> Rect {
+    let MentionScope { doc, page: current_page } = scope;
     let sim_now = ui.input(|i| i.time);
     // Advance delayed `\r` writes when either real wall-clock or `Sim` frame time has elapsed by `pending_enter_delay`.
     for tab in &mut state.tabs {
@@ -641,6 +700,18 @@ pub fn show_composer(
 
     let input_id = Id::new("agents-ask-for-changes-input");
     let was_focused = ui.memory(|m| m.has_focus(input_id));
+
+    // `@`-mention picker keys (`#655`) are consumed before the composer reads Enter/Up/Down so a pick never also submits.
+    if !is_shell_tab {
+        let draft_now = state.composer_draft().to_string();
+        let pre_cursor = composer_cursor_byte(ui, input_id, &draft_now, state.composer_cursor_byte);
+        state.mention_popup.sync_from_composer_text(&draft_now, pre_cursor, doc, current_page);
+        if composer_popup_open(state) {
+            let ctx = ui.ctx().clone();
+            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions, doc, current_page));
+            apply_post_pick_cursor(ui, state, input_id);
+        }
+    }
 
     let mut submit_composer = false;
     if was_focused && !is_shell_tab {
@@ -759,12 +830,26 @@ pub fn show_composer(
                 .text_color(if is_shell_tab { theme::TEXT_DISABLED } else { theme::TEXT })
                 .interactive(!is_shell_tab)
                 .hint_text(RichText::new(hint).font(theme::font_body()).color(theme::TEXT_TERTIARY));
-            let resp = ui.add(te);
-            if resp.clicked() || resp.has_focus() {
+            let out = te.show(ui);
+            if let Some(cr) = out.cursor_range {
+                let draft = &state.active_composer().draft;
+                state.composer_cursor_byte = Some(draft.char_indices().nth(usize::from(cr.primary.index)).map(|(b, _)| b).unwrap_or(draft.len()));
+            }
+            if out.response.clicked() || out.response.has_focus() {
                 state.viewport_focused = false;
             }
         });
     });
+    if !is_shell_tab {
+        let draft_after = state.composer_draft().to_string();
+        let post_cursor = state.composer_cursor_byte.unwrap_or(draft_after.len()).min(draft_after.len());
+        state.mention_popup.sync_from_composer_text(&draft_after, post_cursor, doc, current_page);
+        crate::agent_mention::prune_deleted_mentions(&draft_after, &mut state.active_mentions);
+        if composer_popup_open(state) {
+            let _ = with_composer_draft(state, |draft, popup, mentions| popup.show(ui, panel_rect, composer_rect, draft, mentions));
+            apply_post_pick_cursor(ui, state, input_id);
+        }
+    }
     if state.composer_draft() != prev_draft {
         // User typed directly into the field; leave history cursor mode.
         let comp = state.active_composer_mut();
@@ -1104,7 +1189,7 @@ mod tests {
         };
         let _ = ctx.run_ui(raw_shift, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
 
         assert_eq!(st.composer_draft(), "line one\nline two", "Shift+Enter must insert a newline without sending");
@@ -1120,7 +1205,7 @@ mod tests {
         };
         let _ = ctx.run_ui(raw_enter, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(st.composer_draft(), "", "Plain Enter must clear the draft after sending");
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Bracketed paste payload must be written first, before the delayed Enter");
@@ -1130,7 +1215,7 @@ mod tests {
             egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), time: Some(1.040), ..Default::default() };
         let _ = ctx.run_ui(raw_early, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Delayed \\r must not flush before CLAUDE_ENTER_DELAY (50ms) has elapsed");
 
@@ -1142,7 +1227,7 @@ mod tests {
         };
         let _ = ctx.run_ui(raw_next, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~\r", "Delayed \\r must be written once CLAUDE_ENTER_DELAY elapses");
 
@@ -1163,7 +1248,7 @@ mod tests {
         };
         let _ = ctx.run_ui(raw_codex_enter, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~");
 
@@ -1172,7 +1257,7 @@ mod tests {
             egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))), time: Some(2.083), ..Default::default() };
         let _ = ctx.run_ui(raw_spinner, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(
             &*rec.lock().unwrap(),
@@ -1188,7 +1273,7 @@ mod tests {
         };
         let _ = ctx.run_ui(raw_codex_due, |ui| {
             let mut acts = Vec::new();
-            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+            let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~\r");
 
@@ -1212,7 +1297,7 @@ mod tests {
             let mut rect = Rect::NOTHING;
             let _ = ctx.run_ui(raw, |ui| {
                 let mut acts = Vec::new();
-                rect = show_composer(&mut st, ui, panel_rect, 80.0, None, &mut acts);
+                rect = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
             });
             heights.push((lines, rect.height()));
         }
@@ -1258,7 +1343,7 @@ mod tests {
             };
             let _ = ctx.run_ui(raw, |ui| {
                 let mut acts = Vec::new();
-                let _ = show_composer(st, ui, panel_rect, 80.0, None, &mut acts);
+                let _ = show_composer(st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
             });
         };
 

@@ -195,7 +195,7 @@ pub(super) fn check(doc: &Document, bounds: &SubtreeBounds, n: &Node, out: &mut 
             },
             _ => false,
         };
-        if same_own && failure(doc, src_id, bounds).is_some_and(|sf| sf.bg == f.bg) {
+        if same_own && failure(doc, src_id, bounds).is_some_and(|sf| sf.bg == f.bg && (sf.ratio - f.ratio).abs() < 1e-6 && sf.required == f.required) {
             return;
         }
     }

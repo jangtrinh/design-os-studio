@@ -89,7 +89,11 @@ impl Capture {
             }
         }
         let capture: Self = serde_json::from_value(raw)?;
-        if !capture.schema.is_empty() && capture.schema != CAPTURE_SCHEMA_ID {
+        if !capture.schema.is_empty()
+            && capture.schema != CAPTURE_SCHEMA_ID
+            && capture.schema != "designos-web-capture/v1"
+            && capture.schema != "designos-webcapture/v1"
+        {
             return Err(CaptureError::UnsupportedSchema(capture.schema));
         }
         if capture.version == 0 || capture.version > 2 {

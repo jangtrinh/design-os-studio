@@ -182,6 +182,9 @@ pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &Select
     let has_selection = summary.count > 0;
     let sense = if has_selection { Sense::click() } else { Sense::hover() };
     let resp = ui.interact(pill_rect, Id::new(id_salt), sense);
+    if has_selection {
+        widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Selection chip");
+    }
 
     let (fill, stroke, text_col) = if has_selection {
         let bg = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };

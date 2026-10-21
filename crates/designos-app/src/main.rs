@@ -1,11 +1,25 @@
+mod agent_a11y;
+mod agent_approval_card;
 pub mod agent_cli_catalog;
 pub mod agent_composer;
+mod agent_mention;
+mod agent_mention_popup;
+pub mod agent_notify;
 pub mod agent_open_flow;
+pub mod agent_permissions;
 pub mod agent_picker;
+mod agent_presence;
 mod agent_selection_chip;
 pub mod agent_sessions;
 mod agent_start_failure;
+mod agent_stop;
+pub mod agent_turn_card;
+pub mod agent_turn_ledger;
+pub mod agent_turn_marks;
+pub mod agent_turn_status;
 mod app;
+#[cfg(test)]
+mod apply_node_spec_variable_tests;
 mod board;
 mod canvas;
 mod check_designs;
@@ -193,7 +207,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         io::ensure_page(&mut d);
         (d, SaveTarget::Library(lib, id.clone()))
     } else if let Some(path) = &opts.file {
-        let d = if !path.exists() && (opts.apply_spec.is_some() || opts.import_variables.is_some()) {
+        let d = if !path.exists() && (opts.apply_spec.is_some() || opts.import_capture.is_some() || opts.import_variables.is_some()) {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
             let mut d = designos_doc::Document::new(stem);
             io::ensure_page(&mut d);
@@ -201,10 +215,40 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         } else {
             io::load_path(path)?
         };
-        (d, SaveTarget::Path(path.clone()))
+        let target_path = opts.out.clone().unwrap_or_else(|| path.clone());
+        (d, SaveTarget::Path(target_path))
+    } else if let Some(out_path) = &opts.out {
+        let stem = out_path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled");
+        let mut d = designos_doc::Document::new(stem);
+        io::ensure_page(&mut d);
+        (d, SaveTarget::Path(out_path.clone()))
     } else {
-        return Err("Agent CLI requires a file path or --open-id <id>".into());
+        return Err("Agent CLI requires a file path, --out <path>, or --open-id <id>".into());
     };
+
+    if let Some(cap_path) = &opts.import_capture {
+        let raw = std::fs::read_to_string(cap_path).map_err(|e| format!("Cannot read {}: {e}", cap_path.display()))?;
+        let page = doc.pages.first().copied().ok_or("Document has no pages")?;
+        let (cmd, report) = designos_webcapture::import_capture_json(&doc, page, &raw, &designos_webcapture::ImportOptions::default())
+            .map_err(|e| format!("Web capture import failed in {}: {e}", cap_path.display()))?;
+        let mut hist = designos_doc::History::default();
+        hist.exec(&mut doc, cmd).map_err(|e| format!("Web capture import failed: {e}"))?;
+        doc.relayout_subtree(page);
+        doc.flush_pending_relayout();
+        if doc.name == "Untitled" || opts.file.is_none() {
+            doc.name = report.root_name.clone();
+        }
+        save_target.save(&doc)?;
+        let out = serde_json::json!({
+            "root_node_id": report.root_node_id.0,
+            "root_name": report.root_name,
+            "nodes_created": report.nodes_created,
+            "summary_toast": report.summary_toast(),
+            "report": report,
+            "saved": true,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
 
     let selected_node = resolve_select_node(&doc, opts.select.as_deref());
 
@@ -372,7 +416,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
             .or_else(|| doc.pages.first().and_then(|p| doc.get(*p)).and_then(|p| p.children.first()).copied())
             .or_else(|| doc.pages.first().copied())
             .ok_or("No node found to generate code for")?;
-        let resolved = designos_doc::apply_bound_variables(&doc);
+        let (resolved, _) = designos_export::apply_bound_variables_subtree(&doc, target_id);
         println!("{}", lang.generate(&resolved, target_id, false));
     }
 
@@ -476,6 +520,50 @@ mod icon_tests {
         assert!(final_doc.comments[0].resolved);
         assert_eq!(final_doc.comments[0].messages.len(), 2);
         assert!(spec_out.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn web_capture_cli_import_and_out_roundtrip() {
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("designos_web_capture_cli_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let cap_in = dir.join("card.capture.json");
+        let doc_out = dir.join("card.designos");
+
+        std::fs::write(
+            &cap_in,
+            r##"{
+                "schema_version": 1,
+                "url": "https://example.com/card",
+                "title": "CLI Captured Card",
+                "viewport": { "width": 800, "height": 600, "dpr": 2.0 },
+                "root": {
+                    "tag": "div",
+                    "bounds": { "x": 0, "y": 0, "w": 300, "h": 120 },
+                    "style": { "display": "flex", "flex_direction": "column", "row_gap": 10, "background_color": "#ffffff" },
+                    "children": [
+                        {
+                            "tag": "p",
+                            "bounds": { "x": 12, "y": 12, "w": 276, "h": 24 },
+                            "style": { "color": "#111827", "font_family": "Inter", "font_size": 16, "font_weight": 500, "line_height": 24 },
+                            "text_runs": [{ "text": "Captured via CLI", "bounds": { "x": 12, "y": 12, "w": 180, "h": 24 } }]
+                        }
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+
+        let opts =
+            super::cli::parse(["--import-capture".into(), cap_in.to_string_lossy().into_owned(), "--out".into(), doc_out.to_string_lossy().into_owned()])
+                .unwrap();
+        super::run_agent_cli(&opts).unwrap();
+
+        let loaded = super::io::load_path(&doc_out).unwrap();
+        assert_eq!(loaded.name, "CLI Captured Card — example.com");
+        assert!(loaded.nodes.values().any(|n| matches!(&n.kind, designos_doc::NodeKind::Text(t) if t.content == "Captured via CLI")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

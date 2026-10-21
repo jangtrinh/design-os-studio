@@ -29,7 +29,7 @@ pub struct GpuView {
     /// The device and renderer initialised.
     pub available: bool,
     max_texture: u32,
-    compiler: SceneCompiler,
+    pub(crate) compiler: SceneCompiler,
     last_key: Option<FrameKey>,
     /// The frame for `last_key` was compiled with the offscreen-program cap
     /// lifted (the idle full-quality pass), so there is nothing left to refine.
@@ -247,11 +247,18 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
     }
     app.canvas.gpu.painting = true;
     let rev = super::tiles::take_rev(app);
+    let runtime_opacities =
+        if app.canvas.tiles.unlimited_budget { Vec::new() } else { app.agent_presence.active_top_level_insert_opacities(&app.doc, app.page, app.now) };
     let vp = Viewport { offset: app.view.offset, zoom: app.view.zoom, dpr: ppp };
     let key: FrameKey =
         (app.page, rev, [vp.offset.x.to_bits(), vp.offset.y.to_bits()], vp.zoom.to_bits(), vp.dpr.to_bits(), size, designos_render::font_generation());
     let (doc, page) = (&app.doc, app.page);
     let g = &mut app.canvas.gpu;
+    if g.compiler.opts.runtime_node_opacities != runtime_opacities {
+        g.compiler.opts.runtime_node_opacities = runtime_opacities;
+        g.last_key = None;
+        g.refined = false;
+    }
     let (now, pointer_down, view_input) =
         ui.input(|i| (i.time, i.pointer.any_down(), i.smooth_scroll_delta != egui::Vec2::ZERO || (i.zoom_delta() - 1.0).abs() > 1e-4));
     let plan = g.plan(key, now, pointer_down, view_input);

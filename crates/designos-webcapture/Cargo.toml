@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+designos-doc.workspace = true
+designos-fonts.workspace = true
+designos-svg.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+designos-diff = { path = "../designos-diff" }
+designos-render.workspace = true
+image.workspace = true

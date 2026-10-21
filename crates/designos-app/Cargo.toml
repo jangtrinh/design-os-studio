@@ -34,6 +34,7 @@ designos-fonts.workspace = true
 designos-export.workspace = true
 designos-svg.workspace = true
 designos-gpu.workspace = true
+designos-webcapture.workspace = true
 arboard = "3"
 eframe = "0.35.0"
 rfd = "0.17.2"

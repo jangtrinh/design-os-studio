@@ -561,6 +561,24 @@ impl CatalogProbeCache {
             guard.insert(preset, probe);
         }
     }
+
+    /// Synchronously checks whether `preset` is installed, consulting pinned or completed probes
+    /// first and falling back to `self.runner.is_installed` while a background probe is still `Checking`.
+    pub fn is_preset_installed(&self, preset: AgentCliPreset) -> bool {
+        if let Ok(pinned) = self.pinned.lock() {
+            if let Some(p) = pinned.get(&preset) {
+                return p.installed;
+            }
+        }
+        if let Ok(probes) = self.probes.lock() {
+            if let Some(p) = probes.get(&preset) {
+                if p.installed || p.signed_in != SignIn::Checking {
+                    return p.installed;
+                }
+            }
+        }
+        catalog().into_iter().find(|d| d.preset == preset).is_some_and(|d| self.runner.is_installed(d.binary, &d.install_folders))
+    }
 }
 
 /// Kind of row in the new-session picker and compact `+` menu (`#652` §3 rules 3–8).
@@ -597,9 +615,10 @@ pub struct PickerRow {
 }
 
 /// Builds the ordered list of picker rows according to `#652` §3 rules 3, 4, 6, 7, 8:
-/// 1. Installed CLIs first in fixed catalog order (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`),
-///    with the file's `last_cli` ordered first when present and installed;
-/// 2. Uninstalled CLIs after them, greyed (`Not installed`, `selectable: false`) with `FixAction::OpenInstallPage`;
+/// 1. Installed (or still-probing `Checking...`) CLIs first in fixed catalog order
+///    (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`), with the file's `last_cli`
+///    ordered first when present and confirmed installed;
+/// 2. Confirmed-uninstalled CLIs after them, greyed (`Not installed`, `selectable: false`) with `FixAction::OpenInstallPage`;
 /// 3. Saved `custom_clis` entries (with caption `"Plain command: Studio tools not connected"`);
 /// 4. `"Other CLI..."` row (with caption `"Plain command: Studio tools not connected"`);
 /// 5. `"Shell"` row last (never the default).
@@ -643,17 +662,33 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
                     install_action: None,
                 },
             });
+        } else if probe.signed_in == SignIn::Checking {
+            installed_rows.push(PickerRow {
+                id,
+                label: desc.name.to_string(),
+                version: None,
+                state_label: Some(SignIn::Checking.label().to_string()),
+                caption: desc.caption.map(str::to_string),
+                selectable: false,
+                is_last_choice: false,
+                install_action: None,
+                kind: PickerRowKind::CatalogCli {
+                    preset: desc.preset,
+                    binary: desc.binary,
+                    installed: false,
+                    version: None,
+                    signed_in: SignIn::Checking,
+                    is_last_choice: false,
+                    install_action: None,
+                },
+            });
         } else {
-            let (state_lbl, install_act) = if probe.signed_in == SignIn::Checking {
-                (SignIn::Checking.label().to_string(), None)
-            } else {
-                (String::from("Not installed"), Some(FixAction::OpenInstallPage(desc.install_url)))
-            };
+            let install_act = Some(FixAction::OpenInstallPage(desc.install_url));
             uninstalled_rows.push(PickerRow {
                 id,
                 label: desc.name.to_string(),
                 version: None,
-                state_label: Some(state_lbl),
+                state_label: Some(String::from("Not installed")),
                 caption: desc.caption.map(str::to_string),
                 selectable: false,
                 is_last_choice: false,

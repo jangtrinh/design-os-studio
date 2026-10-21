@@ -333,6 +333,8 @@ impl TabsState {
         app.canvas.reset_interaction();
         app.comments.close_popovers();
         app.layers.reset();
+        app.agent_presence.reset();
+        app.agent_changes_chip.clear();
         app.fonts.load_for(&app.doc);
         if tab_kind == ProjectTabKind::Spec {
             app.ui.rail = Some(RailItem::Specs);
@@ -691,6 +693,8 @@ impl TabsState {
         if !was_home && idx == old_active {
             app.cleanup_image_jobs_on_file_close();
             app.terminal.shutdown();
+            app.agent_presence.reset();
+            app.agent_changes_chip.clear();
         }
         let mut removed = self.entries.remove(idx);
         removed.image_jobs.cancel_and_cleanup(Some(removed.terminal.session_dir.join("image-jobs")));

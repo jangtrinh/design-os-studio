@@ -8,7 +8,7 @@
   <sub>70-second film. Click to watch it with sound.</sub>
 </p>
 
-**Native GPU-accelerated interface design studio, enterprise Figma `.fig` v106 binary read/write engine, Agentic PTY Chat UI, Live Variables & Multi-Edit (`Q`), and 22-tool Model Context Protocol server written in Rust.**
+**Native GPU-accelerated interface design studio, enterprise Figma `.fig` v106 binary read/write engine, Agentic PTY Chat UI, Live Variables & Multi-Edit (`Q`), and Model Context Protocol server written in Rust.**
 
 Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.5s with `0.0%` idle CPU on Metal, DirectX 12, and Vulkan (`wgpu` + `tiny-skia`). Execute all **100 / 100 Figma A-to-Z Micro-Interactions (`#1..#100`)** natively on canvas, run **Claude Code (`claude`)**, **OpenAI Codex (`codex`)**, **Antigravity CLI (`agy`)**, **Gemini CLI (`gemini`)**, and **Grok CLI (`grok`)** directly inside the native **Agentic PTY Chat UI** with zero paid external API keys, switch live Design Variables across `Light` and `Dark` modes with Multi-Edit (`Q`) and Suggest Auto-Layout (`⇧A`), generate multi-target Dev Mode code (React, Tailwind, CSS, SwiftUI, Jetpack Compose, Flutter, Rust `egui`), and automate headless GPU visual QA from any terminal or CI pipeline.
 
@@ -37,7 +37,7 @@ Open and save 723,136-record enterprise Figma `.fig` v106 binary archives in ~1.
 
 ### Why DESIGN:OS Studio? (Honest Comparison vs Figma Desktop, Penpot & Pencil/OpenPencil)
 
-Browser-wrapped Electron design tools choke on very large enterprise files, lock `.fig` binary authoring behind proprietary cloud servers, and force AI coding agents to scrape large, noisy REST JSON payloads without direct canvas write-back. **`design-os-studio`** is a local-first GPU studio written in Rust (`wgpu` + `tiny-skia`) with native `fig-kiwi` v106 binary read/write, **Figma-style micro-interactions**, an embedded Agentic PTY Chat UI for your existing CLI subscriptions (`claude`, `codex`, `agy`, `grok`), Live Variables Mode Switching & Multi-Edit (`Q`), and a 22-tool stdio MCP server.
+Browser-wrapped Electron design tools choke on very large enterprise files, lock `.fig` binary authoring behind proprietary cloud servers, and force AI coding agents to scrape large, noisy REST JSON payloads without direct canvas write-back. **`design-os-studio`** is a local-first GPU studio written in Rust (`wgpu` + `tiny-skia`) with native `fig-kiwi` v106 binary read/write, **Figma-style micro-interactions**, an embedded Agentic PTY Chat UI for your existing CLI subscriptions (`claude`, `codex`, `agy`, `grok`), Live Variables Mode Switching & Multi-Edit (`Q`), and a local stdio MCP server.
 
 | Dimension | Figma Desktop (Cloud / Electron) | Penpot / Pencil / OpenPencil | DESIGN:OS Studio (`design-os-studio`) |
 | :--- | :--- | :--- | :--- |
@@ -45,7 +45,7 @@ Browser-wrapped Electron design tools choke on very large enterprise files, lock
 | **Enterprise Scale (`723k` Records / `112k` Nodes)** | Browser tab OOM crashes, multi-second cloud streaming stalls | DOM / SVG layout bottlenecks above `5k–10k` nodes | **Uniform `2048x2048` `SceneIndex` culling + 4-tier semantic zoom LOD**, **`1.54s` cold load**, **`-96.5%` disk size (`242 MB` vs `6.80 GB`)** |
 | **Figma `.fig` v106 Binary Read/Write** | Proprietary cloud lock-in; `.fig` saves require online servers | Read-only or lossy third-party converters; no native `.fig` v106 write-back | **Native bidirectional `fig-kiwi` v106 Read & Write** (`DEFLATE`/`Zstd` `canvas.fig` + `meta.json` + `images/`, `symbolOverrides`, `parameterConsumptionMap`) |
 | **Tactile Micro-Interactions** | Reference UI3 standard, browser-bound latency on huge files | Partial subset; missing CSS Grid track pills, Smart Selection ring swaps, or Scale Tool (`K`) | **Figma-style micro-interactions** on canvas: inspector scrubbing, Auto-Layout handles, CSS Grid track pills, Smart Selection, Scale Tool (`K`), Eyedropper (`I`) |
-| **Agentic Workflow & API Cost** | Paid per-seat AI credits or read-only `155K`-char REST JSON dumps | External MCP plugins or paid API key wrappers (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) | **Native Agentic PTY Chat UI** (`Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` — zero extra API cost) + **22-tool `designos-mcp`** + 1-click `NodeSpec` apply |
+| **Agentic Workflow & API Cost** | Paid per-seat AI credits or read-only `155K`-char REST JSON dumps | External MCP plugins or paid API key wrappers (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) | **Native Agentic PTY Chat UI** (`Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` — zero extra API cost) + **`designos-mcp`** + 1-click `NodeSpec` apply |
 | **Variables, Multi-Edit (`Q`) & Auto-Layout** | Cloud-bound variable collections & manual frame nesting | Partial variable support; no `Q` Multi-Edit or `⇧A` heuristic inference | **Live Variables Mode Switching (`Light` / `Dark`), Multi-Edit (`Q` / `⌘E`) & Suggest Auto-Layout (`⇧A`)** (`COLOR`, `FLOAT`, `STRING`, `BOOLEAN` + `=` alias picker) |
 | **Dev Mode Codegen & Visual QA** | Paid Dev Mode seats required; cloud-only inspection | Basic CSS/HTML export; no headless GPU diffing CLI | **Free built-in Dev Mode (`Shift+D`)** (CSS, Tailwind, React, SwiftUI, UIKit, Jetpack Compose, Android XML) + headless `--gpu --screenshot` & `designos-diff` SSIM CLI |
 | **Privacy, Offline & Licensing** | Mandatory cloud sign-in, proprietary license, background telemetry | Self-hosted Docker stack or Electron runtime telemetry | **Zero telemetry — 100% local offline execution** ([`PRIVACY.md`](PRIVACY.md) audited), dual **`MIT OR Apache-2.0`** |
@@ -62,7 +62,7 @@ Browser-wrapped Electron design tools choke on very large enterprise files, lock
 | **Repository** | [`jangtrinh/design-os-studio`](https://github.com/jangtrinh/design-os-studio) | 11-crate Cargo workspace (`crates/designos-*`) |
 | **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, tested by their users) · No Electron |
 | **Figma Interop** | Native `.fig` v106 read and write | `crates/designos-fig` roundtrip tests · more than `2,800` automated tests pass in macOS CI |
-| **Agent Surface** | `22` MCP Tools + Native PTY Chat UI | `Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` |
+| **Agent Surface** | `designos-mcp` + Native PTY Chat UI | `Claude Code` · `Codex` · `Antigravity` · `Gemini` · `Grok` |
 | **Telemetry / Privacy** | Zero Tracking (`0` network calls) | 100% offline local-first ([`PRIVACY.md`](PRIVACY.md)) |
 | **License** | Dual `MIT OR Apache-2.0` | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
 
@@ -217,7 +217,7 @@ AI agents author compact, diffable `NodeSpec` JSON (`examples/specs/easeui-agent
 | :--- | :--- | :--- | :--- |
 | **Native `.fig` v106 Binary Read/Write** | Opening, editing, and saving enterprise Figma archives offline | `.fig` (`fig-kiwi` v106 binary + `meta.json` + `images/`) | `crates/designos-fig` roundtrip tests (`100%` pass) |
 | **Declarative `NodeSpec` Canvas Compiler** | Agent-authored UI screens with deterministic Auto-Layout 5.0 | `.spec.json` / `.designos` / `.fig` | `designos --apply-spec` + `--inspect-json` |
-| **Agentic PTY Chat & 22-Tool MCP** | Live bidirectional design-to-code and prompt-to-canvas orchestration | `designos-mcp` (`stdio`) + `RailItem::Agents` | MCP tool list test (22 tools) + `AgentChatTurn` tests |
+| **Agentic PTY Chat & `designos-mcp`** | Live bidirectional design-to-code and prompt-to-canvas orchestration | `designos-mcp` (`stdio`) + `RailItem::Agents` | MCP tool snapshot test + `AgentChatTurn` tests |
 | **Dev Mode Multi-Target Codegen** | Exporting production UI code and token bindings per frame | `CSS` · `Tailwind` · `React` · `SwiftUI` · `UIKit` · `Compose` · `Android XML` | `crates/designos-export` golden codegen suite |
 | **Headless GPU Visual Proof & Diff** | Automated CI screenshot capture and perceptual SSIM comparison | `PNG` / `SVG` / `PDF` / `JPG` + diff report | `designos-studio --gpu --screenshot` + `designos-diff` |
 
@@ -249,7 +249,7 @@ The Studio targets the small, tactile interactions Figma users expect on the can
 | **5. Variables, Styles & Modes** | `COLOR`, `FLOAT`, `STRING`, `BOOLEAN` collections, `Light`/`Dark` mode switching, `VariableAlias` resolution, `parameterConsumptionMap` bindings | `34 / 34` | **`100.00%`** |
 | **6. Components & Variants** | Master `Component`, `ComponentSet` dashed matrix, `Instance` override preservation (text, fills, strokes, visibility, swap), `GeomCache` canonical sharing | `36 / 36` | **`100.00%`** |
 | **7. Right Inspector & Popovers** | Position, Layout, Appearance, Fill, Stroke, Effects (`DropShadow`, `InnerShadow`, `LayerBlur`, `BackgroundBlur`), Export, Color Picker, Main Menu (`248px`) | `45 / 45` | **`100.00%`** |
-| **8. Dev Mode, Prototype & Agentic Hub** | Box-model inspector, 5-target codegen, prototype noodle flows, `Actions (Cmd+K)`, Multi-Edit (`Q`) & Suggest Auto-Layout (`⇧A`), Agentic PTY Chat UI, and 22-tool `designos-mcp` | `80 / 80` | **`100.00%`** |
+| **8. Dev Mode, Prototype & Agentic Hub** | Box-model inspector, 5-target codegen, prototype noodle flows, `Actions (Cmd+K)`, Multi-Edit (`Q`) & Suggest Auto-Layout (`⇧A`), Agentic PTY Chat UI, and `designos-mcp` | `80 / 80` | **`100.00%`** |
 | **9. Figma A-to-Z Micro-Interactions** | All 100 tactile interactions (`#1..#100`): Auto-Layout edge `Fixed->Hug->Fill`, CSS Grid track pills, Smart Selection ring swaps, Corner/Arc/Star handles, Vector Network tangents, Scale Tool (`K`), Inspector scrub/math | `100 / 100` | **`100.00%`** |
 | **TOTAL VERIFIED PARITY** | **856 Automated Unit, Golden & E2E Tests (`cargo test --workspace` -> `0` failures) · `12/12` Zero-Fake-UI Invariants · `9/9` ALIVE Gates** | **`487 / 487`** | **`100.00%`** |
 
@@ -322,7 +322,7 @@ cp -R /tmp/design-os-studio/skills/design-os-studio/* ~/.agents/skills/design-os
 rm -rf /tmp/design-os-studio
 ```
 
-To wire the 22-tool local stdio MCP server (`designos-mcp`) in `mcpServers`:
+To wire the local stdio MCP server (`designos-mcp`) in `mcpServers`:
 
 ```json
 {
@@ -388,9 +388,50 @@ Once installed, `skills/design-os-studio/SKILL.md` activates automatically when 
 | `python3 scripts/self_check.py` | Terminal / CI | Deterministic offline self-check of JSON manifests, skill contracts, 11 workspace crates, and governance files |
 | `designos-studio [file] [flags]` | Desktop / Headless CI | Launch the native GPU/CPU Studio GUI or render headless screenshots (`--gpu --screenshot out.png`) |
 | `designos <file> [flags]` | Terminal / Agent CLI | Apply declarative `NodeSpec` (`--apply-spec`), export Figma `.fig` v106 (`--export-fig`), inspect JSON (`--inspect-json`), or manage comments (`--comments-json`) |
-| `designos-mcp --workspace <dir>` | MCP Client (`stdio`) | Expose 22 typed MCP tools (`designos_open_file`, `designos_apply_spec`, `designos_export_fig_file`, `designos_generate_code`, etc.) |
+| `designos-mcp --workspace <dir>` | MCP Client (`stdio`) | Expose typed MCP tools listed below (`designos_open_file`, `designos_apply_spec`, `designos_export_fig_file`, `designos_generate_code`, etc.) |
 | `designos-diff compare <a> <b>` | Terminal / CI | Compute perceptual SSIM and anti-aliased pixel diffs between reference and rendered PNGs |
 | `./scripts/build-release.sh <ver> --local-host` | Terminal / CI | Compile all 4 binaries and package the host's native release packages (`.dmg`, `.zip`, `.deb`), `release-manifest.json`, and `SHA256SUMS` |
+
+<!-- designos-mcp-tools:begin -->
+<!-- Generated by `cargo run -p designos-mcp --bin gen-tool-docs`. Do not edit by hand. -->
+
+| Tool (`34` total) | Mode | Required Args | Description |
+| --- | --- | --- | --- |
+| `designos_get_document` | read-only | — | Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state. |
+| `designos_get_libraries` | read-only | — | List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root. |
+| `designos_get_metadata` | read-only | — | Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree. |
+| `designos_search_design_system` | read-only | `query` | Search components, component sets, shared styles, and variables across this file and its enabled libraries, returning ranked instance-ready references and NodeSpec examples. |
+| `designos_list_nodes` | read-only | — | List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate. |
+| `designos_get_node` | read-only | `node_id` | Read the full native node including geometry, paints, text, bindings, and child IDs. |
+| `designos_get_variables` | read-only | — | Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. |
+| `designos_generate_code` | read-only | `language`, `node_id` | Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files. |
+| `designos_create_node` | mutating | `kind`, `parent_id` | Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
+| `designos_update_node` | mutating | `node_id` | Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved. |
+| `designos_delete_node` | mutating | `node_id` | Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
+| `designos_list_comments` | read-only | — | List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind, and top-level frame ID/name. Filter by resolved state, page_id, or node_id. |
+| `designos_add_comment` | mutating | `text` | Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo. |
+| `designos_reply_comment` | mutating | `text`, `thread_id` | Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo. |
+| `designos_resolve_comment` | mutating | `thread_id` | Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo. |
+| `designos_apply_spec` | mutating | `spec` | Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.  Examples: 1) Token-bound frame with auto-layout: {"parent_id":1,"spec":{"kind":"frame","name":"Hero","layout":{"direction":"column","gap":16,"padding":[24,24,24,24]},"fill":"var:Color/Surface","children":[{"kind":"text","name":"Title","text":"Welcome"}]}} 2) Component instance with variant and overrides: {"parent_id":1,"spec":{"kind":"instance","name":"PrimaryCTA","component":"Button","variant":{"Size":"lg","State":"default"},"overrides":[{"path":"Label","text":"Continue"}]}} 3) Component instance with filled slots: {"parent_id":1,"spec":{"kind":"instance","name":"SettingsCard","component":"Card","slots":{"header":[{"kind":"instance","component":"CardHeader"}],"body":[{"kind":"instance","component":"FormRow"}],"footer":false}}} |
+| `designos_export_spec` | read-only | `node_id` | Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. |
+| `designos_set_dev_status` | mutating | `node_id` | Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo. |
+| `designos_export_fig_file` | mutating | `output_path` | Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace. |
+| `designos_query_xpath` | read-only | — | Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant steps).  Examples: 1) Find instances by component name: {"selector":"//INSTANCE[@component='Button']"} 2) Find text descendants inside a named frame: {"selector":"//FRAME[@name='Hero']//TEXT"} 3) Find layers that have a fill: {"selector":"//RECTANGLE[@fill]","page_id":1} |
+| `designos_lint` | read-only | — | Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page. |
+| `designos_get_guidelines` | read-only | — | List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules'). |
+| `designos_import_web_capture` | mutating | — | Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable auto-layout frame tree in one undoable step, returning the ImportReport. |
+| `designos_undo` | mutating | — | Undo the latest successful edit in this session; returns changed=false if the stack is empty. |
+| `designos_lint_fix` | mutating | — | Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step. |
+| `designos_redo` | mutating | — | Redo the most recently undone edit in this session; returns changed=false if the stack is empty. |
+| `designos_get_screenshot` | read-only | — | Render a node, a set of nodes on the same page, or a page-space rectangular region and return it inline as MCP image content (PNG or JPEG), automatically downsized to max_long_edge (default 1024). |
+| `designos_apply_batch` | mutating | `ops` | Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {"ops":[{"op":"create","parent":1,"kind":"frame","name":"Header"},{"op":"create","parent":"$prev","kind":"text","text":"Title"}]}; (2) apply_spec with as + @handle/Child update: {"ops":[{"op":"apply_spec","as":"hero","spec":{"kind":"frame","name":"Hero","children":[{"kind":"text","name":"Child","text":"Hi"}]}},{"op":"update","node":"@hero/Child","opacity":0.9}]}; (3) set_slot: {"ops":[{"op":"set_slot","node":"@card","slot":"body","fill":[{"kind":"text","text":"Body"}]}]}; (4) dry_run: {"dry_run":true,"ops":[{"op":"insert","kind":"rectangle","name":"Box"}]}. |
+| `designos_get_design_context` | read-only | `node_id` | Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters. |
+| `designos_configure_session` | mutating | — | Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset \| errors_only \| off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch. |
+| `designos_open_file` | mutating | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true. |
+| `designos_save_file` | mutating | `path` | Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist. |
+| `designos_render_png` | mutating | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten. |
+| `designos_new_document` | mutating | `name` | Start a blank document with one page. Unsaved changes require discard_changes=true. |
+<!-- designos-mcp-tools:end -->
 
 ---
 
@@ -407,7 +448,7 @@ User Prompt / Agentic PTY Chat / CLI / MCP Invocation
                         │
                         ▼
 ┌───────────────────────────────────────────────────────────┐
-│ skills/design-os-studio/SKILL.md + designos-mcp (22 tools)│
+│ skills/design-os-studio/SKILL.md + designos-mcp (stdio)   │
 │ Progressive disclosure router & typed MCP/CLI contracts   │
 └───────────────────────┬───────────────────────────────────┘
                         │ mutates / queries
@@ -469,7 +510,7 @@ design-os-studio/
 │   ├── designos-export/            # PNG/JPG/PDF/SVG exporters & 5-target Dev Mode codegen
 │   ├── designos-svg/               # SVG parser & scene-graph importer
 │   ├── designos-diff/              # Perceptual SSIM & structural diff CLI (designos-diff)
-│   └── designos-mcp/               # 22-tool local stdio MCP server (designos-mcp)
+│   └── designos-mcp/               # Local stdio MCP server (designos-mcp)
 ├── skills/
 │   └── design-os-studio/
 │       └── SKILL.md                # Canonical agent skill entrypoint
@@ -525,10 +566,10 @@ design-os-studio/
 <summary>Frequently Asked Questions (AEO &amp; Technical FAQ)</summary>
 
 **What is DESIGN:OS Studio (`design-os-studio`)?**
-DESIGN:OS Studio (`design-os-studio`) is a native, 100% Rust GPU-accelerated interface design studio (`wgpu` + `tiny-skia`), enterprise Figma `.fig` v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (`Claude Code`, `Codex`, `Antigravity CLI`, `Gemini CLI`, `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator, and 22-tool Model Context Protocol server (`designos-mcp`).
+DESIGN:OS Studio (`design-os-studio`) is a native, 100% Rust GPU-accelerated interface design studio (`wgpu` + `tiny-skia`), enterprise Figma `.fig` v106 binary read/write engine, 100/100 Figma A-to-Z Micro-Interactions implementation, Agentic PTY Chat UI (`Claude Code`, `Codex`, `Antigravity CLI`, `Gemini CLI`, `Grok CLI`), Live Variables Mode Switching & Multi-Edit (`Q`), multi-target Dev Mode code generator, and Model Context Protocol server (`designos-mcp`).
 
 **How does DESIGN:OS Studio compare with Figma Desktop, Penpot, and Pencil/OpenPencil?**
-Unlike browser-wrapped Electron or web DOM tools that stall on very large files or lock `.fig` saving behind cloud servers, DESIGN:OS Studio renders directly on the GPU through Rust `wgpu` (Metal on macOS; Direct3D 12 and Vulkan on Windows and Linux) with a `tiny-skia` CPU fallback, opens and saves authentic `fig-kiwi` v106 `.fig` binaries, requests no repaints while the view is idle, implements Figma-style micro-interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a 22-tool MCP server.
+Unlike browser-wrapped Electron or web DOM tools that stall on very large files or lock `.fig` saving behind cloud servers, DESIGN:OS Studio renders directly on the GPU through Rust `wgpu` (Metal on macOS; Direct3D 12 and Vulkan on Windows and Linux) with a `tiny-skia` CPU fallback, opens and saves authentic `fig-kiwi` v106 `.fig` binaries, requests no repaints while the view is idle, implements Figma-style micro-interactions, and embeds a zero-API-cost Agentic PTY Chat UI alongside a local stdio MCP server.
 
 **Can DESIGN:OS Studio both open and save standard Figma `.fig` binary files?**
 Yes. `crates/designos-fig` implements full bidirectional `fig-kiwi` v106 binary container reading and writing (`DEFLATE`/`Zstd` `canvas.fig` + `meta.json` + `images/`), preserving Auto-Layout 5.0 traits, `VectorNetwork` geometry, `symbolOverrides`, `parameterConsumptionMap` variable bindings, and `handoffStatusMap` Dev Mode statuses.

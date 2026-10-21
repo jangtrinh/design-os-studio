@@ -12,6 +12,7 @@ net = ["dep:ureq"]
 
 [dependencies]
 designos-doc.workspace = true
+designos-webcapture.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror.workspace = true

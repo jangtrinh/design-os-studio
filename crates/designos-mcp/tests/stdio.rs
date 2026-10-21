@@ -14,8 +14,12 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let client = ().serve(TokioChildProcess::new(command).unwrap()).await.unwrap();
         assert_eq!(client.peer_info().unwrap().server_info.as_ref().unwrap().name, "designos-mcp");
         let tools = client.list_all_tools().await.unwrap();
-        assert_eq!(tools.len(), 27);
-        assert!(tools.iter().all(|t| t.annotations.is_some()));
+        let snapshot_raw = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots/tools.json"))
+            .expect("read tests/snapshots/tools.json");
+        let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");
+        assert_eq!(tools.len(), snapshot.len());
+        assert!(tools.iter().any(|t| t.name == "designos_lint_fix"));
+        assert!(tools.iter().all(|t| t.annotations.is_some() && t.output_schema.is_some()));
         let prompts = client.list_all_prompts().await.unwrap();
         assert_eq!(prompts.len(), 1);
         assert_eq!(prompts[0].name, "create_design_system_rules");
@@ -30,6 +34,9 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let guidelines_ds = client.call_tool(call("designos_get_guidelines", json!({"topic":"design-system"}))).await.unwrap();
         assert_eq!(guidelines_ds.is_error, Some(false));
         assert!(guidelines_ds.structured_content.unwrap()["content"].as_str().unwrap().contains("# Design system rules"));
+        let searched = client.call_tool(call("designos_search_design_system", json!({"query":"button"}))).await.unwrap();
+        assert_eq!(searched.is_error, Some(false));
+        assert_eq!(searched.structured_content.unwrap()["libraries_searched"], json!(["local"]));
         let doc = client.call_tool(call("designos_get_document", json!({}))).await.unwrap();
         assert_eq!(doc.is_error, Some(false));
         let page = doc.structured_content.unwrap()["pages"][0]["node_id"].clone();
@@ -43,6 +50,8 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         assert_eq!(shot_meta["bounds"]["width"], 120.0);
         let invalid = client.call_tool(call("designos_update_node", json!({"node_id":id,"width":-1}))).await.unwrap();
         assert_eq!(invalid.is_error, Some(true));
+        assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["code"], "VALUE_OUT_OF_RANGE");
+        assert_eq!(invalid.structured_content.as_ref().unwrap()["error"]["safe_to_retry"], true);
         let code = client.call_tool(call("designos_generate_code", json!({"node_id":id,"language":"css"}))).await.unwrap();
         assert!(code.structured_content.unwrap()["code"].as_str().unwrap().contains("120px"));
         client.call_tool(call("designos_undo", json!({}))).await.unwrap();
@@ -92,6 +101,35 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
         let batch_body = batch_res.structured_content.unwrap();
         assert_eq!(batch_body["created_count"], 2);
         assert!(batch_body["name_to_id"]["hero/Title"].as_u64().is_some());
+        let imported = client
+            .call_tool(call(
+                "designos_import_web_capture",
+                json!({
+                    "capture": {
+                        "schema": "designos-webcapture",
+                        "version": 1,
+                        "url": "https://designos.dev/mcp",
+                        "title": "MCP Capture",
+                        "viewport": { "width": 320.0, "height": 180.0, "dpr": 1.0 },
+                        "scroll": { "width": 320.0, "height": 180.0 },
+                        "root": {
+                            "tag": "div",
+                            "id": "card",
+                            "box": { "x": 0.0, "y": 0.0, "width": 320.0, "height": 180.0 },
+                            "styles": { "display": "flex", "flex-direction": "column", "row-gap": "12px" },
+                            "children": []
+                        }
+                    }
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(imported.is_error, Some(false));
+        let linted = client.call_tool(call("designos_lint", json!({"preset":"agent"}))).await.unwrap();
+        assert_eq!(linted.is_error, Some(false));
+        let lint_body = linted.structured_content.unwrap();
+        assert!(lint_body["findings"].is_array());
+        assert!(lint_body.get("passed").is_none());
         let comments = client.call_tool(call("designos_list_comments", json!({}))).await.unwrap();
         assert_eq!(comments.is_error, Some(false));
         client.cancel().await.unwrap();

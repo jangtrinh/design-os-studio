@@ -12,25 +12,39 @@ pub(super) fn check(index: &Index, n: &Node, src: Option<&Node>, out: &mut Vec<F
     if t.content.trim().is_empty() || n.style_refs.contains_key("text") || hardcoded::text_style_inherited(n, src) {
         return;
     }
-    if let Some((fix_key, quoted, apply_label)) = index.find_matching_text_style(t) {
-        out.push(Finding {
-            node: n.id,
-            node_name: n.name.clone(),
-            rule: Rule::TextStyles,
-            property: "text".into(),
-            message: format!("Text matches style {quoted}"),
-            fix: Some(Fix::ApplyStyle { style: fix_key }),
-            fix_label: apply_label,
-        });
-    } else {
-        out.push(Finding {
-            node: n.id,
-            node_name: n.name.clone(),
-            rule: Rule::TextStyles,
-            property: "text".into(),
-            message: "No text style".into(),
-            fix: None,
-            fix_label: String::new(),
-        });
+    match index.matching_text_styles(t).as_slice() {
+        [] => {
+            out.push(Finding {
+                node: n.id,
+                node_name: n.name.clone(),
+                rule: Rule::TextStyles,
+                property: "text".into(),
+                message: "No text style".into(),
+                fix: None,
+                fix_label: String::new(),
+            });
+        }
+        [s] => {
+            out.push(Finding {
+                node: n.id,
+                node_name: n.name.clone(),
+                rule: Rule::TextStyles,
+                property: "text".into(),
+                message: format!("Text matches style {}", hardcoded::fmt_style_quoted(s)),
+                fix: Some(Fix::ApplyStyle { style: s.fix_key.clone() }),
+                fix_label: hardcoded::fmt_style_apply_label(s),
+            });
+        }
+        many => {
+            out.push(Finding {
+                node: n.id,
+                node_name: n.name.clone(),
+                rule: Rule::TextStyles,
+                property: "text".into(),
+                message: format!("Text matches {} styles: {}", many.len(), hardcoded::style_name_list(many)),
+                fix: None,
+                fix_label: String::new(),
+            });
+        }
     }
 }

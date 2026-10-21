@@ -670,6 +670,23 @@ pub fn tool_descriptor() -> Value {
                 "quality": {"type": "integer", "minimum": 1, "maximum": 100, "default": 80}
             }
         },
+        "outputSchema": crate::tools::errors::tool_output_schema(
+            json!({
+                "target": {"type": "object"},
+                "page_id": {"type": "integer"},
+                "bounds": {"type": "object"},
+                "scale_requested": {"type": "number"},
+                "scale_used": {"type": "number"},
+                "downscaled": {"type": "boolean"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "format": {"type": "string"},
+                "bytes": {"type": "integer"},
+                "visible": {"type": "boolean"},
+                "scoped": {"type": "boolean"}
+            }),
+            &["target", "page_id", "bounds", "scale_requested", "scale_used", "downscaled", "width", "height", "format", "bytes", "visible"],
+        ),
         "annotations": {
             "readOnlyHint": true,
             "destructiveHint": false,

@@ -163,6 +163,7 @@ impl App {
             ("Shift+0", "Zoom to 100%"),
             ("Ctrl+\\", "Show or hide the UI"),
             ("Ctrl+Alt+Enter", "Present"),
+            (crate::agent_a11y::FOCUS_SHORTCUT_LABEL, crate::agent_a11y::FOCUS_SHORTCUT_ACTION),
             ("Undo / Redo work while an agent terminal has focus (macOS; Windows and Linux for agent tabs)", ""),
         ];
         let lines = rows.iter().map(|(k, a)| (k.to_string(), a.to_string())).collect();
@@ -230,6 +231,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         let mut y = rect.top() + PAD;
         p.text(Pos2::new(x0, y + 12.0), Align2::LEFT_CENTER, &d.title, theme::font_large_strong(), theme::TEXT);
         y += 24.0 + 12.0;
+        let key_font = if matches!(d.intent, Intent::Shortcuts) { theme::font_mono() } else { font.clone() };
         for (a, b) in &d.lines {
             if b.is_empty() {
                 let galley = p.layout(a.clone(), font.clone(), theme::TEXT_SECONDARY, text_w);
@@ -237,7 +239,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 p.galley(Pos2::new(x0, y), galley, theme::TEXT_SECONDARY);
                 y += hh + 8.0;
             } else {
-                p.text(Pos2::new(x0, y + 11.0), Align2::LEFT_CENTER, a, font.clone(), theme::TEXT);
+                p.text(Pos2::new(x0, y + 11.0), Align2::LEFT_CENTER, a, key_font.clone(), theme::TEXT);
                 p.text(Pos2::new(x0 + 190.0, y + 11.0), Align2::LEFT_CENTER, b, font.clone(), theme::TEXT_SECONDARY);
                 y += 22.0;
             }

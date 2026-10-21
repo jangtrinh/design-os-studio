@@ -7,7 +7,7 @@ use designos_doc::{AutoLayout, ContrastLevel, ExternalAsset, IgnoreKey, LayoutDi
 #[test]
 fn rule_figma_ids_match_table() {
     assert_eq!(Rule::HardCodedValue.figma_id(), "RECOMMEND_VARIABLES");
-    assert_eq!(Rule::Contrast.figma_id(), "RECOMMEND_VARIABLES");
+    assert_eq!(Rule::Contrast.figma_id(), "CONTRAST");
     assert_eq!(Rule::DetachedInstance.figma_id(), "REQUIRE_NO_DETACHED_COMPONENTS");
     assert_eq!(Rule::LibraryAssets.figma_id(), "REQUIRE_ASSETS_FROM_SELECTED_LIBRARIES");
     assert_eq!(Rule::TextStyles.figma_id(), "REQUIRE_TEXT_STYLES");
@@ -303,6 +303,7 @@ fn every_figma_rule_id_has_a_studio_rule() {
     let ids: Vec<&'static str> = Rule::ALL.iter().map(|r| r.figma_id()).collect();
     for expected in [
         "RECOMMEND_VARIABLES",
+        "CONTRAST",
         "REQUIRE_NO_DETACHED_COMPONENTS",
         "REQUIRE_ASSETS_FROM_SELECTED_LIBRARIES",
         "REQUIRE_TEXT_STYLES",
@@ -392,7 +393,7 @@ fn two_text_styles_that_equal_the_text_offer_no_fix() {
     let report = f.report();
     let found = only(&report, Rule::TextStyles);
     assert_eq!(found.node, t);
-    assert_eq!(found.message, "No text style", "the user picks between two equal styles");
+    assert_eq!(found.message, "Text matches 2 styles: \"Heading/H1\", \"Heading/H1 copy\"", "the user picks between two equal styles");
     assert_eq!(found.fix, None);
 }
 
@@ -427,4 +428,60 @@ fn a_typography_number_match_or_binding_does_not_hide_the_text_style_rule() {
     let found_bound = only(&report_bound, Rule::TextStyles);
     assert_eq!(found_bound.node, t);
     assert_eq!(found_bound.fix, Some(Fix::ApplyStyle { style: "H1".into() }));
+}
+
+#[test]
+fn ignoring_contrast_keeps_hardcoded_value_in_both_check_designs_and_linter_and_switch_toggles_both() {
+    let mut f = fx();
+    let card = f.frame(f.page, "Card", Some(Color::WHITE));
+    let muted = gray(0xB0);
+    f.color_var("Color/Muted", muted, muted);
+    let t = f.text(card, "Muted label", 14.0, 400, muted);
+
+    let mut app = f.app();
+    let r0 = audit(&app.doc, &Scope::Page(app.page));
+    let contrast_finding = only(&r0, Rule::Contrast);
+    assert_eq!(contrast_finding.node, t);
+    assert_eq!(only(&r0, Rule::HardCodedValue).node, t);
+
+    // Ignore the Contrast row: stores rule "CONTRAST", property "".
+    assert!(app.check_designs_ignore(&contrast_finding));
+    assert!(app.doc.check_designs.ignored.contains(&IgnoreKey { node: t, rule: "CONTRAST".into(), property: String::new() }));
+
+    // Check designs still shows the colour bind on the same text node.
+    let r1 = audit(&app.doc, &Scope::Page(app.page));
+    assert!(r1.of(Rule::Contrast).next().is_none(), "contrast finding is ignored");
+    assert_eq!(only(&r1, Rule::HardCodedValue).node, t, "Check designs keeps the fills/0 colour bind");
+
+    // designos_lint also keeps hardcoded-value on fills/0 for the same node.
+    let lint_cfg = designos_doc::lint::LintConfig::from_rule_list(&["hardcoded-value".into()]).unwrap();
+    let lint_report = designos_doc::lint::lint(&app.doc, &lint_cfg, &designos_doc::lint::NoLintEnv);
+    assert!(
+        lint_report.findings.iter().any(|x| x.node == t && x.rule == "hardcoded-value" && x.property.as_deref() == Some("fills/0")),
+        "designos_lint must still report hardcoded-value on fills/0 after ignoring contrast: {:#?}",
+        lint_report.findings
+    );
+
+    // Toggling the single "Colours & contrast" switch writes both RECOMMEND_VARIABLES and CONTRAST.
+    app.undo(); // restore contrast finding
+    assert!(app.set_check_designs_rule(Rule::HardCodedValue, false));
+    assert!(app.doc.check_designs.disabled_rules.contains("RECOMMEND_VARIABLES"));
+    assert!(app.doc.check_designs.disabled_rules.contains("CONTRAST"));
+    let r_off = audit(&app.doc, &Scope::Page(app.page));
+    assert_eq!(r_off.of(Rule::HardCodedValue).count(), 0);
+    assert_eq!(r_off.of(Rule::Contrast).count(), 0);
+
+    app.undo();
+    assert!(!app.doc.check_designs.disabled_rules.contains("RECOMMEND_VARIABLES"));
+    assert!(!app.doc.check_designs.disabled_rules.contains("CONTRAST"));
+
+    // A legacy {RECOMMEND_VARIABLES, ""} ignore key hides the Contrast row into ignored, and Restore removes it.
+    app.doc.check_designs.ignored.insert(IgnoreKey { node: t, rule: "RECOMMEND_VARIABLES".into(), property: String::new() });
+    let r_legacy = audit(&app.doc, &Scope::Page(app.page));
+    assert!(r_legacy.of(Rule::Contrast).next().is_none(), "legacy key hides Contrast from active findings");
+    assert!(r_legacy.ignored.iter().any(|x| x.node == t && x.rule == Rule::Contrast), "Contrast row is listed in ignored");
+    assert!(app.check_designs_restore(&contrast_finding.ignore_key()));
+    assert!(!app.doc.check_designs.ignored.contains(&IgnoreKey { node: t, rule: "RECOMMEND_VARIABLES".into(), property: String::new() }));
+    let r_restored = audit(&app.doc, &Scope::Page(app.page));
+    assert_eq!(only(&r_restored, Rule::Contrast).node, t, "Restore brings back a legacy-ignored Contrast row");
 }

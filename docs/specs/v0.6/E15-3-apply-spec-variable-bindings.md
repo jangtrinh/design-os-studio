@@ -66,6 +66,9 @@ No match: `UNKNOWN_VARIABLE` with the 5 closest `collection/name` strings by Lev
 (ties broken by collection order, then name); a candidate whose collection name occurs twice is listed
 with its collection id instead of its name.
 
+`var:id:<library id>/<raw id>` names one enabled library's variable and imports it on first use, even
+when the document has a local variable with the same raw id (T7.9 emits it on that collision).
+
 ### 3.2 Bindable spec fields
 
 | Spec field | Property key(s) | Kind |
@@ -79,6 +82,15 @@ with its collection id instead of its name.
 | `stroke_weight` | `strokeWeight` | Number |
 | `font_size` / `line_height` (new) | `fontSize` / `lineHeight` | Number |
 | `opacity` | `opacity` | Number |
+| `width` / `height` | `width` / `height` | Number |
+| `visible` (`true`/`false` or a `var:` string, `BoolOrVar`) | `visible` | Boolean |
+| `text` when it is a `var:` string (text node, or the label a frame generates) | `characters` | String |
+
+Source for the last three rows: T7.9 §3.3 "example ... applies without edits" (#725, merged): the
+design-system search emits `{"width": "var:..."}`, `{"visible": "var:..."}` and `{"text": "var:..."}`
+for Number, Boolean and String variables, and each must apply as pasted. A bound `width` / `height`
+pins that axis of an auto-layout frame (as a literal does); a bound `text` is measured after the value is
+written and names the node after it unless `name` or `preset` is set.
 
 Each numeric field accepts a number or a `var:` string (`NumberOrVar`). The binding is inserted into
 `node.variables.bindings` and the resolved value is written with `set_bound_property`, so the layer
@@ -95,8 +107,14 @@ Checks, all before allocation:
 - `fill: "style:Brand/Primary"` and `stroke: "style:..."` link a colour (Fill) style.
 - `text_style: "Heading L"` on text nodes links a Text style; `effect_style: "Elevation/2"` links an
   Effect style. The `style:` prefix is optional on these two fields.
-- Name match is exact on `StyleMeta.name`; library styles are imported like variables. The style
-  values are applied with `apply_style_values` and the key goes into `style_refs`.
+- A reference matches, in this order: the exact `StyleMeta.name` (a style the document owns first, then a
+  copy imported from an enabled library, then one from a disabled library); a style key in the document
+  (`style:z_local_heading`, `style:<library id>/<style key>` once imported); `<library id>/<style key>`
+  of an enabled library, imported on first use; the exact name in an enabled library, imported on first
+  use. The two key forms are what T7.9 emits when two styles share a name (T7.9 §3.3). A colour style
+  serves `fill` and `stroke` alike (a `StyleProperty::Stroke` style is a colour style).
+- `grid_style: "Grid12Col"` links a Grid style on any node, resolved like the other style fields.
+- The style values are applied with `apply_style_values` and the key goes into `style_refs`.
 - Wrong style type for the field: `STYLE_TYPE_MISMATCH`. Unknown: `UNKNOWN_STYLE` (5 closest).
 - A field may carry a style or a variable or a literal, never two; explicit `font_size` together
   with `text_style` overrides the style's size and drops the link with a `STYLE_DETACHED_BY_SPEC`
@@ -133,7 +151,9 @@ forms.
 - `NodeSpec`: numeric bindable fields change from `f32`/`Option<f32>` to
   `NumberOrVar`/`Option<NumberOrVar>` (`#[serde(untagged)] enum NumberOrVar { Num(f32), Ref(String) }`);
   JSON numbers deserialize unchanged. New fields `line_height: Option<NumberOrVar>`,
-  `text_style: Option<String>`, `effect_style: Option<String>`, `mode: BTreeMap<String, String>`.
+  `text_style: Option<String>`, `effect_style: Option<String>`, `grid_style: Option<String>`,
+  `mode: BTreeMap<String, String>`. `width` and `height` become `Option<NumberOrVar>`; `visible:
+  Option<BoolOrVar>` (`#[serde(untagged)] enum BoolOrVar { Bool(bool), Ref(String) }`) is new.
 - `LayoutSpec.gap`, `counter_gap` become `NumberOrVar`; `padding` becomes `[NumberOrVar; 4]` (a JSON
   array of numbers still parses).
 - `export_spec` emits `var:` strings for bound properties, `style:`/`text_style` for linked styles and
@@ -159,7 +179,7 @@ Errors (envelope per E15-5; `safe_to_retry: true`):
 | Code | `valid_options` | Corrected example |
 |---|---|---|
 | `UNKNOWN_VARIABLE` | 5 closest paths | same field with the closest path |
-| `AMBIGUOUS_VARIABLE` | each `var:id:<id>` with collection | `var:id:` form of the first |
+| `AMBIGUOUS_VARIABLE` | for each match the reference that selects only it: `var:<collection id>/<variable name>`, or `var:id:<id>` when that is ambiguous too (library matches: `var:id:<library id>/<id>`) | the first option |
 | `VARIABLE_TYPE_MISMATCH` | variables of the expected kind (5) | first one |
 | `VARIABLE_SCOPE_MISMATCH` | in-scope variables (5) | first one |
 | `UNKNOWN_STYLE` / `STYLE_TYPE_MISMATCH` | 5 closest of the right type | first one |
@@ -196,7 +216,6 @@ No new surface. Bound layers show the variable chip in the existing properties p
 ## 9. Non-goals
 
 - Creating variables or styles from a spec (part-2 style archetype tasks).
-- Grid styles.
 - Removing the EaseUI alias path (a later deprecation release decides).
 
 ## 10. Test plan

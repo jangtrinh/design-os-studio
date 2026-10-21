@@ -38,6 +38,7 @@
     "align-items",
     "align-content",
     "align-self",
+    "order",
     "flex-grow",
     "flex-shrink",
     "flex-basis",

@@ -132,7 +132,7 @@ fn segments(v: &Variable) -> Vec<String> {
 /// 3. a result made only of `[-A-Za-z0-9_]` keeps its case;
 /// 4. anything else becomes lower kebab-case (camelCase split) without leading non-alphanumerics;
 /// 5. an empty result is `unnamed`.
-pub(crate) fn css_var_name(name: &str) -> String {
+pub fn css_var_name(name: &str) -> String {
     let stripped: String = name.chars().filter(|c| c.is_ascii() && !matches!(c, '"' | '\'' | '\n' | '\r')).collect();
     let mut joined = String::new();
     let mut in_run = false;

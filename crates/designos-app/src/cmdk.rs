@@ -655,7 +655,7 @@ fn text_node(name: &str, text: &str, size: f32, weight: u16, color: &str) -> Nod
         kind: "text".into(),
         name: name.into(),
         text: Some(text.into()),
-        font_size: Some(size),
+        font_size: Some(size.into()),
         font_weight: Some(weight),
         text_color: Some(color.into()),
         ..Default::default()
@@ -690,13 +690,18 @@ fn synthesize_pricing_card(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Pro Pricing Card".into(),
         preset: Some("easeui-card".into()),
-        width: Some(380.0),
+        width: Some(380.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.orange".into()),
-        stroke_weight: Some(1.5),
-        corner_radius: Some(16.0),
+        stroke_weight: Some(1.5.into()),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [24.0, 24.0, 24.0, 24.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [24.0.into(), 24.0.into(), 24.0.into(), 24.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Tier Badge", "MOST POPULAR • BRAINWAVE 2.0", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Plan Title", "Studio Autonomous Pro", 22.0, 700, "$easeui.text.primary"),
@@ -715,12 +720,17 @@ fn synthesize_login_modal(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Auth Sign-In Modal".into(),
         preset: Some("easeui-card".into()),
-        width: Some(420.0),
+        width: Some(420.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border.subtle".into()),
-        corner_radius: Some(16.0),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [28.0, 28.0, 28.0, 28.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [28.0.into(), 28.0.into(), 28.0.into(), 28.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Auth Badge", "SSO • ZERO-TRUST WORKSPACE", "$easeui.accent.blue", "$easeui.text.primary"),
             text_node("Modal Heading", "Sign in to design:os studio", 20.0, 700, "$easeui.text.primary"),
@@ -754,12 +764,17 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Design Gate Audit Table".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(680.0),
+        width: Some(680.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Gate Status Badge", "VSF GATE G4 • 98/100 PASS", "$easeui.status.success", "$easeui.text.primary"),
             text_node("Table Title", "Live Agent & Design Gate Telemetry Log", 18.0, 700, "$easeui.text.primary"),
@@ -769,8 +784,13 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
                 preset: Some("easeui-row".into()),
                 width_sizing: Some("fill".into()),
                 fill: Some("$easeui.bg.surface".into()),
-                corner_radius: Some(8.0),
-                layout: Some(LayoutSpec { direction: "row".into(), gap: 16.0, padding: [12.0, 16.0, 12.0, 16.0], ..Default::default() }),
+                corner_radius: Some(8.0.into()),
+                layout: Some(LayoutSpec {
+                    direction: "row".into(),
+                    gap: 16.0.into(),
+                    padding: [12.0.into(), 16.0.into(), 12.0.into(), 16.0.into()],
+                    ..Default::default()
+                }),
                 children: vec![
                     badge_node("Pass Pill 1", "PASS", "$easeui.status.success", "$easeui.text.primary"),
                     text_node("Rule 1", "4px Spacing Rhythm & Auto-Layout 5.0 Grid", 13.0, 600, "$easeui.text.primary"),
@@ -783,8 +803,13 @@ fn synthesize_audit_table(_prompt: &str) -> NodeSpec {
                 preset: Some("easeui-row".into()),
                 width_sizing: Some("fill".into()),
                 fill: Some("$easeui.bg.surface".into()),
-                corner_radius: Some(8.0),
-                layout: Some(LayoutSpec { direction: "row".into(), gap: 16.0, padding: [12.0, 16.0, 12.0, 16.0], ..Default::default() }),
+                corner_radius: Some(8.0.into()),
+                layout: Some(LayoutSpec {
+                    direction: "row".into(),
+                    gap: 16.0.into(),
+                    padding: [12.0.into(), 16.0.into(), 12.0.into(), 16.0.into()],
+                    ..Default::default()
+                }),
                 children: vec![
                     badge_node("Pass Pill 2", "PASS", "$easeui.accent.blue", "$easeui.text.primary"),
                     text_node("Rule 2", "100% $easeui.* Semantic Token Binding Coverage", 13.0, 600, "$easeui.text.primary"),
@@ -801,12 +826,17 @@ fn synthesize_agent_console(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Agent Console Panel".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(640.0),
+        width: Some(640.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.violet".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Agent Runtime Badge", "CLAUDE + CODEX + GROK PTY", "$easeui.accent.violet", "$easeui.text.primary"),
             text_node("Console Header", "Autonomous Design-to-Code Agent Bridge", 18.0, 700, "$easeui.text.primary"),
@@ -828,12 +858,17 @@ fn synthesize_sidebar_nav(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI Sidebar Navigation".into(),
         preset: Some("easeui-panel".into()),
-        width: Some(260.0),
+        width: Some(260.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 8.0, padding: [16.0, 16.0, 16.0, 16.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 8.0.into(),
+            padding: [16.0.into(), 16.0.into(), 16.0.into(), 16.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Workspace Pill", "design:os studio", "$easeui.accent.orange", "$easeui.text.primary"),
             button_node("Nav Item Canvas", "Canvas & Layers", true),
@@ -850,12 +885,17 @@ fn synthesize_hero_banner(_prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: "EaseUI BrainWave 2.0 Hero Banner".into(),
         preset: Some("easeui-card".into()),
-        width: Some(840.0),
+        width: Some(840.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.accent.orange".into()),
-        corner_radius: Some(16.0),
+        corner_radius: Some(16.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 16.0, padding: [32.0, 32.0, 32.0, 32.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 16.0.into(),
+            padding: [32.0.into(), 32.0.into(), 32.0.into(), 32.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Hero Tag", "AGENT-NATIVE VECTOR & PRODUCT STUDIO", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Hero Headline", "Design, Audit, and Ship Production UI with Live Agent PTYs", 28.0, 700, "$easeui.text.primary"),
@@ -886,12 +926,17 @@ fn synthesize_custom_easeui_card(prompt: &str) -> NodeSpec {
         kind: "frame".into(),
         name: format!("EaseUI — {title}"),
         preset: Some("easeui-card".into()),
-        width: Some(420.0),
+        width: Some(420.0.into()),
         fill: Some("$easeui.bg.panel".into()),
         stroke: Some("$easeui.border.subtle".into()),
-        corner_radius: Some(12.0),
+        corner_radius: Some(12.0.into()),
         dev_status: Some("ready".into()),
-        layout: Some(LayoutSpec { direction: "column".into(), gap: 12.0, padding: [20.0, 20.0, 20.0, 20.0], ..Default::default() }),
+        layout: Some(LayoutSpec {
+            direction: "column".into(),
+            gap: 12.0.into(),
+            padding: [20.0.into(), 20.0.into(), 20.0.into(), 20.0.into()],
+            ..Default::default()
+        }),
         children: vec![
             badge_node("Spec Badge", "CMD+K SYNTHESIZED • EASEUI 2.0", "$easeui.accent.orange", "$easeui.text.primary"),
             text_node("Card Title", &title, 18.0, 700, "$easeui.text.primary"),

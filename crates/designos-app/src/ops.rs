@@ -424,8 +424,7 @@ impl App {
     /// Records on an instance slot that its content now differs from the main component, so a
     /// later main-component sync leaves the content alone. Call it only after the edit happened.
     pub(crate) fn mark_slot_content_override(doc: &mut Document, ed: &mut Edit, parent: NodeId) {
-        let is_inst_slot = is_slot_container(doc, parent) && (doc.get(parent).is_some_and(is_linked) || instance_root_of(doc, parent).is_some());
-        if is_inst_slot {
+        if is_instance_slot(doc, parent) {
             if let Some(sn) = ed.node(doc, parent) {
                 sn.component.overrides.insert(OverrideField::SlotContent);
             }
@@ -1666,6 +1665,14 @@ impl App {
         if self.doc.pages.contains(&id) {
             crate::decks::ui::flush_notes(self);
             self.doc.ensure_page_hydrated(id);
+            if let Some(err) = self.doc.take_hydration_error() {
+                self.show_toast(err, true);
+            } else {
+                let skipped = self.doc.take_hydration_unexpanded_instances();
+                if skipped > 0 {
+                    self.show_toast(io::clone_budget_notice(skipped), true);
+                }
+            }
             self.page = id;
             self.selection.clear();
             self.canvas.reset_interaction();
@@ -1852,7 +1859,11 @@ impl App {
         self.board.tool_menu = None;
         self.board.bar_menu = None;
         self.layers.reset();
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         self.fonts.load_for(&self.doc);
+        self.web_capture_report = None;
+        self.web_capture_report_open = false;
         self.changed();
         self.fit_all();
     }
@@ -1863,10 +1874,77 @@ impl App {
         }
     }
 
+    pub fn import_web_capture_dialog(&mut self) {
+        if let Some(p) = io::pick_web_capture() {
+            self.import_web_capture_path(p);
+        }
+    }
+
+    pub fn import_web_capture_path(&mut self, p: PathBuf) {
+        self.import_web_capture_path_at(p, None);
+    }
+
+    pub fn import_web_capture_path_at(&mut self, p: PathBuf, origin: Option<Vec2>) {
+        match std::fs::read_to_string(&p) {
+            Ok(raw) => {
+                let _ = self.import_web_capture_json_into_page_at(&raw, origin);
+            }
+            Err(e) => self.show_toast(format!("Cannot read {}: {e}", p.display()), true),
+        }
+    }
+
+    pub fn import_web_capture_json_into_page(&mut self, raw_json: &str) -> Result<designos_webcapture::ImportReport, String> {
+        self.import_web_capture_json_into_page_at(raw_json, None)
+    }
+
+    pub fn import_web_capture_json_into_page_at(&mut self, raw_json: &str, origin: Option<Vec2>) -> Result<designos_webcapture::ImportReport, String> {
+        io::ensure_page(&mut self.doc);
+        if !self.doc.pages.contains(&self.page) {
+            self.page = self.doc.pages[0];
+        }
+        self.doc.ensure_page_hydrated(self.page);
+        let opts = designos_webcapture::ImportOptions { origin: origin.map(|v| (v.x, v.y)), ..designos_webcapture::ImportOptions::default() };
+        let doc_ref = &self.doc;
+        let page_id = self.page;
+        let built = std::thread::scope(|s| s.spawn(move || designos_webcapture::import_capture_json(doc_ref, page_id, raw_json, &opts)).join())
+            .map_err(|_| "Web capture import worker thread panicked".to_string())?;
+        let (cmd, report) = built.map_err(|e| {
+            let msg = format!("Web capture import failed: {e}");
+            self.show_toast(msg.clone(), true);
+            msg
+        })?;
+        self.hist.exec(&mut self.doc, cmd).map_err(|e| {
+            let msg = format!("Web capture import failed: {e}");
+            self.show_toast(msg.clone(), true);
+            msg
+        })?;
+        self.doc.relayout_subtree(self.page);
+        self.doc.flush_pending_relayout();
+        if self.doc.name == "Untitled" {
+            self.doc.name = report.root_name.clone();
+        }
+        self.selection = vec![report.root_node_id];
+        self.layers.reset();
+        self.fonts.load_for(&self.doc);
+        self.web_capture_report = Some(report.clone());
+        self.changed();
+        self.fit_selection();
+        self.show_toast(report.summary_toast(), false);
+        Ok(report)
+    }
+
     pub fn open_path(&mut self, p: PathBuf) {
+        if io::is_web_capture_path(&p) {
+            self.import_web_capture_path(p);
+            return;
+        }
         // A variables-only JSON opened alongside a design merges into it.
         if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
             if let Ok(text) = std::fs::read_to_string(&p) {
+                if designos_fig::looks_like_web_capture_json(&text) {
+                    let _ = self.import_web_capture_json_into_page(&text);
+                    return;
+                }
                 // Figma REST comments (`/v1/files/:key/comments`) are merged the same way.
                 if crate::comments::import::is_comments_payload(&text) {
                     self.import_comments_file(&p);
@@ -2469,5 +2547,55 @@ mod tests {
         let n = app.doc.get(cid).unwrap();
         assert_eq!(n.layout_child.align_self, AlignSelf::Auto);
         assert_eq!(n.size, v2(30.0, 30.0), "the typed height sticks instead of snapping back to the stretched 100");
+    }
+
+    #[test]
+    fn web_capture_import_into_active_page_is_one_undo_step_and_records_report() {
+        let mut d = Document::new("Untitled");
+        let page = d.add_page("Page 1");
+        let existing = d.alloc_id();
+        d.insert(page, Node::rectangle(existing, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let mut app = App::new(d);
+
+        let raw = r##"{
+            "schema_version": 1,
+            "url": "https://example.com/card",
+            "title": "Marketing Card",
+            "viewport": { "width": 800, "height": 600, "dpr": 2.0 },
+            "root": {
+                "tag": "div",
+                "attrs": { "data-testid": "card" },
+                "bounds": { "x": 100, "y": 40, "w": 320, "h": 140 },
+                "style": {
+                    "display": "flex",
+                    "flex_direction": "column",
+                    "row_gap": 12,
+                    "padding": [16, 16, 16, 16],
+                    "background_color": "#ffffff"
+                },
+                "children": [
+                    {
+                        "tag": "h2",
+                        "bounds": { "x": 116, "y": 56, "w": 288, "h": 28 },
+                        "style": { "color": "#111827", "font_family": "CustomMissingFont, Inter", "font_size": 20, "font_weight": 700, "line_height": 28 },
+                        "text_runs": [{ "text": "Editable Heading", "bounds": { "x": 116, "y": 56, "w": 200, "h": 28 } }]
+                    }
+                ]
+            }
+        }"##;
+
+        let report = app.import_web_capture_json_into_page_at(raw, Some(v2(220.0, 80.0))).expect("import succeeds");
+        assert_eq!(report.root_name, "Marketing Card — example.com");
+        assert_eq!(app.selection, vec![report.root_node_id]);
+        assert!(app.web_capture_report.is_some());
+        assert_eq!(app.doc.get(page).unwrap().children.len(), 2);
+        let root = app.doc.get(report.root_node_id).unwrap();
+        assert_eq!((root.transform.tx, root.transform.ty), (220.0, 80.0));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.starts_with("Imported page:") && t.text.ends_with("Details")));
+
+        // Single undo removes the entire imported frame.
+        app.undo();
+        assert_eq!(app.doc.get(page).unwrap().children, vec![existing]);
+        assert!(app.doc.get(report.root_node_id).is_none());
     }
 }

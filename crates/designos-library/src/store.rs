@@ -145,18 +145,22 @@ pub fn load_external_counted(path: &Path) -> Result<(Document, usize)> {
             designos_svg::import_svg_named(&text, name, &mut doc, page, Vec2::ZERO).map_err(|e| invalid(format!("Cannot import SVG: {e}")))?;
             doc
         }
-        "json" => {
+        "json" | "webcapture" => {
             let text = std::fs::read_to_string(path)?;
-            match designos_fig::import_rest_json(&text) {
-                Ok(d) => d,
-                Err(fig) => {
-                    let (d, report) =
-                        Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
-                    if !report.is_clean() {
-                        eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+            if designos_fig::looks_like_web_capture_json(&text) {
+                designos_fig::import_web_capture_json(&text).map_err(|e| invalid(format!("Cannot import web capture: {e}")))?
+            } else {
+                match designos_fig::import_rest_json(&text) {
+                    Ok(d) => d,
+                    Err(fig) => {
+                        let (d, report) =
+                            Document::from_json_with_report(&text).map_err(|e| invalid(format!("Not a Figma REST file ({fig}) nor a designos file ({e})")))?;
+                        if !report.is_clean() {
+                            eprintln!("designos-doc: repaired a damaged document on load: {report:?}");
+                        }
+                        replaced_on_read = report.non_finite_numbers;
+                        d
                     }
-                    replaced_on_read = report.non_finite_numbers;
-                    d
                 }
             }
         }

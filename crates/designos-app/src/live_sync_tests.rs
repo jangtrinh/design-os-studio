@@ -160,6 +160,11 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     let added = d.nodes.len() - node_count;
     assert!(added >= 2, "card subtree must be inserted, got {added} new nodes");
 
+    // The card's EaseUI colours point at variables the editor now holds, so a theme change recolours it.
+    let card_fill_binding = d.get(card).unwrap().variables.bindings.get("fills/0").cloned().expect("the card fill is bound");
+    assert!(d.variables.contains_key(&card_fill_binding), "the editor lacks the variable {card_fill_binding} the card is bound to");
+    assert!(d.variable_collections.contains_key("easeui-deprecated"), "the EaseUI (deprecated) collection did not reach the editor");
+
     // The view did not jump (no fit-to-screen on an agent edit).
     assert_eq!(app.view.zoom, zoom);
     assert_eq!(app.view.offset, offset);
@@ -193,6 +198,7 @@ fn mcp_apply_spec_on_scoped_canvas_keeps_full_document() {
     assert!(app.hist.undo(&mut app.doc).expect("undo"), "the card is its own undo step");
     assert_eq!(app.doc.nodes.len(), node_count);
     assert!(app.doc.get(card).is_none());
+    assert!(app.doc.variable_collections.is_empty() && app.doc.variables.is_empty(), "undoing the card must remove the variables it brought");
     assert_eq!(app.doc.get(renamed).unwrap().name, "Screen 7");
     assert_eq!(app.doc.get(page).unwrap().children, page_children);
 

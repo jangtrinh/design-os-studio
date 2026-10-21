@@ -8,7 +8,7 @@
   "dev_status": "ready",
   "annotation": "Generated from declarative NodeSpec JSON via DESIGN:OS Agent CLI (--apply-spec)",
   "layout": {
-    "dir": "column",
+    "direction": "column",
     "gap": 24.0,
     "padding": [28.0, 32.0, 28.0, 32.0],
     "align": "start",
@@ -25,7 +25,7 @@
       "stroke_width": 1.0,
       "radius": 14.0,
       "layout": {
-        "dir": "row",
+        "direction": "row",
         "gap": 16.0,
         "padding": [14.0, 20.0, 14.0, 20.0],
         "align": "center",
@@ -36,7 +36,7 @@
           "name": "Header Left Brand",
           "preset": "easeui-row",
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 12.0,
             "padding": [0.0, 0.0, 0.0, 0.0],
             "align": "center",
@@ -64,7 +64,7 @@
           "name": "Header Actions",
           "preset": "easeui-row",
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 10.0,
             "padding": [0.0, 0.0, 0.0, 0.0],
             "align": "center",
@@ -91,7 +91,7 @@
       "width": 1376.0,
       "height": 752.0,
       "layout": {
-        "dir": "row",
+        "direction": "row",
         "gap": 24.0,
         "padding": [0.0, 0.0, 0.0, 0.0],
         "align": "start",
@@ -105,7 +105,7 @@
           "height": 752.0,
           "radius": 16.0,
           "layout": {
-            "dir": "column",
+            "direction": "column",
             "gap": 16.0,
             "padding": [24.0, 24.0, 24.0, 24.0],
             "align": "start",
@@ -239,7 +239,7 @@
           "height": 752.0,
           "radius": 16.0,
           "layout": {
-            "dir": "column",
+            "direction": "column",
             "gap": 18.0,
             "padding": [24.0, 24.0, 24.0, 24.0],
             "align": "start",
@@ -265,7 +265,7 @@
               "name": "Feedback Cards Row",
               "preset": "easeui-row",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 16.0,
                 "padding": [0.0, 0.0, 0.0, 0.0],
                 "align": "start",
@@ -375,7 +375,7 @@
               "preset": "easeui-card",
               "width": 884.0,
               "layout": {
-                "dir": "column",
+                "direction": "column",
                 "gap": 14.0,
                 "padding": [20.0, 22.0, 20.0, 22.0],
                 "align": "start",
@@ -387,7 +387,7 @@
                   "preset": "easeui-row",
                   "width": 840.0,
                   "layout": {
-                    "dir": "row",
+                    "direction": "row",
                     "gap": 12.0,
                     "padding": [0.0, 0.0, 0.0, 0.0],
                     "align": "center",
@@ -417,7 +417,7 @@
                   "width": 840.0,
                   "radius": 10.0,
                   "layout": {
-                    "dir": "column",
+                    "direction": "column",
                     "gap": 8.0,
                     "padding": [14.0, 16.0, 14.0, 16.0],
                     "align": "start",
@@ -458,7 +458,7 @@
                   "width": 840.0,
                   "radius": 10.0,
                   "layout": {
-                    "dir": "column",
+                    "direction": "column",
                     "gap": 6.0,
                     "padding": [14.0, 16.0, 14.0, 16.0],
                     "align": "start",

@@ -658,6 +658,51 @@ fn check_designs_counts_bound() {
     assert_eq!(report.of(Rule::TypographyAndStroke).count(), 0, "unexpected typography/stroke findings: {:#?}", report.findings);
 }
 
+#[test]
+fn check_designs_and_linter_identical() {
+    use designos_doc::lint::{lint, LintConfig, NoLintEnv};
+    let d = fixture::document();
+    let cd_report = audit(&d, &Scope::Page(d.pages[0]));
+    let cd_hard: Vec<(NodeId, String, String)> = cd_report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.rule,
+                Rule::HardCodedValue
+                    | Rule::TextStyles
+                    | Rule::CornerRadius
+                    | Rule::Padding
+                    | Rule::HorizontalSpacing
+                    | Rule::VerticalSpacing
+                    | Rule::TypographyAndStroke
+            ) && (f.rule != Rule::TextStyles || f.fix.is_some())
+        })
+        .map(|f| {
+            let fix_str = match &f.fix {
+                Some(Fix::BindVariable { variable, .. }) | Some(Fix::BindVariables { variable, .. }) => {
+                    let v = d.variables.get(variable).expect("variable exists");
+                    format!("var:{}", v.name)
+                }
+                Some(Fix::ApplyStyle { style }) => format!("style:{}", d.style_name(style)),
+                _ => String::new(),
+            };
+            (f.node, f.property.clone(), fix_str)
+        })
+        .collect();
+
+    let lint_cfg = LintConfig::from_rule_list(&["hardcoded-value".into()]).unwrap();
+    let lint_report = lint(&d, &lint_cfg, &NoLintEnv);
+    let lint_hard: Vec<(NodeId, String, String)> = lint_report
+        .findings
+        .iter()
+        .map(|f| (f.node, f.property.clone().unwrap_or_default(), f.suggested_fix.as_ref().and_then(|s| s.to.as_str()).unwrap_or("").to_string()))
+        .collect();
+
+    assert_eq!(cd_hard.len(), 4);
+    assert_eq!(cd_hard, lint_hard);
+}
+
 fn white_page(f: &mut Fx) {
     f.doc.get_mut(f.page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
 }

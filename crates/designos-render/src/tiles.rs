@@ -8,7 +8,7 @@
 //! `s` is `zoom * dpr` of the viewport that requested them.
 
 use crate::index::{self, Differ, B};
-use crate::{render_with_transform, SceneIndex, Viewport};
+use crate::{render_with_transform_and_opacities, SceneIndex, Viewport};
 use designos_doc::{Document, NodeId, Rect};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -130,6 +130,7 @@ pub struct TileCache {
     frame: u64,
     cur_scale: Option<u32>,
     prev_scale: Option<u32>,
+    runtime_opacities: Vec<(NodeId, f32)>,
     /// Extra ring of tiles around the viewport rendered when time allows.
     pub prefetch_ring: i32,
     /// Soft cap on cached tiles (256 KiB each).
@@ -155,8 +156,37 @@ impl TileCache {
             frame: 0,
             cur_scale: None,
             prev_scale: None,
+            runtime_opacities: Vec::new(),
             prefetch_ring: 1,
             max_tiles: 600,
+        }
+    }
+
+    /// Updates runtime-only per-node opacity multipliers (e.g. top-level insert fade-in)
+    /// without mutating `Document` or bumping `rev`, invalidating only the tiles overlapping
+    /// nodes whose runtime opacity changed.
+    pub fn set_runtime_opacities(&mut self, doc: &Document, page: NodeId, opacities: Vec<(NodeId, f32)>) {
+        if self.runtime_opacities == opacities {
+            return;
+        }
+        self.index.ensure(doc, page, self.rev.unwrap_or(0));
+        let mut changed_nodes = Vec::new();
+        for &(id, new_a) in &opacities {
+            let old_a = self.runtime_opacities.iter().find(|&&(oid, _)| oid == id).map(|&(_, a)| a);
+            if old_a.is_none_or(|oa| (oa - new_a).abs() > 1e-4) {
+                changed_nodes.push(id);
+            }
+        }
+        for &(id, _) in &self.runtime_opacities {
+            if !opacities.iter().any(|&(nid, _)| nid == id) {
+                changed_nodes.push(id);
+            }
+        }
+        self.runtime_opacities = opacities;
+        for id in changed_nodes {
+            if let Some(b) = self.index.bounds_of(id) {
+                self.invalidate_b(b);
+            }
         }
     }
 
@@ -200,6 +230,7 @@ impl TileCache {
         self.rev = None;
         self.cur_scale = None;
         self.prev_scale = None;
+        self.runtime_opacities.clear();
     }
 
     /// Whether a tile (rendered or pending) is still cached.
@@ -327,10 +358,11 @@ impl TileCache {
             let end = (rendered + step).min(todo.len()).min(budget.max_tiles.max(rendered + 1));
             let batch = &todo[rendered..end];
             let index = &self.index;
+            let runtime_opacities = &self.runtime_opacities;
             let done: Vec<(TileKey, sk::Pixmap)> = if batch.len() == 1 {
-                vec![(batch[0], render_tile(doc, page, index, batch[0]))]
+                vec![(batch[0], render_tile(doc, page, index, batch[0], runtime_opacities))]
             } else {
-                pool().install(|| batch.par_iter().map(|k| (*k, render_tile(doc, page, index, *k))).collect())
+                pool().install(|| batch.par_iter().map(|k| (*k, render_tile(doc, page, index, *k, runtime_opacities))).collect())
             };
             for (k, pm) in done {
                 let version = self.next_version;
@@ -409,7 +441,7 @@ impl TileCache {
 /// Paints one tile. Pixels equal the matching region of a full-page render:
 /// the tile is drawn with padding for effects that read neighbouring pixels
 /// (blurs, shadows) and cropped.
-fn render_tile(doc: &Document, page: NodeId, idx: &SceneIndex, k: TileKey) -> sk::Pixmap {
+fn render_tile(doc: &Document, page: NodeId, idx: &SceneIndex, k: TileKey, runtime_opacities: &[(NodeId, f32)]) -> sk::Pixmap {
     let scale = k.scale();
     let ts_i = TILE_SIZE as i32;
     let (cx, cy) = k.device_origin();
@@ -428,7 +460,7 @@ fn render_tile(doc: &Document, page: NodeId, idx: &SceneIndex, k: TileKey) -> sk
     let (ox, oy) = (cx - pad, cy - pad);
     let ts = sk::Transform::from_row(scale, 0.0, 0.0, scale, -(ox as f32), -(oy as f32));
     let mut pm = sk::Pixmap::new(size, size).expect("tile size");
-    render_with_transform(doc, page, ts, &mut pm, Some(idx));
+    render_with_transform_and_opacities(doc, page, ts, &mut pm, Some(idx), runtime_opacities);
     let mut out = sk::Pixmap::new(TILE_SIZE, TILE_SIZE).expect("tile size");
     let (src, dst) = (pm.data(), out.data_mut());
     let row = TILE_SIZE as usize * 4;

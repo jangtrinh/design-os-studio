@@ -16,6 +16,7 @@ mod effects;
 mod fx;
 mod geom;
 mod index;
+pub mod lint_env;
 mod mask;
 mod outline;
 mod paint;
@@ -30,6 +31,7 @@ use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2}
 pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
+pub use lint_env::RenderLintEnv;
 pub use mask::{mask_frame_box, mask_stencil};
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
@@ -100,7 +102,7 @@ pub fn render_page(doc: &Document, page: NodeId, vp: &Viewport, target: &mut tin
     let s = vp.zoom * vp.dpr;
     let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
     effects::set_grid_origin(&ts);
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[] };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -120,6 +122,19 @@ pub fn render_page_indexed(doc: &Document, page: NodeId, vp: &Viewport, target: 
 /// must have been built for this document revision and `ts` must be a pure
 /// scale + translate.
 pub(crate) fn render_with_transform(doc: &Document, page: NodeId, ts: sk::Transform, target: &mut sk::Pixmap, index: Option<&SceneIndex>) {
+    render_with_transform_and_opacities(doc, page, ts, target, index, &[]);
+}
+
+/// Like [`render_with_transform`], multiplying matching node draw opacities by `runtime_opacities`
+/// without mutating `doc`.
+pub(crate) fn render_with_transform_and_opacities(
+    doc: &Document,
+    page: NodeId,
+    ts: sk::Transform,
+    target: &mut sk::Pixmap,
+    index: Option<&SceneIndex>,
+    runtime_opacities: &[(NodeId, f32)],
+) {
     let bg = match doc.get(page).map(|n| &n.kind) {
         Some(NodeKind::Page { background }) => paint::sk_color(background, 1.0),
         _ => sk::Color::from_rgba8(0x5A, 0x5A, 0x5A, 0xFF),
@@ -133,7 +148,7 @@ pub(crate) fn render_with_transform(doc: &Document, page: NodeId, ts: sk::Transf
         let win = ((-1.0 - ts.tx) / ts.sx, (-1.0 - ts.ty) / ts.sy, (w + 1.0 - ts.tx) / ts.sx, (h + 1.0 - ts.ty) / ts.sy);
         Cull { index, win }
     });
-    let r = Renderer { doc, env: PaintEnv { doc }, cull };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull, runtime_opacities };
     r.draw_children(&p.children, ts, target, None, None);
 }
 
@@ -165,7 +180,7 @@ pub fn render_node(doc: &Document, node: NodeId, scale: f32) -> Option<tiny_skia
     let n = &*resolve_node(doc, doc.get(node)?);
     let (w, h) = checked_pixmap_size(n.size.x * scale, n.size.y * scale)?;
     let mut pm = tiny_skia::Pixmap::new(w, h)?;
-    let r = Renderer { doc, env: PaintEnv { doc }, cull: None };
+    let r = Renderer { doc, env: PaintEnv { doc }, cull: None, runtime_opacities: &[] };
     let ts = sk::Transform::from_scale(scale, scale);
     effects::set_grid_origin(&ts);
     if let NodeKind::Page { background } = &n.kind {
@@ -184,6 +199,8 @@ struct Renderer<'a> {
     env: PaintEnv<'a>,
     /// Skips children whose cached page-space bounds miss the drawn window.
     cull: Option<Cull<'a>>,
+    /// Runtime-only per-node opacity multipliers (e.g. top-level insert fade-in).
+    runtime_opacities: &'a [(NodeId, f32)],
 }
 
 struct Cull<'a> {
@@ -356,7 +373,8 @@ impl Renderer<'_> {
             })
             .fold(0.0f32, f32::max);
         let special_blend = !matches!(n.blend, designos_doc::BlendMode::Normal | designos_doc::BlendMode::PassThrough);
-        let opacity = n.opacity.clamp(0.0, 1.0);
+        let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == n.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+        let opacity = (n.opacity * runtime_mul).clamp(0.0, 1.0);
         if opacity <= 0.0 && !special_blend {
             return;
         }
@@ -588,7 +606,8 @@ impl Renderer<'_> {
         if Self::draws_children(n) {
             let kids = n.paint_children();
             // silhouettes are drawn offset from the page grid, so no culling
-            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None }.draw_children(&kids, ts2, pm, None, None);
+            Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities }
+                .draw_children(&kids, ts2, pm, None, None);
         }
     }
 

@@ -13,9 +13,11 @@ mod replay_comments;
 mod validate;
 
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
-pub use replay::{replay_live_patch, LivePatchReport, LivePatchState};
+pub use replay::{replay_live_patch, LivePatchReport, LivePatchState, TouchKind};
 
-use crate::{Comment, CommentAnchor, CommentThread, ExternalAsset, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection};
+use crate::{
+    Comment, CommentAnchor, CommentThread, ExternalAsset, InProgress, LibraryRef, Node, NodeId, PublishInfo, Style, StyleMeta, Variable, VariableCollection,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -35,12 +37,18 @@ pub struct LivePatch {
     /// Optional undo-group label shown in Studio's History panel (e.g. `Agent: <run>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Optional agent session / run identifier (`#682`, `#572`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Optional human-readable agent label (`Claude`, `Codex`, `Grok`, `Antigravity`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
     pub ops: Vec<LiveOp>,
 }
 
 impl LivePatch {
     pub fn new(ops: Vec<LiveOp>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, base: None, label: None, ops }
+        Self { v: LIVE_PATCH_VERSION, base: None, label: None, session_id: None, agent_label: None, ops }
     }
 
     pub fn with_base(mut self, base: Option<u64>) -> Self {
@@ -50,6 +58,12 @@ impl LivePatch {
 
     pub fn with_label(mut self, label: Option<String>) -> Self {
         self.label = label;
+        self
+    }
+
+    pub fn with_agent(mut self, session_id: impl Into<String>, agent_label: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self.agent_label = Some(agent_label.into());
         self
     }
 }
@@ -165,6 +179,19 @@ pub enum LiveOp {
     Remove {
         id: NodeId,
     },
+    /// Variables and collections the agent added, replaced or removed, by id. The agent's copy can
+    /// lack variables the editor has (a scoped canvas), so the editor merges these into its own
+    /// maps instead of taking the agent's maps whole.
+    Variables {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        collections: Vec<VariableCollection>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        variables: Vec<Variable>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_collections: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed_variables: Vec<String>,
+    },
     /// Comment threads the agent created, edited or deleted, by thread id. The agent's copy can
     /// lack threads the editor has, so ids it picks may already be taken there.
     Comments {
@@ -178,6 +205,14 @@ pub enum LiveOp {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed: Vec<String>,
     },
+    /// Sets or clears a transient work-in-progress flag on `node` without creating a [`Command`](crate::Command)
+    /// or undo step (`E15-7` / `#592`).
+    SetInProgress {
+        #[serde(alias = "id")]
+        node: NodeId,
+        #[serde(default, alias = "value", skip_serializing_if = "Option::is_none")]
+        state: Option<InProgress>,
+    },
     /// Shared styles added, updated or removed.
     Styles {
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -188,17 +223,6 @@ pub enum LiveOp {
         removed: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed_meta: Vec<String>,
-    },
-    /// Variables and variable collections added, updated or removed.
-    Variables {
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted_collections: BTreeMap<String, VariableCollection>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed_collections: Vec<String>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted_variables: BTreeMap<String, Variable>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed_variables: Vec<String>,
     },
     /// Library state and hidden library page changes.
     LibraryState {

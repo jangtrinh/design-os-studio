@@ -49,6 +49,8 @@ impl SessionRowStatus {
             Self::Live(AgentTabStatus::WaitingForInput(_)) => "WaitingForInput",
             Self::Live(AgentTabStatus::Done) => "Done",
             Self::Live(AgentTabStatus::Idle) => "Idle",
+            Self::Live(AgentTabStatus::Error(_)) => "Error",
+            Self::Live(AgentTabStatus::Stopped) => "Stopped",
             Self::NotRunning => "Not running",
             Self::Missing => "Missing",
         }
@@ -300,6 +302,12 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
         }
         SessionRowStatus::Live(AgentTabStatus::Done | AgentTabStatus::Idle) => {
             p.circle_filled(status_center, STATUS_DONE_RADIUS, Color32::from_rgb(0x10, 0xB9, 0x81));
+        }
+        SessionRowStatus::Live(AgentTabStatus::Error(_)) => {
+            p.circle_filled(status_center, STATUS_DONE_RADIUS, theme::DANGER);
+        }
+        SessionRowStatus::Live(AgentTabStatus::Stopped) => {
+            p.circle_filled(status_center, STATUS_DONE_RADIUS, theme::ICON_TERTIARY);
         }
         SessionRowStatus::NotRunning => {
             p.circle_stroke(status_center, STATUS_DONE_RADIUS, Stroke::new(theme::BORDER_WIDTH, theme::TEXT_TERTIARY));
@@ -674,15 +682,7 @@ mod tests {
         assert_eq!(st.tabs[0].title, "Newest Claude");
         assert!(st.tabs[0].is_resumed);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut recorded = String::new();
-        while std::time::Instant::now() < deadline {
-            recorded = std::fs::read_to_string(&argv_file).unwrap_or_default();
-            if !recorded.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        let recorded = crate::test_timing::wait_for_nonempty_file(&argv_file, crate::test_timing::STUB_WAIT);
         assert!(recorded.contains("--resume 22222222-2222-4222-8222-222222222222"), "Expected newest session UUID in resume argv, got: {recorded:?}");
 
         st.shutdown();
@@ -970,15 +970,7 @@ mod tests {
         assert!(st.tabs[0].is_resumed);
         assert!(!st.picker_open);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        let mut argv = String::new();
-        while std::time::Instant::now() < deadline {
-            argv = std::fs::read_to_string(&argv_file).unwrap_or_default();
-            if !argv.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        let argv = crate::test_timing::wait_for_nonempty_file(&argv_file, crate::test_timing::STUB_WAIT);
         assert!(argv.contains("--resume 55555555-5555-4555-8555-555555555555"), "Expected resume argv, got: {argv:?}");
         st.shutdown();
 
@@ -1156,14 +1148,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save registry");
 
         st.open_for_agent_use(None);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        while std::time::Instant::now() < deadline {
-            let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let fix = st.active_tab().and_then(|t| t.start_failure.as_ref()).map(|f| f.fix.clone()).expect("start_failure must be recorded");
         assert_eq!(fix, FixAction::StartNewSession(AgentCliPreset::Claude));
@@ -1305,7 +1290,8 @@ mod tests {
         app.terminal.path_prepend.push(bin_dir.clone());
         assert!(app.terminal.tabs.is_empty());
 
-        let spec: designos_doc::spec::NodeSpec = serde_json::from_str(r#"{"type":"FRAME","name":"Pricing card","width":320,"height":200}"#).expect("spec");
+        let spec: designos_doc::spec::NodeSpec =
+            serde_json::from_str(r#"{"kind":"frame","name":"Pricing card","width":320,"height":200}"#).expect("parse test spec");
         let spec_name = spec.name.clone();
         crate::shell::execute_cmdk_action(&mut app, crate::cmdk::CmdKAction::ApplySpec(Box::new(spec)));
         assert!(app.terminal.tabs.is_empty(), "No process may auto-spawn when no resumable session exists");

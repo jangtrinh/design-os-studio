@@ -49,6 +49,18 @@ impl View {
         let cy = bounds.y + bounds.h / 2.0;
         View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
     }
+    /// Fits `bounds` (page space) into a canvas of `size` px with a fractional margin on each side.
+    pub fn fit_with_margin(bounds: designos_doc::Rect, size: egui::Vec2, margin_fraction: f32) -> View {
+        let frac = margin_fraction.clamp(0.0, 0.45);
+        let avail_w = (size.x * (1.0 - 2.0 * frac)).max(10.0);
+        let avail_h = (size.y * (1.0 - 2.0 * frac)).max(10.0);
+        let zw = avail_w / bounds.w.max(1.0);
+        let zh = avail_h / bounds.h.max(1.0);
+        let z = zw.min(zh).clamp(theme::ZOOM_MIN, theme::ZOOM_MAX);
+        let cx = bounds.x + bounds.w / 2.0;
+        let cy = bounds.y + bounds.h / 2.0;
+        View { zoom: z, offset: Vec2::new(cx - size.x / 2.0 / z, cy - size.y / 2.0 / z) }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +121,8 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Whether the Preferences -> Agent permissions modal is open (`#656`).
+    pub permissions_modal_open: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +207,12 @@ pub struct App {
     pub specs: crate::specs::SpecsState,
     /// Native Embedded PTY Agent Terminal (Claude CLI, Codex CLI, Grok CLI, $SHELL).
     pub terminal: crate::terminal::TerminalState,
+    /// Screen-reader polite live-region announcer for agent tab transitions (`#687`).
+    pub agent_a11y: crate::agent_a11y::Announcer,
+    /// Per-session agent cursors and write-flash outlines on the canvas (`#682`).
+    pub agent_presence: crate::agent_presence::AgentPresence,
+    /// Edge-anchored "N changes -> Show" chips for off-screen agent turns (`#695`).
+    pub agent_changes_chip: crate::canvas::agent_changes_chip::AgentChangesChips,
     /// In-Canvas Cmd+K Agent & Design Gate Bar state.
     pub cmdk: crate::cmdk::CmdKState,
     /// Check designs panel: hard-coded values, contrast and detached instances.
@@ -206,6 +226,9 @@ pub struct App {
     /// Non-finite or save warning produced by `save_library_file` / `flush_autosave` during a document
     /// switch, carried into an immediate follow-up `show_toast` so `"Opened X"` does not overwrite it.
     pub(crate) pending_flush_notice: Option<(f64, String)>,
+    /// Last web capture import report (`T8.27`) and whether its `Details` sheet is open.
+    pub web_capture_report: Option<designos_webcapture::ImportReport>,
+    pub web_capture_report_open: bool,
 }
 
 impl App {
@@ -257,12 +280,17 @@ impl App {
             decks: Default::default(),
             specs: Default::default(),
             terminal: Default::default(),
+            agent_a11y: Default::default(),
+            agent_presence: Default::default(),
+            agent_changes_chip: Default::default(),
             cmdk: Default::default(),
             check_designs: Default::default(),
             tabs: Default::default(),
             image_jobs: Default::default(),
             opacity_buffer: None,
             pending_flush_notice: None,
+            web_capture_report: None,
+            web_capture_report_open: false,
         }
     }
 
@@ -363,6 +391,20 @@ impl App {
     #[allow(dead_code)]
     pub fn title(&self) -> String {
         theme::APP_TITLE.to_string()
+    }
+
+    pub fn open_agent_permissions(&mut self) {
+        self.ui.permissions_modal_open = true;
+    }
+
+    pub fn set_agent_permission_mode(&mut self, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
+        }
+        if let Some(lib) = &self.lib {
+            let _ = crate::agent_permissions::save_permission_mode(lib.root(), mode);
+        }
     }
 }
 

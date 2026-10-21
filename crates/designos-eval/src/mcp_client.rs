@@ -29,12 +29,16 @@ pub struct ToolOutput {
 }
 
 impl ToolOutput {
-    /// The failure text of an `is_error` result: the server sends `{"error": "<message>"}`, older servers plain text.
+    /// The failure text of an `is_error` result: structured `ToolError` (`message` / `error.message`), legacy `{"error": "<message>"}`, or plain text.
     pub fn error_message(&self) -> Option<&str> {
         if !self.is_error {
             return None;
         }
-        self.value.get("error").and_then(Value::as_str).or_else(|| self.value.as_str())
+        self.value
+            .get("message")
+            .and_then(Value::as_str)
+            .or_else(|| self.value.get("error").and_then(|e| e.as_str().or_else(|| e.get("message").and_then(Value::as_str))))
+            .or_else(|| self.value.as_str())
     }
 }
 

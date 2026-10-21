@@ -362,6 +362,133 @@ pub fn property_value(doc: &Document, n: &Node, label: &str) -> Option<String> {
     })
 }
 
+/// Formats the A5 CSS reference (`codeSyntax.WEB` when set, else `var(--Sanitized-Name, fallback)`)
+/// for a [`VarUse`] entry.
+pub fn css_for_variable_use(doc: &Document, u: &VarUse, resolved: Option<&VariableValue>) -> String {
+    if let Some(def) = doc.variables.get(&u.id) {
+        if let Some(web) = def.code_syntax_for(CodeSyntaxPlatform::Web) {
+            return web.to_string();
+        }
+    }
+    let name = crate::codegen::css_var_name(&u.name);
+    let fallback = match resolved {
+        Some(VariableValue::Color(c)) => Some(crate::util::css_color(c, 1.0)),
+        Some(VariableValue::Number(x)) => {
+            if u.props.iter().any(|p| p == "fontWeight" || p == "opacity") {
+                Some(fmt_num(*x))
+            } else {
+                Some(format!("{}px", fmt_num(*x)))
+            }
+        }
+        _ => None,
+    };
+    match fallback {
+        Some(fb) => format!("var(--{name}, {fb})"),
+        None => format!("var(--{name})"),
+    }
+}
+
+/// Human-readable summary of a shared [`Style`]'s values for design context hints.
+pub fn style_summary(style: &Style) -> String {
+    match style {
+        Style::Fill(paints) => paints_hex(paints),
+        Style::Text(ts) => {
+            let lh = match ts.line_height {
+                LineHeight::Auto => "Auto".into(),
+                LineHeight::Pixels(p) => format!("{}px", fmt_num(p)),
+                LineHeight::Percent(p) => format!("{}%", fmt_num(p)),
+            };
+            format!("{} {} {}px/{lh}", ts.font_family, weight_name(ts.font_weight), fmt_num(ts.font_size))
+        }
+        Style::Effect(effs) => format!("{} effect{}", effs.len(), if effs.len() == 1 { "" } else { "s" }),
+        Style::Grid(grids) => format!("{} grid{}", grids.len(), if grids.len() == 1 { "" } else { "s" }),
+    }
+}
+
+/// Builds a lightweight [`Document`] holding only `root`'s subtree (with bound variables resolved),
+/// `root`'s ancestor chain up to the page root, and any main components referenced by instances
+/// in the subtree or ancestors. Returns `(subtree_doc, cloned_node_count)` without cloning `doc.nodes`.
+pub fn apply_bound_variables_subtree(doc: &Document, root: NodeId) -> (Document, usize) {
+    let mut sub = Document::new(doc.name.clone());
+    sub.kind = doc.kind;
+    sub.pages = doc.pages.clone();
+    sub.library_page = doc.library_page;
+    sub.variables = doc.variables.clone();
+    sub.variable_collections = doc.variable_collections.clone();
+    sub.styles = doc.styles.clone();
+    sub.style_meta = doc.style_meta.clone();
+
+    let mut cloned_nodes = 0usize;
+    let mut referenced_components = std::collections::BTreeSet::new();
+
+    // 1. Copy `root` and its descendants with bound variables applied.
+    doc.walk(root, |n, _| {
+        if let Some(comp_id) = instance_component(n) {
+            referenced_components.insert(comp_id);
+        }
+        let resolved = resolve_node(doc, n).into_owned();
+        sub.nodes.insert(n.id, resolved);
+        cloned_nodes += 1;
+    });
+
+    // 2. Copy ancestors of `root` up to the page root so inherited modes and parent lookups work.
+    let mut cur = doc.get(root).and_then(|n| n.parent);
+    let mut child_on_path = root;
+    let mut depth = 0usize;
+    while let Some(anc_id) = cur {
+        if depth > 256 || sub.nodes.contains_key(&anc_id) {
+            break;
+        }
+        let Some(anc) = doc.get(anc_id) else { break };
+        if let Some(comp_id) = instance_component(anc) {
+            referenced_components.insert(comp_id);
+        }
+        let mut anc_copy = resolve_node(doc, anc).into_owned();
+        anc_copy.children = vec![child_on_path];
+        sub.nodes.insert(anc_id, anc_copy);
+        cloned_nodes += 1;
+        child_on_path = anc_id;
+        cur = anc.parent;
+        depth += 1;
+    }
+
+    // 3. Copy any referenced main components (and their enclosing ComponentSet + direct slot children).
+    for comp_id in referenced_components {
+        if !sub.nodes.contains_key(&comp_id) {
+            if let Some(comp) = doc.get(comp_id) {
+                let mut comp_copy = resolve_node(doc, comp).into_owned();
+                let mut kept_children = Vec::new();
+                for &cid in &comp.children {
+                    if let Some(cn) = doc.get(cid) {
+                        if let std::collections::btree_map::Entry::Vacant(e) = sub.nodes.entry(cid) {
+                            let mut cn_copy = resolve_node(doc, cn).into_owned();
+                            cn_copy.children.clear();
+                            e.insert(cn_copy);
+                            cloned_nodes += 1;
+                        }
+                        kept_children.push(cid);
+                    }
+                }
+                comp_copy.children = kept_children;
+                if let Some(parent_id) = comp.parent {
+                    if let std::collections::btree_map::Entry::Vacant(e) = sub.nodes.entry(parent_id) {
+                        if let Some(parent_node) = doc.get(parent_id) {
+                            let mut p_copy = resolve_node(doc, parent_node).into_owned();
+                            p_copy.children = vec![comp_id];
+                            e.insert(p_copy);
+                            cloned_nodes += 1;
+                        }
+                    }
+                }
+                sub.nodes.insert(comp_id, comp_copy);
+                cloned_nodes += 1;
+            }
+        }
+    }
+
+    (sub, cloned_nodes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

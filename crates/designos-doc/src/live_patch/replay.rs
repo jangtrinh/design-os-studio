@@ -3,7 +3,8 @@
 use super::replay_comments::{resolve_comments, CommentRemap};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
-use crate::{Command, DocError, Document, Node, NodeId, NodeKind};
+use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +24,18 @@ pub struct LivePatchState {
     /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
+    /// Variable and collection ids this session's replays added to the editor. An agent undo
+    /// removes only these; anything the editor had before is left alone. Variables also keep the
+    /// last value this session wrote, so a later agent edit never overwrites a value the user
+    /// changed in the editor since.
+    introduced_variables: BTreeMap<String, Variable>,
+    introduced_collections: BTreeSet<String>,
+    /// Styles and style metadata this session introduced into the editor document, mapped to the
+    /// last value this session wrote. Agent writes go by id and the last one wins; a later agent
+    /// edit is refused only when the editor no longer holds the value written here (the user
+    /// changed it), and an agent undo removes only ids recorded here whose value is unchanged.
+    introduced_styles: BTreeMap<String, Style>,
+    introduced_style_meta: BTreeMap<String, StyleMeta>,
 }
 
 impl LivePatchState {
@@ -56,11 +69,24 @@ fn resolve_id(remap: &BTreeMap<NodeId, NodeId>, replaced: &BTreeMap<NodeId, Node
 /// apply to the replacement.
 const SHAPE_FIELDS: [&str; 6] = ["transform", "size", "kind", "fill_geometry", "stroke_geometry", "corner_radii"];
 
+/// How a replayed live-patch op touched a layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TouchKind {
+    Inserted,
+    Updated,
+    Moved,
+    Removed,
+}
+
 /// What a replay did, for the toast, the post-replay layout pass and tests.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LivePatchReport {
     /// Roots of inserted subtrees, in insertion order.
     pub inserted_roots: Vec<NodeId>,
+    /// Layers touched by the replayed ops, in op order, in editor ids (after remap).
+    pub touched: Vec<(NodeId, TouchKind)>,
+    /// Parent ids of removed layers before removal, keyed by the removed layer's editor id.
+    pub removed_parents: BTreeMap<NodeId, NodeId>,
     /// Nodes whose change can move or resize siblings in an auto-layout container: new or
     /// removed children, moves, and size, visibility or layout changes.
     pub needs_layout: Vec<NodeId>,
@@ -93,6 +119,12 @@ pub fn replay_live_patch(
         // now send its edits to the wrong node or thread.
         state.remap.clear();
         state.comments = CommentRemap::default();
+        // The reloaded canvas already carries what earlier replays added, and the editor's own
+        // layers may use it by now, so an undo of an older edit must not remove it.
+        state.introduced_variables.clear();
+        state.introduced_collections.clear();
+        state.introduced_styles.clear();
+        state.introduced_style_meta.clear();
         // Its replaced layers are gone from that canvas, so their old ids mean nothing there. The
         // first patch of a session has no earlier canvas to be newer than.
         if state.base.is_some() {
@@ -100,8 +132,9 @@ pub fn replay_live_patch(
         }
         state.base = patch.base;
     }
+    let is_spec_undo = patch.ops.iter().any(|o| matches!(o, LiveOp::Remove { .. }));
     for op in &patch.ops {
-        if let Some(cmd) = resolve(doc, op, state, &mut report) {
+        if let Some(cmd) = resolve(doc, op, is_spec_undo, state, &mut report) {
             if let Err(e) = exec(doc, cmd) {
                 *state = saved;
                 return Err(e);
@@ -109,10 +142,11 @@ pub fn replay_live_patch(
             report.applied += 1;
         }
     }
+    doc.prune_in_progress();
     Ok(report)
 }
 
-fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
+fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut LivePatchState, report: &mut LivePatchReport) -> Option<Command> {
     match op {
         LiveOp::Insert { parent: agent_parent, at, nodes } => {
             let (parent, redirected) = resolve_id(&state.remap, &state.replaced, doc, *agent_parent);
@@ -164,6 +198,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             if set.keys().chain(unset).any(|k| LAYOUT_FIELDS.contains(&k.as_str())) {
                 report.needs_layout.push(id);
             }
+            report.touched.push((id, TouchKind::Updated));
             Some(crate::writer_command(doc, Command::Update { node: Box::new(merged) }).cmd)
         }
         LiveOp::Reparent { id: agent_id, parent: agent_parent, at } => {
@@ -199,7 +234,8 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
             }
             report.needs_layout.extend(node.parent);
             report.needs_layout.extend([parent, id]);
-            Some(Command::Reparent { id, parent, index })
+            report.touched.push((id, TouchKind::Moved));
+            Some(crate::writer_command(doc, Command::Reparent { id, parent, index }).cmd)
         }
         LiveOp::Remove { id } => {
             let id = state.target(doc, *id);
@@ -212,63 +248,45 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
                 return None;
             };
             report.needs_layout.push(parent);
-            Some(Command::Remove { id })
+            report.removed_parents.insert(id, parent);
+            report.touched.push((id, TouchKind::Removed));
+            Some(crate::writer_command(doc, Command::Remove { id }).cmd)
+        }
+        LiveOp::Variables { collections, variables, removed_collections, removed_variables } => {
+            resolve_variables(doc, collections, variables, removed_collections, removed_variables, is_spec_undo, state, report)
         }
         LiveOp::Comments { added, changed, removed } => {
             let (remap, replaced) = (&state.remap, &state.replaced);
             let node = |id: NodeId| resolve_id(remap, replaced, doc, id).0;
             resolve_comments(doc, added, changed, removed, &mut state.comments, &node, report)
         }
+        LiveOp::SetInProgress { node, state: ip_state } => {
+            let id = state.target(doc, *node);
+            if doc.get(id).is_none() {
+                report.skipped.push(format!("set_in_progress on missing node {}", id.0));
+                return None;
+            }
+            let prev = doc.set_in_progress(id, ip_state.clone());
+            if prev.as_ref() == ip_state.as_ref() {
+                report.duplicates += 1;
+            } else {
+                report.applied += 1;
+            }
+            None
+        }
         LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
             let mut styles = doc.styles.clone();
             let mut style_meta = doc.style_meta.clone();
-            for k in removed {
-                styles.remove(k);
-            }
-            for k in removed_meta {
-                style_meta.remove(k);
-            }
-            for (k, v) in upserted {
-                styles.insert(k.clone(), v.clone());
-            }
-            for (k, v) in upserted_meta {
-                style_meta.insert(k.clone(), v.clone());
-            }
+            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, upserted, removed, is_spec_undo, "style", report);
+            let refused_meta =
+                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, upserted_meta, removed_meta, is_spec_undo, "style metadata", report);
             if styles == doc.styles && style_meta == doc.style_meta {
-                report.duplicates += 1;
+                if !(refused_styles || refused_meta) {
+                    report.duplicates += 1;
+                }
                 None
             } else {
                 Some(Command::SetStyles { styles, style_meta })
-            }
-        }
-        LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables } => {
-            let mut collections = doc.variable_collections.clone();
-            let mut variables = doc.variables.clone();
-            for k in removed_collections {
-                collections.remove(k);
-            }
-            for k in removed_variables {
-                variables.remove(k);
-            }
-            for (k, v) in upserted_collections {
-                let mut merged = v.clone();
-                if let Some(cur) = doc.variable_collections.get(k) {
-                    for vid in &cur.variables {
-                        if !removed_variables.contains(vid) && !merged.variables.contains(vid) {
-                            merged.variables.push(vid.clone());
-                        }
-                    }
-                }
-                collections.insert(k.clone(), merged);
-            }
-            for (k, v) in upserted_variables {
-                variables.insert(k.clone(), v.clone());
-            }
-            if collections == doc.variable_collections && variables == doc.variables {
-                report.duplicates += 1;
-                None
-            } else {
-                Some(Command::SetVariables { variables, collections })
             }
         }
         LiveOp::LibraryState { published, upserted_enabled, removed_enabled, upserted_external, removed_external, library_page } => {
@@ -346,6 +364,133 @@ fn resolve(doc: &mut Document, op: &LiveOp, state: &mut LivePatchState, report: 
     }
 }
 
+/// The agent's change to one id-keyed token map (styles or style metadata) merged into the
+/// editor's copy: writes go by id and the last write wins, the same rule variables follow.
+/// An upsert is refused only when this session wrote the id earlier and the editor now holds a
+/// different value (the user changed it since); a removal of such an id is refused on an agent
+/// undo for the same reason, and an undo never removes an id this session did not introduce.
+/// Every refusal is reported in `skipped`. Returns whether anything was refused.
+fn merge_agent_tokens<T: Clone + PartialEq>(
+    current: &mut BTreeMap<String, T>,
+    introduced: &mut BTreeMap<String, T>,
+    upserted: &BTreeMap<String, T>,
+    removed: &[String],
+    is_spec_undo: bool,
+    what: &str,
+    report: &mut LivePatchReport,
+) -> bool {
+    let mut refused = false;
+    for k in removed {
+        let Some(held) = current.get(k) else {
+            introduced.remove(k);
+            continue;
+        };
+        let introduced_unchanged = introduced.get(k).is_some_and(|written| written == held);
+        if !is_spec_undo || introduced_unchanged {
+            introduced.remove(k);
+            current.remove(k);
+        } else if introduced.contains_key(k) {
+            report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        }
+    }
+    for (k, v) in upserted {
+        if k.is_empty() {
+            report.skipped.push(format!("a {what} without an id was not replayed"));
+            refused = true;
+            continue;
+        }
+        if introduced.get(k).is_some_and(|written| current.get(k).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; the agent's edit was not replayed"));
+            refused = true;
+            continue;
+        }
+        if !current.contains_key(k) || introduced.contains_key(k) {
+            introduced.insert(k.clone(), v.clone());
+        }
+        current.insert(k.clone(), v.clone());
+    }
+    refused
+}
+
+/// The agent's variable and collection changes merged into the editor's own maps, which can hold
+/// more than the agent's copy did. Changed variables and collections are upserted (unioning member
+/// lists for existing collections so editor-only members are preserved). On an agent spec-undo
+/// (`is_spec_undo`), only ids this session introduced are removed so pre-existing editor variables
+/// survive; standalone `SetVariables` deletes apply directly. Entries without an id are refused.
+#[allow(clippy::too_many_arguments)]
+fn resolve_variables(
+    doc: &Document,
+    collections: &[VariableCollection],
+    variables: &[Variable],
+    removed_collections: &[String],
+    removed_variables: &[String],
+    is_spec_undo: bool,
+    state: &mut LivePatchState,
+    report: &mut LivePatchReport,
+) -> Option<Command> {
+    let mut merged_vars = doc.variables.clone();
+    let mut merged_colls = doc.variable_collections.clone();
+    for id in removed_variables {
+        if state.introduced_variables.remove(id).is_some() || !is_spec_undo {
+            merged_vars.remove(id);
+            for coll in merged_colls.values_mut() {
+                coll.variables.retain(|vid| vid != id);
+            }
+        }
+    }
+    for id in removed_collections {
+        if state.introduced_collections.remove(id) || !is_spec_undo {
+            merged_colls.remove(id);
+        }
+    }
+    let mut refused = false;
+    for v in variables {
+        if v.id.is_empty() {
+            report.skipped.push("a variable without an id was not replayed".to_string());
+            refused = true;
+        } else {
+            let user_changed = state.introduced_variables.get(&v.id).is_some_and(|written| merged_vars.get(&v.id).is_some_and(|cur| cur != written));
+            if user_changed {
+                report.skipped.push(format!("variable {} was changed in the editor after the agent wrote it; the agent's edit was not replayed", v.id));
+                refused = true;
+                continue;
+            }
+            if !merged_vars.contains_key(&v.id) || state.introduced_variables.contains_key(&v.id) {
+                state.introduced_variables.insert(v.id.clone(), v.clone());
+            }
+            merged_vars.insert(v.id.clone(), v.clone());
+        }
+    }
+    for c in collections {
+        if c.id.is_empty() {
+            report.skipped.push("a variable collection without an id was not replayed".to_string());
+        } else {
+            let mut merged = c.clone();
+            if let Some(cur) = merged_colls.get(&c.id) {
+                let mut members: Vec<String> =
+                    cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
+                for vid in &c.variables {
+                    if !members.contains(vid) {
+                        members.push(vid.clone());
+                    }
+                }
+                merged.variables = members;
+            } else {
+                state.introduced_collections.insert(c.id.clone());
+            }
+            merged_colls.insert(c.id.clone(), merged);
+        }
+    }
+    if merged_vars == doc.variables && merged_colls == doc.variable_collections {
+        if !refused {
+            report.duplicates += 1;
+        }
+        return None;
+    }
+    Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
+}
+
 /// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
 /// reported as refused.
 fn without_shape_fields(agent_id: NodeId, set: &Map<String, Value>, unset: &[String], report: &mut LivePatchReport) -> (Map<String, Value>, Vec<String>) {
@@ -421,8 +566,9 @@ fn resolve_insert(
     let siblings = &doc.get(parent)?.children;
     let index = remap_hint(at, state).index_in(siblings);
     report.inserted_roots.push(nodes[0].id);
+    report.touched.push((nodes[0].id, TouchKind::Inserted));
     report.needs_layout.push(parent);
-    Some(Command::Insert { parent, index, nodes })
+    Some(crate::writer_command(doc, Command::Insert { parent, index, nodes }).cmd)
 }
 
 /// `cur` with the changed top-level fields of `set` / `unset` applied; structure is kept.
@@ -436,6 +582,57 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
                 if let (Some(Value::Object(cur_lc)), Value::Object(set_lc)) = (fields.get_mut("layout_child"), v) {
                     for (sub_k, sub_v) in set_lc {
                         cur_lc.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
+            if k == "component" {
+                if let Value::Object(set_comp) = v {
+                    let cur_comp = match fields.entry("component".to_string()).or_insert_with(|| Value::Object(Map::new())) {
+                        Value::Object(m) => m,
+                        other => {
+                            *other = Value::Object(Map::new());
+                            other.as_object_mut().unwrap()
+                        }
+                    };
+                    for (sub_k, sub_v) in set_comp {
+                        if sub_k == "overrides_add" {
+                            if let Value::Array(add_ovs) = sub_v {
+                                let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                for ov in add_ovs {
+                                    if !merged_ovs.contains(ov) {
+                                        merged_ovs.push(ov.clone());
+                                    }
+                                }
+                                cur_comp.insert("overrides".to_string(), Value::Array(merged_ovs));
+                            }
+                            continue;
+                        }
+                        if sub_k == "overrides_remove" {
+                            if let Value::Array(rem_ovs) = sub_v {
+                                let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                merged_ovs.retain(|ov| !rem_ovs.contains(ov));
+                                cur_comp.insert("overrides".to_string(), Value::Array(merged_ovs));
+                            }
+                            continue;
+                        }
+                        if sub_k == "overrides" {
+                            if let Value::Array(set_ovs) = sub_v {
+                                if set_ovs.is_empty() {
+                                    cur_comp.insert(sub_k.clone(), Value::Array(Vec::new()));
+                                } else {
+                                    let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                    for ov in set_ovs {
+                                        if !merged_ovs.contains(ov) {
+                                            merged_ovs.push(ov.clone());
+                                        }
+                                    }
+                                    cur_comp.insert(sub_k.clone(), Value::Array(merged_ovs));
+                                }
+                                continue;
+                            }
+                        }
+                        cur_comp.insert(sub_k.clone(), sub_v.clone());
                     }
                     continue;
                 }

@@ -261,6 +261,17 @@ fn extract_fast_derived(raw_changes: &mut [KiwiValue], num_blobs: usize) -> Hash
 
 /// Imports a `.fig` file (raw fig-kiwi or zip-wrapped) from bytes.
 pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
+    import_fig_with_report(bytes).map(|(doc, _)| doc)
+}
+
+/// Imports a `.fig` file and returns an [`rest_import::ImportReport`] describing any instances left unexpanded by
+/// [`rest_import::CLONE_BUDGET_TOTAL`].
+pub fn import_fig_with_report(bytes: &[u8]) -> Result<(Document, rest_import::ImportReport), FigError> {
+    import_fig_with_budget(bytes, rest_import::CLONE_BUDGET_TOTAL)
+}
+
+/// [`import_fig_with_report`] with a caller-specified global clone budget (used by tests to exercise budget exhaustion).
+pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result<(Document, rest_import::ImportReport), FigError> {
     let mut d = decode_inner(bytes, true)?;
     let name = d.archive.meta.as_ref().and_then(|m| fstr(m, "file_name").or_else(|| fstr(m, "name"))).unwrap_or("Untitled").to_string();
     let owned_blobs: Vec<Vec<u8>> = match d.message.take_field("blobs") {
@@ -303,7 +314,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    let mut doc = rest_import::import_rest_value_owned(rest, true, &blob_refs, fast_derived.as_mut())?;
+    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
     drop(fast_derived);
     drop(blob_refs);
     drop(owned_blobs);
@@ -311,7 +322,7 @@ pub fn import_fig(bytes: &[u8]) -> Result<Document, FigError> {
     if large {
         release_os_memory();
     }
-    Ok(doc)
+    Ok((doc, report))
 }
 
 // ------------------------------------------------------------------ tree
@@ -729,6 +740,19 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         .filter(|p| p.get("children").and_then(Value::as_array).is_some_and(|c| !c.is_empty()))
         .collect();
 
+    let doc_plugin_data: Option<Value> = doc_idx.and_then(|d| {
+        let pd_arr = entries[d].json.get("pluginData")?.as_array()?;
+        let mut pd_map = Map::new();
+        for entry in pd_arr {
+            let Some(k) = fstr(entry, "key") else { continue };
+            let val = fstr(entry, "value").unwrap_or("");
+            let pid = fstr(entry, "pluginID").unwrap_or("");
+            let full_key = if pid.is_empty() { k.to_string() } else { format!("{pid}:{k}") };
+            pd_map.insert(full_key, Value::String(val.to_string()));
+        }
+        (!pd_map.is_empty()).then_some(Value::Object(pd_map))
+    });
+
     drop(entries);
     drop(children);
     drop(visited);
@@ -739,6 +763,9 @@ fn entries_to_rest(mut entries: Vec<Entry>, blobs: &[&[u8]], name: &str) -> Valu
         "document": {"id": "0:0", "name": "Document", "type": "DOCUMENT", "children": pages},
         "styles": styles,
     });
+    if let Some(pd) = doc_plugin_data {
+        out["document"]["pluginData"] = pd;
+    }
     if let (Some(v), Some(o)) = (variables, out.as_object_mut()) {
         o.insert("variables".into(), v);
     }
@@ -2141,7 +2168,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut has_text = false;
     for (k, val) in obj {
         match k.as_str() {
-            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" => {
+            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
             }
             "mask" => {

@@ -93,7 +93,7 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
             }
         }
         Command::SetVariables { variables, collections } => {
-            if let Some(op) = variable_changes(&doc.variables, &doc.variable_collections, variables, collections) {
+            if let Some(op) = variable_changes(doc, variables, collections) {
                 out.push(op);
             }
         }
@@ -141,6 +141,17 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
                     continue;
                 }
             }
+            if k == "component" {
+                if let Value::Object(new_comp) = v {
+                    let empty = Map::new();
+                    let old_comp = old.get("component").and_then(Value::as_object).unwrap_or(&empty);
+                    let comp_diff = component_changes(old_comp, new_comp, &after.component)?;
+                    if !comp_diff.is_empty() {
+                        set.insert(k.clone(), Value::Object(comp_diff));
+                    }
+                    continue;
+                }
+            }
             set.insert(k.clone(), v.clone());
         }
     }
@@ -167,6 +178,59 @@ fn layout_child_changes(old_lc: &Map<String, Value>, new_lc: &Map<String, Value>
                 "grid_align_v" => serde_json::to_value(after.grid_align_v).map_err(|e| e.to_string())?,
                 "margin" => serde_json::to_value(after.margin).map_err(|e| e.to_string())?,
                 "stretched" => serde_json::to_value(after.stretched).map_err(|e| e.to_string())?,
+                _ => Value::Null,
+            };
+            diff.insert(k.clone(), reset_val);
+        }
+    }
+    Ok(diff)
+}
+
+/// What `SetVariables` changes in `doc`'s variables and collections, by id.
+fn variable_changes(doc: &Document, variables: &BTreeMap<String, Variable>, collections: &BTreeMap<String, VariableCollection>) -> Option<LiveOp> {
+    fn diff<T: Clone + PartialEq>(before: &BTreeMap<String, T>, after: &BTreeMap<String, T>) -> (Vec<T>, Vec<String>) {
+        let changed = after.iter().filter(|(id, v)| before.get(*id) != Some(*v)).map(|(_, v)| v.clone()).collect();
+        let removed = before.keys().filter(|id| !after.contains_key(*id)).cloned().collect();
+        (changed, removed)
+    }
+    let (variables, removed_variables) = diff(&doc.variables, variables);
+    let (collections, removed_collections) = diff(&doc.variable_collections, collections);
+    let any = !variables.is_empty() || !collections.is_empty() || !removed_variables.is_empty() || !removed_collections.is_empty();
+    any.then_some(LiveOp::Variables { collections, variables, removed_collections, removed_variables })
+}
+
+fn component_changes(old_comp: &Map<String, Value>, new_comp: &Map<String, Value>, after: &crate::ComponentLink) -> Result<Map<String, Value>, String> {
+    let mut diff = Map::new();
+    let old_ovs = old_comp.get("overrides").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let new_ovs = new_comp.get("overrides").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let added: Vec<Value> = new_ovs.iter().filter(|ov| !old_ovs.contains(ov)).cloned().collect();
+    let removed: Vec<Value> = old_ovs.iter().filter(|ov| !new_ovs.contains(ov)).cloned().collect();
+    if !added.is_empty() {
+        diff.insert("overrides_add".to_string(), Value::Array(added));
+    }
+    if !removed.is_empty() {
+        diff.insert("overrides_remove".to_string(), Value::Array(removed));
+    }
+    for (k, v) in new_comp {
+        if k == "overrides" {
+            continue;
+        }
+        if old_comp.get(k) != Some(v) {
+            diff.insert(k.clone(), v.clone());
+        }
+    }
+    for k in old_comp.keys() {
+        if k == "overrides" {
+            continue;
+        }
+        if !new_comp.contains_key(k) {
+            let reset_val = match k.as_str() {
+                "source" | "slot_content_id" | "override_level" | "detached_symbol_id" => Value::Null,
+                "props" => Value::Array(Vec::new()),
+                "values" | "slot_configs" | "slot_content_ids" | "bindings" | "variant_props" => Value::Object(Map::new()),
+                "is_slot" | "is_slot_content" | "expose_nested_instances" | "layout_cleared" => Value::Bool(false),
+                "description" => Value::String(String::new()),
+                "grid_align_overrides" => serde_json::to_value(after.grid_align_overrides).map_err(|e| e.to_string())?,
                 _ => Value::Null,
             };
             diff.insert(k.clone(), reset_val);
@@ -211,21 +275,6 @@ fn style_changes(
         removed,
         removed_meta,
     })
-}
-
-fn variable_changes(
-    before_vars: &BTreeMap<String, Variable>,
-    before_colls: &BTreeMap<String, VariableCollection>,
-    after_vars: &BTreeMap<String, Variable>,
-    after_colls: &BTreeMap<String, VariableCollection>,
-) -> Option<LiveOp> {
-    let upserted_collections: BTreeMap<_, _> =
-        after_colls.iter().filter(|(k, v)| before_colls.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let removed_collections: Vec<_> = before_colls.keys().filter(|k| !after_colls.contains_key(*k)).cloned().collect();
-    let upserted_variables: BTreeMap<_, _> = after_vars.iter().filter(|(k, v)| before_vars.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let removed_variables: Vec<_> = before_vars.keys().filter(|k| !after_vars.contains_key(*k)).cloned().collect();
-    (!upserted_collections.is_empty() || !removed_collections.is_empty() || !upserted_variables.is_empty() || !removed_variables.is_empty())
-        .then_some(LiveOp::Variables { upserted_collections, removed_collections, upserted_variables, removed_variables })
 }
 
 fn library_state_changes(before: &LibraryState, before_page: Option<NodeId>, after: &LibraryState, after_page: Option<NodeId>) -> Option<LiveOp> {

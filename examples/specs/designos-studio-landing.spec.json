@@ -10,7 +10,7 @@
   "dev_status": "ready",
   "annotation": "Landing page for design:os studio. Persuade mode. Metaphor: a NodeSpec compiles into a frame. Tokens: EaseUI BrainWave 2.0. Numbers from the project README.",
   "layout": {
-    "dir": "column",
+    "direction": "column",
     "gap": 0.0,
     "align": "start",
     "justify": "start"
@@ -24,7 +24,7 @@
       "fill": "$easeui.bg.canvas",
       "clips_content": false,
       "layout": {
-        "dir": "column",
+        "direction": "column",
         "gap": 28.0,
         "padding": [32.0, 80.0, 88.0, 80.0],
         "align": "start",
@@ -36,7 +36,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 24.0,
             "align": "center",
             "justify": "space-between"
@@ -46,7 +46,7 @@
               "name": "Wordmark",
               "preset": "easeui-row",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 0.0,
                 "align": "center",
                 "justify": "start"
@@ -74,7 +74,7 @@
               "name": "Nav Links",
               "preset": "easeui-row",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 28.0,
                 "align": "center",
                 "justify": "start"
@@ -122,7 +122,7 @@
               "font_weight": 700,
               "color": "$easeui.bg.panel",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 8.0,
                 "padding": [14.0, 22.0, 14.0, 22.0],
                 "align": "center",
@@ -136,7 +136,7 @@
           "preset": "easeui-column",
           "width": 1280.0,
           "layout": {
-            "dir": "column",
+            "direction": "column",
             "gap": 0.0,
             "align": "start",
             "justify": "start"
@@ -191,7 +191,7 @@
           "name": "Hero Actions",
           "preset": "easeui-row",
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 12.0,
             "align": "center",
             "justify": "start"
@@ -205,7 +205,7 @@
               "font_weight": 700,
               "color": "$easeui.bg.panel",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 8.0,
                 "padding": [14.0, 22.0, 14.0, 22.0],
                 "align": "center",
@@ -220,7 +220,7 @@
               "font_weight": 600,
               "color": "$easeui.text.primary",
               "layout": {
-                "dir": "row",
+                "direction": "row",
                 "gap": 8.0,
                 "padding": [14.0, 22.0, 14.0, 22.0],
                 "align": "center",
@@ -239,7 +239,7 @@
       "fill": "$easeui.bg.panel",
       "clips_content": false,
       "layout": {
-        "dir": "column",
+        "direction": "column",
         "gap": 20.0,
         "padding": [80.0, 80.0, 80.0, 80.0],
         "align": "start",
@@ -260,7 +260,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "align": "center",
             "justify": "start"
@@ -307,7 +307,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "padding": [12.0, 0.0, 12.0, 0.0],
             "align": "center",
@@ -355,7 +355,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "padding": [12.0, 0.0, 12.0, 0.0],
             "align": "center",
@@ -403,7 +403,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "padding": [12.0, 0.0, 12.0, 0.0],
             "align": "center",
@@ -451,7 +451,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "padding": [12.0, 0.0, 12.0, 0.0],
             "align": "center",
@@ -497,7 +497,7 @@
       "fill": "$easeui.bg.canvas",
       "clips_content": false,
       "layout": {
-        "dir": "column",
+        "direction": "column",
         "gap": 36.0,
         "padding": [88.0, 80.0, 88.0, 80.0],
         "align": "start",
@@ -518,7 +518,7 @@
           "preset": "easeui-row",
           "width": 1280.0,
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 32.0,
             "align": "start",
             "justify": "start"
@@ -529,7 +529,7 @@
               "preset": "easeui-column",
               "width": 296.0,
               "layout": {
-                "dir": "column",
+                "direction": "column",
                 "gap": 12.0,
                 "align": "start",
                 "justify": "start"
@@ -560,7 +560,7 @@
               "preset": "easeui-column",
               "width": 296.0,
               "layout": {
-                "dir": "column",
+                "direction": "column",
                 "gap": 12.0,
                 "align": "start",
                 "justify": "start"
@@ -591,7 +591,7 @@
               "preset": "easeui-column",
               "width": 296.0,
               "layout": {
-                "dir": "column",
+                "direction": "column",
                 "gap": 12.0,
                 "align": "start",
                 "justify": "start"
@@ -622,7 +622,7 @@
               "preset": "easeui-column",
               "width": 296.0,
               "layout": {
-                "dir": "column",
+                "direction": "column",
                 "gap": 12.0,
                 "align": "start",
                 "justify": "start"
@@ -660,7 +660,7 @@
       "fill": "$easeui.bg.surface",
       "clips_content": false,
       "layout": {
-        "dir": "column",
+        "direction": "column",
         "gap": 16.0,
         "padding": [72.0, 80.0, 72.0, 80.0],
         "align": "start",
@@ -695,7 +695,7 @@
       "fill": "$easeui.bg.canvas",
       "clips_content": false,
       "layout": {
-        "dir": "column",
+        "direction": "column",
         "gap": 24.0,
         "padding": [88.0, 80.0, 72.0, 80.0],
         "align": "start",
@@ -728,7 +728,7 @@
           "font_weight": 700,
           "color": "$easeui.bg.panel",
           "layout": {
-            "dir": "row",
+            "direction": "row",
             "gap": 8.0,
             "padding": [14.0, 22.0, 14.0, 22.0],
             "align": "center",

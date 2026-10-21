@@ -1300,7 +1300,9 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
             let (Some(mut inode), Some(cnode)) = (doc.get(ik).cloned(), doc.get(ck).cloned()) else { continue };
             if inode.component.source.is_none() {
                 inode.component.source = Some(ck);
-                inode.component.overrides = record_override(&cnode, &inode);
+                let ov = record_override(&cnode, &inode);
+                clear_stale_pen_override_markers(&mut inode, &ov);
+                inode.component.overrides = ov;
                 inode.component.grid_align_overrides = record_grid_align_overrides(&cnode, &inode);
                 if let Some(slot) = doc.get_mut(ik) {
                     *slot = inode;
@@ -1321,6 +1323,7 @@ pub fn link_remote_component(doc: &mut Document, library_id: &str, key: &str, na
             *component = Some(cid);
         }
         n.component.source = Some(cid);
+        clear_stale_pen_override_markers(&mut n, &ov);
         n.component.overrides = ov;
         n.component.grid_align_overrides = align_ov;
         if let Some(slot) = doc.get_mut(inst) {

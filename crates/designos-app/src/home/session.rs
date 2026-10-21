@@ -417,6 +417,7 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
         &doc.comments,
         &doc.library,
         &doc.library_page,
+        &doc.in_progress,
     )
         .serialize(HashSerializer(&mut h));
     let _ = doc.check_designs.serialize(HashSerializer(&mut h));
@@ -424,6 +425,49 @@ pub(crate) fn doc_hash(doc: &Document) -> u64 {
     for (k, v) in &doc.images {
         (k, v.len(), &v[..v.len().min(64)]).hash(&mut h);
     }
+    h.finish()
+}
+
+pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
+    use serde::Serialize;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let _ = (
+        &node.id,
+        &node.source_id,
+        &node.name,
+        &node.kind,
+        &node.parent,
+        &node.visible,
+        &node.locked,
+        &node.opacity,
+        &node.blend,
+        &node.transform,
+        &node.size,
+        &node.fills,
+        &node.stroke,
+        &node.effects,
+        &node.corner_radii,
+    )
+        .serialize(HashSerializer(&mut h));
+    let _ = (
+        &node.corner_smoothing,
+        &node.constraints,
+        &node.layout_child,
+        &node.is_mask,
+        &node.style_refs,
+        &node.fill_geometry,
+        &node.stroke_geometry,
+        &node.component,
+        &node.prototype,
+        &node.variables,
+        &node.export_settings,
+        &node.dev,
+        &node.slide,
+        &node.lock_aspect,
+        &node.hyperlink,
+        (&node.plugin_data, &node.detached_symbol_id, &node.fig_metadata),
+    )
+        .serialize(HashSerializer(&mut h));
     h.finish()
 }
 
@@ -435,6 +479,11 @@ impl App {
         self.terminal.library_root = Some(root.clone());
         for entry in &mut self.tabs.entries {
             entry.terminal.library_root = Some(root.clone());
+        }
+        let mode = crate::agent_permissions::load_permission_mode(&root);
+        self.terminal.permission_mode = mode;
+        for entry in &mut self.tabs.entries {
+            entry.terminal.permission_mode = mode;
         }
         match Library::open(&root) {
             Ok(lib) => {
@@ -783,6 +832,8 @@ impl App {
         let old_page = self.page;
         let old_sel = self.selection.clone();
         self.doc = new_doc;
+        self.agent_presence.reset();
+        self.agent_changes_chip.clear();
         if !self.doc.pages.contains(&old_page) {
             if let Some(&p) = self.doc.pages.first() {
                 self.page = p;

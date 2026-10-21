@@ -96,6 +96,9 @@ Imports are limited to 64 MiB per file, 100,000 layers, and 256 levels of nestin
 | `designos_reply_comment` | Append a reply message to an existing comment thread and optionally update its resolved state. |
 | `designos_resolve_comment` | Mark a comment thread resolved or unresolved. |
 | `designos_set_dev_status` | Set a layer's Dev Mode status (`ready`, `completed`, `clear`) and/or append an annotation. |
+| `designos_export_fig_file` | Export the current session document to a Figma binary `.fig` container inside the workspace. |
+| `designos_query_xpath` | Query layers on a page using an XPath-like selector or a kind/name substring. |
+| `designos_lint` | Audit layers on a page for zero-bounds geometry and default layer names. |
 | `designos_undo` / `designos_redo` | Traverse the session's edit history. |
 
 `designos_list_nodes` defaults to 100 results and accepts 1–500 per call. `parent_id` filters direct children, not all descendants. Coordinates are relative to the parent. Width and height must be non-negative, geometry must be finite and within ±1,000,000, and opacity must be between 0 and 1. Replacing text clears rich-text runs and list ranges. Page roots cannot be edited or deleted by the layer tools.

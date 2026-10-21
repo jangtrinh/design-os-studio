@@ -366,13 +366,13 @@ fn granularity_is_one_step_per_tool_call() {
             serde_json::json!({
                 "parent_id": page_id,
                 "spec": {
-                    "type": "frame",
+                    "kind": "frame",
                     "name": "BatchFrame",
                     "width": 200,
                     "height": 100,
                     "children": [
-                        { "type": "rect", "name": "BatchChildA", "width": 80, "height": 40 },
-                        { "type": "rect", "name": "BatchChildB", "width": 80, "height": 40 }
+                        { "kind": "rectangle", "name": "BatchChildA", "width": 80, "height": 40 },
+                        { "kind": "rectangle", "name": "BatchChildB", "width": 80, "height": 40 }
                     ]
                 }
             }),
@@ -413,6 +413,31 @@ fn granularity_is_one_step_per_tool_call() {
     assert_eq!(s.count(), after_call_1);
     send_chord(&mut s, MAC_SHIFT_CMD, Key::Z);
     assert_eq!(s.count(), before + 4);
+
+    finish(s, workspace);
+}
+
+#[test]
+fn cmd_z_after_cmd_alt_j_in_pty_view_undoes_document() {
+    let (mut s, mut session, workspace) = live_terminal_sim(AgentCliPreset::Claude);
+    s.shell.app.terminal.platform_is_mac_override = Some(true);
+    s.shell.app.terminal.side_panel_pty_open = true;
+    s.shell.app.ui.left_collapsed = true;
+    s.shell.app.ui.rail = Some(crate::app::RailItem::File);
+    let hero = s.by_name("Hero");
+
+    session.call("designos_update_node", serde_json::json!({ "node_id": hero.0, "name": "Hero (pty shortcut)" })).expect("agent rename");
+    s.frame(vec![]);
+    assert_eq!(node_name(&s, hero), "Hero (pty shortcut)");
+
+    // Focus the Agents panel in PTY view via Cmd+Alt+J, then press Cmd+Z.
+    let cmd_alt = Modifiers { command: true, mac_cmd: true, alt: true, ..Default::default() };
+    send_chord(&mut s, cmd_alt, Key::J);
+    s.frame(vec![]);
+    assert!(s.app().terminal.viewport_focused, "Cmd+Alt+J in PTY view must focus the terminal viewport");
+
+    send_chord(&mut s, MAC_CMD, Key::Z);
+    assert_eq!(node_name(&s, hero), "Hero", "Cmd+Z after Cmd+Alt+J in PTY view must undo the document step");
 
     finish(s, workspace);
 }
