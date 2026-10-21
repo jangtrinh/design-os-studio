@@ -3,7 +3,8 @@
 
 use crate::lint::{canonical_rule_id, resolve_rule, Finding, LintConfig, LintEnv, LintPreset, NoLintEnv, RuleNeeds, SingleNodeLinter};
 use crate::openpencil::{
-    eval_predicate_expr, is_exact_node_type_token, is_node_type_test, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep,
+    eval_predicate_expr, is_exact_node_type_token, is_node_kind_word, is_node_type_test, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name,
+    XPathAxis, XPathStep,
 };
 use crate::{Document, Node, NodeId, NodeKind};
 use serde::{Deserialize, Serialize};
@@ -307,28 +308,44 @@ impl From<QueryError> for StepError {
 /// A parsed step plus what the evaluator decided about its node test once per call. The exact
 /// upper-case node-type token (`FRAME`, `TEXT`, `*`, `RECT`) tests the node's kind and nothing else,
 /// which is what E15-17 3.1 needs (`//TEXT` counts text nodes, not the rectangle "Text field"). Any
-/// other word (`Group`, `Page`, `Card`, `Union`) is what the previous query tool took it for: the node's
-/// kind, spelled as the type token or as its default name, or a name that contains it. The name needle
-/// is lower-cased once.
+/// other word (`Group`, `Page`, `Card`, `Union`) follows `matches_single_step` of the previous query tool
+/// (release `engine.rs`), whatever its casing:
+/// - a bare step matches a node whose default kind name equals the word, or whose name contains it;
+/// - a kind word with predicates (`//Group[@width>90]`) matches the kind only;
+/// - a plain name with predicates (`//Card[@width>90]`) keeps matching names, which the previous tool
+///   answered with nothing, so a name is never an empty success.
+///
+/// The name needle is lower-cased once.
 struct QueryStep {
     step: XPathStep,
-    name_needle: Option<String>,
+    word: Option<WordTest>,
+}
+
+/// How a step that is not an exact node-type token reads a node.
+struct WordTest {
+    needle: String,
+    reads_names: bool,
 }
 
 impl QueryStep {
     fn new(step: XPathStep) -> Self {
-        let name_needle = (!is_exact_node_type_token(&step.node_test)).then(|| step.node_test.to_lowercase());
-        Self { step, name_needle }
+        let word = (!is_exact_node_type_token(&step.node_test))
+            .then(|| WordTest { needle: step.node_test.to_lowercase(), reads_names: step.predicates.is_empty() || !is_node_kind_word(&step.node_test) });
+        Self { step, word }
     }
 
     fn test_matches(&self, node: &Node) -> bool {
         let test = self.step.node_test.as_str();
-        match &self.name_needle {
+        match &self.word {
             None => matches_node_test(&node.kind, test),
-            Some(needle) => {
-                matches_node_test(&node.kind, test) || node.kind.default_name().eq_ignore_ascii_case(test) || node.name.to_lowercase().contains(needle.as_str())
-            }
+            Some(word) => node.kind.default_name().eq_ignore_ascii_case(test) || (word.reads_names && node.name.to_lowercase().contains(word.needle.as_str())),
         }
+    }
+
+    /// Whether a page can answer this step, so a page at the scope root has to be visited: a `PAGE` node
+    /// test, or a bare word (the previous tool matched a page by its kind name or its name like any node).
+    fn can_match_a_page(&self) -> bool {
+        self.step.node_test.eq_ignore_ascii_case("PAGE") || (self.word.is_some() && self.step.predicates.is_empty())
     }
 }
 
@@ -824,9 +841,10 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
     validate_steps(&steps, doc, env)?;
     let steps: Vec<QueryStep> = steps.into_iter().map(QueryStep::new).collect();
     // A page has no parent a step could reach it from, so a page at the scope root is a candidate only
-    // for a selector that names the page type (`//Page`, `//PAGE`): release's `//Page` walked the scope
-    // root too. Every other selector keeps the root out of the rows and out of the scope count.
-    let page_roots_match = steps.iter().any(|s| s.node_test.eq_ignore_ascii_case("PAGE"));
+    // for a selector with a step a page can answer: a `PAGE` test or a bare word (`//PAGE`, `//Page`,
+    // `//Home`). Release walked the scope root with every bare step. Every other selector (`//*`, `//TEXT`,
+    // `//Card[@width>90]`) keeps the root out of the rows and out of the scope count.
+    let page_roots_match = steps.iter().any(QueryStep::can_match_a_page);
 
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let max_scanned = opts.max_scanned.or_else(|| opts.node_budget.map(|b| b as usize)).unwrap_or(DEFAULT_MAX_SCANNED).clamp(1, MAX_MAX_SCANNED);
@@ -1085,6 +1103,9 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
         }
     }
 }
+
+#[cfg(test)]
+mod release_parity_tests;
 
 #[cfg(test)]
 mod tests {

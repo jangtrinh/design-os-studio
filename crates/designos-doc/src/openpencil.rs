@@ -89,9 +89,40 @@ pub(crate) fn is_node_type_test(test: &str) -> bool {
 
 /// `true` when `test` is a node-type token spelled exactly as [`NODE_TYPE_TESTS`] lists it (upper case).
 /// The query tool matches such a step by kind only; the same word in another case (`Group`, `Page`)
-/// also matches node names, as the previous query tool did.
+/// is a bare word and follows the previous query tool, see [`is_node_kind_word`].
 pub(crate) fn is_exact_node_type_token(test: &str) -> bool {
     NODE_TYPE_TESTS.contains(&test)
+}
+
+/// Every `NodeKind::default_name`: the kind words of the previous query tool, which compared a step with
+/// the default name of each node's kind. A guard test reads them out of the `default_name` source.
+const NODE_KIND_DEFAULT_NAMES: &[&str] = &[
+    "Page",
+    "Frame",
+    "Group",
+    "Section",
+    "Rectangle",
+    "Ellipse",
+    "Line",
+    "Polygon",
+    "Star",
+    "Vector",
+    "Text",
+    "Union",
+    "Component",
+    "Component set",
+    "Instance",
+    "Sticky note",
+    "Connector",
+    "Shape",
+    "Stamp",
+    "Layer",
+];
+
+/// `true` when `word` names a node kind in any casing: a node-type token ([`NODE_TYPE_TESTS`]) or the
+/// default name of a kind (`Union`, `Shape`, `Sticky note`). Any other word is a name.
+pub(crate) fn is_node_kind_word(word: &str) -> bool {
+    is_node_type_test(word) || NODE_KIND_DEFAULT_NAMES.iter().any(|name| name.eq_ignore_ascii_case(word))
 }
 
 pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
@@ -1158,6 +1189,30 @@ mod tests {
         }
         for word in ["Card", "Hero", "Text field", "Frame 12"] {
             assert!(!is_node_type_test(word), "{word} is a name");
+        }
+    }
+
+    #[test]
+    fn every_default_kind_name_is_a_node_kind_word() {
+        // Reads the names out of the `default_name` source, so a new node kind whose default name is not in
+        // `NODE_KIND_DEFAULT_NAMES` fails here instead of turning `//Newkind[@x]` into a name search.
+        let source = include_str!("node.rs");
+        let start = source.find("pub fn default_name").expect("default_name source");
+        let body = &source[start..start + source[start..].find("\n    }\n").expect("end of default_name")];
+        let mut names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
+        assert!(names.len() >= 20, "found only {names:?}");
+        for name in &names {
+            assert!(is_node_kind_word(name) && is_node_kind_word(&name.to_ascii_uppercase()), "{name} is a kind word in any casing");
+        }
+        names.sort_unstable();
+        let mut listed = NODE_KIND_DEFAULT_NAMES.to_vec();
+        listed.sort_unstable();
+        assert_eq!(names, listed, "NODE_KIND_DEFAULT_NAMES lists exactly the default names");
+        for word in ["rect", "Path", "ref", "node", "Union", "SHAPE", "sticky note"] {
+            assert!(is_node_kind_word(word), "{word}");
+        }
+        for word in ["Card", "Hero", "Text field", "Frame 12", "Home"] {
+            assert!(!is_node_kind_word(word), "{word} is a name");
         }
     }
 
