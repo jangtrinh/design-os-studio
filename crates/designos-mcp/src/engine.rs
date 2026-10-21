@@ -904,21 +904,8 @@ impl Engine {
                 Ok(json!({"output_path": a.output_path, "path": a.output_path, "bytes": bytes.len(), "saved": true, "omitted_extensions": omitted}))
             }
             "designos_query_xpath" | "query_nodes" => {
-                let a: QueryXpathArgs = parse(args)?;
-                let root = if let Some(pid) = a.page_id {
-                    let p = NodeId(pid);
-                    if !self.doc.pages.contains(&p) {
-                        return Err(ToolError::new(ErrorCode::PageNotFound, "/page_id", format!("page {pid} not found")));
-                    }
-                    Some(p)
-                } else {
-                    self.resolve_default_page().ok()
-                };
-                let selector = a.selector.trim();
-                validate_xpath_selector(selector)?;
-                let matches: Vec<Value> = query_xpath_nodes(&self.doc, root, selector).into_iter().map(|n| summary(&self.doc, n)).collect();
-                let total = matches.len();
-                Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
+                self.settle_layout();
+                crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), self.lint_env(), args)
             }
             "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from),
             "designos_lint" | "check_design" | "designos_lint_fix" => {
@@ -1294,120 +1281,6 @@ impl Engine {
     }
 }
 
-fn validate_xpath_selector(selector: &str) -> Result<(), ToolError> {
-    let mut depth = 0i32;
-    for ch in selector.chars() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth < 0 {
-                    return Err(ToolError::new(ErrorCode::InvalidSelector, "/selector", format!("invalid XPath selector '{selector}': unmatched ']'"))
-                        .with_corrected_example(json!({ "selector": "//FRAME[@name='Card']" })));
-                }
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 || (selector.starts_with('/') && !selector.starts_with("//")) {
-        return Err(ToolError::new(ErrorCode::InvalidSelector, "/selector", format!("invalid XPath selector '{selector}'"))
-            .with_corrected_example(json!({ "selector": "//FRAME[@name='Card']" })));
-    }
-    Ok(())
-}
-
-fn matches_single_step(doc: &Document, n: &Node, step: &str) -> bool {
-    let kind_upper = n.kind.default_name().to_ascii_uppercase();
-    if step.is_empty() || step == "*" {
-        return true;
-    }
-    if let Some((tag_part, rest)) = step.split_once('[') {
-        let tag_ok = tag_part.is_empty() || tag_part == "*" || kind_upper == tag_part.to_ascii_uppercase();
-        if !tag_ok {
-            return false;
-        }
-        let pred_clean = rest.trim_end_matches(']').trim();
-        if let Some(val) = pred_clean.strip_prefix("@name=") {
-            let unquoted = val.trim().trim_matches('\'').trim_matches('"');
-            n.name == unquoted
-        } else if pred_clean.contains("contains(@name") {
-            let parts: Vec<&str> = pred_clean.split(['\'', '"']).collect();
-            parts.get(1).is_some_and(|needle| n.name.to_lowercase().contains(&needle.to_lowercase()))
-        } else if let Some(val) = pred_clean.strip_prefix("@component=") {
-            let unquoted = val.trim().trim_matches('\'').trim_matches('"');
-            designos_doc::instance_component(n).and_then(|cid| doc.get(cid)).is_some_and(|cn| {
-                cn.name == unquoted || cn.parent.and_then(|pid| doc.get(pid)).is_some_and(|p| matches!(p.kind, NodeKind::ComponentSet(_)) && p.name == unquoted)
-            })
-        } else if pred_clean == "@fill" {
-            !n.fills.is_empty()
-        } else {
-            true
-        }
-    } else {
-        kind_upper == step.to_ascii_uppercase() || n.name.to_lowercase().contains(&step.to_lowercase())
-    }
-}
-
-fn query_xpath_nodes<'a>(doc: &'a Document, root: Option<NodeId>, selector: &str) -> Vec<&'a Node> {
-    let mut matches = Vec::new();
-    let steps: Vec<&str> = if let Some(rest) = selector.strip_prefix("//") { rest.split("//").filter(|s| !s.is_empty()).collect() } else { Vec::new() };
-
-    let candidate_ids: Vec<NodeId> = if let Some(r) = root {
-        let mut ids = Vec::new();
-        doc.walk(r, |n, _| ids.push(n.id));
-        ids
-    } else {
-        doc.nodes.keys().copied().collect()
-    };
-
-    for nid in candidate_ids {
-        let Some(n) = doc.get(nid) else {
-            continue;
-        };
-        let matched = if selector.is_empty() || selector == "//*" || selector == "*" {
-            true
-        } else if steps.len() >= 2 {
-            let last = steps[steps.len() - 1];
-            if !matches_single_step(doc, n, last) {
-                false
-            } else {
-                let mut cur_parent = n.parent;
-                let mut idx = steps.len() - 1;
-                while idx > 0 {
-                    let target_step = steps[idx - 1];
-                    let mut found = None;
-                    while let Some(pid) = cur_parent {
-                        if let Some(pnode) = doc.get(pid) {
-                            if matches_single_step(doc, pnode, target_step) {
-                                found = pnode.parent;
-                                break;
-                            }
-                            cur_parent = pnode.parent;
-                        } else {
-                            break;
-                        }
-                    }
-                    if found.is_some() || (idx == 1 && cur_parent.is_some()) {
-                        cur_parent = found;
-                        idx -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                idx == 0
-            }
-        } else if let Some(&only) = steps.first() {
-            matches_single_step(doc, n, only)
-        } else {
-            matches_single_step(doc, n, selector)
-        };
-        if matched {
-            matches.push(n);
-        }
-    }
-    matches
-}
-
 fn summary(doc: &Document, n: &Node) -> Value {
     let mut out = json!({"node_id":n.id,"name":n.name,"kind":n.kind.default_name(),"parent_id":n.parent,
         "child_count":n.children.len(),"visible":n.visible,"x":n.transform.tx,"y":n.transform.ty,
@@ -1619,14 +1492,6 @@ struct SetInProgressArgs {
 pub(crate) struct ExportFigArgs {
     #[serde(alias = "path")]
     pub output_path: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct QueryXpathArgs {
-    #[serde(default, alias = "query")]
-    selector: String,
-    #[serde(default)]
-    page_id: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1979,27 +1844,34 @@ pub fn tools() -> Vec<Value> {
         false,
         true,
     );
+    let (q_props, q_req) = crate::tools::query::tool_schema(&id);
     add(
         "query_xpath",
         concat!(
-            "Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant steps).\n\n",
+            "Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).\n\n",
             "Examples:\n",
-            "1) Find instances by component name:\n",
-            "{\"selector\":\"//INSTANCE[@component='Button']\"}\n",
-            "2) Find text descendants inside a named frame:\n",
-            "{\"selector\":\"//FRAME[@name='Hero']//TEXT\"}\n",
-            "3) Find layers that have a fill:\n",
-            "{\"selector\":\"//RECTANGLE[@fill]\",\"page_id\":1}"
+            "1) Truncated text:\n",
+            "{\"selector\":\"//TEXT[has-problem('text-truncated')]\"}\n",
+            "2) Hard-coded fills inside a frame:\n",
+            "{\"selector\":\"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]\"}\n",
+            "3) Layers an agent is working on:\n",
+            "{\"selector\":\"//*[@inProgress]\"}"
         ),
-        json!({"selector":{"type":"string","maxLength":1024,"description":"XPath-style selector (e.g. //FRAME[@name='Card']//TEXT)."},"query":{"type":"string","maxLength":1024,"description":"Kind or name substring query (alternative to selector)."},"page_id":id}),
-        vec![],
+        q_props,
+        q_req,
         json!({
-            "selector": {"type": "string"},
-            "page_id": {"type": ["integer", "null"]},
-            "nodes": {"type": "array"},
-            "total": {"type": "integer"}
+            "columns": {"type": "array"},
+            "rows": {"type": "array"},
+            "count": {"type": "integer"},
+            "scanned": {"type": "integer"},
+            "scanned_total": {"type": "integer"},
+            "scope_size": {"type": "integer"},
+            "remaining": {"type": "integer"},
+            "done": {"type": "boolean"},
+            "complete": {"type": "boolean"},
+            "cursor": {"type": ["string", "null"]}
         }),
-        &["selector", "nodes", "total"],
+        &["columns", "rows", "count", "scanned", "done", "complete"],
         true,
         true,
     );
