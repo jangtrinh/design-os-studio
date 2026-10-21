@@ -101,6 +101,25 @@ impl LivePatchLog {
         !self.pending.is_empty() || self.pending_doc.is_some()
     }
 
+    /// A complete line (ending in a newline) was appended that no poll has read yet. A line still
+    /// being written, or left behind by a crashed writer, has no newline and does not count: it
+    /// would hold the editor's canvas back until the next append. Nor does anything while an
+    /// oversized line is being discarded, since that is never applied.
+    pub fn has_unread_complete_line(&self) -> bool {
+        let Ok(meta) = std::fs::metadata(&self.path) else { return false };
+        if self.skipping {
+            return false;
+        }
+        let len = meta.len();
+        // A recreated or truncated log is unread from its start, exactly as `poll_with_offsets` sees it.
+        let rewritten = self.identity.is_some_and(|old| old != identity(&meta)) || len < self.offset || !self.head_unchanged();
+        let start = if rewritten { 0 } else { self.offset };
+        if len <= start {
+            return false;
+        }
+        self.read_range(start, (len - start).min(self.max_poll_bytes)).is_some_and(|unread| unread.contains(&b'\n'))
+    }
+
     /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
     /// lines come back as errors; nothing is skipped silently.
     pub fn poll(&mut self) -> (Vec<LiveLogLine>, Vec<String>) {
@@ -354,6 +373,38 @@ mod tests {
         assert_eq!(seen, [1, 2]);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("over the"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn only_a_complete_unread_line_counts_as_unread() {
+        let path = temp_log("unread");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(!log.has_unread_complete_line(), "lines from before the bind are not unread");
+        let next = line(2);
+        append(&path, &next[..10]);
+        assert!(!log.has_unread_complete_line(), "a line without a newline yet does not count");
+        append(&path, &next[10..]);
+        assert!(log.has_unread_complete_line());
+        assert_eq!(ids(&log.poll().0), [2]);
+        assert!(!log.has_unread_complete_line(), "a poll reads the line");
+    }
+
+    #[test]
+    fn a_recreated_log_and_a_discarded_oversized_line_are_judged_like_the_poll_does() {
+        let path = temp_log("unread-rotate");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &(line(7) + &line(8)));
+        assert!(log.has_unread_complete_line(), "everything in a recreated log is unread");
+        assert_eq!(ids(&log.poll().0), [7, 8]);
+        log.max_line_bytes = 64;
+        append(&path, &"x".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        append(&path, "\n");
+        assert!(!log.has_unread_complete_line(), "the tail of an oversized line is dropped, so it must not hold the canvas back");
     }
 
     fn switch_line(doc: &Document, epoch: u64) -> (String, Vec<u8>) {

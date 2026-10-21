@@ -1705,6 +1705,18 @@ impl TerminalState {
                 "selected_node_ids": selected_ids,
                 "scoped": is_scoped,
             });
+            let canvas_json =
+                if !is_scoped { doc.to_json().ok() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok() };
+
+            // The agent may have appended an edit the editor has not read yet (the log is polled
+            // after this runs in a frame). A canvas written now would lack it, and the agent's
+            // session would take that for the user undoing it. Check last, after the slow
+            // serialization, so the window is as small as it can be. `last_synced_key` stays
+            // as it was: the same frame polls the log, applies the edit and publishes again.
+            if self.live_patch.has_unread_complete_line() {
+                return;
+            }
+
             if let Ok(ctx_bytes) = serde_json::to_vec_pretty(&ctx_val) {
                 let _ = atomic_write_session_file(&self.context_json_path, &ctx_bytes);
                 if !cfg!(test) {
@@ -1712,8 +1724,6 @@ impl TerminalState {
                 }
             }
 
-            let canvas_json =
-                if !is_scoped { doc.to_json().ok() } else { crate::live_canvas_scope::scoped_canvas(doc, page, selection, &self.doc_name).to_json().ok() };
             if let Some(json_str) = canvas_json {
                 let _ = atomic_write_session_file(&self.live_canvas_path, json_str.as_bytes());
                 if !cfg!(test) {
