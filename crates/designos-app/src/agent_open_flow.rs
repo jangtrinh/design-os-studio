@@ -16,8 +16,8 @@ const STATUS_DOT_X: f32 = 8.0;
 const PROVIDER_DOT_X: f32 = 16.0;
 const TITLE_LEFT_X: f32 = 24.0;
 const ACTION_BTN_H: f32 = 20.0;
-const ACTION_RENAME_W: f32 = 48.0;
-const ACTION_REMOVE_W: f32 = 104.0;
+const ACTION_RENAME_W: f32 = 40.0;
+const ACTION_REMOVE_W: f32 = 80.0;
 const SESSIONS_BTN_CHEVRON_OFFSET: f32 = 8.0;
 const SESSIONS_BTN_CHEVRON_SIZE: f32 = 8.0;
 const POPOVER_MIN_W: f32 = 216.0;
@@ -46,6 +46,7 @@ impl SessionRowStatus {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Live(AgentTabStatus::Working(_)) => "Working…",
+            Self::Live(AgentTabStatus::WaitingForInput(Some(detail))) if detail == "Needs approval" => "Needs approval",
             Self::Live(AgentTabStatus::WaitingForInput(_)) => "Needs input",
             Self::Live(AgentTabStatus::Done) => "Done",
             Self::Live(AgentTabStatus::Idle) => "Idle",
@@ -913,6 +914,11 @@ mod tests {
         assert_eq!(rows[2].label, "Exited Codex");
         assert_eq!(rows[2].status, SessionRowStatus::NotRunning);
         assert_eq!(rows[2].status.label(), "Not running");
+
+        // A pending approval and a plain question are two states with two labels.
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(Some("Needs approval".into()))).label(), "Needs approval");
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(None)).label(), "Needs input");
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::Error(None)).label(), "Failed");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
