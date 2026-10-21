@@ -655,7 +655,7 @@ impl SessionFailure {
             SessionFailureClass::LoginExpired => Some("Run login"),
             SessionFailureClass::BillingOrQuota => Some("Open billing"),
             SessionFailureClass::ProviderServerError => Some("Retry"),
-            SessionFailureClass::ContextFull => Some("Start a new session"),
+            SessionFailureClass::ContextFull => Some("Start new session"),
             SessionFailureClass::NetworkOffline => Some("Retry when online"),
             SessionFailureClass::Unknown => None,
         }

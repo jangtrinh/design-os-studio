@@ -1040,7 +1040,7 @@ mod tests {
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
-        assert_eq!(failure.fix_label(), "Start a new session");
+        assert_eq!(failure.fix_label(), "Start new session");
 
         let on_disk = load_or_init_registry(&st.session_dir);
         assert_eq!(on_disk.sessions[0].status, SessionEntryStatus::Missing);

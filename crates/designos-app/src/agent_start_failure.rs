@@ -221,10 +221,10 @@ impl StartFailure {
             FixAction::OpenInstallPage(_) => format!("Install {}", self.preset.button_label()),
             FixAction::RunLogin(_) => "Run login".to_string(),
             FixAction::OpenShell => "Open a shell".to_string(),
-            FixAction::StartNewSession(_) => "Start a new session".to_string(),
+            FixAction::StartNewSession(_) => "Start new session".to_string(),
             FixAction::OpenBilling(_) => "Open billing".to_string(),
             FixAction::RetryText => "Retry".to_string(),
-            FixAction::NewSession => "Start a new session".to_string(),
+            FixAction::NewSession => "Start new session".to_string(),
             FixAction::RetryWhenOnline => "Retry when online".to_string(),
         }
     }
@@ -573,7 +573,7 @@ mod tests {
         f.fix = FixAction::RetryText;
         assert_eq!(f.fix_label(), "Retry");
         f.fix = FixAction::NewSession;
-        assert_eq!(f.fix_label(), "Start a new session");
+        assert_eq!(f.fix_label(), "Start new session");
         f.fix = FixAction::RetryWhenOnline;
         assert_eq!(f.fix_label(), "Retry when online");
     }
