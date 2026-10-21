@@ -1251,3 +1251,191 @@ fn vsf_pcp_fig_slot_counts_are_the_measured_ones() {
     let measured = SlotCounts { node_changes: 155_297, prop_defs: 4_481, ..Default::default() };
     assert_eq!(counts, measured, "VSF - PCP.fig changed; re-measure and apply #160 AC2/AC3");
 }
+
+#[test]
+fn fig_instance_slot_with_custom_children_survives_main_edit() {
+    let mut doc = Document::new("slots");
+    let page = doc.add_page("Page");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Card".into();
+    comp.size = Vec2::new(200.0, 120.0);
+    doc.insert(page, comp).unwrap();
+
+    let slot_id = doc.alloc_id();
+    let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot.name = "BodySlot".into();
+    doc.insert(comp_id, slot).unwrap();
+    convert_to_slot(&mut doc, slot_id).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, comp_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "CardInst".into();
+    let inst_slot = doc.get(inst_id).unwrap().children[0];
+    doc.get_mut(inst_slot).unwrap().name = "InstBodySlot".into();
+
+    // Insert a custom child (`component.source == None`) into the instance slot and export to `.fig`.
+    let custom_id = doc.alloc_id();
+    let mut custom = Node::rectangle(custom_id, Rect::new(4.0, 4.0, 80.0, 32.0));
+    custom.name = "CustomBadge".into();
+    doc.insert(inst_slot, custom).unwrap();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let mut rt = import_fig(&bytes).expect("import_fig");
+
+    let rt_inst_slot = find(&rt, "InstBodySlot").id;
+    assert!(
+        rt.get(rt_inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "imported instance slot with a custom child must carry OverrideField::SlotContent"
+    );
+
+    // Edit the main component and sync instances: the custom child inside the imported instance slot must survive.
+    let rt_comp = find(&rt, "Card").id;
+    rt.get_mut(rt_comp).unwrap().size.x = 240.0;
+    sync_instances(&mut rt, rt_comp).apply(&mut rt).unwrap();
+
+    let children_after = &rt.get(rt_inst_slot).unwrap().children;
+    assert_eq!(children_after.len(), 1);
+    assert_eq!(rt.get(children_after[0]).unwrap().name, "CustomBadge");
+}
+
+#[test]
+fn fig_mirror_only_slot_is_not_marked() {
+    let mut doc = Document::new("slots");
+    let page = doc.add_page("Page");
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Card".into();
+    comp.size = Vec2::new(200.0, 120.0);
+    doc.insert(page, comp).unwrap();
+
+    let slot_id = doc.alloc_id();
+    let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot.name = "BodySlot".into();
+    doc.insert(comp_id, slot).unwrap();
+
+    let def_id = doc.alloc_id();
+    let mut def = Node::rectangle(def_id, Rect::new(4.0, 4.0, 60.0, 24.0));
+    def.name = "DefaultChip".into();
+    doc.insert(slot_id, def).unwrap();
+    convert_to_slot(&mut doc, slot_id).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, comp_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "CardInst".into();
+    let inst_slot = doc.get(inst_id).unwrap().children[0];
+    doc.get_mut(inst_slot).unwrap().name = "InstBodySlot".into();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let mut rt = import_fig(&bytes).expect("import_fig");
+
+    let rt_inst_slot = find(&rt, "InstBodySlot").id;
+    assert!(
+        !rt.get(rt_inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "mirror-only instance slot must NOT carry OverrideField::SlotContent after import"
+    );
+
+    // Adding a new default child to the main component slot must propagate to the unmarked instance slot on sync.
+    let rt_comp = find(&rt, "Card").id;
+    let rt_main_slot = rt.get(rt_comp).unwrap().children[0];
+    let extra_id = rt.alloc_id();
+    let mut extra = Node::rectangle(extra_id, Rect::new(4.0, 32.0, 60.0, 24.0));
+    extra.name = "SecondDefaultChip".into();
+    rt.insert(rt_main_slot, extra).unwrap();
+
+    sync_instances(&mut rt, rt_comp).apply(&mut rt).unwrap();
+    assert_eq!(rt.get(rt_inst_slot).unwrap().children.len(), 2, "unmarked mirror-only slot must receive new default children from main component sync");
+}
+
+#[test]
+fn fig_instance_slot_with_instance_child_and_cleared_slot_survive_main_edit() {
+    // (a) Component instance placed into an instance slot (`component.source == Some(badge_comp)`).
+    let mut doc = Document::new("slots_inst_child");
+    let page = doc.add_page("Page");
+
+    let badge_comp = doc.alloc_id();
+    let mut badge = Node::new(badge_comp, NodeKind::Component(FrameProps::default()));
+    badge.name = "BadgeComp".into();
+    badge.size = Vec2::new(48.0, 20.0);
+    doc.insert(page, badge).unwrap();
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "Card".into();
+    comp.size = Vec2::new(200.0, 120.0);
+    doc.insert(page, comp).unwrap();
+
+    let slot_id = doc.alloc_id();
+    let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot.name = "BodySlot".into();
+    doc.insert(comp_id, slot).unwrap();
+    convert_to_slot(&mut doc, slot_id).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+    let inst_id = instances_of(&doc, comp_id)[0];
+    doc.get_mut(inst_id).unwrap().name = "CardInst".into();
+    let inst_slot = doc.get(inst_id).unwrap().children[0];
+    doc.get_mut(inst_slot).unwrap().name = "InstBodySlot".into();
+
+    // Place an instance of `BadgeComp` inside `InstBodySlot`.
+    create_instance(&mut doc, badge_comp, inst_slot, Vec2::new(4.0, 4.0)).apply(&mut doc).unwrap();
+    let badge_inst = doc.get(inst_slot).unwrap().children[0];
+    doc.get_mut(badge_inst).unwrap().name = "SlottedBadgeInst".into();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let mut rt = import_fig(&bytes).expect("import_fig");
+    let rt_inst_slot = find(&rt, "InstBodySlot").id;
+    assert!(
+        rt.get(rt_inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "imported instance slot holding a component instance child must carry OverrideField::SlotContent"
+    );
+    let rt_comp = find(&rt, "Card").id;
+    rt.get_mut(rt_comp).unwrap().size.x = 240.0;
+    sync_instances(&mut rt, rt_comp).apply(&mut rt).unwrap();
+    let children_after = &rt.get(rt_inst_slot).unwrap().children;
+    assert_eq!(children_after.len(), 1, "component instance child in slot must survive sync_instances");
+    assert_eq!(rt.get(children_after[0]).unwrap().name, "SlottedBadgeInst");
+
+    // (b) Instance slot whose default children were deleted by the user (empty in instance, non-empty in main).
+    let mut doc_cleared = Document::new("slots_cleared");
+    let page_c = doc_cleared.add_page("Page");
+    let comp_c = doc_cleared.alloc_id();
+    let mut comp_node = Node::new(comp_c, NodeKind::Component(FrameProps::default()));
+    comp_node.name = "Card".into();
+    comp_node.size = Vec2::new(200.0, 120.0);
+    doc_cleared.insert(page_c, comp_node).unwrap();
+
+    let slot_c = doc_cleared.alloc_id();
+    let mut slot_node = Node::frame(slot_c, Rect::new(8.0, 8.0, 184.0, 104.0));
+    slot_node.name = "BodySlot".into();
+    doc_cleared.insert(comp_c, slot_node).unwrap();
+
+    let def_id = doc_cleared.alloc_id();
+    let mut def = Node::rectangle(def_id, Rect::new(4.0, 4.0, 60.0, 24.0));
+    def.name = "DefaultChip".into();
+    doc_cleared.insert(slot_c, def).unwrap();
+    convert_to_slot(&mut doc_cleared, slot_c).apply(&mut doc_cleared).unwrap();
+
+    create_instance(&mut doc_cleared, comp_c, page_c, Vec2::new(240.0, 0.0)).apply(&mut doc_cleared).unwrap();
+    let inst_c = instances_of(&doc_cleared, comp_c)[0];
+    doc_cleared.get_mut(inst_c).unwrap().name = "CardInst".into();
+    let inst_slot_c = doc_cleared.get(inst_c).unwrap().children[0];
+    doc_cleared.get_mut(inst_slot_c).unwrap().name = "InstBodySlot".into();
+    let mirror_chip = doc_cleared.get(inst_slot_c).unwrap().children[0];
+    remove_from_slot(&mut doc_cleared, mirror_chip).unwrap().apply(&mut doc_cleared).unwrap();
+    assert!(doc_cleared.get(inst_slot_c).unwrap().children.is_empty());
+
+    let bytes_c = export_fig(&doc_cleared).expect("export_fig");
+    let mut rt_c = import_fig(&bytes_c).expect("import_fig");
+    let rt_inst_slot_c = find(&rt_c, "InstBodySlot").id;
+    assert!(
+        rt_c.get(rt_inst_slot_c).unwrap().component.overrides.contains(&OverrideField::SlotContent),
+        "cleared instance slot must carry OverrideField::SlotContent after .fig round-trip"
+    );
+    let rt_comp_c = find(&rt_c, "Card").id;
+    rt_c.get_mut(rt_comp_c).unwrap().size.x = 240.0;
+    sync_instances(&mut rt_c, rt_comp_c).apply(&mut rt_c).unwrap();
+    assert!(rt_c.get(rt_inst_slot_c).unwrap().children.is_empty(), "cleared instance slot must stay empty after sync_instances");
+}

@@ -1773,6 +1773,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     }
                 }
             }
+            if ovs.contains(&OverrideField::SlotContent) {
+                carried.push(("slotContent", serde_json::Value::Bool(true)));
+            }
             let ve = encode_node_var_entries(cx, &n.variables);
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));

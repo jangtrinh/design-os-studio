@@ -25,7 +25,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
             inner
         };
         let actions = crate::agent_selection_chip::with_selection_summary(&app.doc, app.page, &app.selection, |summary| {
-            crate::terminal::show_left_with_selection(&mut app.terminal, ui, term_rect, fp.as_deref(), summary)
+            crate::terminal::show_left_with_doc(&mut app.terminal, ui, term_rect, fp.as_deref(), summary, &app.doc, app.page)
         });
         crate::shell::execute_terminal_actions_with_ctx(app, actions, Some(ui.ctx()));
         let tab_idx = app.terminal.active_tab;

@@ -241,12 +241,18 @@ pub fn is_slot_container(doc: &Document, id: NodeId) -> bool {
     false
 }
 
+/// True when `id` is a slot container inside a component instance (either linked to a main
+/// component slot or nested inside an instance root).
+pub fn is_instance_slot(doc: &Document, id: NodeId) -> bool {
+    is_slot_container(doc, id) && (doc.get(id).is_some_and(is_linked) || instance_root_of(doc, id).is_some())
+}
+
 /// Nearest ancestor-or-self of `id` that is a slot container inside a component instance.
 pub fn enclosing_instance_slot(doc: &Document, id: NodeId) -> Option<NodeId> {
     let mut cur = Some(id);
     while let Some(c) = cur {
         let n = doc.get(c)?;
-        if is_slot_container(doc, c) && (is_linked(n) || instance_root_of(doc, c).is_some()) {
+        if is_instance_slot(doc, c) {
             return Some(c);
         }
         cur = n.parent;

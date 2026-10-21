@@ -1395,7 +1395,7 @@ impl Shell {
             if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
                 let file_path = self.app.file_path.clone();
                 let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
-                    crate::terminal::show_dock_with_selection(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary)
+                    crate::terminal::show_dock_with_doc(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary, &self.app.doc, self.app.page)
                 });
                 execute_terminal_actions_with_ctx(&mut self.app, term_actions, Some(&ctx));
                 let dock_handle_rect =

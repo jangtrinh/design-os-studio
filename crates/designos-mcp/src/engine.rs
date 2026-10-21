@@ -1514,7 +1514,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "create_node",
-        "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved.",
+        "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
         json!({"parent_id":id,"kind":{"type":"string","enum":["frame","rectangle","ellipse","text"]},"name":name,"text":text,"x":coordinate,"y":coordinate,"width":size,"height":size,"fill":{"type":"string","maxLength":1024},"fills":{"type":"array","items":{"type":"object"}},"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
         vec!["parent_id", "kind"],
         json!({
@@ -1541,7 +1541,7 @@ pub fn tools() -> Vec<Value> {
     );
     add(
         "delete_node",
-        "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved.",
+        "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
         json!({"node_id":id,"diff_image":{"type":"boolean","default":false},"lint":lint_opt}),
         vec!["node_id"],
         json!({
@@ -1609,7 +1609,7 @@ pub fn tools() -> Vec<Value> {
     add(
         "apply_spec",
         concat!(
-            "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).\n\n",
+            "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.\n\n",
             "Examples:\n",
             "1) Token-bound frame with auto-layout:\n",
             "{\"parent_id\":1,\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"layout\":{\"direction\":\"column\",\"gap\":16,\"padding\":[24,24,24,24]},\"fill\":\"var:Color/Surface\",\"children\":[{\"kind\":\"text\",\"name\":\"Title\",\"text\":\"Welcome\"}]}}\n",
@@ -3103,5 +3103,314 @@ mod tests {
         let after_swap = e.call("designos_lint", json!({"rules": ["default-layer-name"], "limit": 1, "cursor": "offset:0"})).unwrap();
         assert_eq!(after_swap["findings"].as_array().unwrap().len(), 0, "new document has no default layer names; stale cache must not be served");
         assert!(after_swap["scanned"].as_u64().unwrap() > 0, "runtime_id mismatch must invalidate lint_cache and rescan");
+    }
+
+    fn setup_slot_component_and_instance(e: &mut Engine, with_default_mirror: bool) -> (NodeId, NodeId, NodeId) {
+        let page = e.active_page_id.unwrap();
+        let comp_id = e.doc.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(designos_doc::FrameProps::default()));
+        comp.name = "Card".into();
+        comp.size = Vec2::new(200.0, 120.0);
+        e.doc.insert(page, comp).unwrap();
+
+        let slot_id = e.doc.alloc_id();
+        let mut slot = Node::frame(slot_id, Rect::new(8.0, 8.0, 184.0, 104.0));
+        slot.name = "Body".into();
+        e.doc.insert(comp_id, slot).unwrap();
+
+        if with_default_mirror {
+            let def_id = e.doc.alloc_id();
+            let mut def = Node::rectangle(def_id, Rect::new(0.0, 0.0, 40.0, 20.0));
+            def.name = "DefaultItem".into();
+            e.doc.insert(slot_id, def).unwrap();
+        }
+
+        designos_doc::convert_to_slot(&mut e.doc, slot_id).apply(&mut e.doc).unwrap();
+        designos_doc::create_instance(&mut e.doc, comp_id, page, Vec2::new(240.0, 0.0)).apply(&mut e.doc).unwrap();
+        let inst_id = designos_doc::instances_of(&e.doc, comp_id)[0];
+        let inst_slot = e.doc.get(inst_id).unwrap().children[0];
+        assert!(designos_doc::is_instance_slot(&e.doc, inst_slot));
+        assert!(!e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+        (comp_id, inst_id, inst_slot)
+    }
+
+    #[test]
+    fn mcp_insert_into_instance_slot_survives_main_edit() {
+        let mut e = Engine::default();
+        let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+
+        let res = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "kind": "rectangle",
+                    "name": "CustomBadge",
+                    "width": 60.0,
+                    "height": 24.0
+                }),
+            )
+            .unwrap();
+        let created_id = NodeId(res["node"]["id"].as_u64().unwrap());
+
+        assert!(
+            e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent),
+            "designos_create_node into an instance slot must mark OverrideField::SlotContent"
+        );
+
+        // Edit the main component and sync instances: the custom child inside the instance slot must survive.
+        e.doc.get_mut(comp_id).unwrap().size.x = 240.0;
+        designos_doc::sync_instances(&mut e.doc, comp_id).apply(&mut e.doc).unwrap();
+
+        assert_eq!(e.doc.get(inst_slot).unwrap().children, vec![created_id]);
+        assert!(e.doc.get(created_id).is_some());
+    }
+
+    #[test]
+    fn mcp_apply_spec_into_instance_slot_survives() {
+        let mut e = Engine::default();
+        let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+
+        e.call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": inst_slot.0,
+                "spec": {
+                    "name": "SpecCard",
+                    "width": 120.0,
+                    "height": 48.0,
+                    "children": [
+                        { "kind": "text", "name": "SpecTitle", "text": "Hello Slot" }
+                    ]
+                }
+            }),
+        )
+        .unwrap();
+
+        assert!(
+            e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent),
+            "designos_apply_spec into an instance slot must mark OverrideField::SlotContent"
+        );
+        let slot_children = e.doc.get(inst_slot).unwrap().children.clone();
+        assert_eq!(slot_children.len(), 1);
+
+        e.doc.get_mut(comp_id).unwrap().size.y = 160.0;
+        designos_doc::sync_instances(&mut e.doc, comp_id).apply(&mut e.doc).unwrap();
+
+        assert_eq!(e.doc.get(inst_slot).unwrap().children, slot_children);
+        assert_eq!(e.doc.get(slot_children[0]).unwrap().name, "SpecCard");
+    }
+
+    #[test]
+    fn mcp_delete_default_mirror_is_kept_deleted() {
+        let mut e = Engine::default();
+        let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, true);
+        let mirror_id = e.doc.get(inst_slot).unwrap().children[0];
+
+        e.call(
+            "designos_delete_node",
+            json!({
+                "node_id": mirror_id.0
+            }),
+        )
+        .unwrap();
+
+        assert!(e.doc.get(inst_slot).unwrap().children.is_empty());
+        assert!(
+            e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent),
+            "deleting a default mirror child from an instance slot must mark OverrideField::SlotContent"
+        );
+
+        // Edit the main component and sync instances: the deleted default mirror must NOT be re-created.
+        e.doc.get_mut(comp_id).unwrap().size.x = 260.0;
+        designos_doc::sync_instances(&mut e.doc, comp_id).apply(&mut e.doc).unwrap();
+
+        assert!(e.doc.get(inst_slot).unwrap().children.is_empty(), "synced instance slot must stay empty after default mirror was deleted");
+    }
+
+    #[test]
+    fn recording_a_marked_insert_does_not_clone_the_document() {
+        use designos_doc::live_patch::batch_doc_clones;
+
+        let mut e = Engine::default();
+        let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+
+        let mut editor_doc = e.doc.clone();
+        e.live_ops = Some(Vec::new());
+        let before = batch_doc_clones();
+        let child_id = e.doc.alloc_id();
+        let child = Node::rectangle(child_id, Rect::new(0.0, 0.0, 32.0, 16.0));
+        e.exec(Command::Insert { parent: inst_slot, index: 0, nodes: vec![child] }).unwrap();
+        assert_eq!(batch_doc_clones(), before, "recording a slot-marked insert must not clone the document");
+
+        let ops = e.take_live_ops();
+        assert_eq!(ops.len(), 2, "must emit Update for the marked slot and Insert for the child");
+        assert!(e.doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+
+        // Simulate the user recoloring the slot in the editor (`OverrideField::Fills`) before replaying the agent patch.
+        editor_doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Fills);
+        editor_doc.get_mut(inst_slot).unwrap().component.description = "User slot note".into();
+
+        let report = designos_doc::live_patch::replay_live_patch(
+            &mut editor_doc,
+            &designos_doc::live_patch::LivePatch::new(ops),
+            &mut designos_doc::live_patch::LivePatchState::default(),
+            &mut |d, c| c.apply(d).map(|_| ()),
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        let editor_slot = editor_doc.get(inst_slot).unwrap();
+        assert!(editor_slot.component.overrides.contains(&designos_doc::OverrideField::SlotContent), "replayed slot must carry OverrideField::SlotContent");
+        assert!(
+            editor_slot.component.overrides.contains(&designos_doc::OverrideField::Fills),
+            "replaying the synthetic slot-mark Update must not wipe out OverrideField::Fills set in the editor"
+        );
+        assert_eq!(editor_slot.component.description, "User slot note");
+    }
+
+    #[test]
+    fn undoing_a_marked_slot_insert_restores_slot_overrides_without_wiping_editor_overrides() {
+        // Case A: Slot already has `Size` on both sides. Agent inserts via `designos_apply_spec`, then `designos_undo`.
+        // Replaying undo must remove `SlotContent` while keeping `Size`, so main-component sync resumes.
+        {
+            let mut e = Engine::default();
+            let (comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, true);
+            e.doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Size);
+
+            let mut editor_doc = e.doc.clone();
+            let mut state = designos_doc::live_patch::LivePatchState::default();
+            e.live_ops = Some(Vec::new());
+
+            e.call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "spec": { "kind": "rectangle", "name": "Inserted", "width": 20.0, "height": 20.0 }
+                }),
+            )
+            .unwrap();
+            let insert_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(insert_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::Size));
+
+            e.call("designos_undo", json!({})).unwrap();
+            let undo_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(undo_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+
+            let editor_ovs = &editor_doc.get(inst_slot).unwrap().component.overrides;
+            assert!(
+                !editor_ovs.contains(&designos_doc::OverrideField::SlotContent),
+                "Case A: undoing marked insert must remove SlotContent so sync resumes, got {editor_ovs:?}"
+            );
+            assert!(editor_ovs.contains(&designos_doc::OverrideField::Size), "Case A: existing Size override must remain");
+            let _ = comp_id;
+        }
+
+        // Case B: Agent starts with empty overrides on the slot, while the editor has `Fills` (an editor-only override).
+        // Agent inserts into the slot, then calls `designos_undo`. Replaying undo must remove `SlotContent` and keep `Fills`.
+        {
+            let mut e = Engine::default();
+            let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+
+            let mut editor_doc = e.doc.clone();
+            editor_doc.get_mut(inst_slot).unwrap().component.overrides.insert(designos_doc::OverrideField::Fills);
+            let mut state = designos_doc::live_patch::LivePatchState::default();
+            e.live_ops = Some(Vec::new());
+
+            e.call(
+                "designos_create_node",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "kind": "rectangle",
+                    "name": "TempChild",
+                    "width": 24.0,
+                    "height": 24.0
+                }),
+            )
+            .unwrap();
+            let insert_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(insert_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent));
+            assert!(editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::Fills));
+
+            e.call("designos_undo", json!({})).unwrap();
+            let undo_ops = e.take_live_ops();
+            designos_doc::live_patch::replay_live_patch(&mut editor_doc, &designos_doc::live_patch::LivePatch::new(undo_ops), &mut state, &mut |d, c| {
+                c.apply(d).map(|_| ())
+            })
+            .unwrap();
+
+            let editor_ovs = &editor_doc.get(inst_slot).unwrap().component.overrides;
+            assert!(
+                !editor_ovs.contains(&designos_doc::OverrideField::SlotContent),
+                "Case B: undoing marked insert must remove SlotContent, got {editor_ovs:?}"
+            );
+            assert!(
+                editor_ovs.contains(&designos_doc::OverrideField::Fills),
+                "Case B: undoing marked insert must not wipe editor-only Fills override, got {editor_ovs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_spec_library_instance_into_slot_replays_imported_main_component_in_live_patch() {
+        let dir = std::env::temp_dir().join(format!("designos_pr721_lib_live_patch_{}", designos_library::new_id()));
+        let lib = designos_library::Library::open(&dir).unwrap();
+        let lib_doc = designos_doc::fixtures::button_library();
+        lib.publish_library("lib-buttons", &lib_doc, "v1").unwrap();
+        crate::tools::library_source::set_test_library_root(Some(dir.clone()));
+
+        let mut e = Engine::default();
+        let (_comp_id, _inst_id, inst_slot) = setup_slot_component_and_instance(&mut e, false);
+        e.doc.library.enabled.push(designos_doc::LibraryRef { id: "lib-buttons".into(), name: "Button Kit".into(), version: 1 });
+
+        let mut editor_doc = e.doc.clone();
+        e.live_ops = Some(Vec::new());
+
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": inst_slot.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "Slot Arrow Icon",
+                        "component": "Icon/Arrow"
+                    }
+                }),
+            )
+            .unwrap();
+        crate::tools::library_source::set_test_library_root(None);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let ops = e.take_live_ops();
+        let report = designos_doc::live_patch::replay_live_patch(
+            &mut editor_doc,
+            &designos_doc::live_patch::LivePatch::new(ops),
+            &mut designos_doc::live_patch::LivePatchState::default(),
+            &mut |d, c| c.apply(d).map(|_| ()),
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "live patch replay must not skip any op: {:?}", report.skipped);
+        assert!(
+            editor_doc.get(inst_slot).unwrap().component.overrides.contains(&designos_doc::OverrideField::SlotContent),
+            "replayed instance slot must be marked with OverrideField::SlotContent"
+        );
+        let replayed_inst = editor_doc.get(root_id).expect("placed library instance must exist in replayed document");
+        let main_comp_id = designos_doc::instance_component(replayed_inst).expect("placed library instance must reference its main component");
+        let replayed_main = editor_doc.get(main_comp_id).expect("imported library main component must exist in replayed document");
+        assert_eq!(replayed_main.name, "Icon/Arrow");
+        assert_eq!(replayed_main.parent, editor_doc.library_page);
     }
 }
