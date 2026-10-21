@@ -66,6 +66,7 @@ mod protovars;
 mod richtext;
 mod shell;
 mod showcase;
+mod skills;
 mod specs;
 mod styles;
 mod tabs;

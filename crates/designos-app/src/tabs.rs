@@ -457,6 +457,7 @@ impl TabsState {
                 app.terminal = crate::terminal::TerminalState::for_tab(id);
                 if let Some(lib) = &app.lib {
                     app.terminal.library_root = Some(lib.root().to_path_buf());
+                    app.terminal.skills.set_library_root(lib.root().to_path_buf());
                 }
                 app.terminal.bind_session(&sid);
                 app.bind_terminal_to_open_file(&sid);
@@ -475,6 +476,9 @@ impl TabsState {
                 self.hist_in_app = true;
                 if let Some(lib) = &app.lib {
                     app.terminal.library_root = Some(lib.root().to_path_buf());
+                    if app.terminal.skills.library_root != lib.root() {
+                        app.terminal.skills.set_library_root(lib.root().to_path_buf());
+                    }
                 }
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
@@ -488,6 +492,9 @@ impl TabsState {
             let sid = self.session_id_for_tab(tab_id);
             if let Some(lib) = &app.lib {
                 app.terminal.library_root = Some(lib.root().to_path_buf());
+                if app.terminal.skills.library_root != lib.root() {
+                    app.terminal.skills.set_library_root(lib.root().to_path_buf());
+                }
             }
             app.terminal.bind_session(&sid);
             if app.terminal.tabs.is_empty() {
@@ -515,6 +522,7 @@ impl TabsState {
         let mut terminal = crate::terminal::TerminalState::for_tab(id);
         if let Some(lib) = &app.lib {
             terminal.library_root = Some(lib.root().to_path_buf());
+            terminal.skills.set_library_root(lib.root().to_path_buf());
         }
         terminal.bind_session(&sid);
         let tab = ProjectTab {
@@ -544,6 +552,9 @@ impl TabsState {
         app.image_jobs = std::mem::take(&mut self.entries[new_idx].image_jobs);
         if let Some(lib) = &app.lib {
             app.terminal.library_root = Some(lib.root().to_path_buf());
+            if app.terminal.skills.library_root != lib.root() {
+                app.terminal.skills.set_library_root(lib.root().to_path_buf());
+            }
         }
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());

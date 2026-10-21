@@ -280,6 +280,15 @@ impl Shell {
                     std::thread::sleep(std::time::Duration::from_millis(30));
                 }
             }
+            Some("agents-skills") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                // The default Agents panel, so the capture shows the header `Skills` button beside `+`, the composer chip and the picker.
+                app.terminal.open_for_agent_use(app.file_path.as_deref());
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
+                app.terminal.skills.set_selected_skills(vec!["design-system-rhythm".into(), "accessibility-wcag".into()]);
+                app.terminal.skills.open_picker();
+            }
             Some("agents-start-failure") => {
                 // Real failure: the installed `agy` rejects the `--mcp-config` flag it never had (#642).
                 app.ui.rail = Some(crate::app::RailItem::Agents);
