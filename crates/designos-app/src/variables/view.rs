@@ -1464,19 +1464,19 @@ fn run_menu(app: &mut App, ctx: &Context, fr: &mut Frame) {
         VarMenuKind::Settings => {
             let io_busy = app.vars.pending_io.is_some();
             let mut list = vec![
-                MenuItem::new("Import variables (Figma)…").disabled(io_busy),
-                MenuItem::new("Import variables (Design tokens / DTCG)…").disabled(io_busy),
-                MenuItem::new("Import variables (Figma REST)…").disabled(io_busy).sep(),
-                MenuItem::new("Export variables (Figma)…").disabled(io_busy),
-                MenuItem::new("Export variables (Design tokens / DTCG)…").disabled(io_busy),
+                MenuItem::new("Import Figma variables…").disabled(io_busy),
+                MenuItem::new("Import DTCG tokens…").disabled(io_busy),
+                MenuItem::new("Import Figma REST…").disabled(io_busy).sep(),
+                MenuItem::new("Export Figma variables…").disabled(io_busy),
+                MenuItem::new("Export DTCG tokens…").disabled(io_busy),
                 if has_skipped {
-                    MenuItem::new("Export variables (Figma REST)…").disabled(io_busy).sep()
+                    MenuItem::new("Export Figma REST…").disabled(io_busy).sep()
                 } else {
-                    MenuItem::new("Export variables (Figma REST)…").disabled(io_busy)
+                    MenuItem::new("Export Figma REST…").disabled(io_busy)
                 },
             ];
             if has_skipped {
-                list.push(MenuItem::new("Skipped import details…"));
+                list.push(MenuItem::new("Show skipped variables…"));
             }
             list
         }
@@ -1631,12 +1631,20 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
         widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
         let p = ui.painter();
         let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
-        p.text(
+        let title_r = p.text(
             Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
             Align2::LEFT_CENTER,
-            format!("Skipped variables ({})", rep.skipped.len()),
+            "Skipped variables",
             egui::FontId::proportional(theme::FONT_SIZE_BODY),
             theme::TEXT,
+        );
+        crate::skills::pills::paint_pill(
+            p,
+            title_r.right() + theme::SPACE_INLINE,
+            head.center().y,
+            &rep.skipped.len().to_string(),
+            theme::BG_TERTIARY,
+            theme::TEXT_SECONDARY,
         );
         let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_DENSE));
         let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());

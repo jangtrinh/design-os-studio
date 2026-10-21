@@ -1054,7 +1054,7 @@ impl Shell {
             p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, theme::BORDER_MENU), egui::StrokeKind::Inside);
 
             let hdr = Rect::from_min_size(rect.min, Vec2::new(rect.width(), header_h));
-            p.text(Pos2::new(hdr.left() + 14.0, hdr.center().y), Align2::LEFT_CENTER, "Web Capture Import Report", theme::font_body_strong(), theme::TEXT);
+            p.text(Pos2::new(hdr.left() + 14.0, hdr.center().y), Align2::LEFT_CENTER, "Web capture import report", theme::font_body_strong(), theme::TEXT);
             let close_r = Rect::from_min_size(Pos2::new(hdr.right() - 30.0, hdr.center().y - 12.0), Vec2::splat(24.0));
             if widgets::icon_button(ui, close_r, "close-web-capture-report", Icon::Close, false, "Close").clicked() {
                 close_clicked = true;
@@ -1064,16 +1064,30 @@ impl Shell {
             let body_rect = Rect::from_min_size(Pos2::new(rect.left(), hdr.bottom() + 6.0), Vec2::new(rect.width(), body_h));
             ui.scope_builder(egui::UiBuilder::new().max_rect(body_rect), |ui| {
                 egui::ScrollArea::vertical().id_salt("web-capture-report-scroll").max_height(body_h).show(ui, |ui| {
-                    let draw_kv = |ui: &mut egui::Ui, label: &str, value: &str, mono_val: bool, strong_label: bool| {
+                    // A section heading shows its item count as a pill beside the label, never inside the label text.
+                    let draw_row = |ui: &mut egui::Ui, label: &str, count: Option<usize>, value: &str, mono_val: bool, strong_label: bool| {
                         let (r, _) = ui.allocate_exact_size(Vec2::new(body_rect.width() - 28.0, row_h), egui::Sense::hover());
                         let row_p = ui.painter();
                         let lf = if strong_label { theme::font_body_strong() } else { theme::font_body() };
                         let lc = if strong_label { theme::TEXT } else { theme::TEXT_SECONDARY };
                         let elided_lbl = widgets::elide(row_p, label, &lf, (r.width() * 0.48).max(100.0));
-                        row_p.text(Pos2::new(r.left() + 14.0, r.center().y), Align2::LEFT_CENTER, elided_lbl, lf, lc);
+                        let label_r = row_p.text(Pos2::new(r.left() + 14.0, r.center().y), Align2::LEFT_CENTER, elided_lbl, lf, lc);
+                        if let Some(n) = count {
+                            crate::skills::pills::paint_pill(
+                                row_p,
+                                label_r.right() + theme::SPACE_INLINE,
+                                r.center().y,
+                                &n.to_string(),
+                                theme::BG_TERTIARY,
+                                theme::TEXT_SECONDARY,
+                            );
+                        }
                         let vf = if mono_val { theme::font_mono() } else { theme::font_body() };
                         let elided_val = widgets::elide(row_p, value, &vf, (r.width() * 0.50).max(110.0));
                         row_p.text(Pos2::new(r.right(), r.center().y), Align2::RIGHT_CENTER, elided_val, vf, theme::TEXT);
+                    };
+                    let draw_kv = |ui: &mut egui::Ui, label: &str, value: &str, mono_val: bool, strong_label: bool| {
+                        draw_row(ui, label, None, value, mono_val, strong_label)
                     };
 
                     draw_kv(ui, "Imported frame", &rep.root_name, false, false);
@@ -1081,9 +1095,10 @@ impl Shell {
                     draw_kv(ui, "Flattened wrappers", &format!("{} inline wrappers", rep.flattened_wrappers), true, false);
                     draw_kv(ui, "Capture status", if rep.truncated { "truncated (budget reached)" } else { "complete" }, true, false);
 
-                    draw_kv(
+                    draw_row(
                         ui,
-                        &format!("Absolute fallbacks ({})", rep.absolute_fallbacks.len()),
+                        "Absolute fallbacks",
+                        Some(rep.absolute_fallbacks.len()),
                         if rep.absolute_fallbacks.is_empty() { "none" } else { "element · reason" },
                         true,
                         true,
@@ -1092,20 +1107,22 @@ impl Shell {
                         draw_kv(ui, &fb.element_id, &fb.reason, true, false);
                     }
 
-                    draw_kv(
+                    draw_row(
                         ui,
-                        &format!("Font substitutions ({})", rep.font_substitutions.len()),
-                        if rep.font_substitutions.is_empty() { "all matched" } else { "requested -> substituted" },
+                        "Font substitutions",
+                        Some(rep.font_substitutions.len()),
+                        if rep.font_substitutions.is_empty() { "all matched" } else { "requested → substituted" },
                         true,
                         true,
                     );
                     for sf in &rep.font_substitutions {
-                        draw_kv(ui, &sf.requested, &format!("-> {}", sf.substituted), true, false);
+                        draw_kv(ui, &sf.requested, &format!("→ {}", sf.substituted), true, false);
                     }
 
-                    draw_kv(
+                    draw_row(
                         ui,
-                        &format!("Unsupported CSS ({})", rep.unsupported_css.len()),
+                        "Unsupported CSS",
+                        Some(rep.unsupported_css.len()),
                         if rep.unsupported_css.is_empty() { "0 declarations" } else { "property (element) · value" },
                         true,
                         true,
@@ -1114,9 +1131,10 @@ impl Shell {
                         draw_kv(ui, &format!("{} ({})", us.property, us.element_id), &us.value, true, false);
                     }
 
-                    draw_kv(
+                    draw_row(
                         ui,
-                        &format!("Uncaptured images ({})", rep.images_not_captured.len()),
+                        "Uncaptured images",
+                        Some(rep.images_not_captured.len()),
                         if rep.images_not_captured.is_empty() { "0 placeholders" } else { "element (reason) · src" },
                         true,
                         true,
@@ -1126,7 +1144,7 @@ impl Shell {
                     }
 
                     if !rep.notes.is_empty() {
-                        draw_kv(ui, &format!("Notes ({})", rep.notes.len()), "details", true, true);
+                        draw_row(ui, "Notes", Some(rep.notes.len()), "details", true, true);
                         for note in &rep.notes {
                             draw_kv(ui, "Note", note, true, false);
                         }

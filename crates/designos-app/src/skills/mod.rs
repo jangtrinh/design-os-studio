@@ -20,7 +20,7 @@
 
 pub(crate) mod delivery;
 pub(crate) mod hook_delivery;
-mod pills;
+pub(crate) mod pills;
 pub mod run_record;
 
 pub use run_record::{AttachedSkillRecord, RunSkillRecord};
