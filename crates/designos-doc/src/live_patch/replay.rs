@@ -367,8 +367,9 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
 /// The agent's change to one id-keyed token map (styles or style metadata) merged into the
 /// editor's copy: writes go by id and the last write wins, the same rule variables follow.
 /// An upsert is refused only when this session wrote the id earlier and the editor now holds a
-/// different value (the user changed it since); a removal of such an id is refused on an agent
-/// undo for the same reason, and an undo never removes an id this session did not introduce.
+/// different value (the user changed it since). A removal of such an id is refused for the same
+/// reason whichever op carries it: an agent undo of `SetStyles` has no `Remove` op, so it cannot
+/// be told from a delete. An undo never removes an id this session did not introduce.
 /// Every refusal is reported in `skipped`. Returns whether anything was refused.
 fn merge_agent_tokens<T: Clone + PartialEq>(
     current: &mut BTreeMap<String, T>,
@@ -385,13 +386,13 @@ fn merge_agent_tokens<T: Clone + PartialEq>(
             introduced.remove(k);
             continue;
         };
-        let introduced_unchanged = introduced.get(k).is_some_and(|written| written == held);
-        if !is_spec_undo || introduced_unchanged {
-            introduced.remove(k);
-            current.remove(k);
-        } else if introduced.contains_key(k) {
+        let owned = introduced.get(k);
+        if owned.is_some_and(|written| written != held) {
             report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; its removal was not replayed"));
             refused = true;
+        } else if owned.is_some() || !is_spec_undo {
+            introduced.remove(k);
+            current.remove(k);
         }
     }
     for (k, v) in upserted {
@@ -415,7 +416,8 @@ fn merge_agent_tokens<T: Clone + PartialEq>(
 
 /// The agent's variable and collection changes merged into the editor's own maps, which can hold
 /// more than the agent's copy did. Changed variables and collections are upserted (unioning member
-/// lists for existing collections so editor-only members are preserved). On an agent spec-undo
+/// lists for existing collections so editor-only members are preserved, and keeping the value of
+/// every collection field the user changed since the session wrote it). On an agent spec-undo
 /// (`is_spec_undo`), only ids this session introduced are removed so pre-existing editor variables
 /// survive; standalone `SetVariables` deletes of ids the editor owns apply directly. An id this
 /// session introduced is removed only while the editor still holds the value the session wrote,
@@ -455,7 +457,10 @@ fn resolve_variables(
             refused = true;
         } else if owned.is_some() {
             // Variables that survived (the user changed them) keep their collection.
-            if !merged_vars.values().any(|v| v.collection == *id) {
+            if let Some(user_var) = merged_vars.values().find(|v| v.collection == *id) {
+                report.skipped.push(format!("variable collection {id} was kept: variable {} still uses it", user_var.id));
+                refused = true;
+            } else {
                 state.introduced_collections.remove(id);
                 merged_colls.remove(id);
             }
@@ -485,15 +490,23 @@ fn resolve_variables(
             report.skipped.push("a variable collection without an id was not replayed".to_string());
             continue;
         }
-        let user_changed =
-            state.introduced_collections.get(&c.id).is_some_and(|written| doc.variable_collections.get(&c.id).is_some_and(|held| held != written));
-        if user_changed {
-            report.skipped.push(format!("variable collection {} was changed in the editor after the agent wrote it; the agent's edit was not replayed", c.id));
-            refused = true;
-            continue;
+        // Fields the user changed since the agent wrote the collection keep the user's value;
+        // the agent's other fields apply. Members always union, so a variable the agent adds
+        // stays visible in the collection however the user edited it.
+        let (mut merged, mut written) = (c.clone(), c.clone());
+        let editor_copy = merged_colls.get(&c.id).cloned();
+        if let (Some(held), Some(prior)) = (&editor_copy, state.introduced_collections.get(&c.id)) {
+            let kept = keep_user_collection_fields(c, held, prior, &mut merged, &mut written);
+            if !kept.is_empty() {
+                report.skipped.push(format!(
+                    "variable collection {}: {} changed in the editor after the agent wrote it; the agent's value was not replayed",
+                    c.id,
+                    kept.join(", ")
+                ));
+                refused = true;
+            }
         }
-        let mut merged = c.clone();
-        if let Some(cur) = merged_colls.get(&c.id) {
+        if let Some(cur) = &editor_copy {
             let mut members: Vec<String> =
                 cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
             for vid in &c.variables {
@@ -501,10 +514,11 @@ fn resolve_variables(
                     members.push(vid.clone());
                 }
             }
-            merged.variables = members;
+            merged.variables = members.clone();
+            written.variables = members;
         }
         if !merged_colls.contains_key(&c.id) || state.introduced_collections.contains_key(&c.id) {
-            state.introduced_collections.insert(c.id.clone(), merged.clone());
+            state.introduced_collections.insert(c.id.clone(), written);
         }
         merged_colls.insert(c.id.clone(), merged);
     }
@@ -515,6 +529,42 @@ fn resolve_variables(
         return None;
     }
     Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
+}
+
+/// Field-wise merge of an agent upsert `agent` of a collection this session introduced. `merged`
+/// (what the editor will hold) and `written` (what is recorded as the session's last write) start
+/// as the agent's value. For each scalar field the user changed since the session wrote it (`held`
+/// differs from `prior`), `merged` keeps the user's value and `written` keeps the value the
+/// session wrote, so the change is still recognised as the user's on a later undo. Returns the
+/// names of the fields where the agent's value was refused.
+fn keep_user_collection_fields(
+    agent: &VariableCollection,
+    held: &VariableCollection,
+    prior: &VariableCollection,
+    merged: &mut VariableCollection,
+    written: &mut VariableCollection,
+) -> Vec<&'static str> {
+    let mut kept = Vec::new();
+    macro_rules! field {
+        ($f:ident) => {
+            if held.$f != prior.$f {
+                merged.$f = held.$f.clone();
+                if agent.$f == held.$f {
+                    written.$f = held.$f.clone();
+                } else {
+                    written.$f = prior.$f.clone();
+                    kept.push(stringify!($f));
+                }
+            }
+        };
+    }
+    field!(name);
+    field!(modes);
+    field!(default_mode);
+    field!(key);
+    field!(source_library_key);
+    field!(extensions);
+    kept
 }
 
 /// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
