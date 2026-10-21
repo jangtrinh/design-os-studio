@@ -1214,6 +1214,54 @@ mod tests {
     }
 
     #[test]
+    fn component_and_fill_selectors_of_the_previous_query_still_match() {
+        let mut doc = Document::new("Component And Fill");
+        let page = doc.add_page("Page 1");
+
+        let button = doc.alloc_id();
+        let mut main = Node::frame(button, Rect::new(0.0, 0.0, 80.0, 24.0));
+        main.name = "Button".to_string();
+        main.kind = NodeKind::Component(crate::FrameProps::default());
+        doc.insert(page, main).unwrap();
+
+        let set = doc.alloc_id();
+        let mut component_set = Node::frame(set, Rect::new(0.0, 100.0, 200.0, 40.0));
+        component_set.name = "Toggle".to_string();
+        component_set.kind = NodeKind::ComponentSet(crate::FrameProps::default());
+        doc.insert(page, component_set).unwrap();
+        let variant = doc.alloc_id();
+        let mut variant_main = Node::frame(variant, Rect::new(0.0, 0.0, 40.0, 24.0));
+        variant_main.name = "State=On".to_string();
+        variant_main.kind = NodeKind::Component(crate::FrameProps::default());
+        doc.insert(set, variant_main).unwrap();
+
+        let instance_of = |doc: &mut Document, component: NodeId, name: &str, y: f32| {
+            let id = doc.alloc_id();
+            let mut node = Node::frame(id, Rect::new(0.0, y, 80.0, 24.0));
+            node.name = name.to_string();
+            node.kind = NodeKind::Instance { frame: crate::FrameProps::default(), component: Some(component), component_key: None };
+            doc.insert(page, node).unwrap();
+            id
+        };
+        let cta = instance_of(&mut doc, button, "CTA", 200.0);
+        let toggle = instance_of(&mut doc, variant, "Dark mode", 240.0);
+
+        let filled = doc.alloc_id();
+        doc.insert(page, Node::rectangle(filled, Rect::new(0.0, 300.0, 10.0, 10.0))).unwrap();
+        let bare = doc.alloc_id();
+        let mut bare_rect = Node::rectangle(bare, Rect::new(0.0, 320.0, 10.0, 10.0));
+        bare_rect.fills.clear();
+        doc.insert(page, bare_rect).unwrap();
+
+        assert_eq!(ids_of(&doc, page, "//INSTANCE[@component='Button']"), vec![cta.0]);
+        assert_eq!(ids_of(&doc, page, "//INSTANCE[@component='Toggle']"), vec![toggle.0], "a variant answers to its component set's name");
+        assert!(ids_of(&doc, page, "//INSTANCE[@component='Card']").is_empty());
+        assert_eq!(ids_of(&doc, page, "//INSTANCE[@component!='Button']"), vec![toggle.0]);
+        assert_eq!(ids_of(&doc, page, "//RECTANGLE[@fill]"), vec![filled.0]);
+        assert_eq!(ids_of(&doc, page, "//RECTANGLE[not(@fill)]"), vec![bare.0]);
+    }
+
+    #[test]
     fn rule_unavailable_when_no_text_engine() {
         let (doc, page_id) = build_synthetic_doc(2, 2);
         let err = run_with_env(

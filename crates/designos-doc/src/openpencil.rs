@@ -243,6 +243,7 @@ fn node_attr(n: &Node, raw_attr: &str) -> AttrValue {
         "layoutMode" => AttrValue::Str(layout_mode_str(n).to_string()),
         "visible" => AttrValue::Bool(n.visible),
         "locked" => AttrValue::Bool(n.locked),
+        "fill" | "fills" => AttrValue::Bool(!n.fills.is_empty()),
         "clipsContent" | "clip" => AttrValue::Bool(n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false)),
         "id" => AttrValue::Num(n.id.0 as f32),
         _ => AttrValue::None,
@@ -426,6 +427,15 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
             if s[i..].starts_with(op) {
                 let lhs = s[..i].trim();
                 let rhs = s[i + op.len()..].trim();
+                if lhs.trim_start_matches('@') == "component" {
+                    let names = component_names(doc, n);
+                    let named = names.iter().any(|name| *name == unquote(rhs));
+                    return Ok(match op {
+                        "=" => named,
+                        "!=" => !names.is_empty() && !named,
+                        _ => false,
+                    });
+                }
                 let lv = node_attr(n, lhs);
                 return Ok(compare_attr(&lv, op, rhs));
             }
@@ -433,12 +443,29 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
     }
 
     // Bare attribute truthiness, e.g. `@visible`
+    if s.trim_start_matches('@') == "component" {
+        return Ok(!component_names(doc, n).is_empty());
+    }
     match node_attr(n, s) {
         AttrValue::Bool(b) => Ok(b),
         AttrValue::Num(v) => Ok(v != 0.0),
         AttrValue::Str(v) => Ok(!v.is_empty()),
         AttrValue::None => Err(format!("unsupported XPath predicate: {s}")),
     }
+}
+
+/// The names an instance answers to for `@component`: its main component's name and, for a
+/// variant, the name of the component set that holds it. Empty for anything that is not an
+/// instance of an existing component.
+fn component_names(doc: &Document, n: &Node) -> Vec<String> {
+    let Some(main) = instance_component(n).and_then(|id| doc.get(id)) else {
+        return Vec::new();
+    };
+    let mut names = vec![main.name.clone()];
+    if let Some(set) = main.parent.and_then(|id| doc.get(id)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
+        names.push(set.name.clone());
+    }
+    names
 }
 
 fn compare_attr(lv: &AttrValue, op: &str, rhs_raw: &str) -> bool {
