@@ -5,7 +5,8 @@
 //! writer-time rewrites that add companion child or slot updates run here before a writer records
 //! live ops or pushes the command onto `History`.
 
-use crate::{AutoLayout, Command, Document, Node};
+use crate::{is_instance_slot, AutoLayout, Command, Document, Node, NodeId, OverrideField};
+use std::collections::BTreeSet;
 
 /// Normalized command produced by [`writer_command`].
 ///
@@ -30,7 +31,93 @@ impl WriterCommand {
 /// Applies writer-boundary normalization steps to a command about to be executed by a headless
 /// writer (`Engine::exec`, live-patch replay).
 pub fn writer_command(doc: &Document, cmd: Command) -> WriterCommand {
-    direction_flip_step(doc, cmd)
+    match cmd {
+        Command::Update { .. } => direction_flip_step(doc, cmd),
+        other => slot_content_marked(doc, other),
+    }
+}
+
+/// Slot-content override marking (#582): when a writer command (`Insert`, `Reparent`, `Remove`,
+/// or a `Batch` containing them) mutates the direct child list of an instance slot container
+/// ([`crate::is_instance_slot`]) that does not yet carry [`OverrideField::SlotContent`], prepends
+/// a [`Command::Update`] on the slot adding [`OverrideField::SlotContent`] to its
+/// `component.overrides`.
+pub fn slot_content_marked(doc: &Document, cmd: Command) -> WriterCommand {
+    let mut marked = BTreeSet::new();
+    match cmd {
+        Command::Batch(cmds) => {
+            let mut slot_updates = Vec::new();
+            let mut expanded = Vec::with_capacity(cmds.len());
+            for sub in &cmds {
+                append_slot_marked_single(doc, sub.clone(), &mut marked, &mut slot_updates, &mut expanded);
+            }
+            let mut parts = slot_updates;
+            parts.push(Command::Batch(cmds));
+            WriterCommand { cmd: Command::Batch(expanded), parts }
+        }
+        other => {
+            let mut slot_updates = Vec::new();
+            let mut parts = Vec::with_capacity(2);
+            append_slot_marked_single(doc, other, &mut marked, &mut slot_updates, &mut parts);
+            if parts.len() == 1 {
+                let single = parts.pop().unwrap();
+                WriterCommand::single(single)
+            } else {
+                WriterCommand { cmd: Command::Batch(parts.clone()), parts }
+            }
+        }
+    }
+}
+
+fn append_slot_marked_single(doc: &Document, cmd: Command, marked: &mut BTreeSet<NodeId>, slot_updates: &mut Vec<Command>, out: &mut Vec<Command>) {
+    match cmd {
+        Command::Insert { ref parent, .. } => {
+            maybe_mark_slot(doc, *parent, marked, slot_updates, out);
+            out.push(cmd);
+        }
+        Command::Reparent { ref id, ref parent, .. } => {
+            if let Some(src_parent) = doc.get(*id).and_then(|n| n.parent) {
+                maybe_mark_slot(doc, src_parent, marked, slot_updates, out);
+            }
+            maybe_mark_slot(doc, *parent, marked, slot_updates, out);
+            out.push(cmd);
+        }
+        Command::Remove { ref id } => {
+            if let Some(parent) = doc.get(*id).and_then(|n| n.parent) {
+                maybe_mark_slot(doc, parent, marked, slot_updates, out);
+            }
+            out.push(cmd);
+        }
+        Command::Update { ref node } => {
+            if node.component.overrides.contains(&OverrideField::SlotContent) {
+                marked.insert(node.id);
+            }
+            out.push(cmd);
+        }
+        Command::Batch(cmds) => {
+            for sub in cmds {
+                append_slot_marked_single(doc, sub, marked, slot_updates, out);
+            }
+        }
+        other => out.push(other),
+    }
+}
+
+fn maybe_mark_slot(doc: &Document, slot_id: NodeId, marked: &mut BTreeSet<NodeId>, slot_updates: &mut Vec<Command>, out: &mut Vec<Command>) {
+    if marked.contains(&slot_id) || !is_instance_slot(doc, slot_id) {
+        return;
+    }
+    let Some(slot) = doc.get(slot_id) else { return };
+    if slot.component.overrides.contains(&OverrideField::SlotContent) {
+        marked.insert(slot_id);
+        return;
+    }
+    marked.insert(slot_id);
+    let mut updated = Node { children: Vec::new(), ..slot.clone() };
+    updated.component.overrides.insert(OverrideField::SlotContent);
+    let update = Command::Update { node: Box::new(updated) };
+    slot_updates.push(update.clone());
+    out.push(update);
 }
 
 /// Direction-flip normalization (#583): when a `Command::Update` changes a frame's auto-layout
@@ -83,7 +170,9 @@ fn direction_flip_step(doc: &Document, cmd: Command) -> WriterCommand {
 mod tests {
     use super::*;
     use crate::{
-        create_instance, instances_of, sync_instances, AlignSelf, AutoLayout, FrameProps, History, LayoutDirection, NodeId, NodeKind, Rect, Sizing, Vec2,
+        convert_to_slot, create_instance, instances_of,
+        live_patch::{replay_live_patch, LiveOp, LivePatch, LivePatchState, SiblingHint},
+        sync_instances, AlignSelf, AutoLayout, FrameProps, History, LayoutDirection, NodeId, NodeKind, Rect, Sizing, Vec2,
     };
 
     /// Builds a document with an unsolved horizontal auto-layout frame (200x120) and one child
@@ -343,5 +432,157 @@ mod tests {
             Command::Update { node } => assert_eq!(node.id, fid),
             other => panic!("expected single Command::Update when no child needed normalization, got {other:?}"),
         }
+    }
+
+    /// Builds a document with a `Card` component containing a `BodySlot` slot container (and an
+    /// optional default child inside `BodySlot`), plus one instance of `Card`.
+    fn component_with_instance_slot(with_default_child: bool) -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("slots");
+        let page = doc.add_page("Page");
+        let comp = doc.alloc_id();
+        let mut comp_node = Node::new(comp, NodeKind::Component(FrameProps::default()));
+        comp_node.name = "Card".into();
+        comp_node.size = Vec2::new(200.0, 120.0);
+        doc.insert(page, comp_node).unwrap();
+
+        let main_slot = doc.alloc_id();
+        let mut slot_frame = Node::frame(main_slot, Rect::new(10.0, 10.0, 180.0, 100.0));
+        slot_frame.name = "BodySlot".into();
+        doc.insert(comp, slot_frame).unwrap();
+
+        if with_default_child {
+            let def_child = doc.alloc_id();
+            let mut dc = Node::rectangle(def_child, Rect::new(0.0, 0.0, 40.0, 20.0));
+            dc.name = "DefaultItem".into();
+            doc.insert(main_slot, dc).unwrap();
+        }
+
+        convert_to_slot(&mut doc, main_slot).apply(&mut doc).unwrap();
+
+        create_instance(&mut doc, comp, page, Vec2::new(240.0, 0.0)).apply(&mut doc).unwrap();
+        let inst = instances_of(&doc, comp)[0];
+        let inst_slot = doc.get(inst).unwrap().children[0];
+        assert!(is_instance_slot(&doc, inst_slot));
+        assert!(!doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+
+        (doc, comp, main_slot, inst, inst_slot)
+    }
+
+    #[test]
+    fn live_patch_insert_is_marked_in_studio() {
+        let (mut doc, comp, _main_slot, _inst, inst_slot) = component_with_instance_slot(true);
+        let default_mirror = doc.get(inst_slot).unwrap().children[0];
+
+        // 1. Replay a standalone LiveOp::Insert into the instance slot (without a preceding LiveOp::Update).
+        let custom_id = doc.alloc_id();
+        let mut custom = Node::rectangle(custom_id, Rect::new(0.0, 0.0, 60.0, 24.0));
+        custom.name = "CustomBadge".into();
+        let patch = LivePatch::new(vec![LiveOp::Insert { parent: inst_slot, at: SiblingHint::default(), nodes: vec![custom] }]);
+        let report = replay_live_patch(&mut doc, &patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+        assert!(doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+
+        // Main component edit + sync_instances must keep CustomBadge in the slot.
+        doc.get_mut(comp).unwrap().size.x = 260.0;
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert!(doc.get(inst_slot).unwrap().children.contains(&custom_id));
+
+        // 2. Replay a LiveOp::Remove of a default mirror child on a fresh unmarked instance slot.
+        let (mut doc_rem, comp_rem, _, _, inst_slot_rem) = component_with_instance_slot(true);
+        let mirror_child = doc_rem.get(inst_slot_rem).unwrap().children[0];
+        let rem_patch = LivePatch::new(vec![LiveOp::Remove { id: mirror_child }]);
+        replay_live_patch(&mut doc_rem, &rem_patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(doc_rem.get(inst_slot_rem).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+        sync_instances(&mut doc_rem, comp_rem).apply(&mut doc_rem).unwrap();
+        assert!(doc_rem.get(inst_slot_rem).unwrap().children.is_empty(), "removed default mirror must stay deleted after sync");
+
+        // 3. Replay a LiveOp::Reparent moving a node out of one unmarked instance slot into another.
+        let (mut doc_rep, _comp_rep, _, _, inst_slot_a) = component_with_instance_slot(true);
+        let page = doc_rep.pages[0];
+        let comp_id = doc_rep.get(inst_slot_a).unwrap().component.source.and_then(|s| doc_rep.get(s)).and_then(|n| n.parent).unwrap();
+        create_instance(&mut doc_rep, comp_id, page, Vec2::new(500.0, 0.0)).apply(&mut doc_rep).unwrap();
+        let inst_b = instances_of(&doc_rep, comp_id)[1];
+        let inst_slot_b = doc_rep.get(inst_b).unwrap().children[0];
+        let moving_child = doc_rep.get(inst_slot_a).unwrap().children[0];
+        assert_eq!(moving_child, default_mirror);
+        let rep_patch = LivePatch::new(vec![LiveOp::Reparent { id: moving_child, parent: inst_slot_b, at: SiblingHint::default() }]);
+        replay_live_patch(&mut doc_rep, &rep_patch, &mut LivePatchState::default(), &mut |d, c| c.apply(d).map(|_| ())).unwrap();
+        assert!(doc_rep.get(inst_slot_a).unwrap().component.overrides.contains(&OverrideField::SlotContent), "source slot marked");
+        assert!(doc_rep.get(inst_slot_b).unwrap().component.overrides.contains(&OverrideField::SlotContent), "destination slot marked");
+    }
+
+    #[test]
+    fn undo_of_marked_insert_clears_the_mark() {
+        let (mut doc, _comp, _main_slot, _inst, inst_slot) = component_with_instance_slot(false);
+        let mut hist = History::default();
+
+        let cid = doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 50.0, 20.0));
+        child.name = "Inserted".into();
+
+        let w = writer_command(&doc, Command::Insert { parent: inst_slot, index: 0, nodes: vec![child] });
+        assert_eq!(w.parts.len(), 2, "expected slot Update + Insert");
+        hist.exec(&mut doc, w.cmd).unwrap();
+
+        assert_eq!(doc.get(inst_slot).unwrap().children, vec![cid]);
+        assert!(doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+        assert_eq!(hist.undo_depth(), 1, "mark + insert must be a single undo step");
+
+        assert!(hist.undo(&mut doc).unwrap());
+        assert!(doc.get(inst_slot).unwrap().children.is_empty());
+        assert!(!doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent), "undo must clear SlotContent mark");
+
+        assert!(hist.redo(&mut doc).unwrap());
+        assert_eq!(doc.get(inst_slot).unwrap().children, vec![cid]);
+        assert!(doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent), "redo must restore SlotContent mark");
+    }
+
+    #[test]
+    fn idempotent_second_insert() {
+        let (mut doc, _comp, _main_slot, _inst, inst_slot) = component_with_instance_slot(false);
+
+        let c1 = doc.alloc_id();
+        let n1 = Node::rectangle(c1, Rect::new(0.0, 0.0, 30.0, 20.0));
+        let c2 = doc.alloc_id();
+        let n2 = Node::rectangle(c2, Rect::new(0.0, 30.0, 30.0, 20.0));
+
+        // Two inserts in one batch -> only one Update on the slot.
+        let batch = Command::Batch(vec![
+            Command::Insert { parent: inst_slot, index: 0, nodes: vec![n1] },
+            Command::Insert { parent: inst_slot, index: 1, nodes: vec![n2] },
+        ]);
+        let w = writer_command(&doc, batch);
+        let update_count = w.parts.iter().filter(|c| matches!(c, Command::Update { node } if node.id == inst_slot)).count();
+        assert_eq!(update_count, 1, "two inserts in one batch must emit only one slot Update");
+        assert_eq!(w.parts.len(), 2, "parts must hold the slot Update followed by Command::Batch(original sub-commands)");
+        assert!(matches!(&w.parts[1], Command::Batch(sub) if sub.len() == 2));
+        assert!(matches!(&w.cmd, Command::Batch(all) if all.len() == 3));
+        w.cmd.apply(&mut doc).unwrap();
+
+        // A subsequent insert into the already-marked slot emits no Update at all.
+        let c3 = doc.alloc_id();
+        let n3 = Node::rectangle(c3, Rect::new(0.0, 60.0, 30.0, 20.0));
+        let w2 = writer_command(&doc, Command::Insert { parent: inst_slot, index: 2, nodes: vec![n3] });
+        assert_eq!(w2.parts.len(), 1, "already-marked slot must not emit another Update");
+        assert!(matches!(w2.cmd, Command::Insert { .. }));
+    }
+
+    #[test]
+    fn sync_does_not_mark() {
+        let (mut doc, comp, main_slot, _inst, inst_slot) = component_with_instance_slot(false);
+
+        // Inserting into the main component's own slot container must NOT mark the main slot.
+        let main_child = doc.alloc_id();
+        let mut mc = Node::rectangle(main_child, Rect::new(0.0, 0.0, 40.0, 20.0));
+        mc.name = "MainDefault".into();
+        let w_main = writer_command(&doc, Command::Insert { parent: main_slot, index: 0, nodes: vec![mc] });
+        assert_eq!(w_main.parts.len(), 1, "main-component slot is not an instance slot and must not be marked");
+        w_main.cmd.apply(&mut doc).unwrap();
+        assert!(!doc.get(main_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent));
+
+        // Running sync_instances copies the new default child into the instance slot without marking SlotContent.
+        sync_instances(&mut doc, comp).apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst_slot).unwrap().children.len(), 1);
+        assert!(!doc.get(inst_slot).unwrap().component.overrides.contains(&OverrideField::SlotContent), "sync_instances must not mark SlotContent");
     }
 }

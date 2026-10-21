@@ -424,8 +424,7 @@ impl App {
     /// Records on an instance slot that its content now differs from the main component, so a
     /// later main-component sync leaves the content alone. Call it only after the edit happened.
     pub(crate) fn mark_slot_content_override(doc: &mut Document, ed: &mut Edit, parent: NodeId) {
-        let is_inst_slot = is_slot_container(doc, parent) && (doc.get(parent).is_some_and(is_linked) || instance_root_of(doc, parent).is_some());
-        if is_inst_slot {
+        if is_instance_slot(doc, parent) {
             if let Some(sn) = ed.node(doc, parent) {
                 sn.component.overrides.insert(OverrideField::SlotContent);
             }

@@ -249,7 +249,7 @@
   },
   {
     "name": "designos_create_node",
-    "description": "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved.",
+    "description": "Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -435,7 +435,7 @@
   },
   {
     "name": "designos_delete_node",
-    "description": "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved.",
+    "description": "Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -620,7 +620,7 @@
   },
   {
     "name": "designos_apply_spec",
-    "description": "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN).\n\nExamples:\n1) Token-bound frame with auto-layout:\n{\"parent_id\":1,\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"layout\":{\"direction\":\"column\",\"gap\":16,\"padding\":[24,24,24,24]},\"fill\":\"var:Color/Surface\",\"children\":[{\"kind\":\"text\",\"name\":\"Title\",\"text\":\"Welcome\"}]}}\n2) Component instance with variant and overrides:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"PrimaryCTA\",\"component\":\"Button\",\"variant\":{\"Size\":\"lg\",\"State\":\"default\"},\"overrides\":[{\"path\":\"Label\",\"text\":\"Continue\"}]}}\n3) Component instance with filled slots:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"SettingsCard\",\"component\":\"Card\",\"slots\":{\"header\":[{\"kind\":\"instance\",\"component\":\"CardHeader\"}],\"body\":[{\"kind\":\"instance\",\"component\":\"FormRow\"}],\"footer\":false}}}",
+    "description": "Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.\n\nExamples:\n1) Token-bound frame with auto-layout:\n{\"parent_id\":1,\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"layout\":{\"direction\":\"column\",\"gap\":16,\"padding\":[24,24,24,24]},\"fill\":\"var:Color/Surface\",\"children\":[{\"kind\":\"text\",\"name\":\"Title\",\"text\":\"Welcome\"}]}}\n2) Component instance with variant and overrides:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"PrimaryCTA\",\"component\":\"Button\",\"variant\":{\"Size\":\"lg\",\"State\":\"default\"},\"overrides\":[{\"path\":\"Label\",\"text\":\"Continue\"}]}}\n3) Component instance with filled slots:\n{\"parent_id\":1,\"spec\":{\"kind\":\"instance\",\"name\":\"SettingsCard\",\"component\":\"Card\",\"slots\":{\"header\":[{\"kind\":\"instance\",\"component\":\"CardHeader\"}],\"body\":[{\"kind\":\"instance\",\"component\":\"FormRow\"}],\"footer\":false}}}",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

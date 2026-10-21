@@ -2168,7 +2168,7 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
     let mut has_text = false;
     for (k, val) in obj {
         match k.as_str() {
-            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" => {
+            "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
             }
             "mask" => {

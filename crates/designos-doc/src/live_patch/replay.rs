@@ -235,7 +235,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             report.needs_layout.extend(node.parent);
             report.needs_layout.extend([parent, id]);
             report.touched.push((id, TouchKind::Moved));
-            Some(Command::Reparent { id, parent, index })
+            Some(crate::writer_command(doc, Command::Reparent { id, parent, index }).cmd)
         }
         LiveOp::Remove { id } => {
             let id = state.target(doc, *id);
@@ -250,7 +250,7 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             report.needs_layout.push(parent);
             report.removed_parents.insert(id, parent);
             report.touched.push((id, TouchKind::Removed));
-            Some(Command::Remove { id })
+            Some(crate::writer_command(doc, Command::Remove { id }).cmd)
         }
         LiveOp::Variables { collections, variables, removed_collections, removed_variables } => {
             resolve_variables(doc, collections, variables, removed_collections, removed_variables, is_spec_undo, state, report)
@@ -568,7 +568,7 @@ fn resolve_insert(
     report.inserted_roots.push(nodes[0].id);
     report.touched.push((nodes[0].id, TouchKind::Inserted));
     report.needs_layout.push(parent);
-    Some(Command::Insert { parent, index, nodes })
+    Some(crate::writer_command(doc, Command::Insert { parent, index, nodes }).cmd)
 }
 
 /// `cur` with the changed top-level fields of `set` / `unset` applied; structure is kept.
@@ -582,6 +582,57 @@ fn merge_fields(cur: &Node, set: &Map<String, Value>, unset: &[String]) -> Resul
                 if let (Some(Value::Object(cur_lc)), Value::Object(set_lc)) = (fields.get_mut("layout_child"), v) {
                     for (sub_k, sub_v) in set_lc {
                         cur_lc.insert(sub_k.clone(), sub_v.clone());
+                    }
+                    continue;
+                }
+            }
+            if k == "component" {
+                if let Value::Object(set_comp) = v {
+                    let cur_comp = match fields.entry("component".to_string()).or_insert_with(|| Value::Object(Map::new())) {
+                        Value::Object(m) => m,
+                        other => {
+                            *other = Value::Object(Map::new());
+                            other.as_object_mut().unwrap()
+                        }
+                    };
+                    for (sub_k, sub_v) in set_comp {
+                        if sub_k == "overrides_add" {
+                            if let Value::Array(add_ovs) = sub_v {
+                                let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                for ov in add_ovs {
+                                    if !merged_ovs.contains(ov) {
+                                        merged_ovs.push(ov.clone());
+                                    }
+                                }
+                                cur_comp.insert("overrides".to_string(), Value::Array(merged_ovs));
+                            }
+                            continue;
+                        }
+                        if sub_k == "overrides_remove" {
+                            if let Value::Array(rem_ovs) = sub_v {
+                                let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                merged_ovs.retain(|ov| !rem_ovs.contains(ov));
+                                cur_comp.insert("overrides".to_string(), Value::Array(merged_ovs));
+                            }
+                            continue;
+                        }
+                        if sub_k == "overrides" {
+                            if let Value::Array(set_ovs) = sub_v {
+                                if set_ovs.is_empty() {
+                                    cur_comp.insert(sub_k.clone(), Value::Array(Vec::new()));
+                                } else {
+                                    let mut merged_ovs = cur_comp.get("overrides").and_then(Value::as_array).cloned().unwrap_or_default();
+                                    for ov in set_ovs {
+                                        if !merged_ovs.contains(ov) {
+                                            merged_ovs.push(ov.clone());
+                                        }
+                                    }
+                                    cur_comp.insert(sub_k.clone(), Value::Array(merged_ovs));
+                                }
+                                continue;
+                            }
+                        }
+                        cur_comp.insert(sub_k.clone(), sub_v.clone());
                     }
                     continue;
                 }
