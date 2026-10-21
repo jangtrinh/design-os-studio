@@ -1866,7 +1866,7 @@ mod tests {
         check("lint scope", s.call("designos_lint", json!({"page_id": page.0, "node_ids": [frame]})).unwrap_err(), ErrorCode::ExactlyOneScope, None);
         check("lint cursor", s.call("designos_lint", json!({"cursor": "bogus"})).unwrap_err(), ErrorCode::InvalidCursor, None);
         check("guidelines unknown", s.call("designos_get_guidelines", json!({"topic": "nope"})).unwrap_err(), ErrorCode::UnknownTopic, Some("design-system"));
-        check("guidelines unavailable", s.call("designos_get_guidelines", json!({"topic": "rules"})).unwrap_err(), ErrorCode::TopicNotAvailable, None);
+        check("guidelines unavailable", s.call("designos_get_guidelines", json!({"topic": "web-app"})).unwrap_err(), ErrorCode::TopicNotAvailable, None);
         check(
             "search property",
             s.call("designos_search_design_system", json!({"query": "x", "property": "nope"})).unwrap_err(),
@@ -2447,7 +2447,7 @@ mod tests {
         record(s.call("designos_lint", json!({"page_id": tok_page.0, "node_ids": [rect_id]})).unwrap_err(), ErrorCode::ExactlyOneScope, true);
         record(s.call("designos_lint", json!({"cursor": "bogus"})).unwrap_err(), ErrorCode::InvalidCursor, true);
         record(s.call("designos_get_guidelines", json!({"topic": "nope"})).unwrap_err(), ErrorCode::UnknownTopic, true);
-        record(s.call("designos_get_guidelines", json!({"topic": "rules"})).unwrap_err(), ErrorCode::TopicNotAvailable, true);
+        record(s.call("designos_get_guidelines", json!({"topic": "web-app"})).unwrap_err(), ErrorCode::TopicNotAvailable, true);
         record(s.call("designos_search_design_system", json!({"query": "x", "property": "nope"})).unwrap_err(), ErrorCode::UnknownPropertyKey, true);
         record(s.call("designos_get_screenshot", json!({})).unwrap_err(), ErrorCode::ExactlyOneTarget, true);
         record(

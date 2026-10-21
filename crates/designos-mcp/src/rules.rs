@@ -482,6 +482,9 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         ],
         "designos_export_spec" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
         "designos_set_dev_status" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
+        "designos_set_in_progress" => {
+            &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`IN_PROGRESS_TARGET_NOT_ROOT`", "`NODE_IN_PROGRESS_BY_OTHER_RUN`", "`TOOL_DISABLED`"]
+        }
         "designos_export_fig_file" => &["`INVALID_ARGUMENTS`", "`PATH_OUTSIDE_WORKSPACE`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"],
         "designos_query_xpath" => &["`INVALID_ARGUMENTS`", "`INVALID_SELECTOR`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
         "designos_lint" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
@@ -530,6 +533,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         }
         "designos_export_spec" => r#"{"node_id":2}"#,
         "designos_set_dev_status" => r#"{"node_id":2,"status":"ready","annotation":"Semantic tokens"}"#,
+        "designos_set_in_progress" => r#"{"node_ids":[2],"value":true}"#,
         "designos_export_fig_file" => r#"{"output_path":"handoff.fig"}"#,
         "designos_query_xpath" => r#"{"selector":"//FRAME[@name='Metric Card']"}"#,
         "designos_lint" => r#"{"preset":"agent","limit":100}"#,
@@ -695,6 +699,7 @@ pub fn format_session_skill_md(
     spec: &Path,
     doc_sync: &Path,
     doc_patch: &Path,
+    selection: &Path,
     rules_body: &str,
 ) -> String {
     format!(
@@ -712,13 +717,16 @@ pub fn format_session_skill_md(
          - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio in order, with a mark wherever you open another document)\n\n\
          ## Automatic Current-Page Delivery Rules\n\
          1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
-         2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\n\
+         2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\
+         3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n\
+         4. Prompts with `@`-mentions include a `References:` footer mapping each `@<label>` to `designos:node/<u64>` (resolve with `designos_get_node` or `designos_export_spec`), `designos:variable/<id>` (resolve with `designos_get_variables`), or `designos:style/<key>` (resolve from `styles` / `style_meta` in `designos_get_document`).\n\n\
          {rules_body}",
         canvas = canvas.display(),
         ctx = ctx.display(),
         spec = spec.display(),
         doc_sync = doc_sync.display(),
         doc_patch = doc_patch.display(),
+        sel = selection.display(),
         rules_body = rules_body.trim_start(),
     )
 }
@@ -851,7 +859,10 @@ mod tests {
 
     #[test]
     fn purpose_summary_never_ends_inside_a_token() {
-        let desc = format!("Create one node with {} and keep going until the limit is passed for sure. Second sentence.", "`$easeui.bg.panel`-style tokens ".repeat(8));
+        let desc = format!(
+            "Create one node with {} and keep going until the limit is passed for sure. Second sentence.",
+            "`$easeui.bg.panel`-style tokens ".repeat(8)
+        );
         let purpose = purpose_summary(&desc);
         assert!(purpose.ends_with("..."), "{purpose}");
         assert!(purpose.chars().count() <= MAX_PURPOSE_CHARS, "{purpose}");
@@ -901,11 +912,16 @@ mod tests {
             Path::new("/tmp/spec.json"),
             Path::new("/tmp/doc-sync.json"),
             Path::new("/tmp/doc-patch.jsonl"),
+            Path::new("/tmp/selection.json"),
             GENERATED_RULES_MD,
         );
         assert!(
             session_skill.contains("# DESIGN:OS Studio — Per-File & Current-Page Live Agent Bridge"),
             "session SKILL.md must contain the dynamic session header"
+        );
+        assert!(
+            session_skill.contains("/tmp/selection.json") && session_skill.contains("`References:` footer"),
+            "session SKILL.md must keep the selection and @-mention delivery rules"
         );
         assert!(
             session_skill.ends_with(GENERATED_RULES_MD.trim_start()),

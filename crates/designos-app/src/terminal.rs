@@ -65,7 +65,7 @@ macro_rules! codex_mcp_overrides {
         concat!(
             " -c 'mcp_servers.designos.command=\"'\"$DESIGNOS_MCP_BIN\"'\"'",
             " -c 'mcp_servers.designos.args=[\"--workspace\",\"'\"$DESIGNOS_WORKSPACE\"'\"]'",
-            " -c 'mcp_servers.designos.env_vars=[\"DESIGNOS_SESSION_DIR\",\"DESIGNOS_LIVE_CANVAS\",\"DESIGNOS_LIVE_DOC_SYNC\",",
+            " -c 'mcp_servers.designos.env_vars=[\"DESIGNOS_SESSION_DIR\",\"DESIGNOS_MCP_CONFIG\",\"DESIGNOS_LIVE_CANVAS\",\"DESIGNOS_LIVE_DOC_SYNC\",",
             "\"DESIGNOS_LIVE_DOC_PATCH\",\"DESIGNOS_LIVE_SPEC\",\"DESIGNOS_CONTEXT_JSON\",\"DESIGNOS_TARGET_PAGE_ID\",",
             "\"DESIGNOS_TARGET_PAGE_NAME\",\"DESIGNOS_DOC_NAME\",\"DESIGNOS_FILE\",\"DESIGNOS_AGENT_RUN_ID\",",
             "\"DESIGNOS_AGENT_RUNTIME\",\"DESIGNOS_IN_PROGRESS_STALE_MINUTES\"]'"
@@ -1685,14 +1685,30 @@ impl TerminalState {
     fn provision_session_agent_files(&self, file_path: Option<&Path>) {
         let mcp_bin = designos_mcp_binary();
         let workspace_dir = session_workspace_dir(file_path);
+        let mcp_config_path = self.session_dir.join("mcp-config.json");
+
+        // `designos.enabled_tools` lists every tool by default; a user-edited list survives each page or selection sync.
+        static DEFAULT_ENABLED_TOOLS: std::sync::OnceLock<Vec<serde_json::Value>> = std::sync::OnceLock::new();
+        let default_tools =
+            DEFAULT_ENABLED_TOOLS.get_or_init(|| designos_mcp::server::tools().into_iter().map(|t| serde_json::Value::String(t.name.into_owned())).collect());
+        let custom_enabled_tools = std::fs::read_to_string(&mcp_config_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|val| val.get("designos").and_then(|d| d.get("enabled_tools")).and_then(|v| v.as_array()).cloned())
+            .filter(|arr| arr != default_tools);
+        let preserved_enabled_tools = custom_enabled_tools.as_deref().unwrap_or(default_tools.as_slice());
 
         let mcp_config = serde_json::json!({
+            "designos": {
+                "enabled_tools": preserved_enabled_tools
+            },
             "mcpServers": {
                 "designos": {
                     "command": mcp_bin.display().to_string(),
                     "args": ["--workspace", workspace_dir.display().to_string()],
                     "env": {
                         "DESIGNOS_SESSION_DIR": self.session_dir.display().to_string(),
+                        "DESIGNOS_MCP_CONFIG": mcp_config_path.display().to_string(),
                         "DESIGNOS_AGENT_RUN_ID": self.active_run_id,
                         "DESIGNOS_AGENT_RUNTIME": self.active_mcp_runtime_name(),
                         "DESIGNOS_IN_PROGRESS_STALE_MINUTES": designos_doc::in_progress_stale_minutes().to_string(),
@@ -1709,10 +1725,10 @@ impl TerminalState {
                 }
             }
         });
-        let mcp_config_path = self.session_dir.join("mcp-config.json");
-        if let Ok(bytes) = serde_json::to_vec_pretty(&mcp_config) {
-            let _ = atomic_write_session_file(&mcp_config_path, &bytes);
-            write_agy_session_plugin(&self.session_dir, &bytes);
+        let mcp_config_bytes = serde_json::to_vec_pretty(&mcp_config).ok();
+        if let Some(bytes) = &mcp_config_bytes {
+            let _ = atomic_write_session_file(&mcp_config_path, bytes);
+            write_agy_session_plugin(&self.session_dir, bytes);
         }
         write_gemini_session_config(&self.session_dir, &mcp_config);
         write_grok_session_config(&self.session_dir, &mcp_config);
@@ -1749,34 +1765,28 @@ impl TerminalState {
             let _ = atomic_write_session_file(&self.session_dir.join(".agents").join("hooks.json"), &bytes);
         }
 
-        let skill_md = format!(
-            "---\n\
-             name: designos-studio\n\
-             description: Live per-file canvas & current-page MCP bridge for DESIGN:OS Studio ({doc_name} · {page_name}).\n\
-             ---\n\n\
-             # DESIGN:OS Studio — Per-File & Current-Page Live Agent Bridge\n\n\
-             You are running inside the dedicated terminal for file **`{doc_name}`** (session `{session_id}`).\n\
-             - **Active File**: `{doc_name}` (`$DESIGNOS_LIVE_CANVAS` = `{canvas}`)\n\
-             - **Current Selected Page**: `{page_name}` (`NodeId({page_id})`, `$DESIGNOS_TARGET_PAGE_ID` = `{page_id}`)\n\
-             - **Live Context JSON**: `{ctx}` (`$DESIGNOS_CONTEXT_JSON`)\n\
-             - **Live Spec Drop Path**: `{spec}` (`$DESIGNOS_LIVE_SPEC`)\n\
-             - **Live Doc Sync Path**: `{doc_sync}` (`$DESIGNOS_LIVE_DOC_SYNC`)\n\
-             - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio in order, with a mark wherever you open another document)\n\n\
-             ## Automatic Current-Page Delivery Rules\n\
-             1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
-             2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\
-             3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n\
-             4. Prompts with `@`-mentions include a `References:` footer mapping each `@<label>` to `designos:node/<u64>` (resolve with `designos_get_node` or `designos_export_spec`), `designos:variable/<id>` (resolve with `designos_get_variables`), or `designos:style/<key>` (resolve from `styles` / `style_meta` in `designos_get_document`).\n",
-            doc_name = self.doc_name,
-            page_name = self.current_page_name,
-            session_id = self.session_id,
-            page_id = self.current_page_id,
-            canvas = self.live_canvas_path.display(),
-            ctx = self.context_json_path.display(),
-            spec = self.live_spec_path.display(),
-            doc_sync = self.live_doc_sync_path.display(),
-            doc_patch = self.live_patch.path.display(),
-            sel = self.selection_spec_path.display(),
+        // The session `SKILL.md` carries the rules pack for the tools this session enables.
+        let rules_body: std::borrow::Cow<'static, str> = match (&custom_enabled_tools, &mcp_config_bytes) {
+            (Some(_), Some(bytes)) => {
+                let enabled_cfg = designos_mcp::rules::EnabledToolsConfig::from_mcp_config_json(&String::from_utf8_lossy(bytes));
+                designos_mcp::rules::generate_rules_pack(enabled_cfg.enabled.as_ref())
+                    .map(std::borrow::Cow::Owned)
+                    .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD))
+            }
+            _ => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
+        };
+        let skill_md = designos_mcp::rules::format_session_skill_md(
+            &self.doc_name,
+            &self.current_page_name,
+            &self.session_id,
+            self.current_page_id,
+            &self.live_canvas_path,
+            &self.context_json_path,
+            &self.live_spec_path,
+            &self.live_doc_sync_path,
+            &self.live_patch.path,
+            &self.selection_spec_path,
+            &rules_body,
         );
         let _ = atomic_write_session_file(&self.session_dir.join("SKILL.md"), skill_md.as_bytes());
         let _ = atomic_write_session_file(&self.session_dir.join(".claude/skills/designos-studio/SKILL.md"), skill_md.as_bytes());
@@ -6815,10 +6825,49 @@ Done!
         let mut doc = Document::new("Skill Layout File");
         let page = doc.add_page("Page 1");
         st.sync_live_file_context(&doc, page, &[], None);
-        for rel in [".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md", "AGENTS.md"] {
+        for rel in ["SKILL.md", ".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md", "AGENTS.md"] {
             let text = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
             assert!(text.contains("designos-studio") && text.contains("Skill Layout File"), "{rel}: {text}");
+            assert!(text.ends_with(designos_mcp::rules::GENERATED_RULES_MD.trim_start()), "{rel} must include the generated rules pack");
         }
+    }
+
+    #[test]
+    fn session_agent_files_preserve_enabled_tools_and_filter_skill_md() {
+        let mut st = TerminalState::for_tab(799);
+        let mut doc = Document::new("Enabled Tools Session File");
+        let page1 = doc.add_page("Page 1");
+        let page2 = doc.add_page("Page 2");
+        st.sync_live_file_context(&doc, page1, &[], None);
+
+        let mcp_cfg_path = st.session_dir.join("mcp-config.json");
+        let initial_cfg = read_json(&mcp_cfg_path);
+        let default_tools = initial_cfg["designos"]["enabled_tools"].as_array().expect("designos.enabled_tools populated by default");
+        assert_eq!(default_tools.len(), designos_mcp::server::tools().len());
+        assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(mcp_cfg_path.display().to_string().as_str()));
+
+        // A restricted tool list written into mcp-config.json survives the next page sync.
+        let mut custom_cfg = initial_cfg.clone();
+        custom_cfg["designos"]["enabled_tools"] = serde_json::json!(["designos_get_document", "designos_list_nodes"]);
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&custom_cfg).unwrap()).unwrap();
+
+        st.sync_live_file_context(&doc, page2, &[], None);
+
+        let after_cfg = read_json(&mcp_cfg_path);
+        assert_eq!(
+            after_cfg["designos"]["enabled_tools"],
+            serde_json::json!(["designos_get_document", "designos_list_nodes"]),
+            "provision_session_agent_files must preserve configured designos.enabled_tools"
+        );
+
+        for rel in ["SKILL.md", "AGENTS.md", ".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md"] {
+            let content = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));
+            assert!(content.contains("Mode: read-only"), "{rel} must reflect read-only enabled_tools filter");
+            assert!(content.contains("### `designos_get_document`"), "{rel} must include enabled tool");
+            assert!(!content.contains("### `designos_create_node`"), "{rel} must omit disabled tool section");
+            assert!(!content.contains("### `designos_render_png`"), "{rel} must omit disabled render_png section");
+        }
+        let _ = std::fs::remove_dir_all(&st.session_dir);
     }
 
     fn read_json(path: &std::path::Path) -> serde_json::Value {

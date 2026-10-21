@@ -181,8 +181,8 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 ### `designos_set_in_progress`
 - **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not an undo step).
 - **Args:** required: `node_ids`, `value` (optional: `force`, `idempotency_key`, `stale_after_s`)
-- **Errors:** `INVALID_ARGUMENTS`
-- **Example:** `{}`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `IN_PROGRESS_TARGET_NOT_ROOT`, `NODE_IN_PROGRESS_BY_OTHER_RUN`
+- **Example:** `{"node_ids":[2],"value":true}`
 
 ### `designos_apply_batch`
 - **Purpose:** Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot,...
