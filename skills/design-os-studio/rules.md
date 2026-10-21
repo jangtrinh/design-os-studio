@@ -2,14 +2,14 @@
 
 ## Build-Verify-Fix Workflow
 
-Follow this 7-step loop on every design task in DESIGN:OS Studio:
+Follow this 7-step loop on every design task:
 
 1. **Orient (Read first)** — Use session bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
-2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or surface guides `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new top-level frames beside existing frames on the active page — never stack at `(0, 0)`.
+2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or surface guides `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new top-level frames beside existing frames — never stack at `(0, 0)`.
 
-3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances (`kind: "instance"`), tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
-4. **Verify (`issues` + screenshot)** — Check the per-call `issues` block (`issues: {total, new_in_this_call, items}`) first; then inspect a screenshot of the finished section: Call `designos_render_png` on the finished frame (default scale, long edge <= 1024) or use `diff_image` and inspect the PNG for visual hierarchy, alignment, clipping, and contrast.
-5. **Fix in place** — Fix findings in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild a section to fix it.
+3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
+4. **Verify (`issues` + screenshot)** — Check the per-call `issues` block (`issues: {total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (default scale, long edge <= 1024) or use `diff_image`, and inspect the PNG for visual hierarchy, alignment, clipping, and contrast.
+5. **Fix in place** — Fix findings in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild a section.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress` with `node_ids: [root]`, `value: false`) when done, and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`) to resolve remaining errors.
 
 7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
@@ -355,5 +355,5 @@ Enforce these qualitative standards alongside automated linting:
 - **Layout rhythm & cards**: Do not wrap every group in a card, and never nest cards inside cards. Avoid a uniform grid of identical cards when a domain-specific layout fits. Use the file's type scale and spacing scale (`var:` / `style:` tokens), with <= 3 gap values per screen and padding increasing with hierarchy (`page >= section >= card >= control`).
 - **Surface & colour discipline**: Keep gradients, shadows, and corner radii restrained and consistent with tokens. Use one primary accent per screen, reserve red/amber/green for semantic status, and express dark-mode depth via surface luminance and subtle borders.
 - **Icons, logos & illustrations**: Never hand-draw logos, illustrations, or icons with vector paths — instantiate library components (`kind: "instance"`) or use a labelled placeholder frame.
-- **Typography**: Use the file's type scale and spacing scale (<= 2 font families, <= 4 font sizes per screen). Keep body line length 45–75 chars, and use `tabular-nums` for prices, metrics, timestamps, and tables.
+- **Typography**: Use the file's type scale (<= 2 font families, <= 4 font sizes per screen). Keep body line length 45–75 chars, and use `tabular-nums` for prices, metrics, timestamps, and tables.
 - **Content realism**: Use real content, never lorem ipsum (`placeholder-text` flags `"Lorem ipsum"`, `"Card 1 / Card 2 / Card 3"`, `"John Doe"`, `"$99.99"`, `"123456"`). Populate screens with domain-specific labels, realistic uneven numbers, and varied states.

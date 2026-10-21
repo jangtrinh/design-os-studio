@@ -794,9 +794,12 @@ mod tests {
 
         let pack = generate_rules_pack(Some(&enabled)).expect("generate filtered rules pack");
         assert!(!pack.contains("### `designos_render_png`"), "disabled tool section must be omitted from the generated rules pack");
-        assert!(!pack.contains("Call `designos_render_png` on the finished frame"), "workflow step referencing disabled designos_render_png must be omitted");
         assert!(
-            pack.contains("Inspect the frame hierarchy with `designos_get_node` for visual hierarchy, alignment, clipping, and contrast."),
+            !pack.contains("render the finished frame with `designos_render_png`"),
+            "workflow step referencing disabled designos_render_png must be omitted"
+        );
+        assert!(
+            pack.contains("inspect the frame hierarchy with `designos_get_node` for visual hierarchy, alignment, clipping, and contrast."),
             "fallback workflow instruction must be included when designos_render_png is disabled"
         );
         assert!(!pack.contains("{{tool:"), "no unresolved template markers may remain when a tool is disabled");

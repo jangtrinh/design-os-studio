@@ -2,10 +2,10 @@
 
 use crate::engine::parse;
 use crate::tools::errors::{ErrorCode, ToolError};
+use designos_doc::lint::LintEnv;
 use designos_doc::query::{
     run_with_env, QueryError, QueryFormat, QueryOptions, DEFAULT_LIMIT, DEFAULT_MAX_SCANNED, MAX_LIMIT, MAX_MAX_SCANNED, MIN_MAX_SCANNED,
 };
-use designos_doc::lint::LintEnv;
 use designos_doc::{Document, NodeId};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -44,7 +44,7 @@ pub fn tool_schema(id_schema: &Value) -> (Value, Vec<&'static str>) {
             "type": "string",
             "minLength": 1,
             "maxLength": 2048,
-            "description": "XPath-subset selector. Examples: //TEXT[has-problem('text-truncated')], //FRAME[@name='Card']//*[has-hardcoded('fills/0')], //*[@inProgress]."
+            "description": "XPath-subset selector; a bare word such as Card matches node names. Examples: //TEXT[has-problem('text-truncated')], //FRAME[@name='Card']//*[has-hardcoded('fills/0')], //*[@inProgress]."
         },
         "page_id": id_schema,
         "node_id": id_schema,
@@ -90,11 +90,9 @@ fn query_error(err: QueryError, scope_path: &str) -> ToolError {
             ToolError::new(ErrorCode::InvalidSelector, "/selector", message).with_corrected_example(json!({ "selector": corrected_example }))
         }
         QueryError::InvalidCursor { message } => ToolError::new(ErrorCode::InvalidCursor, "/cursor", message),
-        QueryError::CursorStale { cursor_epoch, document_epoch } => ToolError::new(
-            ErrorCode::CursorStale,
-            "/cursor",
-            format!("cursor revision {cursor_epoch} does not match document revision {document_epoch}"),
-        ),
+        QueryError::CursorStale { cursor_epoch, document_epoch } => {
+            ToolError::new(ErrorCode::CursorStale, "/cursor", format!("cursor revision {cursor_epoch} does not match document revision {document_epoch}"))
+        }
         QueryError::UnknownRule { rule } => ToolError::new(ErrorCode::UnknownRule, "/selector", format!("unknown lint rule '{rule}' in has-problem()"))
             .with_valid_options(designos_doc::lint::all_rule_ids()),
         QueryError::RuleUnavailable { rule, reason } => {

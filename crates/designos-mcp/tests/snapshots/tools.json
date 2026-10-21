@@ -851,7 +851,7 @@
           "type": "integer"
         },
         "selector": {
-          "description": "XPath-subset selector. Examples: //TEXT[has-problem('text-truncated')], //FRAME[@name='Card']//*[has-hardcoded('fills/0')], //*[@inProgress].",
+          "description": "XPath-subset selector; a bare word such as Card matches node names. Examples: //TEXT[has-problem('text-truncated')], //FRAME[@name='Card']//*[has-hardcoded('fills/0')], //*[@inProgress].",
           "maxLength": 2048,
           "minLength": 1,
           "type": "string"
