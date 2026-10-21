@@ -1797,6 +1797,7 @@ mod tests {
         // 3. Studio session provisions DESIGNOS_AGENT_RUN_ID (<session_id>-<tab>-<n>) and DESIGNOS_AGENT_RUNTIME in mcp-config.json and PTY env.
         let mut st = crate::terminal::TerminalState::for_tab(777);
         st.sync_live_file_context(&app.doc, page, &[], None);
+        st.flush_live_sync();
         let mcp_cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("mcp-config.json")).unwrap()).unwrap();
         let mcp_env = &mcp_cfg["mcpServers"]["designos"]["env"];
         let expected_prefix = format!("{}-", st.session_id);

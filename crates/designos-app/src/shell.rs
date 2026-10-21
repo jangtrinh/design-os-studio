@@ -1271,6 +1271,10 @@ impl Shell {
             crate::decks::ui::flush_notes(&mut self.app);
             self.app.save_close_version();
             self.app.flush_autosave();
+            self.app.terminal.shutdown();
+            for tab in &mut self.app.tabs.entries {
+                tab.terminal.shutdown();
+            }
         }
         self.app.scrub_sync(&ctx);
         if self.app.step_pending_relayout() {
