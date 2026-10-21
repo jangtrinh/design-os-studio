@@ -1551,6 +1551,104 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A window on a file opened from disk, with two earlier sessions in the file's path-keyed folder and a
+    /// Claude tab running there, then "Save to library as" (the tab stays up).
+    #[cfg(unix)]
+    struct SavedDiskFile {
+        dir: PathBuf,
+        lib_root: PathBuf,
+        key: String,
+        disk_dir: PathBuf,
+        earlier: [&'static str; 2],
+        app: App,
+    }
+
+    #[cfg(unix)]
+    fn disk_file_saved_to_library_with_a_running_tab(tag: &str) -> SavedDiskFile {
+        let dir = temp_test_dir(tag);
+        let lib_root = dir.join("lib");
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        let lib = Library::open(&lib_root).expect("open library");
+        let proj = lib.create_project("Test Project").expect("create project");
+
+        let mut doc = Document::new("On Disk");
+        doc.add_page("Page 1");
+        let disk_path = dir.join("foo.designos");
+        std::fs::write(&disk_path, doc.to_json().expect("serialize doc")).expect("write disk file");
+        let key = disk_file_session_key(&disk_path);
+        let disk_dir = stable_session_dir(&lib_root, &key);
+        let earlier = ["019a0102-0304-7506-8708-090a0b0c0d01", "019a0102-0304-7506-8708-090a0b0c0d02"];
+        let entry = |tab_id: u64, uuid: &str| SessionEntry {
+            tab_id,
+            title: format!("Claude CLI #{tab_id}"),
+            cli: "claude".to_string(),
+            session_id: Some(uuid.to_string()),
+            created_at: 100,
+            last_active_at: 200 + tab_id,
+            status: SessionEntryStatus::Exited,
+            extra: BTreeMap::new(),
+        };
+        std::fs::create_dir_all(&disk_dir).expect("create the disk file's session folder");
+        let registry = SessionRegistry { sessions: vec![entry(1, earlier[0]), entry(2, earlier[1])], ..SessionRegistry::default() };
+        save_registry(&disk_dir, &registry).expect("seed earlier sessions");
+
+        let mut app = App::new(doc);
+        app.lib = Some(lib);
+        app.file_path = Some(disk_path);
+        app.terminal.path_prepend.push(bin_dir);
+        let window = app.tabs.active_session_id();
+        app.bind_terminal_to_open_file(&window);
+        assert_eq!(app.terminal.session_dir, disk_dir, "precondition: the file opened from disk uses its path-keyed folder");
+        assert_eq!(app.terminal.session_registry.sessions.len(), 2, "precondition: the earlier sessions are loaded");
+        app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude on the disk file");
+
+        app.save_to_library_as(&proj.id, None, "Saved Copy");
+        assert!(app.lib_file.is_some(), "the document is a library file now");
+        SavedDiskFile { dir, lib_root, key, disk_dir, earlier, app }
+    }
+
+    /// A file opened from disk keeps its sessions in the folder keyed by its path. "Save to library" while an
+    /// agent runs on it must keep that folder locked: the running tab still works there, so a second window
+    /// must not take it over (two windows never share a folder).
+    #[cfg(unix)]
+    #[test]
+    fn save_to_library_as_with_a_tab_on_a_disk_file_keeps_that_files_lock() {
+        let mut saved = disk_file_saved_to_library_with_a_running_tab("save-disk-file-lock");
+        assert_eq!(saved.app.terminal.session_dir, saved.disk_dir, "the running tab keeps its folder");
+
+        let mut other_window = TerminalState::for_tab(2);
+        other_window.bind_library_file(&saved.lib_root, &saved.key, "p1-w2-tab-1");
+        assert_ne!(other_window.session_dir, saved.disk_dir, "a second window must not share the folder a tab still runs in");
+        other_window.shutdown();
+
+        saved.app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&saved.dir);
+    }
+
+    /// The registration of the next tab writes the registry to the terminal's folder: after the save that
+    /// must still be the disk file's registry, with its earlier sessions in it.
+    #[cfg(unix)]
+    #[test]
+    fn save_to_library_as_with_a_tab_on_a_disk_file_keeps_that_files_earlier_sessions() {
+        let mut saved = disk_file_saved_to_library_with_a_running_tab("save-disk-file-sessions");
+        saved.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("spawn a second claude after the save");
+
+        let on_disk = load_or_init_registry(&saved.disk_dir);
+        for earlier_id in saved.earlier {
+            assert!(
+                on_disk.sessions.iter().any(|e| e.session_id.as_deref() == Some(earlier_id)),
+                "the disk file lost its earlier session {earlier_id}; its registry now holds {:?}",
+                on_disk.sessions.iter().map(|e| e.session_id.clone()).collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(on_disk.sessions.len(), 4, "both new tabs are recorded next to the earlier sessions");
+
+        saved.app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&saved.dir);
+    }
+
     #[test]
     fn build_resume_command_rejects_non_uuid_session_id() {
         let mk = |cli: &str, session_id: Option<&str>| SessionEntry {

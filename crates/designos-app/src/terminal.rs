@@ -1811,11 +1811,18 @@ impl TerminalState {
     }
 
     /// Binds the document that was just saved into the library, keeping the agent tabs that already run on
-    /// it: they stay on their scratch folder (their `DESIGNOS_*` paths do not change) while the library
-    /// file's `session.lock` is taken and `sessions.json` is mirrored into its stable folder. The rebind
-    /// completes when the last tab closes. Opening or switching to another file uses
-    /// [`Self::bind_library_file`], which shuts the previous file's tabs down.
+    /// it. Tabs on an unsaved document run in a scratch folder (their `DESIGNOS_*` paths do not change): the
+    /// library file's `session.lock` is taken and `sessions.json` is mirrored into its stable folder, and the
+    /// rebind completes when the last tab closes. Tabs on a file that already has a stable folder (a library
+    /// file, or a file opened from disk) keep that folder, its lock and its registry as they are: the lock
+    /// would otherwise be freed under them, and the next registration would overwrite the folder's earlier
+    /// sessions with the saved file's. Opening or switching to another file uses [`Self::bind_library_file`],
+    /// which shuts the previous file's tabs down.
     pub fn bind_saved_library_file(&mut self, lib_root: &Path, file_id: &str, window_id: &str) {
+        if !self.tabs.is_empty() && !crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
+            self.library_root = Some(lib_root.to_path_buf());
+            return;
+        }
         self.bind_library_file_inner(lib_root, file_id, window_id, crate::agent_sessions::is_pid_alive, true);
     }
 
