@@ -242,6 +242,29 @@ class TestCheckVendorSkills(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertTrue(any(e.startswith("unknown-check-id:") for e in errors), errors)
 
+    def test_rule_order_does_not_depend_on_how_the_platform_sorts_paths(self) -> None:
+        """`rules.lock` lists rules in one order on every OS.
+
+        `WindowsPath` sorts case-insensitively, so a plain `sorted(rglob(...))` put `review-format.md` before
+        `SKILL.md` there and the regenerated lock drifted from the committed one (Windows CI only).
+        """
+
+        class CaseInsensitivePath(type(Path())):  # type: ignore[misc]
+            """A path whose ordering ignores case, as `WindowsPath`'s does."""
+
+            def __lt__(self, other: object) -> bool:
+                return [p.casefold() for p in self.parts] < [p.casefold() for p in other.parts]  # type: ignore[attr-defined]
+
+        upstream = REPO_ROOT / "skills" / "vendor" / "jakubkrehel-skills" / "upstream" / "skills"
+        case_sensitive_ids = [rid for rid, _ in cvs.extract_all_upstream_rules(upstream)]
+        case_insensitive_ids = [rid for rid, _ in cvs.extract_all_upstream_rules(CaseInsensitivePath(upstream))]
+        self.assertEqual(case_insensitive_ids, case_sensitive_ids)
+        self.assertLess(
+            case_sensitive_ids.index("better-interface/SKILL#1"),
+            case_sensitive_ids.index("better-interface/review-format#1"),
+            "upper-case names sort first, as in the committed rules.lock",
+        )
+
     def test_fail_before_when_vendor_folder_missing(self) -> None:
         """When `skills/vendor` does not exist, `verify` exits 2."""
         tmp = Path(tempfile.mkdtemp(prefix="dos-636-empty-"))

@@ -59,6 +59,24 @@ pub(crate) fn validate_fill_color(fill: Option<&str>) -> Result<Option<Paint>, T
     Ok(Some(Paint::solid(c)))
 }
 
+/// Sets the paints `node` is drawn with.
+///
+/// Every renderer reads a text node's colour from its text style (`style.fills`, and each run's), never from
+/// `Node::fills`, so a text node takes the paints there and keeps none of its own. This is the rule
+/// `designos_doc::apply_style_values` follows when a colour style is applied to text.
+pub(crate) fn set_node_fills(node: &mut Node, paints: Vec<Paint>) {
+    match &mut node.kind {
+        NodeKind::Text(t) => {
+            for run in &mut t.runs {
+                run.style.fills = paints.clone();
+            }
+            t.style.fills = paints;
+            node.fills.clear();
+        }
+        _ => node.fills = paints,
+    }
+}
+
 pub(crate) fn validate_create_fields(
     kind: &str,
     name: Option<&str>,
@@ -232,10 +250,10 @@ pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) ->
         node.opacity = opacity;
     }
     if let Some(paint) = validate_fill_color(u.fill.as_deref())? {
-        node.fills = vec![paint];
+        set_node_fills(&mut node, vec![paint]);
     }
     if let Some(fills) = u.fills {
-        node.fills = fills;
+        set_node_fills(&mut node, fills);
     }
     if let Some(text) = u.text {
         let NodeKind::Text(props) = &mut node.kind else {

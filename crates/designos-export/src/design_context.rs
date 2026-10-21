@@ -407,7 +407,8 @@ pub fn style_summary(style: &Style) -> String {
 
 /// Builds a lightweight [`Document`] holding only `root`'s subtree (with bound variables resolved),
 /// `root`'s ancestor chain up to the page root, and any main components referenced by instances
-/// in the subtree or ancestors. Returns `(subtree_doc, cloned_node_count)` without cloning `doc.nodes`.
+/// in the subtree or ancestors, plus the image bytes those nodes draw.
+/// Returns `(subtree_doc, cloned_node_count)` without cloning `doc.nodes`.
 pub fn apply_bound_variables_subtree(doc: &Document, root: NodeId) -> (Document, usize) {
     let mut sub = Document::new(doc.name.clone());
     sub.kind = doc.kind;
@@ -483,6 +484,17 @@ pub fn apply_bound_variables_subtree(doc: &Document, root: NodeId) -> (Document,
                 sub.nodes.insert(comp_id, comp_copy);
                 cloned_nodes += 1;
             }
+        }
+    }
+
+    // 4. Keep the bytes of every image the copied nodes draw; the paints only hold the hash.
+    let mut image_refs = std::collections::BTreeSet::new();
+    for n in sub.nodes.values() {
+        crate::raster::collect_images(n, &mut image_refs);
+    }
+    for image_ref in image_refs {
+        if let Some(bytes) = doc.images.get(&image_ref) {
+            sub.images.insert(image_ref, bytes.clone());
         }
     }
 
@@ -733,5 +745,71 @@ mod tests {
             rows,
             vec![("Component".to_string(), "Button".to_string()), ("Label".to_string(), "Save".to_string()), ("Disabled".to_string(), "true".to_string()),]
         );
+    }
+
+    fn image_paint(image_ref: &str) -> Paint {
+        Paint {
+            kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn subtree_copy_keeps_the_bytes_of_the_images_it_references() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ancestor_id = d.alloc_id();
+        let mut ancestor = Node::frame(ancestor_id, Rect::new(0.0, 0.0, 400.0, 400.0));
+        ancestor.fills = vec![image_paint("ancestor")];
+        let ancestor_id = d.insert(page, ancestor).unwrap();
+        let root_id = d.alloc_id();
+        let root_id = d.insert(ancestor_id, Node::frame(root_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let photo_id = d.alloc_id();
+        let mut photo = Node::rectangle(photo_id, Rect::new(0.0, 0.0, 50.0, 50.0));
+        photo.fills = vec![image_paint("photo")];
+        photo.stroke.paints = vec![image_paint("outline")];
+        d.insert(root_id, photo).unwrap();
+        let caption_id = d.alloc_id();
+        let mut caption = Node::text(caption_id, Rect::new(0.0, 60.0, 50.0, 20.0), "hi", TextStyle::default());
+        if let NodeKind::Text(t) = &mut caption.kind {
+            t.style.fills = vec![image_paint("text")];
+        }
+        d.insert(root_id, caption).unwrap();
+        for (key, byte) in [("ancestor", 1u8), ("photo", 2), ("outline", 3), ("text", 4), ("elsewhere", 5)] {
+            d.images.insert(key.into(), vec![byte; 4]);
+        }
+
+        let (sub, _) = apply_bound_variables_subtree(&d, root_id);
+
+        let kept: Vec<&str> = sub.images.keys().map(String::as_str).collect();
+        assert_eq!(kept, vec!["ancestor", "outline", "photo", "text"], "only the images the copied nodes use");
+        assert_eq!(sub.images["photo"], vec![2u8; 4]);
+    }
+
+    #[test]
+    fn html_of_a_subtree_inlines_the_image_instead_of_the_placeholder() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let root_id = d.alloc_id();
+        let root_id = d.insert(page, Node::frame(root_id, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let photo_id = d.alloc_id();
+        let mut photo = Node::rectangle(photo_id, Rect::new(0.0, 0.0, 50.0, 50.0));
+        photo.fills = vec![image_paint("photo")];
+        d.insert(root_id, photo).unwrap();
+        let png = {
+            let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([200, 30, 30, 255]));
+            let mut out = std::io::Cursor::new(Vec::new());
+            img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+            out.into_inner()
+        };
+        d.images.insert("photo".into(), png.clone());
+
+        let (sub, _) = apply_bound_variables_subtree(&d, root_id);
+        let html = crate::html::html_for(&sub, root_id);
+
+        assert!(html.contains("data:image/png;base64,"), "image bytes are inlined: {html}");
+        assert!(!html.contains("R0lGODlhAQABAIAAAAAAAP"), "no 1x1 placeholder GIF: {html}");
     }
 }

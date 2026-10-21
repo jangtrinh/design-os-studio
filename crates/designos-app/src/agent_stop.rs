@@ -21,9 +21,10 @@ pub const SECOND_KEY_DELAY_MS: u64 = 3_000;
 /// Notice shown when a CLI ignores both interrupt keys (`§8.1`).
 pub const STILL_RUNNING_NOTICE: &str = "Still running. Close the tab to end it.";
 
-/// How long the PTY must stay silent after the first interrupt key before the stop counts as taken (`§3.3`).
-/// A CLI that does not fire a hook for a user interrupt (Claude Code skips its Stop hook) never reports the end
-/// of the turn, so the quiet prompt is the only signal. Same window as the Codex output-burst heuristic.
+/// How long the PTY must stay silent, after it has answered the first interrupt key with output, before the stop
+/// counts as taken (`§3.3`). A CLI that does not fire a hook for a user interrupt (Claude Code skips its Stop hook)
+/// never reports the end of the turn, so the quiet prompt is the only signal. Same window as the Codex output-burst
+/// heuristic.
 pub const STOP_QUIET_CLOSE_MS: u64 = 600;
 
 /// ASCII `ESC` (`0x1b`).
@@ -155,9 +156,10 @@ pub fn start_stop_on_tab(tab: &mut TerminalTab, now_ms: u64) -> bool {
         tab.turn_started_at_ms = Some(now_ms);
     }
     tab.stop_in_flight.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Taken before the key goes out: output that the CLI paints in answer to the key must count as "since the key".
+    let sent_instant = std::time::Instant::now();
     tab.write_bytes(&[row.first_key]);
     tab.stop_sent_keys.push(row.first_key);
-    let sent_instant = std::time::Instant::now();
     tab.stop_sent_instant = Some(sent_instant);
     tab.stop_state = Some(StopState { sent_at: now_ms, second_sent: false, key_table_row: row_idx, sent_instant });
     true
@@ -184,10 +186,13 @@ pub fn stop_all(state: &mut TerminalState, now_ms: u64) -> usize {
     started
 }
 
-/// True when the tab's PTY has produced no output for [`STOP_QUIET_CLOSE_MS`] since the first interrupt key.
+/// True when the tab's PTY answered the first interrupt key with output and has then been silent for
+/// [`STOP_QUIET_CLOSE_MS`]. The window starts at the last output after the key, never at the key itself: a CLI that
+/// prints nothing at all gave no sign it took the key, so it is not closed here (it gets `Ctrl+C` at 3 s and then
+/// the `§8.1` notice).
 fn pty_quiet_since_stop(tab: &TerminalTab, sent_instant: std::time::Instant) -> bool {
-    let last_output = tab.last_output_at.lock().ok().and_then(|g| *g).filter(|ts| *ts > sent_instant).unwrap_or(sent_instant);
-    last_output.elapsed() >= std::time::Duration::from_millis(STOP_QUIET_CLOSE_MS)
+    let last_output_since_key = tab.last_output_at.lock().ok().and_then(|g| *g).filter(|ts| *ts > sent_instant);
+    last_output_since_key.is_some_and(|ts| ts.elapsed() >= std::time::Duration::from_millis(STOP_QUIET_CLOSE_MS))
 }
 
 /// Ends the pending stop on `tab` at `now_ms`: records the receipt `"Stopped by you after <N>s"`, latches
@@ -213,8 +218,8 @@ pub fn close_pending_stop(tab: &mut TerminalTab, now_ms: u64) -> Option<Terminal
 /// Advances the stop sequence on `tab` at `now_ms` (`§3.3`, `§3.4`, `§3.8`, `§8.1`).
 ///
 /// - If `tab.stop_state` is active and the turn has ended (`!is_tab_turn_running(tab)` or `!tab.is_alive()`),
-///   or the CLI fires no interrupt hook and its PTY has been quiet for [`STOP_QUIET_CLOSE_MS`] since the first
-///   key, closes the stopped turn through [`close_pending_stop`].
+///   or the CLI fires no interrupt hook and its PTY, having printed something after the first key, has been
+///   quiet for [`STOP_QUIET_CLOSE_MS`], closes the stopped turn through [`close_pending_stop`].
 /// - If the turn is still running at `now_ms >= sent_at + 3_000` and `!second_sent`, sends the second
 ///   interrupt key (`Ctrl+C`) once and sets `second_sent = true`.
 /// - If still running after the second key was sent, sets `tab.still_running_notice` to [`STILL_RUNNING_NOTICE`].
@@ -489,6 +494,12 @@ mod tests {
     /// The Stop hook does not fire for a user interrupt, so no end-of-turn record is ever written.
     fn spawn_quiet_after_interrupt_stub_tab(id: usize, preset: AgentCliPreset) -> TerminalTab {
         let script = "python3 -u -c 'import sys, time, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nsys.stdin.buffer.read(1)\nsys.stdout.write(\"\\r\\n> \")\nsys.stdout.flush()\ntime.sleep(20)\n'";
+        spawn_script_stub_tab(id, preset, script)
+    }
+
+    /// A CLI that takes the key and then prints nothing at all, neither an echo nor a prompt, and stays alive.
+    fn spawn_silent_after_interrupt_stub_tab(id: usize, preset: AgentCliPreset) -> TerminalTab {
+        let script = "python3 -u -c 'import sys, time, tty\ntty.setraw(sys.stdin.fileno())\nsys.stdout.write(\"READY\\n\")\nsys.stdout.flush()\nsys.stdin.buffer.read(1)\ntime.sleep(20)\n'";
         spawn_script_stub_tab(id, preset, script)
     }
 
@@ -1411,6 +1422,54 @@ mod tests {
         assert_eq!(app.terminal.tabs[0].stop_sent_keys, vec![KEY_ESC], "no Ctrl+C reaches the idle prompt");
         assert_eq!(stopped_steps(&app), 1);
         let _ = app.terminal.tabs[0].child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn a_cli_that_prints_nothing_after_the_key_is_not_closed_by_quiet_and_ends_in_the_still_running_notice() {
+        designos_doc::set_mock_now_ms(Some(1_000));
+        let mut tab = spawn_silent_after_interrupt_stub_tab(1, AgentCliPreset::Claude);
+        assert!(is_tab_turn_running(&tab));
+        assert!(start_stop_on_tab(&mut tab, 1_000));
+
+        // Across the whole quiet window (and a margin) a CLI that gave no sign of taking the key stays pending.
+        let window = std::time::Duration::from_millis(STOP_QUIET_CLOSE_MS + 400);
+        let deadline = std::time::Instant::now() + window;
+        while std::time::Instant::now() < deadline {
+            assert!(tick_stop_on_tab(&mut tab, 1_500).is_none(), "silence after the key is not a quiet close");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(tab.stop_state.is_some(), "the stop is still pending");
+        assert!(tab.still_running_notice.is_none());
+        assert_eq!(tab.stop_sent_keys, vec![KEY_ESC]);
+
+        // Ctrl+C at 3 s, then the notice (`§3.3`, `§8.1`).
+        assert!(tick_stop_on_tab(&mut tab, 4_000).is_none());
+        assert_eq!(tab.stop_sent_keys, vec![KEY_ESC, KEY_CTRL_C]);
+        assert!(tick_stop_on_tab(&mut tab, 4_001).is_none());
+        assert_eq!(tab.still_running_notice.as_deref(), Some(STILL_RUNNING_NOTICE));
+        assert!(tab.is_alive(), "Studio never kills the process on its own");
+        let _ = tab.child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn a_chatty_cli_stays_pending_across_the_real_quiet_window() {
+        designos_doc::set_mock_now_ms(Some(1_000));
+        // Paints a dot every 50 ms and exits only after two keys, so it is never quiet for 600 ms.
+        let mut tab = spawn_chatty_stub_tab(1, AgentCliPreset::Claude, 2);
+        assert!(start_stop_on_tab(&mut tab, 1_000));
+
+        let window = std::time::Duration::from_millis(STOP_QUIET_CLOSE_MS * 2);
+        let deadline = std::time::Instant::now() + window;
+        while std::time::Instant::now() < deadline {
+            assert!(tick_stop_on_tab(&mut tab, 1_500).is_none(), "a CLI that keeps painting is not quiet");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(tab.stop_state.is_some(), "the stop stays pending past the real 600 ms window");
+        assert!(tab.is_alive());
+        assert_eq!(tab.stop_sent_keys, vec![KEY_ESC]);
+        let _ = tab.child.kill();
         designos_doc::set_mock_now_ms(None);
     }
 

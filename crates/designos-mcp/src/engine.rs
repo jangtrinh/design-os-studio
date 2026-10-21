@@ -1226,10 +1226,10 @@ impl Engine {
         let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
         if let Some(fills) = a.fills {
-            node.fills = fills;
+            crate::tools::set_node_fills(&mut node, fills);
         } else if let Some(fill_str) = &a.fill {
             if let Some(color) = designos_doc::resolve_easeui_color(fill_str) {
-                node.fills = vec![designos_doc::Paint::solid(color)];
+                crate::tools::set_node_fills(&mut node, vec![designos_doc::Paint::solid(color)]);
             }
         }
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;

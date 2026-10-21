@@ -8,7 +8,7 @@
 
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
-use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
+use crate::tools::{build_created_node, build_updated_node, set_node_fills, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
     apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
@@ -1574,10 +1574,10 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
                         .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
                 if let Some(fills) = &a.fills {
-                    node.fills = fills.clone();
+                    set_node_fills(&mut node, fills.clone());
                 } else if let Some(fill_str) = &a.fill {
                     if let Some(color) = resolve_easeui_color(fill_str) {
-                        node.fills = vec![Paint::solid(color)];
+                        set_node_fills(&mut node, vec![Paint::solid(color)]);
                     }
                 }
 

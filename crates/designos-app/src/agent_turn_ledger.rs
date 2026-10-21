@@ -353,10 +353,13 @@ impl AgentTurnLedger {
     /// Ends the open turn because the user stopped it from the panel (`#684`). The turn closes at
     /// `current_patch_bytes`, like a tab exit, whether or not a hook wrote an end mark.
     ///
-    /// `stop_sent` is when the stop key went out. A turn that opened after it is the next prompt's turn (its
-    /// start mark can land in the same poll that notices the stop) and stays open.
+    /// `stop_sent` is when the stop key went out. A hooked turn that opened after it is the next prompt's turn
+    /// (its start mark can land in the same poll that notices the stop) and stays open. A heuristic turn that
+    /// opened after it is not: a CLI without turn marks (Codex) opens one when its repaint after the interrupt
+    /// flips the status to `Working`, so it is the stop's own tail and closes with it.
     pub fn on_turn_stopped(&mut self, current_patch_bytes: u64, now: Instant, stop_sent: Option<Instant>) {
-        let opened_after_stop = stop_sent.is_some_and(|sent| self.turns.last().is_some_and(|t| t.end_patch_bytes.is_none() && t.created_at > sent));
+        let opened_after_stop =
+            stop_sent.is_some_and(|sent| self.turns.last().is_some_and(|t| t.end_patch_bytes.is_none() && !t.approximate && t.created_at > sent));
         if opened_after_stop {
             return;
         }
@@ -1747,5 +1750,22 @@ mod tests {
 
         ledger.on_turn_stopped(10, Instant::now(), None);
         assert!(ledger.turns.is_empty(), "without a stop time the open (empty) turn closes as before");
+    }
+
+    #[test]
+    fn a_heuristic_turn_opened_after_the_stop_closes_with_it() {
+        // Codex has no turn marks: its repaint after the interrupt can open a heuristic turn after the key went out.
+        // That turn is the stop's own tail, and left open it would absorb the next prompt's edits.
+        let mut ledger = AgentTurnLedger::default();
+        let stop_sent = Instant::now();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        ledger.on_status_change(true, 10, Instant::now());
+        assert!(ledger.turns.last().is_some_and(|t| t.approximate && t.end_patch_bytes.is_none()), "precondition: an open heuristic turn");
+
+        ledger.on_turn_stopped(20, Instant::now(), Some(stop_sent));
+
+        let turn = ledger.turns.last().expect("the turn is kept: patches landed in it");
+        assert_eq!(turn.end_patch_bytes, Some(20), "the stop closes the heuristic turn at the stop offset");
+        assert_eq!(turn.state, TurnState::Completed);
     }
 }
