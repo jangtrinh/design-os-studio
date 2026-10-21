@@ -301,7 +301,11 @@ impl AgentEventStream {
         let cursor_bg = Arc::clone(&cursor);
         let _ = std::thread::Builder::new().name("designos-agent-events".into()).spawn(move || {
             while wake_rx.recv().is_ok() {
-                let records = cursor_bg.lock().ok().map(|mut c| c.read_available()).unwrap_or_default();
+                // Read and send under the cursor lock. A reader that takes the lock afterwards (the inline drain
+                // in `poll` under `cfg(test)`) then finds every record the worker consumed already in the channel;
+                // sending after releasing the lock let a poll miss them and see them one poll late.
+                let Ok(mut guard) = cursor_bg.lock() else { continue };
+                let records = guard.read_available();
                 for rec in records {
                     if record_tx.send(rec).is_err() {
                         return;
