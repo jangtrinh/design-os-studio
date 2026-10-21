@@ -30,7 +30,7 @@ As a designer, when an agent goes the wrong way I want one Stop button in the pa
 
 1. **Stop button** in the panel header, shown only while the active tab's turn is running (status `Working`). Esc triggers the same stop only when focus is in the panel chrome (header, composer, tab strip) and not in the terminal. Inside the terminal, Esc is a CLI key and is forwarded unchanged. "Chrome focus" is a flag set by a press inside the panel's non-terminal area and cleared by a press elsewhere.
 2. **Interrupt table** (data, one row per CLI): first key, second key, source, grounded. Grok: Ctrl+C then Ctrl+C, grounded (guide). Claude: Esc then Ctrl+C, not grounded. Codex and Antigravity: Esc then Ctrl+C, not grounded. A row marked not grounded is shown in the report of the PR and flipped only by a captured test run. The table is the one place the keys live.
-3. **Sequence.** At t = 0 send the first key. At t = 3 s, if the turn is still running (status read at that moment), send Ctrl+C once. Never send a second key when the turn already ended. After a second key the button reads "Stopping…" and stays disabled; no third key is ever sent.
+3. **Sequence.** At t = 0 send the first key. At t = 3 s, if the turn is still running (status read at that moment), send Ctrl+C once. Never send a second key when the turn already ended. After a second key the button reads "Stopping…" and stays disabled; no third key is ever sent. A CLI that fires no interrupt hook ends the stop once its output has been quiet for 600 ms after it answered the first key, or when the next prompt starts; a CLI that prints nothing after the first key is never closed by quiet, so it gets Ctrl+C at 3 s and then the §8.1 notice.
 4. **Close the turn.** Treat the stop like a turn end:
    - apply every patch already in the log and every held patch, unless the user is mid-edit (then as soon as the edit ends), for up to 2 s after the turn end mark or process exit;
    - fold the turn's agent steps on top of the undo stack into one `Command::Batch` step labelled "Agent turn (stopped)" through a new `History::fold_since(depth)`; the depth is the one #677 recorded at the turn start. The fold stops at the first step that is not an agent step (a user edit in between); only the contiguous agent tail is folded;
@@ -67,7 +67,7 @@ Described in words; checked against `design/principles.md` P1 to P10 and `design
 
 ## 8. Edge cases
 
-1. The CLI ignores both keys: after the second key the tab shows "Still running. Close the tab to end it." Studio never kills the process on its own.
+1. The CLI ignores both keys (a CLI that prints nothing after the first key counts as ignoring it, §3.3): after the second key the tab shows "Still running. Close the tab to end it." Studio never kills the process on its own.
 2. The user pressed Stop at the instant the turn ended: the sequence checks the status first and does nothing; the receipt is the normal one.
 3. The user edits while stopping: their steps stay; the fold covers the contiguous agent tail only.
 4. A turn of zero edits: the fold does nothing; the receipt still says stopped.
