@@ -389,6 +389,42 @@ fn the_editor_holds_its_canvas_back_while_an_agent_edit_is_unread_and_publishes_
 }
 
 #[test]
+fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back() {
+    let (mut app, frame, canvas) = small_published_app();
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let before = std::fs::read(&canvas).unwrap();
+    let before_mtime = std::fs::metadata(&canvas).unwrap().modified().unwrap();
+    let key_before = app.terminal.last_synced_key;
+
+    // The log is empty when the publish starts, so both checks before the rename pass; the agent
+    // appends once the temporary canvas file is complete.
+    crate::terminal::set_before_rename_test_hook(Box::new(move || {
+        session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Late agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+    }));
+    app.selection = vec![frame];
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+
+    assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
+    assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
+    assert_eq!(app.terminal.last_synced_key, key_before, "the publish is retried on a later frame");
+    let leftovers: Vec<_> =
+        std::fs::read_dir(canvas.parent().unwrap()).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains(".tmp.")).collect();
+    assert!(leftovers.is_empty(), "the temporary canvas file is removed: {leftovers:?}");
+
+    let actions = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, actions);
+    let published = std::fs::read_to_string(&canvas).expect("published after applying the edit");
+    assert!(published.contains("Late agent layer"));
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
 fn a_partial_log_line_left_by_a_crashed_writer_does_not_block_the_canvas() {
     use std::io::Write;
     let (mut app, frame, canvas) = small_published_app();

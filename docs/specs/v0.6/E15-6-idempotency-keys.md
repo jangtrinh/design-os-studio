@@ -62,11 +62,10 @@ for a different payload, I get a named error and nothing changes.
      when Studio has not rewritten `canvas.designos` yet. A loaded entry is checked against that
      patch-replayed document (item 7).
    - Without a session directory (standalone `--workspace` use), it is in memory for the process.
-   - It is cleared when the document closes or switches: `designos_open_file`,
-     `designos_new_document`, and a canvas reload that replaces the document
-     (`sync_from_live_canvas_if_newer`, `server.rs:194-219`). Clearing truncates the file. A canvas
-     reload that replaces the document drops the applied entries and rewrites the file; one that
-     still holds the agent's writes does not clear it (item 6, Studio-side undo).
+   - It is cleared when the document closes or switches through the agent: `designos_open_file`
+     and `designos_new_document`. Clearing truncates the file. A canvas reload is not a clearing
+     event: one that replaces the document drops the applied entries and rewrites the file, and one
+     that still holds the agent's writes keeps them (item 6, `Ledger::on_canvas_reload`).
 5. Capacity: at most 5,000 entries or 16 MiB of stored replies; beyond that the oldest entries are
    dropped. A dropped key behaves as unknown. The cap and the drop count are reported by
    `designos_get_app_state` (E15-16).
@@ -93,10 +92,12 @@ for a different payload, I get a named error and nothing changes.
      kept this split. The reload does not clear the ledger while the agent's writes are still in the
      document, because Studio republishes the canvas after each edit it applies. It reconciles
      entry by entry (`Ledger::on_canvas_reload`):
-     - A snapshot in which no checkable applied entry is present is a different document: the
-       applied entries are dropped from memory and rewritten out of the file. Entries the agent
+     - A snapshot that is not a scoped copy and in which no checkable applied entry is present is a
+       different document: the applied entries are dropped from memory and rewritten out of the file. Entries the agent
        undid, entries with nothing to check and entries already stale stay stale (an undone write
-       is not resurrected).
+       is not resurrected). A scoped copy leaves layers out on purpose, so on one this rule never
+       applies: the missing entries fall to the next bullet and answer STALE (item 7), never a
+       duplicate.
      - A checkable applied entry whose result is missing is forgotten (a new write on retry) only
        when no later entry's result is still present and the canvas is not a scoped copy. This also
        covers a user deleting the agent's newest layer by hand, which cannot be told from an undo.
@@ -118,7 +119,7 @@ for a different payload, I get a named error and nothing changes.
    nodes created and deleted inside one batch are not listed). On lookup, before the stored reply is
    returned: every `live` id must exist with the same `kind`, and no `gone` id may exist. Any miss →
    `IDEMPOTENCY_KEY_STALE`, nothing runs. On a reconnect (`Session::with_session_dir`), the server
-   loads `canvas.designos` (`server.rs:194-214`) and replays **only `doc-patch.jsonl` lines not
+   loads `canvas.designos` (`Session::with_session_dir`, `replay_unabsorbed_live_patches` in `server.rs`) and replays **only `doc-patch.jsonl` lines not
    already absorbed into the `canvas.designos` snapshot** (patches newer than the snapshot) onto the
    loaded document through `designos_doc::live_patch::replay_live_patch` before running the presence
    check. An already-absorbed `Insert` whose id is in `canvas.designos` is a duplicate even if the
