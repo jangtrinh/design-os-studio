@@ -265,6 +265,8 @@ mod tests {
         assert_eq!(ids(&mut engine, json!({"selector": "//Card", "page_id": page.0})), vec![card]);
         assert_eq!(ids(&mut engine, json!({"query": "Hero", "page_id": page.0})), vec![hero], "the `query` alias of the previous tool");
         assert_eq!(ids(&mut engine, json!({"selector": "Hero Banner", "page_id": page.0})), vec![hero]);
+        assert_eq!(ids(&mut engine, json!({"selector": "//*[contains(@name,'card')]", "page_id": page.0})), vec![card], "a lower-case needle finds \"Card\"");
+        assert_eq!(ids(&mut engine, json!({"selector": "//Page", "page_id": page.0})), vec![page.0], "a bare page word finds the page");
         let err = engine.call("designos_query_xpath", json!({"selector": "//Hero Banner//TEXT", "page_id": page.0})).unwrap_err();
         assert_eq!((err.code, err.path.as_str()), (ErrorCode::InvalidSelector, "/selector"));
         assert_eq!(err.corrected_example, Some(json!({"selector": "//*[contains(@name,'Hero Banner')]//TEXT"})));

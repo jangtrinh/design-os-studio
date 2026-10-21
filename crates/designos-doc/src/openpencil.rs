@@ -50,6 +50,7 @@ pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
 
 /// Node-type tokens a selector step may use: `*`, `NODE`, `PAGE`, every [`xpath_type_name`] value and
 /// the short aliases [`matches_node_test`] accepts. A step whose test is none of these names a node.
+/// The query tool reads the exact upper-case token as a kind test only; see [`is_exact_node_type_token`].
 const NODE_TYPE_TESTS: &[&str] = &[
     "*",
     "NODE",
@@ -84,6 +85,13 @@ const NODE_TYPE_TESTS: &[&str] = &[
 /// `true` when `test` is a node-type token (see [`NODE_TYPE_TESTS`]), ignoring case.
 pub(crate) fn is_node_type_test(test: &str) -> bool {
     NODE_TYPE_TESTS.iter().any(|t| t.eq_ignore_ascii_case(test))
+}
+
+/// `true` when `test` is a node-type token spelled exactly as [`NODE_TYPE_TESTS`] lists it (upper case).
+/// The query tool matches such a step by kind only; the same word in another case (`Group`, `Page`)
+/// also matches node names, as the previous query tool did.
+pub(crate) fn is_exact_node_type_token(test: &str) -> bool {
+    NODE_TYPE_TESTS.contains(&test)
 }
 
 pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
@@ -435,7 +443,11 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
                 AttrValue::Bool(v) => v.to_string(),
                 AttrValue::None => String::new(),
             };
+            // The name is searched without regard to case, as the previous query tool did; every other
+            // attribute keeps its case.
+            let folds_case = attr_expr.trim().trim_start_matches('@') == "name";
             let matched = match mode {
+                "contains" if folds_case => hay.to_lowercase().contains(&needle.to_lowercase()),
                 "contains" => hay.contains(&needle),
                 "starts" => hay.starts_with(&needle),
                 "ends" => hay.ends_with(&needle),
@@ -1137,6 +1149,12 @@ mod tests {
         }
         for token in ["*", "NODE", "RECT", "path", "Ref"] {
             assert!(is_node_type_test(token), "{token}");
+        }
+        for token in ["*", "NODE", "TEXT", "PAGE", "GROUP", "RECT"] {
+            assert!(is_exact_node_type_token(token), "{token} is spelled as the list has it");
+        }
+        for word in ["Text", "text", "Group", "Page", "path", "Union", "Card"] {
+            assert!(!is_exact_node_type_token(word), "{word} is not the upper-case token");
         }
         for word in ["Card", "Hero", "Text field", "Frame 12"] {
             assert!(!is_node_type_test(word), "{word} is a name");

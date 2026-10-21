@@ -2,7 +2,9 @@
 //! node budget, compact rows/objects, and solver-backed linter predicates (E15-17 / #602).
 
 use crate::lint::{canonical_rule_id, resolve_rule, Finding, LintConfig, LintEnv, LintPreset, NoLintEnv, RuleNeeds, SingleNodeLinter};
-use crate::openpencil::{eval_predicate_expr, is_node_type_test, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep};
+use crate::openpencil::{
+    eval_predicate_expr, is_exact_node_type_token, is_node_type_test, layout_mode_str, matches_node_test, parse_xpath, xpath_type_name, XPathAxis, XPathStep,
+};
 use crate::{Document, Node, NodeId, NodeKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -136,7 +138,7 @@ impl std::fmt::Display for QueryError {
             ),
             QueryError::RuleUnavailable { rule, reason } => write!(
                 f,
-                "RULE_UNAVAILABLE: lint rule '{rule}' cannot be evaluated ({reason}) (safe_to_retry: false)"
+                "RULE_UNAVAILABLE: lint rule '{rule}' cannot be evaluated ({reason})"
             ),
             QueryError::NodeNotFound { id } => write!(
                 f,
@@ -302,9 +304,12 @@ impl From<QueryError> for StepError {
     }
 }
 
-/// A parsed step plus what the evaluator decided about its node test once per call: a node-type
-/// token (`FRAME`, `*`, `RECT`) tests the node's kind; any other word is a name and keeps its
-/// lower-cased needle, matched against node names by substring.
+/// A parsed step plus what the evaluator decided about its node test once per call. The exact
+/// upper-case node-type token (`FRAME`, `TEXT`, `*`, `RECT`) tests the node's kind and nothing else,
+/// which is what E15-17 3.1 needs (`//TEXT` counts text nodes, not the rectangle "Text field"). Any
+/// other word (`Group`, `Page`, `Card`, `Union`) is what the previous query tool took it for: the node's
+/// kind, spelled as the type token or as its default name, or a name that contains it. The name needle
+/// is lower-cased once.
 struct QueryStep {
     step: XPathStep,
     name_needle: Option<String>,
@@ -312,14 +317,17 @@ struct QueryStep {
 
 impl QueryStep {
     fn new(step: XPathStep) -> Self {
-        let name_needle = (!is_node_type_test(&step.node_test)).then(|| step.node_test.to_lowercase());
+        let name_needle = (!is_exact_node_type_token(&step.node_test)).then(|| step.node_test.to_lowercase());
         Self { step, name_needle }
     }
 
     fn test_matches(&self, node: &Node) -> bool {
+        let test = self.step.node_test.as_str();
         match &self.name_needle {
-            Some(needle) => node.name.to_lowercase().contains(needle.as_str()),
-            None => matches_node_test(&node.kind, &self.step.node_test),
+            None => matches_node_test(&node.kind, test),
+            Some(needle) => {
+                matches_node_test(&node.kind, test) || node.kind.default_name().eq_ignore_ascii_case(test) || node.name.to_lowercase().contains(needle.as_str())
+            }
         }
     }
 }
@@ -757,7 +765,9 @@ fn evaluate_candidate_node(
     Ok((my_mask, Some((row, obj))))
 }
 
-fn count_scope_nodes(doc: &Document, roots: &[NodeId], max_depth: Option<u32>) -> usize {
+/// Nodes the pass can evaluate: everything below the scope roots, plus a root that is a page when
+/// `page_roots_match` makes the root itself a candidate.
+fn count_scope_nodes(doc: &Document, roots: &[NodeId], max_depth: Option<u32>, page_roots_match: bool) -> usize {
     let mut count = 0usize;
     let mut stack: Vec<(NodeId, u32)> = roots.iter().rev().map(|&r| (r, 0)).collect();
     let mut seen = HashSet::new();
@@ -768,7 +778,7 @@ fn count_scope_nodes(doc: &Document, roots: &[NodeId], max_depth: Option<u32>) -
         let Some(node) = doc.nodes.get(&nid) else {
             continue;
         };
-        if depth >= 1 {
+        if depth >= 1 || (page_roots_match && matches!(node.kind, NodeKind::Page { .. })) {
             count += 1;
         }
         if max_depth.is_some_and(|max_d| depth >= max_d) {
@@ -813,6 +823,10 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
     let steps = parse_selector(&opts.selector)?;
     validate_steps(&steps, doc, env)?;
     let steps: Vec<QueryStep> = steps.into_iter().map(QueryStep::new).collect();
+    // A page has no parent a step could reach it from, so a page at the scope root is a candidate only
+    // for a selector that names the page type (`//Page`, `//PAGE`): release's `//Page` walked the scope
+    // root too. Every other selector keeps the root out of the rows and out of the scope count.
+    let page_roots_match = steps.iter().any(|s| s.node_test.eq_ignore_ascii_case("PAGE"));
 
     let limit = opts.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let max_scanned = opts.max_scanned.or_else(|| opts.node_budget.map(|b| b as usize)).unwrap_or(DEFAULT_MAX_SCANNED).clamp(1, MAX_MAX_SCANNED);
@@ -864,7 +878,7 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
         }
         (tok.scope_size, tok.scanned_total)
     } else {
-        let sz = count_scope_nodes(doc, &roots, opts.max_depth);
+        let sz = count_scope_nodes(doc, &roots, opts.max_depth, page_roots_match);
         if let Some(&first_root) = roots.first() {
             stack.push(StackFrame { node_id: first_root, next_child_idx: 0, matched_mask: 0, ancestor_mask: 0, depth: 0 });
         }
@@ -950,7 +964,7 @@ pub fn run_with_env(doc: &Document, opts: &QueryOptions, env: Option<&dyn LintEn
                 continue;
             };
 
-            if depth == 0 {
+            if depth == 0 && !(page_roots_match && matches!(node.kind, NodeKind::Page { .. })) {
                 stack[top_idx].next_child_idx = 1;
                 continue;
             }
@@ -1768,6 +1782,208 @@ mod tests {
         let QueryError::InvalidSelector { corrected_example, .. } = err else { panic!("expected INVALID_SELECTOR, got {err:?}") };
         assert_eq!(corrected_example, "//*[contains(@name,'Hero Banner')]//TEXT");
         assert_eq!(ids_of(&d.doc, d.page, &corrected_example), vec![d.headline], "the example runs and answers the question");
+    }
+
+    /// A page holding, in pre-order: the frame "Button group" (with the text "Label"), the frames
+    /// "Home page" and "Page header", a boolean layer "Combined", the rectangle "Text field" and a
+    /// group "Cluster". No node other than "Cluster" is of kind GROUP, and the page node is the only PAGE.
+    struct KindWordDoc {
+        doc: Document,
+        page: NodeId,
+        button_group: u64,
+        label: u64,
+        home: u64,
+        header: u64,
+        combined: u64,
+        text_field: u64,
+        cluster: u64,
+    }
+
+    fn kind_word_doc() -> KindWordDoc {
+        let mut doc = Document::new("Kind Words");
+        let page = doc.add_page("Page 1");
+        let frame = |doc: &mut Document, parent: NodeId, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.name = name.to_string();
+            doc.insert(parent, n).unwrap();
+            id
+        };
+        let layer = |doc: &mut Document, kind: NodeKind, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::new(id, kind);
+            n.name = name.to_string();
+            doc.insert(page, n).unwrap();
+            id
+        };
+        let button_group = frame(&mut doc, page, "Button group");
+        let label_id = doc.alloc_id();
+        let mut label = Node::text(label_id, Rect::new(0.0, 0.0, 80.0, 20.0), "Pay", TextStyle::default());
+        label.name = "Label".to_string();
+        doc.insert(button_group, label).unwrap();
+        let home = frame(&mut doc, page, "Home page");
+        let header = frame(&mut doc, page, "Page header");
+        let combined = layer(&mut doc, NodeKind::BooleanOp(crate::BooleanOp::Union), "Combined");
+        let field_id = doc.alloc_id();
+        let mut field = Node::rectangle(field_id, Rect::new(0.0, 24.0, 80.0, 20.0));
+        field.name = "Text field".to_string();
+        doc.insert(page, field).unwrap();
+        let cluster = layer(&mut doc, NodeKind::Group, "Cluster");
+        KindWordDoc {
+            doc,
+            page,
+            button_group: button_group.0,
+            label: label_id.0,
+            home: home.0,
+            header: header.0,
+            combined: combined.0,
+            text_field: field_id.0,
+            cluster: cluster.0,
+        }
+    }
+
+    /// What release's `matches_single_step` answered for a bare word: the scope root and everything
+    /// below it, in pre-order, whose default kind name equals the word or whose name contains it.
+    fn release_bare_word_ids(doc: &Document, root: NodeId, word: &str) -> Vec<u64> {
+        let mut ids = Vec::new();
+        doc.walk(root, |n, _| {
+            if n.kind.default_name().eq_ignore_ascii_case(word) || n.name.to_lowercase().contains(&word.to_lowercase()) {
+                ids.push(n.id.0);
+            }
+        });
+        ids
+    }
+
+    #[test]
+    fn a_type_word_in_any_other_casing_matches_the_kind_or_a_name_as_release_did() {
+        let d = kind_word_doc();
+        let ids = |selector: &str| ids_of(&d.doc, d.page, selector);
+        assert_eq!(ids("//Group"), vec![d.button_group, d.cluster], "`//Group` finds the frame \"Button group\" and the group");
+        assert_eq!(ids("Group"), vec![d.button_group, d.cluster], "a bare word without slashes does the same");
+        assert_eq!(ids("//group"), vec![d.button_group, d.cluster]);
+        assert_eq!(ids("//Text"), vec![d.label, d.text_field], "`//Text` finds the text and the rectangle \"Text field\"");
+        for word in ["Group", "group", "Text", "Page", "Line", "Frame"] {
+            assert_eq!(ids(&format!("//{word}")), release_bare_word_ids(&d.doc, d.page, word), "//{word} against release");
+        }
+        assert_eq!(ids("//Group//TEXT"), vec![d.label], "a kind-or-name step can be an ancestor step");
+    }
+
+    #[test]
+    fn a_boolean_layer_answers_to_union_by_kind_as_release_did() {
+        let d = kind_word_doc();
+        let ids = |selector: &str| ids_of(&d.doc, d.page, selector);
+        assert_eq!(ids("//Union"), vec![d.combined], "`//Union` finds boolean layers by kind, whatever they are named");
+        assert_eq!(ids("Union"), vec![d.combined]);
+        assert_eq!(ids("//UNION"), vec![d.combined], "`UNION` is not a kind token of this tool, so it keeps release's meaning");
+        for word in ["Union", "UNION", "union"] {
+            assert_eq!(ids(&format!("//{word}")), release_bare_word_ids(&d.doc, d.page, word), "//{word} against release");
+        }
+    }
+
+    #[test]
+    fn the_exact_upper_case_type_token_matches_by_kind_only() {
+        let d = kind_word_doc();
+        let ids = |selector: &str| ids_of(&d.doc, d.page, selector);
+        assert_eq!(ids("//GROUP"), vec![d.cluster], "`//GROUP` does not find the frame \"Button group\"");
+        assert_eq!(ids("//TEXT"), vec![d.label], "the rectangle \"Text field\" is not a TEXT");
+        assert_eq!(ids("//FRAME"), vec![d.button_group, d.home, d.header]);
+        assert!(ids("//LINE").is_empty(), "no LINE node and no name decides");
+        assert_eq!(ids("//BOOLEAN_OPERATION"), vec![d.combined]);
+        assert_eq!(ids("//PAGE"), vec![d.page.0], "the page is the only PAGE node, and `//PAGE` is not always empty");
+    }
+
+    #[test]
+    fn a_bare_page_word_returns_the_page_and_the_names_release_returned() {
+        let d = kind_word_doc();
+        let release = release_bare_word_ids(&d.doc, d.page, "Page");
+        assert_eq!(release, vec![d.page.0, d.home, d.header], "release walked the scope root, so the page came first");
+        assert_eq!(ids_of(&d.doc, d.page, "//Page"), release);
+        assert_eq!(ids_of(&d.doc, d.page, "Page"), release);
+        assert_eq!(ids_of(&d.doc, d.page, "//page"), release);
+        assert_eq!(ids_of(&d.doc, d.page, "//Page//TEXT"), vec![d.label], "the page is an ancestor of every text on it");
+        assert_eq!(ids_of(&d.doc, d.page, "//*"), vec![d.button_group, d.label, d.home, d.header, d.combined, d.text_field, d.cluster], "`//*` is unchanged");
+
+        let unscoped = run(&d.doc, &QueryOptions { selector: "//Page".to_string(), ..Default::default() }).unwrap();
+        let unscoped_ids: Vec<u64> = unscoped.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();
+        assert_eq!(unscoped_ids, release, "without a scope the document's pages are searched");
+        assert_eq!(unscoped.scanned_total, unscoped.scope_size, "every node the query visited is part of the scope");
+    }
+
+    #[test]
+    fn a_bare_page_word_pages_through_the_page_and_the_names_once_each() {
+        let d = kind_word_doc();
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        for _ in 0..10 {
+            let res = run(
+                &d.doc,
+                &QueryOptions { selector: "//Page//*".to_string(), page: Some(d.page), limit: Some(2), cursor: cursor.clone(), ..Default::default() },
+            )
+            .unwrap();
+            seen.extend(res.rows.iter().map(|r| r[0].as_u64().unwrap()));
+            if res.done {
+                assert_eq!(res.remaining, 0);
+                break;
+            }
+            cursor = res.cursor;
+        }
+        let everything_below = vec![d.button_group, d.label, d.home, d.header, d.combined, d.text_field, d.cluster];
+        assert_eq!(seen, everything_below, "the page is an ancestor of every layer on it");
+        assert_eq!(ids_of(&d.doc, d.page, "//Page//*"), everything_below, "paging with a cursor returns the same rows as one call");
+
+        let mut seen = Vec::new();
+        let mut cursor = None;
+        for _ in 0..10 {
+            let res =
+                run(&d.doc, &QueryOptions { selector: "//Page".to_string(), page: Some(d.page), limit: Some(1), cursor: cursor.clone(), ..Default::default() })
+                    .unwrap();
+            seen.extend(res.rows.iter().map(|r| r[0].as_u64().unwrap()));
+            if res.done {
+                break;
+            }
+            cursor = res.cursor;
+        }
+        assert_eq!(seen, vec![d.page.0, d.home, d.header]);
+    }
+
+    #[test]
+    fn predicates_on_a_page_root_answer_like_they_do_on_any_node() {
+        let d = kind_word_doc();
+        let run_page = |selector: &str, hardcoded: Option<bool>, with_problems: bool| {
+            run(&d.doc, &QueryOptions { selector: selector.to_string(), page: Some(d.page), hardcoded, with_problems, ..Default::default() }).unwrap()
+        };
+        assert!(run_page("//Page[has-problem('hardcoded-value')]", None, false).rows.is_empty());
+        assert!(run_page("//PAGE[@problems]", None, false).rows.is_empty());
+        assert!(run_page("//PAGE[is-bound('fills/0')]", None, false).rows.is_empty());
+        assert!(run_page("//PAGE", Some(true), false).rows.is_empty(), "no finding on the page, so `hardcoded: true` drops it");
+        let with_problems = run_page("//PAGE", None, true);
+        assert_eq!(with_problems.rows.len(), 1);
+        assert_eq!(with_problems.rows[0][2], json!("PAGE"));
+        assert_eq!(with_problems.rows[0][7], json!([]), "the problems column is computed, and the page has none");
+        assert_eq!(run_page("//PAGE[@name='Page 1']", None, false).rows.len(), 1);
+        assert!(run_page("//PAGE[@name='Other']", None, false).rows.is_empty());
+    }
+
+    #[test]
+    fn contains_on_the_name_ignores_case_like_the_previous_query() {
+        let d = named_doc();
+        let ids = |selector: &str| ids_of(&d.doc, d.page, selector);
+        assert_eq!(ids("//*[contains(@name,'card')]"), vec![d.card, d.card_title, d.card_two], "a lower-case needle finds \"Card\"");
+        assert_eq!(ids("//*[contains(@name,'CARD')]"), vec![d.card, d.card_title, d.card_two]);
+        assert_eq!(ids("//FRAME[contains(@name,'hero b')]"), vec![d.hero]);
+        assert_eq!(ids("//*[contains(name,'TEXT F')]"), vec![d.text_field], "the attribute may be written without the @");
+        assert!(ids("//*[contains(@name,'zebra')]").is_empty());
+        // Only the name is folded: other string attributes keep their case.
+        assert!(ids("//TEXT[contains(@characters,'WELCOME')]").is_empty());
+        assert_eq!(ids("//TEXT[contains(@characters,'Welcome')]"), vec![d.headline, d.card_title]);
+    }
+
+    #[test]
+    fn a_rule_unavailable_error_carries_no_retry_hint_of_its_own() {
+        let err = QueryError::RuleUnavailable { rule: "text-truncated".to_string(), reason: "no_text_engine".to_string() };
+        let text = err.to_string();
+        assert!(text.starts_with("RULE_UNAVAILABLE: lint rule 'text-truncated' cannot be evaluated (no_text_engine)"), "{text}");
+        assert!(!text.contains("safe_to_retry"), "the retry flag is the tool layer's, derived from the state change: {text}");
     }
 
     #[test]
