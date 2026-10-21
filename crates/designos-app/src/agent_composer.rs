@@ -396,9 +396,8 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mu
     if !system && tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
         tab.composer.sent_in_start_window = Some(prompt.to_string());
     }
-    // The sent text is what `Retry` resends, and a new turn dismisses a mid-session failure banner (`#686`).
+    // The sent text is what `Retry` resends (`#686`).
     tab.last_user_prompt = Some(prompt.to_string());
-    tab.clear_session_failure();
     tab.composer.last_outcome = Some(SendOutcome::Written);
     tab.composer.notice = None;
     *status_msg = Some(format!("Sent to {}", tab.title));
@@ -544,7 +543,20 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::System)
     }
 
+    /// A prompt that is written or queued starts a new turn, so it dismisses a mid-session failure banner
+    /// (`#686`). Clearing at send time, not at the later queued write, keeps a failure that arrives while the
+    /// prompt waits for a quiet tab.
     fn send_to_agent_from(&mut self, text: &str, file_path: Option<&Path>, source: SendSource) -> SendOutcome {
+        let outcome = self.deliver_to_agent(text, file_path, source);
+        if matches!(outcome, SendOutcome::Written | SendOutcome::Queued) {
+            if let Some(tab) = self.active_tab_mut() {
+                tab.clear_session_failure();
+            }
+        }
+        outcome
+    }
+
+    fn deliver_to_agent(&mut self, text: &str, file_path: Option<&Path>, source: SendSource) -> SendOutcome {
         // Poll first so any child that already exited within `START_FAILURE_WINDOW` has `start_failure` populated.
         // The actions it returns belong to the next bridge poll, not to this send.
         let early_actions = self.poll_live_agent_bridge();

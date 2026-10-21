@@ -2053,7 +2053,6 @@ impl TerminalState {
         }
         let outcome = self.send_system_prompt(&prompt, file_path);
         if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
-            self.clear_active_tab_session_failure();
             if let Some(tab) = self.active_tab_mut() {
                 tab.last_user_prompt = Some(prompt);
             }
