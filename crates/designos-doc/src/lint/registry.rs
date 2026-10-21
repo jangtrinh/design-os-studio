@@ -422,8 +422,26 @@ pub fn resolve_rule(id_or_alias: &str) -> Option<&'static RuleSpec> {
     if q.is_empty() {
         return None;
     }
-    RULES.iter().find(|r| r.id.eq_ignore_ascii_case(q) || r.aliases.iter().any(|a| a.eq_ignore_ascii_case(q)))
+    let by_name = RULES_BY_NAME.get_or_init(|| {
+        let mut names = std::collections::HashMap::new();
+        // A name that two rules share belongs to the one listed first.
+        for rule in RULES {
+            for name in std::iter::once(&rule.id).chain(rule.aliases) {
+                names.entry(name.to_ascii_lowercase()).or_insert(rule);
+            }
+        }
+        names
+    });
+    if q.bytes().any(|b| b.is_ascii_uppercase()) {
+        by_name.get(&q.to_ascii_lowercase()).copied()
+    } else {
+        by_name.get(q).copied()
+    }
 }
+
+/// Every rule by its lowercase ID and alias, so that [`resolve_rule`] needs no scan of [`RULES`]
+/// (it runs for each rule on every node of a lint pass).
+static RULES_BY_NAME: std::sync::OnceLock<std::collections::HashMap<String, &'static RuleSpec>> = std::sync::OnceLock::new();
 
 /// Resolves a rule ID or alias to its canonical registry ID.
 pub fn canonical_rule_id(id_or_alias: &str) -> Option<&'static str> {
@@ -448,4 +466,36 @@ pub fn preset_rule_ids(preset: LintPreset) -> Vec<&'static str> {
 /// All valid preset names (built-in presets + category presets).
 pub fn all_preset_names() -> Vec<&'static str> {
     vec!["agent", "check-designs", "recommended", "strict", "layout", "text", "tokens", "components", "content", "naming", "accessibility", "structure"]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scan the lookup table replaced.
+    fn resolve_by_scan(q: &str) -> Option<&'static RuleSpec> {
+        let q = q.trim();
+        if q.is_empty() {
+            return None;
+        }
+        RULES.iter().find(|r| r.id.eq_ignore_ascii_case(q) || r.aliases.iter().any(|a| a.eq_ignore_ascii_case(q)))
+    }
+
+    #[test]
+    fn resolve_rule_agrees_with_a_scan_of_the_registry_for_every_name_in_any_case() {
+        let mut names = vec![String::new(), "  ".into(), "no-such-rule".into(), " contrast ".into()];
+        for rule in RULES {
+            for name in std::iter::once(&rule.id).chain(rule.aliases) {
+                names.push((*name).to_string());
+                names.push(name.to_ascii_uppercase());
+                names.push(name.to_ascii_lowercase());
+                names.push(format!(" {name}\t"));
+            }
+        }
+        for name in &names {
+            assert_eq!(resolve_rule(name).map(|r| r.id), resolve_by_scan(name).map(|r| r.id), "{name:?}");
+        }
+        assert_eq!(resolve_rule("LOW-Contrast").map(|r| r.id), Some("contrast"));
+        assert!(RULES.iter().all(|r| resolve_rule(r.id).is_some_and(|got| got.id == r.id)), "an ID resolves to its own rule");
+    }
 }
