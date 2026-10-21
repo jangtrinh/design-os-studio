@@ -282,6 +282,34 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "let _ = self.send_to_agent(prompt, file_path);",
         "fn build_real_cli_command() {}\n        let _ = self.send_to_agent(prompt, file_path);",
     ),
+    (
+        "38. fake 5-word ui.button label in panels/vertex.rs",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", "Join the two selected points", n_sel == 2)',
+    ),
+    (
+        "39. count in parentheses inside a button label",
+        "Z16",
+        "panels/vertex.rs",
+        'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+        'text_button(ui, btn(0, pane), "vtx-join", &format!("Join ({})", n_sel), n_sel == 2)',
+    ),
+    (
+        "40. new 4-word menu item through MenuItem::new",
+        "Z16",
+        "panels/context.rs",
+        'leaf(MenuItem::new("Ungroup")',
+        'leaf(MenuItem::new("Ungroup all of these")',
+    ),
+    (
+        "41. baseline entry fixed but not removed from the baseline",
+        "Z16",
+        "dev/sections.rs",
+        'primary_button(ui, row, "ready", "Mark as ready for dev")',
+        'primary_button(ui, row, "ready", "Mark ready")',
+    ),
 ]
 
 
@@ -319,6 +347,20 @@ def main() -> int:
 
     print("-" * 100)
     controls: List[Tuple[str, str, str, str, str]] = [
+        (
+            "a 3-word action label and a product name as one word pass",
+            "Z16",
+            "panels/vertex.rs",
+            'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+            'text_button(ui, btn(0, pane), "vtx-join", "Open DESIGN:OS Studio now", n_sel == 2)',
+        ),
+        (
+            "a long non-label literal next to a short label is ignored",
+            "Z16",
+            "panels/vertex.rs",
+            'text_button(ui, btn(0, pane), "vtx-join", "Join", n_sel == 2)',
+            'text_button(ui, btn(0, pane), "vtx-join-two-selected-points-key", "Join", n_sel == 2)',
+        ),
         (
             "comment-only mention of every retired name is ignored",
             "Z08",
