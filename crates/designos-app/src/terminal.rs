@@ -1567,7 +1567,8 @@ impl TerminalState {
         if self.key == target_key && self.lock_owner.as_deref() == Some(win.as_str()) {
             return;
         }
-        // Read after the already-bound early return so a steady frame never touches settings.json.
+        // Read after the already-bound early return so a steady frame never touches settings.json;
+        // a mode another window saves later is picked up when an agent starts (`refresh_permission_mode_from_disk`).
         self.permission_mode = crate::agent_permissions::load_permission_mode(lib_root);
         if self.key != target_key {
             self.shutdown();
@@ -1593,6 +1594,15 @@ impl TerminalState {
                 self.session_registry = crate::agent_sessions::SessionRegistry::default();
                 self.status_msg = Some(message);
             }
+        }
+    }
+
+    /// Re-reads the saved permission mode of the bound library so a mode another window (a separate
+    /// process) saved applies to the agent about to start. Called per spawn or prompt, never per frame.
+    /// Without a library, or without a saved mode, the in-memory mode stays.
+    fn refresh_permission_mode_from_disk(&mut self) {
+        if let Some(mode) = self.library_root.as_deref().and_then(crate::agent_permissions::load_saved_permission_mode) {
+            self.permission_mode = mode;
         }
     }
 
@@ -2043,6 +2053,7 @@ impl TerminalState {
             return;
         }
         self.ensure_shell_for_chat(file_path);
+        self.refresh_permission_mode_from_disk();
         crate::agent_mention::prune_deleted_mentions(raw_trimmed, &mut self.active_mentions);
         let full_prompt = crate::agent_mention::build_prompt_with_mentions(raw_trimmed, &self.active_mentions);
         self.active_mentions.clear();
@@ -2334,6 +2345,7 @@ impl TerminalState {
     /// Spawns a new tab with `preset` bound to this file's isolated [`SessionEnv`] and switches `active_tab` to it.
     /// For registrable agent CLIs, records a new entry in `sessions.json` (`#653`) and updates `last_cli` (`#652`).
     pub fn spawn_tab(&mut self, preset: AgentCliPreset, file_path: Option<&Path>) -> Result<usize, String> {
+        self.refresh_permission_mode_from_disk();
         if crate::agent_sessions::is_agent_cli_preset(preset) {
             let session_uuid =
                 if crate::agent_sessions::uses_preassigned_session_id(preset) { Some(crate::agent_sessions::generate_session_uuid()) } else { None };
@@ -2364,6 +2376,7 @@ impl TerminalState {
         custom_title: Option<String>,
         register_new_entry: bool,
     ) -> Result<usize, String> {
+        self.refresh_permission_mode_from_disk();
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
         let run_seq = self.next_run_seq.max(1);
@@ -2458,6 +2471,7 @@ impl TerminalState {
     }
 
     fn resume_session_entry(&mut self, entry_clone: &crate::agent_sessions::SessionEntry, file_path: Option<&Path>) -> Result<usize, String> {
+        self.refresh_permission_mode_from_disk();
         let preset =
             crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;
         let cmd_str = crate::agent_permissions::build_resume_command_for_mode(entry_clone, self.codex_cwd_scoped, self.agy_cwd_scoped, self.permission_mode)
@@ -10229,5 +10243,79 @@ Done!
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    fn permission_window_root(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("dos-653-perm-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create library root");
+        root
+    }
+
+    /// Another window (its own process) switches the library to Ask: this window's next agent tab honours it.
+    #[test]
+    fn new_agent_tab_honours_the_permission_mode_another_window_saved() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let root = permission_window_root("other-window");
+        let mut window_a = TerminalState::for_tab(1);
+        window_a.bind_library_file(&root, "file-a", "win-a");
+        let mut window_b = TerminalState::for_tab(2);
+        window_b.bind_library_file(&root, "file-b", "win-b");
+        assert_eq!(window_b.permission_mode, AgentPermissionMode::Skip, "window B cached the default when it bound");
+
+        window_a.permission_mode = AgentPermissionMode::Ask;
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("window A persists Ask");
+
+        let idx = window_b.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab in window B");
+        assert_eq!(window_b.permission_mode, AgentPermissionMode::Ask, "the spawn re-reads the saved mode");
+        assert_eq!(window_b.tabs[idx].permission_mode, AgentPermissionMode::Ask, "the new tab runs in Ask mode");
+
+        kill_tabs(&mut window_b);
+        window_a.shutdown();
+        window_b.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// No saved mode (or no library): a mode set in memory keeps applying to new tabs.
+    #[test]
+    fn new_agent_tab_keeps_the_in_memory_mode_when_nothing_is_saved() {
+        use crate::agent_permissions::AgentPermissionMode;
+        let root = permission_window_root("no-saved-mode");
+        let mut bound = TerminalState::for_tab(3);
+        bound.bind_library_file(&root, "file-c", "win-c");
+        bound.permission_mode = AgentPermissionMode::Ask;
+        assert!(!root.join("settings.json").exists());
+        let idx = bound.spawn_tab(AgentCliPreset::Shell, None).expect("spawn bound tab");
+        assert_eq!(bound.tabs[idx].permission_mode, AgentPermissionMode::Ask);
+        kill_tabs(&mut bound);
+        bound.shutdown();
+
+        let mut detached = isolated_683_state(68490);
+        detached.permission_mode = AgentPermissionMode::Ask;
+        let idx = detached.spawn_tab(AgentCliPreset::Shell, None).expect("spawn detached tab");
+        assert_eq!(detached.tabs[idx].permission_mode, AgentPermissionMode::Ask);
+        kill_tabs(&mut detached);
+        let _ = std::fs::remove_dir_all(&detached.session_dir);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A mode set through the normal path (in memory and saved) wins on the next spawn.
+    #[test]
+    fn new_agent_tab_uses_the_mode_set_and_saved_in_this_window() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let root = permission_window_root("same-window");
+        let mut st = TerminalState::for_tab(4);
+        st.bind_library_file(&root, "file-d", "win-d");
+        st.permission_mode = AgentPermissionMode::Ask;
+        save_permission_mode(&root, AgentPermissionMode::Ask).expect("save Ask");
+        let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Ask);
+        st.permission_mode = AgentPermissionMode::Skip;
+        save_permission_mode(&root, AgentPermissionMode::Skip).expect("save Skip");
+        let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn second tab");
+        assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Skip);
+        kill_tabs(&mut st);
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

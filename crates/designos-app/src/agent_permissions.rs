@@ -36,6 +36,12 @@ pub fn load_permission_mode(root: &Path) -> AgentPermissionMode {
     settings::load_choice(root, SETTING_KEY).map(|s| AgentPermissionMode::parse(&s)).unwrap_or_default()
 }
 
+/// The mode saved in `<root>/settings.json`, or `None` when the file or key is missing. Unlike
+/// [`load_permission_mode`] it does not invent a default, so a caller can keep its in-memory mode.
+pub fn load_saved_permission_mode(root: &Path) -> Option<AgentPermissionMode> {
+    settings::load_choice(root, SETTING_KEY).map(|s| AgentPermissionMode::parse(&s))
+}
+
 /// Persists `"agent_permission_mode"` (`"skip"` or `"ask"`) to `<root>/settings.json`.
 pub fn save_permission_mode(root: &Path, mode: AgentPermissionMode) -> Result<(), String> {
     settings::save_choice(root, SETTING_KEY, mode.as_str())
