@@ -959,7 +959,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::create_dir_all(&workspace).unwrap();
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
-        app.terminal.flush_live_sync();
         let session = designos_mcp::server::Session::with_session_dir(&workspace, &dir).expect("mcp session");
         TestRig { app, session, dir, workspace, hero, card }
     }
@@ -1520,7 +1519,6 @@ mod tests {
 
         // Re-sync MCP session with the auto-layout container state.
         r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
-        r.app.terminal.flush_live_sync();
         r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
 
         r.run_hook("start", "claude");
@@ -1606,7 +1604,6 @@ mod tests {
         r.app.doc.relayout_subtree(container);
 
         r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
-        r.app.terminal.flush_live_sync();
         r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
 
         r.run_hook("start", "claude");
@@ -1658,7 +1655,6 @@ mod tests {
         r.app.doc.insert(page, container_node).unwrap();
 
         r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
-        r.app.terminal.flush_live_sync();
         r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
 
         r.run_hook("start", "claude");
@@ -1707,7 +1703,6 @@ mod tests {
         r.app.doc.relayout_subtree(container);
 
         r.app.terminal.sync_live_file_context(&r.app.doc, r.app.page, &r.app.selection, None);
-        r.app.terminal.flush_live_sync();
         r.session = designos_mcp::server::Session::with_session_dir(&r.workspace, &r.dir).expect("mcp session");
 
         r.run_hook("start", "claude");

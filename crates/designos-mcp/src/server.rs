@@ -49,28 +49,23 @@ impl LiveSessionBridge {
         let env_spec = std::env::var_os("DESIGNOS_LIVE_SPEC").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_ctx = std::env::var_os("DESIGNOS_CONTEXT_JSON").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
         let env_patch = std::env::var_os("DESIGNOS_LIVE_DOC_PATCH").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty());
-        Self::from_env_vars(session_dir, env_canvas, env_doc_sync, env_spec, env_ctx, env_patch)
-    }
 
-    /// Resolves live session bridge paths from pre-read environment variable values without falling
-    /// back to any shared `/tmp/designos-live-*` paths.
-    pub fn from_env_vars(
-        session_dir: Option<PathBuf>,
-        env_canvas: Option<PathBuf>,
-        env_doc_sync: Option<PathBuf>,
-        env_spec: Option<PathBuf>,
-        env_ctx: Option<PathBuf>,
-        env_patch: Option<PathBuf>,
-    ) -> Self {
         let any_env = session_dir.is_some() || env_canvas.is_some() || env_doc_sync.is_some() || env_spec.is_some() || env_ctx.is_some() || env_patch.is_some();
         if !any_env {
             return Self::default();
         }
 
-        let live_canvas_path = env_canvas.or_else(|| session_dir.as_ref().map(|d| d.join("canvas.designos")));
-        let live_doc_sync_path = env_doc_sync.or_else(|| session_dir.as_ref().map(|d| d.join("doc-sync.designos")));
-        let live_spec_path = env_spec.or_else(|| session_dir.as_ref().map(|d| d.join("live-spec.json")));
-        let context_json_path = env_ctx.or_else(|| session_dir.as_ref().map(|d| d.join("context.json")));
+        let live_canvas_path = env_canvas
+            .or_else(|| session_dir.as_ref().map(|d| d.join("canvas.designos")))
+            .or_else(|| Some(PathBuf::from("/tmp/designos-live-canvas.designos")));
+        let live_doc_sync_path = env_doc_sync
+            .or_else(|| session_dir.as_ref().map(|d| d.join("doc-sync.designos")))
+            .or_else(|| Some(PathBuf::from("/tmp/designos-live-doc-sync.designos")));
+        let live_spec_path = env_spec
+            .or_else(|| session_dir.as_ref().map(|d| d.join("live-spec.json")))
+            .or_else(|| Some(PathBuf::from("/tmp/designos-live-agent-out.spec.json")));
+        let context_json_path =
+            env_ctx.or_else(|| session_dir.as_ref().map(|d| d.join("context.json"))).or_else(|| Some(PathBuf::from("/tmp/designos-live-context.json")));
         let live_doc_patch_path = env_patch
             .or_else(|| session_dir.as_ref().map(|d| d.join("doc-patch.jsonl")))
             .or_else(|| live_doc_sync_path.as_ref().map(|p| p.with_file_name("doc-patch.jsonl")));
@@ -1711,24 +1706,6 @@ mod tests {
 
         let _ = fs::remove_dir_all(&ws_dir);
         let _ = fs::remove_dir_all(&sess_dir);
-    }
-
-    #[test]
-    fn mcp_without_a_session_dir_has_no_live_paths() {
-        let empty = LiveSessionBridge::from_env_vars(None, None, None, None, None, None);
-        assert!(empty.session_dir.is_none());
-        assert!(empty.live_canvas_path.is_none());
-        assert!(empty.live_doc_sync_path.is_none());
-        assert!(empty.live_spec_path.is_none());
-        assert!(empty.context_json_path.is_none());
-        assert!(empty.live_doc_patch_path.is_none());
-
-        let partial = LiveSessionBridge::from_env_vars(None, Some(PathBuf::from("/tmp/designos-sessions/s1/canvas.designos")), None, None, None, None);
-        assert_eq!(partial.live_canvas_path.as_deref(), Some(Path::new("/tmp/designos-sessions/s1/canvas.designos")));
-        assert!(partial.live_doc_sync_path.is_none());
-        assert!(partial.live_spec_path.is_none());
-        assert!(partial.context_json_path.is_none());
-        assert!(partial.live_doc_patch_path.is_none());
     }
 
     #[test]

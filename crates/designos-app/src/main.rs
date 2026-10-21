@@ -14,7 +14,6 @@ mod agent_presence;
 mod agent_sample_prompts;
 mod agent_selection_chip;
 mod agent_session_failure;
-pub mod agent_session_files;
 pub mod agent_sessions;
 mod agent_start_failure;
 mod agent_stop;
@@ -125,7 +124,6 @@ fn main() {
         }
         return;
     }
-    agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();
     let mut viewport = egui::ViewportBuilder::default()

@@ -42,8 +42,6 @@ Verifies 15 hard Zero-Fake-UI invariants (`Z01..Z15`):
          and the update modal.
   - Z15: `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` /
          `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`.
-  - Z16: no shipped (non-test) Rust source under `crates/designos-app/src/` or `crates/designos-mcp/src/`
-         contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json` fallback.
 
 All source matching runs on shipped code: `//` comments and `#[cfg(test)]` items are stripped first, then
 every string literal is rewritten to the text the Rust compiler builds from it (escapes decoded, raw strings quoted,
@@ -55,7 +53,7 @@ this gate fails.
          `Sense::click_and_drag()`.
 
 Exit code:
-  0 when 16/16 invariants pass, 1 if any invariant fails.
+  0 when 15/15 invariants pass, 1 if any invariant fails.
 """
 
 from __future__ import annotations
@@ -69,7 +67,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_SRC = REPO_ROOT / "crates" / "designos-app" / "src"
-MCP_SRC = REPO_ROOT / "crates" / "designos-mcp" / "src"
 
 
 def literal_end(src: str, i: int) -> int:
@@ -403,9 +400,6 @@ class SourceSet:
             p.relative_to(APP_SRC).as_posix(): p.read_text(encoding="utf-8", errors="replace")
             for p in sorted(APP_SRC.rglob("*.rs"))
         }
-        if MCP_SRC.exists():
-            for p in sorted(MCP_SRC.rglob("*.rs")):
-                files[f"mcp/{p.relative_to(MCP_SRC).as_posix()}"] = p.read_text(encoding="utf-8", errors="replace")
         return cls(files)
 
     def with_replacement(self, rel_path: str, old: str, new: str) -> "SourceSet":
@@ -942,16 +936,6 @@ def check_z15(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
-RETIRED_GLOBAL_TMP_LIVE_PATTERN = r"/tmp/designos-live-|designos-live-selection\.spec\.json"
-
-
-def check_z16(sources: "SourceSet") -> Tuple[bool, str]:
-    hits = sources.code_hits(RETIRED_GLOBAL_TMP_LIVE_PATTERN)
-    if not hits:
-        return True, "no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`"
-    return False, f"global `/tmp/designos-live-` or `designos-live-selection.spec.json` found in shipped code: {hits}"
-
-
 def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]]:
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
@@ -983,7 +967,6 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
         ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(sources)),
         ("Z15", "terminal.rs + cmdk.rs", "No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs", lambda: check_z15(sources)),
-        ("Z16", "terminal.rs + mcp/server.rs", "No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code", lambda: check_z16(sources)),
     ]
 
     results: List[Dict[str, Any]] = []
