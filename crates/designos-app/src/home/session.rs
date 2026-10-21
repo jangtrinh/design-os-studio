@@ -480,8 +480,10 @@ impl App {
         // Shared libraries use the same root as the projects library.
         self.libs.set_root(root.clone());
         self.terminal.library_root = Some(root.clone());
+        self.terminal.skills.set_library_root(root.clone());
         for entry in &mut self.tabs.entries {
             entry.terminal.library_root = Some(root.clone());
+            entry.terminal.skills.set_library_root(root.clone());
         }
         let mode = crate::agent_permissions::load_permission_mode(&root);
         self.terminal.permission_mode = mode;
