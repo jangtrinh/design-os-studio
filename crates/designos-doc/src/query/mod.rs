@@ -1444,6 +1444,8 @@ mod tests {
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), linter_property_ids(&doc, page, "hardcoded-value", "strokes/0"));
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), vec![f.0]);
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('itemSpacing')]"), vec![d.0], "a number property that matches a variable is hard-coded too");
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('fills')]"), vec![a.0], "`fills` names every fill paint");
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes')]"), vec![f.0], "`strokes` names every stroke paint");
 
         let any = linter_ids(&doc, page, "hardcoded-value");
         assert_eq!(any, vec![a.0, d.0, f.0]);
