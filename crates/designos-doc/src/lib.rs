@@ -234,11 +234,59 @@ pub struct Document {
     pub page_hydrator: Option<std::sync::Arc<std::sync::Mutex<dyn PageHydrator>>>,
 }
 
+/// Default staleness threshold for [`InProgress`] flags in minutes (`agent.in_progress_stale_minutes`, E15-7 §3.3).
+pub const IN_PROGRESS_DEFAULT_STALE_MINUTES: u32 = 15;
+
+/// Minimum allowed value for `agent.in_progress_stale_minutes` (`1` minute, E15-7 §3.3).
+pub const IN_PROGRESS_MIN_STALE_MINUTES: u32 = 1;
+
+/// Maximum allowed value for `agent.in_progress_stale_minutes` (`1440` minutes / 24 hours, E15-7 §3.3).
+pub const IN_PROGRESS_MAX_STALE_MINUTES: u32 = 1440;
+
 /// Default staleness threshold for [`InProgress`] flags in seconds (`15` minutes, E15-7 §3.3).
-pub const IN_PROGRESS_DEFAULT_STALE_S: u32 = 900;
+pub const IN_PROGRESS_DEFAULT_STALE_S: u32 = IN_PROGRESS_DEFAULT_STALE_MINUTES * 60;
 
 /// Default staleness threshold for [`InProgress`] flags in milliseconds (`15` minutes).
-pub const IN_PROGRESS_DEFAULT_STALE_MS: u64 = 900_000;
+pub const IN_PROGRESS_DEFAULT_STALE_MS: u64 = (IN_PROGRESS_DEFAULT_STALE_S as u64) * 1000;
+
+static GLOBAL_IN_PROGRESS_STALE_MINUTES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+std::thread_local! {
+    static THREAD_IN_PROGRESS_STALE_MINUTES: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Sets (or resets when `None`) the `agent.in_progress_stale_minutes` setting (clamped to `1..=1440`, E15-7 §3.3).
+pub fn set_in_progress_stale_minutes(minutes: Option<u32>) {
+    let clamped = minutes.map(|m| m.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES));
+    THREAD_IN_PROGRESS_STALE_MINUTES.with(|c| c.set(clamped));
+    GLOBAL_IN_PROGRESS_STALE_MINUTES.store(clamped.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Active `agent.in_progress_stale_minutes` setting (clamped to `1..=1440`, default `15`).
+pub fn in_progress_stale_minutes() -> u32 {
+    if let Some(m) = THREAD_IN_PROGRESS_STALE_MINUTES.with(|c| c.get()) {
+        return m.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+    }
+    let global = GLOBAL_IN_PROGRESS_STALE_MINUTES.load(std::sync::atomic::Ordering::SeqCst);
+    if global != 0 {
+        return global.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+    }
+    if let Ok(env_val) = std::env::var("DESIGNOS_IN_PROGRESS_STALE_MINUTES") {
+        if let Ok(parsed) = env_val.trim().parse::<u32>() {
+            return parsed.clamp(IN_PROGRESS_MIN_STALE_MINUTES, IN_PROGRESS_MAX_STALE_MINUTES);
+        }
+    }
+    IN_PROGRESS_DEFAULT_STALE_MINUTES
+}
+
+/// Effective default staleness threshold in seconds from `agent.in_progress_stale_minutes` (`minutes * 60`).
+pub fn default_in_progress_stale_s() -> u32 {
+    in_progress_stale_minutes().saturating_mul(60)
+}
+
+/// Effective default staleness threshold in milliseconds from `agent.in_progress_stale_minutes` (`minutes * 60_000`).
+pub fn default_in_progress_stale_ms() -> u64 {
+    u64::from(default_in_progress_stale_s()).saturating_mul(1000)
+}
 
 /// Injectable clock trait (`fn now_ms()`) so tests do not sleep (E15-7 §10).
 pub trait Clock: Send + Sync + std::fmt::Debug {
@@ -940,7 +988,8 @@ impl Document {
     /// Returns the active (non-stale, existing-node) [`InProgress`] record for `id`, if flagged.
     pub fn get_in_progress(&self, id: NodeId) -> Option<&InProgress> {
         let now = now_ms();
-        self.in_progress.get(&id).filter(|ip| self.nodes.contains_key(&id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS))
+        let default_ms = default_in_progress_stale_ms();
+        self.in_progress.get(&id).filter(|ip| self.nodes.contains_key(&id) && !ip.is_stale(now, default_ms))
     }
 
     /// Sets or clears the [`InProgress`] flag on `id` without touching [`History`].
@@ -1074,7 +1123,7 @@ impl Document {
 
     /// Prunes any [`InProgress`] entries whose target node no longer exists or that are stale at [`now_ms`].
     pub fn prune_in_progress(&mut self) -> Vec<NodeId> {
-        self.clear_stale_in_progress(now_ms(), IN_PROGRESS_DEFAULT_STALE_MS)
+        self.clear_stale_in_progress(now_ms(), default_in_progress_stale_ms())
     }
 
     /// Moves `id` under `new_parent` at `index` (clamped).
@@ -1282,6 +1331,12 @@ impl Document {
         // Ignore keys of deleted layers are written as they are and dropped when the file is read
         // back (`from_json_with_report`): pruning here would clone the whole document, images
         // included, on every save after an ignored layer was deleted.
+        let now = now_ms();
+        if self.in_progress.iter().any(|(id, ip)| !self.nodes.contains_key(id) || ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS)) {
+            let mut clean = self.clone();
+            clean.in_progress.retain(|id, ip| clean.nodes.contains_key(id) && !ip.is_stale(now, IN_PROGRESS_DEFAULT_STALE_MS));
+            return finite_json::to_string_finite(&clean);
+        }
         finite_json::to_string_finite(self)
     }
 
@@ -1752,5 +1807,66 @@ mod tests {
         let cleared = d.clear_in_progress_for_run_or_agent(Some("terminal-session-id"), Some("claude"));
         assert_eq!(cleared.len(), 2);
         assert!(d.in_progress.is_empty());
+    }
+
+    #[test]
+    fn run_end_clear_without_agent_matches_only_the_finishing_run_id() {
+        set_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let f1 = d.alloc_id();
+        let frame1 = d.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let f2 = d.alloc_id();
+        let frame2 = d.insert(page, Node::frame(f2, Rect::new(240.0, 0.0, 200.0, 200.0))).unwrap();
+        let f3 = d.alloc_id();
+        let frame3 = d.insert(page, Node::frame(f3, Rect::new(480.0, 0.0, 200.0, 200.0))).unwrap();
+
+        d.set_in_progress(
+            frame1,
+            Some(InProgress { run_id: Some("p1-tab-1-1-1".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(
+            frame2,
+            Some(InProgress { run_id: Some("p1-tab-1-2-2".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(frame3, Some(InProgress { run_id: None, agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }));
+
+        let cleared = d.clear_in_progress_for_run_or_agent(Some("p1-tab-1-1-1"), None);
+        assert_eq!(cleared, vec![frame1]);
+        assert!(d.get_in_progress(frame1).is_none());
+        assert!(d.get_in_progress(frame2).is_some(), "other concurrent tab's flag must stay active");
+        assert!(d.get_in_progress(frame3).is_some(), "run_id: None entry must never be cleared by a run id");
+        set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_stale_minutes_setting_controls_default_staleness() {
+        set_mock_now_ms(Some(10_000_000));
+        set_in_progress_stale_minutes(Some(2));
+        assert_eq!(in_progress_stale_minutes(), 2);
+        assert_eq!(default_in_progress_stale_s(), 120);
+        assert_eq!(default_in_progress_stale_ms(), 120_000);
+
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let fid = d.alloc_id();
+        let frame = d.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        d.set_in_progress(
+            frame,
+            Some(InProgress { run_id: Some("run_cfg".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }),
+        );
+        advance_mock_now_ms(119_000);
+        assert!(d.get_in_progress(frame).is_some());
+        advance_mock_now_ms(2_000);
+        assert!(d.get_in_progress(frame).is_none());
+        assert_eq!(d.prune_in_progress(), vec![frame]);
+
+        set_in_progress_stale_minutes(Some(0));
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_MIN_STALE_MINUTES);
+        set_in_progress_stale_minutes(Some(5000));
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_MAX_STALE_MINUTES);
+        set_in_progress_stale_minutes(None);
+        assert_eq!(in_progress_stale_minutes(), IN_PROGRESS_DEFAULT_STALE_MINUTES);
+        set_mock_now_ms(None);
     }
 }

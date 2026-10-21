@@ -116,9 +116,11 @@ Checks, all before allocation:
 - `grid_style: "Grid12Col"` links a Grid style on any node, resolved like the other style fields.
 - The style values are applied with `apply_style_values` and the key goes into `style_refs`.
 - Wrong style type for the field: `STYLE_TYPE_MISMATCH`. Unknown: `UNKNOWN_STYLE` (5 closest).
-- A field may carry a style or a variable or a literal, never two; explicit `font_size` together
-  with `text_style` overrides the style's size and drops the link with a `STYLE_DETACHED_BY_SPEC`
-  warning.
+- A field may carry a style or a variable or a literal, never both a style and a variable; a
+  literal `font_size` together with `text_style` overrides the style's size while keeping the
+  style link (per `E1-4-styles-hold-variable-aliases.md` §8 edge case 2), whereas a `var:`-bound `font_size`
+  together with `text_style` overrides the style's size and drops the link with a
+  `STYLE_DETACHED_BY_SPEC` warning.
 
 ### 3.4 Modes
 

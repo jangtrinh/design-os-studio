@@ -425,9 +425,238 @@ fn a_variable_op_without_an_id_is_refused() {
 
 #[test]
 fn edits_the_editor_cannot_replay_are_refused() {
-    let (doc, _, _) = full_doc(1, 0);
-    let err = live_ops_for_command(&doc, &Command::SetFlows { flows: Default::default() }).unwrap_err();
-    assert!(err.contains("prototype flows"), "{err}");
+    page_flow_library_commands_are_still_refused();
+}
+
+#[test]
+fn page_flow_library_commands_are_still_refused() {
+    let (doc, page, _) = full_doc(1, 0);
+    for (cmd, expected) in [
+        (Command::InsertPage { index: 0, nodes: Vec::new() }, "Adding a page"),
+        (Command::RemovePage { id: page }, "Removing a page"),
+        (Command::SetFlows { flows: Vec::new() }, "Editing prototype flows"),
+        (Command::SetGuides { page, guides: Vec::new() }, "Editing guides"),
+        (Command::SetPrototypeDevice { device: Default::default() }, "Editing the prototype device"),
+        (Command::SetCheckDesignsSettings(Default::default()), "Editing check designs settings"),
+    ] {
+        let err = live_ops_for_command(&doc, &cmd).unwrap_err();
+        assert!(err.contains(expected), "expected '{expected}' in '{err}'");
+    }
+}
+
+#[test]
+fn a_bind_on_the_scoped_canvas_merges_with_unchanged_ids() {
+    let (mut full, page, tops) = full_doc(2, 2);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 2);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.variables.bindings.insert("fills/0".into(), "col:user/v".into());
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::Update { node: Box::new(frame) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(full.get(tops[0]).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("col:user/v"));
+    assert_eq!(full.get(tops[0]).unwrap().children.len(), 2, "frame kept its children");
+}
+
+#[test]
+fn a_variable_edit_on_the_scoped_canvas_merges_without_duplicates() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(42.0));
+    let colls = agent.variable_collections.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetVariables { variables: vars, collections: colls });
+
+    let mut state = LivePatchState::default();
+    let report = replay(&mut full, ops, &mut state);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.tokens_applied, 1);
+    assert_eq!(full.variables.len(), 1);
+    assert_eq!(full.variables["col:user/v"].values.get("m"), Some(&crate::VariableValue::Number(42.0)));
+}
+
+#[test]
+fn a_style_edit_on_the_scoped_canvas_merges_without_duplicates() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.style_meta.insert("S:1".into(), crate::StyleMeta { name: "Brand/Primary".into(), ..Default::default() });
+    let mut agent = scoped(&full, page, 1);
+    agent.styles = full.styles.clone();
+    agent.style_meta = full.style_meta.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut styles = agent.styles.clone();
+    styles.insert("S:1".into(), Style::Fill(vec![crate::Paint::solid(crate::Color::rgb(10, 20, 30))]));
+    let mut meta = agent.style_meta.clone();
+    meta.get_mut("S:1").unwrap().description = "Updated by agent".into();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetStyles { styles, style_meta: meta });
+
+    let mut state = LivePatchState::default();
+    let report = replay(&mut full, ops, &mut state);
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.tokens_applied, 1);
+    assert_eq!(full.styles.len(), 1);
+    assert_eq!(full.styles["S:1"], Style::Fill(vec![crate::Paint::solid(crate::Color::rgb(10, 20, 30))]));
+    assert_eq!(full.style_meta["S:1"].description, "Updated by agent");
+}
+
+#[test]
+fn replaying_a_token_patch_twice_changes_nothing() {
+    let (mut full, page, _) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    agent.styles = full.styles.clone();
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(7.0));
+    let mut styles = agent.styles.clone();
+    styles.insert("S:2".into(), Style::Fill(Vec::new()));
+    let colls = agent.variable_collections.clone();
+    let meta = agent.style_meta.clone();
+    agent_exec(
+        &mut agent,
+        &mut hist,
+        &mut ops,
+        Command::Batch(vec![Command::SetVariables { variables: vars, collections: colls }, Command::SetStyles { styles, style_meta: meta }]),
+    );
+
+    let mut state = LivePatchState::default();
+    let first = replay(&mut full, ops.clone(), &mut state);
+    assert_eq!(first.tokens_applied, 2);
+    let snapshot = (full.variables.clone(), full.styles.clone());
+
+    let second = replay(&mut full, ops, &mut state);
+    assert_eq!(second.applied, 0);
+    assert_eq!(second.duplicates, 2);
+    assert_eq!(second.tokens_duplicates, 2);
+    assert_eq!((full.variables, full.styles), snapshot);
+}
+
+#[test]
+fn a_bind_to_a_deleted_variable_is_skipped_with_a_reason() {
+    let (mut full, page, tops) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    // User deletes the variable in the editor before the agent's bind replays.
+    full.variables.remove("col:user/v");
+
+    let mut hist = History::default();
+    let mut ops = Vec::new();
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.variables.bindings.insert("fills/0".into(), "col:user/v".into());
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::Update { node: Box::new(frame) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert_eq!(report.applied, 0);
+    assert_eq!(report.duplicates, 0);
+    assert_eq!(report.skipped.len(), 1);
+    assert!(report.skipped[0].contains("variable 'col:user/v' not found"), "{:?}", report.skipped);
+    assert!(full.get(tops[0]).unwrap().variables.bindings.is_empty(), "no dangling binding may land");
+}
+
+#[test]
+fn token_ops_are_one_undo_step_with_their_patch() {
+    let (mut full, page, tops) = full_doc(1, 0);
+    full.variable_collections.insert("col:user".into(), collection("col:user"));
+    full.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut agent = scoped(&full, page, 1);
+    agent.variable_collections = full.variable_collections.clone();
+    agent.variables = full.variables.clone();
+    agent.styles = full.styles.clone();
+    let mut agent_hist = History::default();
+    let mut ops = Vec::new();
+
+    let mut vars = agent.variables.clone();
+    vars.get_mut("col:user/v").unwrap().values.insert("m".into(), crate::VariableValue::Number(12.0));
+    let mut styles = agent.styles.clone();
+    styles.insert("S:new".into(), Style::Fill(Vec::new()));
+    let mut frame = agent.get(tops[0]).unwrap().clone();
+    frame.name = "Tokenized Frame".into();
+    frame.variables.bindings.insert("width".into(), "col:user/v".into());
+    frame.style_refs.insert("fill".into(), "S:new".into());
+    let colls = agent.variable_collections.clone();
+    let meta = agent.style_meta.clone();
+    agent_exec(
+        &mut agent,
+        &mut agent_hist,
+        &mut ops,
+        Command::Batch(vec![
+            Command::SetVariables { variables: vars, collections: colls },
+            Command::SetStyles { styles, style_meta: meta },
+            Command::Update { node: Box::new(frame) },
+        ]),
+    );
+
+    let mut state = LivePatchState::default();
+    let mut cmds = Vec::new();
+    let report = replay_live_patch(&mut full, &LivePatch::new(ops), &mut state, &mut |d, c| {
+        cmds.push(c.clone());
+        c.apply(d).map(|_| ())
+    })
+    .unwrap();
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    assert_eq!(report.applied, 3);
+    assert_eq!(report.tokens_applied, 2);
+
+    // Committing the patch as a single batch creates 1 undo entry.
+    let mut full_before = full_doc(1, 0).0;
+    full_before.variable_collections.insert("col:user".into(), collection("col:user"));
+    full_before.variables.insert("col:user/v".into(), variable("col:user/v", "col:user"));
+    let mut editor_hist = History::default();
+    editor_hist.exec(&mut full_before, Command::Batch(cmds)).unwrap();
+    assert!(editor_hist.can_undo());
+    assert!(editor_hist.undo(&mut full_before).unwrap());
+    assert!(!editor_hist.can_undo());
+    assert_eq!(full_before.variables["col:user/v"].values.get("m"), Some(&crate::VariableValue::Number(1.0)));
+    assert!(!full_before.styles.contains_key("S:new"));
+}
+
+#[test]
+fn old_reader_reports_the_new_op_as_unreadable() {
+    #[allow(dead_code)]
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum OldLiveOp {
+        Insert { parent: NodeId },
+        Update { id: NodeId },
+        Reparent { id: NodeId },
+        Remove { id: NodeId },
+        Comments { removed: Vec<String> },
+    }
+    #[allow(dead_code)]
+    #[derive(serde::Deserialize)]
+    struct OldLivePatch {
+        ops: Vec<OldLiveOp>,
+    }
+
+    let mut styles_set = std::collections::BTreeMap::new();
+    styles_set.insert("S:1".to_string(), Style::Fill(Vec::new()));
+    let patch = LivePatch::new(vec![LiveOp::Styles { styles_set, styles_removed: Vec::new(), meta_set: Default::default(), meta_removed: Vec::new() }]);
+    let line = serde_json::to_vec(&patch).unwrap();
+    let old_res = serde_json::from_slice::<OldLivePatch>(&line);
+    assert!(old_res.is_err(), "an older reader without the Styles variant must reject the line as unreadable");
 }
 
 #[test]
@@ -863,4 +1092,212 @@ fn later_edit_to_agent_introduced_variable_replays_while_user_edit_is_preserved(
     assert_eq!(r3.skipped.len(), 1, "{:?}", r3.skipped);
     assert!(r3.skipped[0].contains("easeui/v"), "{:?}", r3.skipped);
     assert_eq!(full.variables["easeui/v"].values["m"], crate::VariableValue::Number(99.0));
+}
+
+/// Undoes the agent's latest history entry and replays its live ops onto the editor document.
+fn agent_undo_and_replay(agent: &mut Document, hist: &mut History, full: &mut Document, state: &mut LivePatchState) -> LivePatchReport {
+    let undo_ops = live_ops_for_command(agent, &hist_peek(hist)).unwrap();
+    hist.undo(agent).unwrap();
+    replay(full, undo_ops, state)
+}
+
+#[test]
+fn agent_updates_its_own_variable_and_undo_preserves_user_edits() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    // 1. The agent creates collection `easeui` and variable `easeui/v` (value 1.0).
+    let mut vars1 = agent.variables.clone();
+    vars1.insert("easeui/v".into(), variable("easeui/v", "easeui"));
+    let mut colls1 = agent.variable_collections.clone();
+    colls1.insert("easeui".into(), collection("easeui"));
+    let mut ops1 = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops1, Command::SetVariables { variables: vars1, collections: colls1.clone() });
+    assert_eq!(replay(&mut full, ops1, &mut state).applied, 1);
+
+    // 2. The agent updates its own variable to 24.0 in a second tool call.
+    let mut vars2 = agent.variables.clone();
+    let mut updated = variable("easeui/v", "easeui");
+    updated.values.insert("m".into(), crate::VariableValue::Number(24.0));
+    vars2.insert("easeui/v".into(), updated.clone());
+    let mut ops2 = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops2, Command::SetVariables { variables: vars2, collections: colls1 });
+    assert_eq!(replay(&mut full, ops2, &mut state).applied, 1);
+    assert_eq!(full.variables.get("easeui/v"), Some(&updated));
+
+    // 3. The user edits the variable in the editor to 99.0.
+    let mut user_edited = updated.clone();
+    user_edited.values.insert("m".into(), crate::VariableValue::Number(99.0));
+    full.variables.insert("easeui/v".into(), user_edited.clone());
+
+    // 4. The agent undoes both steps; neither may touch the user's value.
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variables.get("easeui/v"), Some(&user_edited), "undoing the agent's update must not overwrite the user's edit");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui/v")), "{:?}", r.skipped);
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variables.get("easeui/v"), Some(&user_edited), "undoing the agent's creation must not delete a variable the user edited");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui/v")), "{:?}", r.skipped);
+    assert!(full.variable_collections.contains_key("easeui"), "the collection still holds the user's variable");
+}
+
+#[test]
+fn agent_updates_its_own_collection_and_undo_preserves_user_edits() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    // 1. The agent creates collection `easeui`.
+    let mut colls1 = agent.variable_collections.clone();
+    colls1.insert("easeui".into(), collection("easeui"));
+    let mut ops1 = Vec::new();
+    let vars = agent.variables.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops1, Command::SetVariables { variables: vars, collections: colls1.clone() });
+    assert_eq!(replay(&mut full, ops1, &mut state).applied, 1);
+
+    // 2. The agent renames its own collection in a second tool call.
+    let mut colls2 = colls1;
+    colls2.get_mut("easeui").unwrap().name = "Agent name".into();
+    let mut ops2 = Vec::new();
+    let vars = agent.variables.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops2, Command::SetVariables { variables: vars, collections: colls2 });
+    assert_eq!(replay(&mut full, ops2, &mut state).applied, 1);
+    assert_eq!(full.variable_collections["easeui"].name, "Agent name");
+
+    // 3. The user renames it in the editor.
+    full.variable_collections.get_mut("easeui").unwrap().name = "User name".into();
+
+    // 4. The agent undoes both steps; the user's collection survives untouched.
+    agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "undoing the agent's rename must not overwrite the user's");
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "undoing the agent's creation must not delete a collection the user renamed");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui")), "{:?}", r.skipped);
+}
+
+/// Creates collection `easeui` (member `easeui/v`) through the agent and replays it.
+fn agent_creates_easeui(full: &mut Document, agent: &mut Document, hist: &mut History, state: &mut LivePatchState) {
+    let mut vars = agent.variables.clone();
+    vars.insert("easeui/v".into(), variable("easeui/v", "easeui"));
+    let mut colls = agent.variable_collections.clone();
+    colls.insert("easeui".into(), collection("easeui"));
+    let mut ops = Vec::new();
+    agent_exec(agent, hist, &mut ops, Command::SetVariables { variables: vars, collections: colls });
+    assert_eq!(replay(full, ops, state).applied, 1);
+}
+
+/// The agent adds `easeui/v2` to its own collection and replays it.
+fn agent_adds_second_easeui_variable(full: &mut Document, agent: &mut Document, hist: &mut History, state: &mut LivePatchState) -> LivePatchReport {
+    let mut vars = agent.variables.clone();
+    vars.insert("easeui/v2".into(), variable("easeui/v2", "easeui"));
+    let mut colls = agent.variable_collections.clone();
+    colls.get_mut("easeui").unwrap().variables.push("easeui/v2".into());
+    let mut ops = Vec::new();
+    agent_exec(agent, hist, &mut ops, Command::SetVariables { variables: vars, collections: colls });
+    replay(full, ops, state)
+}
+
+#[test]
+fn a_variable_the_agent_adds_joins_a_collection_the_user_added_a_member_to() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+    agent_creates_easeui(&mut full, &mut agent, &mut hist, &mut state);
+
+    // The user adds a variable to the collection in Studio (member list and variable).
+    full.variables.insert("easeui/u1".into(), variable("easeui/u1", "easeui"));
+    full.variable_collections.get_mut("easeui").unwrap().variables.push("easeui/u1".into());
+
+    let r = agent_adds_second_easeui_variable(&mut full, &mut agent, &mut hist, &mut state);
+    assert!(full.variables.contains_key("easeui/v2"));
+    assert_eq!(
+        full.variable_collections["easeui"].variables,
+        ["easeui/v", "easeui/u1", "easeui/v2"],
+        "the user's members and order stay, the agent's new member joins: {:?}",
+        r.skipped
+    );
+}
+
+#[test]
+fn a_variable_the_agent_adds_joins_a_collection_the_user_renamed() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+    agent_creates_easeui(&mut full, &mut agent, &mut hist, &mut state);
+
+    full.variable_collections.get_mut("easeui").unwrap().name = "User name".into();
+
+    let r = agent_adds_second_easeui_variable(&mut full, &mut agent, &mut hist, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "the user's rename stays");
+    assert!(full.variable_collections["easeui"].variables.contains(&"easeui/v2".to_string()), "{:?}", full.variable_collections["easeui"].variables);
+    assert_eq!(r.skipped.len(), 1, "{:?}", r.skipped);
+    assert!(r.skipped[0].contains("easeui") && r.skipped[0].contains("name"), "{:?}", r.skipped);
+
+    // The agent's creation is later undone: the renamed collection survives with the user's name.
+    let undo = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "{:?}", undo.skipped);
+}
+
+#[test]
+fn a_collection_kept_because_a_variable_still_uses_it_says_so() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+    agent_creates_easeui(&mut full, &mut agent, &mut hist, &mut state);
+
+    // A variable of the user's names the collection; the collection itself is untouched.
+    full.variables.insert("easeui/u1".into(), variable("easeui/u1", "easeui"));
+
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert!(full.variable_collections.contains_key("easeui"));
+    assert_eq!(r.duplicates, 0, "a kept collection is not a duplicate");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui") && s.contains("easeui/u1")), "{:?}", r.skipped);
+}
+
+#[test]
+fn an_agent_forward_delete_of_its_own_variable_is_refused_after_a_user_edit() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+    agent_creates_easeui(&mut full, &mut agent, &mut hist, &mut state);
+
+    let mut edited = full.variables["easeui/v"].clone();
+    edited.values.insert("m".into(), crate::VariableValue::Number(99.0));
+    full.variables.insert("easeui/v".into(), edited.clone());
+
+    // A forward delete (not an undo) carries the same ops as an undo of the creation.
+    let mut colls = agent.variable_collections.clone();
+    colls.get_mut("easeui").unwrap().variables.clear();
+    let mut ops = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops, Command::SetVariables { variables: BTreeMap::new(), collections: colls });
+    let r = replay(&mut full, ops, &mut state);
+    assert_eq!(full.variables.get("easeui/v"), Some(&edited), "the user's edit survives the agent's delete");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui/v")), "{:?}", r.skipped);
+}
+
+#[test]
+fn an_agent_undo_of_its_style_keeps_a_style_the_user_edited_since() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    let mut ops = Vec::new();
+    let mut styles = agent.styles.clone();
+    styles.insert("s_agent".into(), red_fill(10));
+    set_styles(&mut agent, &mut hist, &mut ops, styles);
+    assert_eq!(replay(&mut full, ops, &mut state).applied, 1);
+
+    full.styles.insert("s_agent".into(), red_fill(99));
+
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.styles.get("s_agent"), Some(&red_fill(99)), "undo must not delete a style the user edited");
+    assert_eq!(r.duplicates, 0);
+    assert!(r.skipped.iter().any(|s| s.contains("s_agent")), "{:?}", r.skipped);
 }

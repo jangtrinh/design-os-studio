@@ -405,6 +405,13 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if !guides.is_empty() {
         m.insert("guides".into(), Value::Array(guides));
     }
+    if let Some(ip) = doc.in_progress.get(&id) {
+        if let Ok(val) = serde_json::to_string(ip) {
+            let mut pd = Map::new();
+            pd.insert("designos:in_progress".into(), Value::String(val));
+            m.insert("pluginData".into(), Value::Object(pd));
+        }
+    }
 
     let abs = parent_abs.map(|p| *p * node.transform).unwrap_or(node.transform);
     match &node.kind {

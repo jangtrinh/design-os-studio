@@ -1839,6 +1839,11 @@ impl App {
         self.release_active_repaired_original(path.as_deref());
         self.renaming_file = false;
         let mut doc = doc;
+        doc.prune_in_progress();
+        doc.in_progress.retain(|_, ip| match ip.run_id.as_deref() {
+            Some(rid) => self.terminal.is_live_agent_run(rid),
+            None => true,
+        });
         io::ensure_page(&mut doc);
         let first_page = doc.pages[0];
         doc.ensure_page_hydrated(first_page);

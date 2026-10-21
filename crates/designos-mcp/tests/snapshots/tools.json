@@ -1079,8 +1079,53 @@
     }
   },
   {
+    "name": "designos_set_in_progress",
+    "description": "Flag or clear root frames as in progress while an agent works on them (work state, not an undo step).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "force": {
+          "default": false,
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "node_ids": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "type": "array"
+        },
+        "stale_after_s": {
+          "maximum": 86400,
+          "minimum": 60,
+          "type": "integer"
+        },
+        "value": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "node_ids",
+        "value"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    }
+  },
+  {
     "name": "designos_apply_batch",
-    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
+    "description": "Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {\"ops\":[{\"op\":\"create\",\"parent\":1,\"kind\":\"frame\",\"name\":\"Header\"},{\"op\":\"create\",\"parent\":\"$prev\",\"kind\":\"text\",\"text\":\"Title\"}]}; (2) apply_spec with as + @handle/Child update: {\"ops\":[{\"op\":\"apply_spec\",\"as\":\"hero\",\"spec\":{\"kind\":\"frame\",\"name\":\"Hero\",\"children\":[{\"kind\":\"text\",\"name\":\"Child\",\"text\":\"Hi\"}]}},{\"op\":\"update\",\"node\":\"@hero/Child\",\"opacity\":0.9}]}; (3) set_slot: {\"ops\":[{\"op\":\"set_slot\",\"node\":\"@card\",\"slot\":\"body\",\"fill\":[{\"kind\":\"text\",\"text\":\"Body\"}]}]}; (4) dry_run: {\"dry_run\":true,\"ops\":[{\"op\":\"insert\",\"kind\":\"rectangle\",\"name\":\"Box\"}]}.",
     "inputSchema": {
       "additionalProperties": false,
       "examples": [
@@ -1201,6 +1246,10 @@
           "items": {
             "additionalProperties": false,
             "properties": {
+              "agent": {
+                "maxLength": 256,
+                "type": "string"
+              },
               "apply": {
                 "items": {
                   "type": "object"
@@ -1232,10 +1281,17 @@
                 },
                 "type": "array"
               },
+              "force": {
+                "default": false,
+                "type": "boolean"
+              },
               "height": {
                 "maximum": 1000000,
                 "minimum": 0,
                 "type": "number"
+              },
+              "in_progress": {
+                "type": "boolean"
               },
               "index": {
                 "minimum": 0,
@@ -1280,6 +1336,42 @@
                 ],
                 "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
+              "node_ids": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
+              "nodes": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "pattern": "^(@[A-Za-z0-9_-]{1,64}|\\$prev)(/.+)?$",
+                      "type": "string"
+                    }
+                  ],
+                  "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
+                },
+                "maxItems": 200,
+                "minItems": 1,
+                "type": "array"
+              },
               "op": {
                 "enum": [
                   "apply_spec",
@@ -1290,7 +1382,8 @@
                   "delete",
                   "set_slot",
                   "set_variables",
-                  "set_style"
+                  "set_style",
+                  "set_in_progress"
                 ],
                 "type": "string"
               },
@@ -1325,6 +1418,10 @@
                 ],
                 "description": "Numeric node ID, '$prev', or '@<as>' / '@<as>/<name path>' reference to an earlier op in the same batch."
               },
+              "run_id": {
+                "maxLength": 256,
+                "type": "string"
+              },
               "slot": {
                 "type": "string"
               },
@@ -1333,6 +1430,15 @@
               },
               "spec": {
                 "type": "object"
+              },
+              "stale_after_s": {
+                "maximum": 86400,
+                "minimum": 60,
+                "type": "integer"
+              },
+              "status": {
+                "maxLength": 512,
+                "type": "string"
               },
               "text": {
                 "maxLength": 100000,
@@ -1355,6 +1461,9 @@
                   "type": "object"
                 },
                 "type": "array"
+              },
+              "value": {
+                "type": "boolean"
               },
               "visible": {
                 "type": "boolean"

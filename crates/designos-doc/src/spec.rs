@@ -148,6 +148,9 @@ pub struct NodeSpec {
     pub annotation: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
+    /// Optional agent `in_progress` flag (`true`, `false`, or an [`InProgress`] object).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_progress: Option<InProgressSpec>,
     /// Attached canvas comments when exporting a subtree spec.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<ResolvedCommentThread>,
@@ -300,6 +303,38 @@ pub fn format_spec_serde_error(err: &serde_json::Error) -> String {
         }
     } else {
         msg
+    }
+}
+
+/// Declarative `in_progress` flag on a [`NodeSpec`] (`true`/`false` or a detailed [`InProgress`] object).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InProgressSpec {
+    Bool(bool),
+    Detailed(InProgress),
+}
+
+impl InProgressSpec {
+    pub fn into_state(self) -> Option<InProgress> {
+        match self {
+            InProgressSpec::Bool(true) => Some(InProgress {
+                run_id: std::env::var("DESIGNOS_AGENT_RUN_ID").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                agent: std::env::var("DESIGNOS_AGENT_RUNTIME").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                since_ms: now_ms(),
+                stale_after_s: Some(crate::default_in_progress_stale_s()),
+                status: None,
+            }),
+            InProgressSpec::Bool(false) => None,
+            InProgressSpec::Detailed(mut ip) => {
+                if ip.since_ms == 0 {
+                    ip.since_ms = now_ms();
+                }
+                if ip.stale_after_s.is_none() {
+                    ip.stale_after_s = Some(crate::default_in_progress_stale_s());
+                }
+                Some(ip)
+            }
+        }
     }
 }
 
@@ -562,6 +597,7 @@ impl Document {
         let prev_gap_cursor = self.gap_cursor;
         let prev_dirty = self.dirty.clone();
         let prev_pending_relayout = self.pending_relayout.clone();
+        let prev_in_progress = self.in_progress.clone();
         let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
         let mut saved_parent_geom = Vec::new();
         if parent_has_al {
@@ -581,6 +617,8 @@ impl Document {
                 report.imported_assets = ctx.imported_assets;
                 report.stale_library_assets = ctx.stale_library_assets;
                 report.issues = ctx.issues;
+                report.in_progress =
+                    self.in_progress.iter().filter(|(id, ip)| prev_in_progress.get(*id) != Some(*ip)).map(|(id, ip)| (*id, ip.clone())).collect();
                 report.bindings_created += ctx.bindings_created;
                 report.styles_linked += ctx.styles_linked;
                 report.warnings.extend(ctx.warnings);
@@ -612,6 +650,7 @@ impl Document {
                 self.gap_cursor = prev_gap_cursor;
                 self.dirty = prev_dirty;
                 self.pending_relayout = prev_pending_relayout;
+                self.in_progress = prev_in_progress;
                 data_before.restore(self);
                 Err(err)
             }
@@ -913,6 +952,28 @@ impl Document {
             safe_to_retry: true,
         })?;
         inserted_ids.push(id);
+        if let Some(ip_spec) = &spec.in_progress {
+            let state = ip_spec.clone().into_state();
+            if state.is_some() {
+                if let Err(root_opt) = self.is_in_progress_root(id) {
+                    let message = match root_opt {
+                        Some(r) => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame (use root frame {})", id.0, r.0),
+                        None => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame", id.0),
+                    };
+                    return Err(SpecBindError {
+                        code: "IN_PROGRESS_TARGET_NOT_ROOT".to_string(),
+                        message,
+                        path: path.to_string(),
+                        received: None,
+                        expected: None,
+                        valid_options: root_opt.map(|r| r.0.to_string()).into_iter().collect(),
+                        corrected_example: None,
+                        safe_to_retry: true,
+                    });
+                }
+            }
+            self.set_in_progress(id, state);
+        }
 
         // 1. Bind preset EaseUI colours (before explicit fill/stroke overrides)
         if let Some(preset) = &spec.preset {
@@ -1328,8 +1389,8 @@ impl Document {
     }
 
     /// Applies the explicit `font_size`, `line_height` and `font_weight` of `spec` to the text node
-    /// `id` after its text style, so they override the style. An explicit `font_size` together with
-    /// `text_style` also detaches the style link (`STYLE_DETACHED_BY_SPEC`).
+    /// `id` after its text style, so they override the style. Binding `font_size` to a variable
+    /// together with `text_style` detaches the style link (`STYLE_DETACHED_BY_SPEC`).
     #[allow(clippy::too_many_arguments)]
     fn apply_text_overrides(
         &mut self,
@@ -1348,8 +1409,7 @@ impl Document {
                         tp.style.font_size = v.max(1.0);
                     }
                 }
-            }
-            if spec.text_style.is_some() {
+            } else if spec.text_style.is_some() {
                 if let Some(n) = self.get_mut(id) {
                     if n.style_refs.remove("text").is_some() {
                         report.warnings.push(SpecWarning {
@@ -1357,7 +1417,7 @@ impl Document {
                             path: format!("{path}.font_size"),
                             token: spec.text_style.clone(),
                             replacement: None,
-                            message: Some("Explicit font_size overrides and detaches text_style.".to_string()),
+                            message: Some("A variable-bound font_size overrides and detaches text_style.".to_string()),
                         });
                     }
                 }
@@ -1553,16 +1613,20 @@ impl Document {
 
         let (text, font_size, line_height, font_weight, text_color) = match &n.kind {
             NodeKind::Text(tp) => {
+                let linked_ts = text_style.as_ref().and_then(|_| n.style_refs.get("text")).and_then(|k| match self.styles.get(k) {
+                    Some(Style::Text(ts)) => Some(ts),
+                    _ => None,
+                });
                 let fs = if let Some(vid) = n.variables.bindings.get("fontSize") {
                     self.export_var_ref(index, vid).map(NumberOrVar::Ref)
-                } else if text_style.is_none() {
+                } else if text_style.is_none() || linked_ts.is_some_and(|ts| ts.font_size != tp.style.font_size) {
                     Some(NumberOrVar::Num(tp.style.font_size))
                 } else {
                     None
                 };
                 let lh = if let Some(vid) = n.variables.bindings.get("lineHeight") {
                     self.export_var_ref(index, vid).map(NumberOrVar::Ref)
-                } else if text_style.is_none() {
+                } else if text_style.is_none() || linked_ts.is_some_and(|ts| ts.line_height != tp.style.line_height) {
                     match tp.style.line_height {
                         LineHeight::Pixels(px) => Some(NumberOrVar::Num(px)),
                         _ => None,
@@ -1570,7 +1634,7 @@ impl Document {
                 } else {
                     None
                 };
-                let fw = text_style.is_none().then_some(tp.style.font_weight);
+                let fw = (text_style.is_none() || linked_ts.is_some_and(|ts| ts.font_weight != tp.style.font_weight)).then_some(tp.style.font_weight);
                 let tc = if let Some(skey) = n.style_refs.get("fill") {
                     self.export_style_ref(skey, true)
                 } else if let Some(vid) = n.variables.bindings.get("fills/0") {
@@ -1639,6 +1703,7 @@ impl Document {
 
         let dev_status = n.dev.status.map(|s| s.label().to_string());
         let annotations: Vec<String> = n.dev.annotations.iter().map(|a| a.text.clone()).collect();
+        let in_progress = self.get_in_progress(id).cloned().map(InProgressSpec::Detailed);
         let comments: Vec<ResolvedCommentThread> = all_comments
             .iter()
             .filter(|c| c.target_node_id == Some(id.0) || (c.target_node_id.is_none() && c.target_frame_id == Some(id.0)))
@@ -1693,6 +1758,7 @@ impl Document {
             dev_status,
             annotation: None,
             annotations,
+            in_progress,
             comments,
             children,
         })

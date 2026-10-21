@@ -565,6 +565,10 @@ pub const SYNTAX_PUNCT: Color32 = rgb(0xB3B3B3);
 pub const DEV_READY: Color32 = rgb(0x14AE5C);
 pub const DEV_COMPLETED: Color32 = rgb(0x06B6D4);
 pub const DEV_CHANGED: Color32 = rgb(0xFFA629);
+/// In-progress agent badge ("Agent working" / "<agent> working") (`E15-7`).
+pub const STATUS_INFO_TEXT: Color32 = rgb(0x0D99FF);
+pub const STATUS_INFO_BG: Color32 = rgba(0x0D99FF, 0x24);
+pub const STATUS_INFO_BORDER: Color32 = rgba(0x0D99FF, 0x59);
 /// Box model diagram: margin, padding and content tints (as in Figma's Inspect).
 pub const BOX_MARGIN: Color32 = rgb(0xF9CB9C);
 pub const BOX_PADDING: Color32 = rgb(0xB6D7A8);

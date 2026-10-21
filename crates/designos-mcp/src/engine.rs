@@ -73,6 +73,10 @@ pub struct Engine {
     pub doc: Document,
     pub history: History,
     pub active_page_id: Option<NodeId>,
+    /// Default agent run ID resolved from the Studio session (`context.json` / `mcp-config.json`).
+    pub default_run_id: Option<String>,
+    /// Default agent runtime label resolved from the Studio session (`context.json` / `mcp-config.json`).
+    pub default_agent: Option<String>,
     /// Edits executed since the last [`Engine::take_live_ops`], recorded while an open editor
     /// mirrors this session (`None` = not recording).
     pub live_ops: Option<Vec<LiveOp>>,
@@ -106,6 +110,8 @@ impl Default for Engine {
             doc,
             history: History::default(),
             active_page_id: Some(page),
+            default_run_id: None,
+            default_agent: None,
             live_ops: None,
             live_patch_label: None,
             owned_frames: None,
@@ -147,6 +153,8 @@ pub const DISPATCHED: &[&str] = &[
     "designos_apply_spec",
     "designos_export_spec",
     "designos_set_dev_status",
+    "designos_set_in_progress",
+    "set_in_progress",
     "designos_export_fig_file",
     "export_fig_file",
     "designos_get_guidelines",
@@ -163,8 +171,30 @@ pub const DISPATCHED: &[&str] = &[
 ];
 
 /// Non-prefixed compatibility aliases accepted by [`Engine::call`].
-pub const ALIASES: &[&str] =
-    &["export_fig_file", "get_guidelines", "get_metadata", "get_screenshot", "get_design_context", "import_web_capture", "query_nodes", "check_design"];
+pub const ALIASES: &[&str] = &[
+    "export_fig_file",
+    "get_guidelines",
+    "get_metadata",
+    "get_screenshot",
+    "get_design_context",
+    "import_web_capture",
+    "query_nodes",
+    "check_design",
+    "set_in_progress",
+];
+
+fn non_empty_trimmed(s: Option<&str>) -> Option<String> {
+    s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+}
+
+fn read_session_json_field(env_file_var: &str, session_rel: &str, pointer: &str) -> Option<String> {
+    let path = std::env::var_os(env_file_var).map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).or_else(|| {
+        std::env::var_os("DESIGNOS_SESSION_DIR").map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty()).map(|d| d.join(session_rel))
+    })?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let val: Value = serde_json::from_str(&raw).ok()?;
+    non_empty_trimmed(val.pointer(pointer).and_then(Value::as_str))
+}
 
 impl Engine {
     pub const DISPATCHED: &[&str] = DISPATCHED;
@@ -245,6 +275,28 @@ impl Engine {
             &designos_render::RenderLintEnv
         }
     }
+
+    /// Resolves the effective `run_id` for an agent operation from explicit args, `DESIGNOS_AGENT_RUN_ID`,
+    /// the bound Studio [`Session`] defaults, or `context.json` / `mcp-config.json`.
+    pub fn resolve_agent_run_id(&self, explicit: Option<&str>) -> Option<String> {
+        non_empty_trimmed(explicit)
+            .or_else(|| std::env::var("DESIGNOS_AGENT_RUN_ID").ok().and_then(|s| non_empty_trimmed(Some(&s))))
+            .or_else(|| self.default_run_id.as_deref().and_then(|s| non_empty_trimmed(Some(s))))
+            .or_else(|| read_session_json_field("DESIGNOS_CONTEXT_JSON", "context.json", "/run_id"))
+            .or_else(|| read_session_json_field("DESIGNOS_MCP_CONFIG", "mcp-config.json", "/mcpServers/designos/env/DESIGNOS_AGENT_RUN_ID"))
+    }
+
+    /// Resolves the effective `agent` runtime label from explicit args, `DESIGNOS_AGENT_RUNTIME` /
+    /// `DESIGNOS_AGENT_NAME`, the bound Studio [`Session`] defaults, or `context.json` / `mcp-config.json`.
+    pub fn resolve_agent_name(&self, explicit: Option<&str>) -> Option<String> {
+        non_empty_trimmed(explicit)
+            .or_else(|| std::env::var("DESIGNOS_AGENT_RUNTIME").ok().and_then(|s| non_empty_trimmed(Some(&s))))
+            .or_else(|| std::env::var("DESIGNOS_AGENT_NAME").ok().and_then(|s| non_empty_trimmed(Some(&s))))
+            .or_else(|| self.default_agent.as_deref().and_then(|s| non_empty_trimmed(Some(s))))
+            .or_else(|| read_session_json_field("DESIGNOS_CONTEXT_JSON", "context.json", "/agent_runtime"))
+            .or_else(|| read_session_json_field("DESIGNOS_MCP_CONFIG", "mcp-config.json", "/mcpServers/designos/env/DESIGNOS_AGENT_RUNTIME"))
+    }
+
     /// Resolves the target page when a tool call omits `parent_id` / `page_id`:
     /// prefers `self.active_page_id` (the user's currently selected page in `design:os studio`)
     /// if valid in `self.doc.pages`, falling back to `self.doc.pages.first()`.
@@ -283,12 +335,43 @@ impl Engine {
         match name {
             "designos_get_document" => {
                 let _: Empty = parse(args)?;
+                let in_progress_nodes: Vec<Value> = self
+                    .doc
+                    .in_progress
+                    .keys()
+                    .copied()
+                    .filter_map(|id| {
+                        let ip = self.doc.get_in_progress(id)?;
+                        Some(json!({
+                            "node_id": id.0,
+                            "name": self.doc.get(id).map(|n| n.name.as_str()).unwrap_or(""),
+                            "run_id": ip.run_id,
+                            "agent": ip.agent,
+                            "since_ms": ip.since_ms,
+                            "stale_after_s": ip.stale_after_s,
+                            "status": ip.status,
+                        }))
+                    })
+                    .collect();
+                let in_progress_map: serde_json::Map<String, Value> = self
+                    .doc
+                    .in_progress
+                    .keys()
+                    .copied()
+                    .filter_map(|id| {
+                        let ip = self.doc.get_in_progress(id)?;
+                        Some((id.0.to_string(), serde_json::to_value(ip).ok()?))
+                    })
+                    .collect();
                 Ok(json!({"name":self.doc.name,"kind":self.doc.kind,
                     "active_page_id":self.resolve_default_page().ok().map(|p| p.0),
-                    "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(summary).collect::<Vec<_>>(),
+                    "pages":self.doc.pages.iter().filter_map(|id|self.doc.get(*id)).map(|n| summary(&self.doc, n)).collect::<Vec<_>>(),
                     "node_count":self.doc.nodes.len(),"variable_count":self.doc.variables.len(),
                     "comment_count":self.doc.comments.len(),
                     "style_count":self.doc.styles.len(),
+                    "in_progress_count":in_progress_nodes.len(),
+                    "in_progress_nodes":in_progress_nodes,
+                    "in_progress":in_progress_map,
                     "styles":self.doc.styles.iter().map(|(key,values)|{
                         let meta=self.doc.style_meta.get(key);
                         let empty = std::collections::BTreeMap::new();
@@ -327,14 +410,24 @@ impl Engine {
                     .values()
                     .filter(|n| a.parent_id.is_none_or(|id| n.parent == Some(NodeId(id))) && n.name.to_lowercase().contains(&query))
                     .collect();
-                let nodes: Vec<_> = matching.iter().skip(a.offset).take(a.limit).map(|n| summary(n)).collect();
+                let nodes: Vec<_> = matching.iter().skip(a.offset).take(a.limit).map(|n| summary(&self.doc, n)).collect();
                 let next = a.offset.saturating_add(nodes.len());
                 Ok(json!({"nodes":nodes,"total":matching.len(),"offset":a.offset,
                     "next_offset":(next < matching.len()).then_some(next)}))
             }
             "designos_get_node" => {
                 let a: NodeArgs = parse(args)?;
-                Ok(json!({"node":self.node(a.node_id)?}))
+                let n = self.node(a.node_id)?;
+                let mut node_val = serde_json::to_value(n).map_err(|e| e.to_string())?;
+                let ip = self.doc.get_in_progress(n.id).cloned();
+                if let (Some(obj), Some(ip_ref)) = (node_val.as_object_mut(), &ip) {
+                    obj.insert("in_progress".into(), serde_json::to_value(ip_ref).map_err(|e| e.to_string())?);
+                }
+                let mut out = json!({"node": node_val});
+                if let (Some(obj), Some(ip_val)) = (out.as_object_mut(), ip) {
+                    obj.insert("in_progress".into(), serde_json::to_value(ip_val).map_err(|e| e.to_string())?);
+                }
+                Ok(out)
             }
             "designos_get_screenshot" | "get_screenshot" => crate::tools::screenshot::execute_get_screenshot(&self.doc, args).map_err(ToolError::from),
             "designos_get_design_context" | "get_design_context" => {
@@ -581,6 +674,22 @@ impl Engine {
                 let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots)
                     .map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
                 self.exec(cmd)?;
+                for (id, ip) in &report.in_progress {
+                    if self.doc.in_progress.get(id) != Some(ip) {
+                        let mut ip = ip.clone();
+                        if ip.run_id.is_none() {
+                            ip.run_id = self.resolve_agent_run_id(None);
+                        }
+                        if ip.agent.is_none() {
+                            ip.agent = self.resolve_agent_name(None);
+                        }
+                        if ip.stale_after_s.is_none() {
+                            ip.stale_after_s = Some(designos_doc::default_in_progress_stale_s());
+                        }
+                        self.doc.set_in_progress(*id, Some(ip.clone()));
+                        self.record(vec![LiveOp::SetInProgress { node: *id, state: Some(ip) }]);
+                    }
+                }
                 self.relayout(parent);
                 let root_id = report.root_node_id;
                 let mut resp = json!({
@@ -648,6 +757,108 @@ impl Engine {
                 self.exec(Command::Update { node: Box::new(node) })?;
                 Ok(json!({"node_id": a.node_id, "dev": self.doc.get(NodeId(a.node_id)).map(|n| &n.dev), "changed": true}))
             }
+            "designos_set_in_progress" | "set_in_progress" => {
+                let a: SetInProgressArgs = parse(args)?;
+                if let Some(key) = &a.idempotency_key {
+                    bounded_text("idempotency_key", key, 128)?;
+                }
+                if let Some(agent) = &a.agent {
+                    bounded_text("agent", agent, 256)?;
+                }
+                if let Some(status) = &a.status {
+                    bounded_text("status", status, 512)?;
+                }
+                if let Some(run_id) = &a.run_id {
+                    bounded_text("run_id", run_id, 256)?;
+                }
+                if let Some(stale) = a.stale_after_s {
+                    if !(60..=86_400).contains(&stale) {
+                        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/stale_after_s", "stale_after_s must be between 60 and 86400")
+                            .with_received(json!(stale))
+                            .with_expected("integer seconds from 60 to 86400"));
+                    }
+                }
+                let flag = a
+                    .value
+                    .or(a.in_progress)
+                    .ok_or_else(|| ToolError::new(ErrorCode::MissingField, "/value", "missing required boolean field 'value'").with_expected("boolean"))?;
+                let mut ids = a.node_ids.unwrap_or_default();
+                if let Some(single) = a.node_id {
+                    if !ids.contains(&single) {
+                        ids.push(single);
+                    }
+                }
+                if ids.is_empty() {
+                    return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_ids", "node_ids must contain at least 1 node ID")
+                        .with_corrected_example(json!({ "node_ids": [1], "value": true })));
+                }
+                if ids.len() > 200 {
+                    return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/node_ids", "node_ids must contain at most 200 node IDs")
+                        .with_received(json!(ids.len()))
+                        .with_expected("1 to 200 node IDs"));
+                }
+                let effective_run_id = self.resolve_agent_run_id(a.run_id.as_deref());
+                let effective_agent = self.resolve_agent_name(a.agent.as_deref());
+                let effective_status = a.status.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+                let effective_stale_s = a.stale_after_s.unwrap_or_else(designos_doc::default_in_progress_stale_s);
+
+                // Pre-validate every target node before mutating any state.
+                for &raw_id in &ids {
+                    if raw_id == 0 || self.doc.get(NodeId(raw_id)).is_none() {
+                        return Err(ToolError::new(ErrorCode::NodeNotFound, "/node_ids", format!("node {raw_id} not found")).with_received(json!(raw_id)));
+                    }
+                    let id = NodeId(raw_id);
+                    if flag {
+                        if let Err(root_opt) = self.doc.is_in_progress_root(id) {
+                            let message = match root_opt {
+                                Some(r) => format!("node {raw_id} is not a root frame; target root frame {} instead", r.0),
+                                None => format!("node {raw_id} is not a root frame"),
+                            };
+                            return Err(ToolError::new(ErrorCode::InProgressTargetNotRoot, "/node_ids", message)
+                                .with_received(json!({"node_id": raw_id, "root_frame_id": root_opt.map(|r| r.0)}))
+                                .with_valid_options(root_opt.into_iter().map(|r| r.0.to_string())));
+                        }
+                        if !a.force {
+                            if let Some(existing) = self.doc.get_in_progress(id) {
+                                if let Some(ex_run) = &existing.run_id {
+                                    if effective_run_id.as_deref() != Some(ex_run.as_str()) {
+                                        return Err(ToolError::new(
+                                            ErrorCode::NodeInProgressByOtherRun,
+                                            "/node_ids",
+                                            format!("node {raw_id} is already flagged in_progress by run '{ex_run}'"),
+                                        )
+                                        .with_received(json!({"node_id": raw_id, "existing_run_id": ex_run, "existing_agent": existing.agent})));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut updated = Vec::with_capacity(ids.len());
+                let mut any_changed = false;
+                let now = designos_doc::now_ms();
+                for &raw_id in &ids {
+                    let id = NodeId(raw_id);
+                    let state = flag.then(|| designos_doc::InProgress {
+                        run_id: effective_run_id.clone(),
+                        agent: effective_agent.clone(),
+                        since_ms: now,
+                        stale_after_s: Some(effective_stale_s),
+                        status: effective_status.clone(),
+                    });
+                    let prev = self.doc.set_in_progress(id, state.clone());
+                    if prev != state {
+                        any_changed = true;
+                        self.record(vec![LiveOp::SetInProgress { node: id, state }]);
+                    }
+                    updated.push(json!({"node_id": raw_id, "in_progress": flag}));
+                }
+                Ok(json!({
+                    "updated": updated,
+                    "changed": any_changed
+                }))
+            }
             "designos_export_fig_file" | "export_fig_file" => {
                 let a: ExportFigArgs = parse(args)?;
                 let path = std::path::Path::new(&a.output_path);
@@ -674,7 +885,7 @@ impl Engine {
                 };
                 let selector = a.selector.trim();
                 validate_xpath_selector(selector)?;
-                let matches: Vec<Value> = query_xpath_nodes(&self.doc, root, selector).into_iter().map(summary).collect();
+                let matches: Vec<Value> = query_xpath_nodes(&self.doc, root, selector).into_iter().map(|n| summary(&self.doc, n)).collect();
                 let total = matches.len();
                 Ok(json!({"selector": a.selector, "page_id": root.map(|r| r.0), "nodes": matches, "total": total}))
             }
@@ -892,6 +1103,7 @@ impl Engine {
                 if changed {
                     self.revision = self.revision.wrapping_add(1);
                 }
+                self.doc.prune_in_progress();
                 // Undo and redo defer a deep layout tail to later frames; this engine has no frames.
                 self.settle_layout();
                 self.record(ops);
@@ -1157,10 +1369,16 @@ fn query_xpath_nodes<'a>(doc: &'a Document, root: Option<NodeId>, selector: &str
     matches
 }
 
-fn summary(n: &Node) -> Value {
-    json!({"node_id":n.id,"name":n.name,"kind":n.kind.default_name(),"parent_id":n.parent,
+fn summary(doc: &Document, n: &Node) -> Value {
+    let mut out = json!({"node_id":n.id,"name":n.name,"kind":n.kind.default_name(),"parent_id":n.parent,
         "child_count":n.children.len(),"visible":n.visible,"x":n.transform.tx,"y":n.transform.ty,
-        "width":n.size.x,"height":n.size.y})
+        "width":n.size.x,"height":n.size.y});
+    if let (Some(obj), Some(ip)) = (out.as_object_mut(), doc.get_in_progress(n.id)) {
+        if let Ok(v) = serde_json::to_value(ip) {
+            obj.insert("in_progress".into(), v);
+        }
+    }
+    out
 }
 
 pub(crate) fn parse<T: DeserializeOwned>(args: Value) -> Result<T, ToolError> {
@@ -1320,6 +1538,30 @@ struct SetDevStatusArgs {
     node_id: u64,
     status: Option<String>,
     annotation: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetInProgressArgs {
+    #[serde(default)]
+    node_ids: Option<Vec<u64>>,
+    #[serde(default)]
+    node_id: Option<u64>,
+    #[serde(default)]
+    value: Option<bool>,
+    #[serde(default)]
+    in_progress: Option<bool>,
+    #[serde(default, alias = "agent_name")]
+    agent: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
+    stale_after_s: Option<u32>,
+    #[serde(default)]
+    force: bool,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1824,6 +2066,40 @@ pub fn tools() -> Vec<Value> {
         false,
     );
     out.push(crate::tools::screenshot::tool_descriptor());
+    out.push(json!({
+        "name": "designos_set_in_progress",
+        "description": "Flag or clear root frames as in progress while an agent works on them (work state, not an undo step).",
+        "inputSchema": {
+            "type": "object",
+            "required": ["node_ids", "value"],
+            "additionalProperties": false,
+            "properties": {
+                "node_ids": {
+                    "type": "array",
+                    "items": { "type": "integer", "minimum": 1 },
+                    "minItems": 1,
+                    "maxItems": 200
+                },
+                "value": { "type": "boolean" },
+                "stale_after_s": { "type": "integer", "minimum": 60, "maximum": 86400 },
+                "force": { "type": "boolean", "default": false },
+                "idempotency_key": { "type": "string", "maxLength": 128 }
+            }
+        },
+        "outputSchema": tool_output_schema(
+            json!({
+                "updated": {"type": "array"},
+                "changed": {"type": "boolean"}
+            }),
+            &["updated", "changed"],
+        ),
+        "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+        }
+    }));
     out.push(crate::tools::batch::tool_descriptor());
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());

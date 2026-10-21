@@ -127,17 +127,23 @@ fn text_style_of(n: &Node) -> &TextStyle {
 }
 
 #[test]
-fn explicit_font_size_overrides_and_detaches_the_style_on_a_frame_label() {
+fn explicit_font_size_overrides_the_style_on_a_frame_label() {
     let mut doc = fixtures::tokens_doc();
     let page = doc.pages[0];
     let s = spec(serde_json::json!({ "preset": "easeui-button-primary", "text": "Go", "text_style": "Heading L", "font_size": 18 }));
     let report = doc.apply_spec_with_report(page, &s).unwrap();
     let label = label_of(&doc, report.root_node_id);
     assert_eq!(text_style_of(label).font_size, 18.0);
-    assert!(!label.style_refs.contains_key("text"), "{:?}", label.style_refs);
-    let detached: Vec<_> = report.warnings.iter().filter(|w| w.code == "STYLE_DETACHED_BY_SPEC").collect();
-    assert_eq!(detached.len(), 1, "{:?}", report.warnings);
-    assert_eq!(detached[0].path, "spec.font_size");
+    assert_eq!(label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+    assert!(report.warnings.iter().all(|w| w.code != "STYLE_DETACHED_BY_SPEC"), "{:?}", report.warnings);
+
+    let exported = doc.export_spec(report.root_node_id).unwrap();
+    assert_eq!(exported.children[0].text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.children[0].font_size, Some(NumberOrVar::Num(18.0)));
+    let reapplied = doc.apply_spec_with_report(page, &exported).unwrap();
+    let reapplied_label = label_of(&doc, reapplied.root_node_id);
+    assert_eq!(text_style_of(reapplied_label).font_size, 18.0);
+    assert_eq!(reapplied_label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
 }
 
 #[test]
@@ -150,6 +156,42 @@ fn explicit_line_height_overrides_the_style_on_a_frame_label() {
     assert_eq!(text_style_of(label).line_height, LineHeight::Pixels(40.0));
     assert_eq!(text_style_of(label).font_size, 24.0, "the style still supplies the size");
     assert_eq!(label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+
+    let exported = doc.export_spec(report.root_node_id).unwrap();
+    assert_eq!(exported.children[0].text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.children[0].line_height, Some(NumberOrVar::Num(40.0)));
+    assert_eq!(exported.children[0].font_weight, None, "matching style font_weight is not emitted");
+    let reapplied = doc.apply_spec_with_report(page, &exported).unwrap();
+    let reapplied_label = label_of(&doc, reapplied.root_node_id);
+    assert_eq!(text_style_of(reapplied_label).line_height, LineHeight::Pixels(40.0));
+    assert_eq!(text_style_of(reapplied_label).font_size, 24.0);
+    assert_eq!(reapplied_label.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+}
+
+#[test]
+fn export_spec_preserves_explicit_line_height_and_font_weight_overrides_on_styled_text() {
+    let mut doc = fixtures::tokens_doc();
+    let page = doc.pages[0];
+    let s = spec(serde_json::json!({
+        "kind": "text",
+        "text": "Subheading",
+        "text_style": "Heading L",
+        "line_height": 34,
+        "font_weight": 500
+    }));
+    let first = doc.apply_spec_with_report(page, &s).unwrap();
+    let exported = doc.export_spec(first.root_node_id).unwrap();
+    assert_eq!(exported.text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.font_size, None, "style font_size is not emitted when unchanged");
+    assert_eq!(exported.line_height, Some(NumberOrVar::Num(34.0)));
+    assert_eq!(exported.font_weight, Some(500));
+
+    let second = doc.apply_spec_with_report(page, &exported).unwrap();
+    let n2 = doc.get(second.root_node_id).unwrap();
+    assert_eq!(n2.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+    assert_eq!(text_style_of(n2).font_size, 24.0);
+    assert_eq!(text_style_of(n2).line_height, LineHeight::Pixels(34.0));
+    assert_eq!(text_style_of(n2).font_weight, 500);
 }
 
 #[test]
@@ -166,12 +208,32 @@ fn font_size_variable_detaches_the_style_on_a_frame_label() {
 }
 
 #[test]
-fn text_node_keeps_the_same_override_behaviour() {
+fn export_spec_preserves_font_size_override_on_styled_text() {
     let mut doc = fixtures::tokens_doc();
     let page = doc.pages[0];
-    let s = spec(serde_json::json!({ "kind": "text", "text": "Go", "text_style": "Heading L", "font_size": 18 }));
-    let report = doc.apply_spec_with_report(page, &s).unwrap();
-    let n = doc.get(report.root_node_id).unwrap();
-    assert_eq!(text_style_of(n).font_size, 18.0);
-    assert!(!n.style_refs.contains_key("text"));
+    let first = doc
+        .apply_spec_with_report(
+            page,
+            &spec(serde_json::json!({
+                "kind": "text",
+                "text": "Styled heading with size override",
+                "text_style": "Heading L"
+            })),
+        )
+        .unwrap();
+    // Set a different font_size while keeping style_refs["text"] linked (e.g. a canvas override).
+    if let Some(NodeKind::Text(tp)) = doc.get_mut(first.root_node_id).map(|n| &mut n.kind) {
+        tp.style.font_size = 18.0;
+    }
+    assert_eq!(doc.get(first.root_node_id).unwrap().style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+
+    let exported = doc.export_spec(first.root_node_id).unwrap();
+    assert_eq!(exported.text_style.as_deref(), Some("Heading L"));
+    assert_eq!(exported.font_size, Some(NumberOrVar::Num(18.0)));
+
+    let second = doc.apply_spec_with_report(page, &exported).unwrap();
+    assert!(second.warnings.iter().all(|w| w.code != "STYLE_DETACHED_BY_SPEC"), "{:?}", second.warnings);
+    let n2 = doc.get(second.root_node_id).unwrap();
+    assert_eq!(n2.style_refs.get("text").map(String::as_str), Some("style_heading_l"));
+    assert_eq!(text_style_of(n2).font_size, 18.0);
 }

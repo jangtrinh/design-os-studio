@@ -442,6 +442,17 @@ pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<
     Some((r, status))
 }
 
+/// Screen rect and state of the on-canvas "Agent working" pill badge right after a top-level frame label (`E15-7`).
+pub fn in_progress_badge_rect(doc: &designos_doc::Document, id: NodeId, n: &Node, label_rect: ERect) -> Option<(ERect, designos_doc::InProgress)> {
+    let ip = doc.get_in_progress(id)?.clone();
+    let label = ip.badge_text();
+    let text_w = label.chars().count() as f32 * theme::FONT_SIZE_CAPTION * 0.62 + 12.0;
+    let h = 18.0;
+    let left_x = dev_status_badge_rect(id, n, label_rect).map_or(label_rect.right() + 6.0, |(dr, _)| dr.right() + 6.0);
+    let r = ERect::from_min_size(Pos2::new(left_x, label_rect.center().y - h * 0.5), EV::new(text_w, h));
+    Some((r, ip))
+}
+
 /// The grid frames whose header pills and `+` buttons a click can reach: the selected ones and the hovered one.
 /// What is painted and what is hit-tested both come from this list.
 fn grid_track_candidates(app: &App) -> Vec<NodeId> {
@@ -798,9 +809,9 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
         let col = if selected || hovered || is_comp_like { sel_color(app, id) } else { lab_col };
         let dx = if is_comp_like { 18.0 } else { 0.0 };
         if is_comp {
-            crate::icons::paint(&p, crate::icons::Icon::Component, Pos2::new(r.left() + 7.0, r.center().y), 14.0, col);
+            crate::icons::paint(&p, crate::icons::Icon::Component, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 14.0, col);
         } else if is_inst {
-            paint_instance_diamond(&p, Pos2::new(r.left() + 7.0, r.center().y), 5.0, col);
+            paint_instance_diamond(&p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
         }
         let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
         let name = crate::widgets::elide(&p, clean_name, &theme::font_body(), (r.width() - dx + 8.0).max(8.0));
@@ -813,6 +824,41 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
             };
             p.rect_filled(badge_r, theme::cr(3), badge_col);
             p.text(badge_r.center(), Align2::CENTER_CENTER, status.label(), theme::font_canvas_strong(), Color32::WHITE);
+        }
+        if let Some((badge_r, ip)) = in_progress_badge_rect(&app.doc, id, n, r) {
+            p.rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::STATUS_INFO_BG);
+            p.rect_stroke(badge_r, theme::cr_pill(badge_r.height()), Stroke::new(1.0, theme::STATUS_INFO_BORDER), StrokeKind::Inside);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, ip.badge_text(), theme::font_caption_medium(), theme::STATUS_INFO_TEXT);
+            let resp = ui.interact(badge_r, ui.id().with(("in-progress-badge", id)), egui::Sense::hover());
+            if resp.hovered() {
+                let now_ms = app.doc.now_ms();
+                let exp_ms = ip.expiry_ms(now_ms, designos_doc::default_in_progress_stale_ms());
+                let agent_str = ip.agent.as_deref().unwrap_or("Agent");
+                let run_str = ip.run_id.as_deref().unwrap_or("none");
+                let stale_str = match exp_ms {
+                    Some(exp) => format!("{exp} ms ({}s remaining)", exp.saturating_sub(now_ms) / 1000),
+                    None => "never".to_string(),
+                };
+                let tip = format!("Agent: {agent_str}\nRun ID: {run_str}\nStarted: {} ms\nStale at: {stale_str}", ip.since_ms);
+                resp.on_hover_text(tip);
+            }
+        }
+    }
+    if !app.doc.in_progress.is_empty() {
+        let now_ms = app.doc.now_ms();
+        let default_stale_ms = designos_doc::default_in_progress_stale_ms();
+        let min_remaining_ms = app
+            .doc
+            .in_progress
+            .iter()
+            .filter(|(&id, _)| app.doc.page_of(id) == Some(app.page))
+            .filter_map(|(_, ip)| {
+                let exp = ip.expiry_ms(now_ms, default_stale_ms)?;
+                (exp > now_ms).then_some(exp - now_ms)
+            })
+            .min();
+        if let Some(rem_ms) = min_remaining_ms {
+            ui.ctx().request_repaint_after(Duration::from_millis(rem_ms.max(1)));
         }
     }
 
@@ -1582,5 +1628,181 @@ mod tests {
         assert_eq!(nearest_pill([far, near], at).map(|p| p.2), Some(1));
         assert_eq!(nearest_pill([near, far], at).map(|p| p.2), Some(1), "list order does not matter");
         assert!(nearest_pill([far, near], Pos2::new(50.0, 7.0)).is_none(), "outside every pill is nothing");
+    }
+
+    #[test]
+    fn in_progress_batch_flag_and_clear_on_run_end() {
+        designos_doc::set_mock_now_ms(Some(3_000_000));
+        let mut doc = designos_doc::Document::new("InProgress App Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let mut frame_node = Node::frame(fid, Rect::new(40.0, 60.0, 360.0, 240.0));
+        frame_node.name = "Hero Screen".into();
+        let frame_id = doc.insert(page, frame_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.doc.set_in_progress(
+            frame_id,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_e15_7".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(300),
+                status: Some("Building header...".into()),
+            }),
+        );
+
+        let viewport = ERect::from_min_size(Pos2::ZERO, EV::new(1280.0, 800.0));
+        let labels = label_rects(&app, viewport);
+        let (_, label_r) = labels.into_iter().find(|(id, _)| *id == frame_id).expect("root frame must have a label rect");
+        let node = app.doc.get(frame_id).unwrap();
+        let (badge_r, ip) = in_progress_badge_rect(&app.doc, frame_id, node, label_r).expect("flagged frame must produce an in_progress badge rect");
+        assert_eq!(badge_r.height(), 18.0);
+        assert!((badge_r.left() - (label_r.right() + 6.0)).abs() < 1e-4);
+        assert_eq!(ip.badge_text(), "Claude Code working");
+
+        // Transitioning agent run to done emits ClearInProgress and clears the badge.
+        crate::shell::execute_terminal_actions(
+            &mut app,
+            vec![crate::terminal::TerminalAction::ClearInProgress { run_id: Some("run_e15_7".into()), agent: Some("Claude Code".into()) }],
+        );
+        assert!(app.doc.get_in_progress(frame_id).is_none());
+        let node = app.doc.get(frame_id).unwrap();
+        assert!(in_progress_badge_rect(&app.doc, frame_id, node, label_r).is_none());
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_killed_agent_flag_goes_stale_and_dead_run_cleared_on_load() {
+        designos_doc::set_mock_now_ms(Some(4_000_000));
+        let mut doc = designos_doc::Document::new("Stale & Load Test");
+        let page = doc.add_page("Page 1");
+        let f1 = doc.alloc_id();
+        let frame1 = doc.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 300.0, 200.0))).unwrap();
+        let f2 = doc.alloc_id();
+        let frame2 = doc.insert(page, Node::frame(f2, Rect::new(340.0, 0.0, 300.0, 200.0))).unwrap();
+
+        doc.set_in_progress(
+            frame1,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_dead".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        );
+        doc.set_in_progress(
+            frame2,
+            Some(designos_doc::InProgress {
+                run_id: None,
+                agent: Some("External Plugin".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: None,
+                status: None,
+            }),
+        );
+
+        // On replace_document (simulating Studio restart / reload), entries with a dead run_id are cleared
+        // while imported/user entries with run_id: None remain.
+        let mut app = App::new(designos_doc::Document::new("Initial"));
+        app.replace_document(doc, None);
+        assert!(app.doc.get_in_progress(frame1).is_none(), "dead run_id must be cleared on document load");
+        assert!(app.doc.get_in_progress(frame2).is_some(), "run_id: None entry without stale_after_s stays active");
+
+        // Now flag frame1 with stale_after_s: 60 and advance clock 61s.
+        app.doc.set_in_progress(
+            frame1,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_killed_pty".into()),
+                agent: Some("Codex".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        );
+        assert!(app.doc.get_in_progress(frame1).is_some());
+        designos_doc::advance_mock_now_ms(61_000);
+        let label_r = ERect::from_min_size(Pos2::new(20.0, 20.0), EV::new(80.0, 14.0));
+        let n1 = app.doc.get(frame1).unwrap();
+        assert!(in_progress_badge_rect(&app.doc, frame1, n1, label_r).is_none(), "stale badge must not paint");
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_undo_does_not_touch_flag() {
+        designos_doc::set_mock_now_ms(Some(5_000_000));
+        let mut doc = designos_doc::Document::new("Undo Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let mut app = App::new(doc);
+
+        let mut after = app.doc.get(frame).unwrap().clone();
+        after.name = "Updated Title".into();
+        app.hist.exec(&mut app.doc, designos_doc::Command::Update { node: Box::new(after) }).unwrap();
+        assert_eq!(app.doc.get(frame).unwrap().name, "Updated Title");
+
+        app.doc.set_in_progress(
+            frame,
+            Some(designos_doc::InProgress {
+                run_id: Some("run_undo".into()),
+                agent: Some("Claude Code".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(300),
+                status: None,
+            }),
+        );
+        app.undo();
+        assert_eq!(app.doc.get(frame).unwrap().name, "Frame");
+        assert!(app.doc.get_in_progress(frame).is_some(), "App::undo must not clear in_progress flag");
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn in_progress_set_and_clear_do_not_bump_tile_view_rev_and_studio_provisions_run_id() {
+        designos_doc::set_mock_now_ms(Some(6_000_000));
+        let mut doc = designos_doc::Document::new("Rev & RunId Test");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 240.0))).unwrap();
+        let mut app = App::new(doc);
+
+        // Consume initial dirty state and record baseline TileView::rev.
+        let base_rev = crate::canvas::tiles::take_rev(&mut app);
+
+        // 1. LivePatch containing only SetInProgress must not dirty canvas or bump TileView::rev.
+        let patch = designos_doc::live_patch::LivePatch::new(vec![designos_doc::live_patch::LiveOp::SetInProgress {
+            node: frame,
+            state: Some(designos_doc::InProgress {
+                run_id: Some("p99-tab-1-1-1".into()),
+                agent: Some("claude".into()),
+                since_ms: designos_doc::now_ms(),
+                stale_after_s: Some(60),
+                status: None,
+            }),
+        }]);
+        crate::live_patch_apply::apply_live_patches(&mut app, &[patch]);
+        assert!(app.doc.get_in_progress(frame).is_some());
+        assert_eq!(crate::canvas::tiles::take_rev(&mut app), base_rev, "SetInProgress live patch must not bump TileView::rev");
+
+        // 2. TerminalAction::ClearInProgress must not bump TileView::rev.
+        crate::shell::execute_terminal_actions(
+            &mut app,
+            vec![crate::terminal::TerminalAction::ClearInProgress { run_id: Some("p99-tab-1-1-1".into()), agent: Some("claude".into()) }],
+        );
+        assert!(app.doc.get_in_progress(frame).is_none());
+        assert_eq!(crate::canvas::tiles::take_rev(&mut app), base_rev, "ClearInProgress must not bump TileView::rev");
+
+        // 3. Studio session provisions DESIGNOS_AGENT_RUN_ID (<session_id>-<tab>-<n>) and DESIGNOS_AGENT_RUNTIME in mcp-config.json and PTY env.
+        let mut st = crate::terminal::TerminalState::for_tab(777);
+        st.sync_live_file_context(&app.doc, page, &[], None);
+        let mcp_cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("mcp-config.json")).unwrap()).unwrap();
+        let mcp_env = &mcp_cfg["mcpServers"]["designos"]["env"];
+        let expected_prefix = format!("{}-", st.session_id);
+        let mcp_run_id = mcp_env["DESIGNOS_AGENT_RUN_ID"].as_str().unwrap_or("");
+        assert!(mcp_run_id.starts_with(&expected_prefix), "expected <session_id>-<tab>-<n> in mcp-config.json, got '{mcp_run_id}'");
+        assert!(!mcp_env["DESIGNOS_AGENT_RUNTIME"].as_str().unwrap_or("").is_empty(), "DESIGNOS_AGENT_RUNTIME must be set in mcp-config.json");
+        designos_doc::set_mock_now_ms(None);
     }
 }

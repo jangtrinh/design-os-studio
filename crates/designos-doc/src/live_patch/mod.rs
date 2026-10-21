@@ -10,6 +10,7 @@
 mod record;
 mod replay;
 mod replay_comments;
+mod replay_tokens;
 mod validate;
 
 pub use record::{batch_doc_clones, is_independent_batch, live_ops_for_command, live_ops_for_independent};
@@ -183,14 +184,25 @@ pub enum LiveOp {
     /// lack variables the editor has (a scoped canvas), so the editor merges these into its own
     /// maps instead of taking the agent's maps whole.
     Variables {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "collections_set")]
         collections: Vec<VariableCollection>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "variables_set")]
         variables: Vec<Variable>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "collections_removed")]
         removed_collections: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "variables_removed")]
         removed_variables: Vec<String>,
+    },
+    /// Shared styles and their metadata the agent added, replaced or removed, by style key.
+    Styles {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty", alias = "upserted")]
+        styles_set: BTreeMap<String, Style>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "removed")]
+        styles_removed: Vec<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty", alias = "upserted_meta")]
+        meta_set: BTreeMap<String, StyleMeta>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "removed_meta")]
+        meta_removed: Vec<String>,
     },
     /// Comment threads the agent created, edited or deleted, by thread id. The agent's copy can
     /// lack threads the editor has, so ids it picks may already be taken there.
@@ -212,17 +224,6 @@ pub enum LiveOp {
         node: NodeId,
         #[serde(default, alias = "value", skip_serializing_if = "Option::is_none")]
         state: Option<InProgress>,
-    },
-    /// Shared styles added, updated or removed.
-    Styles {
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted: BTreeMap<String, Style>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        upserted_meta: BTreeMap<String, StyleMeta>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed: Vec<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        removed_meta: Vec<String>,
     },
     /// Library state and hidden library page changes.
     LibraryState {

@@ -39,7 +39,10 @@ pub use fig::{commands_blob_to_path, decode_fig_to_json, import_fig, import_fig_
 #[doc(hidden)]
 pub use fig::{extract_fig_derived_symbol_data, import_fig_node_changes, FigDerivedSymbolEntry, FigInstanceDerivedData};
 pub use fig_export::{export_fig, export_fig_with_report, path_to_commands_blob};
-pub use pen::{export_pen_json, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenImport, PenImportOptions, PenWarning};
+pub use pen::{
+    export_pen_json, export_pen_json_with_report, import_pen_json, import_pen_json_report, import_pen_json_with_warnings, PenExportReport, PenImport,
+    PenImportOptions, PenWarning,
+};
 pub use proto::{gamepad_button_code, gamepad_button_name, key_code, key_name};
 pub use rest_import::{
     image_refs, import_rest_json, import_rest_json_with_budget, import_rest_json_with_report, ImportReport as RestImportReport, CLONE_BUDGET_TOTAL,

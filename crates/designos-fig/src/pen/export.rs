@@ -11,7 +11,31 @@ pub fn node_pen_id(n: &Node) -> String {
     n.source_id.clone().unwrap_or_else(|| format!("n{}", n.id.0))
 }
 
+/// Summary of `.pen` scene format export side-effects (such as omitted transient `in_progress` flags, E15-7 §6).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PenExportReport {
+    /// Active `in_progress` root IDs left out of the `.pen` scene format export.
+    pub omitted_in_progress_ids: Vec<NodeId>,
+    /// Number of active `in_progress` roots left out of the `.pen` scene format export.
+    pub omitted_in_progress_count: usize,
+}
+
+impl PenExportReport {
+    /// Human-readable summary note when transient `in_progress` flags were omitted from `.pen` export.
+    pub fn summary_note(&self) -> Option<String> {
+        (self.omitted_in_progress_count > 0)
+            .then(|| format!("Omitted {} in_progress flag(s) from scene format export ({:?})", self.omitted_in_progress_count, self.omitted_in_progress_ids))
+    }
+}
+
 pub fn export_pen_json(doc: &Document) -> Result<String, String> {
+    export_pen_json_with_report(doc).map(|(json, _)| json)
+}
+
+/// Like [`export_pen_json`], also returning a [`PenExportReport`] listing any active `in_progress`
+/// roots omitted because `.pen` does not carry agent work-in-progress state (`placeholder` has a
+/// separate component meaning and is never written from `in_progress`, E15-7 §6).
+pub fn export_pen_json_with_report(doc: &Document) -> Result<(String, PenExportReport), String> {
     let mut root = Map::new();
     root.insert("version".into(), Value::String(CURRENT_PEN_VERSION.into()));
     if !doc.name.is_empty() {
@@ -52,8 +76,10 @@ pub fn export_pen_json(doc: &Document) -> Result<String, String> {
         root.insert("pages".into(), Value::Array(pages_arr));
     }
 
+    let omitted_in_progress_ids: Vec<NodeId> = doc.in_progress.keys().copied().filter(|&id| doc.get_in_progress(id).is_some()).collect();
+    let report = PenExportReport { omitted_in_progress_count: omitted_in_progress_ids.len(), omitted_in_progress_ids };
     let pretty = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| format!("Failed to serialize .pen JSON: {e}"))?;
-    Ok(splice_ordered_themes_and_variables(doc, pretty))
+    Ok((splice_ordered_themes_and_variables(doc, pretty), report))
 }
 
 pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {

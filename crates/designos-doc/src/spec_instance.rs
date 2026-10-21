@@ -2047,6 +2047,7 @@ impl Document {
         let opacity = if n.component.overrides.contains(&OverrideField::Opacity) { n.opacity } else { 1.0 };
         let dev_status = n.dev.status.map(|s| s.label().to_string());
         let annotations: Vec<String> = n.dev.annotations.iter().map(|a| a.text.clone()).collect();
+        let in_progress = self.get_in_progress(id).cloned().map(InProgressSpec::Detailed);
         let comments: Vec<ResolvedCommentThread> = all_comments
             .iter()
             .filter(|c| c.target_node_id == Some(id.0) || (c.target_node_id.is_none() && c.target_frame_id == Some(id.0)))
@@ -2096,6 +2097,7 @@ impl Document {
             dev_status,
             annotation: None,
             annotations,
+            in_progress,
             comments,
             children: Vec::new(),
         })
@@ -2264,6 +2266,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     let prev_library_state = doc.library.clone();
     let prev_dirty = doc.dirty.clone();
     let prev_pending_relayout = doc.pending_relayout.clone();
+    let prev_in_progress = doc.in_progress.clone();
     let data_before = crate::spec_data::SpecDataSnapshot::of(doc);
     let parent_index = pnode.children.len();
     let parent_has_al = pnode.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
@@ -2297,6 +2300,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
         doc.gap_cursor = prev_gap_cursor;
         doc.dirty = prev_dirty.clone();
         doc.pending_relayout = prev_pending_relayout.clone();
+        doc.in_progress = prev_in_progress.clone();
     };
 
     let mut ctx = SpecBuildCtx::new(doc, snapshots);
@@ -2326,6 +2330,7 @@ pub fn apply_spec_command(doc: &mut Document, parent: NodeId, spec: &NodeSpec, s
     report.imported_assets = ctx.imported_assets.clone();
     report.stale_library_assets = ctx.stale_library_assets.clone();
     report.issues = ctx.issues.clone();
+    report.in_progress = doc.in_progress.iter().filter(|(id, ip)| prev_in_progress.get(*id) != Some(*ip)).map(|(id, ip)| (*id, ip.clone())).collect();
     report.bindings_created += ctx.bindings_created;
     report.styles_linked += ctx.styles_linked;
     report.warnings.extend(ctx.warnings.clone());

@@ -1,6 +1,7 @@
 //! Editor side: replay a [`LivePatch`] on the full document as ordinary [`Command`]s.
 
 use super::replay_comments::{resolve_comments, CommentRemap};
+use super::replay_tokens::{filter_missing_token_links_on_insert, filter_missing_token_links_on_update};
 use super::validate::insert_problem;
 use super::{LiveOp, LivePatch, SiblingHint, LIVE_PATCH_VERSION, STRUCTURAL_FIELDS};
 use crate::{Command, DocError, Document, Node, NodeId, NodeKind, Style, StyleMeta, Variable, VariableCollection};
@@ -24,12 +25,12 @@ pub struct LivePatchState {
     /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
-    /// Variable and collection ids this session's replays added to the editor. An agent undo
-    /// removes only these; anything the editor had before is left alone. Variables also keep the
-    /// last value this session wrote, so a later agent edit never overwrites a value the user
-    /// changed in the editor since.
+    /// Variable and collection ids this session's replays added to the editor, mapped to the last
+    /// value this session wrote. An agent undo removes only these, and only while the editor still
+    /// holds the written value; anything the editor had before, or the user changed since, is left
+    /// alone. A later agent edit likewise never overwrites a value the user changed.
     introduced_variables: BTreeMap<String, Variable>,
-    introduced_collections: BTreeSet<String>,
+    introduced_collections: BTreeMap<String, VariableCollection>,
     /// Styles and style metadata this session introduced into the editor document, mapped to the
     /// last value this session wrote. Agent writes go by id and the last one wins; a later agent
     /// edit is refused only when the editor no longer holds the value written here (the user
@@ -94,6 +95,10 @@ pub struct LivePatchReport {
     pub applied: usize,
     /// Ops already reflected in the document (a repeated delivery).
     pub duplicates: usize,
+    /// Token ops (`Variables` / `Styles`) that turned into commands.
+    pub tokens_applied: usize,
+    /// Token ops (`Variables` / `Styles`) already reflected in the document.
+    pub tokens_duplicates: usize,
     /// Ops that could not be replayed, with the reason.
     pub skipped: Vec<String>,
 }
@@ -175,15 +180,18 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("update of missing node {}", id.0));
                 return None;
             };
-            let merged = match merge_fields(cur, set, unset) {
+            let mut merged = match merge_fields(cur, set, unset) {
                 Ok(n) => n,
                 Err(e) => {
                     report.skipped.push(format!("update of node {}: {e}", id.0));
                     return None;
                 }
             };
+            let skipped_links = filter_missing_token_links_on_update(doc, cur, &mut merged, report);
             if merged == *cur {
-                report.duplicates += 1;
+                if skipped_links == 0 {
+                    report.duplicates += 1;
+                }
                 return None;
             }
             let is_page = |n: &Node| matches!(n.kind, NodeKind::Page { .. });
@@ -274,18 +282,20 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
             }
             None
         }
-        LiveOp::Styles { upserted, upserted_meta, removed, removed_meta } => {
+        LiveOp::Styles { styles_set, styles_removed, meta_set, meta_removed } => {
             let mut styles = doc.styles.clone();
             let mut style_meta = doc.style_meta.clone();
-            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, upserted, removed, is_spec_undo, "style", report);
+            let refused_styles = merge_agent_tokens(&mut styles, &mut state.introduced_styles, styles_set, styles_removed, is_spec_undo, "style", report);
             let refused_meta =
-                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, upserted_meta, removed_meta, is_spec_undo, "style metadata", report);
+                merge_agent_tokens(&mut style_meta, &mut state.introduced_style_meta, meta_set, meta_removed, is_spec_undo, "style metadata", report);
             if styles == doc.styles && style_meta == doc.style_meta {
                 if !(refused_styles || refused_meta) {
                     report.duplicates += 1;
+                    report.tokens_duplicates += 1;
                 }
                 None
             } else {
+                report.tokens_applied += 1;
                 Some(Command::SetStyles { styles, style_meta })
             }
         }
@@ -367,8 +377,9 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
 /// The agent's change to one id-keyed token map (styles or style metadata) merged into the
 /// editor's copy: writes go by id and the last write wins, the same rule variables follow.
 /// An upsert is refused only when this session wrote the id earlier and the editor now holds a
-/// different value (the user changed it since); a removal of such an id is refused on an agent
-/// undo for the same reason, and an undo never removes an id this session did not introduce.
+/// different value (the user changed it since). A removal of such an id is refused for the same
+/// reason whichever op carries it: an agent undo of `SetStyles` has no `Remove` op, so it cannot
+/// be told from a delete. An undo never removes an id this session did not introduce.
 /// Every refusal is reported in `skipped`. Returns whether anything was refused.
 fn merge_agent_tokens<T: Clone + PartialEq>(
     current: &mut BTreeMap<String, T>,
@@ -385,13 +396,13 @@ fn merge_agent_tokens<T: Clone + PartialEq>(
             introduced.remove(k);
             continue;
         };
-        let introduced_unchanged = introduced.get(k).is_some_and(|written| written == held);
-        if !is_spec_undo || introduced_unchanged {
-            introduced.remove(k);
-            current.remove(k);
-        } else if introduced.contains_key(k) {
+        let owned = introduced.get(k);
+        if owned.is_some_and(|written| written != held) {
             report.skipped.push(format!("{what} {k} was changed in the editor after the agent wrote it; its removal was not replayed"));
             refused = true;
+        } else if owned.is_some() || !is_spec_undo {
+            introduced.remove(k);
+            current.remove(k);
         }
     }
     for (k, v) in upserted {
@@ -415,9 +426,13 @@ fn merge_agent_tokens<T: Clone + PartialEq>(
 
 /// The agent's variable and collection changes merged into the editor's own maps, which can hold
 /// more than the agent's copy did. Changed variables and collections are upserted (unioning member
-/// lists for existing collections so editor-only members are preserved). On an agent spec-undo
+/// lists for existing collections so editor-only members are preserved, and keeping the value of
+/// every collection field the user changed since the session wrote it). On an agent spec-undo
 /// (`is_spec_undo`), only ids this session introduced are removed so pre-existing editor variables
-/// survive; standalone `SetVariables` deletes apply directly. Entries without an id are refused.
+/// survive; standalone `SetVariables` deletes of ids the editor owns apply directly. An id this
+/// session introduced is removed only while the editor still holds the value the session wrote,
+/// whichever kind of op removes it (a `SetVariables` undo carries no `Remove` op). Entries without
+/// an id are refused.
 #[allow(clippy::too_many_arguments)]
 fn resolve_variables(
     doc: &Document,
@@ -431,8 +446,14 @@ fn resolve_variables(
 ) -> Option<Command> {
     let mut merged_vars = doc.variables.clone();
     let mut merged_colls = doc.variable_collections.clone();
+    let mut refused = false;
     for id in removed_variables {
-        if state.introduced_variables.remove(id).is_some() || !is_spec_undo {
+        let owned = state.introduced_variables.get(id);
+        if owned.is_some_and(|written| doc.variables.get(id).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("variable {id} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        } else if owned.is_some() || !is_spec_undo {
+            state.introduced_variables.remove(id);
             merged_vars.remove(id);
             for coll in merged_colls.values_mut() {
                 coll.variables.retain(|vid| vid != id);
@@ -440,11 +461,23 @@ fn resolve_variables(
         }
     }
     for id in removed_collections {
-        if state.introduced_collections.remove(id) || !is_spec_undo {
+        let owned = state.introduced_collections.get(id);
+        if owned.is_some_and(|written| doc.variable_collections.get(id).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("variable collection {id} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        } else if owned.is_some() {
+            // Variables that survived (the user changed them) keep their collection.
+            if let Some(user_var) = merged_vars.values().find(|v| v.collection == *id) {
+                report.skipped.push(format!("variable collection {id} was kept: variable {} still uses it", user_var.id));
+                refused = true;
+            } else {
+                state.introduced_collections.remove(id);
+                merged_colls.remove(id);
+            }
+        } else if !is_spec_undo {
             merged_colls.remove(id);
         }
     }
-    let mut refused = false;
     for v in variables {
         if v.id.is_empty() {
             report.skipped.push("a variable without an id was not replayed".to_string());
@@ -465,30 +498,85 @@ fn resolve_variables(
     for c in collections {
         if c.id.is_empty() {
             report.skipped.push("a variable collection without an id was not replayed".to_string());
-        } else {
-            let mut merged = c.clone();
-            if let Some(cur) = merged_colls.get(&c.id) {
-                let mut members: Vec<String> =
-                    cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
-                for vid in &c.variables {
-                    if !members.contains(vid) {
-                        members.push(vid.clone());
-                    }
-                }
-                merged.variables = members;
-            } else {
-                state.introduced_collections.insert(c.id.clone());
-            }
-            merged_colls.insert(c.id.clone(), merged);
+            continue;
         }
+        // Fields the user changed since the agent wrote the collection keep the user's value;
+        // the agent's other fields apply. Members always union, so a variable the agent adds
+        // stays visible in the collection however the user edited it.
+        let (mut merged, mut written) = (c.clone(), c.clone());
+        let editor_copy = merged_colls.get(&c.id).cloned();
+        if let (Some(held), Some(prior)) = (&editor_copy, state.introduced_collections.get(&c.id)) {
+            let kept = keep_user_collection_fields(c, held, prior, &mut merged, &mut written);
+            if !kept.is_empty() {
+                report.skipped.push(format!(
+                    "variable collection {}: {} changed in the editor after the agent wrote it; the agent's value was not replayed",
+                    c.id,
+                    kept.join(", ")
+                ));
+                refused = true;
+            }
+        }
+        if let Some(cur) = &editor_copy {
+            let mut members: Vec<String> =
+                cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
+            for vid in &c.variables {
+                if !members.contains(vid) {
+                    members.push(vid.clone());
+                }
+            }
+            merged.variables = members.clone();
+            written.variables = members;
+        }
+        if !merged_colls.contains_key(&c.id) || state.introduced_collections.contains_key(&c.id) {
+            state.introduced_collections.insert(c.id.clone(), written);
+        }
+        merged_colls.insert(c.id.clone(), merged);
     }
     if merged_vars == doc.variables && merged_colls == doc.variable_collections {
         if !refused {
             report.duplicates += 1;
+            report.tokens_duplicates += 1;
         }
         return None;
     }
+    report.tokens_applied += 1;
     Some(Command::SetVariables { variables: merged_vars, collections: merged_colls })
+}
+
+/// Field-wise merge of an agent upsert `agent` of a collection this session introduced. `merged`
+/// (what the editor will hold) and `written` (what is recorded as the session's last write) start
+/// as the agent's value. For each scalar field the user changed since the session wrote it (`held`
+/// differs from `prior`), `merged` keeps the user's value and `written` keeps the value the
+/// session wrote, so the change is still recognised as the user's on a later undo. Returns the
+/// names of the fields where the agent's value was refused.
+fn keep_user_collection_fields(
+    agent: &VariableCollection,
+    held: &VariableCollection,
+    prior: &VariableCollection,
+    merged: &mut VariableCollection,
+    written: &mut VariableCollection,
+) -> Vec<&'static str> {
+    let mut kept = Vec::new();
+    macro_rules! field {
+        ($f:ident) => {
+            if held.$f != prior.$f {
+                merged.$f = held.$f.clone();
+                if agent.$f == held.$f {
+                    written.$f = held.$f.clone();
+                } else {
+                    written.$f = prior.$f.clone();
+                    kept.push(stringify!($f));
+                }
+            }
+        };
+    }
+    field!(name);
+    field!(modes);
+    field!(default_mode);
+    field!(key);
+    field!(source_library_key);
+    field!(extensions);
+    kept
 }
 
 /// `set` and `unset` of an edit to a replaced layer without the shape fields, each of which is
@@ -562,6 +650,7 @@ fn resolve_insert(
     for n in &mut nodes {
         n.children.retain(|c| ids.contains(c));
     }
+    filter_missing_token_links_on_insert(doc, &mut nodes, report);
     nodes[0].parent = Some(parent);
     let siblings = &doc.get(parent)?.children;
     let index = remap_hint(at, state).index_in(siblings);

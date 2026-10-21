@@ -87,13 +87,13 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
                 out.push(op);
             }
         }
-        Command::SetStyles { styles, style_meta } => {
-            if let Some(op) = style_changes(&doc.styles, &doc.style_meta, styles, style_meta) {
+        Command::SetVariables { variables, collections } => {
+            if let Some(op) = variable_changes(doc, variables, collections) {
                 out.push(op);
             }
         }
-        Command::SetVariables { variables, collections } => {
-            if let Some(op) = variable_changes(doc, variables, collections) {
+        Command::SetStyles { styles, style_meta } => {
+            if let Some(op) = style_changes(doc, styles, style_meta) {
                 out.push(op);
             }
         }
@@ -199,6 +199,19 @@ fn variable_changes(doc: &Document, variables: &BTreeMap<String, Variable>, coll
     any.then_some(LiveOp::Variables { collections, variables, removed_collections, removed_variables })
 }
 
+/// What `SetStyles` changes in `doc`'s shared styles and metadata, by style key.
+fn style_changes(doc: &Document, styles: &BTreeMap<String, Style>, style_meta: &BTreeMap<String, StyleMeta>) -> Option<LiveOp> {
+    fn diff<T: Clone + PartialEq>(before: &BTreeMap<String, T>, after: &BTreeMap<String, T>) -> (BTreeMap<String, T>, Vec<String>) {
+        let set = after.iter().filter(|(k, v)| before.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect::<BTreeMap<_, _>>();
+        let removed = before.keys().filter(|k| !after.contains_key(*k)).cloned().collect();
+        (set, removed)
+    }
+    let (styles_set, styles_removed) = diff(&doc.styles, styles);
+    let (meta_set, meta_removed) = diff(&doc.style_meta, style_meta);
+    let any = !styles_set.is_empty() || !styles_removed.is_empty() || !meta_set.is_empty() || !meta_removed.is_empty();
+    any.then_some(LiveOp::Styles { styles_set, styles_removed, meta_set, meta_removed })
+}
+
 fn component_changes(old_comp: &Map<String, Value>, new_comp: &Map<String, Value>, after: &crate::ComponentLink) -> Result<Map<String, Value>, String> {
     let mut diff = Map::new();
     let old_ovs = old_comp.get("overrides").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
@@ -257,24 +270,6 @@ fn thread_change(before: &CommentThread, after: &CommentThread) -> ThreadChange 
         edited: after.messages.iter().filter(|m| old(&m.id).is_some_and(|o| o != *m)).cloned().collect(),
         removed: before.messages.iter().filter(|m| !after.messages.iter().any(|a| a.id == m.id)).map(|m| m.id.clone()).collect(),
     }
-}
-
-fn style_changes(
-    before_styles: &BTreeMap<String, Style>,
-    before_meta: &BTreeMap<String, StyleMeta>,
-    after_styles: &BTreeMap<String, Style>,
-    after_meta: &BTreeMap<String, StyleMeta>,
-) -> Option<LiveOp> {
-    let upserted: BTreeMap<_, _> = after_styles.iter().filter(|(k, v)| before_styles.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let upserted_meta: BTreeMap<_, _> = after_meta.iter().filter(|(k, v)| before_meta.get(*k) != Some(*v)).map(|(k, v)| (k.clone(), v.clone())).collect();
-    let removed: Vec<_> = before_styles.keys().filter(|k| !after_styles.contains_key(*k)).cloned().collect();
-    let removed_meta: Vec<_> = before_meta.keys().filter(|k| !after_meta.contains_key(*k)).cloned().collect();
-    (!upserted.is_empty() || !upserted_meta.is_empty() || !removed.is_empty() || !removed_meta.is_empty()).then_some(LiveOp::Styles {
-        upserted,
-        upserted_meta,
-        removed,
-        removed_meta,
-    })
 }
 
 fn library_state_changes(before: &LibraryState, before_page: Option<NodeId>, after: &LibraryState, after_page: Option<NodeId>) -> Option<LiveOp> {

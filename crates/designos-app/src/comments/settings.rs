@@ -105,6 +105,33 @@ pub fn add_custom_cli(root: &Path, label: &str, command: &str) -> Result<Vec<cra
     Ok(entries)
 }
 
+/// Loads `agent.in_progress_stale_minutes` from `settings.json` (clamped to `1..=1440`, default `15`)
+/// and applies it to [`designos_doc::set_in_progress_stale_minutes`] (E15-7 §3.3).
+pub fn load_in_progress_stale_minutes(root: &Path) -> u32 {
+    let map = read(root);
+    let raw = map
+        .get("agent.in_progress_stale_minutes")
+        .or_else(|| map.get("agent").and_then(|v| v.get("in_progress_stale_minutes")))
+        .and_then(|v| v.as_u64())
+        .map(|v| v.min(u64::from(u32::MAX)) as u32);
+    let clamped = raw
+        .map(|m| m.clamp(designos_doc::IN_PROGRESS_MIN_STALE_MINUTES, designos_doc::IN_PROGRESS_MAX_STALE_MINUTES))
+        .unwrap_or(designos_doc::IN_PROGRESS_DEFAULT_STALE_MINUTES);
+    designos_doc::set_in_progress_stale_minutes(Some(clamped));
+    clamped
+}
+
+/// Saves `agent.in_progress_stale_minutes` (clamped to `1..=1440`) to `settings.json` and updates [`designos_doc`].
+pub fn save_in_progress_stale_minutes(root: &Path, minutes: u32) -> Result<u32, String> {
+    let clamped = minutes.clamp(designos_doc::IN_PROGRESS_MIN_STALE_MINUTES, designos_doc::IN_PROGRESS_MAX_STALE_MINUTES);
+    let mut map = read(root);
+    map.insert("agent.in_progress_stale_minutes".into(), serde_json::Value::from(clamped));
+    let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).map_err(|e| e.to_string())?;
+    designos_library::write_atomic(&root.join(FILE), text.as_bytes()).map_err(|e| format!("Cannot save settings: {e}"))?;
+    designos_doc::set_in_progress_stale_minutes(Some(clamped));
+    Ok(clamped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +171,19 @@ mod tests {
     #[test]
     fn os_user_is_never_empty() {
         assert!(!os_user_name().is_empty());
+    }
+
+    #[test]
+    fn in_progress_stale_minutes_roundtrip_and_clamp() {
+        let d = tmp("stale");
+        assert_eq!(load_in_progress_stale_minutes(&d), 15);
+        assert_eq!(save_in_progress_stale_minutes(&d, 45).unwrap(), 45);
+        assert_eq!(load_in_progress_stale_minutes(&d), 45);
+        assert_eq!(save_in_progress_stale_minutes(&d, 0).unwrap(), 1);
+        assert_eq!(load_in_progress_stale_minutes(&d), 1);
+        assert_eq!(save_in_progress_stale_minutes(&d, 99_999).unwrap(), 1440);
+        assert_eq!(load_in_progress_stale_minutes(&d), 1440);
+        designos_doc::set_in_progress_stale_minutes(None);
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

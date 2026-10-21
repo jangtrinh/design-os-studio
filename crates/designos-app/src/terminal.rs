@@ -67,7 +67,8 @@ macro_rules! codex_mcp_overrides {
             " -c 'mcp_servers.designos.args=[\"--workspace\",\"'\"$DESIGNOS_WORKSPACE\"'\"]'",
             " -c 'mcp_servers.designos.env_vars=[\"DESIGNOS_SESSION_DIR\",\"DESIGNOS_LIVE_CANVAS\",\"DESIGNOS_LIVE_DOC_SYNC\",",
             "\"DESIGNOS_LIVE_DOC_PATCH\",\"DESIGNOS_LIVE_SPEC\",\"DESIGNOS_CONTEXT_JSON\",\"DESIGNOS_TARGET_PAGE_ID\",",
-            "\"DESIGNOS_TARGET_PAGE_NAME\",\"DESIGNOS_DOC_NAME\",\"DESIGNOS_FILE\"]'"
+            "\"DESIGNOS_TARGET_PAGE_NAME\",\"DESIGNOS_DOC_NAME\",\"DESIGNOS_FILE\",\"DESIGNOS_AGENT_RUN_ID\",",
+            "\"DESIGNOS_AGENT_RUNTIME\",\"DESIGNOS_IN_PROGRESS_STALE_MINUTES\"]'"
         )
     };
 }
@@ -355,6 +356,8 @@ fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, inc
 #[allow(dead_code)]
 pub struct SessionEnv {
     pub session_id: String,
+    pub run_id: String,
+    pub agent_runtime: String,
     pub session_dir: PathBuf,
     pub live_spec_path: PathBuf,
     pub live_doc_sync_path: PathBuf,
@@ -379,6 +382,8 @@ impl SessionEnv {
         let session_dir = std::env::temp_dir().join("designos-sessions").join(clean);
         Self {
             session_id: clean.to_string(),
+            run_id: format!("{clean}-1-1"),
+            agent_runtime: AgentCliPreset::Claude.binary_name().to_string(),
             live_spec_path: session_dir.join("live-spec.json"),
             live_doc_sync_path: session_dir.join("doc-sync.designos"),
             live_canvas_path: session_dir.join("canvas.designos"),
@@ -426,6 +431,8 @@ pub enum TerminalAction {
     /// Closes a stopped agent turn: applies held patches, folds contiguous agent undo steps since
     /// `turn_start_depth` into one `"Agent turn (stopped)"` batch, and clears in-progress flags (`#684`).
     CloseStoppedTurn { tab_id: usize, turn_start_depth: usize, run_id: Option<String>, agent: Option<String> },
+    /// Clears `Document.in_progress` entries owned by an agent run that finished (`agent-status.json` -> `done`) or whose PTY exited.
+    ClearInProgress { run_id: Option<String>, agent: Option<String> },
 }
 
 /// Orca live agent execution status (`Working` / `WaitingForInput` / `Done` / `Error` / `Stopped` / `Idle`).
@@ -443,6 +450,7 @@ pub enum AgentTabStatus {
 /// One live interactive PTY tab backed by `portable-pty` and a `vt100::Parser`.
 pub struct TerminalTab {
     pub id: usize,
+    pub run_id: String,
     pub title: String,
     #[allow(dead_code)]
     pub preset: AgentCliPreset,
@@ -711,8 +719,11 @@ impl TerminalTab {
             .map_err(|e| format!("failed to spawn PTY reader thread: {e}"))?;
 
         let doc_name = session.map(|s| s.doc_name.clone()).unwrap_or_else(|| "Untitled".to_string());
+        let run_id = session.map(|s| s.run_id.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("p{}-tab-1-{id}-1", std::process::id()));
+
         Ok(Self {
             id,
+            run_id,
             title: format!("{} #{}", preset.button_label(), id),
             preset,
             spawn_preset: preset,
@@ -927,6 +938,8 @@ pub struct TerminalState {
     pub unattached_composer: crate::agent_composer::ComposerState,
     pub status_msg: Option<String>,
     pub next_tab_id: usize,
+    pub next_run_seq: usize,
+    pub active_run_id: String,
     pub viewport_focused: bool,
     #[allow(dead_code)]
     pub left_scroll: f32,
@@ -1021,6 +1034,8 @@ pub struct TerminalState {
     pub notification_latch: crate::agent_permissions::NotificationLatch,
     /// Pluggable OS notification sender (`#656`).
     pub approval_notifier: Arc<dyn crate::agent_permissions::ApprovalNotifier>,
+    /// Tracks whether `agent-status.json` was already observed in the `Done` state so transitions fire once.
+    pub last_agent_status_done: bool,
     /// Active `@`-mentions recorded for the current composer draft (`#655`).
     pub active_mentions: Vec<crate::agent_mention::Mention>,
     /// `@`-mention popup state (`#655`).
@@ -1067,6 +1082,7 @@ impl TerminalState {
     /// instance (`TabsState::session_id_for_tab`) before any shell starts in it.
     pub fn for_tab(tab_id: u64) -> Self {
         let session_id = tab_session_id(&format!("p{}", std::process::id()), tab_id);
+        let active_run_id = format!("{session_id}-1-1");
         let session_dir = std::env::temp_dir().join("designos-sessions").join(&session_id);
         let live_spec_path = session_dir.join("live-spec.json");
         let live_doc_sync_path = session_dir.join("doc-sync.designos");
@@ -1107,6 +1123,8 @@ impl TerminalState {
             unattached_composer: crate::agent_composer::ComposerState::default(),
             status_msg: None,
             next_tab_id: 1,
+            next_run_seq: 1,
+            active_run_id,
             viewport_focused: true,
             left_scroll: 0.0,
             last_watched_mtime: initial_spec_mtime,
@@ -1154,6 +1172,7 @@ impl TerminalState {
             pending_approvals: Vec::new(),
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
+            last_agent_status_done: false,
             active_mentions: Vec::new(),
             mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
             composer_cursor_byte: None,
@@ -1337,7 +1356,21 @@ impl TerminalState {
         st
     }
 
+    /// Returns true when `run_id` matches a live agent PTY tab in this terminal state.
+    pub fn is_live_agent_run(&mut self, run_id: &str) -> bool {
+        self.tabs.iter_mut().any(|t| !t.is_shell_process() && (t.run_id == run_id || self.session_id == run_id) && t.is_alive())
+    }
+
+    fn active_mcp_runtime_name(&self) -> &'static str {
+        self.active_tab()
+            .filter(|t| !t.is_shell_process())
+            .map(|t| t.spawn_preset.binary_name())
+            .or_else(|| (!matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)).then(|| self.active_runtime.binary_name()))
+            .unwrap_or("claude")
+    }
+
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
+        self.active_run_id = format!("{}-1-{}", self.session_id, self.next_run_seq.max(1));
         self.live_spec_path = session_dir.join("live-spec.json");
         self.live_doc_sync_path = session_dir.join("doc-sync.designos");
         self.live_canvas_path = session_dir.join("canvas.designos");
@@ -1355,6 +1388,7 @@ impl TerminalState {
             tab.pending_approvals.clear();
         }
         crate::agent_permissions::cleanup_stale_approvals(&self.session_dir, crate::agent_sessions::unix_timestamp_secs());
+        self.last_agent_status_done = false;
     }
 
     /// Re-binds this terminal state to `session_id` under `/tmp/designos-sessions/<session_id>`.
@@ -1367,6 +1401,7 @@ impl TerminalState {
         }
         if matches!(self.key, crate::agent_sessions::SessionKey::LibraryFile { .. }) {
             self.session_id = clean.to_string();
+            self.active_run_id = format!("{clean}-1-{}", self.next_run_seq.max(1));
             if self.lock_owner.is_none() {
                 let fallback_dir = std::env::temp_dir().join("designos-sessions").join(clean);
                 if self.session_dir != fallback_dir {
@@ -1461,6 +1496,8 @@ impl TerminalState {
     pub fn session_env(&self) -> SessionEnv {
         SessionEnv {
             session_id: self.session_id.clone(),
+            run_id: self.active_run_id.clone(),
+            agent_runtime: self.active_mcp_runtime_name().to_string(),
             session_dir: self.session_dir.clone(),
             live_spec_path: self.live_spec_path.clone(),
             live_doc_sync_path: self.live_doc_sync_path.clone(),
@@ -1513,11 +1550,21 @@ impl TerminalState {
             return;
         }
 
-        // Selected ids, not just their count: the scoped canvas ships the selected frames whole.
+        // Selected ids and active in_progress flags: `in_progress` mutations do not bump `mutation_epoch`,
+        // so fold `doc.in_progress` into `selection_key` to publish cleared/updated flags to `canvas.designos`.
         let selection_key = {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
             selection.hash(&mut h);
+            doc.in_progress.len().hash(&mut h);
+            for (nid, ip) in &doc.in_progress {
+                nid.hash(&mut h);
+                ip.agent.hash(&mut h);
+                ip.run_id.hash(&mut h);
+                ip.status.hash(&mut h);
+                ip.since_ms.hash(&mut h);
+                ip.stale_after_s.hash(&mut h);
+            }
             h.finish()
         };
         let key = (doc.mutation_epoch(), page.0, selection_key);
@@ -1526,6 +1573,8 @@ impl TerminalState {
             let is_scoped = doc.nodes.len() > 25_000;
             let ctx_val = serde_json::json!({
                 "session_id": self.session_id,
+                "run_id": self.active_run_id,
+                "agent_runtime": self.active_mcp_runtime_name(),
                 "doc_name": self.doc_name,
                 "file_path": file_path.map(|p| p.display().to_string()),
                 "current_page_id": page.0,
@@ -1565,6 +1614,9 @@ impl TerminalState {
                     "args": ["--workspace", workspace_dir.display().to_string()],
                     "env": {
                         "DESIGNOS_SESSION_DIR": self.session_dir.display().to_string(),
+                        "DESIGNOS_AGENT_RUN_ID": self.active_run_id,
+                        "DESIGNOS_AGENT_RUNTIME": self.active_mcp_runtime_name(),
+                        "DESIGNOS_IN_PROGRESS_STALE_MINUTES": designos_doc::in_progress_stale_minutes().to_string(),
                         "DESIGNOS_LIVE_CANVAS": self.live_canvas_path.display().to_string(),
                         "DESIGNOS_LIVE_DOC_SYNC": self.live_doc_sync_path.display().to_string(),
                         "DESIGNOS_LIVE_DOC_PATCH": self.live_patch.path.display().to_string(),
@@ -1925,6 +1977,9 @@ impl TerminalState {
     ) -> Result<usize, String> {
         let id = self.next_tab_id.max(1);
         self.next_tab_id = id + 1;
+        let run_seq = self.next_run_seq.max(1);
+        self.next_run_seq = run_seq + 1;
+        self.active_run_id = format!("{}-{}-{}", self.session_id, id, run_seq);
         let _ = std::fs::create_dir_all(&self.session_dir);
         self.provision_session_agent_files(file_path);
         let env = self.session_env();
@@ -2329,6 +2384,37 @@ impl TerminalState {
             }
         }
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
+        // Channel 4: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
+        let status_file = self.session_dir.join("agent-status.json");
+        if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
+            if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {
+                let is_done = matches!(parsed, AgentTabStatus::Done);
+                if is_done && !self.last_agent_status_done {
+                    self.last_agent_status_done = true;
+                    let json_val = serde_json::from_str::<serde_json::Value>(raw_status.trim()).ok();
+                    let json_agent = json_val.as_ref().and_then(|v| v.get("agent")).and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let fallback_agent = self.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.spawn_preset.binary_name().to_string()).or_else(|| {
+                        (!matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp))
+                            .then(|| self.active_runtime.binary_name().to_string())
+                    });
+                    let agent = json_agent.or(fallback_agent);
+                    if let Some(explicit_run_id) =
+                        json_val.as_ref().and_then(|v| v.get("run_id").or_else(|| v.get("session_id"))).and_then(|v| v.as_str()).filter(|r| !r.is_empty())
+                    {
+                        actions.push(TerminalAction::ClearInProgress { run_id: Some(explicit_run_id.to_string()), agent });
+                    } else {
+                        let tab_run_id =
+                            self.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone()).unwrap_or_else(|| self.active_run_id.clone());
+                        actions.push(TerminalAction::ClearInProgress { run_id: Some(tab_run_id.clone()), agent: agent.clone() });
+                        if self.tabs.iter().all(|t| t.is_shell_process()) && self.session_id != tab_run_id {
+                            actions.push(TerminalAction::ClearInProgress { run_id: Some(self.session_id.clone()), agent });
+                        }
+                    }
+                } else if !is_done {
+                    self.last_agent_status_done = false;
+                }
+            }
+        }
 
         let mut agent_exited = false;
         let mut stopped_exited = false;
@@ -2418,6 +2504,7 @@ impl TerminalState {
                 tab.exited_notice_shown = true;
                 agent_exited = true;
                 stopped_exited |= was_stopped;
+                actions.push(TerminalAction::ClearInProgress { run_id: Some(tab.run_id.clone()), agent: Some(tab.spawn_preset.binary_name().to_string()) });
             }
         }
         if registry_dirty {
@@ -3370,7 +3457,7 @@ fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 fn status_hook_command(status_path: &Path, event: &str, state: &str) -> String {
     let events_path = status_path.parent().map(|p| p.join("agent-events.jsonl")).unwrap_or_else(|| status_path.with_file_name("agent-events.jsonl"));
     let append_cmd = crate::agent_turn_status::event_append_command(&events_path, event);
-    format!("{append_cmd}; printf '{{\"state\":\"{state}\"}}\\n' > '{}'", status_path.display())
+    format!("{append_cmd}; printf '{{\"state\":\"{state}\",\"run_id\":\"%s\"}}\\n' \"${{DESIGNOS_AGENT_RUN_ID:-}}\" > '{}'", status_path.display())
 }
 
 fn command_handler_group(command: String) -> serde_json::Value {
@@ -3490,6 +3577,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());
+    cmd.env("DESIGNOS_IN_PROGRESS_STALE_MINUTES", designos_doc::in_progress_stale_minutes().to_string());
     if preset == AgentCliPreset::Grok {
         // Grok starts repo-local MCP servers, hooks and skills only in a trusted folder. The tab's
         // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
@@ -3499,6 +3587,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
 
     if let Some(sess) = session {
         cmd.env("DESIGNOS_SESSION_DIR", sess.session_dir.as_os_str());
+        cmd.env("DESIGNOS_AGENT_RUN_ID", &sess.run_id);
         cmd.env("DESIGNOS_MCP_CONFIG", sess.mcp_config_path.as_os_str());
         cmd.env("DESIGNOS_LIVE_SPEC", sess.live_spec_path.as_os_str());
         cmd.env("DESIGNOS_LIVE_DOC_SYNC", sess.live_doc_sync_path.as_os_str());
@@ -3513,6 +3602,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
         }
     } else {
+        cmd.env("DESIGNOS_AGENT_RUN_ID", format!("p{}-tab-1-1-1", std::process::id()));
         cmd.env("DESIGNOS_LIVE_SPEC", "/tmp/designos-live-agent-out.spec.json");
         cmd.env("DESIGNOS_SELECTION_JSON", "/tmp/designos-live-selection.spec.json");
     }
@@ -3946,9 +4036,9 @@ pub fn show_left_with_doc(
             chip_right = (status_r.left() - theme::INSET_CONTROL).max(strip_left + theme::TARGET_MIN);
         }
         let chip_bounds = Rect::from_min_max(Pos2::new(strip_left, ctx_r.top()), Pos2::new(chip_right, ctx_r.bottom()));
-        let (_chip_rect, chip_clicked) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false);
-        if chip_clicked {
+        if let Some((_chip_rect, true)) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false)
+        {
             actions.push(TerminalAction::SendSelectionToAgent);
         }
 
@@ -4559,11 +4649,13 @@ fn render_terminal_surface(
     if right_x - min_tabs_left >= theme::TARGET_MIN {
         let chip_max_w = (right_x - min_tabs_left).min(260.0);
         let chip_bounds = Rect::from_min_max(Pos2::new(right_x - chip_max_w, tab_bar_rect.top()), Pos2::new(right_x, tab_bar_rect.bottom()));
-        let (chip_rect, chip_clicked) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true);
-        right_x = chip_rect.left() - theme::SPACE_INLINE;
-        if chip_clicked {
-            actions.push(TerminalAction::SendSelectionToAgent);
+        if let Some((chip_rect, chip_clicked)) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true)
+        {
+            right_x = chip_rect.left() - theme::SPACE_INLINE;
+            if chip_clicked {
+                actions.push(TerminalAction::SendSelectionToAgent);
+            }
         }
     }
 
@@ -6194,6 +6286,9 @@ Done!
     fn spawn_stub_exiting_agent_into(st: &mut TerminalState) {
         let id = st.next_tab_id.max(1);
         st.next_tab_id = id + 1;
+        let run_seq = st.next_run_seq.max(1);
+        st.next_run_seq = run_seq + 1;
+        st.active_run_id = format!("{}-{}-{}", st.session_id, id, run_seq);
         let _ = std::fs::create_dir_all(&st.session_dir);
         st.provision_session_agent_files(None);
         let env = st.session_env();
@@ -7118,19 +7213,22 @@ Done!
         let mut st = TerminalState::for_tab(65401);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
 
-        let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> String {
+        let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> Option<String> {
+            let text_id = Id::new(("test-text", "agent-selection-chip-left".to_string()));
+            ctx.data_mut(|d| d.remove_temp::<String>(text_id));
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
             let _ = ctx.run_ui(raw, |ui| {
                 crate::agent_selection_chip::with_selection_summary(&doc, page, sel, |summary| {
                     let _ = show_left_with_selection(st, ui, panel_rect, None, summary);
                 });
             });
-            ctx.data(|d| d.get_temp::<String>(Id::new(("test-text", "agent-selection-chip-left".to_string())))).expect("chip text recorded in the same frame")
+            ctx.data(|d| d.get_temp::<String>(text_id))
         };
 
-        assert_eq!(run_one_frame(&mut st, &[]), "Page 1 · none selected");
-        assert_eq!(run_one_frame(&mut st, &[ids[0]]), "Page 1 · 1 selected · A");
-        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]), "Page 1 · 3 selected · A, B +1");
+        assert_eq!(run_one_frame(&mut st, &[]), None, "nothing selected: no chip text is painted");
+        assert_eq!(run_one_frame(&mut st, &[ids[0]]).as_deref(), Some("Page 1 · 1 selected · A"));
+        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]).as_deref(), Some("Page 1 · 3 selected · A, B, +1"));
+        assert_eq!(run_one_frame(&mut st, &[]), None, "clearing the selection hides the chip again in the same frame");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
@@ -7291,28 +7389,36 @@ Done!
     }
 
     #[test]
-    fn empty_selection_chip_is_inert() {
+    fn empty_selection_hides_the_chip() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let (doc, page, _ids) = make_three_layer_doc();
+        let (doc, page, ids) = make_three_layer_doc();
         let mut st = TerminalState::for_tab(65405);
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+        let dock_rect = Rect::from_min_size(Pos2::new(0.0, 500.0), Vec2::new(1200.0, 300.0));
         let _ = std::fs::remove_file(&st.selection_spec_path);
+        let recorded = |ctx: &egui::Context, name: &str| -> (Option<Rect>, Option<String>) {
+            ctx.data(|d| (d.get_temp(Id::new(("test-rect", name.to_string()))), d.get_temp(Id::new(("test-text", name.to_string())))))
+        };
 
         let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
-        let _ = ctx.run_ui(raw0, |ui| {
+        let mut emitted = Vec::new();
+        let _ = ctx.run_ui(raw0.clone(), |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                emitted.extend(show_left_with_selection(&mut st, ui, panel_rect, None, summary));
+                emitted.extend(show_dock_with_selection(&mut st, ui, dock_rect, None, summary));
             });
         });
-        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip-left".to_string())))).expect("chip rect recorded");
-        let click_pos = chip_rect.center();
+        assert_eq!(recorded(&ctx, "agent-selection-chip-left"), (None, None), "no chip in the panel header strip when nothing is selected");
+        assert_eq!(recorded(&ctx, "agent-selection-chip-dock"), (None, None), "no chip in the dock bar when nothing is selected");
+        assert_eq!(recorded(&ctx, "agent-selection-chip"), (None, None));
 
-        let mut emitted = Vec::new();
+        // Where the chip would have sat, a click raises nothing and writes nothing.
+        let click_pos = Pos2::new(panel_rect.left() + 40.0, 80.0);
         let raw_click = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
             events: vec![
@@ -7324,13 +7430,26 @@ Done!
         };
         let _ = ctx.run_ui(raw_click, |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                emitted = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                emitted.extend(show_left_with_selection(&mut st, ui, panel_rect, None, summary));
             });
         });
+        assert!(!emitted.contains(&TerminalAction::SendSelectionToAgent), "no chip, no send action: {emitted:?}");
+        assert!(rec.lock().unwrap().is_empty(), "an empty selection writes nothing to the PTY");
+        assert!(!st.selection_spec_path.exists(), "an empty selection writes no selection.spec.json");
 
-        assert!(emitted.is_empty(), "clicking empty selection chip must raise no action: {emitted:?}");
-        assert!(rec.lock().unwrap().is_empty(), "empty selection chip must write nothing to PTY");
-        assert!(!st.selection_spec_path.exists(), "empty selection chip must write no selection.spec.json");
+        // A selection brings the chip back in both places.
+        let sel = [ids[0]];
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                let _ = show_dock_with_selection(&mut st, ui, dock_rect, None, summary);
+            });
+        });
+        let (left_rect, left_text) = recorded(&ctx, "agent-selection-chip-left");
+        let (dock_rect_chip, dock_text) = recorded(&ctx, "agent-selection-chip-dock");
+        assert!(left_rect.is_some() && dock_rect_chip.is_some(), "a selected layer shows the chip in the strip and in the dock");
+        assert_eq!(left_text.as_deref(), Some("Page 1 · 1 selected · A"));
+        assert_eq!(dock_text.as_deref(), Some("Page 1 · 1 selected · A"));
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
