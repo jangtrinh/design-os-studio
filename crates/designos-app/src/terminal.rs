@@ -1813,19 +1813,20 @@ impl TerminalState {
     }
 
     /// Submits a system-generated image task prompt to the target agent runtime (`#667`).
+    ///
+    /// Picks a live tab that was started as `preset`; otherwise starts a new tab running that agent CLI. An
+    /// existing tab is never relabelled, so a user's Shell or another CLI keeps its identity and never receives
+    /// the prompt. The prompt is queued while a fresh tab is still starting.
     pub fn submit_system_image_prompt(&mut self, preset: AgentCliPreset, prompt: &str, file_path: Option<&Path>) {
-        if let Some(idx) = self.tabs.iter().position(|t| t.preset == preset && t.start_failure.is_none() && !t.exited_notice_shown) {
-            self.active_tab = idx;
-            self.active_runtime = preset;
-        } else {
-            let active_dead = self.active_tab().is_some_and(|t| !t.is_shell_process() && t.exited_notice_shown);
-            if self.tabs.is_empty() || active_dead {
-                let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
-            }
-            self.set_active_runtime(preset, file_path);
-            if let Some(tab) = self.active_tab_mut() {
-                tab.spawn_preset = preset;
-                tab.preset = preset;
+        let reusable =
+            self.tabs.iter_mut().position(|t| t.spawn_preset == preset && t.start_failure.is_none() && !t.exited_notice_shown && t.accepts_agent_input());
+        self.active_runtime = preset;
+        match reusable {
+            Some(idx) => self.active_tab = idx,
+            None => {
+                if self.spawn_tab(preset, file_path).is_err() {
+                    return;
+                }
             }
         }
         if let Some(tab) = self.active_tab() {
@@ -1833,7 +1834,7 @@ impl TerminalState {
                 *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
             }
         }
-        let _ = self.send_to_agent(prompt, file_path);
+        let _ = self.send_system_prompt(prompt, file_path);
     }
 
     /// Records `preset` as the last chosen agent CLI in this file's `sessions.json` (`#652` §3 rule 4).
@@ -2348,12 +2349,13 @@ impl TerminalState {
                 let exit_code = tab.child.try_wait().ok().flatten().map(|status| status.exit_code());
                 let failed_start = !was_stopped && agent_start_failure::counts_as_failed_start(tab.spawned_at.elapsed(), exit_code);
                 if failed_start {
-                    let drain_deadline = std::time::Instant::now() + std::time::Duration::from_millis(100);
-                    while tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false)
-                        && !tab.reader_eof.load(std::sync::atomic::Ordering::Acquire)
-                        && std::time::Instant::now() < drain_deadline
-                    {
-                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    let log_empty = tab.raw_log.lock().map(|log| log.is_empty()).unwrap_or(false);
+                    let eof = tab.reader_eof.load(std::sync::atomic::Ordering::Acquire);
+                    if log_empty && !eof {
+                        let first_seen = *tab.exited_at.get_or_insert_with(std::time::Instant::now);
+                        if first_seen.elapsed() < std::time::Duration::from_millis(100) {
+                            continue;
+                        }
                     }
                     let output = tab.raw_log.lock().map(|log| log.clone()).unwrap_or_default();
                     let installed = {
@@ -5906,6 +5908,17 @@ Done!
         while std::time::Instant::now() < poll_deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+    }
+
+    #[test]
+    fn failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread() {
+        let src = include_str!("terminal.rs");
+        let start = src.find("    pub fn poll_live_agent_bridge(").expect("poll_live_agent_bridge exists");
+        let rest = &src[start + 1..];
+        let end = rest.find("\n    pub fn ").expect("a following method");
+        let body = &rest[..end];
+        assert!(!body.contains("thread::sleep"), "the bridge poll runs on the UI thread and must not sleep");
+        assert!(body.contains("exited_at"), "a fast-exiting CLI is given its output window by deferring across frames (`exited_at`)");
     }
 
     fn kill_tabs(st: &mut TerminalState) {

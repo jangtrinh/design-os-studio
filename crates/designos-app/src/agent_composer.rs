@@ -130,6 +130,8 @@ pub struct ComposerState {
     pub stash: String,
     /// Prompt waiting for the tab's CLI to finish starting (`#689` §3 rule 2 & §4).
     pub pending_send: Option<String>,
+    /// True when `pending_send` came from a system sender (image jobs): it never returns to the user's draft.
+    pub pending_send_is_system: bool,
     /// Pasted canvas layer reference chips (`#689` §3 rule 6 & §7).
     pub chips: Vec<LayerChip>,
     /// Receipt of the most recent send in this tab (`#689` §3 rule 7a).
@@ -261,6 +263,15 @@ impl ComposerState {
             self.draft = text;
         }
         self.cursor = None;
+        self.reset_send_receipt(notice, reason);
+    }
+
+    /// Drops an undelivered system prompt (image jobs): the notice and receipt are set, the user's draft is left alone.
+    pub fn discard_undelivered_system(&mut self, notice: impl Into<String>, reason: RefuseReason) {
+        self.reset_send_receipt(notice, reason);
+    }
+
+    fn reset_send_receipt(&mut self, notice: impl Into<String>, reason: RefuseReason) {
         self.pending_enter_deadline = None;
         self.pending_enter_delay = None;
         self.pending_enter_sim_time = None;
@@ -354,7 +365,8 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
     tab.spawned_at.elapsed() >= crate::agent_start_failure::START_FAILURE_WINDOW
 }
 
-fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mut Option<String>) -> SendOutcome {
+/// Writes `prompt` into the live agent tab. A `system` prompt (image jobs) is never restored into the user's draft.
+fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mut Option<String>, system: bool) -> SendOutcome {
     let bracketed = tab.parser.lock().ok().map(|p| p.screen().bracketed_paste()).unwrap_or(true);
     let payload_text = if !bracketed && prompt.contains('\n') {
         if !tab.composer.unbracketed_newline_warned {
@@ -367,7 +379,11 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mu
     };
     let paste_bytes = format_composer_paste_bytes(&payload_text);
     if tab.try_write_bytes(&paste_bytes).is_err() {
-        tab.composer.restore_undelivered(prompt.to_string(), RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
+        if system {
+            tab.composer.discard_undelivered_system(RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
+        } else {
+            tab.composer.restore_undelivered(prompt.to_string(), RefuseReason::NotWritable.message(), RefuseReason::NotWritable);
+        }
         *status_msg = tab.composer.notice.clone();
         return SendOutcome::Refused(RefuseReason::NotWritable);
     }
@@ -377,13 +393,20 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mu
     tab.composer.pending_enter_delay = Some(delay);
     tab.composer.awaiting_confirm_since = Some(now);
     tab.composer.log_len_at_send = tab.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
-    if tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
+    if !system && tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
         tab.composer.sent_in_start_window = Some(prompt.to_string());
     }
     tab.composer.last_outcome = Some(SendOutcome::Written);
     tab.composer.notice = None;
     *status_msg = Some(format!("Sent to {}", tab.title));
     SendOutcome::Written
+}
+
+/// Who is sending: the user's composer (consumes draft, chips, mentions, history) or a system sender (touches none of them).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SendSource {
+    Composer,
+    System,
 }
 
 impl TerminalState {
@@ -442,14 +465,22 @@ impl TerminalState {
             // 1. Failed start or early exit recovery (`#689` §3 rules 2, 7a & §8 edge cases 4, 5).
             if tab.start_failure.is_some() {
                 if let Some(undelivered) = tab.composer.pending_send.take().or_else(|| tab.composer.sent_in_start_window.take()) {
-                    tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
+                    if std::mem::take(&mut tab.composer.pending_send_is_system) {
+                        tab.composer.discard_undelivered_system("Not delivered: check the terminal", RefuseReason::StartFailed);
+                    } else {
+                        tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
+                    }
                     self.status_msg = tab.composer.notice.clone();
                 }
                 continue;
             }
             if !tab.is_shell_process() && !tab.is_alive() {
                 if let Some(undelivered) = tab.composer.pending_send.take() {
-                    tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
+                    if std::mem::take(&mut tab.composer.pending_send_is_system) {
+                        tab.composer.discard_undelivered_system("Not delivered: check the terminal", RefuseReason::StartFailed);
+                    } else {
+                        tab.composer.restore_undelivered(undelivered, "Not delivered: check the terminal", RefuseReason::StartFailed);
+                    }
                     self.status_msg = tab.composer.notice.clone();
                 }
                 continue;
@@ -461,7 +492,8 @@ impl TerminalState {
             // 2. Flush queued `pending_send` once the tab is ready (`#689` §3 rule 2).
             if tab.composer.pending_send.is_some() && is_tab_ready_for_queued_send(tab) {
                 if let Some(queued) = tab.composer.pending_send.take() {
-                    let _ = write_prompt_to_live_tab(tab, &queued, &mut self.status_msg);
+                    let system = std::mem::take(&mut tab.composer.pending_send_is_system);
+                    let _ = write_prompt_to_live_tab(tab, &queued, &mut self.status_msg, system);
                 }
             }
 
@@ -498,11 +530,24 @@ impl TerminalState {
     /// All entry points (composer Enter/Send, sample prompts, `"Make design"`, `dispatch_figma_ai_prompt`)
     /// share this single path (`#689` §3 rule 8).
     pub fn send_to_agent(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::Composer)
+    }
+
+    /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
+    /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
+    /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
+    /// A tab that is still starting queues the prompt until it is ready.
+    pub fn send_system_prompt(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::System)
+    }
+
+    fn send_to_agent_from(&mut self, text: &str, file_path: Option<&Path>, source: SendSource) -> SendOutcome {
         // Poll first so any child that already exited within `START_FAILURE_WINDOW` has `start_failure` populated.
         let _ = self.poll_live_agent_bridge();
+        let system = source == SendSource::System;
 
         let trimmed = text.trim();
-        let chips_snapshot = self.active_composer().chips.clone();
+        let chips_snapshot = if system { Vec::new() } else { self.active_composer().chips.clone() };
         if trimmed.is_empty() && chips_snapshot.is_empty() {
             let comp = self.active_composer_mut();
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
@@ -518,9 +563,11 @@ impl TerminalState {
         }
 
         // Format payload including any `#655` `@`-mention references and layer chip references.
-        let mut live_mentions = self.active_mentions.clone();
+        let mut live_mentions = if system { Vec::new() } else { self.active_mentions.clone() };
         crate::agent_mention::prune_deleted_mentions(trimmed, &mut live_mentions);
-        let mut payload = if trimmed.is_empty() {
+        let mut payload = if system {
+            trimmed.to_string()
+        } else if trimmed.is_empty() {
             chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
         } else {
             crate::agent_mention::build_prompt_with_mentions(trimmed, &live_mentions)
@@ -567,14 +614,34 @@ impl TerminalState {
                 return SendOutcome::Refused(RefuseReason::Permission);
             }
             if tab.is_alive() {
+                if system {
+                    if is_tab_ready_for_queued_send(tab) {
+                        return write_prompt_to_live_tab(tab, &payload, &mut self.status_msg, true);
+                    }
+                    if tab.composer.pending_send.is_some() {
+                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                        return SendOutcome::Refused(RefuseReason::NotReady);
+                    }
+                    tab.composer.pending_send = Some(payload);
+                    tab.composer.pending_send_is_system = true;
+                    tab.composer.last_outcome = Some(SendOutcome::Queued);
+                    return SendOutcome::Queued;
+                }
                 tab.composer.send_count += 1;
                 tab.composer.record_sent(trimmed);
                 tab.composer.draft.clear();
                 tab.composer.chips.clear();
                 self.active_mentions.clear();
                 self.mention_popup.close();
-                return write_prompt_to_live_tab(tab, &payload, &mut self.status_msg);
+                return write_prompt_to_live_tab(tab, &payload, &mut self.status_msg, false);
             }
+        }
+
+        if system {
+            // A system sender picks or starts its own agent tab first; with none alive there is nothing to write to.
+            let msg = RefuseReason::NoAgent.message().to_string();
+            self.status_msg = Some(msg);
+            return SendOutcome::Refused(RefuseReason::NoAgent);
         }
 
         // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready.
@@ -608,6 +675,7 @@ impl TerminalState {
         let notice = format!("Starting {agent_name}… your message will be sent");
         let comp = self.active_composer_mut();
         comp.pending_send = Some(payload);
+        comp.pending_send_is_system = false;
         comp.last_outcome = Some(SendOutcome::Queued);
         comp.notice = Some(notice.clone());
         self.status_msg = Some(notice);
@@ -1628,5 +1696,175 @@ mod tests {
         }
 
         st.shutdown();
+    }
+    /// Polls the bridge until `file` contains `needle` or `secs` elapse; returns the file text.
+    fn wait_for_file_containing(st: &mut TerminalState, file: &Path, needle: &str, secs: u64) -> String {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        let mut text = String::new();
+        while Instant::now() < deadline {
+            let _ = st.poll_live_agent_bridge();
+            text = std::fs::read_to_string(file).unwrap_or_default();
+            if text.contains(needle) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        text
+    }
+
+    /// Stub agent CLI that enables bracketed paste and appends every submitted line to `recv`.
+    fn recording_agent_script(recv: &Path) -> String {
+        format!("printf '\\033[?2004hReady> '\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> '{}'\ndone", recv.display())
+    }
+
+    fn sample_chip() -> LayerChip {
+        LayerChip { node_id: NodeId(4521), name: "Hero/Title".to_string(), is_component: false, reference: "designos:node/4521".to_string() }
+    }
+
+    fn sample_mention() -> crate::agent_mention::Mention {
+        crate::agent_mention::Mention {
+            label: "Hero/Title".to_string(),
+            kind: crate::agent_mention::MentionKind::Node,
+            id: "4521".to_string(),
+            name: "Hero/Title".to_string(),
+            page: Some("Landing".to_string()),
+        }
+    }
+
+    #[test]
+    fn system_image_prompt_with_no_tab_starts_the_agent_cli_never_a_shell() {
+        let dir = temp_composer_dir("system-no-tab");
+        let bin_dir = dir.join("bin");
+        let recv = dir.join("recv.txt");
+        write_executable_stub(&bin_dir, "claude", &recording_agent_script(&recv));
+
+        let mut st = TerminalState::new_for_session("doc-system-no-tab", "System Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        assert!(st.tabs.is_empty());
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+
+        assert_eq!(st.tabs.len(), 1, "exactly one tab is opened");
+        {
+            let tab = st.active_tab_mut().expect("agent tab");
+            assert!(!tab.is_shell_process(), "the tab must be an agent CLI, not a shell relabelled as one");
+            assert_eq!(tab.spawn_preset, AgentCliPreset::Claude);
+            assert!(tab.spawned_command.as_deref().is_some_and(|c| c.contains("claude")), "the tab must launch the claude binary: {:?}", tab.spawned_command);
+        }
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 7", 6);
+        assert!(received.contains("Image task 7: Remove background."), "the agent CLI must receive the prompt: {received:?}");
+
+        // A second job reuses the same agent tab.
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
+        assert_eq!(st.tabs.len(), 1, "a ready agent tab of the same CLI is reused");
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 8", 6);
+        assert!(received.contains("Image task 8: Isolate subject."), "second prompt reaches the same CLI: {received:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn system_image_prompt_leaves_the_users_other_tabs_untouched() {
+        let dir = temp_composer_dir("system-keeps-tabs");
+        let bin_dir = dir.join("bin");
+        let recv = dir.join("recv.txt");
+        write_executable_stub(&bin_dir, "claude", &recording_agent_script(&recv));
+        write_executable_stub(&bin_dir, "codex", "sleep 5");
+
+        let mut st = TerminalState::new_for_session("doc-system-keeps-tabs", "System Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell");
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex");
+        st.active_tab = 0;
+        let before: Vec<(AgentCliPreset, AgentCliPreset, String)> = st.tabs.iter().map(|t| (t.preset, t.spawn_preset, t.title.clone())).collect();
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 9: Remove background.", None);
+
+        assert_eq!(st.tabs.len(), 3, "a Claude tab is added next to the user's Shell and Codex tabs");
+        for (i, (preset, spawn_preset, title)) in before.iter().enumerate() {
+            let tab = &st.tabs[i];
+            assert_eq!((tab.preset, tab.spawn_preset, &tab.title), (*preset, *spawn_preset, title), "tab {i} keeps its preset and title");
+            let written = String::from_utf8_lossy(&tab.written_bytes).into_owned();
+            assert!(!written.contains("Image task"), "tab {i} must never receive the system prompt: {written:?}");
+        }
+        assert_eq!(st.active_tab, 2, "the new agent tab is active");
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 9", 6);
+        assert!(received.contains("Image task 9"), "the Claude tab receives the prompt: {received:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn system_send_keeps_the_users_draft_chips_mentions_and_history() {
+        let dir = temp_composer_dir("system-keeps-composer");
+        let bin_dir = dir.join("bin");
+        let recv = dir.join("recv.txt");
+        write_executable_stub(&bin_dir, "claude", &recording_agent_script(&recv));
+
+        let mut st = TerminalState::new_for_session("doc-system-keeps-composer", "System Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+        let ready_deadline = Instant::now() + Duration::from_secs(4);
+        while Instant::now() < ready_deadline && !st.active_tab().is_some_and(|t| t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))) {
+            let _ = st.poll_live_agent_bridge();
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        st.active_composer_mut().record_sent("older prompt");
+        st.set_composer_draft("half typed thought");
+        st.active_composer_mut().chips.push(sample_chip());
+        st.active_mentions.push(sample_mention());
+        let sends_before = st.active_composer().send_count;
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 3: Remove background. Compare @Hero/Title.", None);
+
+        let comp = st.active_composer();
+        assert_eq!(comp.draft, "half typed thought", "a system send must not clear the draft");
+        assert_eq!(comp.chips, vec![sample_chip()], "a system send must not consume layer chips");
+        assert_eq!(comp.history.iter().map(String::as_str).collect::<Vec<_>>(), vec!["older prompt"], "a system send never enters Up-arrow history");
+        assert_eq!(comp.send_count, sends_before, "a system send is not a composer send");
+        assert_eq!(st.active_mentions, vec![sample_mention()], "a system send must not consume mentions");
+
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 3", 6);
+        assert!(received.contains("Image task 3: Remove background. Compare @Hero/Title."), "prompt arrives verbatim: {received:?}");
+        assert!(!received.contains("References:"), "the user's layer references must not be attached: {received:?}");
+        assert!(!received.contains("designos:node/4521"), "no unrelated layer reference in the system prompt: {received:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_start_of_a_system_send_never_lands_in_the_draft() {
+        let dir = temp_composer_dir("system-failed-start");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "echo 'Error: failed to initialize' >&2\nexit 1");
+
+        let mut st = TerminalState::new_for_session("doc-system-failed-start", "System Send", Some(&dir));
+        st.path_prepend.push(bin_dir);
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
+
+        let deadline = Instant::now() + Duration::from_secs(6);
+        while Instant::now() < deadline {
+            if let Some(tab) = st.active_tab_mut() {
+                if !tab.is_alive() {
+                    tab.spawned_at = Instant::now();
+                }
+            }
+            let _ = st.poll_live_agent_bridge();
+            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        assert!(st.active_tab().is_some_and(|t| t.start_failure.is_some()), "the stub CLI fails to start");
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.composer_draft(), "", "a system prompt is dropped, never returned to the user's draft");
+        assert!(st.active_composer().pending_send.is_none());
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
