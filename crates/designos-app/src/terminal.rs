@@ -11362,6 +11362,53 @@ Done!
         kill_tabs(&mut st);
     }
 
+    /// A prompt that waits for a quiet tab already started its turn at send time: it dismisses the banner then,
+    /// and the later queued write must not wipe a failure that arrived in between.
+    #[test]
+    fn a_queued_prompt_dismisses_the_failure_banner_when_sent_not_when_written() {
+        let mut st = provisioned_session(686_005);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        let raise_failure = |st: &mut TerminalState| {
+            if let Some(t) = st.active_tab_mut() {
+                if let Ok(mut log) = t.raw_log.lock() {
+                    log.push_str("API Error: 529 overloaded_error\n");
+                }
+            }
+            run_hook_command(&stop_failure_cmd);
+            let _ = st.poll_live_agent_bridge();
+        };
+
+        raise_failure(&mut st);
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the hook raises the banner");
+
+        // Fresh output keeps the tab busy, so the system prompt queues instead of being written.
+        if let Some(t) = st.active_tab_mut() {
+            *t.last_output_at.lock().unwrap() = Some(std::time::Instant::now());
+        }
+        let outcome = st.send_system_prompt("make the hero card blue", None);
+        assert_eq!(outcome, crate::agent_composer::SendOutcome::Queued, "a busy tab queues the prompt");
+        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_some()), "the prompt waits for a quiet tab");
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "a queued prompt starts a new turn and clears the banner when it is sent");
+
+        // A new failure arrives while the prompt still waits, then the tab turns ready and the prompt is written.
+        raise_failure(&mut st);
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the second hook raises the banner again");
+        if let Some(t) = st.active_tab_mut() {
+            t.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+        }
+        st.tick_composer();
+        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_none()), "the ready tab flushed the queued prompt");
+        assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("make the hero card blue"));
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the queued write must not wipe a failure that arrived while it waited");
+        kill_tabs(&mut st);
+    }
+
     #[test]
     fn stop_failure_event_routes_to_owning_agent_tab_when_another_tab_is_active() {
         let mut st = provisioned_session(686_003);
