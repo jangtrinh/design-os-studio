@@ -1710,9 +1710,11 @@ impl TerminalState {
 
             // The agent may have appended an edit the editor has not read yet (the log is polled
             // after this runs in a frame). A canvas written now would lack it, and the agent's
-            // session would take that for the user undoing it. Check last, after the slow
-            // serialization, so the window is as small as it can be. `last_synced_key` stays
-            // as it was: the same frame polls the log, applies the edit and publishes again.
+            // session would take that for the user undoing it. Check after the slow serialization
+            // and again between writing the canvas file and renaming it into place (a file's
+            // modification time is its last write, so that is the moment that orders it against
+            // the agent's append). `last_synced_key` stays as it was: the same frame polls the
+            // log, applies the edit and publishes again.
             if self.live_patch.has_unread_complete_line() {
                 return;
             }
@@ -1725,7 +1727,10 @@ impl TerminalState {
             }
 
             if let Some(json_str) = canvas_json {
-                let _ = atomic_write_session_file(&self.live_canvas_path, json_str.as_bytes());
+                let live_patch = &self.live_patch;
+                if let Ok(true) = write_session_file_unless(&self.live_canvas_path, json_str.as_bytes(), || live_patch.has_unread_complete_line()) {
+                    return;
+                }
                 if !cfg!(test) {
                     let _ = atomic_write_session_file(Path::new("/tmp/designos-live-canvas.designos"), json_str.as_bytes());
                 }
@@ -3844,12 +3849,23 @@ fn write_grok_session_config(session_dir: &Path, mcp_config: &serde_json::Value)
 }
 
 fn atomic_write_session_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_session_file_unless(path, bytes, || false).map(|_| ())
+}
+
+/// Like [`atomic_write_session_file`], but `hold` is asked after the temporary file is complete
+/// and just before it replaces `path`. When it says yes the temporary file is removed, `path`
+/// is left as it was and `Ok(true)` comes back.
+fn write_session_file_unless(path: &Path, bytes: &[u8], hold: impl FnOnce() -> bool) -> std::io::Result<bool> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    if hold() {
+        let _ = std::fs::remove_file(&tmp);
+        return Ok(true);
+    }
+    std::fs::rename(&tmp, path).map(|()| false)
 }
 
 /// Shell command that appends one wrapped hook record to `<session_dir>/agent-events.jsonl` (`#683` §3.1)
