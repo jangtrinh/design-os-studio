@@ -864,3 +864,86 @@ fn later_edit_to_agent_introduced_variable_replays_while_user_edit_is_preserved(
     assert!(r3.skipped[0].contains("easeui/v"), "{:?}", r3.skipped);
     assert_eq!(full.variables["easeui/v"].values["m"], crate::VariableValue::Number(99.0));
 }
+
+/// Undoes the agent's latest history entry and replays its live ops onto the editor document.
+fn agent_undo_and_replay(agent: &mut Document, hist: &mut History, full: &mut Document, state: &mut LivePatchState) -> LivePatchReport {
+    let undo_ops = live_ops_for_command(agent, &hist_peek(hist)).unwrap();
+    hist.undo(agent).unwrap();
+    replay(full, undo_ops, state)
+}
+
+#[test]
+fn agent_updates_its_own_variable_and_undo_preserves_user_edits() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    // 1. The agent creates collection `easeui` and variable `easeui/v` (value 1.0).
+    let mut vars1 = agent.variables.clone();
+    vars1.insert("easeui/v".into(), variable("easeui/v", "easeui"));
+    let mut colls1 = agent.variable_collections.clone();
+    colls1.insert("easeui".into(), collection("easeui"));
+    let mut ops1 = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops1, Command::SetVariables { variables: vars1, collections: colls1.clone() });
+    assert_eq!(replay(&mut full, ops1, &mut state).applied, 1);
+
+    // 2. The agent updates its own variable to 24.0 in a second tool call.
+    let mut vars2 = agent.variables.clone();
+    let mut updated = variable("easeui/v", "easeui");
+    updated.values.insert("m".into(), crate::VariableValue::Number(24.0));
+    vars2.insert("easeui/v".into(), updated.clone());
+    let mut ops2 = Vec::new();
+    agent_exec(&mut agent, &mut hist, &mut ops2, Command::SetVariables { variables: vars2, collections: colls1 });
+    assert_eq!(replay(&mut full, ops2, &mut state).applied, 1);
+    assert_eq!(full.variables.get("easeui/v"), Some(&updated));
+
+    // 3. The user edits the variable in the editor to 99.0.
+    let mut user_edited = updated.clone();
+    user_edited.values.insert("m".into(), crate::VariableValue::Number(99.0));
+    full.variables.insert("easeui/v".into(), user_edited.clone());
+
+    // 4. The agent undoes both steps; neither may touch the user's value.
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variables.get("easeui/v"), Some(&user_edited), "undoing the agent's update must not overwrite the user's edit");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui/v")), "{:?}", r.skipped);
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variables.get("easeui/v"), Some(&user_edited), "undoing the agent's creation must not delete a variable the user edited");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui/v")), "{:?}", r.skipped);
+    assert!(full.variable_collections.contains_key("easeui"), "the collection still holds the user's variable");
+}
+
+#[test]
+fn agent_updates_its_own_collection_and_undo_preserves_user_edits() {
+    let (mut full, page, _) = full_doc(1, 0);
+    let mut agent = scoped(&full, page, 1);
+    let mut hist = History::default();
+    let mut state = LivePatchState::default();
+
+    // 1. The agent creates collection `easeui`.
+    let mut colls1 = agent.variable_collections.clone();
+    colls1.insert("easeui".into(), collection("easeui"));
+    let mut ops1 = Vec::new();
+    let vars = agent.variables.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops1, Command::SetVariables { variables: vars, collections: colls1.clone() });
+    assert_eq!(replay(&mut full, ops1, &mut state).applied, 1);
+
+    // 2. The agent renames its own collection in a second tool call.
+    let mut colls2 = colls1;
+    colls2.get_mut("easeui").unwrap().name = "Agent name".into();
+    let mut ops2 = Vec::new();
+    let vars = agent.variables.clone();
+    agent_exec(&mut agent, &mut hist, &mut ops2, Command::SetVariables { variables: vars, collections: colls2 });
+    assert_eq!(replay(&mut full, ops2, &mut state).applied, 1);
+    assert_eq!(full.variable_collections["easeui"].name, "Agent name");
+
+    // 3. The user renames it in the editor.
+    full.variable_collections.get_mut("easeui").unwrap().name = "User name".into();
+
+    // 4. The agent undoes both steps; the user's collection survives untouched.
+    agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "undoing the agent's rename must not overwrite the user's");
+    let r = agent_undo_and_replay(&mut agent, &mut hist, &mut full, &mut state);
+    assert_eq!(full.variable_collections["easeui"].name, "User name", "undoing the agent's creation must not delete a collection the user renamed");
+    assert!(r.skipped.iter().any(|s| s.contains("easeui")), "{:?}", r.skipped);
+}

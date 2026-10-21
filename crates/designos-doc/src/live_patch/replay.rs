@@ -24,12 +24,12 @@ pub struct LivePatchState {
     /// shape builder's remainder of a layer). Used only while the old id is gone, so undoing the
     /// replacement sends edits back to the restored layer.
     replaced: BTreeMap<NodeId, NodeId>,
-    /// Variable and collection ids this session's replays added to the editor. An agent undo
-    /// removes only these; anything the editor had before is left alone. Variables also keep the
-    /// last value this session wrote, so a later agent edit never overwrites a value the user
-    /// changed in the editor since.
+    /// Variable and collection ids this session's replays added to the editor, mapped to the last
+    /// value this session wrote. An agent undo removes only these, and only while the editor still
+    /// holds the written value; anything the editor had before, or the user changed since, is left
+    /// alone. A later agent edit likewise never overwrites a value the user changed.
     introduced_variables: BTreeMap<String, Variable>,
-    introduced_collections: BTreeSet<String>,
+    introduced_collections: BTreeMap<String, VariableCollection>,
     /// Styles and style metadata this session introduced into the editor document, mapped to the
     /// last value this session wrote. Agent writes go by id and the last one wins; a later agent
     /// edit is refused only when the editor no longer holds the value written here (the user
@@ -417,7 +417,10 @@ fn merge_agent_tokens<T: Clone + PartialEq>(
 /// more than the agent's copy did. Changed variables and collections are upserted (unioning member
 /// lists for existing collections so editor-only members are preserved). On an agent spec-undo
 /// (`is_spec_undo`), only ids this session introduced are removed so pre-existing editor variables
-/// survive; standalone `SetVariables` deletes apply directly. Entries without an id are refused.
+/// survive; standalone `SetVariables` deletes of ids the editor owns apply directly. An id this
+/// session introduced is removed only while the editor still holds the value the session wrote,
+/// whichever kind of op removes it (a `SetVariables` undo carries no `Remove` op). Entries without
+/// an id are refused.
 #[allow(clippy::too_many_arguments)]
 fn resolve_variables(
     doc: &Document,
@@ -431,8 +434,14 @@ fn resolve_variables(
 ) -> Option<Command> {
     let mut merged_vars = doc.variables.clone();
     let mut merged_colls = doc.variable_collections.clone();
+    let mut refused = false;
     for id in removed_variables {
-        if state.introduced_variables.remove(id).is_some() || !is_spec_undo {
+        let owned = state.introduced_variables.get(id);
+        if owned.is_some_and(|written| doc.variables.get(id).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("variable {id} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        } else if owned.is_some() || !is_spec_undo {
+            state.introduced_variables.remove(id);
             merged_vars.remove(id);
             for coll in merged_colls.values_mut() {
                 coll.variables.retain(|vid| vid != id);
@@ -440,11 +449,20 @@ fn resolve_variables(
         }
     }
     for id in removed_collections {
-        if state.introduced_collections.remove(id) || !is_spec_undo {
+        let owned = state.introduced_collections.get(id);
+        if owned.is_some_and(|written| doc.variable_collections.get(id).is_some_and(|held| held != written)) {
+            report.skipped.push(format!("variable collection {id} was changed in the editor after the agent wrote it; its removal was not replayed"));
+            refused = true;
+        } else if owned.is_some() {
+            // Variables that survived (the user changed them) keep their collection.
+            if !merged_vars.values().any(|v| v.collection == *id) {
+                state.introduced_collections.remove(id);
+                merged_colls.remove(id);
+            }
+        } else if !is_spec_undo {
             merged_colls.remove(id);
         }
     }
-    let mut refused = false;
     for v in variables {
         if v.id.is_empty() {
             report.skipped.push("a variable without an id was not replayed".to_string());
@@ -465,22 +483,30 @@ fn resolve_variables(
     for c in collections {
         if c.id.is_empty() {
             report.skipped.push("a variable collection without an id was not replayed".to_string());
-        } else {
-            let mut merged = c.clone();
-            if let Some(cur) = merged_colls.get(&c.id) {
-                let mut members: Vec<String> =
-                    cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
-                for vid in &c.variables {
-                    if !members.contains(vid) {
-                        members.push(vid.clone());
-                    }
-                }
-                merged.variables = members;
-            } else {
-                state.introduced_collections.insert(c.id.clone());
-            }
-            merged_colls.insert(c.id.clone(), merged);
+            continue;
         }
+        let user_changed =
+            state.introduced_collections.get(&c.id).is_some_and(|written| doc.variable_collections.get(&c.id).is_some_and(|held| held != written));
+        if user_changed {
+            report.skipped.push(format!("variable collection {} was changed in the editor after the agent wrote it; the agent's edit was not replayed", c.id));
+            refused = true;
+            continue;
+        }
+        let mut merged = c.clone();
+        if let Some(cur) = merged_colls.get(&c.id) {
+            let mut members: Vec<String> =
+                cur.variables.iter().filter(|vid| !removed_variables.contains(vid) || merged_vars.contains_key(*vid)).cloned().collect();
+            for vid in &c.variables {
+                if !members.contains(vid) {
+                    members.push(vid.clone());
+                }
+            }
+            merged.variables = members;
+        }
+        if !merged_colls.contains_key(&c.id) || state.introduced_collections.contains_key(&c.id) {
+            state.introduced_collections.insert(c.id.clone(), merged.clone());
+        }
+        merged_colls.insert(c.id.clone(), merged);
     }
     if merged_vars == doc.variables && merged_colls == doc.variable_collections {
         if !refused {
