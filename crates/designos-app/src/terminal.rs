@@ -430,7 +430,7 @@ pub enum TerminalAction {
     FocusAgentTab(usize),
     /// Closes a stopped agent turn: applies held patches, folds contiguous agent undo steps since
     /// `turn_start_depth` into one `"Agent turn (stopped)"` batch, and clears in-progress flags (`#684`).
-    CloseStoppedTurn { tab_id: usize, turn_start_depth: usize, run_id: Option<String>, agent: Option<String> },
+    CloseStoppedTurn { tab_id: usize, turn_start_depth: usize, run_id: Option<String> },
     /// Clears `Document.in_progress` entries owned by an agent run that finished (`agent-status.json` -> `done`) or whose PTY exited.
     ClearInProgress { run_id: Option<String>, agent: Option<String> },
 }
@@ -1550,8 +1550,9 @@ impl TerminalState {
             return;
         }
 
-        // Selected ids and active in_progress flags: `in_progress` mutations do not bump `mutation_epoch`,
-        // so fold `doc.in_progress` into `selection_key` to publish cleared/updated flags to `canvas.designos`.
+        // Selected ids and active in_progress flags: flag changes through `Document::set_in_progress` and the clear
+        // helpers bump `mutation_epoch`, but `doc.in_progress` is a public map. Folding it into `selection_key` keeps
+        // a flag written without a bump from going unpublished to `canvas.designos`.
         let selection_key = {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -2289,8 +2290,7 @@ impl TerminalState {
                 // A new prompt ends a stop that never saw a closing hook (Claude Code skips Stop on an interrupt). The
                 // stopped turn closes first, with its own start depth, so the new turn never folds with it.
                 if matches!(record.e.as_str(), "UserPromptSubmit" | "PreInvocation") {
-                    let session_id = self.session_id.clone();
-                    if let Some(action) = crate::agent_stop::close_pending_stop(&mut self.tabs[tab_idx], &session_id, designos_doc::now_ms()) {
+                    if let Some(action) = crate::agent_stop::close_pending_stop(&mut self.tabs[tab_idx], designos_doc::now_ms()) {
                         actions.push(action);
                     }
                 }
@@ -2407,7 +2407,7 @@ impl TerminalState {
             }
         }
         actions.extend(crate::agent_stop::poll_stop_sequences(self, designos_doc::now_ms()));
-        // Channel 4: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
+        // Channel 5: `agent-status.json` -> `done` releases the frames this run flagged `in_progress` (`#592`).
         let status_file = self.session_dir.join("agent-status.json");
         if let Ok(raw_status) = std::fs::read_to_string(&status_file) {
             if let Some(parsed) = parse_agent_status_payload(raw_status.trim()) {

@@ -193,7 +193,7 @@ fn pty_quiet_since_stop(tab: &TerminalTab, sent_instant: std::time::Instant) -> 
 /// Ends the pending stop on `tab` at `now_ms`: records the receipt `"Stopped by you after <N>s"`, latches
 /// [`AgentTabStatus::Stopped`], releases `stop_in_flight`, and returns the action that folds the turn. Returns
 /// `None` when no stop is pending.
-pub fn close_pending_stop(tab: &mut TerminalTab, session_id: &str, now_ms: u64) -> Option<TerminalAction> {
+pub fn close_pending_stop(tab: &mut TerminalTab, now_ms: u64) -> Option<TerminalAction> {
     let sent_at = tab.stop_state.as_ref()?.sent_at;
     let started_ms = tab.turn_started_at_ms.take().unwrap_or(sent_at);
     let depth = tab.turn_start_undo_depth;
@@ -207,12 +207,7 @@ pub fn close_pending_stop(tab: &mut TerminalTab, session_id: &str, now_ms: u64) 
     if let Ok(mut status) = tab.agent_status.lock() {
         *status = AgentTabStatus::Stopped;
     }
-    Some(TerminalAction::CloseStoppedTurn {
-        tab_id: tab.id,
-        turn_start_depth: depth,
-        run_id: Some(session_id.to_string()),
-        agent: Some(tab.spawn_preset.binary_name().to_string()),
-    })
+    Some(TerminalAction::CloseStoppedTurn { tab_id: tab.id, turn_start_depth: depth, run_id: Some(tab.run_id.clone()) })
 }
 
 /// Advances the stop sequence on `tab` at `now_ms` (`§3.3`, `§3.4`, `§3.8`, `§8.1`).
@@ -223,7 +218,7 @@ pub fn close_pending_stop(tab: &mut TerminalTab, session_id: &str, now_ms: u64) 
 /// - If the turn is still running at `now_ms >= sent_at + 3_000` and `!second_sent`, sends the second
 ///   interrupt key (`Ctrl+C`) once and sets `second_sent = true`.
 /// - If still running after the second key was sent, sets `tab.still_running_notice` to [`STILL_RUNNING_NOTICE`].
-pub fn tick_stop_on_tab(tab: &mut TerminalTab, session_id: &str, now_ms: u64) -> Option<TerminalAction> {
+pub fn tick_stop_on_tab(tab: &mut TerminalTab, now_ms: u64) -> Option<TerminalAction> {
     let alive = tab.is_alive();
     let running = alive && is_tab_turn_running(tab);
     let (sent_at, second_sent, key_table_row, sent_instant) = {
@@ -233,7 +228,7 @@ pub fn tick_stop_on_tab(tab: &mut TerminalTab, session_id: &str, now_ms: u64) ->
     let quiet_after_interrupt = running && !INTERRUPT_KEY_TABLE[key_table_row].fires_interrupt_hook && pty_quiet_since_stop(tab, sent_instant);
 
     if !running || quiet_after_interrupt {
-        return close_pending_stop(tab, session_id, now_ms);
+        return close_pending_stop(tab, now_ms);
     }
 
     if !second_sent && now_ms.saturating_sub(sent_at) >= SECOND_KEY_DELAY_MS {
@@ -251,10 +246,9 @@ pub fn tick_stop_on_tab(tab: &mut TerminalTab, session_id: &str, now_ms: u64) ->
 
 /// Polls all tabs in `state` for stop sequence transitions at `now_ms`.
 pub fn poll_stop_sequences(state: &mut TerminalState, now_ms: u64) -> Vec<TerminalAction> {
-    let session_id = state.session_id.clone();
     let mut out = Vec::new();
     for tab in &mut state.tabs {
-        if let Some(action) = tick_stop_on_tab(tab, &session_id, now_ms) {
+        if let Some(action) = tick_stop_on_tab(tab, now_ms) {
             out.push(action);
         }
     }
@@ -303,17 +297,14 @@ pub struct PendingStopClose {
     pub turn_start_depth: usize,
     pub pre_close_patch_count: usize,
     pub run_id: Option<String>,
-    pub agent: Option<String>,
     /// When the stop key was sent. A ledger turn opened after it belongs to the next prompt, not to the stop.
     pub stop_sent: Option<std::time::Instant>,
 }
 
-/// Clears `Document::in_progress` flags owned by the stopped agent run (`§3.4`).
-pub fn clear_stopped_in_progress(app: &mut App, run_id: Option<&str>, agent: Option<&str>) {
-    let mut cleared = app.doc.clear_in_progress_for_run_or_agent(run_id, agent);
-    if let Some(a) = agent {
-        cleared.extend(app.doc.clear_in_progress_for_agent(a));
-    }
+/// Clears the `Document::in_progress` flags of the stopped tab's own run (`§3.4`). Matching is by `run_id` only: another
+/// tab running the same agent in parallel has a different run id and keeps its flags.
+pub fn clear_stopped_in_progress(app: &mut App, run_id: Option<&str>) {
+    let cleared = app.doc.clear_in_progress_for_run_or_agent(run_id, None);
     if !cleared.is_empty() {
         app.changed();
     }
@@ -342,7 +333,7 @@ pub fn fold_stopped_turn(app: &mut App, depth: usize, close: Option<&PendingStop
         let stop_sent = close.and_then(|c| c.stop_sent);
         app.terminal.ledger_for_tab_mut(idx).on_turn_stopped(end_offset, std::time::Instant::now(), stop_sent);
     }
-    clear_stopped_in_progress(app, close.and_then(|c| c.run_id.as_deref()), close.and_then(|c| c.agent.as_deref()));
+    clear_stopped_in_progress(app, close.and_then(|c| c.run_id.as_deref()));
 }
 
 /// Closes a stopped agent turn on `app` (`§3.4`):
@@ -352,7 +343,7 @@ pub fn fold_stopped_turn(app: &mut App, depth: usize, close: Option<&PendingStop
 /// 2. Folds the turn's contiguous agent undo steps since `turn_start_depth` into one `Command::Batch`
 ///    step labelled [`STOP_UNDO_LABEL`] and ends the tab's turn in the turn ledger (`#677`).
 /// 3. Clears `Document::in_progress` flags owned by the stopped agent run.
-pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth: usize, run_id: Option<&str>, agent: Option<&str>) {
+pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth: usize, run_id: Option<&str>) {
     let (lines, errors) = app.terminal.live_patch.poll();
     for err in errors {
         app.show_toast(err, true);
@@ -368,12 +359,11 @@ pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth:
         turn_start_depth,
         pre_close_patch_count: app.terminal.live_patch.pending.len(),
         run_id: run_id.map(str::to_string),
-        agent: agent.map(str::to_string),
         stop_sent: app.terminal.tabs.iter().find(|t| t.id == tab_id).and_then(|t| t.stop_sent_instant),
     };
     if crate::live_patch_apply::user_edit_in_progress(app) {
         app.terminal.pending_stop_fold_depth = Some(turn_start_depth);
-        clear_stopped_in_progress(app, run_id, agent);
+        clear_stopped_in_progress(app, run_id);
         app.terminal.pending_stop_close = Some(close);
     } else {
         // The fold runs inside `apply_pending_live_patches`, after the held patches are in, even when none are held.
@@ -514,7 +504,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let mut action = None;
         while std::time::Instant::now() < deadline {
-            if let Some(act) = tick_stop_on_tab(&mut tab, "sess-684", 2_000) {
+            if let Some(act) = tick_stop_on_tab(&mut tab, 2_000) {
                 action = Some(act);
                 break;
             }
@@ -535,11 +525,11 @@ mod tests {
         assert_eq!(tab_ignores.stop_state.as_ref().unwrap().button_label(), "Stopping…");
 
         // Before 3s: no second key sent.
-        assert!(tick_stop_on_tab(&mut tab_ignores, "sess-a", 3_999).is_none());
+        assert!(tick_stop_on_tab(&mut tab_ignores, 3_999).is_none());
         assert_eq!(tab_ignores.stop_sent_keys, vec![KEY_ESC]);
 
         // At t = 1_000 + 3_000 = 4_000: still running -> second key (Ctrl+C) sent once.
-        assert!(tick_stop_on_tab(&mut tab_ignores, "sess-a", 4_000).is_none());
+        assert!(tick_stop_on_tab(&mut tab_ignores, 4_000).is_none());
         assert_eq!(tab_ignores.stop_sent_keys, vec![KEY_ESC, KEY_CTRL_C]);
         assert_eq!(tab_ignores.stop_state.as_ref().unwrap().button_label(), "Stopping…");
 
@@ -548,7 +538,7 @@ mod tests {
         while std::time::Instant::now() < deadline && tab_ignores.is_alive() {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let closed = tick_stop_on_tab(&mut tab_ignores, "sess-a", 4_500);
+        let closed = tick_stop_on_tab(&mut tab_ignores, 4_500);
         assert!(closed.is_some());
         assert_eq!(tab_ignores.stop_sent_keys.len(), 2, "never sends a third key");
 
@@ -559,10 +549,10 @@ mod tests {
         while std::time::Instant::now() < deadline && tab_exits.is_alive() {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let closed_b = tick_stop_on_tab(&mut tab_exits, "sess-b", 2_000);
+        let closed_b = tick_stop_on_tab(&mut tab_exits, 2_000);
         assert!(closed_b.is_some());
         // Advancing past 3s sends nothing because the turn already ended.
-        assert!(tick_stop_on_tab(&mut tab_exits, "sess-b", 5_000).is_none());
+        assert!(tick_stop_on_tab(&mut tab_exits, 5_000).is_none());
         assert_eq!(tab_exits.stop_sent_keys, vec![KEY_ESC], "stub that exited after first key must not receive a second key");
     }
 
@@ -574,7 +564,7 @@ mod tests {
         }
         assert!(!start_stop_on_tab(&mut tab, 1_000), "must not start stop when turn already ended");
         assert!(tab.stop_sent_keys.is_empty(), "zero bytes sent after Done");
-        assert!(tick_stop_on_tab(&mut tab, "sess", 5_000).is_none());
+        assert!(tick_stop_on_tab(&mut tab, 5_000).is_none());
         assert!(tab.stop_sent_keys.is_empty());
     }
 
@@ -647,7 +637,7 @@ mod tests {
         app.terminal.live_patch.pending.push(LivePatch::new(vec![LiveOp::Insert { parent: page, at: SiblingHint::default(), nodes: vec![n2] }]));
 
         // Stop closes the turn while the user is still mid-edit.
-        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-held"), Some("claude"));
+        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-held"));
         assert_eq!(app.terminal.pending_stop_fold_depth, Some(start_depth));
 
         // User finishes the edit -> held patches apply and fold into one undo step.
@@ -659,47 +649,91 @@ mod tests {
         assert_eq!(app.hist.undo_label(), Some(STOP_UNDO_LABEL));
     }
 
+    fn add_frame(app: &mut App, x: f32) -> NodeId {
+        let page = app.page;
+        let id = app.doc.alloc_id();
+        app.doc.insert(page, Node::frame(id, DocRect::new(x, 0.0, 400.0, 300.0))).unwrap()
+    }
+
+    /// Stamps `frame` with an `in_progress` flag owned by `run_id` / `agent`.
+    fn flag_frame(app: &mut App, frame: NodeId, run_id: &str, agent: Option<&str>, status: &str) {
+        app.doc.set_in_progress(
+            frame,
+            Some(InProgress {
+                run_id: Some(run_id.into()),
+                agent: agent.map(str::to_string),
+                since_ms: 10_000,
+                stale_after_s: Some(300),
+                status: Some(status.into()),
+            }),
+        );
+    }
+
+    /// Stops `tab` the way the Stop button does and runs the resulting action through the app, as `shell.rs` does.
+    fn stop_tab_and_close(app: &mut App, tab_idx: usize, depth: usize) {
+        let tab = &mut app.terminal.tabs[tab_idx];
+        assert!(start_stop_on_tab(tab, 1_000));
+        if let Ok(mut st) = tab.agent_status.lock() {
+            *st = AgentTabStatus::Done;
+        }
+        let action = tick_stop_on_tab(tab, 2_000).expect("a stopped turn closes with an action");
+        let TerminalAction::CloseStoppedTurn { tab_id, run_id, .. } = action else { panic!("unexpected action {action:?}") };
+        close_stopped_turn_on_app(app, tab_id, depth, run_id.as_deref());
+    }
+
     #[test]
     fn in_progress_flags_clear_on_stop() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();
-        let page = app.page;
-        let fid = app.doc.alloc_id();
-        let frame = app.doc.insert(page, Node::frame(fid, DocRect::new(0.0, 0.0, 400.0, 300.0))).unwrap();
-        let fid2 = app.doc.alloc_id();
-        let frame2 = app.doc.insert(page, Node::frame(fid2, DocRect::new(450.0, 0.0, 400.0, 300.0))).unwrap();
+        let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Claude, false);
+        tab.run_id = "sess-shared-1-1".to_string();
+        app.terminal.tabs.push(tab);
+        let (frame, frame2) = (add_frame(&mut app, 0.0), add_frame(&mut app, 450.0));
         let hash_without_flags = crate::home::doc_hash(&app.doc);
-        app.doc.set_in_progress(
-            frame,
-            Some(InProgress {
-                run_id: Some("mcp-run-99".into()),
-                agent: Some("Claude Code".into()),
-                since_ms: 10_000,
-                stale_after_s: Some(300),
-                status: Some("Building hero...".into()),
-            }),
-        );
-        app.doc.set_in_progress(
-            frame2,
-            Some(InProgress {
-                run_id: Some("mcp-run-99".into()),
-                agent: None,
-                since_ms: 10_000,
-                stale_after_s: Some(300),
-                status: Some("Building nav...".into()),
-            }),
-        );
+        flag_frame(&mut app, frame, "sess-shared-1-1", Some("Claude Code"), "Building hero...");
+        flag_frame(&mut app, frame2, "sess-shared-1-1", None, "Building nav...");
         let hash_with_flags = crate::home::doc_hash(&app.doc);
         assert_ne!(hash_with_flags, hash_without_flags, "doc_hash must include in_progress flags");
         assert!(app.doc.get_in_progress(frame).is_some());
         assert!(app.doc.get_in_progress(frame2).is_some());
 
         let depth = app.hist.undo_depth();
-        close_stopped_turn_on_app(&mut app, 1, depth, Some("sess-stop"), Some("claude"));
+        stop_tab_and_close(&mut app, 0, depth);
         assert!(app.doc.get_in_progress(frame).is_none());
         assert!(app.doc.get_in_progress(frame2).is_none());
         assert!(app.doc.in_progress.is_empty());
         assert_eq!(crate::home::doc_hash(&app.doc), hash_without_flags, "clearing in_progress must change doc_hash back");
+        let _ = app.terminal.tabs[0].child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let mut app = new_test_app();
+        for (id, run_id) in [(1, "sess-shared-1-1"), (2, "sess-shared-2-1")] {
+            let mut tab = spawn_looping_stub_tab(id, AgentCliPreset::Claude, false);
+            tab.run_id = run_id.to_string();
+            app.terminal.tabs.push(tab);
+        }
+        let (stopped, stopped_sibling, parallel) = (add_frame(&mut app, 0.0), add_frame(&mut app, 450.0), add_frame(&mut app, 900.0));
+        flag_frame(&mut app, stopped, "sess-shared-1-1", Some("Claude Code"), "Tab 1 building...");
+        flag_frame(&mut app, stopped_sibling, "sess-shared-1-1", None, "Tab 1 nav...");
+        flag_frame(&mut app, parallel, "sess-shared-2-1", Some("Claude Code"), "Tab 2 building...");
+
+        let depth = app.hist.undo_depth();
+        stop_tab_and_close(&mut app, 0, depth);
+
+        assert!(app.doc.get_in_progress(stopped).is_none(), "the stopped tab's own flag clears");
+        assert!(app.doc.get_in_progress(stopped_sibling).is_none(), "the stopped tab's second flag clears");
+        assert_eq!(
+            app.doc.get_in_progress(parallel).and_then(|ip| ip.run_id.as_deref()),
+            Some("sess-shared-2-1"),
+            "a parallel tab of the same agent keeps its flag"
+        );
+        for tab in &mut app.terminal.tabs {
+            let _ = tab.child.kill();
+        }
         designos_doc::set_mock_now_ms(None);
     }
 
@@ -713,7 +747,7 @@ mod tests {
         if let Ok(mut st) = tab.agent_status.lock() {
             *st = AgentTabStatus::Done;
         }
-        let action = tick_stop_on_tab(&mut tab, "sess-receipt", 43_000);
+        let action = tick_stop_on_tab(&mut tab, 43_000);
         assert!(action.is_some());
         assert_eq!(tab.last_receipt.as_deref(), Some("Stopped by you after 42s"));
     }
@@ -1001,7 +1035,7 @@ mod tests {
         app.terminal.live_patch.pending.push(LivePatch::new(vec![LiveOp::Insert { parent: fid, at: SiblingHint::default(), nodes: vec![child_node] }]));
 
         // User presses Stop while still dragging.
-        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-drag-stop"), Some("claude"));
+        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-drag-stop"));
 
         // A late patch arrives after the stopped turn has already closed, while the user is still dragging.
         let late_node = Node::rectangle(designos_doc::NodeId(902), DocRect::new(400.0, 0.0, 40.0, 40.0));
@@ -1061,7 +1095,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let mut action = None;
         while std::time::Instant::now() < deadline && action.is_none() {
-            action = tick_stop_on_tab(&mut tab, "sess-684", 43_000);
+            action = tick_stop_on_tab(&mut tab, 43_000);
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert!(action.is_some(), "the stub exits on the first key and the turn closes");
@@ -1122,7 +1156,7 @@ mod tests {
         assert_eq!(app.hist.undo_depth(), start_depth + 3);
         assert!(app.terminal.ledger_for_tab(0).turns.last().is_some_and(|t| t.end_patch_bytes.is_none()), "the hooked turn is still open");
 
-        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-ledger"), Some("claude"));
+        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-ledger"));
 
         assert_eq!(app.hist.undo_depth(), start_depth + 1);
         let turn = app.terminal.ledger_for_tab(0).turns.last().expect("the stopped turn stays in the ledger").clone();
@@ -1199,8 +1233,13 @@ mod tests {
 
         let fid = NodeId(900);
         let frame = Node::frame(fid, DocRect::new(0.0, 0.0, 300.0, 200.0));
-        let in_progress =
-            InProgress { run_id: None, agent: Some("claude".into()), since_ms: 10_000, stale_after_s: Some(300), status: Some("Working...".into()) };
+        let in_progress = InProgress {
+            run_id: Some(app.terminal.tabs[0].run_id.clone()),
+            agent: Some("claude".into()),
+            since_ms: 10_000,
+            stale_after_s: Some(300),
+            status: Some("Working...".into()),
+        };
         crate::live_patch_apply::apply_live_patches(
             &mut app,
             &[LivePatch::new(vec![
@@ -1300,7 +1339,7 @@ mod tests {
         let before: Vec<usize> = app.terminal.tabs[1].turn_ledger.turns.iter().flat_map(|t| t.steps.iter().map(|s| s.hist_depth)).collect();
         assert_eq!(before, vec![start_depth + 1, start_depth + 2, start_depth + 3]);
 
-        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-all-tabs"), Some("claude"));
+        close_stopped_turn_on_app(&mut app, 1, start_depth, Some("run-all-tabs"));
 
         assert_eq!(app.hist.undo_depth(), start_depth + 1);
         let after: Vec<usize> = app.terminal.tabs[1].turn_ledger.turns.iter().flat_map(|t| t.steps.iter().map(|s| s.hist_depth)).collect();

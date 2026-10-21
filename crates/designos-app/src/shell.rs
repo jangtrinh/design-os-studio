@@ -1602,8 +1602,8 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                 app.ui.left_collapsed = false;
                 let _ = app.terminal.focus_tab_by_id(tab_id);
             }
-            crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id, agent } => {
-                crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref(), agent.as_deref());
+            crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id } => {
+                crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref());
             }
             crate::terminal::TerminalAction::ClearInProgress { run_id, .. } => {
                 if !app.doc.clear_in_progress_for_run_or_agent(run_id.as_deref(), None).is_empty() {

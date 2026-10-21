@@ -957,8 +957,8 @@ impl Document {
             if state.is_some() {
                 if let Err(root_opt) = self.is_in_progress_root(id) {
                     let message = match root_opt {
-                        Some(r) => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame (use root frame {})", id.0, r.0),
-                        None => format!("IN_PROGRESS_TARGET_NOT_ROOT: node {} is not a root frame", id.0),
+                        Some(r) => format!("node {} is not a root frame (use root frame {})", id.0, r.0),
+                        None => format!("node {} is not a root frame", id.0),
                     };
                     return Err(SpecBindError {
                         code: "IN_PROGRESS_TARGET_NOT_ROOT".to_string(),
@@ -2059,5 +2059,64 @@ mod tests {
         let (bad, options) = extract_unknown_field_options(&err).expect("unknown field error");
         assert_eq!(bad, "dirr");
         assert!(options.contains(&"direction".to_string()), "{options:?}");
+    }
+
+    fn in_progress_spec_json(run_id: &str, status: &str) -> serde_json::Value {
+        serde_json::json!({ "run_id": run_id, "agent": "Claude Code", "since_ms": 9_000, "stale_after_s": 300, "status": status })
+    }
+
+    #[test]
+    fn spec_in_progress_flag_applies_and_exports_on_a_root_frame() {
+        set_mock_now_ms(Some(10_000));
+        let mut doc = Document::new("Spec in_progress");
+        let page = doc.add_page("P");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Hero",
+            "in_progress": in_progress_spec_json("run-1", "Building hero..."),
+            "children": [{ "kind": "rectangle", "width": 20.0, "height": 20.0 }]
+        }))
+        .unwrap();
+
+        let report = doc.apply_spec_with_report(page, &spec).unwrap();
+        let flag = doc.get_in_progress(report.root_node_id).expect("the root frame is flagged");
+        assert_eq!((flag.run_id.as_deref(), flag.agent.as_deref(), flag.status.as_deref()), (Some("run-1"), Some("Claude Code"), Some("Building hero...")));
+        assert_eq!(report.in_progress.len(), 1, "the report lists the flag this call set");
+
+        let exported = doc.export_spec(report.root_node_id).unwrap();
+        match exported.in_progress {
+            Some(InProgressSpec::Detailed(ip)) => assert_eq!((ip.run_id.as_deref(), ip.status.as_deref()), (Some("run-1"), Some("Building hero..."))),
+            other => panic!("export must carry the flag, got {other:?}"),
+        }
+
+        let cleared: NodeSpec = serde_json::from_value(serde_json::json!({ "kind": "frame", "name": "Done", "in_progress": false })).unwrap();
+        let cleared_id = doc.apply_spec(page, &cleared).unwrap();
+        assert!(doc.get_in_progress(cleared_id).is_none(), "`in_progress: false` sets no flag");
+        set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn spec_in_progress_flag_on_a_non_root_node_is_refused_with_the_root_and_rolls_back() {
+        let mut doc = Document::new("Spec in_progress not root");
+        let page = doc.add_page("P");
+        let children_before = doc.get(page).unwrap().children.len();
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Hero",
+            "in_progress": in_progress_spec_json("run-1", "Building..."),
+            "children": [{ "kind": "frame", "name": "Inner", "in_progress": in_progress_spec_json("run-1", "Inner...") }]
+        }))
+        .unwrap();
+
+        let err = doc.apply_spec_with_report(page, &spec).unwrap_err();
+        assert_eq!(err.code, "IN_PROGRESS_TARGET_NOT_ROOT");
+        assert!(!err.message.contains("IN_PROGRESS_TARGET_NOT_ROOT"), "the code lives in `code` only: {}", err.message);
+        assert!(err.message.contains("is not a root frame (use root frame "), "{}", err.message);
+        assert_eq!(err.path, "spec.children[0]");
+        let root_id = err.message.rsplit(' ').next().unwrap().trim_end_matches(')').to_string();
+        assert_eq!(err.valid_options, vec![root_id], "valid_options names the root frame to flag instead");
+
+        assert!(doc.in_progress.is_empty(), "the root's flag set before the failure is rolled back");
+        assert_eq!(doc.get(page).unwrap().children.len(), children_before, "no node survives the refused spec");
     }
 }
