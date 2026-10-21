@@ -105,7 +105,15 @@ impl ImportReport {
     /// Formats the one-line summary toast required by §7:
     /// `Imported page: <N> layers · <M> fonts substituted · Details`
     pub fn summary_toast(&self) -> String {
-        format!("Imported page: {} layers \u{00b7} {} fonts substituted \u{00b7} Details", self.nodes_created, self.font_substitutions.len())
+        let plural = |n: usize, one: &str, many: &str| if n == 1 { one.to_string() } else { many.to_string() };
+        let fonts = self.font_substitutions.len();
+        format!(
+            "Imported page: {} {} \u{00b7} {} {} substituted \u{00b7} Details",
+            self.nodes_created,
+            plural(self.nodes_created, "layer", "layers"),
+            fonts,
+            plural(fonts, "font", "fonts")
+        )
     }
 }
 
@@ -929,6 +937,20 @@ mod tests {
     use designos_doc::History;
 
     const CARD_FIXTURE_JSON: &str = include_str!("../tests/playwright/fixtures/card.capture.json");
+
+    #[test]
+    fn summary_toast_uses_singular_nouns_for_one() {
+        let mut report = ImportReport { nodes_created: 1, ..ImportReport::default() };
+        report.font_substitutions.push(FontSubstitution { requested: "Arial".into(), substituted: "Inter".into() });
+        assert_eq!(report.summary_toast(), "Imported page: 1 layer \u{00b7} 1 font substituted \u{00b7} Details");
+
+        report.nodes_created = 16;
+        report.font_substitutions.push(FontSubstitution { requested: "Georgia".into(), substituted: "Inter".into() });
+        assert_eq!(report.summary_toast(), "Imported page: 16 layers \u{00b7} 2 fonts substituted \u{00b7} Details");
+
+        report.font_substitutions.clear();
+        assert_eq!(report.summary_toast(), "Imported page: 16 layers \u{00b7} 0 fonts substituted \u{00b7} Details");
+    }
 
     fn elem(id: Option<&str>, tag: &str, bbox: BoxRect, styles: &[(&str, &str)], text: &str, children: Vec<Element>) -> Element {
         let style_map: BTreeMap<String, String> = styles.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();

@@ -1091,14 +1091,32 @@ impl Shell {
                     };
 
                     draw_kv(ui, "Imported frame", &rep.root_name, false, false);
-                    draw_kv(ui, "Layers created", &format!("{} layers ({} DOM elements)", rep.nodes_created, rep.elements), true, false);
-                    draw_kv(ui, "Flattened wrappers", &format!("{} inline wrappers", rep.flattened_wrappers), true, false);
+                    draw_kv(
+                        ui,
+                        "Layers created",
+                        &format!(
+                            "{} {} · {} DOM {}",
+                            rep.nodes_created,
+                            widgets::plural(rep.nodes_created, "layer", "layers"),
+                            rep.elements,
+                            widgets::plural(rep.elements, "element", "elements")
+                        ),
+                        true,
+                        false,
+                    );
+                    draw_kv(
+                        ui,
+                        "Flattened wrappers",
+                        &format!("{} inline {}", rep.flattened_wrappers, widgets::plural(rep.flattened_wrappers, "wrapper", "wrappers")),
+                        true,
+                        false,
+                    );
                     draw_kv(ui, "Capture status", if rep.truncated { "truncated (budget reached)" } else { "complete" }, true, false);
 
                     draw_row(
                         ui,
                         "Absolute fallbacks",
-                        Some(rep.absolute_fallbacks.len()),
+                        Some(rep.absolute_fallbacks.len()).filter(|n| *n > 0),
                         if rep.absolute_fallbacks.is_empty() { "none" } else { "element · reason" },
                         true,
                         true,
@@ -1110,7 +1128,7 @@ impl Shell {
                     draw_row(
                         ui,
                         "Font substitutions",
-                        Some(rep.font_substitutions.len()),
+                        Some(rep.font_substitutions.len()).filter(|n| *n > 0),
                         if rep.font_substitutions.is_empty() { "all matched" } else { "requested → substituted" },
                         true,
                         true,
@@ -1122,7 +1140,7 @@ impl Shell {
                     draw_row(
                         ui,
                         "Unsupported CSS",
-                        Some(rep.unsupported_css.len()),
+                        Some(rep.unsupported_css.len()).filter(|n| *n > 0),
                         if rep.unsupported_css.is_empty() { "0 declarations" } else { "property (element) · value" },
                         true,
                         true,
@@ -1134,7 +1152,7 @@ impl Shell {
                     draw_row(
                         ui,
                         "Uncaptured images",
-                        Some(rep.images_not_captured.len()),
+                        Some(rep.images_not_captured.len()).filter(|n| *n > 0),
                         if rep.images_not_captured.is_empty() { "0 placeholders" } else { "element (reason) · src" },
                         true,
                         true,
