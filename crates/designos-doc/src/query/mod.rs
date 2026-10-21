@@ -396,56 +396,35 @@ fn is_property_bound(node: &Node, prop_key: &str) -> bool {
     }
 }
 
-fn has_hardcoded_property(doc: &Document, node: &Node, prop_key: &str, env: Option<&dyn LintEnv>, budget: &mut ScanBudget) -> bool {
-    let no_env = NoLintEnv;
-    let env_ref: &dyn LintEnv = env.unwrap_or(&no_env);
-    let findings = budget.lint_node(
-        "hardcoded-color",
-        || LintConfig::from_rule_list(&["hardcoded-color".to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Strict)),
-        node.id,
-        env_ref,
-    );
-    if findings.is_empty() {
-        return false;
-    }
+/// Lint configuration that enables only the rule `canonical`.
+fn single_rule_config(canonical: &str) -> LintConfig {
+    LintConfig::from_rule_list(&[canonical.to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Agent))
+}
+
+/// `true` when `prop_key` names the property a `hardcoded-value` finding reports. `*` names any
+/// property; `fill`/`fills` and `stroke`/`strokes` name every paint of that group, the shared-style
+/// finding (`fill`) included; any other key must equal the finding's property (`fills/0`, `itemSpacing`).
+fn hardcoded_property_matches(prop_key: &str, finding_property: Option<&str>) -> bool {
     let key = prop_key.trim();
     if key == "*" {
         return true;
     }
-    findings.iter().any(|f| {
-        if let Some(fix) = f.suggested_fix.as_ref() {
-            let f_prop = fix.property.as_str();
-            return key == f_prop || (matches!(key, "fill" | "fills" | "fills/0") && matches!(f_prop, "fill" | "fills" | "fills/0"));
-        }
-        // `hardcoded-color` covers fills and strokes in one finding without a property: attribute it
-        // to the paint slot that is actually unbound so a stroke-only node never answers `fills/0`.
-        match key {
-            "fill" | "fills" | "fills/0" => has_unbound_solid_paint(doc, node, true),
-            "stroke" | "strokes" | "strokes/0" => has_unbound_solid_paint(doc, node, false),
-            _ => false,
-        }
-    })
+    let Some(prop) = finding_property else { return false };
+    match key {
+        "fill" | "fills" => prop == "fill" || prop.starts_with("fills/"),
+        "stroke" | "strokes" => prop == "stroke" || prop.starts_with("strokes/"),
+        _ => prop == key,
+    }
 }
 
-/// `true` when `node` carries a visible solid fill (`fill == true`) or stroke paint that is neither
-/// linked to a shared style nor bound to a variable, and that Check designs does not ignore (the
-/// whole paint group or that one paint), the way the `hardcoded-color` rule counts it.
-fn has_unbound_solid_paint(doc: &Document, node: &Node, fill: bool) -> bool {
-    let (style_key, group_key, prefix, paints) =
-        if fill { ("fill", "fill", "fills", &node.fills) } else { ("stroke", "stroke", "strokes", &node.stroke.paints) };
-    if node.style_refs.contains_key(style_key)
-        || node.variables.bindings.contains_key(group_key)
-        || doc.is_lint_property_ignored("hardcoded-color", node.id, group_key)
-    {
-        return false;
-    }
-    paints.iter().enumerate().any(|(i, p)| {
-        if !p.visible || !matches!(p.kind, crate::PaintKind::Solid(_)) {
-            return false;
-        }
-        let key = format!("{prefix}/{i}");
-        !node.variables.bindings.contains_key(&key) && !doc.is_lint_property_ignored("hardcoded-color", node.id, &key)
-    })
+/// `has-hardcoded(...)` and `hardcoded: true`: the E15-11 `hardcoded-value` finding on `node` (a
+/// value that matches a variable or style but is not bound to it) on property `prop_key`. The linter
+/// has already dropped what Check designs ignores.
+fn has_hardcoded_property(node: &Node, prop_key: &str, env: Option<&dyn LintEnv>, budget: &mut ScanBudget) -> bool {
+    let no_env = NoLintEnv;
+    let env_ref: &dyn LintEnv = env.unwrap_or(&no_env);
+    let findings = budget.lint_node("hardcoded-value", || single_rule_config("hardcoded-value"), node.id, env_ref);
+    findings.iter().any(|f| hardcoded_property_matches(prop_key, f.property.as_deref()))
 }
 
 fn compute_node_problems(node: &Node, rule_filter: Option<&str>, env: Option<&dyn LintEnv>, budget: &mut ScanBudget) -> Result<Vec<String>, StepError> {
@@ -467,12 +446,7 @@ fn compute_node_problems(node: &Node, rule_filter: Option<&str>, env: Option<&dy
                 budget.try_charge(200)?;
             }
         }
-        budget.lint_node(
-            canonical,
-            || LintConfig::from_rule_list(&[canonical.to_string()]).unwrap_or_else(|_| LintConfig::from_preset(LintPreset::Agent)),
-            node.id,
-            env_ref,
-        )
+        budget.lint_node(canonical, || single_rule_config(canonical), node.id, env_ref)
     } else {
         if node.kind.any_text().is_some() && env_ref.has_text_engine() {
             budget.try_charge(20)?;
@@ -542,7 +516,7 @@ fn eval_single_predicate(
 
     if let Some(inner) = s.strip_prefix("has-hardcoded(").and_then(|r| r.strip_suffix(')')) {
         let prop = unquote_arg(inner);
-        return Ok(has_hardcoded_property(doc, node, &prop, env, budget));
+        return Ok(has_hardcoded_property(node, &prop, env, budget));
     }
 
     if s == "@inProgress" || s == "@in_progress" {
@@ -689,7 +663,7 @@ fn evaluate_candidate_node(
     }
 
     if let Some(want_hc) = opts.hardcoded {
-        let is_hc = has_hardcoded_property(doc, node, "*", env, budget);
+        let is_hc = has_hardcoded_property(node, "*", env, budget);
         if is_hc != want_hc {
             return Ok((my_mask, None));
         }
@@ -1277,33 +1251,36 @@ mod tests {
     fn hardcoded_query_matches_linter_and_ignores_styled_fill_and_other_props() {
         let mut doc = Document::new("Hardcoded Test");
         let page = doc.add_page("Page 1");
+        add_color_variable(&mut doc, "brand", "Color/Brand", crate::Color::rgb(200, 50, 50));
+        add_color_variable(&mut doc, "ink", "Color/Ink", crate::Color::BLACK);
 
-        // 1. Raw solid fill without variable or style -> flagged by hardcoded-color
+        // 1. Raw solid fill that matches a colour variable -> flagged by hardcoded-value
         let raw_id = doc.alloc_id();
         let mut raw_frame = Node::frame(raw_id, Rect::new(0.0, 0.0, 100.0, 100.0));
         raw_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
         doc.insert(page, raw_frame).unwrap();
 
-        // 2. Solid fill linked to a shared fill style -> NOT hardcoded-color
+        // 2. Solid fill linked to a shared fill style -> NOT hardcoded-value
         let styled_id = doc.alloc_id();
         let mut styled_frame = Node::frame(styled_id, Rect::new(120.0, 0.0, 100.0, 100.0));
         styled_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
         styled_frame.style_refs.insert("fill".to_string(), "style_brand".to_string());
         doc.insert(page, styled_frame).unwrap();
 
-        // 3. Solid fill bound to a variable -> NOT hardcoded-color
+        // 3. Solid fill bound to a variable -> NOT hardcoded-value
         let bound_id = doc.alloc_id();
         let mut bound_frame = Node::frame(bound_id, Rect::new(240.0, 0.0, 100.0, 100.0));
         bound_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
-        bound_frame.variables.bindings.insert("fills/0".to_string(), "var_brand".to_string());
+        bound_frame.variables.bindings.insert("fills/0".to_string(), "brand".to_string());
         doc.insert(page, bound_frame).unwrap();
 
-        // 4. Frame with no fill, but with a variable-bound stroke, positive itemSpacing, and positive corner_radii -> NOT hardcoded-color
+        // 4. Frame with no fill, but with a variable-bound stroke, positive itemSpacing, and positive corner_radii -> NOT hardcoded-value
         let other_id = doc.alloc_id();
         let mut other_frame = Node::frame(other_id, Rect::new(360.0, 0.0, 100.0, 100.0));
         other_frame.fills.clear();
         other_frame.stroke.paints = vec![crate::Paint::solid(crate::Color::BLACK)];
-        other_frame.variables.bindings.insert("strokes/0".to_string(), "var_border".to_string());
+        other_frame.stroke.weight = 2.0;
+        other_frame.variables.bindings.insert("strokes/0".to_string(), "ink".to_string());
         other_frame.corner_radii = [8.0; 4];
         if let NodeKind::Frame(ref mut fp) = other_frame.kind {
             let mut al = AutoLayout::default();
@@ -1312,15 +1289,12 @@ mod tests {
         }
         doc.insert(page, other_frame).unwrap();
 
-        let cfg = LintConfig::from_rule_list(&["hardcoded-color".to_string()]).unwrap();
-        let mut budget = LintBudget::unlimited();
-        let lint_report = lint_subtree(&doc, &[page], &cfg, &crate::lint::ApproxLintEnv, &mut budget);
-        let lint_ids: Vec<u64> = lint_report.findings.iter().map(|f| f.node.0).collect();
+        let lint_ids = linter_ids(&doc, page, "hardcoded-value");
         assert_eq!(lint_ids, vec![raw_id.0]);
 
         let q_fills = run(&doc, &QueryOptions { selector: "//*[has-hardcoded('fills/0')]".to_string(), page: Some(page), ..Default::default() }).unwrap();
         let fills_ids: Vec<u64> = q_fills.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();
-        assert_eq!(fills_ids, lint_ids, "has-hardcoded('fills/0') must match linter hardcoded-color findings and skip style_refs");
+        assert_eq!(fills_ids, lint_ids, "has-hardcoded('fills/0') must match linter hardcoded-value findings and skip style_refs");
 
         let q_star = run(&doc, &QueryOptions { selector: "//*[has-hardcoded('*')]".to_string(), page: Some(page), ..Default::default() }).unwrap();
         let star_ids: Vec<u64> = q_star.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();
@@ -1335,6 +1309,7 @@ mod tests {
         let mut stroke_only = Node::frame(stroke_only_id, Rect::new(480.0, 0.0, 100.0, 100.0));
         stroke_only.fills.clear();
         stroke_only.stroke.paints = vec![crate::Paint::solid(crate::Color::BLACK)];
+        stroke_only.stroke.weight = 2.0;
         doc.insert(page, stroke_only).unwrap();
         let q_stroke_as_fill =
             run(&doc, &QueryOptions { selector: "//*[has-hardcoded('fills/0')]".to_string(), page: Some(page), ..Default::default() }).unwrap();
@@ -1343,6 +1318,66 @@ mod tests {
         let q_stroke = run(&doc, &QueryOptions { selector: "//*[has-hardcoded('strokes/0')]".to_string(), page: Some(page), ..Default::default() }).unwrap();
         let ids: Vec<u64> = q_stroke.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();
         assert_eq!(ids, vec![stroke_only_id.0], "stroke-only node must match has-hardcoded('strokes/0')");
+    }
+
+    /// E15-17 test row `hardcoded_query_matches_linter`: the predicate answers from the E15-11
+    /// `hardcoded-value` finding and its `property`, so a raw colour with no matching variable is not
+    /// hard-coded for the query (the legacy `hardcoded-color` rule flags it), and number properties
+    /// that match a variable are (the legacy rule never looks at them).
+    #[test]
+    fn hardcoded_query_matches_linter() {
+        let mut doc = Document::new("Hardcoded Value Test");
+        let page = doc.add_page("Page 1");
+        add_color_variable(&mut doc, "brand", "Color/Brand", crate::Color::rgb(200, 50, 50));
+        add_number_variable(&mut doc, "space-12", "Space/12", 12.0, &["GAP"]);
+
+        let frame = |doc: &mut Document, x: f32, fill: Option<crate::Color>| {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 100.0, 100.0));
+            f.fills = fill.map(|c| vec![crate::Paint::solid(c)]).unwrap_or_default();
+            doc.insert(page, f).unwrap();
+            id
+        };
+        // A: raw fill equal to a variable. B: raw fill that matches no variable. C: fill bound to the variable.
+        let a = frame(&mut doc, 0.0, Some(crate::Color::rgb(200, 50, 50)));
+        let b = frame(&mut doc, 120.0, Some(crate::Color::rgb(10, 20, 30)));
+        let c = frame(&mut doc, 240.0, Some(crate::Color::rgb(200, 50, 50)));
+        doc.nodes.get_mut(&c).unwrap().variables.bindings.insert("fills/0".to_string(), "brand".to_string());
+        // D: no fill, gap equal to a number variable. E: matching fill that is linked to a shared style.
+        let d = frame(&mut doc, 360.0, None);
+        if let NodeKind::Frame(ref mut fp) = doc.nodes.get_mut(&d).unwrap().kind {
+            let mut al = AutoLayout::default();
+            al.item_spacing = 12.0;
+            fp.auto_layout = Some(al);
+        }
+        let e = frame(&mut doc, 480.0, Some(crate::Color::rgb(200, 50, 50)));
+        doc.nodes.get_mut(&e).unwrap().style_refs.insert("fill".to_string(), "style_brand".to_string());
+        // F: no fill, raw stroke equal to the variable.
+        let f = frame(&mut doc, 600.0, None);
+        {
+            let n = doc.nodes.get_mut(&f).unwrap();
+            n.stroke.paints = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
+            n.stroke.weight = 2.0;
+        }
+
+        // The two rules disagree on this fixture, so the test cannot pass on the legacy rule.
+        assert!(linter_ids(&doc, page, "hardcoded-color").contains(&b.0), "hardcoded-color flags the raw fill with no variable");
+        assert!(!linter_ids(&doc, page, "hardcoded-value").contains(&b.0), "hardcoded-value does not");
+
+        let on_fills = linter_property_ids(&doc, page, "hardcoded-value", "fills/0");
+        assert_eq!(on_fills, vec![a.0], "fixture: only A is a hardcoded-value finding on fills/0");
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]"), on_fills);
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), linter_property_ids(&doc, page, "hardcoded-value", "strokes/0"));
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), vec![f.0]);
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('itemSpacing')]"), vec![d.0], "a number property that matches a variable is hard-coded too");
+
+        let any = linter_ids(&doc, page, "hardcoded-value");
+        assert_eq!(any, vec![a.0, d.0, f.0]);
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), any);
+        let flagged = run(&doc, &QueryOptions { selector: "//*".to_string(), page: Some(page), hardcoded: Some(true), ..Default::default() }).unwrap();
+        assert_eq!(flagged.rows.iter().map(|r| r[0].as_u64().unwrap()).collect::<Vec<_>>(), any, "hardcoded: true");
+        let rest = run(&doc, &QueryOptions { selector: "//*".to_string(), page: Some(page), hardcoded: Some(false), ..Default::default() }).unwrap();
+        assert_eq!(rest.rows.iter().map(|r| r[0].as_u64().unwrap()).collect::<Vec<_>>(), vec![b.0, c.0, e.0], "hardcoded: false");
     }
 
     fn ids_of(doc: &Document, page: NodeId, selector: &str) -> Vec<u64> {
@@ -1356,10 +1391,58 @@ mod tests {
         report.findings.iter().map(|f| f.node.0).collect()
     }
 
+    /// Ids of the nodes the linter reports for `rule` on exactly `property`.
+    fn linter_property_ids(doc: &Document, page: NodeId, rule: &str, property: &str) -> Vec<u64> {
+        let cfg = LintConfig::from_rule_list(&[rule.to_string()]).unwrap();
+        let report = lint_subtree(doc, &[page], &cfg, &crate::lint::ApproxLintEnv, &mut LintBudget::unlimited());
+        report.findings.iter().filter(|f| f.property.as_deref() == Some(property)).map(|f| f.node.0).collect()
+    }
+
+    fn add_variable(doc: &mut Document, id: &str, name: &str, kind: crate::VariableKind, value: crate::VariableValue, scopes: &[&str]) {
+        use crate::{Variable, VariableCollection, VariableMode};
+        let collection = doc.variable_collections.entry("tokens".into()).or_insert_with(|| VariableCollection {
+            id: "tokens".into(),
+            name: "tokens".into(),
+            modes: vec![VariableMode { id: "m".into(), name: "m".into() }],
+            default_mode: "m".into(),
+            variables: Vec::new(),
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        });
+        collection.variables.push(id.to_string());
+        doc.variables.insert(
+            id.to_string(),
+            Variable {
+                id: id.to_string(),
+                name: name.to_string(),
+                collection: "tokens".into(),
+                kind,
+                values: [("m".to_string(), value)].into_iter().collect(),
+                description: String::new(),
+                scopes: scopes.iter().map(|s| (*s).to_string()).collect(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+    }
+
+    fn add_color_variable(doc: &mut Document, id: &str, name: &str, colour: crate::Color) {
+        add_variable(doc, id, name, crate::VariableKind::Color, crate::VariableValue::Color(colour), &[]);
+    }
+
+    fn add_number_variable(doc: &mut Document, id: &str, name: &str, value: f32, scopes: &[&str]) {
+        add_variable(doc, id, name, crate::VariableKind::Number, crate::VariableValue::Number(value), scopes);
+    }
+
     #[test]
     fn check_designs_ignored_hardcoded_fill_is_hidden_from_queries_like_from_the_linter() {
         let mut doc = Document::new("Ignored Hardcoded");
         let page = doc.add_page("Page 1");
+        add_color_variable(&mut doc, "brand", "Color/Brand", crate::Color::rgb(200, 50, 50));
         let ignored_id = doc.alloc_id();
         let mut ignored_frame = Node::frame(ignored_id, Rect::new(0.0, 0.0, 100.0, 100.0));
         ignored_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
@@ -1372,7 +1455,7 @@ mod tests {
         // The key Check designs writes when the user ignores one hard-coded fill.
         doc.check_designs.ignored.insert(crate::IgnoreKey { node: ignored_id, rule: "RECOMMEND_VARIABLES".to_string(), property: "fills/0".to_string() });
 
-        assert_eq!(linter_ids(&doc, page, "hardcoded-color"), vec![kept_id.0], "the linter drops the ignored hard-coded fill");
+        assert_eq!(linter_ids(&doc, page, "hardcoded-value"), vec![kept_id.0], "the linter drops the ignored hard-coded fill");
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]"), vec![kept_id.0]);
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), vec![kept_id.0]);
         assert_eq!(ids_of(&doc, page, "//*[has-problem('hardcoded-color')]"), vec![kept_id.0]);
@@ -1385,14 +1468,17 @@ mod tests {
     fn per_property_ignore_hides_only_the_ignored_paint_from_has_hardcoded() {
         let mut doc = Document::new("Partly Ignored Hardcoded");
         let page = doc.add_page("Page 1");
+        add_color_variable(&mut doc, "brand", "Color/Brand", crate::Color::rgb(200, 50, 50));
+        add_color_variable(&mut doc, "ink", "Color/Ink", crate::Color::BLACK);
         let id = doc.alloc_id();
         let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
         frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
         frame.stroke.paints = vec![crate::Paint::solid(crate::Color::BLACK)];
+        frame.stroke.weight = 2.0;
         doc.insert(page, frame).unwrap();
         doc.check_designs.ignored.insert(crate::IgnoreKey { node: id, rule: "RECOMMEND_VARIABLES".to_string(), property: "fills/0".to_string() });
 
-        assert_eq!(linter_ids(&doc, page, "hardcoded-color"), vec![id.0], "the unignored stroke keeps the linter finding");
+        assert_eq!(linter_ids(&doc, page, "hardcoded-value"), vec![id.0], "the unignored stroke keeps the linter finding");
         assert!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]").is_empty(), "the ignored fill is not hard-coded for the query");
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), vec![id.0]);
         assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), vec![id.0]);
@@ -1523,6 +1609,89 @@ mod tests {
                 .unwrap();
         assert!(pos_page.scanned <= 40, "positional predicate scanned={} exceeded max_scanned=40", pos_page.scanned);
         assert!(!pos_page.done);
+    }
+
+    /// Hero frame (with a headline and a "hero bg" rectangle), a Card frame (with a "Card title" text
+    /// and a rectangle named "Text field") and a Card_2 frame, in that pre-order.
+    struct NamedDoc {
+        doc: Document,
+        page: NodeId,
+        hero: u64,
+        headline: u64,
+        hero_bg: u64,
+        card: u64,
+        card_title: u64,
+        text_field: u64,
+        card_two: u64,
+    }
+
+    fn named_doc() -> NamedDoc {
+        let mut doc = Document::new("Bare Names");
+        let page = doc.add_page("Page 1");
+        let frame = |doc: &mut Document, parent: NodeId, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.name = name.to_string();
+            doc.insert(parent, n).unwrap();
+            id
+        };
+        let text = |doc: &mut Document, parent: NodeId, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::text(id, Rect::new(0.0, 0.0, 80.0, 20.0), "Welcome", TextStyle::default());
+            n.name = name.to_string();
+            doc.insert(parent, n).unwrap();
+            id
+        };
+        let rectangle = |doc: &mut Document, parent: NodeId, name: &str| {
+            let id = doc.alloc_id();
+            let mut n = Node::rectangle(id, Rect::new(0.0, 24.0, 80.0, 20.0));
+            n.name = name.to_string();
+            doc.insert(parent, n).unwrap();
+            id
+        };
+        let hero = frame(&mut doc, page, "Hero Banner");
+        let headline = text(&mut doc, hero, "Headline");
+        let hero_bg = rectangle(&mut doc, hero, "hero bg");
+        let card = frame(&mut doc, page, "Card");
+        let card_title = text(&mut doc, card, "Card title");
+        let text_field = rectangle(&mut doc, card, "Text field");
+        let card_two = frame(&mut doc, page, "Card_2");
+        NamedDoc {
+            doc,
+            page,
+            hero: hero.0,
+            headline: headline.0,
+            hero_bg: hero_bg.0,
+            card: card.0,
+            card_title: card_title.0,
+            text_field: text_field.0,
+            card_two: card_two.0,
+        }
+    }
+
+    #[test]
+    fn bare_word_selectors_match_node_names_by_substring_as_the_previous_query_did() {
+        let d = named_doc();
+        let ids = |selector: &str| ids_of(&d.doc, d.page, selector);
+        assert_eq!(ids("//Card"), vec![d.card, d.card_title, d.card_two], "`//Card` matches every name that contains it");
+        assert_eq!(ids("Hero"), vec![d.hero, d.hero_bg], "a bare word without slashes does the same, ignoring case");
+        assert_eq!(ids("//hero"), vec![d.hero, d.hero_bg]);
+        assert_eq!(ids("Hero Banner"), vec![d.hero], "a bare name may hold spaces");
+        assert_eq!(ids("//Hero//TEXT"), vec![d.headline], "a name step can be an ancestor step");
+        assert_eq!(ids("//Card[@width>90]"), vec![d.card, d.card_two], "a name step takes predicates");
+        assert!(ids("//Zebra").is_empty(), "a name nothing carries is an honest empty answer");
+        // Type words stay node tests (E15-17 3.1): the rectangle named "Text field" is not a TEXT.
+        assert_eq!(ids("//TEXT"), vec![d.headline, d.card_title]);
+        assert!(!ids("//TEXT").contains(&d.text_field));
+    }
+
+    #[test]
+    fn a_name_with_spaces_inside_a_longer_selector_is_a_named_error_with_a_working_example() {
+        let d = named_doc();
+        let err = run(&d.doc, &QueryOptions { selector: "//Hero Banner//TEXT".to_string(), page: Some(d.page), ..Default::default() }).unwrap_err();
+        let QueryError::InvalidSelector { corrected_example, .. } = err else { panic!("expected INVALID_SELECTOR, got {err:?}") };
+        assert_eq!(corrected_example, "//*[contains(@name,'Hero Banner')]//TEXT");
+        assert_eq!(ids_of(&d.doc, d.page, &corrected_example), vec![d.headline], "the example runs and answers the question");
     }
 
     #[test]

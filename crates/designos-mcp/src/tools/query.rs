@@ -75,7 +75,7 @@ pub fn tool_schema(id_schema: &Value) -> (Value, Vec<&'static str>) {
         },
         "hardcoded": {
             "type": "boolean",
-            "description": "Optional filter: when true, only return nodes with hardcoded color values; when false, exclude them."
+            "description": "Optional filter: true keeps only nodes with a hard-coded value that matches a variable or style (a hardcoded-value finding); false drops them."
         }
     });
     (props, vec!["selector"])
