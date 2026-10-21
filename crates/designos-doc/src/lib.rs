@@ -48,7 +48,6 @@ mod node;
 pub mod openpencil;
 mod paint;
 mod prototype;
-pub mod query;
 mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;

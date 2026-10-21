@@ -15,7 +15,6 @@ mod ledger_tests;
 pub mod libraries;
 pub mod library_source;
 pub mod metadata;
-pub mod query;
 pub mod screenshot;
 pub mod search_design_system;
 pub mod session_options;

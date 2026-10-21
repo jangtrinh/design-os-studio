@@ -835,10 +835,10 @@ impl Session {
                 }
                 let path = self.input_path(&a.path)?;
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
-                if len > 512 * 1024 * 1024 {
-                    return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")
+                if len > 64 * 1024 * 1024 {
+                    return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 64 MiB import limit")
                         .with_received(json!(len))
-                        .with_expected("<= 536870912 bytes"));
+                        .with_expected("<= 67108864 bytes"));
                 }
                 // Native files are checked before the loader repairs them, so a broken node graph is
                 // refused instead of silently rewritten.
@@ -1232,11 +1232,9 @@ fn parse_native_checked(raw: &str) -> Result<(designos_doc::Document, designos_d
 
 /// Reject broken graphs before recursive exporters or inherited-mode resolution use them.
 fn validate_document(doc: &designos_doc::Document) -> Result<(), String> {
-    if doc.nodes.len() > 1_200_000 {
-        return Err("Document exceeds the 1200000 layer limit".into());
+    if doc.nodes.len() > 100_000 {
+        return Err("Document exceeds the 100000 layer limit".into());
     }
-    let mut total_child_links = 0usize;
-    let mut total_parent_links = 0usize;
     for (id, node) in &doc.nodes {
         if *id != node.id || id.0 == 0 {
             return Err("Document has inconsistent node IDs".into());
@@ -1256,19 +1254,11 @@ fn validate_document(doc: &designos_doc::Document) -> Result<(), String> {
                 return Err("Document has duplicate or inconsistent child links".into());
             }
         }
-        total_child_links += node.children.len();
         if let Some(parent) = node.parent {
-            total_parent_links += 1;
-            let Some(pnode) = doc.get(parent) else {
-                return Err("Document references a missing parent".into());
-            };
-            if pnode.children.len() <= 64 && !pnode.children.contains(id) {
+            if !doc.get(parent).is_some_and(|n| n.children.contains(id)) {
                 return Err("Document has inconsistent parent links".into());
             }
         }
-    }
-    if total_child_links != total_parent_links {
-        return Err("Document has inconsistent parent links".into());
     }
     if doc.pages.iter().any(|id| doc.get(*id).is_none_or(|n| n.parent.is_some() || !matches!(n.kind, designos_doc::NodeKind::Page { .. }))) {
         return Err("Document has invalid page roots".into());
@@ -2403,7 +2393,7 @@ mod tests {
         {
             let huge_path = ws_dir.join("huge.designos");
             let f = fs::File::create(&huge_path).unwrap();
-            f.set_len(513 * 1024 * 1024).unwrap();
+            f.set_len(65 * 1024 * 1024).unwrap();
             record(s.call("designos_open_file", json!({"path": "huge.designos", "discard_changes": true})).unwrap_err(), ErrorCode::FileTooLarge, true);
             let _ = fs::remove_file(&huge_path);
         }
@@ -2533,25 +2523,6 @@ mod tests {
             ErrorCode::IdempotencyKeyStale,
             true,
         );
-
-        // 68. CursorStale (an edit between pages)
-        let first_page = s.call("designos_query_xpath", json!({"selector": "//*", "page_id": tok_page.0, "limit": 1})).unwrap();
-        let stale_cursor = first_page["cursor"].as_str().expect("a one-row page leaves a cursor").to_string();
-        s.call("designos_create_node", json!({"parent_id": tok_page.0, "kind": "frame", "name": "QueryEdit"})).unwrap();
-        record(
-            s.call("designos_query_xpath", json!({"selector": "//*", "page_id": tok_page.0, "limit": 1, "cursor": stale_cursor})).unwrap_err(),
-            ErrorCode::CursorStale,
-            true,
-        );
-
-        // 69. RuleUnavailable (a text rule while the session has no text engine)
-        s.engine.disable_text_lint_engine = true;
-        record(
-            s.call("designos_query_xpath", json!({"selector": "//TEXT[has-problem('text-truncated')]", "page_id": tok_page.0})).unwrap_err(),
-            ErrorCode::RuleUnavailable,
-            true,
-        );
-        s.engine.disable_text_lint_engine = false;
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());
@@ -3288,20 +3259,6 @@ mod tests {
         assert_eq!(omitted_err.code, ErrorCode::IdempotencyKeyStale);
 
         let _ = fs::remove_dir_all(ws.parent().unwrap());
-    }
-
-    #[test]
-    fn large_open_accepted() {
-        let mut doc = Document::new("TwoHundredThousandNodes");
-        let page = doc.add_page("Page 1");
-        let root_frame = doc.alloc_id();
-        doc.insert(page, designos_doc::Node::frame(root_frame, designos_doc::Rect::new(0.0, 0.0, 1920.0, 1080.0))).unwrap();
-        for _ in 0..199_998 {
-            let rid = doc.alloc_id();
-            doc.insert(root_frame, designos_doc::Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
-        }
-        assert_eq!(doc.nodes.len(), 200_000);
-        validate_document(&doc).expect("200,000-node document must be accepted under the 1,200,000 layer limit");
     }
 }
 

@@ -3349,9 +3349,8 @@ mod tests {
         let node_view = engine.call("designos_get_node", json!({ "node_id": hero_id.0 })).unwrap();
         assert_eq!(node_view["in_progress"]["run_id"], "run_test_1");
 
-        let xpath_view = engine.call("designos_query_xpath", json!({ "selector": "//Frame[@name='Hero Frame']", "format": "objects" })).unwrap();
-        assert_eq!(xpath_view["rows"][0]["id"], hero_id.0);
-        assert_eq!(xpath_view["rows"][0]["in_progress"], true);
+        let xpath_view = engine.call("designos_query_xpath", json!({ "selector": "//Frame[@name='Hero Frame']" })).unwrap();
+        assert_eq!(xpath_view["nodes"][0]["in_progress"]["agent"], "Claude Code");
 
         let exported_spec = engine.call("designos_export_spec", json!({ "node_id": hero_id.0 })).unwrap();
         assert_eq!(exported_spec["spec"]["in_progress"]["agent"], "Claude Code");

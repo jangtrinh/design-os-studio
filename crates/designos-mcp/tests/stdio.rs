@@ -76,11 +76,6 @@ async fn stdio_handshake_discovery_edit_and_error_recovery() {
             .await
             .unwrap();
         assert_eq!(applied.is_error, Some(false));
-        let queried = client.call_tool(call("designos_query_xpath", json!({"selector":"//Text","verbosity":"compact"}))).await.unwrap();
-        assert_eq!(queried.is_error, Some(false));
-        let qbody = queried.structured_content.unwrap();
-        assert_eq!(qbody["count"], 1);
-        assert_eq!(qbody["complete"], true);
         let batch_res = client
             .call_tool(call(
                 "designos_apply_batch",

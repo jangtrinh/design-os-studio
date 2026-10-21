@@ -3,7 +3,7 @@
 
 use crate::*;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Canonical XPath upper-case node type name for a [`NodeKind`].
 pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
@@ -31,7 +31,7 @@ pub fn xpath_type_name(kind: &NodeKind) -> &'static str {
     }
 }
 
-pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
+fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     if matches!(kind, NodeKind::Page { .. }) {
         return test.eq_ignore_ascii_case("PAGE");
     }
@@ -44,88 +44,11 @@ pub(crate) fn matches_node_test(kind: &NodeKind, test: &str) -> bool {
     }
     matches!(
         (canonical, test.to_ascii_uppercase().as_str()),
-        ("RECTANGLE", "RECT") | ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
+        ("BOOLEAN_OPERATION", "BOOLEAN_OP" | "BOOLEAN") | ("COMPONENT_SET", "COMPONENTSET") | ("VECTOR", "PATH") | ("INSTANCE", "REF")
     )
 }
 
-/// Node-type tokens a selector step may use: `*`, `NODE`, `PAGE`, every [`xpath_type_name`] value and
-/// the short aliases [`matches_node_test`] accepts. A step whose test is none of these names a node.
-/// The query tool reads the exact upper-case token as a kind test only; see [`is_exact_node_type_token`].
-const NODE_TYPE_TESTS: &[&str] = &[
-    "*",
-    "NODE",
-    "PAGE",
-    "FRAME",
-    "GROUP",
-    "SECTION",
-    "RECTANGLE",
-    "ELLIPSE",
-    "LINE",
-    "POLYGON",
-    "STAR",
-    "VECTOR",
-    "TEXT",
-    "BOOLEAN_OPERATION",
-    "COMPONENT",
-    "COMPONENT_SET",
-    "INSTANCE",
-    "STICKY",
-    "CONNECTOR",
-    "SHAPE_WITH_TEXT",
-    "STAMP",
-    "UNKNOWN",
-    "RECT",
-    "BOOLEAN_OP",
-    "BOOLEAN",
-    "COMPONENTSET",
-    "PATH",
-    "REF",
-];
-
-/// `true` when `test` is a node-type token (see [`NODE_TYPE_TESTS`]), ignoring case.
-pub(crate) fn is_node_type_test(test: &str) -> bool {
-    NODE_TYPE_TESTS.iter().any(|t| t.eq_ignore_ascii_case(test))
-}
-
-/// `true` when `test` is a node-type token spelled exactly as [`NODE_TYPE_TESTS`] lists it (upper case).
-/// The query tool matches such a step by kind only; the same word in another case (`Group`, `Page`)
-/// is a bare word and follows the previous query tool, see [`is_node_kind_word`].
-pub(crate) fn is_exact_node_type_token(test: &str) -> bool {
-    NODE_TYPE_TESTS.contains(&test)
-}
-
-/// Every `NodeKind::default_name`: the kind words of the previous query tool, which compared a step with
-/// the default name of each node's kind. A guard test reads them out of the `default_name` source.
-const NODE_KIND_DEFAULT_NAMES: &[&str] = &[
-    "Page",
-    "Frame",
-    "Group",
-    "Section",
-    "Rectangle",
-    "Ellipse",
-    "Line",
-    "Polygon",
-    "Star",
-    "Vector",
-    "Text",
-    "Union",
-    "Component",
-    "Component set",
-    "Instance",
-    "Sticky note",
-    "Connector",
-    "Shape",
-    "Stamp",
-    "Layer",
-];
-
-/// `true` when `word` names a node kind in any casing: a node-type token ([`NODE_TYPE_TESTS`]) or the
-/// default name of a kind (`Union`, `Shape`, `Sticky note`). Any other word is a name.
-pub(crate) fn is_node_kind_word(word: &str) -> bool {
-    is_node_type_test(word) || NODE_KIND_DEFAULT_NAMES.iter().any(|name| name.eq_ignore_ascii_case(word))
-}
-
-pub(crate) fn layout_mode_str(n: &Node) -> &'static str {
+fn layout_mode_str(n: &Node) -> &'static str {
     match n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
         Some(al) => match al.direction {
             LayoutDirection::Horizontal => "HORIZONTAL",
@@ -183,19 +106,19 @@ pub fn node_to_xpath(doc: &Document, id: NodeId) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum XPathAxis {
+enum XPathAxis {
     Child,
     Descendant,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct XPathStep {
-    pub(crate) axis: XPathAxis,
-    pub(crate) node_test: String,
-    pub(crate) predicates: Vec<String>,
+struct XPathStep {
+    axis: XPathAxis,
+    node_test: String,
+    predicates: Vec<String>,
 }
 
-pub(crate) fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
+fn parse_xpath(expr: &str) -> Result<Vec<XPathStep>, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Err("empty XPath expression".into());
@@ -320,7 +243,6 @@ fn node_attr(n: &Node, raw_attr: &str) -> AttrValue {
         "layoutMode" => AttrValue::Str(layout_mode_str(n).to_string()),
         "visible" => AttrValue::Bool(n.visible),
         "locked" => AttrValue::Bool(n.locked),
-        "fill" | "fills" => AttrValue::Bool(!n.fills.is_empty()),
         "clipsContent" | "clip" => AttrValue::Bool(n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false)),
         "id" => AttrValue::Num(n.id.0 as f32),
         _ => AttrValue::None,
@@ -409,7 +331,7 @@ fn parse_fn_two_args(inner: &str) -> Option<(String, String)> {
     None
 }
 
-pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
+fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Result<bool, String> {
     let s = expr.trim();
     if s.is_empty() {
         return Ok(true);
@@ -474,11 +396,7 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
                 AttrValue::Bool(v) => v.to_string(),
                 AttrValue::None => String::new(),
             };
-            // The name is searched without regard to case, as the previous query tool did; every other
-            // attribute keeps its case.
-            let folds_case = attr_expr.trim().trim_start_matches('@') == "name";
             let matched = match mode {
-                "contains" if folds_case => hay.to_lowercase().contains(&needle.to_lowercase()),
                 "contains" => hay.contains(&needle),
                 "starts" => hay.starts_with(&needle),
                 "ends" => hay.ends_with(&needle),
@@ -508,15 +426,6 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
             if s[i..].starts_with(op) {
                 let lhs = s[..i].trim();
                 let rhs = s[i + op.len()..].trim();
-                if lhs.trim_start_matches('@') == "component" {
-                    let names = component_names(doc, n);
-                    let named = names.iter().any(|name| *name == unquote(rhs));
-                    return Ok(match op {
-                        "=" => named,
-                        "!=" => !names.is_empty() && !named,
-                        _ => false,
-                    });
-                }
                 let lv = node_attr(n, lhs);
                 return Ok(compare_attr(&lv, op, rhs));
             }
@@ -524,29 +433,12 @@ pub(crate) fn eval_predicate_expr(doc: &Document, n: &Node, expr: &str) -> Resul
     }
 
     // Bare attribute truthiness, e.g. `@visible`
-    if s.trim_start_matches('@') == "component" {
-        return Ok(!component_names(doc, n).is_empty());
-    }
     match node_attr(n, s) {
         AttrValue::Bool(b) => Ok(b),
         AttrValue::Num(v) => Ok(v != 0.0),
         AttrValue::Str(v) => Ok(!v.is_empty()),
         AttrValue::None => Err(format!("unsupported XPath predicate: {s}")),
     }
-}
-
-/// The names an instance answers to for `@component`: its main component's name and, for a
-/// variant, the name of the component set that holds it. Empty for anything that is not an
-/// instance of an existing component.
-fn component_names(doc: &Document, n: &Node) -> Vec<String> {
-    let Some(main) = instance_component(n).and_then(|id| doc.get(id)) else {
-        return Vec::new();
-    };
-    let mut names = vec![main.name.clone()];
-    if let Some(set) = main.parent.and_then(|id| doc.get(id)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
-        names.push(set.name.clone());
-    }
-    names
 }
 
 fn compare_attr(lv: &AttrValue, op: &str, rhs_raw: &str) -> bool {
@@ -611,36 +503,64 @@ fn node_summary_json(doc: &Document, n: &Node) -> Value {
 }
 
 /// Evaluates an Open-Pencil XPath selector query on `doc` (scoped to `page` if provided).
-///
-/// Compatibility wrapper around [`crate::query::run`] (E15-17).
 pub fn query_xpath(doc: &Document, page: Option<NodeId>, expr: &str, limit: usize) -> Result<Vec<Value>, String> {
-    if let Some(p) = page {
-        if !doc.nodes.contains_key(&p) {
-            return Err(format!("page {p:?} not found"));
+    let steps = parse_xpath(expr)?;
+    let mut current: Vec<NodeId> = match page {
+        Some(p) => {
+            if !doc.nodes.contains_key(&p) {
+                return Err(format!("page {p:?} not found"));
+            }
+            vec![p]
         }
+        None => doc.pages.clone(),
+    };
+
+    for step in &steps {
+        let mut candidates = Vec::new();
+        let mut seen = BTreeSet::new();
+        for &root_id in &current {
+            match step.axis {
+                XPathAxis::Child => {
+                    if let Some(rn) = doc.get(root_id) {
+                        for &cid in &rn.children {
+                            if seen.insert(cid) {
+                                candidates.push(cid);
+                            }
+                        }
+                    }
+                }
+                XPathAxis::Descendant => {
+                    doc.walk(root_id, |node, depth| {
+                        if depth > 0 && seen.insert(node.id) {
+                            candidates.push(node.id);
+                        }
+                    });
+                }
+            }
+        }
+
+        let mut next = Vec::new();
+        for cid in candidates {
+            let Some(cn) = doc.get(cid) else { continue };
+            if !matches_node_test(&cn.kind, &step.node_test) {
+                continue;
+            }
+            let mut ok = true;
+            for pred in &step.predicates {
+                if !eval_predicate_expr(doc, cn, pred)? {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                next.push(cid);
+            }
+        }
+        current = next;
     }
-    let max_limit = if limit == 0 { crate::query::MAX_LIMIT } else { limit.clamp(1, crate::query::MAX_LIMIT) };
-    let page_res = crate::query::run(
-        doc,
-        &crate::query::QueryOptions {
-            selector: expr.to_string(),
-            page,
-            within: None,
-            limit: Some(max_limit),
-            cursor: None,
-            projection: crate::query::Projection::Compact,
-            fields: Some(vec!["id".to_string()]),
-            max_depth: None,
-            node_budget: None,
-            ..Default::default()
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(page_res
-        .matches
-        .into_iter()
-        .filter_map(|v| v.get("id").and_then(|id| id.as_u64()).and_then(|id| doc.get(NodeId(id))).map(|n| node_summary_json(doc, n)))
-        .collect())
+
+    let max = if limit == 0 { usize::MAX } else { limit };
+    Ok(current.into_iter().take(max).filter_map(|id| doc.get(id).map(|n| node_summary_json(doc, n))).collect())
 }
 
 /// Infers a semantic UI role hint (`"button"`, `"input"`, `"card"`, `"navbar"`, `"heading"`, `"badge"`, `"icon"`, `"container"`).
@@ -1164,57 +1084,6 @@ pub fn analyze_clusters(doc: &Document, page: Option<NodeId>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_type_name_xpath_type_name_returns_is_a_node_type_token() {
-        // Reads the names out of the `xpath_type_name` source, so a new node kind whose name is not in
-        // `NODE_TYPE_TESTS` fails here instead of turning `//NEWKIND` into a name search.
-        let source = include_str!("openpencil.rs");
-        let start = source.find("pub fn xpath_type_name").expect("xpath_type_name source");
-        let body = &source[start..start + source[start..].find("\n}\n").expect("end of xpath_type_name")];
-        let names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
-        assert!(names.len() >= 20, "found only {names:?}");
-        for name in names {
-            assert!(is_node_type_test(name), "{name} is returned by xpath_type_name but is not a node type token");
-            assert!(is_node_type_test(&name.to_ascii_lowercase()), "{name} must match in lower case");
-        }
-        for token in ["*", "NODE", "RECT", "path", "Ref"] {
-            assert!(is_node_type_test(token), "{token}");
-        }
-        for token in ["*", "NODE", "TEXT", "PAGE", "GROUP", "RECT"] {
-            assert!(is_exact_node_type_token(token), "{token} is spelled as the list has it");
-        }
-        for word in ["Text", "text", "Group", "Page", "path", "Union", "Card"] {
-            assert!(!is_exact_node_type_token(word), "{word} is not the upper-case token");
-        }
-        for word in ["Card", "Hero", "Text field", "Frame 12"] {
-            assert!(!is_node_type_test(word), "{word} is a name");
-        }
-    }
-
-    #[test]
-    fn every_default_kind_name_is_a_node_kind_word() {
-        // Reads the names out of the `default_name` source, so a new node kind whose default name is not in
-        // `NODE_KIND_DEFAULT_NAMES` fails here instead of turning `//Newkind[@x]` into a name search.
-        let source = include_str!("node.rs");
-        let start = source.find("pub fn default_name").expect("default_name source");
-        let body = &source[start..start + source[start..].find("\n    }\n").expect("end of default_name")];
-        let mut names: Vec<&str> = body.lines().filter_map(|l| l.split_once("=> \"")?.1.split_once('"').map(|(n, _)| n)).collect();
-        assert!(names.len() >= 20, "found only {names:?}");
-        for name in &names {
-            assert!(is_node_kind_word(name) && is_node_kind_word(&name.to_ascii_uppercase()), "{name} is a kind word in any casing");
-        }
-        names.sort_unstable();
-        let mut listed = NODE_KIND_DEFAULT_NAMES.to_vec();
-        listed.sort_unstable();
-        assert_eq!(names, listed, "NODE_KIND_DEFAULT_NAMES lists exactly the default names");
-        for word in ["rect", "Path", "ref", "node", "Union", "SHAPE", "sticky note"] {
-            assert!(is_node_kind_word(word), "{word}");
-        }
-        for word in ["Card", "Hero", "Text field", "Frame 12", "Home"] {
-            assert!(!is_node_kind_word(word), "{word} is a name");
-        }
-    }
 
     #[test]
     fn new_page_default_background_is_5a5a5a() {
