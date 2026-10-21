@@ -1,6 +1,6 @@
-# design:os studio — Design Principles (P1–P10)
+# design:os studio — Design Principles (P1–P11)
 
-These 10 binding laws govern every surface, widget, token, and interaction across `design:os studio`. Every change to `crates/designos-app` or `design/` is audited against `P1..P10` and enforced by `ui ds a11y`, `ui ds soul check`, and `scripts/zero_fake_ui_gate.py`.
+These 11 binding laws govern every surface, widget, token, and interaction across `design:os studio`. Every change to `crates/designos-app` or `design/` is audited against `P1..P11` and enforced by `ui ds a11y`, `ui ds soul check`, and `scripts/zero_fake_ui_gate.py`.
 
 ## P1 — Single Token Authority (`crates/designos-app/src/theme.rs` ↔ `design/design.tokens.json`)
 All colors, typography scales, spatial increments, corner radii, and motion durations originate in `crates/designos-app/src/theme.rs` and are mirrored 1:1 into `design/design.tokens.json` (73 DTCG tokens across 5 categories, all 16 canonical roles mapped). Inline `Color32::from_rgb(...)` literals in panels or views outside `theme.rs` are forbidden unless explicitly allowlisted for semantic canvas overlays or GPU shader debug modes.
@@ -51,7 +51,7 @@ Spacing, inset, control-height, radius-role and type-role constants (P3, P4, P5,
 **Test:** Unit tests in `theme.rs` assert `RADIUS_FRAME - INSET_FRAME == RADIUS_CONTROL`, `RADIUS_CONTROL - INSET_SEGMENT == RADIUS_SEGMENT`, and the `concentric` and `radius_full` helpers. The ratchet counts literal radii and detected non-concentric nested pairs per file and may only fall.
 
 ## P5 — Type roles are steps; numbers in mono; counts in pills (`D6`, `D85`)
-**Statement:** Text is set by role, not by size. UI chrome uses `Inter` in four roles: caption 10px (sublabels, rail labels, counts, chips), body 11px (body, controls, menu rows, values), heading 13px (panel and modal titles) and title 20px (page titles, the home hero). A 9px size exists for canvas overlays only (rulers, canvas pills). Weights are 450 (body), 500 (menus and captions) and 550 (strong text); 600 is retired. Multi-line text uses line height 16 (body) and 14 (caption). All numeric coordinates (`X`, `Y`, `W`, `H`, rotation, opacity), hex colour codes, token paths and FPS/DirtyLog counters render in `Roboto Mono` (`theme::font_mono()`, `D6`), bundled with the app for tabular scannability. Item counts render in separate pill badges (`Badge/StatusCount`, `D85`), never concatenated into label strings like `"Layers (12)"`.
+**Statement:** Text is set by role, not by size. UI chrome uses `Inter` in four roles: caption 10px (sublabels, rail labels, counts, chips), body 11px (body, controls, menu rows, values), heading 13px (panel and modal titles) and title 20px (page titles, the home hero). A 9px size exists for canvas overlays only (rulers, canvas pills). Weights are 450 (body), 500 (menus and captions) and 550 (strong text); 600 is retired. Multi-line text uses line height 16 (body) and 14 (caption). All numeric coordinates (`X`, `Y`, `W`, `H`, rotation, opacity), hex colour codes, token paths and FPS/DirtyLog counters render in `Roboto Mono` (`theme::font_mono()`, `D6`), bundled with the app for tabular scannability. Item counts render in separate pill badges (`Badge/StatusCount`, `D85`), never concatenated into label strings like `"Layers (12)"` and never put in parentheses (`design/ux-writing.md` rule 3, gate `Z16`).
 
 **How:** `theme.rs` holds `FONT_SIZE_CAPTION`, `FONT_SIZE_BODY`, `FONT_SIZE_LARGE`, `FONT_SIZE_TITLE` and `FONT_SIZE_CANVAS`, with `font_caption*()` for chrome and `font_canvas*()` for overlays.
 
@@ -85,3 +85,21 @@ The viewport engine preserves a locked 60fps (`16.6ms` frame budget) on 100k+ no
 **Yields when:** It yields to canvas content and to user documents.
 
 **Test:** A unit test in `theme.rs` asserts the inset order. The ratchet's per-file baseline stops a surface from growing a new local padding value.
+
+## P11 — Name the action, say less (`design/ux-writing.md`)
+**Statement:** UI copy follows the Studio UX writing standard, adopted as-is from VSF PCP by owner ruling 2026-10-21. It helps the user understand the content, choose an action and know its result.
+
+**Always:**
+- Action labels (buttons, menu items) are verb + object, at most three words (rule 1).
+- Microcopy is about eight words, one idea per sentence, and keeps any consequence or recovery step (rule 5).
+- Errors name the blocked operation and a recovery; success is announced only after it happens (rule 6).
+- Accessible names keep the full meaning the compact label drops (rule 14).
+
+**Never:**
+- Explanatory subcopy that restates a nearby title, label or the UI itself (rule 2).
+- A count in parentheses or inside the action phrase: use the count pill (rule 3, P5).
+- A coined status word where the domain already has one (rule 7).
+
+**Yields when:** It yields to quoted user data, canonical product and file names, and to the safety text of a destructive action.
+
+**Test:** `python3 scripts/zero_fake_ui_gate.py` invariant `Z16` rejects a new action label over three words or a count in it (parentheses, digits, a formatted `.len()`) at the registered label helpers, against `scripts/ux_writing_baseline.json`, which only shrinks (the writer refuses to add or raise an entry). Everything else in the standard is checked in review.

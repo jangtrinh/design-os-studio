@@ -7,7 +7,7 @@ Every visible button, input bar, scrollbar, tab, menu item, and agent CLI runtim
 `design:os studio` (`crates/designos-app/src/`) must execute real state mutation, real OS
 clipboard/filesystem I/O, or real CLI subprocess execution.
 
-Verifies 15 hard Zero-Fake-UI invariants (`Z01..Z15`):
+Verifies 16 hard invariants (`Z01..Z16`):
   - Z01: `terminal.rs` has `runtime_binary_available` and real CLI invocation
          (`claude -p`, `codex exec`, `agy -p`, `grok -p`) in `submit_chat_prompt`.
   - Z02: `terminal.rs` `set_active_runtime` mutates `tab.preset` (not just renaming `tab.title`)
@@ -48,12 +48,19 @@ every string literal is rewritten to the text the Rust compiler builds from it (
 `concat!` of literals and adjacent literals joined).
 `scripts/zero_fake_ui_gate_selftest.py` re-introduces each fake-UI regression in memory and asserts
 this gate fails.
+  - Z16: UX writing (`design/ux-writing.md` rules 1 and 3): a visible action label (button, menu item) has at
+         most 3 words and no count in it (parentheses, digits, a formatted `.len()`). Coverage: the registered
+         button/menu helpers, labels `let`-bound in the same fn, and label fns such as `fix_label`
+         (`scripts/ux_writing_labels.py`: LABEL_CALLS, LABEL_FNS). Ratchet against `scripts/ux_writing_baseline.json`:
+         a new violation fails, a baseline entry that no longer occurs fails as "fixed, remove from baseline".
+         `--write-ux-baseline` only shrinks (it refuses to add or raise an entry); `--allow-grow` is a
+         bootstrap escape for a scanner coverage change and needs reviewer sign-off.
   - Z12: `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `app.doc.images`
          entries, and `panels/mod.rs::scrollbar` + `variables/view.rs::hscrollbar` support
          `Sense::click_and_drag()`.
 
 Exit code:
-  0 when 15/15 invariants pass, 1 if any invariant fails.
+  0 when 16/16 invariants pass, 1 if any invariant fails.
 """
 
 from __future__ import annotations
@@ -64,6 +71,9 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ux_writing_labels  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_SRC = REPO_ROOT / "crates" / "designos-app" / "src"
@@ -936,6 +946,10 @@ def check_z15(sources: "SourceSet") -> Tuple[bool, str]:
     )
 
 
+def check_z16(sources: "SourceSet") -> Tuple[bool, str]:
+    return ux_writing_labels.check_ux_writing(sources.files, sources.code)
+
+
 def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]]:
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
@@ -967,6 +981,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
         ("Z13", "panels/menus.rs", "Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state", lambda: check_z13(sources)),
         ("Z14", "updater.rs + tabs.rs", "Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists", lambda: check_z14(sources)),
         ("Z15", "terminal.rs + cmdk.rs", "No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs", lambda: check_z15(sources)),
+        ("Z16", "registered label helpers in designos-app/src", "UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json)", lambda: check_z16(sources)),
     ]
 
     results: List[Dict[str, Any]] = []
@@ -990,7 +1005,24 @@ def main() -> int:
         description="Zero Fake UI Deterministic Gate (DIR-28 / BR-31 / REQ-25 / D25)"
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON report")
+    parser.add_argument("--write-ux-baseline", action="store_true", help="Rewrite scripts/ux_writing_baseline.json from the current tree; refuses to add or raise an entry (it only shrinks)")
+    parser.add_argument("--allow-grow", action="store_true", help="With --write-ux-baseline: permit new or raised entries. Bootstrap only (a scanner coverage change); needs reviewer sign-off")
     args = parser.parse_args()
+
+    if args.allow_grow and not args.write_ux_baseline:
+        parser.error("--allow-grow only applies to --write-ux-baseline")
+    if args.write_ux_baseline:
+        sources = SourceSet.from_disk()
+        found = ux_writing_labels.scan_labels(sources.files, sources.code)
+        offenders = ux_writing_labels.growth_offenders(found, ux_writing_labels.load_baseline())
+        if offenders and not args.allow_grow:
+            print("refusing to write: the baseline may only shrink. Fix these labels instead of absorbing them:", file=sys.stderr)
+            for line in offenders:
+                print(f"  {line}", file=sys.stderr)
+            return 1
+        ux_writing_labels.BASELINE_PATH.write_text(ux_writing_labels.baseline_json(found), encoding="utf-8")
+        print(f"wrote {ux_writing_labels.BASELINE_PATH.name}: {sum(found.values())} violation(s) in {len(found)} entries")
+        return 0
 
     results = run_all_checks()
     passed_count = sum(1 for r in results if r["passed"])

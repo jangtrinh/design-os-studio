@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "dev/sections.rs",
+      "kind": "words",
+      "literal": "Mark as ready for dev",
+      "count": 1
+    },
+    {
+      "file": "history/panel.rs",
+      "kind": "words",
+      "literal": "Duplicate as new file",
+      "count": 1
+    },
+    {
+      "file": "home/mod.rs",
+      "kind": "words",
+      "literal": "Move to top level",
+      "count": 1
+    },
+    {
+      "file": "home/mod.rs",
+      "kind": "words",
+      "literal": "Open in new window",
+      "count": 1
+    },
+    {
+      "file": "panels/components.rs",
+      "kind": "words",
+      "literal": "Go to main component",
+      "count": 1
+    },
+    {
+      "file": "panels/context.rs",
+      "kind": "words",
+      "literal": "Go to main component",
+      "count": 1
+    },
+    {
+      "file": "panels/context.rs",
+      "kind": "words",
+      "literal": "Mark as ready for dev",
+      "count": 1
+    },
+    {
+      "file": "panels/inspect.rs",
+      "kind": "words",
+      "literal": "Copy design:os MCP link",
+      "count": 1
+    },
+    {
+      "file": "panels/inspect.rs",
+      "kind": "words",
+      "literal": "Send to Agent Terminal",
+      "count": 1
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Export all slides as PDF…",
+      "count": 2
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Export current slide as PDF…",
+      "count": 2
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Export selection as PNG…",
+      "count": 2
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Save local .fig copy…",
+      "count": 2
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Save to version history…",
+      "count": 2
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Select all with same",
+      "count": 1
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "Snap to pixel grid",
+      "count": 1
+    },
+    {
+      "file": "panels/menus.rs",
+      "kind": "words",
+      "literal": "design:os studio on GitHub",
+      "count": 1
+    },
+    {
+      "file": "shell.rs",
+      "kind": "count-in-parens",
+      "literal": "Absolute fallbacks ({})",
+      "count": 1
+    },
+    {
+      "file": "shell.rs",
+      "kind": "count-in-parens",
+      "literal": "Font substitutions ({})",
+      "count": 1
+    },
+    {
+      "file": "shell.rs",
+      "kind": "count-in-parens",
+      "literal": "Notes ({})",
+      "count": 1
+    },
+    {
+      "file": "shell.rs",
+      "kind": "count-in-parens",
+      "literal": "Uncaptured images ({})",
+      "count": 1
+    },
+    {
+      "file": "shell.rs",
+      "kind": "count-in-parens",
+      "literal": "Unsupported CSS ({})",
+      "count": 1
+    },
+    {
+      "file": "variables/view.rs",
+      "kind": "words",
+      "literal": "Export variables (Design tokens / DTCG)…",
+      "count": 1
+    },
+    {
+      "file": "variables/view.rs",
+      "kind": "words",
+      "literal": "Export variables (Figma REST)…",
+      "count": 2
+    },
+    {
+      "file": "variables/view.rs",
+      "kind": "words",
+      "literal": "Import variables (Design tokens / DTCG)…",
+      "count": 1
+    },
+    {
+      "file": "variables/view.rs",
+      "kind": "words",
+      "literal": "Import variables (Figma REST)…",
+      "count": 1
+    },
+    {
+      "file": "variables/view.rs",
+      "kind": "words",
+      "literal": "New group with selection",
+      "count": 1
+    }
+  ]
+}
