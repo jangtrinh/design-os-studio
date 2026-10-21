@@ -1195,7 +1195,7 @@ mod tests {
         let fix = st.active_tab().and_then(|t| t.start_failure.as_ref()).map(|f| f.fix.clone()).expect("start_failure must be recorded");
         assert_eq!(fix, FixAction::StartNewSession(AgentCliPreset::Claude));
 
-        // Clicking "Start a new session" closes the failed tab and opens the picker
+        // Clicking "Start new session" closes the failed tab and opens the picker
         st.apply_start_fix(fix, None);
         assert!(st.tabs.is_empty());
         assert!(st.picker_open, "FixAction::StartNewSession must open the new-session picker");

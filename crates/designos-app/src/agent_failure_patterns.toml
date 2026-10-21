@@ -1,0 +1,124 @@
+# Mid-session agent failure output patterns (#686).
+# Every pattern must name a class, a regex (or alternation of context phrases with optional
+# `(?P<reset>\d{1,2}:\d{2})` reset-time capture), and the captured-output fixture file that proves it.
+# Table order within each CLI defines precedence when multiple patterns match.
+
+[[cli.claude.pattern]]
+class = "rate_limited"
+regex = "rate_limit_error|exceeded your rate limit|429.*rate limit|resets at (?P<reset>\\d{1,2}:\\d{2})"
+fixture = "tests/fixtures/agent-failures/claude-rate-limited.txt"
+
+[[cli.claude.pattern]]
+class = "login_expired"
+regex = "authentication_error|oauth token has expired|please run /login|invalid api key · please run /login"
+fixture = "tests/fixtures/agent-failures/claude-login-expired.txt"
+
+[[cli.claude.pattern]]
+class = "billing_or_quota"
+regex = "credit balance is too low|plans & billing|purchase credits|billing_error"
+fixture = "tests/fixtures/agent-failures/claude-billing.txt"
+
+[[cli.claude.pattern]]
+class = "provider_server_error"
+regex = "overloaded_error|api error: 529|api error: 500|api error: 502|api error: 503|temporarily overloaded"
+fixture = "tests/fixtures/agent-failures/claude-server-error.txt"
+
+[[cli.claude.pattern]]
+class = "context_full"
+regex = "prompt is too long|maximum context length|context window is full"
+fixture = "tests/fixtures/agent-failures/claude-context-full.txt"
+
+[[cli.claude.pattern]]
+class = "network_offline"
+regex = "fetch failed.*econnrefused|enotfound api\\.anthropic\\.com|unable to connect to network|network is unreachable"
+fixture = "tests/fixtures/agent-failures/claude-network-offline.txt"
+
+[[cli.codex.pattern]]
+class = "rate_limited"
+regex = "rate limit reached|429 too many requests|limit resets at (?P<reset>\\d{1,2}:\\d{2})"
+fixture = "tests/fixtures/agent-failures/codex-rate-limited.txt"
+
+[[cli.codex.pattern]]
+class = "login_expired"
+regex = "401 unauthorized|authentication token has expired|run `codex login`"
+fixture = "tests/fixtures/agent-failures/codex-login-expired.txt"
+
+[[cli.codex.pattern]]
+class = "billing_or_quota"
+regex = "insufficient_quota|exceeded your current quota|check your plan and billing"
+fixture = "tests/fixtures/agent-failures/codex-billing.txt"
+
+[[cli.codex.pattern]]
+class = "provider_server_error"
+regex = "503 service unavailable|server had an error while processing|502 bad gateway|500 internal server error"
+fixture = "tests/fixtures/agent-failures/codex-server-error.txt"
+
+[[cli.codex.pattern]]
+class = "context_full"
+regex = "context_length_exceeded|maximum context length is exceeded"
+fixture = "tests/fixtures/agent-failures/codex-context-full.txt"
+
+[[cli.codex.pattern]]
+class = "network_offline"
+regex = "connection error: dns error|enotfound api\\.openai\\.com|failed to lookup address information"
+fixture = "tests/fixtures/agent-failures/codex-network-offline.txt"
+
+[[cli.grok.pattern]]
+class = "rate_limited"
+regex = "429 rate_limit|rate limit exceeded for team|resets at (?P<reset>\\d{1,2}:\\d{2})"
+fixture = "tests/fixtures/agent-failures/grok-rate-limited.txt"
+
+[[cli.grok.pattern]]
+class = "login_expired"
+regex = "401 authentication_failed|session token expired|run `grok login`"
+fixture = "tests/fixtures/agent-failures/grok-login-expired.txt"
+
+[[cli.grok.pattern]]
+class = "billing_or_quota"
+regex = "402 billing|exhausted prepaid credits|console billing to top up"
+fixture = "tests/fixtures/agent-failures/grok-billing.txt"
+
+[[cli.grok.pattern]]
+class = "provider_server_error"
+regex = "500 server_error|upstream inference service returned an internal server error"
+fixture = "tests/fixtures/agent-failures/grok-server-error.txt"
+
+[[cli.grok.pattern]]
+class = "context_full"
+regex = "max_output_tokens|conversation context window is full"
+fixture = "tests/fixtures/agent-failures/grok-context-full.txt"
+
+[[cli.grok.pattern]]
+class = "network_offline"
+regex = "network_offline|lookup api\\.x\\.ai: no such host|network is unreachable"
+fixture = "tests/fixtures/agent-failures/grok-network-offline.txt"
+
+[[cli.antigravity.pattern]]
+class = "rate_limited"
+regex = "resource_exhausted \\(429\\)|quota rate limit exceeded|quota resets at (?P<reset>\\d{1,2}:\\d{2})"
+fixture = "tests/fixtures/agent-failures/antigravity-rate-limited.txt"
+
+[[cli.antigravity.pattern]]
+class = "login_expired"
+regex = "unauthenticated \\(401\\)|google credentials have expired|run `agy` to sign in"
+fixture = "tests/fixtures/agent-failures/antigravity-login-expired.txt"
+
+[[cli.antigravity.pattern]]
+class = "billing_or_quota"
+regex = "billing account is disabled|quota billing limit reached"
+fixture = "tests/fixtures/agent-failures/antigravity-billing.txt"
+
+[[cli.antigravity.pattern]]
+class = "provider_server_error"
+regex = "unavailable \\(503\\)|backend model service is currently unavailable"
+fixture = "tests/fixtures/agent-failures/antigravity-server-error.txt"
+
+[[cli.antigravity.pattern]]
+class = "context_full"
+regex = "context window limit exceeded|input token count exceeds maximum context"
+fixture = "tests/fixtures/agent-failures/antigravity-context-full.txt"
+
+[[cli.antigravity.pattern]]
+class = "network_offline"
+regex = "network is unreachable|failed to connect to antigravity backend"
+fixture = "tests/fixtures/agent-failures/antigravity-network-offline.txt"
