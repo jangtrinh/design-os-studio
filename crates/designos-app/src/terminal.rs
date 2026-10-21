@@ -2303,7 +2303,13 @@ impl TerminalState {
         }
     }
 
-    fn provision_session_agent_files(&self, file_path: Option<&Path>) {
+    /// Writes the session's agent files now, on the calling thread (an agent is about to start and reads them
+    /// at once). A snapshot queued earlier carries the run id and permission mode of before this start, so it
+    /// is dropped (or waited for, when already writing) and `last_synced_key` is cleared: the next sync queues
+    /// a fresh one instead of letting the stale one overwrite these files.
+    fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
+        self.snapshot_worker.cancel_and_wait();
+        self.last_synced_key = None;
         let job = crate::agent_session_files::SnapshotJob {
             session_dir: self.session_dir.clone(),
             session_id: self.session_id.clone(),
@@ -9576,7 +9582,7 @@ Done!
 
     #[test]
     fn skill_text_documents_the_grammar() {
-        let st = TerminalState::for_tab(65501);
+        let mut st = TerminalState::for_tab(65501);
         let _ = std::fs::create_dir_all(&st.session_dir);
         st.provision_session_agent_files(None);
         let skill_text = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read generated SKILL.md");

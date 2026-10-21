@@ -413,12 +413,11 @@ fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back(
     );
     app.selection = vec![frame];
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
-    let queued_key = app.terminal.last_synced_key;
     app.terminal.flush_live_sync();
 
     assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
     assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
-    assert_ne!(app.terminal.last_synced_key, queued_key, "the held publish is not recorded as published, so a later frame retries it");
+    assert_eq!(app.terminal.last_synced_key, None, "the publish is retried on a later frame");
     // Only the canvas' own temporary files count: the background bootstrap build writes its own `bootstrap.*.tmp.*`
     // files into the same session dir while this runs.
     let canvas_tmp_marker = format!("{}.tmp.", canvas.file_name().unwrap().to_string_lossy());

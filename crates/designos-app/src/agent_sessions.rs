@@ -801,6 +801,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A snapshot queued before an agent starts carries the run id and permission mode of that moment. It must not
+    /// overwrite the `mcp-config.json` and `hooks.json` the start itself wrote: the agent's `DESIGNOS_AGENT_RUN_ID`
+    /// would stop matching its tab, and an `Ask` session would lose its approval hook.
+    #[cfg(unix)]
+    #[test]
+    fn a_snapshot_queued_before_a_spawn_does_not_overwrite_the_spawn_time_session_files() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let (dir, mut st) = claude_window_started_in_skip("snapshot-before-spawn");
+        let mut doc = Document::new("Snapshot before spawn");
+        let page1 = doc.add_page("Page 1");
+        let page2 = doc.add_page("Page 2");
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn the first claude in Skip");
+        st.sync_live_file_context(&doc, page1, &[], None);
+        st.flush_live_sync();
+
+        // Hold the writer in the middle of a job queued while the window still holds Skip and the first tab's run id.
+        let (release, hold) = std::sync::mpsc::channel::<()>();
+        crate::terminal::set_before_rename_test_hook(
+            &st.live_canvas_path,
+            Box::new(move || {
+                let _ = hold.recv_timeout(std::time::Duration::from_secs(10));
+            }),
+        );
+        st.sync_live_file_context(&doc, page2, &[], None);
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let _ = release.send(());
+        });
+
+        save_permission_mode(&dir, AgentPermissionMode::Ask).expect("the other window saves Ask");
+        let second = st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn the second claude in Ask");
+        let _ = releaser.join();
+        st.flush_live_sync();
+        st.sync_live_file_context(&doc, page2, &[], None);
+        st.flush_live_sync();
+
+        let config: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(st.session_dir.join("mcp-config.json")).expect("mcp-config.json")).unwrap();
+        assert_eq!(
+            config["mcpServers"]["designos"]["env"]["DESIGNOS_AGENT_RUN_ID"].as_str(),
+            Some(st.tabs[second].run_id.as_str()),
+            "the session's run id must be the started tab's, not the one a snapshot queued before the start carried"
+        );
+        let hooks = std::fs::read_to_string(st.session_dir.join("hooks.json")).expect("hooks.json");
+        assert!(hooks.contains("approve-hook.sh"), "an Ask session keeps its approval hook: {hooks}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Resuming a recorded Claude session also honours the Ask another window saved.
     #[cfg(unix)]
     #[test]
