@@ -485,7 +485,10 @@ fn worker_loop(shared: WorkerSync) {
             (job, gen)
         };
 
-        let res = execute_snapshot_job(&job);
+        // A panic while writing must not leave `in_flight` set: every later wait (agent start, close, rebind,
+        // flush) would block the UI thread for good. It becomes a failed job and the writer keeps running.
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute_snapshot_job(&job)))
+            .unwrap_or_else(|payload| Err(format!("Snapshot writer panicked: {}", panic_payload_message(payload.as_ref()))));
 
         let mut state = match lock.lock() {
             Ok(g) => g,
@@ -519,6 +522,10 @@ fn worker_loop(shared: WorkerSync) {
             done_cv.notify_all();
         }
     }
+}
+
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload.downcast_ref::<&str>().map(|s| (*s).to_string()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown cause".into())
 }
 
 fn execute_snapshot_job(job: &SnapshotJob) -> Result<SnapshotOutcome, String> {
@@ -751,6 +758,72 @@ mod tests {
         st.flush_live_sync();
         assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
         st.shutdown();
+    }
+
+    fn writer_test_job(session_dir: &Path, key: (u64, u64, u64)) -> SnapshotJob {
+        SnapshotJob {
+            session_dir: session_dir.to_path_buf(),
+            session_id: "writer-test".into(),
+            key,
+            context_json_path: session_dir.join("context.json"),
+            live_canvas_path: session_dir.join("canvas.designos"),
+            live_spec_path: session_dir.join("live-spec.json"),
+            live_doc_sync_path: session_dir.join("doc-sync.designos"),
+            live_doc_patch_path: session_dir.join("doc-patch.jsonl"),
+            context_bytes: b"{}".to_vec(),
+            canvas_doc: Document::new("Writer Test"),
+            doc_name: "Writer Test".into(),
+            current_page_id: 0,
+            current_page_name: "Page 1".into(),
+            file_path: None,
+            run_id: "writer-test-run".into(),
+            agent_runtime: "claude".into(),
+            ask_mode: false,
+            unread_probe: None,
+        }
+    }
+
+    /// A panic while writing must not leave the worker marked as busy: every later wait (an agent start, a
+    /// close, a rebind) would block the UI thread for good.
+    #[test]
+    fn a_panic_in_the_writer_does_not_hang_the_next_wait_or_stop_later_snapshots() {
+        let dir = std::env::temp_dir().join("designos-sessions").join(unique_test_id("writer-panic"));
+        let mut worker = SnapshotWorker::new();
+        let job = writer_test_job(&dir, (1, 0, 0));
+        crate::terminal::set_before_rename_test_hook(&job.live_canvas_path, Box::new(|| panic!("writer test panic")));
+        worker.enqueue(job);
+
+        let worker = Arc::new(worker);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter = Arc::clone(&worker);
+        std::thread::spawn(move || {
+            waiter.flush();
+            let _ = done_tx.send(());
+        });
+        assert!(done_rx.recv_timeout(Duration::from_secs(10)).is_ok(), "flush hung after the writer panicked");
+        let status = worker.take_status();
+        assert!(status.error.as_deref().is_some_and(|e| e.contains("panicked")), "the panic is reported as an error: {:?}", status.error);
+        assert_eq!(status.failed, Some((dir.clone(), (1, 0, 0))), "the failed key is reported so the UI retries");
+
+        // The writer survived: the next job lands.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut worker = worker;
+        let mut worker = loop {
+            match Arc::try_unwrap(worker) {
+                Ok(w) => break w,
+                Err(still_shared) => {
+                    assert!(std::time::Instant::now() < deadline, "the flush thread never released the worker");
+                    worker = still_shared;
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        };
+        worker.enqueue(writer_test_job(&dir, (2, 0, 0)));
+        worker.flush();
+        assert_eq!(worker.take_status().completed, Some((dir.clone(), (2, 0, 0))), "a job queued after the panic is written");
+        assert!(dir.join("canvas.designos").is_file());
+        drop(worker);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
