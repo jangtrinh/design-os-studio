@@ -113,6 +113,9 @@ pub struct Engine {
     pub base_doc_revision: Option<u64>,
     /// Timestamp synced from Studio's `bootstrap.json` when the session document has not mutated since sync.
     pub bootstrap_generated_at: Option<String>,
+    /// Size of the session's idempotency ledger (`E15-6`), refreshed by `Session` before each call so
+    /// `designos_get_app_state` can report it. An engine used without a `Session` has no ledger: `0`.
+    pub ledger_entries: usize,
 }
 
 impl Default for Engine {
@@ -141,6 +144,7 @@ impl Default for Engine {
             scoped: false,
             base_doc_revision: None,
             bootstrap_generated_at: None,
+            ledger_entries: 0,
         }
     }
 }

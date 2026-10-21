@@ -85,6 +85,12 @@ fn cached_known_tool_names() -> &'static BTreeSet<String> {
     KNOWN.get_or_init(|| cached_tools().iter().map(|t| t.name.to_string()).collect())
 }
 
+/// Canonical names of the registered tools a session enables, in registry order (`None` = every tool).
+/// This is the set `tools/list` exposes and the set the generated rules pack documents.
+pub fn enabled_tool_names(enabled_tools: Option<&BTreeSet<String>>) -> Vec<String> {
+    cached_tools().iter().map(|t| t.name.to_string()).filter(|name| enabled_tools.is_none_or(|set| set.contains(name))).collect()
+}
+
 fn cached_spec_schemas() -> &'static SpecSchemas {
     static SCHEMAS: std::sync::OnceLock<SpecSchemas> = std::sync::OnceLock::new();
     SCHEMAS.get_or_init(SpecSchemas::default)
@@ -758,7 +764,7 @@ pub fn format_session_skill_md(
          - **Live Doc Sync Path**: `{doc_sync}` (`$DESIGNOS_LIVE_DOC_SYNC`)\n\
          - **Live Edit Log**: `{doc_patch}` (`$DESIGNOS_LIVE_DOC_PATCH`; written by `designos-mcp`, replayed by Studio in order, with a mark wherever you open another document)\n\n\
          ## Automatic Current-Page Delivery Rules\n\
-         1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_get_app_state`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
+         1. Every `designos-mcp` tool call (`designos_apply_spec`, `designos_create_node`, `designos_update_node`, `designos_query_xpath`, `designos_lint`, `designos_get_app_state`, `designos_add_comment`) is already bound to **`{doc_name}`** and automatically targets the user's currently selected page **`{page_name}` (`NodeId({page_id})`)** when `parent_id` / `page_id` is omitted.\n\
          2. Or write a declarative `NodeSpec` JSON tree directly to `$DESIGNOS_LIVE_SPEC` (`{spec}`) — DESIGN:OS Studio hot-applies it onto **`{page_name}`** in `< 50ms`.\n\
          3. Clicking the selection chip writes `{sel}` as `{{ \"page\": {{id, name}}, \"count\": N, \"nodes\": [{{node_id, name, kind, spec?}}] }}` (inline `spec` for the first 10 layers under 256 KB; call `designos_export_spec` for layers without an inline `spec`).\n\
          4. Prompts with `@`-mentions include a `References:` footer mapping each `@<label>` to `designos:node/<u64>` (resolve with `designos_get_node` or `designos_export_spec`), `designos:variable/<id>` (resolve with `designos_get_variables`), or `designos:style/<key>` (resolve from `styles` / `style_meta` in `designos_get_document`).\n\n\
@@ -1061,6 +1067,10 @@ mod tests {
             session_skill.ends_with(GENERATED_RULES_MD.trim_start()),
             "session SKILL.md must include the generated rules pack after the dynamic session header"
         );
+        let rule_one = session_skill.lines().find(|l| l.starts_with("1. Every `designos-mcp` tool call")).expect("session rule 1");
+        for tool in ["designos_query_xpath", "designos_lint", "designos_get_app_state"] {
+            assert!(rule_one.contains(tool), "session rule 1 must keep naming {tool}: {rule_one}");
+        }
     }
 
     #[test]

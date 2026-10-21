@@ -6,9 +6,7 @@
 
 use crate::engine::Engine;
 use designos_doc::NodeId;
-use designos_export::agent_context::{
-    bootstrap, BootstrapOptions, ALL_TOOL_NAMES, DEFAULT_BOOTSTRAP_MAX_TOKENS, DEFAULT_RULES_PACK, MAX_BOOTSTRAP_MAX_TOKENS, MIN_BOOTSTRAP_MAX_TOKENS,
-};
+use designos_export::agent_context::{bootstrap, BootstrapOptions, DEFAULT_BOOTSTRAP_MAX_TOKENS, MAX_BOOTSTRAP_MAX_TOKENS, MIN_BOOTSTRAP_MAX_TOKENS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -125,10 +123,10 @@ pub fn call_get_app_state(engine: &Engine, args: Value) -> Result<Value, String>
     }
 
     let current_page_id = engine.resolve_default_page().ok();
-    let enabled_tools: Vec<String> = match &engine.enabled_tools {
-        Some(set) => set.iter().cloned().collect(),
-        None => ALL_TOOL_NAMES.iter().map(|s| (*s).to_string()).collect(),
-    };
+    // The names `tools/list` exposes, and the pack that documents exactly those tools (`§3.1`, `§8.6`).
+    let enabled_tools = crate::rules::enabled_tool_names(engine.enabled_tools.as_ref());
+    let rules_pack = crate::rules::generate_rules_pack(engine.enabled_tools.as_ref()).map_err(|e| format!("INTERNAL_ERROR: {e}"))?;
+    let options = serde_json::to_value(&engine.session_options).map_err(|e| format!("INTERNAL_ERROR: session options are not serializable: {e}"))?;
 
     let local_mutations = engine.history.undo_depth() as u64;
     let doc_revision = engine.base_doc_revision.map(|base| base.saturating_add(local_mutations)).unwrap_or_else(|| engine.doc.mutation_epoch());
@@ -147,11 +145,10 @@ pub fn call_get_app_state(engine: &Engine, args: Value) -> Result<Value, String>
         generated_at,
         doc_revision: Some(doc_revision),
         active_style: None,
-        enabled_tools: Some(enabled_tools.clone()),
         in_progress: Default::default(),
     };
 
-    let boot = bootstrap(&engine.doc, &opts, &engine.doc.library.enabled, DEFAULT_RULES_PACK);
+    let boot = bootstrap(&engine.doc, &opts, &engine.doc.library.enabled, &rules_pack);
 
     let sections_json: Vec<Value> = boot
         .sections
@@ -170,8 +167,6 @@ pub fn call_get_app_state(engine: &Engine, args: Value) -> Result<Value, String>
         })
         .collect();
 
-    let ledger_entries = engine.history.undo_depth();
-
     Ok(json!({
         "generated_at": boot.generated_at,
         "doc_revision": boot.doc_revision,
@@ -181,8 +176,8 @@ pub fn call_get_app_state(engine: &Engine, args: Value) -> Result<Value, String>
         "total_tokens": boot.total_tokens,
         "session": {
             "enabled_tools": enabled_tools,
-            "ledger_entries": ledger_entries,
-            "options": {}
+            "ledger_entries": engine.ledger_entries,
+            "options": options
         }
     }))
 }
@@ -235,7 +230,8 @@ mod tests {
             generated_at: Some("2026-06-21T10:00:00Z".into()),
             ..BootstrapOptions::default()
         };
-        let studio_boot = bootstrap(&engine.doc, &studio_opts, &engine.doc.library.enabled, DEFAULT_RULES_PACK);
+        let rules_pack = crate::rules::generate_rules_pack(None).expect("rules pack");
+        let studio_boot = bootstrap(&engine.doc, &studio_opts, &engine.doc.library.enabled, &rules_pack);
 
         // Simulate synced engine where doc.mutation_epoch() == 0 and base_doc_revision == doc_rev
         let synced = Engine {
@@ -254,6 +250,83 @@ mod tests {
             assert_eq!(t_sec["id"], json!(s_sec.id));
             assert_eq!(t_sec["content"], json!(s_sec.content));
         }
+    }
+
+    /// Creates a workspace and a session directory under the OS temp dir (removed by the caller).
+    fn session_dirs(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
+        let base = std::env::temp_dir().join(format!("designos-app-state-{tag}-{}-{nonce}", std::process::id()));
+        let (ws, sess) = (base.join("ws"), base.join("session"));
+        std::fs::create_dir_all(&ws).expect("workspace dir");
+        std::fs::create_dir_all(&sess).expect("session dir");
+        (ws, sess)
+    }
+
+    fn string_set(value: &Value) -> std::collections::BTreeSet<String> {
+        value.as_array().expect("array").iter().map(|v| v.as_str().expect("string").to_string()).collect()
+    }
+
+    fn rules_section(reply: &Value) -> &Value {
+        reply["sections"].as_array().expect("sections").iter().find(|s| s["id"] == "rules").expect("rules section")
+    }
+
+    #[test]
+    fn default_session_reports_every_registered_tool_and_the_generated_rules_pack() {
+        let (ws, sess) = session_dirs("default");
+        let server = crate::server::DesignOSServer::with_session_dir(&ws, &sess).expect("server");
+        let reply = server.call("designos_get_app_state", json!({})).expect("designos_get_app_state");
+
+        let listed: std::collections::BTreeSet<String> = server.list_enabled_tools().into_iter().map(|t| t.name.to_string()).collect();
+        let reported = string_set(&reply["session"]["enabled_tools"]);
+        assert_eq!(reported, listed, "session.enabled_tools must be the tools/list set");
+        assert_eq!(reported.len(), crate::server::tools().len());
+
+        let rules = rules_section(&reply);
+        let pack = crate::rules::generate_rules_pack(None).expect("rules pack");
+        assert_eq!(rules["content"].as_str().expect("content"), pack.trim(), "section 7 must be the generated E15-15 pack");
+        assert_eq!(rules["truncated"], json!(false), "the generated pack must fit the section 7 cap: {} tokens", rules["tokens"]);
+        let _ = std::fs::remove_dir_all(ws.parent().expect("base dir"));
+    }
+
+    #[test]
+    fn a_disabled_tool_is_absent_from_rules_and_enabled_tools() {
+        let (ws, sess) = session_dirs("disabled");
+        let enabled: Vec<String> = crate::server::tools().into_iter().map(|t| t.name.to_string()).filter(|n| n != "designos_delete_node").collect();
+        std::fs::write(sess.join("mcp-config.json"), json!({"designos": {"enabled_tools": enabled}}).to_string()).expect("mcp-config.json");
+        let server = crate::server::DesignOSServer::with_session_dir(&ws, &sess).expect("server");
+        let reply = server.call("designos_get_app_state", json!({})).expect("designos_get_app_state");
+
+        let listed: std::collections::BTreeSet<String> = server.list_enabled_tools().into_iter().map(|t| t.name.to_string()).collect();
+        let reported = string_set(&reply["session"]["enabled_tools"]);
+        assert_eq!(reported, listed, "session.enabled_tools must be the tools/list set");
+        assert!(!reported.contains("designos_delete_node") && reported.contains("designos_apply_batch"));
+        assert_eq!(reported.len(), crate::server::tools().len() - 1);
+
+        let expected_pack = crate::rules::generate_rules_pack(Some(&reported)).expect("filtered pack");
+        let rules = rules_section(&reply)["content"].as_str().expect("content");
+        assert_eq!(rules, expected_pack.trim(), "section 7 must be the generated pack for the enabled tools");
+        assert!(!rules.contains("### `designos_delete_node`"), "a disabled tool must not be listed in section 7");
+        assert!(rules.contains("### `designos_create_node`") && rules.contains("### `SlotFillSpec`"));
+        let _ = std::fs::remove_dir_all(ws.parent().expect("base dir"));
+    }
+
+    #[test]
+    fn session_facts_report_the_idempotency_ledger_and_the_session_options() {
+        let (ws, sess) = session_dirs("facts");
+        let server = crate::server::DesignOSServer::with_session_dir(&ws, &sess).expect("server");
+        let page = server.call("designos_get_document", json!({})).expect("document")["pages"][0]["node_id"].as_u64().expect("page id");
+
+        server.call("designos_configure_session", json!({"issues": {"mode": "off"}})).expect("configure session");
+        server.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Plain"})).expect("write without a key");
+        for key in ["facts-key-1", "facts-key-2"] {
+            server.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": key, "idempotency_key": key})).expect("keyed write");
+        }
+
+        let reply = server.call("designos_get_app_state", json!({})).expect("designos_get_app_state");
+        assert_eq!(reply["session"]["ledger_entries"], json!(2), "ledger size, not undo depth (3 writes were made): {}", reply["session"]);
+        assert_eq!(reply["session"]["options"]["issues"]["mode"], json!("off"), "{}", reply["session"]);
+        assert_eq!(reply["session"]["options"]["issues"]["preset"], json!("agent"));
+        let _ = std::fs::remove_dir_all(ws.parent().expect("base dir"));
     }
 
     #[test]

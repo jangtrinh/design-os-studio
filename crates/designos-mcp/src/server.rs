@@ -1134,6 +1134,7 @@ impl Session {
                     redo_steps: self.engine.history.redo_steps(),
                     revision: self.engine.revision,
                 });
+                self.engine.ledger_entries = self.ledger.len();
                 let mut result = self.engine.call(name, args.clone())?;
                 if name == "designos_get_document" {
                     self.attach_enabled_tools_warnings(&mut result);

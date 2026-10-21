@@ -25,7 +25,8 @@ ruling): an agent gets it only by calling `designos_get_app_state` with `include
   (`terminal.rs:869-883`), selected ids included; other CLIs get only the launch command text
   (`terminal.rs:140-151`). Printing the selected ids contradicts the owner ruling that the selection
   is never auto-injected, so this task removes them from that print (3.2).
-- First prompts go through `submit_chat_prompt` (`terminal.rs:1006`) into the PTY.
+- First prompts went through `submit_chat_prompt` (`terminal.rs:1006`) into the PTY. Pre-#769 fact: #769
+  removed that chat-turn path, so v0.6.0 has no first-prompt injection for non-Claude CLIs (3.2).
 - For large files the agent's canvas is a scoped copy: current page, at most 128 top-level frames as
   shells, selected frames in full up to 5,000 layers (`crates/designos-app/src/live_canvas_scope.rs:1-14`).
 - designos-app depends on designos-export and designos-library at runtime and on designos-mcp only as
@@ -54,12 +55,17 @@ Never a silent cut. Sections 1-2 are never truncated below their content.
 - Studio builds the block off the UI thread on agent run start (new run id, E15-7) from its full
   document snapshot (not the scoped canvas) and writes `<session_dir>/bootstrap.md` plus
   `bootstrap.json` (same content, structured).
-- Claude Code: the `UserPromptSubmit` hook prints `bootstrap.md` once per run (a marker file
-  `bootstrap.delivered.<run>` prevents repeats); later prompts get only `context.json` as today,
-  printed without `selected_node_ids` (the file keeps the field for Studio's own use; the hook strips
-  it from the printed text).
-- Other CLIs (Codex, Antigravity, Grok): `submit_chat_prompt` prepends the block to the first prompt
-  of the run, inside a fenced `designos-context` block.
+- Claude Code: the `UserPromptSubmit` hook prints `bootstrap-context-reply.json` (page context plus
+  `bootstrap.md`) once per run and creates the marker `bootstrap.delivered.<run>`. If the full block is
+  not ready, the hook waits at most 500 ms, then prints `bootstrap-compact-reply.json` (§8.5) and creates
+  the marker. Later prompts get only `page-context-reply.json`: session id, document name, file path,
+  current page id and name, never `selected_node_ids`. `context.json` keeps the field for Studio and
+  `designos-mcp`. Each agent tab Studio spawns starts a new run.
+- Other CLIs (Codex, Antigravity, Grok, Gemini CLI): no first-prompt injection in v0.6.0. Their session
+  `AGENTS.md` / `GEMINI.md` / `SKILL.md` names `bootstrap.md` under "Bootstrap Context" and lists
+  `designos_get_app_state`; the agent reads the file or calls the tool. Prepending the block to the first
+  composer send of a run, inside a fenced `designos-context` block, moves to v0.6.1 (owner ruling
+  2026-10-21; #769 removed the chat-turn path that carried it).
 - RD-3 spawned agents: the lead's `spawn_agents` passes each agent's frames as its targets (section 3
   uses them).
 
@@ -110,9 +116,8 @@ None.
 
 ## 7. UI
 
-No new controls. The Agents chat shows the first user turn as typed by the user; the attached context
-is indicated by a small `Context attached` caption (11 px, secondary text) under that turn, which opens
-`bootstrap.md` in the raw terminal view when clicked (real action; Zero fake UI).
+No UI change in v0.6.0. The `Context attached` caption moves to v0.6.1 together with composer injection,
+because #769 removed its host (the chat turn list).
 
 ## 8. Edge cases
 
@@ -122,7 +127,7 @@ is indicated by a small `Context attached` caption (11 px, secondary text) under
 3. Agent restarted within the same session: new run id → new bootstrap.
 4. User changes selection after the run started: nothing is sent; an agent that needs the selection
    calls `designos_get_app_state` with `include_selection: true`.
-5. Bootstrap build slower than the user typing the first prompt: the prompt waits at most 500 ms, then
+5. Bootstrap build slower than the user typing the first prompt: the Claude prompt hook waits at most 500 ms, then
    sends with a compact block (sections 1-2 and the rules) and a note to call
    `designos_get_app_state` for the rest.
 6. Rules pack disabled tools: section 7 (rules pack) reflects the enable list.
@@ -163,3 +168,5 @@ part-2 variant exploration.
 - All AI through the user's agent CLI (R4.13): context goes only to the user's own CLI.
 - Parallel agents hard-locked to frames (RD-3): spawned agents get their own frames as targets.
 - Full scope: every listed section, with explicit truncation, ships together.
+- 2026-10-21: v0.6.0 ships #766 as rebased. Claude gets the block through its prompt hook. Other CLIs get the
+  `AGENTS.md` pointer and `designos_get_app_state`. Composer injection and the caption move to v0.6.1.

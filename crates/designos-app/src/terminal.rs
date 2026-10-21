@@ -1042,6 +1042,8 @@ pub struct BootstrapJobHandle {
     pub state: Arc<(Mutex<BootstrapJobState>, std::sync::Condvar)>,
     pub doc: Arc<Document>,
     pub opts: designos_export::agent_context::BootstrapOptions,
+    /// The session's custom tool list (`None` = every tool), which decides the rules pack of section 7.
+    pub enabled_tools: Option<std::collections::BTreeSet<String>>,
 }
 
 /// Persistent state for the embedded multi-tab PTY terminal, isolated per open document tab.
@@ -1294,6 +1296,25 @@ fn write_compact_bootstrap_fallback(session_dir: &Path, compact: &designos_expor
         if let Ok(json_bytes) = serde_json::to_vec_pretty(&serialize_bootstrap_json(compact)) {
             let _ = atomic_write_session_file(&json_path, &json_bytes);
         }
+    }
+}
+
+/// Tools the session's `mcp-config.json` enables: `None` when no custom list exists (every tool).
+/// `designos-mcp` reads the same file at start, so this is the set its `tools/list` exposes.
+fn session_enabled_tools(mcp_config_path: &Path) -> Option<std::collections::BTreeSet<String>> {
+    let raw = std::fs::read_to_string(mcp_config_path).ok();
+    designos_mcp::rules::reconcile_designos_block(raw.as_deref()).map(|custom| custom.enabled)
+}
+
+/// The `E15-15` rules pack for the tools a session enables. The session `SKILL.md` / `AGENTS.md` and the
+/// first-turn bootstrap block (section 7, full and compact) all take their rules from here, so they cannot
+/// disagree and a disabled tool is never listed (`E15-16 §8.6`).
+fn session_rules_pack(enabled_tools: Option<&std::collections::BTreeSet<String>>) -> std::borrow::Cow<'static, str> {
+    match enabled_tools {
+        Some(set) => designos_mcp::rules::generate_rules_pack(Some(set))
+            .map(std::borrow::Cow::Owned)
+            .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)),
+        None => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
     }
 }
 
@@ -1944,7 +1965,7 @@ impl TerminalState {
     }
 
     /// Spawns a background bootstrap build job (`E15-16 §3.2`, `§8.5`, `§11`) with a lazy
-    /// `compact_bootstrap` fallback if `resolve_bootstrap_markdown` or the Claude hook times out at `500 ms`.
+    /// `compact_bootstrap` fallback reply for the Claude hook, which prints it if the full block is not ready within `500 ms`.
     pub fn start_bootstrap_job(&mut self, doc: Document, page: NodeId, file_path: Option<PathBuf>, simulated_delay: Option<std::time::Duration>) {
         // Studio builds its bootstrap block from the full document snapshot (never the scoped canvas copy, `§3.2`).
         let doc_rev = self.last_synced_key.map(|(e, _, _)| e).unwrap_or(0).max(doc.mutation_epoch());
@@ -1960,12 +1981,13 @@ impl TerminalState {
             generated_at: None,
             doc_revision: Some(doc_rev),
             active_style: None,
-            enabled_tools: None,
             in_progress: Default::default(),
         };
+        let enabled_tools = session_enabled_tools(&self.session_dir.join("mcp-config.json"));
         let doc = Arc::new(doc);
         let doc_bg = Arc::clone(&doc);
         let opts_bg = opts.clone();
+        let enabled_bg = enabled_tools.clone();
         let state = Arc::new((Mutex::new(BootstrapJobState { done: false, markdown: None }), std::sync::Condvar::new()));
         let state_bg = Arc::clone(&state);
         let session_dir = self.session_dir.clone();
@@ -1975,17 +1997,17 @@ impl TerminalState {
         let write_lock_bg = Arc::clone(&self.bootstrap_write_lock);
         let _ = std::fs::remove_file(session_dir.join("bootstrap-context-reply.json"));
         std::thread::spawn(move || {
+            let rules = session_rules_pack(enabled_bg.as_ref());
             if let Ok(_guard) = write_lock_bg.lock() {
                 if gen_bg.load(std::sync::atomic::Ordering::SeqCst) == job_gen {
-                    let compact = designos_export::agent_context::compact_bootstrap(&doc_bg, &opts_bg, designos_export::agent_context::DEFAULT_RULES_PACK);
+                    let compact = designos_export::agent_context::compact_bootstrap(&doc_bg, &opts_bg, &rules);
                     write_compact_bootstrap_fallback(&session_dir, &compact, &page_ctx);
                 }
             }
             if let Some(d) = simulated_delay {
                 std::thread::sleep(d);
             }
-            let boot =
-                designos_export::agent_context::bootstrap(&doc_bg, &opts_bg, &doc_bg.library.enabled, designos_export::agent_context::DEFAULT_RULES_PACK);
+            let boot = designos_export::agent_context::bootstrap(&doc_bg, &opts_bg, &doc_bg.library.enabled, &rules);
             if let Ok(_guard) = write_lock_bg.lock() {
                 if gen_bg.load(std::sync::atomic::Ordering::SeqCst) == job_gen {
                     write_bootstrap_artifacts(&session_dir, &boot, &page_ctx);
@@ -1997,7 +2019,7 @@ impl TerminalState {
                 state_bg.1.notify_all();
             }
         });
-        self.bootstrap_job = Some(BootstrapJobHandle { generation: job_gen, state, doc, opts });
+        self.bootstrap_job = Some(BootstrapJobHandle { generation: job_gen, state, doc, opts, enabled_tools });
     }
 
     /// Non-blockingly harvests a completed background bootstrap job if finished.
@@ -2016,8 +2038,11 @@ impl TerminalState {
         }
     }
 
-    /// Resolves the `bootstrap.md` text for the first turn of a run, waiting up to `timeout` (`500 ms`)
+    /// Test helper: resolves the `bootstrap.md` text for the first turn of a run, waiting up to `timeout` (`500 ms`)
     /// on any in-flight background job and falling back to `compact_bootstrap` if still building (`§8.5`).
+    /// Production delivers the block through the Claude prompt hook's reply files, never through this call.
+    /// Returns an empty string when no job ran and no `bootstrap.md` exists yet.
+    #[cfg(test)]
     pub fn resolve_bootstrap_markdown(&mut self, timeout: std::time::Duration) -> String {
         if let Some(job) = self.bootstrap_job.clone() {
             if let Ok(guard) = job.state.0.lock() {
@@ -2032,7 +2057,7 @@ impl TerminalState {
                     }
                 }
             }
-            let compact = designos_export::agent_context::compact_bootstrap(&job.doc, &job.opts, designos_export::agent_context::DEFAULT_RULES_PACK);
+            let compact = designos_export::agent_context::compact_bootstrap(&job.doc, &job.opts, &session_rules_pack(job.enabled_tools.as_ref()));
             let page_ctx = serde_json::json!({
                 "session_id": self.session_id,
                 "doc_name": self.doc_name,
@@ -2056,13 +2081,9 @@ impl TerminalState {
             self.bootstrap_markdown = Some(md.clone());
             return md;
         }
-        let mut fallback_doc = Document::new(&self.doc_name);
-        let pid = fallback_doc.add_page(&self.current_page_name);
-        let opts = designos_export::agent_context::BootstrapOptions { current_page_id: Some(pid), ..Default::default() };
-        let boot =
-            designos_export::agent_context::bootstrap(&fallback_doc, &opts, &fallback_doc.library.enabled, designos_export::agent_context::DEFAULT_RULES_PACK);
-        self.bootstrap_markdown = Some(boot.markdown.clone());
-        boot.markdown
+        // No job ran and no `bootstrap.md` exists: there is no real document to describe, and a block built from
+        // an invented empty one would tell the agent the file is empty.
+        String::new()
     }
 
     /// Synchronizes the open file's document, currently selected page (`page`), and selection into
@@ -2257,12 +2278,7 @@ impl TerminalState {
         }
 
         // The session `SKILL.md` carries the rules pack for the tools this session enables.
-        let rules_body: std::borrow::Cow<'static, str> = match &custom_tools {
-            Some(custom) => designos_mcp::rules::generate_rules_pack(Some(&custom.enabled))
-                .map(std::borrow::Cow::Owned)
-                .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)),
-            None => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
-        };
+        let rules_body = session_rules_pack(custom_tools.as_ref().map(|custom| &custom.enabled));
         let skill_md = designos_mcp::rules::format_session_skill_md(
             &self.doc_name,
             &self.current_page_name,
@@ -12226,6 +12242,68 @@ Done!
                 assert!(first_prompt.contains(&cid.0.to_string()), "missing component id {} in first prompt", cid.0);
             }
             assert!(first_prompt.contains("lib-core-ui") || first_prompt.contains("Core UI Kit"));
+            kill_tabs(&mut st);
+        }
+
+        /// The rules pack section (section 7) of the `bootstrap.json` Studio wrote, as `(content, truncated, tokens)`.
+        fn written_rules_section(st: &TerminalState) -> (String, bool, u64) {
+            let boot_json = read_json(&st.bootstrap_json_path);
+            let sec = boot_json["sections"].as_array().expect("sections").iter().find(|s| s["id"] == "rules").expect("rules section").clone();
+            (sec["content"].as_str().expect("content").to_string(), sec["truncated"].as_bool().expect("truncated"), sec["tokens"].as_u64().expect("tokens"))
+        }
+
+        /// A document small enough that no section is trimmed by the total token budget.
+        fn light_rules_doc() -> (Document, NodeId) {
+            let mut doc = Document::new("Rules Pack Fixture");
+            let page = doc.add_page("Page 1");
+            (doc, page)
+        }
+
+        #[test]
+        fn first_turn_rules_are_the_generated_pack_for_the_default_tools() {
+            let (doc, page) = light_rules_doc();
+            let mut st = TerminalState::for_tab(8620);
+            st.sync_live_file_context(&doc, page, &[], None);
+            settle_bootstrap(&mut st);
+
+            let pack = designos_mcp::rules::GENERATED_RULES_MD.trim();
+            let (rules, truncated, tokens) = written_rules_section(&st);
+            assert_eq!(rules, pack, "bootstrap.json section 7 must be the generated E15-15 pack");
+            assert!(!truncated && tokens <= designos_export::agent_context::CAP_RULES_TOKENS as u64, "section 7 truncated or over its cap: {tokens} tokens");
+            let first_prompt = run_prompt_hook(&st);
+            assert!(first_prompt.contains(pack), "the Claude first-turn block must carry the generated pack");
+            let skill_md = std::fs::read_to_string(st.session_dir.join("SKILL.md")).expect("read SKILL.md");
+            assert!(skill_md.trim_end().ends_with(&rules), "SKILL.md and the first-turn block must carry the same rules text");
+            kill_tabs(&mut st);
+        }
+
+        #[test]
+        fn first_turn_rules_leave_out_a_tool_the_session_disables() {
+            let (doc, page) = light_rules_doc();
+            let mut st = TerminalState::for_tab(8621);
+            let enabled: std::collections::BTreeSet<String> =
+                designos_mcp::server::tools().into_iter().map(|t| t.name.to_string()).filter(|n| n != "designos_delete_node").collect();
+            std::fs::create_dir_all(&st.session_dir).expect("session dir");
+            let cfg = json!({"designos": {"enabled_tools": enabled}});
+            std::fs::write(st.session_dir.join("mcp-config.json"), serde_json::to_vec_pretty(&cfg).unwrap()).expect("mcp-config.json");
+            st.sync_live_file_context(&doc, page, &[], None);
+            settle_bootstrap(&mut st);
+
+            let expected = designos_mcp::rules::generate_rules_pack(Some(&enabled)).expect("filtered pack");
+            let (rules, truncated, _) = written_rules_section(&st);
+            assert_eq!(rules, expected.trim(), "section 7 must be the generated pack for the enabled tools");
+            assert!(!truncated);
+            assert!(!rules.contains("### `designos_delete_node`") && rules.contains("### `designos_create_node`"));
+            let first_prompt = run_prompt_hook(&st);
+            assert!(!first_prompt.contains("### `designos_delete_node`"), "the Claude first-turn block must not list a disabled tool");
+
+            // The compact fallback the hook prints when the full build is late carries the same pack.
+            let compact_reply = read_json(&st.session_dir.join("bootstrap-compact-reply.json"));
+            let compact = compact_reply["hookSpecificOutput"]["additionalContext"].as_str().expect("additionalContext");
+            assert!(
+                compact.contains("### `designos_create_node`") && !compact.contains("### `designos_delete_node`"),
+                "compact reply must use the enabled-tool pack"
+            );
             kill_tabs(&mut st);
         }
 
