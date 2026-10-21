@@ -473,6 +473,9 @@ pub struct TerminalTab {
     pub cols: u16,
     pub last_spec_json: Arc<Mutex<Option<String>>>,
     pub raw_log: Arc<Mutex<String>>,
+    /// Bytes the reader thread has trimmed off the front of `raw_log` so far (`MAX_RAW_LOG_BYTES`). A position in the
+    /// output stream is `raw_log_drained` plus an index into `raw_log`; it only grows, so a stored position never goes stale.
+    pub raw_log_drained: Arc<std::sync::atomic::AtomicUsize>,
     pub selection: Option<((u16, u16), (u16, u16))>,
     pub agent_status: Arc<Mutex<AgentTabStatus>>,
     /// Last status observed by `TerminalState::drain_status_changes` (`#687`).
@@ -545,9 +548,9 @@ pub struct TerminalTab {
     pub resumed_without_known_turn: bool,
     /// Classified mid-session failure (`AX-686`), shown as a banner above the terminal output.
     pub session_failure: Option<SessionFailure>,
-    /// Byte offset in `raw_log` where the current turn started (`UserPromptSubmit` / `PreInvocation`).
+    /// Output-stream position (see `raw_log_drained`) where the current turn started (`UserPromptSubmit` / `PreInvocation`).
     pub last_turn_log_offset: usize,
-    /// Byte length of `raw_log` last scanned for live mid-session failures so we only scan when new output arrives.
+    /// Output-stream position the live scan for mid-session failures has read up to, so it only scans when new output arrives.
     pub last_scanned_log_len: usize,
     /// Most recent user turn text submitted to this tab, resent by `Wait and retry` / `Retry` (`#686`).
     pub last_user_prompt: Option<String>,
@@ -668,6 +671,7 @@ impl TerminalTab {
         let parser = Arc::new(Mutex::new(init_parser));
         let last_spec_json = Arc::new(Mutex::new(None));
         let raw_log = Arc::new(Mutex::new(String::new()));
+        let raw_log_drained = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
         let last_output_at = Arc::new(Mutex::new(None));
         let reader_eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -677,6 +681,7 @@ impl TerminalTab {
         let parser_bg = Arc::clone(&parser);
         let spec_bg = Arc::clone(&last_spec_json);
         let log_bg = Arc::clone(&raw_log);
+        let drained_bg = Arc::clone(&raw_log_drained);
         let status_bg = Arc::clone(&agent_status);
         let output_at_bg = Arc::clone(&last_output_at);
         let eof_bg = Arc::clone(&reader_eof);
@@ -736,6 +741,8 @@ impl TerminalTab {
                                     let drain = log.len() - (MAX_RAW_LOG_BYTES / 2);
                                     let boundary = log.char_indices().map(|(i, _)| i).find(|&i| i >= drain).unwrap_or(log.len());
                                     log.drain(..boundary);
+                                    // Counted while the log lock is held, so a reader of the log sees the log and the count change together.
+                                    drained_bg.fetch_add(boundary, std::sync::atomic::Ordering::Release);
                                 }
                                 if let Some(spec) = extract_spec_json_from_log(&log) {
                                     if let Ok(mut last) = spec_bg.lock() {
@@ -773,6 +780,7 @@ impl TerminalTab {
             cols,
             last_spec_json,
             raw_log,
+            raw_log_drained,
             selection: None,
             agent_status,
             reported_status: AgentTabStatus::Idle,
@@ -970,6 +978,21 @@ impl TerminalTab {
         !self.is_shell_process() && self.is_alive()
     }
 
+    /// Output the current turn has printed so far, read from `log` (the locked contents of `raw_log`), with the stream
+    /// position it ends at; `None` while the turn has printed nothing. The reader trims the front of the log, so the
+    /// stored turn start is moved down by the trimmed bytes before it indexes the log; a turn start that was trimmed
+    /// away itself gives all that is left of the log. Call with the log guard held so the trim count and the log agree.
+    fn turn_output<'a>(&self, log: &'a str) -> Option<(usize, &'a str)> {
+        let drained = self.raw_log_drained.load(std::sync::atomic::Ordering::Acquire);
+        let start = self.last_turn_log_offset.saturating_sub(drained);
+        (log.len() > start).then(|| (drained + log.len(), log_since_offset(log, start)))
+    }
+
+    /// Last lines of the current turn's output for classifying a failure; the whole log when the turn has printed nothing.
+    fn turn_tail(&self, log: &str) -> String {
+        last_lines_for_classification(self.turn_output(log).map_or(log, |(_, turn)| turn))
+    }
+
     /// Records a classified mid-session failure on this tab and sets its status dot to `Error`.
     pub fn set_session_failure(&mut self, failure: SessionFailure) {
         let class = failure.class;
@@ -982,7 +1005,7 @@ impl TerminalTab {
     /// Clears any active mid-session failure banner (on the next turn or when the user runs its fix).
     pub fn clear_session_failure(&mut self) {
         self.session_failure = None;
-        self.last_turn_log_offset = self.raw_log.lock().map(|g| g.len()).unwrap_or(0);
+        self.last_turn_log_offset = self.raw_log.lock().map(|log| self.raw_log_drained.load(std::sync::atomic::Ordering::Acquire) + log.len()).unwrap_or(0);
         self.last_scanned_log_len = self.last_turn_log_offset;
         if let Ok(mut st) = self.agent_status.lock() {
             if matches!(*st, AgentTabStatus::Error(_)) {
@@ -2035,22 +2058,15 @@ impl TerminalState {
         }
     }
 
-    /// Retries the most recent user turn on the active tab (respawning the tab if the process exited).
+    /// Retries the most recent user turn on the active tab. A dead tab has no retry (spec 686 §8.8): the banner stays
+    /// and the user starts a new session, so a retry never spawns a second tab beside the dead one.
     /// The prompt goes through the composer send path, so it is pasted the same way as a typed message and
-    /// queued until a freshly started tab is ready. The banner stays up when the send is refused.
+    /// queued until the tab is ready. The banner stays up when the send is refused.
     fn retry_active_tab_turn(&mut self, file_path: Option<&Path>) {
-        let prompt = self.active_tab().and_then(|t| t.last_user_prompt.clone()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "continue".to_string());
-        let alive = self.active_tab_mut().is_some_and(|t| t.is_alive());
-        if !alive {
-            let preset = self
-                .active_tab()
-                .map(|t| t.spawn_preset)
-                .filter(|p| !matches!(p, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp))
-                .unwrap_or(self.active_runtime);
-            if self.spawn_tab(preset, file_path).is_err() {
-                return;
-            }
+        if !self.active_tab_mut().is_some_and(|t| t.is_alive()) {
+            return;
         }
+        let prompt = self.active_tab().and_then(|t| t.last_user_prompt.clone()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "continue".to_string());
         let outcome = self.send_system_prompt(&prompt, file_path);
         if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
             if let Some(tab) = self.active_tab_mut() {
@@ -2123,7 +2139,7 @@ impl TerminalState {
         match probe_result {
             Some(true) => self.retry_active_tab_turn(file_path),
             Some(false) => {
-                self.status_msg = Some("Still offline — check your network connection and try again.".into());
+                self.status_msg = Some("Still offline. Check your network.".into());
             }
             None => {}
         }
@@ -2691,14 +2707,7 @@ impl TerminalState {
                 }
                 if let Some(hook_error) = effect.error_class.as_deref() {
                     let tab = &mut self.tabs[tab_idx];
-                    let tail = tab
-                        .raw_log
-                        .lock()
-                        .map(|log| {
-                            let turn_slice = if tab.last_turn_log_offset < log.len() { &log[tab.last_turn_log_offset..] } else { log.as_str() };
-                            agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
-                        })
-                        .unwrap_or_default();
+                    let tail = tab.raw_log.lock().map(|log| tab.turn_tail(&log)).unwrap_or_default();
                     if let Some(failure) = agent_session_failure::classify_session_failure(tab.spawn_preset, Some(hook_error), &tail) {
                         let keeps_existing = tab
                             .session_failure
@@ -2910,14 +2919,7 @@ impl TerminalState {
                     }
                     tab.start_failure = Some(diag);
                 } else if exit_code != Some(0) && !was_stopped && tab.session_failure.is_none() {
-                    let tail = tab
-                        .raw_log
-                        .lock()
-                        .map(|log| {
-                            let turn_slice = if tab.last_turn_log_offset < log.len() { &log[tab.last_turn_log_offset..] } else { log.as_str() };
-                            agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
-                        })
-                        .unwrap_or_default();
+                    let tail = tab.raw_log.lock().map(|log| tab.turn_tail(&log)).unwrap_or_default();
                     if let Some(failure) = agent_session_failure::classify_session_failure(tab.spawn_preset, None, &tail) {
                         tab.set_session_failure(failure);
                     }
@@ -2967,20 +2969,12 @@ impl TerminalState {
                 && !matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
                 && tab.stop_state.is_none()
             {
-                let tail_opt = tab.raw_log.lock().ok().and_then(|log| {
-                    if log.len() < tab.last_turn_log_offset {
-                        tab.last_turn_log_offset = 0;
-                        tab.last_scanned_log_len = 0;
-                    }
-                    if log.len() > tab.last_scanned_log_len && log.len() > tab.last_turn_log_offset {
-                        tab.last_scanned_log_len = log.len();
-                        let turn_slice = &log[tab.last_turn_log_offset..];
-                        Some(agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string())
-                    } else {
-                        None
-                    }
+                let new_output = tab.raw_log.lock().ok().and_then(|log| {
+                    let (end, turn) = tab.turn_output(&log)?;
+                    (end > tab.last_scanned_log_len).then(|| (end, last_lines_for_classification(turn)))
                 });
-                if let Some(tail) = tail_opt {
+                if let Some((end, tail)) = new_output {
+                    tab.last_scanned_log_len = end;
                     if let Some(failure) = agent_session_failure::classify_turn_output_if_matched(tab.spawn_preset, &tail) {
                         tab.set_session_failure(failure);
                     }
@@ -4176,6 +4170,17 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     let sep = if cfg!(windows) { ";" } else { ":" };
     let combined = if current_path.is_empty() { extra_paths.join(sep) } else { format!("{}{sep}{current_path}", extra_paths.join(sep)) };
     cmd.env("PATH", combined);
+}
+
+/// `log` from byte `offset` on. An offset inside a multibyte character moves on to the next character boundary and one
+/// past the end gives an empty string, so a stale offset never panics.
+fn log_since_offset(log: &str, offset: usize) -> &str {
+    (offset..=log.len()).find(|&i| log.is_char_boundary(i)).and_then(|i| log.get(i..)).unwrap_or("")
+}
+
+/// The last `CLASSIFY_TAIL_LINES` lines of a turn's output, the text a failure is classified from.
+fn last_lines_for_classification(turn_output: &str) -> String {
+    agent_session_failure::tail_slice_last_n_lines(turn_output, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
 }
 
 /// Scans terminal output for a ```json ... ``` fence or JSON object representing a `NodeSpec`.
@@ -11337,7 +11342,7 @@ Done!
 
     #[test]
     fn a_composer_send_records_the_retry_prompt_and_dismisses_the_failure_banner() {
-        let mut st = provisioned_session(686_004);
+        let mut st = provisioned_session(686_007);
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
         isolate_zsh_from_home(&mut cmd);
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
@@ -11366,7 +11371,7 @@ Done!
     /// and the later queued write must not wipe a failure that arrived in between.
     #[test]
     fn a_queued_prompt_dismisses_the_failure_banner_when_sent_not_when_written() {
-        let mut st = provisioned_session(686_005);
+        let mut st = provisioned_session(686_008);
         let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
         isolate_zsh_from_home(&mut cmd);
         let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
@@ -11407,6 +11412,169 @@ Done!
         assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("make the hero card blue"));
         assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the queued write must not wipe a failure that arrived while it waited");
         kill_tabs(&mut st);
+    }
+
+    /// Runs `body`, then always kills the tabs: a failed assertion or a panic in the code under test leaves no child behind.
+    fn kill_tabs_after(st: &mut TerminalState, body: impl FnOnce(&mut TerminalState)) {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(st)));
+        kill_tabs(st);
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    fn wait_for_raw_log(st: &TerminalState, needle: &str) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !st.active_tab().is_some_and(|t| t.raw_log.lock().is_ok_and(|log| log.contains(needle))) {
+            assert!(std::time::Instant::now() < deadline, "the stub agent must print {needle}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
+    /// A live Claude tab that prints nothing and stays up long enough for a few polls.
+    fn quiet_claude_tab_into(st: &mut TerminalState) {
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 20'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+    }
+
+    /// Every character is three bytes, so a byte offset that is not a multiple of three sits inside a character.
+    fn box_drawing_log() -> String {
+        "─".repeat(50_000)
+    }
+
+    #[test]
+    fn log_since_offset_never_panics_on_a_stale_offset() {
+        let log = box_drawing_log();
+        // An offset inside a character moves to the next boundary; one at or past the end gives nothing.
+        for (offset, kept) in [(0, 150_000), (1, 149_997), (2, 149_997), (3, 149_997), (4, 149_994), (149_999, 0), (150_000, 0), (usize::MAX, 0)] {
+            assert_eq!(log_since_offset(&log, offset).len(), kept, "offset {offset}");
+        }
+        assert_eq!(log_since_offset("", 0), "");
+        assert_eq!(log_since_offset("abc─", 3), "─");
+    }
+
+    #[test]
+    fn the_turn_start_moves_down_with_the_bytes_the_reader_trimmed() {
+        let mut st = TerminalState::default();
+        quiet_claude_tab_into(&mut st);
+        kill_tabs_after(&mut st, |st| {
+            let tab = st.active_tab_mut().unwrap();
+            // The log kept "old ─ turn output": 1,000 bytes before it were trimmed and the turn began after "old ─ ".
+            let log = "old ─ turn output\n";
+            tab.raw_log_drained.store(1_000, std::sync::atomic::Ordering::Release);
+            tab.last_turn_log_offset = 1_000 + "old ─ ".len();
+            assert_eq!(tab.turn_output(log), Some((1_000 + log.len(), "turn output\n")));
+
+            // A turn that began inside the trimmed part owns everything that is left.
+            tab.last_turn_log_offset = 400;
+            assert_eq!(tab.turn_output(log), Some((1_000 + log.len(), log)));
+
+            // A turn that has printed nothing yet has no output.
+            tab.last_turn_log_offset = 1_000 + log.len();
+            assert_eq!(tab.turn_output(log), None);
+        });
+    }
+
+    #[test]
+    fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_live_scan() {
+        let mut st = provisioned_session(686_009);
+        quiet_claude_tab_into(&mut st);
+        kill_tabs_after(&mut st, |st| {
+            let tab = st.active_tab_mut().unwrap();
+            *tab.raw_log.lock().unwrap() = box_drawing_log();
+            tab.last_turn_log_offset = 1;
+            let _ = st.poll_live_agent_bridge();
+            assert!(st.active_tab().is_some_and(|t| t.session_failure.is_none()), "plain box-drawing output is not a failure");
+        });
+    }
+
+    #[test]
+    fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_stop_failure_scan() {
+        let mut st = provisioned_session(686_010);
+        quiet_claude_tab_into(&mut st);
+        let hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        kill_tabs_after(&mut st, |st| {
+            let tab = st.active_tab_mut().unwrap();
+            *tab.raw_log.lock().unwrap() = box_drawing_log();
+            tab.last_turn_log_offset = 1;
+            run_hook_command(&stop_failure_cmd);
+            let _ = st.poll_live_agent_bridge();
+            assert!(st.active_tab().is_some_and(|t| t.session_failure.is_some()), "the hook still raises a banner");
+        });
+    }
+
+    #[test]
+    fn a_stale_turn_offset_inside_a_multibyte_char_does_not_panic_the_exit_scan() {
+        let mut st = exited_stub_state();
+        kill_tabs_after(&mut st, |st| {
+            let tab = st.active_tab_mut().unwrap();
+            *tab.raw_log.lock().unwrap() = box_drawing_log();
+            tab.last_turn_log_offset = 1;
+            tab.spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
+            let _ = st.poll_live_agent_bridge();
+            assert!(st.active_tab().is_some_and(|t| t.session_failure.is_some()), "a non-zero exit after the start window records a failure");
+        });
+    }
+
+    /// The reader trims the front of the log past `MAX_RAW_LOG_BYTES` while a turn is open. The turn start that was
+    /// recorded before the trim must still point at the turn's own first byte, not at whatever now sits there.
+    #[test]
+    fn a_log_trim_inside_an_open_turn_keeps_the_scan_on_that_turns_output() {
+        let script = pty_fixture_path(&format!("dos-686-open-turn-trim-{}.sh", std::process::id()));
+        std::fs::write(
+            &script,
+            concat!(
+                "head -c 100000 /dev/zero | tr '\\000' p; echo\n",
+                "echo 'Error: 401 authentication_error: Invalid API key'\n",
+                "echo PRE-END\n",
+                "read go\n",
+                "echo 'API Error: 529 overloaded_error'\n",
+                "head -c 40000 /dev/zero | tr '\\000' t; echo\n",
+                "echo TURN-END\n",
+                "sleep 30\n",
+            ),
+        )
+        .expect("write stub agent script");
+        let mut st = provisioned_session(686_011);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), &format!("sh '{script}'"));
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+        kill_tabs_after(&mut st, |st| {
+            wait_for_raw_log(st, "PRE-END");
+            // The turn starts here: the earlier 401 belongs to the previous turn.
+            st.active_tab_mut().unwrap().clear_session_failure();
+            st.active_tab_mut().unwrap().write_bytes(b"\r");
+            wait_for_raw_log(st, "TURN-END");
+            let kept = st.active_tab().unwrap().raw_log.lock().unwrap().len();
+            assert!(kept <= MAX_RAW_LOG_BYTES, "the reader trimmed the log ({kept} bytes kept)");
+
+            let _ = st.poll_live_agent_bridge();
+            assert_eq!(
+                st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)),
+                Some(SessionFailureClass::ProviderServerError),
+                "the scan reads the open turn only, not the earlier output the trim left in front of it"
+            );
+        });
+        let _ = std::fs::remove_file(&script);
+    }
+
+    #[test]
+    fn retry_does_nothing_on_an_exited_tab() {
+        let mut st = exited_stub_state();
+        let failure = agent_session_failure::classify_session_failure(AgentCliPreset::Claude, None, "API Error: 529 overloaded_error\n").expect("classified");
+        assert_eq!(failure.fix, Some(FixAction::RetryText));
+        st.active_tab_mut().unwrap().set_session_failure(failure);
+        kill_tabs_after(&mut st, |st| {
+            st.apply_start_fix(FixAction::RetryText, None);
+            assert_eq!(st.tabs.len(), 1, "an exited tab has no retry, so no tab is spawned");
+            assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the exited tab keeps its banner");
+        });
     }
 
     #[test]
@@ -11574,7 +11742,7 @@ Done!
         );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while st.status_msg.as_deref() != Some("Still offline — check your network connection and try again.") {
+        while st.status_msg.as_deref() != Some("Still offline. Check your network.") {
             assert!(std::time::Instant::now() < deadline, "worker probe must report offline result on subsequent bridge poll");
             std::thread::sleep(std::time::Duration::from_millis(25));
             let _ = st.poll_live_agent_bridge();

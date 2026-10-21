@@ -662,7 +662,8 @@ impl SessionFailure {
     }
 
     /// Whether the action button is enabled given `tab_alive` and optional `now_hhmm` (`#686` §3.4, §8.2, §8.8).
-    pub fn is_action_enabled(&self, _tab_alive: bool, now_hhmm: Option<&str>) -> bool {
+    /// On a dead tab the retry actions are disabled.
+    pub fn is_action_enabled(&self, tab_alive: bool, now_hhmm: Option<&str>) -> bool {
         match &self.fix {
             None => false,
             Some(
@@ -673,8 +674,12 @@ impl SessionFailure {
                 | FixAction::OpenInstallPage(_)
                 | FixAction::OpenShell,
             ) => true,
-            Some(FixAction::RetryWhenOnline) => self.online_probe_state.load(Ordering::SeqCst) != 1,
+            // A dead tab has nothing to retry on (§8.8): only the actions that open or start something else stay.
+            Some(FixAction::RetryWhenOnline) => tab_alive && self.online_probe_state.load(Ordering::SeqCst) != 1,
             Some(FixAction::RetryText) => {
+                if !tab_alive {
+                    return false;
+                }
                 if let Some(reset) = self.reset_at.as_deref() {
                     let fallback_now;
                     let now = match now_hhmm {
@@ -1171,13 +1176,35 @@ fixture = "tests/fixtures/agent-failures/does-not-exist.txt"
     }
 
     #[test]
-    fn rate_limited_action_is_gated_against_current_clock_and_enabled_even_after_process_exit() {
+    fn rate_limited_action_is_gated_against_current_clock_and_disabled_after_process_exit() {
         let failure =
             classify_session_failure(AgentCliPreset::Claude, None, "Error: 429 rate_limit_error: Rate limit reached. Resets at 23:59\n").expect("classified");
         assert_eq!(failure.reset_at.as_deref(), Some("23:59"));
         assert!(!failure.is_action_enabled(true, Some("12:00")), "future reset time must disable Wait and retry");
         assert!(failure.is_action_enabled(true, Some("23:59")), "reaching reset time must enable Wait and retry");
-        assert!(failure.is_action_enabled(false, Some("23:59")), "Wait and retry must remain enabled even if the process exited");
+        assert!(!failure.is_action_enabled(false, Some("23:59")), "a dead tab has nothing to retry on");
+    }
+
+    /// Spec 686 §8.8: when the tab is dead, "Start a new session" still works and the retry actions are disabled.
+    #[test]
+    fn retry_actions_are_disabled_on_a_dead_tab_and_the_other_actions_stay_enabled() {
+        let retrying = [("API Error: 529 overloaded_error\n", FixAction::RetryText), ("unable to connect to network\n", FixAction::RetryWhenOnline)];
+        for (output, fix) in retrying {
+            let failure = classify_session_failure(AgentCliPreset::Claude, None, output).expect("classified");
+            assert_eq!(failure.fix, Some(fix.clone()));
+            assert!(failure.is_action_enabled(true, Some("12:00")), "{fix:?} works on a live tab");
+            assert!(!failure.is_action_enabled(false, Some("12:00")), "{fix:?} is disabled on a dead tab");
+        }
+        let lasting = [
+            ("prompt is too long\n", "Start new session"),
+            ("credit balance is too low\n", "Open billing"),
+            ("Error: 401 authentication_error: Invalid API key\n", "Run login"),
+        ];
+        for (output, label) in lasting {
+            let failure = classify_session_failure(AgentCliPreset::Claude, None, output).expect("classified");
+            assert_eq!(failure.action_label(), Some(label));
+            assert!(failure.is_action_enabled(false, Some("12:00")), "{label} still works on a dead tab");
+        }
     }
 
     #[test]
