@@ -238,10 +238,25 @@ def extract_rules_from_markdown_file(md_path: Path) -> List[str]:
     return items
 
 
+def rule_file_order_key(rel: Path) -> Tuple[str, ...]:
+    """Sort key for an upstream markdown file, given its path relative to the skills directory.
+
+    `Path` ordering follows the platform: `WindowsPath` compares case-insensitively, so there
+    `better-interface/review-format.md` came before `SKILL.md` and the regenerated `rules.lock`
+    drifted from the committed one. Comparing the path parts as plain strings gives the same
+    case-sensitive order on every platform.
+    """
+    return rel.parts
+
+
 def extract_all_upstream_rules(upstream_skills_dir: Path) -> List[Tuple[str, str]]:
     """Return ordered list of `(rule_id, rule_text)` across all upstream skill `.md` files."""
     rules: List[Tuple[str, str]] = []
-    for md_path in sorted(upstream_skills_dir.rglob("*.md")):
+    md_paths = sorted(
+        upstream_skills_dir.rglob("*.md"),
+        key=lambda p: rule_file_order_key(p.relative_to(upstream_skills_dir)),
+    )
+    for md_path in md_paths:
         rel = md_path.relative_to(upstream_skills_dir)
         skill = rel.parts[0]
         stem = md_path.stem
