@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread::JoinHandle;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use designos_doc::Document;
 use serde::{Deserialize, Serialize};
@@ -315,6 +315,44 @@ enum SnapshotOutcome {
 
 pub type SyncedSnapshotKey = (PathBuf, (u64, u64, u64));
 
+/// Retry pacing for snapshot writes that failed (disk full, folder not writable; spec edge case 5). The same
+/// content is tried again only after a pause that doubles from 1 s up to 30 s; a change of the published
+/// content is tried at once. The error text is news only the first time it happens for a given content.
+#[derive(Default)]
+pub struct WriteBackoff {
+    failed: Option<FailedWrite>,
+}
+
+struct FailedWrite {
+    key: (u64, u64, u64),
+    retry_at: Instant,
+    attempts: u32,
+    message: String,
+}
+
+impl WriteBackoff {
+    /// True while a snapshot of `key` must not be queued because its last write failed a moment ago.
+    pub fn blocks(&self, key: (u64, u64, u64), now: Instant) -> bool {
+        self.failed.as_ref().is_some_and(|f| f.key == key && now < f.retry_at)
+    }
+
+    /// Records a failed write of `key`. Returns whether `message` is news: false when the same content
+    /// already failed with the same message, so the status line is not rewritten for every retry.
+    pub fn record_failure(&mut self, key: (u64, u64, u64), message: &str, now: Instant) -> bool {
+        let previous = self.failed.take().filter(|f| f.key == key);
+        let attempts = previous.as_ref().map_or(1, |f| f.attempts.saturating_add(1));
+        let news = previous.is_none_or(|f| f.message != message);
+        let pause = Duration::from_secs((1u64 << (attempts - 1).min(5)).min(30));
+        self.failed = Some(FailedWrite { key, retry_at: now + pause, attempts, message: message.to_string() });
+        news
+    }
+
+    /// Forgets the failure: a write succeeded, or the terminal was bound to another folder.
+    pub fn clear(&mut self) {
+        self.failed = None;
+    }
+}
+
 #[derive(Default)]
 pub struct SnapshotStatus {
     pub completed: Option<SyncedSnapshotKey>,
@@ -333,6 +371,8 @@ struct WorkerShared {
     shutdown: bool,
     #[cfg(test)]
     last_writer_thread: Option<std::thread::ThreadId>,
+    #[cfg(test)]
+    jobs_executed: u64,
 }
 
 type WorkerSync = Arc<(Mutex<WorkerShared>, Condvar, Condvar)>;
@@ -441,6 +481,12 @@ impl SnapshotWorker {
         let (lock, _, _) = &*self.shared;
         lock.lock().ok().and_then(|s| s.last_writer_thread)
     }
+
+    #[cfg(test)]
+    pub fn jobs_executed(&self) -> u64 {
+        let (lock, _, _) = &*self.shared;
+        lock.lock().map(|s| s.jobs_executed).unwrap_or(0)
+    }
 }
 
 impl Drop for SnapshotWorker {
@@ -498,6 +544,7 @@ fn worker_loop(shared: WorkerSync) {
         #[cfg(test)]
         {
             state.last_writer_thread = Some(std::thread::current().id());
+            state.jobs_executed += 1;
         }
         if state.generation == job_gen && state.latest.is_none() {
             match res {
@@ -824,6 +871,71 @@ mod tests {
         assert!(dir.join("canvas.designos").is_file());
         drop(worker);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A disk that refuses the writes must not be hit again on every painted frame: each frame would clone
+    /// the document, serialize it on the writer and report the same error. The same content is retried only
+    /// after a pause; a change of the published content (spec edge case 5) retries at once.
+    #[test]
+    fn a_failing_write_is_not_retried_every_frame() {
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session(&unique_test_id("write-backoff"));
+        let blocked = st.session_dir.clone();
+        std::fs::create_dir_all(blocked.parent().expect("sessions root")).expect("sessions root");
+        std::fs::write(&blocked, b"a file where the session folder should be").expect("block the folder");
+        let mut doc = Document::new("Disk Full");
+        let page = doc.add_page("Page 1");
+
+        for _ in 0..10 {
+            st.sync_live_file_context(&doc, page, &[], None);
+            st.flush_live_sync();
+        }
+        assert_eq!(st.snapshot_jobs_executed(), 1, "ten frames with the same content must try the failing write once");
+        assert!(st.status_msg.as_deref().is_some_and(|m| m.contains("Failed to create session dir")), "the failure is reported: {:?}", st.status_msg);
+
+        st.status_msg = None;
+        st.sync_live_file_context(&doc, page, &[page], None);
+        st.flush_live_sync();
+        assert_eq!(st.snapshot_jobs_executed(), 2, "new content is tried at once");
+
+        // Once the disk takes the write again, the next change publishes.
+        std::fs::remove_file(&blocked).expect("unblock the folder");
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        assert!(blocked.join("canvas.designos").is_file(), "the canvas is published after the disk recovers");
+        st.shutdown();
+    }
+
+    #[test]
+    fn write_backoff_pauses_the_same_content_with_a_growing_delay_and_reports_it_once() {
+        let t0 = Instant::now();
+        let (a, b) = ((1, 1, 1), (2, 1, 1));
+        let mut backoff = WriteBackoff::default();
+        assert!(!backoff.blocks(a, t0), "nothing failed yet");
+
+        assert!(backoff.record_failure(a, "disk full", t0), "the first failure is news");
+        assert!(backoff.blocks(a, t0 + Duration::from_millis(999)), "the same content waits 1 s");
+        assert!(!backoff.blocks(a, t0 + Duration::from_secs(1)), "and is tried again after it");
+        assert!(!backoff.blocks(b, t0), "other content is tried at once");
+
+        let t1 = t0 + Duration::from_secs(1);
+        assert!(!backoff.record_failure(a, "disk full", t1), "the same failure is not news again");
+        assert!(backoff.blocks(a, t1 + Duration::from_millis(1999)), "the pause doubles to 2 s");
+        assert!(!backoff.blocks(a, t1 + Duration::from_secs(2)));
+
+        assert!(backoff.record_failure(a, "permission denied", t1), "a different error text is news");
+
+        let mut now = t1;
+        for _ in 0..12 {
+            backoff.record_failure(a, "disk full", now);
+            now += Duration::from_secs(1);
+        }
+        let last = now - Duration::from_secs(1);
+        assert!(backoff.blocks(a, last + Duration::from_secs(29)) && !backoff.blocks(a, last + Duration::from_secs(30)), "the pause stops at 30 s");
+
+        assert!(backoff.record_failure(b, "disk full", now), "failing content that changed is news again");
+        backoff.clear();
+        assert!(!backoff.blocks(b, now), "a success clears the pause");
     }
 
     #[test]

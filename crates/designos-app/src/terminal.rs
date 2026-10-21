@@ -1207,6 +1207,8 @@ pub struct TerminalState {
     /// publish would bring the folder back. A rebind (`update_session_dir_paths`) or an agent start
     /// (`provision_session_agent_files`) gives the terminal a folder again and clears it.
     session_closed: bool,
+    /// Pauses the retry of a snapshot write that failed (`#690` edge case 5).
+    write_backoff: crate::agent_session_files::WriteBackoff,
 }
 
 impl Default for TerminalState {
@@ -1450,6 +1452,7 @@ impl TerminalState {
             last_copied_failure_details: None,
             snapshot_worker: crate::agent_session_files::SnapshotWorker::new(),
             session_closed: false,
+            write_backoff: crate::agent_session_files::WriteBackoff::default(),
         }
     }
 
@@ -1740,6 +1743,7 @@ impl TerminalState {
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
+        self.write_backoff.clear();
         self.active_run_id = format!("{}-1-{}", self.session_id, self.next_run_seq.max(1));
         self.live_spec_path = session_dir.join("live-spec.json");
         self.live_doc_sync_path = session_dir.join("doc-sync.designos");
@@ -2181,17 +2185,25 @@ impl TerminalState {
         if let Some((dir, key)) = status.completed {
             if dir == self.session_dir {
                 self.last_synced_key = Some(key);
+                self.write_backoff.clear();
             }
         }
+        let mut news = status.error.clone();
         if let Some((dir, key)) = status.failed {
             if dir == self.session_dir && self.last_synced_key == Some(key) {
                 self.last_synced_key = None;
+                // A write error (not a publish held back for an unread agent edit) pauses the retry of the same content.
+                if let Some(ref e) = status.error {
+                    if !self.write_backoff.record_failure(key, e, std::time::Instant::now()) {
+                        news = None;
+                    }
+                }
             }
         }
-        if let Some(ref e) = status.error {
+        if let Some(ref e) = news {
             self.status_msg = Some(e.clone());
         }
-        status.error
+        news
     }
 
     /// Waits for any in-flight or queued off-UI-thread snapshot write to finish and reconciles
@@ -2204,6 +2216,12 @@ impl TerminalState {
     #[cfg(test)]
     pub fn snapshot_worker_thread_id(&self) -> Option<std::thread::ThreadId> {
         self.snapshot_worker.last_writer_thread_id()
+    }
+
+    /// Test probe: how many snapshot jobs the writer has run for this terminal.
+    #[cfg(test)]
+    pub fn snapshot_jobs_executed(&self) -> u64 {
+        self.snapshot_worker.jobs_executed()
     }
 
     /// Synchronizes the open file's document, currently selected page (`page`), and selection into
@@ -2265,6 +2283,9 @@ impl TerminalState {
         };
         let key = (doc.mutation_epoch(), page.0, selection_key);
         if self.last_synced_key != Some(key) {
+            if self.write_backoff.blocks(key, std::time::Instant::now()) {
+                return;
+            }
             // The agent may have appended an edit the editor has not read yet (the log is polled
             // after this runs in a frame). A canvas written now would lack it, and the agent's
             // session would take that for the user undoing it. Ask before the snapshot is queued
@@ -2329,6 +2350,7 @@ impl TerminalState {
     fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
         self.snapshot_worker.cancel_and_wait();
         self.session_closed = false;
+        self.write_backoff.clear();
         self.last_synced_key = None;
         let job = crate::agent_session_files::SnapshotJob {
             session_dir: self.session_dir.clone(),
