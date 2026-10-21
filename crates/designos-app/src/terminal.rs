@@ -2039,11 +2039,7 @@ impl TerminalState {
     /// The prompt goes through the composer send path, so it is pasted the same way as a typed message and
     /// queued until a freshly started tab is ready. The banner stays up when the send is refused.
     fn retry_active_tab_turn(&mut self, file_path: Option<&Path>) {
-        let prompt = self
-            .active_tab()
-            .and_then(|t| t.last_user_prompt.clone())
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "continue".to_string());
+        let prompt = self.active_tab().and_then(|t| t.last_user_prompt.clone()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "continue".to_string());
         let alive = self.active_tab_mut().is_some_and(|t| t.is_alive());
         if !alive {
             let preset = self
@@ -11337,6 +11333,33 @@ Done!
             Some(SessionFailureClass::ProviderServerError),
             "repeated StopFailure after Retry must fire again"
         );
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn a_composer_send_records_the_retry_prompt_and_dismisses_the_failure_banner() {
+        let mut st = provisioned_session(686_004);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("API Error: 529 overloaded_error\n");
+            }
+        }
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the hook raises the banner");
+
+        let outcome = st.send_to_agent("make the hero card blue", None);
+        assert_eq!(outcome, crate::agent_composer::SendOutcome::Written);
+        assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("make the hero card blue"), "Retry must resend the composer text");
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "a delivered composer message starts a new turn and clears the banner");
         kill_tabs(&mut st);
     }
 
