@@ -3438,6 +3438,10 @@ fn write_agy_session_plugin(session_dir: &Path, mcp_config_bytes: &[u8]) {
 pub fn write_gemini_session_config(session_dir: &Path, mcp_config: &serde_json::Value) {
     let _argv = build_gemini_mcp_add_argv(mcp_config);
     let mut gemini_cfg = mcp_config.clone();
+    // `designos.enabled_tools` is read by `designos-mcp`; Gemini's settings file only takes the server entry.
+    if let Some(obj) = gemini_cfg.as_object_mut() {
+        obj.remove("designos");
+    }
     if let Some(designos) = gemini_cfg.get_mut("mcpServers").and_then(|s| s.get_mut("designos")).and_then(|d| d.as_object_mut()) {
         designos.insert("trust".to_string(), serde_json::Value::Bool(true));
     }
@@ -7815,6 +7819,7 @@ Done!
         let parsed: serde_json::Value = serde_json::from_str(&session_settings).expect("parse .gemini/settings.json");
         assert!(parsed["mcpServers"]["designos"]["command"].as_str().is_some());
         assert_eq!(parsed["mcpServers"]["designos"]["trust"].as_bool(), Some(true));
+        assert!(parsed.get("designos").is_none(), "Gemini settings must not carry the designos.enabled_tools block");
         assert_eq!(parsed["mcpServers"]["designos"]["env"]["DESIGNOS_FILE"].as_str(), Some("/tmp/gemini-session-file.designos"));
         assert!(st.session_dir.join(".gemini").join("trustedFolders.json").is_file(), "trustedFolders.json must be written in session_dir/.gemini/");
         assert!(st.session_dir.join("GEMINI.md").is_file(), "GEMINI.md must be written in session_dir");
