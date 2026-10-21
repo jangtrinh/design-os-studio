@@ -7799,6 +7799,7 @@ Done!
         let page1 = doc.add_page("Page 1");
         let page2 = doc.add_page("Page 2");
         st.sync_live_file_context(&doc, page1, &[], None);
+        st.flush_live_sync();
 
         let mcp_cfg_path = st.session_dir.join("mcp-config.json");
         let initial_cfg = read_json(&mcp_cfg_path);
@@ -7811,6 +7812,7 @@ Done!
         std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&custom_cfg).unwrap()).unwrap();
 
         st.sync_live_file_context(&doc, page2, &[], None);
+        st.flush_live_sync();
 
         let after_cfg = read_json(&mcp_cfg_path);
         assert_eq!(
@@ -7845,6 +7847,7 @@ Done!
         std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
 
         st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
 
         let after = read_json(&mcp_cfg_path);
         assert_eq!(after["designos"]["enabled_tools"], serde_json::json!(["designos_get_document", "designos_lint"]));
@@ -7854,6 +7857,7 @@ Done!
         // A session on the default never gets a frozen copy of the tool list.
         let mut default_st = TerminalState::for_tab(797);
         default_st.sync_live_file_context(&doc, page, &[], None);
+        default_st.flush_live_sync();
         assert!(read_json(&default_st.session_dir.join("mcp-config.json")).get("designos").is_none());
         let _ = std::fs::remove_dir_all(&st.session_dir);
         let _ = std::fs::remove_dir_all(&default_st.session_dir);
@@ -8919,6 +8923,7 @@ Done!
         let mut doc = Document::new("Gemini Session Settings File");
         let page = doc.add_page("Page 1");
         st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/gemini-session-file.designos")));
+        st.flush_live_sync();
 
         let session_settings_path = st.session_dir.join(".gemini").join("settings.json");
         let session_settings = std::fs::read_to_string(&session_settings_path).expect("<session_dir>/.gemini/settings.json");
@@ -8940,6 +8945,7 @@ Done!
         let mut doc = Document::new("Gemini Live Check File");
         let page = doc.add_page("Page 1");
         st.sync_live_file_context(&doc, page, &[], Some(std::path::Path::new("/tmp/gemini-live-check.designos")));
+        st.flush_live_sync();
 
         let settings_path = st.session_dir.join(".gemini").join("settings.json");
         let trusted_path = st.session_dir.join(".gemini").join("trustedFolders.json");

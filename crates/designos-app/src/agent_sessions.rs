@@ -1393,14 +1393,7 @@ mod tests {
         save_registry(&st.session_dir, &st.session_registry).expect("save initial registry");
 
         st.resume_last_session(None).expect("spawn resume");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        while std::time::Instant::now() < deadline {
-            let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
 
         let failure = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card must be present");
         assert_eq!(failure.cause, crate::agent_start_failure::StartFailureCause::NotLoggedIn);
@@ -1417,14 +1410,7 @@ mod tests {
         // Now test UnknownFlag on resume: must keep OpenShell fix and Exited status.
         write_executable_script(&bin_dir, "claude", "#!/bin/sh\necho 'error: unknown option --bad-flag'\nexit 1\n");
         st.resume_last_session(None).expect("spawn resume for unknown flag");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
-        while std::time::Instant::now() < deadline {
-            let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
+        st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
         let failure2 = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card for unknown flag");
         assert_eq!(failure2.cause, crate::agent_start_failure::StartFailureCause::UnknownFlag);
         assert_eq!(failure2.fix, crate::agent_start_failure::FixAction::OpenShell);
@@ -1548,7 +1534,7 @@ mod tests {
         st.path_prepend.push(bin_dir);
         st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn silent exiting claude");
 
-        let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        let wait_deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
         while st.active_tab_mut().unwrap().is_alive() {
             assert!(std::time::Instant::now() < wait_deadline, "silent stub must exit");
             std::thread::sleep(std::time::Duration::from_millis(10));

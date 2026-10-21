@@ -359,6 +359,7 @@ fn small_published_app() -> (App, NodeId, std::path::PathBuf) {
     let mut app = App::new(doc);
     app.terminal = TerminalState::for_tab(unique_tab_id());
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let canvas = app.terminal.live_canvas_path.clone();
     assert!(canvas.exists(), "precondition: the first publish wrote the canvas");
     (app, frame, canvas)
@@ -378,6 +379,7 @@ fn the_editor_holds_its_canvas_back_while_an_agent_edit_is_unread_and_publishes_
     app.selection = vec![frame];
     std::fs::remove_file(&canvas).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     assert!(!canvas.exists(), "the canvas must not be rewritten while an agent edit sits unread in the log");
 
     // The same frame reads the log and applies the edit, which publishes the canvas with it.
@@ -448,6 +450,7 @@ fn a_partial_log_line_left_by_a_crashed_writer_does_not_block_the_canvas() {
     app.selection = vec![frame];
     std::fs::remove_file(&canvas).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     assert!(canvas.exists(), "a line without a newline is not an edit the editor can read: it must not hold the canvas back");
 
     app.terminal.shutdown();
@@ -584,6 +587,7 @@ fn bind_then_merge_then_export_spec_round_trips() {
 
     // 1. Editor publishes the scoped canvas (which now carries variables & styles).
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
 
     // 2. Agent binds `var:brand/primary`, `var:space/card-pad`, and `text_style: "Heading/H1"` on the scoped canvas.
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
