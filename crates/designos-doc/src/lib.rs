@@ -1810,6 +1810,36 @@ mod tests {
     }
 
     #[test]
+    fn run_end_clear_without_agent_matches_only_the_finishing_run_id() {
+        set_mock_now_ms(Some(1_000_000));
+        let mut d = Document::new("t");
+        let page = d.add_page("Page 1");
+        let f1 = d.alloc_id();
+        let frame1 = d.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let f2 = d.alloc_id();
+        let frame2 = d.insert(page, Node::frame(f2, Rect::new(240.0, 0.0, 200.0, 200.0))).unwrap();
+        let f3 = d.alloc_id();
+        let frame3 = d.insert(page, Node::frame(f3, Rect::new(480.0, 0.0, 200.0, 200.0))).unwrap();
+
+        d.set_in_progress(
+            frame1,
+            Some(InProgress { run_id: Some("p1-tab-1-1-1".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(
+            frame2,
+            Some(InProgress { run_id: Some("p1-tab-1-2-2".into()), agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: Some(900), status: None }),
+        );
+        d.set_in_progress(frame3, Some(InProgress { run_id: None, agent: Some("claude".into()), since_ms: now_ms(), stale_after_s: None, status: None }));
+
+        let cleared = d.clear_in_progress_for_run_or_agent(Some("p1-tab-1-1-1"), None);
+        assert_eq!(cleared, vec![frame1]);
+        assert!(d.get_in_progress(frame1).is_none());
+        assert!(d.get_in_progress(frame2).is_some(), "other concurrent tab's flag must stay active");
+        assert!(d.get_in_progress(frame3).is_some(), "run_id: None entry must never be cleared by a run id");
+        set_mock_now_ms(None);
+    }
+
+    #[test]
     fn in_progress_stale_minutes_setting_controls_default_staleness() {
         set_mock_now_ms(Some(10_000_000));
         set_in_progress_stale_minutes(Some(2));

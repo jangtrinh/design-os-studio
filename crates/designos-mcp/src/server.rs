@@ -2142,6 +2142,23 @@ mod tests {
         record(s.call("designos_update_node", json!({"node_id": other_f, "name": "Blocked"})).unwrap_err(), ErrorCode::OutsideOwnedFrames, true);
         s.engine.owned_frames = None;
 
+        // 53b. InProgressTargetNotRoot, NodeInProgressByOtherRun
+        let flag_root =
+            s.call("designos_create_node", json!({"parent_id": tok_page.0, "kind": "frame", "name": "Flagged"})).unwrap()["node"]["id"].as_u64().unwrap();
+        let flag_child =
+            s.call("designos_create_node", json!({"parent_id": flag_root, "kind": "rectangle", "name": "Inner"})).unwrap()["node"]["id"].as_u64().unwrap();
+        record(
+            s.call("designos_set_in_progress", json!({"node_ids": [flag_child], "value": true, "run_id": "run-a"})).unwrap_err(),
+            ErrorCode::InProgressTargetNotRoot,
+            true,
+        );
+        s.call("designos_set_in_progress", json!({"node_ids": [flag_root], "value": true, "run_id": "run-a"})).unwrap();
+        record(
+            s.call("designos_set_in_progress", json!({"node_ids": [flag_root], "value": true, "run_id": "run-b"})).unwrap_err(),
+            ErrorCode::NodeInProgressByOtherRun,
+            true,
+        );
+
         // 54-65. Codes owned by other specs' tools: lint, guidelines, design-system search, screenshot, prompts
         record(s.call("designos_lint", json!({"preset": "nope"})).unwrap_err(), ErrorCode::UnknownPreset, true);
         record(s.call("designos_lint", json!({"rules": ["nope"]})).unwrap_err(), ErrorCode::UnknownRule, true);

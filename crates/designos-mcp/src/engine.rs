@@ -773,10 +773,15 @@ impl Engine {
                 }
                 if let Some(stale) = a.stale_after_s {
                     if !(60..=86_400).contains(&stale) {
-                        return Err("stale_after_s must be between 60 and 86400".into());
+                        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/stale_after_s", "stale_after_s must be between 60 and 86400")
+                            .with_received(json!(stale))
+                            .with_expected("integer seconds from 60 to 86400"));
                     }
                 }
-                let flag = a.value.or(a.in_progress).ok_or_else(|| "missing required boolean field 'value'".to_string())?;
+                let flag = a
+                    .value
+                    .or(a.in_progress)
+                    .ok_or_else(|| ToolError::new(ErrorCode::MissingField, "/value", "missing required boolean field 'value'").with_expected("boolean"))?;
                 let mut ids = a.node_ids.unwrap_or_default();
                 if let Some(single) = a.node_id {
                     if !ids.contains(&single) {
@@ -784,10 +789,13 @@ impl Engine {
                     }
                 }
                 if ids.is_empty() {
-                    return Err("node_ids must contain at least 1 node ID".into());
+                    return Err(ToolError::new(ErrorCode::InvalidArguments, "/node_ids", "node_ids must contain at least 1 node ID")
+                        .with_corrected_example(json!({ "node_ids": [1], "value": true })));
                 }
                 if ids.len() > 200 {
-                    return Err("node_ids must contain at most 200 node IDs".into());
+                    return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/node_ids", "node_ids must contain at most 200 node IDs")
+                        .with_received(json!(ids.len()))
+                        .with_expected("1 to 200 node IDs"));
                 }
                 let effective_run_id = self.resolve_agent_run_id(a.run_id.as_deref());
                 let effective_agent = self.resolve_agent_name(a.agent.as_deref());
@@ -797,45 +805,29 @@ impl Engine {
                 // Pre-validate every target node before mutating any state.
                 for &raw_id in &ids {
                     if raw_id == 0 || self.doc.get(NodeId(raw_id)).is_none() {
-                        return Err(serde_json::to_string(&json!({
-                            "code": "NODE_NOT_FOUND",
-                            "node_id": raw_id,
-                            "message": format!("node {raw_id} not found"),
-                            "safe_to_retry": true
-                        }))
-                        .unwrap());
+                        return Err(ToolError::new(ErrorCode::NodeNotFound, "/node_ids", format!("node {raw_id} not found")).with_received(json!(raw_id)));
                     }
                     let id = NodeId(raw_id);
                     if flag {
                         if let Err(root_opt) = self.doc.is_in_progress_root(id) {
-                            let valid_options: Vec<u64> = root_opt.into_iter().map(|r| r.0).collect();
-                            return Err(serde_json::to_string(&json!({
-                                "code": "IN_PROGRESS_TARGET_NOT_ROOT",
-                                "node_id": raw_id,
-                                "root_frame_id": root_opt.map(|r| r.0),
-                                "valid_options": valid_options,
-                                "message": match root_opt {
-                                    Some(r) => format!("node {raw_id} is not a root frame; target root frame {} instead", r.0),
-                                    None => format!("node {raw_id} is not a root frame"),
-                                },
-                                "safe_to_retry": true
-                            }))
-                            .unwrap());
+                            let message = match root_opt {
+                                Some(r) => format!("node {raw_id} is not a root frame; target root frame {} instead", r.0),
+                                None => format!("node {raw_id} is not a root frame"),
+                            };
+                            return Err(ToolError::new(ErrorCode::InProgressTargetNotRoot, "/node_ids", message)
+                                .with_received(json!({"node_id": raw_id, "root_frame_id": root_opt.map(|r| r.0)}))
+                                .with_valid_options(root_opt.into_iter().map(|r| r.0.to_string())));
                         }
                         if !a.force {
                             if let Some(existing) = self.doc.get_in_progress(id) {
                                 if let Some(ex_run) = &existing.run_id {
                                     if effective_run_id.as_deref() != Some(ex_run.as_str()) {
-                                        return Err(serde_json::to_string(&json!({
-                                            "code": "NODE_IN_PROGRESS_BY_OTHER_RUN",
-                                            "node_id": raw_id,
-                                            "existing_run_id": ex_run,
-                                            "existing_agent": existing.agent,
-                                            "message": format!("node {raw_id} is already flagged in_progress by run '{ex_run}'"),
-                                            "next_step": "Pass force:true only when the other run is known dead.",
-                                            "safe_to_retry": true
-                                        }))
-                                        .unwrap());
+                                        return Err(ToolError::new(
+                                            ErrorCode::NodeInProgressByOtherRun,
+                                            "/node_ids",
+                                            format!("node {raw_id} is already flagged in_progress by run '{ex_run}'"),
+                                        )
+                                        .with_received(json!({"node_id": raw_id, "existing_run_id": ex_run, "existing_agent": existing.agent})));
                                     }
                                 }
                             }
@@ -2094,6 +2086,13 @@ pub fn tools() -> Vec<Value> {
                 "idempotency_key": { "type": "string", "maxLength": 128 }
             }
         },
+        "outputSchema": tool_output_schema(
+            json!({
+                "updated": {"type": "array"},
+                "changed": {"type": "boolean"}
+            }),
+            &["updated", "changed"],
+        ),
         "annotations": {
             "readOnlyHint": false,
             "destructiveHint": false,

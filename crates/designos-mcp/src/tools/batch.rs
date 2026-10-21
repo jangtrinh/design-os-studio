@@ -3331,8 +3331,10 @@ mod tests {
                 }),
             )
             .unwrap_err();
-        let conflict_json: Value = serde_json::from_str(&conflict).unwrap();
-        assert_eq!(conflict_json["code"], "NODE_IN_PROGRESS_BY_OTHER_RUN");
+        let conflict_json = conflict.to_json_value();
+        assert_eq!(conflict_json["code"], "BATCH_OP_FAILED");
+        assert_eq!(conflict_json["cause"]["code"], "NODE_IN_PROGRESS_BY_OTHER_RUN");
+        assert_eq!(conflict_json["cause"]["received"]["existing_run_id"], "run_test_1");
 
         // Clearing on run end removes the entry
         let cleared = engine.doc.clear_in_progress_for_run_or_agent(Some("run_test_1"), Some("Claude Code"));
@@ -3401,9 +3403,10 @@ mod tests {
 
         // Standalone tool refuses non-root text and reports root_frame_id
         let err = engine.call("designos_set_in_progress", json!({ "node_ids": [text_id], "value": true })).unwrap_err();
-        let err_json: Value = serde_json::from_str(&err).unwrap();
+        let err_json = err.to_json_value();
         assert_eq!(err_json["code"], "IN_PROGRESS_TARGET_NOT_ROOT");
-        assert_eq!(err_json["root_frame_id"], root_id);
+        assert_eq!(err_json["received"]["root_frame_id"], root_id);
+        assert_eq!(err_json["valid_options"], json!([root_id.to_string()]));
 
         // Batch op also refuses non-root text and reports root_frame_id
         let batch_err = engine
@@ -3418,9 +3421,11 @@ mod tests {
                 }),
             )
             .unwrap_err();
-        let batch_err_json: Value = serde_json::from_str(&batch_err).unwrap();
-        assert_eq!(batch_err_json["code"], "IN_PROGRESS_TARGET_NOT_ROOT");
-        assert_eq!(batch_err_json["root_frame_id"], root_id);
+        let batch_err_json = batch_err.to_json_value();
+        assert_eq!(batch_err_json["code"], "BATCH_OP_FAILED");
+        assert_eq!(batch_err_json["cause"]["code"], "IN_PROGRESS_TARGET_NOT_ROOT");
+        assert_eq!(batch_err_json["cause"]["received"]["root_frame_id"], root_id);
+        assert_eq!(batch_err_json["cause"]["valid_options"], json!([root_id.to_string()]));
     }
 
     #[test]

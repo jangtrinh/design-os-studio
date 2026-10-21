@@ -966,7 +966,7 @@ impl Document {
                         path: path.to_string(),
                         received: None,
                         expected: None,
-                        valid_options: Vec::new(),
+                        valid_options: root_opt.map(|r| r.0.to_string()).into_iter().collect(),
                         corrected_example: None,
                         safe_to_retry: true,
                     });
