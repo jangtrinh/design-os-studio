@@ -5,6 +5,7 @@ use crate::tools::errors::{ErrorCode, ToolError};
 use designos_doc::query::{
     run_with_env, QueryError, QueryFormat, QueryOptions, DEFAULT_LIMIT, DEFAULT_MAX_SCANNED, MAX_LIMIT, MAX_MAX_SCANNED, MIN_MAX_SCANNED,
 };
+use designos_doc::lint::LintEnv;
 use designos_doc::{Document, NodeId};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -81,9 +82,8 @@ pub fn tool_schema(id_schema: &Value) -> (Value, Vec<&'static str>) {
 }
 
 /// Maps a [`QueryError`] onto the named MCP catalogue. `scope_path` is the argument that named the
-/// scope (`/page_id` or `/node_id`). The catalogue has no `CURSOR_STALE` or `RULE_UNAVAILABLE`:
-/// a stale cursor is an invalid cursor whose `next_step` says to restart, and an unavailable rule
-/// is reported as invalid arguments that are not safe to retry unchanged.
+/// scope (`/page_id` or `/node_id`). A stale cursor is `CURSOR_STALE` (restart without a cursor); a
+/// rule the session cannot evaluate is `RULE_UNAVAILABLE`, whose message names the reason.
 fn query_error(err: QueryError, scope_path: &str) -> ToolError {
     match err {
         QueryError::InvalidSelector { message, corrected_example } => {
@@ -91,24 +91,23 @@ fn query_error(err: QueryError, scope_path: &str) -> ToolError {
         }
         QueryError::InvalidCursor { message } => ToolError::new(ErrorCode::InvalidCursor, "/cursor", message),
         QueryError::CursorStale { cursor_epoch, document_epoch } => ToolError::new(
-            ErrorCode::InvalidCursor,
+            ErrorCode::CursorStale,
             "/cursor",
-            format!("CURSOR_STALE: cursor revision {cursor_epoch} does not match document revision {document_epoch}"),
-        )
-        .with_next_step("Run the query again without a cursor."),
+            format!("cursor revision {cursor_epoch} does not match document revision {document_epoch}"),
+        ),
         QueryError::UnknownRule { rule } => ToolError::new(ErrorCode::UnknownRule, "/selector", format!("unknown lint rule '{rule}' in has-problem()"))
             .with_valid_options(designos_doc::lint::all_rule_ids()),
         QueryError::RuleUnavailable { rule, reason } => {
-            ToolError::new(ErrorCode::InvalidArguments, "/selector", format!("RULE_UNAVAILABLE: lint rule '{rule}' cannot be evaluated ({reason})"))
-                .with_safe_to_retry(false)
+            ToolError::new(ErrorCode::RuleUnavailable, "/selector", format!("lint rule '{rule}' cannot be evaluated ({reason})"))
         }
         QueryError::NodeNotFound { id } => ToolError::new(ErrorCode::NodeNotFound, scope_path, format!("node {} not found", id.0)),
         QueryError::ExactlyOneScope => ToolError::new(ErrorCode::ExactlyOneScope, "", "provide at most one of page_id or node_id"),
     }
 }
 
-/// Executes `designos_query_xpath` against `doc` and `active_page_id`.
-pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_args: Value) -> Result<Value, ToolError> {
+/// Executes `designos_query_xpath` against `doc` and `active_page_id`. `env` is the session's lint
+/// environment: without a text engine, a `has-problem` on a text rule is `RULE_UNAVAILABLE`.
+pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, env: &dyn LintEnv, raw_args: Value) -> Result<Value, ToolError> {
     let args: QueryXpathToolArgs = parse(raw_args)?;
 
     if args.selector.trim().is_empty() || args.selector.len() > 2048 {
@@ -177,7 +176,7 @@ pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_a
             hardcoded: args.hardcoded,
             ..Default::default()
         },
-        Some(&designos_render::RenderLintEnv),
+        Some(env),
     )
     .map_err(|e| query_error(e, scope_path))?;
 
@@ -292,9 +291,30 @@ mod tests {
         let cursor = page_one["cursor"].as_str().expect("a one-row page leaves a cursor").to_string();
         engine.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame", "name": "Late"})).unwrap();
         let err = engine.call("designos_query_xpath", json!({"selector": "//*", "page_id": page.0, "limit": 1, "cursor": cursor})).unwrap_err();
-        assert_eq!(err.code, ErrorCode::InvalidCursor);
+        assert_eq!(err.code, ErrorCode::CursorStale);
+        assert_eq!(err.code.as_str(), "CURSOR_STALE");
         assert_eq!(err.path, "/cursor");
-        assert!(err.message.starts_with("CURSOR_STALE"), "{err:?}");
+        assert!(err.safe_to_retry, "a stale cursor is safe to retry from the start: {err:?}");
         assert!(err.next_step.contains("without a cursor"), "{err:?}");
+        let malformed = engine.call("designos_query_xpath", json!({"selector": "//*", "page_id": page.0, "cursor": "not a cursor"})).unwrap_err();
+        assert_eq!(malformed.code, ErrorCode::InvalidCursor, "a cursor that cannot be read stays INVALID_CURSOR: {malformed:?}");
+    }
+
+    #[test]
+    fn a_text_rule_without_a_text_engine_is_rule_unavailable_naming_the_reason() {
+        let (mut engine, page) = engine_with_text_frame();
+        engine.disable_text_lint_engine = true;
+        let err = engine.call("designos_query_xpath", json!({"selector": "//TEXT[has-problem('text-truncated')]", "page_id": page.0})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::RuleUnavailable, "{err:?}");
+        assert_eq!(err.code.as_str(), "RULE_UNAVAILABLE");
+        assert_eq!(err.path, "/selector");
+        assert!(err.message.contains("text-truncated") && err.message.contains("no_text_engine"), "the reason is named: {err:?}");
+        assert!(err.next_step.contains("Remove the rule"), "{err:?}");
+        // A rule that needs no text engine still answers.
+        let ok = engine.call("designos_query_xpath", json!({"selector": "//FRAME[has-problem('zero-bounds')]", "page_id": page.0}));
+        assert!(ok.is_ok(), "{ok:?}");
+        engine.disable_text_lint_engine = false;
+        let with_engine = engine.call("designos_query_xpath", json!({"selector": "//TEXT[has-problem('text-truncated')]", "page_id": page.0}));
+        assert!(with_engine.is_ok(), "{with_engine:?}");
     }
 }

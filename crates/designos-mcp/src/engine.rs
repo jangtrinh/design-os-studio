@@ -905,7 +905,7 @@ impl Engine {
             }
             "designos_query_xpath" | "query_nodes" => {
                 self.settle_layout();
-                crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), args)
+                crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), self.lint_env(), args)
             }
             "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from),
             "designos_lint" | "check_design" | "designos_lint_fix" => {

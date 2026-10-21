@@ -2534,6 +2534,25 @@ mod tests {
             true,
         );
 
+        // 68. CursorStale (an edit between pages)
+        let first_page = s.call("designos_query_xpath", json!({"selector": "//*", "page_id": tok_page.0, "limit": 1})).unwrap();
+        let stale_cursor = first_page["cursor"].as_str().expect("a one-row page leaves a cursor").to_string();
+        s.call("designos_create_node", json!({"parent_id": tok_page.0, "kind": "frame", "name": "QueryEdit"})).unwrap();
+        record(
+            s.call("designos_query_xpath", json!({"selector": "//*", "page_id": tok_page.0, "limit": 1, "cursor": stale_cursor})).unwrap_err(),
+            ErrorCode::CursorStale,
+            true,
+        );
+
+        // 69. RuleUnavailable (a text rule while the session has no text engine)
+        s.engine.disable_text_lint_engine = true;
+        record(
+            s.call("designos_query_xpath", json!({"selector": "//TEXT[has-problem('text-truncated')]", "page_id": tok_page.0})).unwrap_err(),
+            ErrorCode::RuleUnavailable,
+            true,
+        );
+        s.engine.disable_text_lint_engine = false;
+
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());
         }
