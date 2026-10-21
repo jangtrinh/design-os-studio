@@ -138,7 +138,8 @@ fn scratch_doc(doc: &Document, root: NodeId, at: Vec2) -> (Document, NodeId) {
     (out, page)
 }
 
-fn collect_images(n: &Node, out: &mut BTreeSet<String>) {
+/// Adds the `image_ref` of every image paint `n` draws (fills, strokes, text and run fills) to `out`.
+pub(crate) fn collect_images(n: &Node, out: &mut BTreeSet<String>) {
     let mut visit = |paints: &[designos_doc::Paint]| {
         for p in paints {
             if let PaintKind::Image { image_ref, .. } = &p.kind {
