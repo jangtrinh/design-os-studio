@@ -131,9 +131,9 @@ Follow this 7-step loop on every design task:
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
-- **Purpose:** Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and...
-- **Args:** required: none (optional: `page_id`, `query`, `selector`)
-- **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`
+- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor...
+- **Args:** required: `selector` (optional: `cursor`, `format`, `hardcoded`, `limit`, `max_scanned`, `node_id`, `page_id`, `with_problems`)
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`, `CURSOR_STALE`, `RULE_UNAVAILABLE`
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
