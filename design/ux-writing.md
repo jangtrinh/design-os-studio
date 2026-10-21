@@ -30,13 +30,13 @@ Roles stay separate. Action labels (rule 1), prose and messages (rules 2, 5, 6),
 
 **Do / don't.** Don't write `Absolute fallbacks ({})` (`shell.rs:1074`) or `Notes ({})` (`shell.rs:1117`), nor the same pattern for `Font substitutions`, `Uncaptured images` and `Unsupported CSS` in the same panel. Proposed: the plain label `Notes` with a count pill, and `Notes, {n}` as its accessible name. `Layers (12)` is the example P5 already bans.
 
-**Enforcement.** Gate Z16 (count in parentheses, ratchet; it reads the label literals of the registered call sites, and `draw_kv` headings that format a `.len()`). Review for contextual repetition.
+**Enforcement.** Gate Z16 (count in parentheses, a digit or a formatted `.len()` inside an action label, ratchet; it reads the registered call sites, and `draw_kv` headings that format a `.len()`). Review for contextual repetition.
 
 ## 4. Make controls explain themselves
 
-**Statement.** A visible control communicates its consequence before activation. Apply rule 1 to the action wording, and give paired actions one primary and quieter secondaries (P2: one primary CTA per view). An icon-only control is allowed when an adjacent title supplies the object, the glyph is the one the design system assigns, and a tooltip on hover and keyboard focus plus an accessible name state the action. Do not extend this to arbitrary icons.
+**Statement.** A visible control communicates its consequence before activation. Apply rule 1 to the action wording, and give paired actions one primary and quieter secondaries (P2: one primary CTA per view). Only the side-panel show/hide exception permits an icon-only control here: an adjacent title supplies the object, the glyph is the design system's `Icon::Sidebar`, and a tooltip on hover and keyboard focus plus an accessible name states the action. On reopening, keep the panel's object identifiable; otherwise use a labeled control. Do not extend this exception to arbitrary icons.
 
-**Do / don't.** Pair `Save` as the primary with `Cancel` as the quieter secondary (`comments/thread.rs:213`, `:216`). Don't give two buttons in one bar the primary fill.
+**Do / don't.** Pair `Save` as the primary with `Cancel` as the quieter secondary (`comments/thread.rs:213`, `:216`). Use `Hide sidebar` / `Show sidebar` (`panels/left.rs:56`, `shell.rs:1423`) as the tooltip and accessible-name strings for the sidebar control. Don't give two buttons in one bar the primary fill, and don't use only `Sidebar` to name the hide/show action.
 
 **Enforcement.** Review for consequence, adjacency and hierarchy. No gate yet.
 
@@ -60,7 +60,7 @@ Roles stay separate. Action labels (rule 1), prose and messages (rules 2, 5, 6),
 
 **Statement.** Use the approved label and tone for a status, not a newly coined synonym. Do not merge distinct domain sets into one global list. If no approved label fits, flag the gap for an owner decision before shipping.
 
-**Do / don't.** Dev Mode statuses are the `DevStatus` set (`ReadyForDev`, `Completed`, `Changed`; `crates/designos-doc/src/dev.rs:17`): reuse those words in buttons, badges and toasts, as in `Mark completed` (`dev/sections.rs:72`). Don't invent `Done` or `Finished` for the same state. Terminal run states (`Running`, `Idle`, `Exited`, P7) belong to agent terminals only.
+**Do / don't.** Dev Mode statuses are the `DevStatus` set (`ReadyForDev`, `Completed`, `Changed`; `crates/designos-doc/src/dev.rs:17-20`): reuse those words in buttons, badges and toasts, as in `Mark completed` (`dev/sections.rs:72`). Don't invent `Done` or `Finished` for the same state. Terminal run states (`Running`, `Idle`, `Exited`, P7) belong to agent terminals only.
 
 **Enforcement.** Review. No typed status-vocabulary gate yet.
 
@@ -90,9 +90,9 @@ Roles stay separate. Action labels (rule 1), prose and messages (rules 2, 5, 6),
 
 ## 11. Make capitalization and punctuation serve meaning
 
-**Statement.** Sentence case for actions, headings and short messages. Preserve canonical product and acronym spelling (`PNG`, `MCP`, `design:os`). Labels and short toast fragments need no terminal period; complete explanatory sentences do. Use a colon only when it introduces following content. Use an ellipsis (`…`) only on a menu item that opens a dialog for more input, or for an ongoing operation. Do not add enthusiasm punctuation or title-case every word.
+**Statement.** Sentence case for actions, headings and short messages. Preserve canonical product and acronym spelling (`PNG`, `MCP`, `design:os`). Labels and short toast fragments need no terminal period; complete explanatory sentences do. Use a colon only when it introduces following content. Use an ellipsis (`…`) only for an actual ongoing operation or deliberately unfinished input. Do not add enthusiasm punctuation or title-case every word.
 
-**Do / don't.** Keep `Save as…` (`panels/menus.rs:429`): it opens a dialog. Don't write `Save…` for an action that saves at once. `Copied properties` (`ops.rs:752`) needs no period. `Send to Agent Terminal` (`panels/inspect.rs:545`) capitalizes `Agent Terminal` only because it is the panel's canonical name; use sentence case elsewhere.
+**Do / don't.** Keep `Stopping…` (`agent_stop.rs:105`): the operation is ongoing. Don't add an ellipsis to a new action label only because it opens a dialog; existing menu strings such as `Save as…` (`panels/menus.rs:429`) predate the rule and are not rewritten here. `Copied properties` (`ops.rs:752`) needs no period. `Send to Agent Terminal` (`panels/inspect.rs:545`) capitalizes `Agent Terminal` only because it is the panel's canonical name; use sentence case elsewhere.
 
 **Enforcement.** Review. No style gate yet.
 
@@ -125,11 +125,18 @@ Roles stay separate. Action labels (rule 1), prose and messages (rules 2, 5, 6),
 | Rule | Mechanical check | How |
 |---|---|---|
 | 1 | Word count of action labels (max 3), ratchet | `python3 scripts/zero_fake_ui_gate.py`, invariant Z16 |
-| 3 | Count in parentheses in a label, ratchet | same, Z16 |
+| 3 | Count in a label: parentheses, digits, a formatted `.len()`; ratchet | same, Z16 |
 | 2, 4 to 14 | none yet | review of the final diff against this file |
 
-**What Z16 reads.** The label argument of the registered button and menu helpers: `MenuItem::new`, the menu builders `leaf` / `submenu` / `stub_sub`, egui `Button::new` / `.button` / `.selectable_label`, `text_button`, `primary_button`, `small_button`, `slide_button`, and the module `button` helpers in `home/`, `comments/`, `plugins/` and `libraries/`. The table is `LABEL_CALLS` in `scripts/ux_writing_labels.py`. Placeholders such as `{name}` are ignored when counting words; the product names listed there count as one word. Known gap: labels that live in data tables (for example the `(id, label, title, prompt)` tuples in `terminal.rs`) and any helper not yet in the table are not read. Add a helper to the table in the same change that introduces it.
+**What Z16 reads.** Three things, from shipped code only (comments and tests stripped):
+1. The label argument of the registered button and menu helpers: `MenuItem::new`, the menu builders `leaf` / `submenu` / `stub_sub`, `text_button`, `primary_button`, `small_button`, `slide_button`, `paint_card_button`, `add_row`, and the module `button` helpers in `home/`, `comments/`, `plugins/` and `libraries/` (`LABEL_CALLS` in `scripts/ux_writing_labels.py`).
+2. A label bound with `let` earlier in the same fn and passed by name to one of those helpers.
+3. Label-returning fns, every literal in the body (`LABEL_FNS`): `fix_label`, `action_label`, `button_label` in `agent_*.rs` and `terminal.rs`.
 
-**Ratchet.** `scripts/ux_writing_baseline.json` lists the violations that existed on adoption (file, kind, literal, count; no line numbers). A listed violation passes. A new one fails. A listed one that no longer occurs fails with "fixed, remove from baseline": run `python3 scripts/zero_fake_ui_gate.py --write-ux-baseline` and commit the smaller file. The baseline only shrinks; never add an entry to make a change pass.
+Studio has no egui `Button::new` / `.button` / `.selectable_label` call sites, so they are not registered. Placeholders such as `{name}` are ignored when counting words; the product names listed in the scanner count as one word. A count inside the action phrase is flagged as a digit token (`Delete 3 layers`) or a placeholder formatted from a `.len()` (`&format!("Delete {}", sel.len())`); a count held in a non-`.len()` variable (`n`, `count`) cannot be seen and stays review-only. Not read: labels in data tables (for example the `(id, label, title, prompt)` tuples in `terminal.rs`), checkbox and toggle captions, and any helper not yet registered. Register a new helper in the same change that introduces it; the gate title says "registered label helpers", not the whole app.
 
-**Review.** Every change that adds or edits user-visible copy is reviewed against this file before merge, including the rules the gate cannot read. Message length (rule 5) and meaning (rules 1, 2, 4, 6 to 14) are review-only. The reviewer cites rule numbers. A passing gate does not establish semantic correctness.
+**Ratchet.** `scripts/ux_writing_baseline.json` lists the violations that existed on adoption (file, kind, literal, count; no line numbers). A listed violation passes. A new one fails and cannot be absorbed: rewrite the label. A listed one that no longer occurs fails with "fixed, remove from baseline": run `python3 scripts/zero_fake_ui_gate.py --write-ux-baseline` and commit the smaller file. The writer refuses to add a key or raise a count, so the baseline only shrinks; a label that moved to another file is accepted as a move. `--allow-grow` exists only to bootstrap the baseline after a scanner coverage change (the registered tables grew) and needs reviewer sign-off in the PR; never use it to make a copy change pass.
+
+**CI.** `.github/workflows/design-gates.yml` runs the gate as advisory (`continue-on-error`), and the self-test runs in no workflow. Enforcement is the release session's local run (`docs/releasing.md`, `design_os_self_evolve.py` G02). A red Z16 blocks a merge by that rule, not by a required check.
+
+**Review.** Every change that adds or edits user-visible copy needs a saved reviewer PASS before merge: a review verdict (`PASS` or `FIX FIRST`) that cites the rule numbers, saved beside the worker report under `plans/reports/`. FIX FIRST blocks merge, and the final diff is reviewed again after a correction changes copy. Existing gate coverage and new-gate construction are separate from this review requirement. Message length (rule 5) and meaning (rules 1, 2, 4, 6 to 14) are review-only, and a passing gate does not establish semantic correctness.

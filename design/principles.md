@@ -102,4 +102,4 @@ The viewport engine preserves a locked 60fps (`16.6ms` frame budget) on 100k+ no
 
 **Yields when:** It yields to quoted user data, canonical product and file names, and to the safety text of a destructive action.
 
-**Test:** `python3 scripts/zero_fake_ui_gate.py` invariant `Z16` rejects a new action label over three words or a count in parentheses, against `scripts/ux_writing_baseline.json`, which only shrinks. Everything else in the standard is checked in review.
+**Test:** `python3 scripts/zero_fake_ui_gate.py` invariant `Z16` rejects a new action label over three words or a count in it (parentheses, digits, a formatted `.len()`) at the registered label helpers, against `scripts/ux_writing_baseline.json`, which only shrinks (the writer refuses to add or raise an entry). Everything else in the standard is checked in review.

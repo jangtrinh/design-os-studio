@@ -2,6 +2,12 @@
   "version": 1,
   "entries": [
     {
+      "file": "agent_start_failure.rs",
+      "kind": "words",
+      "literal": "Start a new session",
+      "count": 1
+    },
+    {
       "file": "dev/sections.rs",
       "kind": "words",
       "literal": "Mark as ready for dev",
