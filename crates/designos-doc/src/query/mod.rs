@@ -403,25 +403,29 @@ fn has_hardcoded_property(doc: &Document, node: &Node, prop_key: &str, env: Opti
         // `hardcoded-color` covers fills and strokes in one finding without a property: attribute it
         // to the paint slot that is actually unbound so a stroke-only node never answers `fills/0`.
         match key {
-            "fill" | "fills" | "fills/0" => has_unbound_solid_paint(node, true),
-            "stroke" | "strokes" | "strokes/0" => has_unbound_solid_paint(node, false),
+            "fill" | "fills" | "fills/0" => has_unbound_solid_paint(doc, node, true),
+            "stroke" | "strokes" | "strokes/0" => has_unbound_solid_paint(doc, node, false),
             _ => false,
         }
     })
 }
 
 /// `true` when `node` carries a visible solid fill (`fill == true`) or stroke paint that is neither
-/// linked to a shared style nor bound to a variable.
-fn has_unbound_solid_paint(node: &Node, fill: bool) -> bool {
+/// linked to a shared style nor bound to a variable, and that Check designs does not ignore (the
+/// whole paint group or that one paint), the way the `hardcoded-color` rule counts it.
+fn has_unbound_solid_paint(doc: &Document, node: &Node, fill: bool) -> bool {
     let (style_key, group_key, prefix, paints) =
         if fill { ("fill", "fill", "fills", &node.fills) } else { ("stroke", "stroke", "strokes", &node.stroke.paints) };
-    if node.style_refs.contains_key(style_key) || node.variables.bindings.contains_key(group_key) {
+    if node.style_refs.contains_key(style_key) || node.variables.bindings.contains_key(group_key) || doc.is_lint_property_ignored("hardcoded-color", node.id, group_key) {
         return false;
     }
-    paints
-        .iter()
-        .enumerate()
-        .any(|(i, p)| p.visible && matches!(p.kind, crate::PaintKind::Solid(_)) && !node.variables.bindings.contains_key(&format!("{prefix}/{i}")))
+    paints.iter().enumerate().any(|(i, p)| {
+        if !p.visible || !matches!(p.kind, crate::PaintKind::Solid(_)) {
+            return false;
+        }
+        let key = format!("{prefix}/{i}");
+        !node.variables.bindings.contains_key(&key) && !doc.is_lint_property_ignored("hardcoded-color", node.id, &key)
+    })
 }
 
 fn compute_node_problems(
@@ -1275,6 +1279,59 @@ mod tests {
         assert_eq!(ids, vec![stroke_only_id.0], "stroke-only node must match has-hardcoded('strokes/0')");
     }
 
+    fn ids_of(doc: &Document, page: NodeId, selector: &str) -> Vec<u64> {
+        let page = run(doc, &QueryOptions { selector: selector.to_string(), page: Some(page), ..Default::default() }).unwrap();
+        page.rows.iter().map(|r| r[0].as_u64().unwrap()).collect()
+    }
+
+    fn linter_ids(doc: &Document, page: NodeId, rule: &str) -> Vec<u64> {
+        let cfg = LintConfig::from_rule_list(&[rule.to_string()]).unwrap();
+        let report = lint_subtree(doc, &[page], &cfg, &crate::lint::ApproxLintEnv, &mut LintBudget::unlimited());
+        report.findings.iter().map(|f| f.node.0).collect()
+    }
+
+    #[test]
+    fn check_designs_ignored_hardcoded_fill_is_hidden_from_queries_like_from_the_linter() {
+        let mut doc = Document::new("Ignored Hardcoded");
+        let page = doc.add_page("Page 1");
+        let ignored_id = doc.alloc_id();
+        let mut ignored_frame = Node::frame(ignored_id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        ignored_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
+        doc.insert(page, ignored_frame).unwrap();
+        let kept_id = doc.alloc_id();
+        let mut kept_frame = Node::frame(kept_id, Rect::new(120.0, 0.0, 100.0, 100.0));
+        kept_frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
+        doc.insert(page, kept_frame).unwrap();
+
+        // The key Check designs writes when the user ignores one hard-coded fill.
+        doc.check_designs.ignored.insert(crate::IgnoreKey { node: ignored_id, rule: "RECOMMEND_VARIABLES".to_string(), property: "fills/0".to_string() });
+
+        assert_eq!(linter_ids(&doc, page, "hardcoded-color"), vec![kept_id.0], "the linter drops the ignored hard-coded fill");
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]"), vec![kept_id.0]);
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), vec![kept_id.0]);
+        assert_eq!(ids_of(&doc, page, "//*[has-problem('hardcoded-color')]"), vec![kept_id.0]);
+        let filtered = run(&doc, &QueryOptions { selector: "//*".to_string(), page: Some(page), hardcoded: Some(true), ..Default::default() }).unwrap();
+        let filtered_ids: Vec<u64> = filtered.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();
+        assert_eq!(filtered_ids, vec![kept_id.0], "hardcoded: true agrees with the linter");
+    }
+
+    #[test]
+    fn per_property_ignore_hides_only_the_ignored_paint_from_has_hardcoded() {
+        let mut doc = Document::new("Partly Ignored Hardcoded");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        frame.fills = vec![crate::Paint::solid(crate::Color::rgb(200, 50, 50))];
+        frame.stroke.paints = vec![crate::Paint::solid(crate::Color::BLACK)];
+        doc.insert(page, frame).unwrap();
+        doc.check_designs.ignored.insert(crate::IgnoreKey { node: id, rule: "RECOMMEND_VARIABLES".to_string(), property: "fills/0".to_string() });
+
+        assert_eq!(linter_ids(&doc, page, "hardcoded-color"), vec![id.0], "the unignored stroke keeps the linter finding");
+        assert!(ids_of(&doc, page, "//*[has-hardcoded('fills/0')]").is_empty(), "the ignored fill is not hard-coded for the query");
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('strokes/0')]"), vec![id.0]);
+        assert_eq!(ids_of(&doc, page, "//*[has-hardcoded('*')]"), vec![id.0]);
+    }
+
     #[test]
     fn problem_and_sibling_predicates_respect_max_scanned_and_lint_only_candidate_node() {
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1360,11 +1417,13 @@ mod tests {
             Some(crate::InProgress {
                 run_id: Some("run-1".to_string()),
                 agent: Some("Claude Code".to_string()),
-                since_ms: 1_000,
+                since_ms: doc.now_ms(),
                 stale_after_s: None,
                 status: None,
             }),
         );
+        // A flag past its staleness window is no longer work in progress.
+        doc.set_in_progress(f2, Some(crate::InProgress { run_id: None, agent: None, since_ms: 1_000, stale_after_s: Some(1), status: None }));
 
         let flagged = run(&doc, &QueryOptions { selector: "//*[@inProgress]".to_string(), page: Some(page), ..Default::default() }).unwrap();
         let flagged_ids: Vec<u64> = flagged.rows.iter().map(|r| r[0].as_u64().unwrap()).collect();

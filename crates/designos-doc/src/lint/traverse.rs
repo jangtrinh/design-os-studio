@@ -383,19 +383,29 @@ pub fn lint_single_node(doc: &Document, node_id: NodeId, config: &LintConfig, en
         contrast_bounds: &contrast_bounds,
     };
     evaluate_node(&ctx, &mut raw_findings);
-    let mut filtered = Vec::with_capacity(raw_findings.len());
-    for mut f in raw_findings {
-        if doc.is_lint_ignored(f.rule, f.node) {
-            if config.include_ignored {
-                f.ignored = true;
-                filtered.push(f);
-            }
-        } else {
-            filtered.push(f);
-        }
-    }
+    apply_check_designs_ignores(doc, config, &mut raw_findings);
+    let mut filtered = raw_findings;
     filtered.sort_by_key(|f| severity_rank(f.severity));
     filtered
+}
+
+/// Drops the findings Check designs ignores suppress, or marks them `ignored` when
+/// `config.include_ignored` asks to keep them. A finding the rule itself flagged `ignored` (every
+/// unbound paint behind it carries a per-property ignore) is treated the same way. Shared by
+/// [`lint_subtree`] and [`lint_single_node`] so both answer alike.
+fn apply_check_designs_ignores(doc: &Document, config: &LintConfig, findings: &mut Vec<Finding>) {
+    if doc.check_designs.ignored.is_empty() {
+        return;
+    }
+    if config.include_ignored {
+        for f in findings.iter_mut() {
+            if !f.ignored && doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()) {
+                f.ignored = true;
+            }
+        }
+    } else {
+        findings.retain(|f| !f.ignored && !doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()));
+    }
 }
 
 /// Scales of a document without variables or styles: what a rule that never reads them is handed.
@@ -467,18 +477,7 @@ pub fn lint_subtree_with_components(
         &mut raw_findings,
     );
 
-    // Filter or mark ignored findings in place when ignores exist.
-    if !doc.check_designs.ignored.is_empty() {
-        if config.include_ignored {
-            for f in &mut raw_findings {
-                if !f.ignored && doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()) {
-                    f.ignored = true;
-                }
-            }
-        } else {
-            raw_findings.retain(|f| !f.ignored && !doc.is_lint_ignored_property(f.rule, f.node, f.property.as_deref()));
-        }
-    }
+    apply_check_designs_ignores(doc, config, &mut raw_findings);
     let mut filtered = raw_findings;
 
     // Stable sort by severity (error, warning, info), preserving document paint order within each.
