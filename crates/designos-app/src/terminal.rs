@@ -11161,6 +11161,9 @@ Done!
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
+        // The click starts a new Claude session. Only a stub `claude` that stays alive is reachable, so the test never
+        // launches a real agent CLI and does not depend on what the host has installed.
+        let stub_dir = install_stub_claude("exited-tab-respawn");
 
         let mut st = TerminalState::for_tab(68808);
         st.side_panel_pty_open = false;
@@ -11173,6 +11176,9 @@ Done!
         }
         assert!(!st.tabs[0].accepts_agent_input(), "precondition: initial agent tab has exited");
         st.tabs[0].composer.draft = "Keep the header intact.".to_string();
+        st.path_override = Some(stub_dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Claude]);
+        assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Claude), "precondition: the click starts the stub Claude");
 
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
@@ -11192,8 +11198,12 @@ Done!
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
 
+        // A CLI that cannot start exits within milliseconds. Wait past that window so the liveness check below cannot
+        // be won by a race against the child's exit.
+        std::thread::sleep(std::time::Duration::from_millis(300));
         assert_eq!(st.tabs.len(), 2, "clicking sample prompt when existing agent tab has exited must spawn a new session tab");
         assert_eq!(st.active_tab, 1, "newly spawned agent tab must be selected");
+        assert_eq!(st.tabs[1].spawn_preset, AgentCliPreset::Claude, "the click starts the first installed CLI");
         assert!(st.active_tab_mut().unwrap().accepts_agent_input(), "newly spawned agent tab must accept input");
         assert_eq!(
             st.composer_draft(),
@@ -11202,6 +11212,7 @@ Done!
         );
         assert!(st.tabs[0].composer.draft.is_empty(), "the draft is moved, not copied: the exited tab keeps nothing");
         kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
     /// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
