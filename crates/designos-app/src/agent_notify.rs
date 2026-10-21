@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Status line message shown once when the OS denies or cannot deliver notifications (`#683` §8.8).
-pub const NOTIFICATIONS_OFF_STATUS_MSG: &str = "Notifications are off";
+pub const NOTIFICATIONS_OFF_STATUS_MSG: &str = "Notifications are off. Turn them on in system settings.";
 
 /// Why an agent tab is requesting user attention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,8 +50,8 @@ impl AgentNotification {
         let agent_name = agent_name.into();
         let file_name = file_name.into();
         let message = match kind {
-            NotifyKind::Finished => format!("{agent_name} finished in {file_name}"),
-            NotifyKind::NeedsInput => format!("{agent_name} needs your input"),
+            NotifyKind::Finished => format!("{agent_name} is done in {file_name}"),
+            NotifyKind::NeedsInput => format!("{agent_name} needs input"),
         };
         Self { tab_id, agent_name, file_name, kind, message }
     }

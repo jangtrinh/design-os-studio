@@ -527,8 +527,8 @@ impl TurnReceipt {
     /// Formats the receipt as a single caption line (`#683` §3.5, §8.3, §8.5):
     /// - Completed: `Worked for 1m 20s · 12 tool calls · 7 layers changed` (omitting any unknown count)
     /// - Stopped: `Stopped by you after 42s`
-    /// - Failed: `Failed after 42s · <class>`
-    /// - Process exited without `Stop`: `Ended without a stop event`
+    /// - Failed: `Failed after 42s · <class label>` (the same label the screen reader announces)
+    /// - Process exited without `Stop`: `Ended without reporting a result`
     pub fn format_line(&self) -> String {
         let dur = format_duration_secs(self.ended_s - self.started_s);
         match &self.outcome {
@@ -545,8 +545,8 @@ impl TurnReceipt {
                 line
             }
             TurnOutcome::StoppedByUser => format!("Stopped by you after {dur}"),
-            TurnOutcome::Failed { class } => format!("Failed after {dur} · {class}"),
-            TurnOutcome::EndedWithoutStop => "Ended without a stop event".to_string(),
+            TurnOutcome::Failed { class } => format!("Failed after {dur} · {}", crate::agent_a11y::classify_error(Some(class)).as_str()),
+            TurnOutcome::EndedWithoutStop => "Ended without reporting a result".to_string(),
         }
     }
 
@@ -806,7 +806,7 @@ impl TabTurnTracker {
     }
 
     /// Edge case 3 (`#683` §8.3): when the agent process exits while a turn is still running without
-    /// having fired `Stop`, leaves running and records `"Ended without a stop event"`.
+    /// having fired `Stop`, leaves running and records `"Ended without reporting a result"`.
     pub fn on_process_exit(&mut self, now_s: f64, current_status: &AgentTabStatus) -> Option<(AgentTabStatus, TurnReceipt)> {
         let was_running = self.in_turn || matches!(current_status, AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_));
         if !was_running {

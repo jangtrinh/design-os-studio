@@ -192,7 +192,14 @@ fn is_default_tab_title(preset: AgentCliPreset, title: &str) -> bool {
     if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
         return false;
     }
-    prefix == preset.button_label() || prefix == preset.tab_title() || prefix == preset.display_name() || prefix == "Shell" || prefix == "Shell ($SHELL)"
+    // Tabs saved before the CLI was named "Claude Code" everywhere keep the old default title.
+    let legacy_claude_title = preset == AgentCliPreset::Claude && prefix == "Claude CLI";
+    legacy_claude_title
+        || prefix == preset.button_label()
+        || prefix == preset.tab_title()
+        || prefix == preset.display_name()
+        || prefix == "Shell"
+        || prefix == "Shell ($SHELL)"
 }
 
 /// Resolves the spoken/described agent name for a tab (`§3.1`, `§3.3`, `§8.3`).
@@ -211,8 +218,8 @@ pub fn resolved_agent_name(preset: AgentCliPreset, title: &str) -> &str {
 /// Returns the polite screen-reader announcement string for `agent` and `status`, or `None` when silent.
 pub fn announcement_for_status_named(agent: &str, status: &AgentTabStatus) -> Option<String> {
     match status {
-        AgentTabStatus::Done => Some(format!("{agent} finished")),
-        AgentTabStatus::WaitingForInput(_) => Some(format!("{agent} needs your input")),
+        AgentTabStatus::Done => Some(format!("{agent} is done")),
+        AgentTabStatus::WaitingForInput(_) => Some(format!("{agent} needs input")),
         AgentTabStatus::Error(detail) => {
             let class = classify_error(detail.as_deref()).as_str();
             Some(format!("{agent} failed: {class}"))
@@ -306,8 +313,8 @@ pub fn status_description_named(agent: &str, status: &AgentTabStatus) -> String 
     let state_text = match status {
         AgentTabStatus::Idle => "idle",
         AgentTabStatus::Working(_) => "working",
-        AgentTabStatus::WaitingForInput(_) => "waiting for input",
-        AgentTabStatus::Done => "finished",
+        AgentTabStatus::WaitingForInput(_) => "needs input",
+        AgentTabStatus::Done => "done",
         AgentTabStatus::Stopped => "stopped",
         AgentTabStatus::Error(detail) => {
             return format!("{agent}, failed: {}", classify_error(detail.as_deref()).as_str());
@@ -338,12 +345,14 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
 
     // 1. Panel region + header controls created in this frame
     widgets::labelled(ui, Id::new("agents-panel-region"), Role::Region, "Agents panel");
+    // The name says which way the toggle goes, so it follows the state the click flips.
+    let dock_toggle_name = if state.dock_open { "Hide terminal dock" } else { "Show terminal dock" };
     if state.side_panel_pty_open {
-        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, "Toggle terminal dock");
+        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, dock_toggle_name);
     } else {
         widgets::labelled(ui, Id::new("agents-header-back"), Role::Button, "Back");
-        widgets::labelled(ui, Id::new("agents-header-ai"), Role::Button, "Toggle AI chat");
-        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, "Toggle terminal dock");
+        widgets::labelled(ui, Id::new("agents-header-ai"), Role::Button, if state.chat_mode { "Hide AI chat" } else { "Show AI chat" });
+        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, dock_toggle_name);
     }
 
     // 2. Tab strip region + tab/runtime controls created in this frame
@@ -358,11 +367,11 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
         }
         widgets::labelled(ui, Id::new("agents-runtime-add-btn"), Role::Button, "New session");
     } else {
-        widgets::labelled(ui, Id::new("agents-runtime-claude"), Role::Button, "Claude Code");
-        widgets::labelled(ui, Id::new("agents-runtime-codex"), Role::Button, "Codex");
-        widgets::labelled(ui, Id::new("agents-runtime-agy"), Role::Button, "Antigravity");
-        widgets::labelled(ui, Id::new("agents-runtime-grok"), Role::Button, "Grok");
-        widgets::labelled(ui, Id::new("agents-runtime-pty-toggle"), Role::Button, "Shell");
+        widgets::labelled(ui, Id::new("agents-runtime-claude"), Role::Button, "New Claude Code session");
+        widgets::labelled(ui, Id::new("agents-runtime-codex"), Role::Button, "New Codex session");
+        widgets::labelled(ui, Id::new("agents-runtime-agy"), Role::Button, "New Antigravity session");
+        widgets::labelled(ui, Id::new("agents-runtime-grok"), Role::Button, "New Grok session");
+        widgets::labelled(ui, Id::new("agents-runtime-pty-toggle"), Role::Button, "New shell");
     }
 
     // 3. Terminal region with description naming active agent and status
@@ -378,7 +387,7 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
     if !state.side_panel_pty_open {
         widgets::labelled(ui, composer_id(), Role::TextInput, "Ask for changes");
         widgets::labelled(ui, Id::new("agents-composer-plus"), Role::Button, "Attach context");
-        widgets::labelled(ui, Id::new("agents-composer-book"), Role::Button, "Toggle terminal");
+        widgets::labelled(ui, Id::new("agents-composer-book"), Role::Button, "Show terminal");
         widgets::labelled(ui, Id::new("agents-composer-prd"), Role::Button, "Attach PRD context");
         widgets::labelled(ui, Id::new("agents-composer-send"), Role::Button, "Send");
     }
@@ -406,9 +415,9 @@ pub fn label_terminal_surface(state: &TerminalState, ui: &Ui, surface_id: &'stat
     for preset in AgentCliPreset::QUICK_LAUNCH {
         widgets::labelled(ui, Id::new((surface_id, "term-preset-spawn", preset as usize)), Role::Button, "New session");
     }
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-sync")), Role::Button, "Sync Canvas");
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-apply-spec")), Role::Button, "Apply Spec from Output");
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-send-sel")), Role::Button, "Send Selection & Comments");
+    widgets::labelled(ui, Id::new((surface_id, "term-bar-sync")), Role::Button, "Sync canvas");
+    widgets::labelled(ui, Id::new((surface_id, "term-bar-apply-spec")), Role::Button, "Apply spec from output");
+    widgets::labelled(ui, Id::new((surface_id, "term-bar-send-sel")), Role::Button, "Send selection and comments");
 
     ui.ctx().accesskit_node_builder(Id::new((surface_id, "term-vt100-viewport")), |node| {
         node.set_role(Role::Terminal);
@@ -492,15 +501,9 @@ mod tests {
 
     #[test]
     fn needs_input_and_error_texts() {
-        assert_eq!(announcement_for_status(AgentCliPreset::Claude, &AgentTabStatus::Done).as_deref(), Some("Claude Code finished"));
-        assert_eq!(
-            announcement_for_status(AgentCliPreset::Codex, &AgentTabStatus::WaitingForInput(Some("bash".into()))).as_deref(),
-            Some("Codex needs your input")
-        );
-        assert_eq!(
-            announcement_for_status(AgentCliPreset::Antigravity, &AgentTabStatus::WaitingForInput(None)).as_deref(),
-            Some("Antigravity needs your input")
-        );
+        assert_eq!(announcement_for_status(AgentCliPreset::Claude, &AgentTabStatus::Done).as_deref(), Some("Claude Code is done"));
+        assert_eq!(announcement_for_status(AgentCliPreset::Codex, &AgentTabStatus::WaitingForInput(Some("bash".into()))).as_deref(), Some("Codex needs input"));
+        assert_eq!(announcement_for_status(AgentCliPreset::Antigravity, &AgentTabStatus::WaitingForInput(None)).as_deref(), Some("Antigravity needs input"));
 
         let error_cases = [
             (AgentCliPreset::Claude, Some("429 Too Many Requests: rate limit exceeded"), "Claude Code failed: rate limited"),
@@ -566,7 +569,7 @@ mod tests {
             .iter()
             .find(|(id, n)| *id == announcer_id().accesskit_id() && n.live() == Some(Live::Polite))
             .and_then(|(_, n)| n.label().map(str::to_string));
-        assert_eq!(polite_n.as_deref(), Some("Claude Code finished"), "first transition must be spoken on frame N");
+        assert_eq!(polite_n.as_deref(), Some("Claude Code is done"), "first transition must be spoken on frame N");
 
         let out_n1 = ctx.run_ui(egui::RawInput::default(), |ui| {
             sync_frame(ui.ctx());
@@ -578,7 +581,7 @@ mod tests {
             .iter()
             .find(|(id, n)| *id == announcer_id().accesskit_id() && n.live() == Some(Live::Polite))
             .and_then(|(_, n)| n.label().map(str::to_string));
-        assert_eq!(polite_n1.as_deref(), Some("Grok finished"), "second transition must be spoken on frame N + 1");
+        assert_eq!(polite_n1.as_deref(), Some("Grok is done"), "second transition must be spoken on frame N + 1");
     }
 
     #[test]
@@ -595,7 +598,7 @@ mod tests {
             prev: AgentTabStatus::Working(None),
             next: AgentTabStatus::Done,
         });
-        assert_eq!(announcer.queue.front().map(String::as_str), Some("UI Reviewer finished"));
+        assert_eq!(announcer.queue.front().map(String::as_str), Some("UI Reviewer is done"));
         assert_eq!(status_description_named(resolved_agent_name(AgentCliPreset::Claude, "UI Reviewer"), &AgentTabStatus::Idle), "UI Reviewer, idle");
     }
 

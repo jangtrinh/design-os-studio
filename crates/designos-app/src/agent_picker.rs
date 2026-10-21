@@ -1,6 +1,6 @@
 //! Full new-session CLI picker (`CONTROL_ROW` = 40 px) and compact `+` dropdown menu
 //! (`CONTROL_STANDARD` = 28 px) sharing the single [`crate::agent_cli_catalog::build_picker_rows`]
-//! catalog list, plus the inline `"Other CLI..."` two-field form (`#652`).
+//! catalog list, plus the inline `"Other CLI…"` two-field form (`#652`).
 
 use std::path::{Path, PathBuf};
 
@@ -18,7 +18,7 @@ use crate::terminal::{
 use crate::theme;
 use crate::widgets;
 
-/// Per-terminal UI state for the new-session picker, compact `+` menu, and inline `"Other CLI..."` form (`#652`).
+/// Per-terminal UI state for the new-session picker, compact `+` menu, and inline `"Other CLI…"` form (`#652`).
 #[derive(Clone, Default)]
 pub struct AgentPickerState {
     pub cache: CatalogProbeCache,
@@ -65,13 +65,13 @@ impl AgentPickerState {
         self.cache.refresh_async();
     }
 
-    /// Opens the inline two-field `"Other CLI..."` form.
+    /// Opens the inline two-field `"Other CLI…"` form.
     pub fn open_other_form(&mut self) {
         self.other_form_open = true;
         self.other_error = None;
     }
 
-    /// Closes and resets the inline `"Other CLI..."` form.
+    /// Closes and resets the inline `"Other CLI…"` form.
     pub fn close_other_form(&mut self) {
         self.other_form_open = false;
         self.other_label_input.clear();
@@ -130,7 +130,7 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
     rows
 }
 
-/// Saves the inline `"Other CLI..."` form (`other_label_input`, `other_command_input`) to Studio's
+/// Saves the inline `"Other CLI…"` form (`other_label_input`, `other_command_input`) to Studio's
 /// `settings.json` under `custom_clis` and launches the custom CLI tab (`#652` §3 rule 7).
 pub fn submit_other_cli_form(state: &mut TerminalState, file_path: Option<&Path>) -> Result<CustomCliEntry, String> {
     let label = state.picker.other_label_input.trim().to_string();
@@ -255,7 +255,7 @@ fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, C
 const OTHER_FORM_HEIGHT: f32 = 108.0;
 const PICKER_FOOTER_HEIGHT: f32 = 22.0;
 
-/// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI..."` form, footer).
+/// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
 fn picker_card_height(row_count: usize, other_form_open: bool) -> f32 {
     let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_ROW + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
@@ -302,7 +302,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
     let inner_w = (inner_right - inner_left).max(120.0);
     let mut y = card_r.top() + pad;
 
-    let hdr = widgets::elide(&p, "Start agent session", &theme::font_body_medium(), inner_w);
+    let hdr = widgets::elide(&p, "New session", &theme::font_body_medium(), inner_w);
     p.text(Pos2::new(inner_left, y + theme::SPACE_INLINE), Align2::LEFT_CENTER, hdr, theme::font_body_medium(), theme::TEXT);
     y += header_h;
 
@@ -444,7 +444,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     }
     handle_picker_keyboard(state, ui, &rows, file_path);
 
-    let last_resume = state.resumable_sessions().first().map(|e| (e.title.clone(), e.cli.clone()));
+    let last_resume = state.resumable_sessions().first().map(|e| e.title.clone());
     let menu_inset = theme::SPACE_GROUP;
     let menu_edge = theme::INSET_CONTROL;
     let menu_w = (panel_rect.width() - menu_inset).clamp(196.0, 232.0);
@@ -473,13 +473,13 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let mut y = menu_r.top() + header_h + theme::SPACE_ROW;
     let mut interaction = PickerInteraction::None;
 
-    if let Some((prev_title, prev_cli)) = &last_resume {
+    if let Some(prev_title) = &last_resume {
         let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let resp = ui.interact(row_r, Id::new("agents-dropdown-resume-last"), Sense::click());
         if resp.hovered() {
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        let resume_txt = format!("Resume {prev_title} ({prev_cli})");
+        let resume_txt = format!("Resume {prev_title}");
         let elided = widgets::elide(&p, &resume_txt, &theme::font_caption_medium(), (inner_w - theme::INSET_PANEL).max(40.0));
         p.text(Pos2::new(row_r.left() + theme::INSET_CONTROL, row_r.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), STATUS_OK_TEXT);
         widgets::record(ui, "agents-dropdown-resume-last", row_r);
@@ -762,7 +762,7 @@ mod tests {
         st.picker.settings_root_override = Some(root.clone());
         seed_test_probes(&mut st);
 
-        // Open the inline "Other CLI..." form and enter label + command
+        // Open the inline "Other CLI…" form and enter label + command
         st.picker.open_other_form();
         st.picker.other_label_input = "Aider".to_string();
         st.picker.other_command_input = "echo AIDER-CUSTOM-TEST".to_string();
@@ -795,7 +795,7 @@ mod tests {
 
         let expected_rows = rows_for_state(&mut st);
         let expected_labels: Vec<&str> = expected_rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(expected_labels, vec!["Claude", "Codex", "Grok", "Gemini CLI", "Antigravity", "Aider", "Other CLI...", "Shell"]);
+        assert_eq!(expected_labels, vec!["Claude Code", "Codex", "Grok", "Gemini CLI", "Antigravity", "Aider", "Other CLI…", "Shell"]);
 
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
@@ -874,12 +874,12 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         let rows1 = rows_for_state(&mut st);
-        let claude1 = rows1.iter().find(|r| r.label == "Claude").unwrap();
+        let claude1 = rows1.iter().find(|r| r.label == "Claude Code").unwrap();
         assert_eq!(claude1.version.as_deref(), Some("2.1.1"));
         assert_eq!(claude1.state_label.as_deref(), Some("Signed in"));
 
         // Close and reopen: cached v2.1.1 remains on screen while a new probe runs and updates to v2.1.2
-        let claude_row = rows1.iter().find(|r| r.label == "Claude").unwrap().clone();
+        let claude_row = rows1.iter().find(|r| r.label == "Claude Code").unwrap().clone();
         execute_row_selection(&mut st, &claude_row, None);
         st.picker.ensure_probed();
         let cached_snap = st.picker.cache.snapshot();
@@ -890,7 +890,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         let rows2 = rows_for_state(&mut st);
-        let claude2 = rows2.iter().find(|r| r.label == "Claude").unwrap();
+        let claude2 = rows2.iter().find(|r| r.label == "Claude Code").unwrap();
         assert_eq!(claude2.version.as_deref(), Some("2.1.2"), "reopening picker must trigger a fresh probe");
 
         st.shutdown();
@@ -972,7 +972,7 @@ mod tests {
             fn run(&self, argv: &[&str], _install_folders: &[PathBuf], _timeout: Duration) -> CommandOutput {
                 match argv {
                     // Claude and Grok finish after a short delay (25ms), after frame 1 paints
-                    // initial "Checking..." rows, while Codex takes longer (250ms).
+                    // initial "Checking…" rows, while Codex takes longer (250ms).
                     ["claude", "--version"] => {
                         std::thread::sleep(Duration::from_millis(25));
                         CommandOutput::ok("2.1.302 (Claude Code)\n")

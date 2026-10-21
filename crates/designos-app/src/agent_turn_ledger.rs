@@ -129,7 +129,7 @@ impl TurnRecord {
 
     pub fn cli_display_name<'a>(&'a self, fallback: &'a str) -> &'a str {
         match self.cli.as_deref() {
-            Some("claude") => "Claude",
+            Some("claude") => "Claude Code",
             Some("codex") => "Codex",
             Some("grok") => "Grok",
             Some("agy" | "antigravity") => "Antigravity",
@@ -218,13 +218,13 @@ impl AgentTurnLedger {
 
     pub fn revert_disabled_reason(&self, turn_id: u64) -> Option<&'static str> {
         if self.evicted_turn_ids.contains(&turn_id) {
-            return Some("Too old to revert");
+            return Some("Too old to revert. Use version history.");
         }
         match self.turns.iter().find(|t| t.id == turn_id) {
             Some(t) if t.state == TurnState::Reverted => Some("Already reverted"),
             Some(t) if !t.has_edits() => Some("No canvas changes in this turn"),
             Some(_) => None,
-            None => Some("Too old to revert"),
+            None => Some("Too old to revert. Use version history."),
         }
     }
 

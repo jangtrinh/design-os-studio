@@ -172,7 +172,7 @@ pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &Select
     let radius = theme::cr_pill(h);
 
     let resp = ui.interact(pill_rect, Id::new(id_salt), Sense::click());
-    widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Selection chip");
+    widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Send selection to agent");
 
     let fill = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
     p.rect_filled(pill_rect, radius, fill);

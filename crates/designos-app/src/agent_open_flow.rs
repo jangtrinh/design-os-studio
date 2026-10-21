@@ -45,14 +45,14 @@ pub enum SessionRowStatus {
 impl SessionRowStatus {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Live(AgentTabStatus::Working(_)) => "Working",
-            Self::Live(AgentTabStatus::WaitingForInput(_)) => "WaitingForInput",
+            Self::Live(AgentTabStatus::Working(_)) => "Working…",
+            Self::Live(AgentTabStatus::WaitingForInput(_)) => "Needs input",
             Self::Live(AgentTabStatus::Done) => "Done",
             Self::Live(AgentTabStatus::Idle) => "Idle",
-            Self::Live(AgentTabStatus::Error(_)) => "Error",
+            Self::Live(AgentTabStatus::Error(_)) => "Failed",
             Self::Live(AgentTabStatus::Stopped) => "Stopped",
             Self::NotRunning => "Not running",
-            Self::Missing => "Missing",
+            Self::Missing => "Resume failed",
         }
     }
 }
@@ -75,7 +75,7 @@ pub struct SessionPopoverRow {
 /// Maps a persisted CLI binary name (`claude`, `codex`, `grok`, `agy`) to its display name.
 pub fn cli_display_name(cli: &str) -> String {
     match cli.trim() {
-        "claude" => "Claude".to_string(),
+        "claude" => "Claude Code".to_string(),
         "codex" => "Codex".to_string(),
         "grok" => "Grok".to_string(),
         "agy" => "Antigravity".to_string(),
@@ -556,7 +556,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
             p.text(Pos2::new(label_x, top_y_line), Align2::LEFT_CENTER, lbl_str, theme::font_body(), theme::TEXT);
         }
 
-        // Line 2: relative time + status on the left, Rename + Remove from list on the right
+        // Line 2: relative time + status on the left, Rename + Remove session on the right
         let meta_txt = format!("{} · {}", row.relative_time, row.status.label());
         let meta_avail_w = (rename_r.left() - theme::SPACE_INLINE - cli_x).max(theme::CONTROL_ROW);
         let meta_elided = widgets::elide(&p, &meta_txt, &theme::font_caption(), meta_avail_w);
@@ -571,7 +571,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         if remove_resp.hovered() {
             p.rect_filled(remove_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        p.text(remove_r.center(), Align2::CENTER_CENTER, "Remove from list", theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(remove_r.center(), Align2::CENTER_CENTER, "Remove session", theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agents-session-remove-{}", row.tab_id), remove_r);
 
         widgets::record(ui, &row_widget_id, r_rect);
@@ -902,13 +902,13 @@ mod tests {
 
         let rows = st.sessions_popover_rows();
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0].cli_display_name, "Claude");
-        assert_eq!(rows[0].status.label(), "Working");
+        assert_eq!(rows[0].cli_display_name, "Claude Code");
+        assert_eq!(rows[0].status.label(), "Working…");
         assert!(rows[0].is_focused_tab);
 
         assert_eq!(rows[1].label, "Missing Grok");
         assert_eq!(rows[1].status, SessionRowStatus::Missing);
-        assert_eq!(rows[1].status.label(), "Missing");
+        assert_eq!(rows[1].status.label(), "Resume failed");
 
         assert_eq!(rows[2].label, "Exited Codex");
         assert_eq!(rows[2].status, SessionRowStatus::NotRunning);
@@ -1243,7 +1243,7 @@ mod tests {
         });
         let row_r = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-session-row-1".to_string())))).expect("row rect");
 
-        // Click the row title area (away from Rename / Remove from list).
+        // Click the row title area (away from Rename / Remove session).
         click_at(&ctx, screen, Pos2::new(row_r.left() + 30.0, row_r.top() + 8.0), |ui| render_sessions_popover(&mut st, ui, panel_rect, 40.0, None));
 
         assert!(st.tabs.is_empty(), "nothing may spawn");
@@ -1403,7 +1403,7 @@ mod tests {
         assert_eq!(st.renaming_session_tab_id, Some(1), "Clicking Rename must start inline rename instead of being stolen by row_resp");
         assert!(st.tabs.is_empty(), "Clicking Rename must not trigger select_session_row");
 
-        // Click Remove from list (press + release on remove_r.center()) -> must remove session from registry, NOT select/resume row
+        // Click Remove session (press + release on remove_r.center()) -> must remove session from registry, NOT select/resume row
         let remove_pos = remove_r.center();
         for pressed in [true, false] {
             let raw = egui::RawInput {
@@ -1418,8 +1418,8 @@ mod tests {
                 render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
             });
         }
-        assert!(st.session_registry.sessions.is_empty(), "Clicking Remove from list must remove the session entry");
-        assert!(st.tabs.is_empty(), "Clicking Remove from list must not trigger select_session_row");
+        assert!(st.session_registry.sessions.is_empty(), "Clicking Remove session must remove the session entry");
+        assert!(st.tabs.is_empty(), "Clicking Remove session must not trigger select_session_row");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

@@ -340,7 +340,7 @@ impl MentionPopupState {
                 Rect::from_min_size(Pos2::new(popup_rect.left() + inset, cur_y), Vec2::new(popup_rect.width() - inset * 2.0, theme::CONTROL_STANDARD));
             p.rect_filled(filter_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
             p.rect_stroke(filter_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_SELECTED), StrokeKind::Inside);
-            let display_q = if self.query.is_empty() { "@ Filter layers, pages, components, variables, styles..." } else { &self.query };
+            let display_q = if self.query.is_empty() { "@ Filter by name…" } else { &self.query };
             let q_col = if self.query.is_empty() { theme::TEXT_TERTIARY } else { theme::TEXT };
             p.text(Pos2::new(filter_r.left() + theme::INSET_CONTROL, filter_r.center().y), Align2::LEFT_CENTER, display_q, theme::font_body(), q_col);
             widgets::record(ui, "agent-mention-popup-filter", filter_r);

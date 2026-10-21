@@ -361,7 +361,7 @@ pub fn execute_revert(app: &mut App, tab_idx: usize, turn_id: u64) {
             app.show_toast(revert_status_text(&report), false);
         }
         Err(e) => {
-            app.show_toast(format!("Revert failed: {e}"), true);
+            app.show_toast(format!("Turn not reverted: {e}"), true);
         }
     }
 }
