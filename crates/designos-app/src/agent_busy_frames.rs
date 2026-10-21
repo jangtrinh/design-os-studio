@@ -747,14 +747,14 @@ mod tests {
         let spec_json = serde_json::json!({
             "kind": "section",
             "name": "Spec Section",
-            "w": 800.0,
-            "h": 600.0,
+            "width": 800.0,
+            "height": 600.0,
             "children": [
                 {
                     "kind": "frame",
                     "name": "Nested Busy Frame",
-                    "w": 400.0,
-                    "h": 300.0,
+                    "width": 400.0,
+                    "height": 300.0,
                     "in_progress": {
                         "agent": "Claude",
                         "run_id": "run-nested-spec"
