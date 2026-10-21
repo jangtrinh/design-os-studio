@@ -582,6 +582,35 @@ impl Document {
         Self { name: name.into(), ..Default::default() }
     }
 
+    /// Clones the document structure, styles, variables, comments, and library state without
+    /// copying embedded `images` byte buffers (used by background bootstrap indexing).
+    pub fn clone_without_images(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            kind: self.kind,
+            nodes: self.nodes.clone(),
+            pages: self.pages.clone(),
+            styles: self.styles.clone(),
+            style_meta: self.style_meta.clone(),
+            flows: self.flows.clone(),
+            variables: self.variables.clone(),
+            variable_collections: self.variable_collections.clone(),
+            guides: self.guides.clone(),
+            prototype_device: self.prototype_device.clone(),
+            comments: self.comments.clone(),
+            library: self.library.clone(),
+            library_page: self.library_page,
+            check_designs: self.check_designs.clone(),
+            images: BTreeMap::new(),
+            in_progress: self.in_progress.clone(),
+            next_id: self.next_id,
+            gap_cursor: self.gap_cursor,
+            dirty: self.dirty.clone(),
+            pending_relayout: self.pending_relayout.clone(),
+            page_hydrator: self.page_hydrator.clone(),
+        }
+    }
+
     /// Ensures deferred component instances on `page` are expanded on demand.
     /// Returns `true` if any deferred instances were expanded.
     pub fn ensure_page_hydrated(&mut self, page: NodeId) -> bool {

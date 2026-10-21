@@ -2,6 +2,7 @@
 //! per-call lint issues block (`tools::issues`), and session options (`tools::session_options`).
 
 pub mod batch;
+pub mod bootstrap;
 pub mod design_context;
 pub mod errors;
 pub mod guidelines;

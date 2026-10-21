@@ -1650,6 +1650,54 @@
     }
   },
   {
+    "name": "designos_get_app_state",
+    "description": "Return the pre-fetched design context block. Sections: freshness, document, depth-3 target frames outline, variables summary, components and libraries, active style, and rules pack, plus session state. Pass include_selection=true ONLY when the user explicitly asks about their canvas selection.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "include_selection": {
+          "default": false,
+          "type": "boolean"
+        },
+        "max_tokens": {
+          "default": 12000,
+          "maximum": 25000,
+          "minimum": 2000,
+          "type": "integer"
+        },
+        "sections": {
+          "items": {
+            "enum": [
+              "document",
+              "outline",
+              "variables",
+              "components",
+              "style",
+              "rules"
+            ]
+          },
+          "type": "array"
+        },
+        "target_node_ids": {
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 50,
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    }
+  },
+  {
     "name": "designos_open_file",
     "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true.",
     "inputSchema": {

@@ -341,15 +341,29 @@ impl Session {
         // Read first: whether the editor shares a scoped copy decides how the ledger reads a reload.
         let mut loaded_page_id: Option<u64> = None;
         let mut context_scoped = false;
+        let mut loaded_scoped: Option<bool> = None;
         let mut loaded_run_id: Option<String> = None;
         let mut loaded_agent: Option<String> = None;
         if let Some(ctx_path) = &self.bridge.context_json_path {
             if let Ok(raw) = fs::read_to_string(ctx_path) {
                 if let Ok(val) = serde_json::from_str::<Value>(&raw) {
                     loaded_page_id = val.get("current_page_id").and_then(Value::as_u64);
-                    context_scoped = val.get("scoped").and_then(Value::as_bool).unwrap_or(false);
+                    loaded_scoped = val.get("scoped").and_then(Value::as_bool);
+                    context_scoped = loaded_scoped.unwrap_or(false);
                     loaded_run_id = val.get("run_id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
                     loaded_agent = val.get("agent_runtime").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+                    if let Some(fp) = val.get("file_path").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                        self.engine.file_path = Some(fp.to_string());
+                    }
+                    if let Some(rev) = val.get("doc_revision").and_then(Value::as_u64) {
+                        self.engine.base_doc_revision = Some(rev);
+                    }
+                    if let Some(scoped) = loaded_scoped {
+                        self.engine.scoped = scoped;
+                    }
+                    if let Some(arr) = val.get("selected_node_ids").and_then(Value::as_array) {
+                        self.engine.selected_node_ids = arr.iter().filter_map(Value::as_u64).map(designos_doc::NodeId).collect();
+                    }
                 }
             }
         }
@@ -416,6 +430,33 @@ impl Session {
             }
         }
 
+        if self.engine.file_path.is_none() {
+            if let Ok(env_fp) = std::env::var("DESIGNOS_FILE") {
+                if !env_fp.trim().is_empty() {
+                    self.engine.file_path = Some(env_fp.trim().to_string());
+                }
+            }
+        }
+        if let Some(sess_dir) = &self.bridge.session_dir {
+            let boot_json_path = sess_dir.join("bootstrap.json");
+            if let Ok(raw) = fs::read_to_string(&boot_json_path) {
+                if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                    if let Some(gen_at) = val.get("generated_at").and_then(Value::as_str) {
+                        self.engine.bootstrap_generated_at = Some(gen_at.to_string());
+                    }
+                    if loaded_scoped.is_none() {
+                        if let Some(scoped) = val.get("scoped").and_then(Value::as_bool) {
+                            self.engine.scoped = scoped;
+                        }
+                    }
+                    if self.engine.base_doc_revision.is_none() {
+                        if let Some(rev) = val.get("doc_revision").and_then(Value::as_u64) {
+                            self.engine.base_doc_revision = Some(rev);
+                        }
+                    }
+                }
+            }
+        }
         if loaded_page_id.is_none() {
             if let Ok(env_pid) = std::env::var("DESIGNOS_TARGET_PAGE_ID") {
                 loaded_page_id = env_pid.trim().parse::<u64>().ok();
@@ -1093,6 +1134,7 @@ impl Session {
                     redo_steps: self.engine.history.redo_steps(),
                     revision: self.engine.revision,
                 });
+                self.engine.ledger_entries = self.ledger.len();
                 let mut result = self.engine.call(name, args.clone())?;
                 if name == "designos_get_document" {
                     self.attach_enabled_tools_warnings(&mut result);
