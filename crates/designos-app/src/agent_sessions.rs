@@ -168,6 +168,24 @@ pub fn disk_file_session_key(path: &Path) -> String {
     format!("path-{hash:016x}")
 }
 
+/// What [`crate::terminal::TerminalState::bind_open_file`] last bound: its inputs and the session
+/// key they produced (the library file id, or the `path-<hex>` key of the disk path).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenFileBinding {
+    pub lib_root: PathBuf,
+    pub lib_file_id: Option<String>,
+    pub disk_path: Option<PathBuf>,
+    pub window_id: String,
+    pub file_id: String,
+}
+
+impl OpenFileBinding {
+    /// Whether a new `bind_open_file` call carries exactly the inputs of this binding.
+    pub fn same_inputs(&self, lib_root: &Path, lib_file_id: Option<&str>, disk_path: Option<&Path>, window_id: &str) -> bool {
+        self.lib_root == lib_root && self.lib_file_id.as_deref() == lib_file_id && self.disk_path.as_deref() == disk_path && self.window_id == window_id
+    }
+}
+
 /// Interprets `/bin/kill -0 <pid>` exit status and stderr: exit 0 or `EPERM` ("Operation not permitted")
 /// means the target process is alive.
 pub(crate) fn kill_zero_indicates_alive(success: bool, stderr: &[u8]) -> bool {
@@ -594,6 +612,80 @@ mod tests {
         assert!(matches!(st.key, SessionKey::Fallback(_)));
         assert!(!root.join("agent-sessions").exists(), "no stable folder is created for a scratch document");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // An unchanged open file must cost no filesystem work per frame (#653 spec section 11).
+    #[cfg(unix)]
+    #[test]
+    fn unchanged_disk_path_does_no_filesystem_work_between_frames() {
+        let root = temp_test_dir("frame-cache-lib");
+        let work = temp_test_dir("frame-cache-files");
+        let real = work.join("real");
+        std::fs::create_dir_all(&real).expect("create real dir");
+        std::os::unix::fs::symlink(&real, work.join("link")).expect("symlink");
+        crate::io::save_path(&Document::new("Poster"), &real.join("poster.designos")).expect("save disk file");
+        let via_link = work.join("link").join("poster.designos");
+
+        let mut app = App::new(Document::new("Scratch"));
+        app.attach_library(root.clone());
+        app.open_path(via_link);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        let bound_key = app.terminal.key.clone();
+        let bound_dir = app.terminal.session_dir.clone();
+        assert!(matches!(bound_key, SessionKey::LibraryFile { .. }));
+        assert!(app.terminal.lock_owner.is_some());
+        let mode_before = app.terminal.permission_mode;
+
+        // The file vanishes (an external unlink + rename save) and settings.json changes: a frame that
+        // touched the filesystem would canonicalise the link path differently or reload the mode.
+        std::fs::remove_file(real.join("poster.designos")).expect("remove file");
+        crate::agent_permissions::save_permission_mode(&root, crate::agent_permissions::AgentPermissionMode::Ask).expect("save mode");
+        for _ in 0..3 {
+            tabs.reconcile_frame(&mut app);
+        }
+        app.tabs = tabs;
+        assert_eq!(app.terminal.key, bound_key, "a transient canonicalize failure must not flip the key");
+        assert_eq!(app.terminal.session_dir, bound_dir);
+        assert!(app.terminal.lock_owner.is_some(), "the lock stays held");
+        assert_eq!(app.terminal.permission_mode, mode_before, "settings.json is not re-read while nothing changed");
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    // File > Open of a disk file, then of an .svg (a scratch document): the SVG must not inherit
+    // the file's session (rule 2 last sentence).
+    #[test]
+    fn disk_file_followed_by_scratch_document_drops_the_file_session() {
+        let root = temp_test_dir("file-to-scratch-lib");
+        let work = temp_test_dir("file-to-scratch-files");
+        let file = work.join("poster.designos");
+        crate::io::save_path(&Document::new("Poster"), &file).expect("save disk file");
+        let stable = root.join("agent-sessions").join(disk_file_session_key(&file));
+
+        let mut app = App::new(Document::new("Scratch"));
+        app.attach_library(root.clone());
+        app.open_path(file.clone());
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        assert_eq!(app.terminal.session_dir, stable);
+        assert!(stable.join("session.lock").is_file());
+
+        app.replace_document(Document::new("Svg"), None);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        assert!(matches!(app.terminal.key, SessionKey::Fallback(_)), "a scratch document leaves the file's key: {:?}", app.terminal.key);
+        assert_ne!(app.terminal.session_dir, stable);
+        assert!(app.terminal.lock_owner.is_none());
+        assert!(!stable.join("session.lock").exists(), "the file's lock is released");
+        assert!(!app.terminal.session_dir.starts_with(root.join("agent-sessions")));
+        app.terminal.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     // 2. `registry_round_trip_keeps_unknown_fields`

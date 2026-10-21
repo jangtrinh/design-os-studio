@@ -1093,6 +1093,8 @@ pub struct TerminalState {
     pub session_registry: crate::agent_sessions::SessionRegistry,
     /// Window identifier holding `<session_dir>/session.lock` when bound to a library file (`None` on fallback).
     pub lock_owner: Option<String>,
+    /// Inputs and resulting key of the last [`Self::bind_open_file`], so a steady frame does no IO.
+    pub open_file_binding: Option<crate::agent_sessions::OpenFileBinding>,
     /// Whether `codex resume --last` has passed the runtime cwd-scoping check (`#653` §6).
     pub codex_cwd_scoped: bool,
     /// Whether `agy --continue` has passed the runtime cwd-scoping check (`#653` §6).
@@ -1257,6 +1259,7 @@ impl TerminalState {
             path_override: None,
             session_registry: crate::agent_sessions::SessionRegistry::default(),
             lock_owner: None,
+            open_file_binding: None,
             codex_cwd_scoped: false,
             agy_cwd_scoped: false,
             path_prepend: Vec::new(),
@@ -1555,7 +1558,6 @@ impl TerminalState {
         F: Fn(u32) -> bool,
     {
         self.library_root = Some(lib_root.to_path_buf());
-        self.permission_mode = crate::agent_permissions::load_permission_mode(lib_root);
         let clean_file_id = file_id.trim();
         if clean_file_id.is_empty() {
             return;
@@ -1565,6 +1567,8 @@ impl TerminalState {
         if self.key == target_key && self.lock_owner.as_deref() == Some(win.as_str()) {
             return;
         }
+        // Read after the already-bound early return so a steady frame never touches settings.json.
+        self.permission_mode = crate::agent_permissions::load_permission_mode(lib_root);
         if self.key != target_key {
             self.shutdown();
             self.next_tab_id = 1;
@@ -1594,14 +1598,43 @@ impl TerminalState {
 
     /// Binds to the stable folder of the open file (`#653` rules 1 and 2): the library file id when
     /// there is one, else the hash key of its disk path ([`crate::agent_sessions::disk_file_session_key`]).
-    /// A document with neither (an unsaved scratch) keeps its per-process temp folder.
+    /// A document with neither (an unsaved scratch, or an `.svg` opened over a file) gets the
+    /// per-process temp folder again, so it never inherits the previous file's session.
+    ///
+    /// Runs every painted frame while no agent tab is open, so it does no filesystem work when the
+    /// inputs are the ones it last bound: the path key is computed once per path, and a transient
+    /// `canonicalize` failure (an external unlink + rename save) cannot flip an already-bound key.
     pub fn bind_open_file(&mut self, lib_root: &Path, lib_file_id: Option<&str>, disk_path: Option<&Path>, window_id: &str) {
-        let key = match (lib_file_id, disk_path) {
+        let cached = self.open_file_binding.as_ref().filter(|b| b.same_inputs(lib_root, lib_file_id, disk_path, window_id));
+        if let Some(b) = cached {
+            let still_bound =
+                matches!(&self.key, crate::agent_sessions::SessionKey::LibraryFile { lib_root: r, file_id } if r == lib_root && *file_id == b.file_id);
+            if still_bound && self.lock_owner.is_some() {
+                return;
+            }
+        }
+        let file_id = match (lib_file_id, disk_path) {
             (Some(id), _) => id.to_string(),
-            (None, Some(path)) => crate::agent_sessions::disk_file_session_key(path),
-            (None, None) => return,
+            (None, Some(path)) => match cached {
+                Some(b) => b.file_id.clone(),
+                None => crate::agent_sessions::disk_file_session_key(path),
+            },
+            (None, None) => {
+                self.open_file_binding = None;
+                if matches!(self.key, crate::agent_sessions::SessionKey::LibraryFile { .. }) {
+                    self.unbind_library_file(window_id);
+                }
+                return;
+            }
         };
-        self.bind_library_file(lib_root, &key, window_id);
+        self.bind_library_file(lib_root, &file_id, window_id);
+        self.open_file_binding = Some(crate::agent_sessions::OpenFileBinding {
+            lib_root: lib_root.to_path_buf(),
+            lib_file_id: lib_file_id.map(str::to_string),
+            disk_path: disk_path.map(Path::to_path_buf),
+            window_id: window_id.to_string(),
+            file_id,
+        });
     }
 
     /// Releases `<session_dir>/session.lock` if owned by this `TerminalState`.
