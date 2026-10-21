@@ -409,6 +409,32 @@ fn scoped_canvas_omission_keeps_the_key_stale() {
     cleanup(&ws);
 }
 
+#[test]
+fn a_scoped_canvas_that_leaves_out_every_applied_key_keeps_them_stale() {
+    let (ws, sess) = temp_dirs("scoped-all-omitted");
+    let (doc, page, _) = doc_with_frames(&[]);
+    write_canvas(&sess, &doc);
+    let mut s = Session::with_session_dir(&ws, &sess).unwrap();
+    let make = |key: &str, name: &str| json!({"idempotency_key": key, "parent_id": page.0, "kind": "frame", "name": name});
+    let a = s.call("designos_create_node", make("k1", "A")).unwrap()["node"]["id"].as_u64().unwrap();
+    let b = s.call("designos_create_node", make("k2", "B")).unwrap()["node"]["id"].as_u64().unwrap();
+
+    // A scoped copy (large file) leaves both layers out, e.g. they sit inside a frame over the layer budget.
+    fs::write(sess.join("context.json"), json!({"current_page_id": page.0, "scoped": true}).to_string()).unwrap();
+    let mut scoped = s.engine.doc.clone();
+    scoped.remove(NodeId(a)).unwrap();
+    scoped.remove(NodeId(b)).unwrap();
+    write_canvas(&sess, &scoped);
+
+    for (key, name) in [("k1", "A"), ("k2", "B")] {
+        let err = s.call("designos_create_node", make(key, name)).unwrap_err();
+        assert_eq!(err.code, ErrorCode::IdempotencyKeyStale, "{key} must not run again on a scoped copy");
+    }
+    let page_children = &s.engine.doc.get(page).unwrap().children;
+    assert!(page_children.is_empty(), "no retry created a layer on the scoped copy: {page_children:?}");
+    cleanup(&ws);
+}
+
 fn diff_batch(key: &str, name: &str, page: u64, x: f64) -> Value {
     json!({
         "idempotency_key": key,

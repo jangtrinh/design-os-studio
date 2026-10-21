@@ -594,8 +594,8 @@ impl Ledger {
     ///   is (neither forgotten nor stale) and ignored by the rules below; the next snapshot,
     ///   written after the editor applied the edit, decides it. No time margin is used: a real
     ///   Studio undo happens after Studio read the edit, so its snapshot is newer than the entry.
-    /// - If there is at least one checkable applied entry (pending ones aside) and every one fails
-    ///   `entry_matches_document(entry, doc)`, the canvas is a different document: the applied
+    /// - If the canvas is not a scoped copy, there is at least one checkable applied entry (pending
+    ///   ones aside) and every one fails `entry_matches_document(entry, doc)`, the canvas is a different document: the applied
     ///   entries are dropped from the ledger and rewritten out of its file. Entries the agent undid,
     ///   entries with nothing to check and entries already stale for good turn or stay stale, so
     ///   an undone write is not resurrected. Pending entries stay as they are.
@@ -618,7 +618,8 @@ impl Ledger {
         let is_pending = |e: &LedgerEntry| is_applied(e) && is_checkable(e) && canvas_mtime_ms <= e.created_ms && !entry_matches_document(e, doc);
         let applied_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e) && !is_pending(e)).count();
         let present_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)).count();
-        let different_document = applied_checkable > 0 && present_checkable == 0;
+        // A scoped copy leaves layers out on purpose, so absence there never means another document.
+        let different_document = !scoped_canvas && applied_checkable > 0 && present_checkable == 0;
         // Position (in write order) of the newest entry whose result is still in the document.
         let newest_present =
             self.order.iter().rposition(|key| self.entries.get(key).is_some_and(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)));
