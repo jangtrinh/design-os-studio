@@ -732,6 +732,115 @@ mod tests {
         designos_doc::set_mock_now_ms(None);
     }
 
+    /// An app whose only tab is a Claude agent tab with `run_id`, so a spec applied now is attributed to that tab.
+    fn app_with_agent_tab(run_id: &str) -> App {
+        let mut app = new_test_app();
+        let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Claude, false);
+        tab.run_id = run_id.to_string();
+        app.terminal.tabs.push(tab);
+        app
+    }
+
+    /// A frame carrying a live flag with no run id, as a Specs-panel apply or a host without a session leaves one.
+    fn add_runless_flagged_frame(app: &mut App, x: f32) -> NodeId {
+        let frame = add_frame(app, x);
+        app.doc.set_in_progress(
+            frame,
+            Some(InProgress {
+                run_id: None,
+                agent: Some("Claude Code".into()),
+                since_ms: 10_000,
+                stale_after_s: Some(300),
+                status: Some("Other writer building...".into()),
+            }),
+        );
+        frame
+    }
+
+    fn apply_spec_json(app: &mut App, json: serde_json::Value, label: &str) -> NodeId {
+        let spec: designos_doc::NodeSpec = serde_json::from_value(json).expect("valid NodeSpec");
+        app.apply_node_spec(&spec, label);
+        app.selection[0]
+    }
+
+    fn flagged_spec() -> serde_json::Value {
+        serde_json::json!({ "kind": "frame", "name": "Live", "width": 200, "height": 100, "in_progress": { "agent": "claude", "status": "Building..." } })
+    }
+
+    fn kill_tabs(app: &mut App) {
+        for tab in &mut app.terminal.tabs {
+            let _ = tab.child.kill();
+        }
+    }
+
+    #[test]
+    fn applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_stop_leaves_it() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let mut app = app_with_agent_tab("sess-live-1-1");
+        let unrelated = add_runless_flagged_frame(&mut app, 0.0);
+
+        let spec_root = apply_spec_json(&mut app, flagged_spec(), "live");
+        assert_eq!(app.doc.get_in_progress(spec_root).and_then(|ip| ip.run_id.as_deref()), Some("sess-live-1-1"), "the spec's own flag gets the writer run id");
+        assert_eq!(app.doc.get_in_progress(unrelated).map(|ip| ip.run_id.clone()), Some(None), "a flag the spec did not set keeps no run id");
+
+        let depth = app.hist.undo_depth();
+        stop_tab_and_close(&mut app, 0, depth);
+        assert!(app.doc.get_in_progress(spec_root).is_none(), "Stop clears the flag the stopped tab set");
+        assert!(app.doc.get_in_progress(unrelated).is_some(), "Stop leaves the flag another writer set");
+        kill_tabs(&mut app);
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn applying_a_spec_does_not_give_the_tab_run_id_to_another_writers_flag_so_turn_end_leaves_it() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let mut app = app_with_agent_tab("sess-live-1-1");
+        let unrelated = add_runless_flagged_frame(&mut app, 0.0);
+        let spec_root = apply_spec_json(&mut app, flagged_spec(), "live");
+
+        let end = TerminalAction::ClearInProgress { run_id: Some("sess-live-1-1".into()), agent: Some("Claude".into()) };
+        crate::shell::execute_terminal_actions(&mut app, vec![end]);
+        assert!(app.doc.get_in_progress(spec_root).is_none(), "turn end clears the flag the tab set");
+        assert_eq!(app.doc.get_in_progress(unrelated).map(|ip| ip.run_id.clone()), Some(None), "turn end leaves the flag another writer set");
+        kill_tabs(&mut app);
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
+    fn nested_spec_flags_without_a_run_id_get_the_agent_tab_run_id_and_explicit_ones_keep_theirs() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let mut app = app_with_agent_tab("sess-live-1-1");
+        let unrelated = add_runless_flagged_frame(&mut app, 0.0);
+        let section = apply_spec_json(
+            &mut app,
+            serde_json::json!({
+                "kind": "section", "name": "Spec Section", "width": 800, "height": 600,
+                "children": [
+                    { "kind": "frame", "name": "Implicit", "width": 300, "height": 200, "in_progress": { "agent": "claude" } },
+                    { "kind": "frame", "name": "Explicit", "width": 300, "height": 200, "in_progress": { "agent": "claude", "run_id": "run-explicit" } }
+                ]
+            }),
+            "nested",
+        );
+        let children = app.doc.get(section).unwrap().children.clone();
+        let (implicit, explicit) = (children[0], children[1]);
+        assert_eq!(
+            app.doc.get_in_progress(implicit).and_then(|ip| ip.run_id.as_deref()),
+            Some("sess-live-1-1"),
+            "a nested flag without a run id gets the writer's"
+        );
+        assert_eq!(app.doc.get_in_progress(explicit).and_then(|ip| ip.run_id.as_deref()), Some("run-explicit"), "an explicit run id is kept");
+        assert_eq!(app.doc.get_in_progress(unrelated).map(|ip| ip.run_id.clone()), Some(None), "the unrelated flag is still untouched");
+
+        let depth = app.hist.undo_depth();
+        stop_tab_and_close(&mut app, 0, depth);
+        assert!(app.doc.get_in_progress(implicit).is_none(), "Stop clears the nested flag stamped with the tab's run id");
+        assert!(app.doc.get_in_progress(explicit).is_some(), "Stop keeps a nested flag owned by another run");
+        assert!(app.doc.get_in_progress(unrelated).is_some());
+        kill_tabs(&mut app);
+        designos_doc::set_mock_now_ms(None);
+    }
+
     #[test]
     fn stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent() {
         designos_doc::set_mock_now_ms(Some(10_000));
