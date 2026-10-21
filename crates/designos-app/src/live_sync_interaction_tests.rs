@@ -31,6 +31,7 @@ pub(crate) fn live() -> Live {
     let workspace = std::env::temp_dir().join(format!("designos-live-interaction-ws-{}", unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let session = designos_mcp::server::Session::with_session_dir(&workspace, &dir).expect("mcp session");
     Live { app, session, dir, workspace, dragged: id }
 }
@@ -169,6 +170,7 @@ fn probe_agent_still_sees_its_held_edit_after_the_editor_republishes() {
         s.tx.ed.node(&mut l.app.doc, hero).unwrap().transform.tx += 5.0;
     }
     l.app.terminal.sync_live_file_context(&l.app.doc, l.app.page, &l.app.selection, None);
+    l.app.terminal.flush_live_sync();
     let child = l.session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Inside", "parent_id": card, "width": 5.0, "height": 5.0 }));
     assert!(child.is_ok(), "agent lost sight of its own held edit: {child:?}");
     l.finish();
@@ -191,6 +193,7 @@ fn probe_agent_move_survives_an_open_shape_builder() {
     let workspace = std::env::temp_dir().join(format!("designos-live-builder-ws-{}", unique_tab_id()));
     std::fs::create_dir_all(&workspace).unwrap();
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    app.terminal.flush_live_sync();
     let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &dir).expect("mcp session");
     app.selection = vec![a, b];
     assert!(crate::canvas::builder::start(&mut app));

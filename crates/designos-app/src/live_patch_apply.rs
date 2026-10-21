@@ -30,6 +30,8 @@ pub fn publish_live_context(app: &mut App) {
     app.terminal.current_undo_depth = app.hist.undo_depth();
     app.terminal.edit_in_progress = user_edit_in_progress(app);
     app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
+    #[cfg(test)]
+    app.terminal.flush_live_sync();
 }
 
 fn replace_live_document(app: &mut App, mut new_doc: Document) {

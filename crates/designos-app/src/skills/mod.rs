@@ -1310,6 +1310,7 @@ mod tests {
         term.skills.open_picker();
         term.sync_live_file_context(&doc, page1, &[], None);
         term.sync_live_file_context(&doc, page2, &[], None);
+        term.flush_live_sync();
 
         // `run.json` must still reflect the last started run (`design-system-rhythm`), not the new unsubmitted selection.
         let after: RunSkillManifest = serde_json::from_str(&std::fs::read_to_string(&run_path).unwrap()).unwrap();
@@ -1328,6 +1329,7 @@ mod tests {
         term.skills.set_library_root(root.clone());
         term.skills.set_selected_skills(Vec::new());
         term.sync_live_file_context(&doc, page1, &[], None);
+        term.flush_live_sync();
 
         let reply_path = term.session_dir.join("page-context-reply.json");
         let initial_reply = std::fs::read_to_string(&reply_path).expect("initial page-context-reply.json");
@@ -1369,6 +1371,7 @@ mod tests {
 
         // 3. A skill is attached by a send, not by a tick: neither the page sync nor the closed picker put it in the hook reply.
         term.sync_live_file_context(&doc, page2, &[], None);
+        term.flush_live_sync();
         let updated_reply = std::fs::read_to_string(&reply_path).expect("updated page-context-reply.json");
         assert!(!updated_reply.contains("designos-skill:"), "choosing a skill must not reach the page reply, got: {updated_reply}");
         assert!(hook_delivery::reply_file_names(&term.session_dir).is_empty(), "choosing a skill must not arm the skills hook reply");
