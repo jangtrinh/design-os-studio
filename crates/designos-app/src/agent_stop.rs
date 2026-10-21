@@ -708,6 +708,31 @@ mod tests {
     }
 
     #[test]
+    fn live_spec_flag_without_run_id_clears_on_stop_of_the_writing_tab() {
+        designos_doc::set_mock_now_ms(Some(10_000));
+        let mut app = new_test_app();
+        let mut tab = spawn_looping_stub_tab(1, AgentCliPreset::Claude, false);
+        tab.run_id = "sess-live-1-1".to_string();
+        app.terminal.tabs.push(tab);
+        let spec_json = |ip: &str| format!(r#"{{"kind":"frame","name":"Live","width":200,"height":100,"in_progress":{ip}}}"#);
+        let detailed: designos_doc::NodeSpec = serde_json::from_str(&spec_json(r#"{"agent":"claude","status":"Building..."}"#)).unwrap();
+        let boolean: designos_doc::NodeSpec = serde_json::from_str(&spec_json("true")).unwrap();
+        app.apply_node_spec(&detailed, "detailed");
+        let detailed_root = app.selection[0];
+        app.apply_node_spec(&boolean, "boolean");
+        let boolean_root = app.selection[0];
+        for id in [detailed_root, boolean_root] {
+            assert_eq!(app.doc.get_in_progress(id).and_then(|ip| ip.run_id.as_deref()), Some("sess-live-1-1"), "writer run id stamped");
+        }
+
+        let depth = app.hist.undo_depth();
+        stop_tab_and_close(&mut app, 0, depth);
+        assert!(app.doc.in_progress.is_empty(), "Stop clears live-spec flags of the writing tab");
+        let _ = app.terminal.tabs[0].child.kill();
+        designos_doc::set_mock_now_ms(None);
+    }
+
+    #[test]
     fn stopping_one_tab_keeps_the_in_progress_flags_of_a_parallel_tab_of_the_same_agent() {
         designos_doc::set_mock_now_ms(Some(10_000));
         let mut app = new_test_app();

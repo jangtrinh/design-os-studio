@@ -2193,7 +2193,11 @@ impl App {
                 commands.push(Command::Insert { parent, index, nodes });
                 let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
                 if self.hist.exec(&mut self.doc, command).is_ok() {
-                    if let Some(ip) = trial.in_progress.get(&root_id).cloned() {
+                    if let Some(mut ip) = trial.in_progress.get(&root_id).cloned() {
+                        // The live-spec writer is the active agent tab; Stop clears flags by run id only.
+                        if ip.run_id.is_none() {
+                            ip.run_id = self.terminal.active_tab().filter(|t| !t.is_shell_process()).map(|t| t.run_id.clone());
+                        }
                         self.doc.set_in_progress(root_id, Some(ip));
                     }
                     self.doc.relayout_subtree(parent);

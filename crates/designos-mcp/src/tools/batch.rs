@@ -1477,6 +1477,14 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     ToolError::batch_op_failed(op_idx, op_name, cause)
                 })?;
                 let root_id = report.root_node_id;
+                // A spec flag without a run id gets the writer's, as the single apply_spec does; Stop clears by run id only.
+                for id in report.in_progress.keys() {
+                    if trial.in_progress.get(id).is_some_and(|ip| ip.run_id.is_none()) {
+                        if let (Some(rid), Some(ip)) = (engine.resolve_agent_run_id(None), trial.in_progress.get_mut(id)) {
+                            ip.run_id = Some(rid);
+                        }
+                    }
+                }
                 // Variables, styles and library state the spec wrote (an `$easeui.*` token creates its collection) are
                 // committed as their own commands ahead of the insert, so the bound nodes never outlive their variables
                 // and one undo step removes both.
@@ -3254,6 +3262,35 @@ mod tests {
         assert!(diff["changed_pixels"].as_u64().unwrap() > 0, "z-order reorder on >5000 node doc must detect changed pixels, got: {diff}");
         assert!(diff["changed_bbox"].is_object(), "changed_bbox must be non-null");
         assert_eq!(reply["content"].as_array().unwrap().len(), 3, "must return before/after/diff image blocks");
+    }
+
+    #[test]
+    fn batch_apply_spec_in_progress_without_run_id_gets_the_writer_run_id() {
+        let mut engine = Engine { default_run_id: Some("run_writer_7".to_string()), ..Engine::default() };
+        let page = engine.resolve_default_page().unwrap();
+        let res = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "apply_spec",
+                        "parent": page.0,
+                        "as": "hero",
+                        "spec": {
+                            "kind": "frame",
+                            "name": "Hero Frame",
+                            "width": 390.0,
+                            "height": 844.0,
+                            "in_progress": { "agent": "claude", "status": "Building..." }
+                        }
+                    }]
+                }),
+            )
+            .expect("batch apply_spec with in_progress must succeed");
+        let hero_id = NodeId(res["name_to_id"]["hero"].as_u64().unwrap());
+        let ip = engine.doc.get_in_progress(hero_id).expect("hero frame should be flagged in_progress");
+        assert_eq!(ip.run_id, engine.resolve_agent_run_id(None));
+        assert!(ip.run_id.is_some(), "writer run id stamped");
     }
 
     #[test]
