@@ -6,7 +6,7 @@
 | Size | M |
 | Depends on | soft: #653 (stable session folders: its rules decide which folders are "kept") |
 | Unblocks | none |
-| Touches | new `crates/designos-app/src/agent_session_files.rs` (snapshot worker, owner marker, stale sweep), `crates/designos-app/src/terminal.rs` (hot spot: `for_tab` `:704-744`, `bind_session` `:758-775`, `sync_live_file_context` `:800-855`, `poll_live_agent_bridge` channel 1b `:1298-1313`, `configure_pty_env_with_session` `:2301-2304`, `shutdown` `:991-995`), `crates/designos-mcp/src/server.rs` (`:45-70`), `scripts/zero_fake_ui_gate.py` (`Z16`) and its self-test, tests |
+| Touches | new `crates/designos-app/src/agent_session_files.rs` (snapshot worker, owner marker, stale sweep), `crates/designos-app/src/terminal.rs` (hot spot: `for_tab` `:704-744`, `bind_session` `:758-775`, `sync_live_file_context` `:800-855`, `poll_live_agent_bridge` channel 1b `:1298-1313`, `configure_pty_env_with_session` `:2301-2304`, `shutdown` `:991-995`), `crates/designos-mcp/src/server.rs` (`:45-70`), `scripts/zero_fake_ui_gate.py` (`Z17`) and its self-test, tests |
 
 Code baseline: `origin/main@9f3f7a5`. Line numbers differ from the issue's (`:~804, 816`, `:676-680`); the exact ones are below.
 
@@ -27,7 +27,7 @@ As a designer with two Studio windows open and agents attached, I want each agen
 
 ## 3. Behaviour rules
 
-1. **No global path.** Non-test and test builds read and write only files inside the session folder. Delete the writes at `:836`, `:848`, the read at `:715`, the channel at `:1298-1313`, the env defaults at `:2301-2304` (a session is always supplied) and the `/tmp` fallbacks in `designos-mcp/src/server.rs:53-61` (a missing path stays `None`). Gate `Z16` fails when shipped code of `terminal.rs` or `server.rs` names any `/tmp/designos-live-` path.
+1. **No global path.** Non-test and test builds read and write only files inside the session folder. Delete the writes at `:836`, `:848`, the read at `:715`, the channel at `:1298-1313`, the env defaults at `:2301-2304` (a session is always supplied) and the `/tmp` fallbacks in `designos-mcp/src/server.rs:53-61` (a missing path stays `None`). Gate `Z17` fails when shipped code of `terminal.rs` or `server.rs` names any `/tmp/designos-live-` path.
 2. **Per window and session.** Folder names keep the window id (`p<pid>-w<n>`) and, with #653, the stable per-file key. Two windows never share a folder: a second window that finds a folder owned by a live process uses its own (#653 rule 3).
 3. **Owner marker.** On creating a session folder write `owner.json { pid, started_ms }`.
 4. **Cleanup on close.** Closing a tab removes its session folder after its children are killed, unless the session is kept for resume (#653: a folder under the library's `agent-sessions/`). `shutdown` of a whole window does the same for every tab.
@@ -77,7 +77,7 @@ Seams: `Sim`/terminal unit tests with two `TerminalState`s, a fake clock and liv
 
 | Case | Expected | Fails before |
 |---|---|---|
-| `no_global_tmp_path_in_shipped_code` (gate `Z16`) | no `/tmp/designos-live-` in shipped `terminal.rs` or `server.rs` | yes |
+| `no_global_tmp_path_in_shipped_code` (gate `Z17`) | no `/tmp/designos-live-` in shipped `terminal.rs` or `server.rs` | yes |
 | `a_sync_creates_no_global_file` | mtimes of the four global names unchanged or absent after two syncs | yes (non-test builds write them; the test runs the shared code path) |
 | `two_windows_keep_separate_contexts` | two states with two docs: each `context.json` names its own doc and page | guard |
 | `mcp_without_a_session_dir_has_no_live_paths` | `LiveSessionBridge` paths are `None` for a partial env | yes |

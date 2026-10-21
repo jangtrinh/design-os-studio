@@ -65,7 +65,7 @@ switch. A file with no sessions yet shows the new-session picker; Studio never s
 6. **Rename and Remove from list (owner ruling).** A row renames in place and has a "Remove from list" action: it forgets Studio's registry entry and leaves the CLI's own conversation untouched. The new label is stored in the registry (#653) and shown on the tab title; it does not rename the
    conversation inside the CLI. Empty labels revert to the default (`<CLI> <date>`).
 7. A resume that fails within the five-second window shows the existing start-failure panel
-   (`agent_start_failure`) with the added fix "Start a new session" (#653 rule 8), which opens the picker.
+   (`agent_start_failure`) with the added fix "Start new session" (#653 rule 8), which opens the picker.
 8. Skip-permissions stays the default for resumed sessions; ask mode is the optional setting of #656.
 9. **Closing the last tab (owner ruling)** shows the new-session picker (#652), as for a file with no resumable session; the panel is never left blank.
 10. **Cmd+K design actions with no live tab (owner ruling).** `dispatch_figma_ai_prompt` (`terminal.rs:1368-1375`) no longer starts the first installed CLI: it resumes the file's last resumable session
@@ -97,7 +97,7 @@ The form is the one the owner ruled on 2026-10-19 (ghost button + popover, renam
 - **Popover**: `RADIUS_FRAME`, surface `BG_MENU` with a `BORDER_MENU` hairline, inset `INSET_POPOVER`, a caption heading "Sessions for this file" in `TEXT_SECONDARY` with `SPACE_FACT` below it and a `BORDER` hairline; rows are `CONTROL_ROW` high with two lines: line one the CLI name (body-medium) and the label (body), line two the last-active time and the status in caption; hover `BG_MENU_HOVER`; the row whose tab is focused uses the neutral `BG_SELECTED` fill. The status shown in a row uses the same dot as the tab (`paint_orca_tab_status_and_provider`, `terminal.rs:1983-2058`); no new colour is introduced.
 - **Rename**: the label becomes a text field at `FIELD_HEIGHT` inside the row (Enter saves, Esc cancels); no modal.
 - **Empty state**: the picker (#652) fills the viewport area under the tab bar, which keeps `+` and Sessions, with sample prompts below (#688).
-- **Failure**: the existing card (`agent_start_failure::paint`) with one more fix button text, "Start a new session".
+- **Failure**: the existing card (`agent_start_failure::paint`) with one more fix button text, "Start new session".
 - Desktop capture at 1440 for the three states: resumed tab, Sessions popover open, empty-state picker; responsive SKIPPED (owner default). Load es-designer before UI code. The Figma frames for these states are updated from the captures before gates run (owner rule, 2026-10-13).
 
 ## 8. Edge cases

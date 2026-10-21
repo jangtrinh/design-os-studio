@@ -35,7 +35,7 @@ As a designer, when my agent stops in the middle of a session because of a limit
    - `LoginExpired`: "Login expired." Action "Run login" (the existing `FixAction::RunLogin`, `login_command(preset)`).
    - `BillingOrQuota`: "Billing or quota problem." Action "Open billing" (the provider's billing page address, data per CLI).
    - `ProviderServerError`: "The provider has a problem." Action "Retry". After classification Studio fetches that provider's public status page once with `ureq` off the UI thread and, if an incident is open, appends its title. It never polls.
-   - `ContextFull`: "This conversation is full." Action "Start a new session".
+   - `ContextFull`: "This conversation is full." Action "Start new session".
    - `NetworkOffline`: "No network." Action "Retry when online": one connection attempt per click, never a poll.
 5. **Unknown failure.** The banner shows the last output lines (as #650's panel does) and "Copy details". It names no class and no cause.
 6. **Copy details** puts on the clipboard: CLI name and version, the class (or "unknown"), the last 40 lines of output (escapes stripped), and the session id. Every line passes the redactor first. The redactor removes values that match key shapes (provider key prefixes, `Authorization: Bearer ...`, `NAME=value` where the name contains KEY, TOKEN, SECRET or PASSWORD, long base64 or hex runs after such a name). It replaces them with `[redacted]`. Studio never adds a token or key to the text.
@@ -75,7 +75,7 @@ Described in words; checked against `design/principles.md` P1 to P10 and `design
 5. A key shape inside the output that is part of an error message (a masked key): redacted anyway.
 6. A CLI prints the word "login" in normal output: patterns need a context phrase plus the hook or exit trigger of rule 1, so normal output does not raise a banner.
 7. A very long line: elided in the banner; kept whole (redacted) in the copied details.
-8. The tab is dead: "Start a new session" still works; retry actions are disabled.
+8. The tab is dead: "Start new session" still works; retry actions are disabled.
 
 ## 9. Non-goals
 

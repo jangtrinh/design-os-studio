@@ -84,7 +84,7 @@ ones as before the restart.
    starts, exactly as a new tab does (`spawn_tab_running` calls `provision_session_agent_files`, `:1225`).
 8. **Failure to resume** (the CLI exits within the five-second window, for example because the session was
    deleted in the CLI): the existing start-failure panel appears (`agent_start_failure`) with the CLI's output;
-   the registry entry is marked `missing` and the panel's fix is "Start a new session" (new fix action).
+   the registry entry is marked `missing` and the panel's fix is "Start new session" (new fix action).
 9. **Cleanup.** Emptying the library trash for a file deletes its `agent-sessions/<key>/` folder; deleting a
    file's agent sessions is also offered from the sessions dropdown of #651. The CLIs' own conversation
    stores are never deleted by Studio.
