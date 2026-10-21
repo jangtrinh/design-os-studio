@@ -1045,15 +1045,14 @@ pub fn attach_diff_to_reply(before_doc: &Document, after_doc: &Document, touched
 }
 
 /// Re-renders `"content"` image blocks from the current document for an idempotent replay of a
-/// `diff_image: true` tool call (§8.6). Returns `true` when image blocks were re-rendered.
-pub fn rerender_diff_images_on_replay(doc: &Document, undo_cmd: Option<&designos_doc::Command>, reply: &mut Value) -> bool {
+/// `diff_image: true` tool call (§8.6). `before_doc` is the document as it was before that call
+/// (`None` when it cannot be rebuilt: the "before" image then equals the "after" one). Returns
+/// `true` only when image blocks were re-rendered.
+pub fn rerender_diff_images_on_replay(doc: &Document, before_doc: Option<&Document>, reply: &mut Value) -> bool {
     let Some(pages) = reply.get("diff").and_then(|d| d.get("pages")).and_then(Value::as_array).cloned() else {
         return false;
     };
-    let before_doc_opt = undo_cmd.and_then(|cmd| {
-        let mut bdoc = doc.clone();
-        cmd.clone().apply(&mut bdoc).ok().map(|_| bdoc)
-    });
+    let before_doc_opt = before_doc;
 
     let mut content_blocks = Vec::new();
     for page in &pages {
@@ -1076,7 +1075,7 @@ pub fn rerender_diff_images_on_replay(doc: &Document, undo_cmd: Option<&designos
 
         let after_res = if doc.get(page_id).is_some() {
             render_target(doc, target.clone(), 1.0, 1024)
-        } else if let Some(ref bdoc) = before_doc_opt {
+        } else if let Some(bdoc) = before_doc_opt {
             render_target(bdoc, target.clone(), 1.0, 1024)
         } else {
             continue;
@@ -1084,7 +1083,7 @@ pub fn rerender_diff_images_on_replay(doc: &Document, undo_cmd: Option<&designos
         let Ok(rendered_after) = after_res else {
             continue;
         };
-        let rendered_before = if let Some(ref bdoc) = before_doc_opt {
+        let rendered_before = if let Some(bdoc) = before_doc_opt {
             if bdoc.get(page_id).is_some() {
                 match render_target(bdoc, target, 1.0, 1024) {
                     Ok(r) => r,

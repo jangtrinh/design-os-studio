@@ -5,6 +5,7 @@ use crate::tools::ledger::{
     corrected_example_with_new_key, extract_and_strip_idempotency_key, extract_live_and_gone, is_idempotent_write_tool, now_ms, payload_hash,
     CallLedgerDecision, Ledger, LedgerEntry, LEDGER_FILE_NAME,
 };
+use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
 use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
@@ -214,6 +215,7 @@ impl Session {
         }
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
+        s.replay_unabsorbed_live_patches();
         if let Some(dir) = s.bridge.session_dir.as_ref() {
             s.ledger = Ledger::load_from_path(dir.join(LEDGER_FILE_NAME));
         }
@@ -247,8 +249,53 @@ impl Session {
         }
         s.record_live_ops();
         s.sync_from_live_canvas_if_newer();
+        s.replay_unabsorbed_live_patches();
         s.ledger = Ledger::load_from_path(session_dir.join(LEDGER_FILE_NAME));
         Ok(s)
+    }
+
+    /// On a reconnect, the edits an earlier process of this session appended to `doc-patch.jsonl`
+    /// after the canvas on disk was written are replayed onto the loaded canvas, so the ledger's
+    /// presence check sees what those writes produced even while the editor lags (E15-6 §3.4, §3.7).
+    /// Runs once at start, before the ledger is loaded; nothing is recorded, published or undoable.
+    fn replay_unabsorbed_live_patches(&mut self) {
+        if self.bridge.session_dir.is_none() {
+            return;
+        }
+        let Some(path) = self.bridge.live_doc_patch_path.as_ref() else {
+            return;
+        };
+        let Ok(log) = fs::read(path) else {
+            return;
+        };
+        let canvas_base = self.canvas_base_nanos();
+        if let Err(e) = replay_unabsorbed_patches(&mut self.engine.doc, &log, canvas_base) {
+            // The loaded canvas is kept as it was; keys whose writes it lacks answer
+            // IDEMPOTENCY_KEY_STALE, which sends the agent to read the nodes first.
+            eprintln!("designos-mcp: could not replay {} onto the loaded canvas: {e}", path.display());
+        } else {
+            self.engine.clear_lint_cache();
+        }
+    }
+
+    /// The document as it was before the write that left the undo stack at `undo_depth`: the
+    /// current one with the undo steps above that write, and the write itself, taken back. `None`
+    /// when the stack no longer holds them (a canvas reload dropped it, or the write changed nothing).
+    fn document_before_write(&self, undo_depth: Option<usize>) -> Option<designos_doc::Document> {
+        let (from, current) = (undo_depth?, self.engine.history.undo_depth());
+        if from == 0 || current < from {
+            return None;
+        }
+        let mut doc = self.engine.doc.clone();
+        for depth in (from..=current).rev() {
+            self.engine.history.undo_at_depth(depth)?.clone().apply(&mut doc).ok()?;
+        }
+        Some(doc)
+    }
+
+    /// The `LivePatch::base` the next edit carries: the loaded canvas's modification time, in ns.
+    fn canvas_base_nanos(&self) -> Option<u64> {
+        self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64)
     }
 
     fn edit_log_len(&self) -> u64 {
@@ -265,38 +312,7 @@ impl Session {
     /// snapshot, and updates `self.engine.active_page_id` from `context.json` (`current_page_id`).
     pub fn sync_from_live_canvas_if_newer(&mut self) {
         let mut reloaded_live_canvas = false;
-        if let Some(canvas_path) = self.bridge.live_canvas_path.clone() {
-            if let Ok(meta) = fs::metadata(&canvas_path) {
-                if let Ok(mtime) = meta.modified() {
-                    let is_newer = match self.bridge.last_canvas_mtime {
-                        Some(prev) => mtime > prev,
-                        None => true,
-                    };
-                    if is_newer {
-                        if let Ok(raw) = fs::read_to_string(&canvas_path) {
-                            if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
-                                let prev_undo_depth = self.engine.history.undo_depth();
-                                self.engine.doc = doc;
-                                self.engine.clear_lint_cache();
-                                // Ops recorded against the replaced copy no longer apply, and neither
-                                // does its undo history: it names the agent's old ids, which the
-                                // editor may have given to the user's layers.
-                                self.engine.take_live_ops();
-                                self.engine.live_patch_label = None;
-                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
-                                    self.engine.history = designos_doc::History::default();
-                                    self.history_dropped = true;
-                                }
-                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc);
-                                self.bridge.last_canvas_mtime = Some(mtime);
-                                reloaded_live_canvas = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        // Read first: whether the editor shares a scoped copy decides how the ledger reads a reload.
         let mut loaded_page_id: Option<u64> = None;
         let mut context_scoped = false;
         let mut loaded_run_id: Option<String> = None;
@@ -341,6 +357,38 @@ impl Session {
         if let Some(ag) = loaded_agent {
             self.engine.default_agent = Some(ag);
         }
+        if let Some(canvas_path) = self.bridge.live_canvas_path.clone() {
+            if let Ok(meta) = fs::metadata(&canvas_path) {
+                if let Ok(mtime) = meta.modified() {
+                    let is_newer = match self.bridge.last_canvas_mtime {
+                        Some(prev) => mtime > prev,
+                        None => true,
+                    };
+                    if is_newer {
+                        if let Ok(raw) = fs::read_to_string(&canvas_path) {
+                            if let Ok(doc) = parse_unrepaired_native(&raw).and_then(|doc| validate_document(&doc).map(|()| doc)) {
+                                let prev_undo_depth = self.engine.history.undo_depth();
+                                self.engine.doc = doc;
+                                self.engine.clear_lint_cache();
+                                // Ops recorded against the replaced copy no longer apply, and neither
+                                // does its undo history: it names the agent's old ids, which the
+                                // editor may have given to the user's layers.
+                                self.engine.take_live_ops();
+                                self.engine.live_patch_label = None;
+                                if self.engine.history.can_undo() || self.engine.history.can_redo() {
+                                    self.engine.history = designos_doc::History::default();
+                                    self.history_dropped = true;
+                                }
+                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped);
+                                self.bridge.last_canvas_mtime = Some(mtime);
+                                reloaded_live_canvas = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if loaded_page_id.is_none() {
             if let Ok(env_pid) = std::env::var("DESIGNOS_TARGET_PAGE_ID") {
                 loaded_page_id = env_pid.trim().parse::<u64>().ok();
@@ -382,7 +430,7 @@ impl Session {
         if self.bridge.doc_unannounced {
             return self.publish_live_doc_sync().map_err(|e| format!("the editor still shows the previous document: {e}"));
         }
-        let base = self.bridge.last_canvas_mtime.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_nanos() as u64);
+        let base = self.canvas_base_nanos();
         let line = live_patch_line(&LivePatch::new(ops).with_base(base).with_label(label), self.max_live_patch_bytes)?;
         let path = path.clone();
         append_log_line(&path, &line)
@@ -961,10 +1009,12 @@ impl Session {
                                 meta.insert("designos/idempotent_replay".to_string(), json!(true));
                                 let want_diff = args.get("diff_image").and_then(Value::as_bool) == Some(true) || reply.get("diff").is_some();
                                 if want_diff {
-                                    let rerendered =
-                                        crate::tools::screenshot::rerender_diff_images_on_replay(&self.engine.doc, self.engine.history.peek_undo(), &mut reply);
-                                    if rerendered || args.get("diff_image").and_then(Value::as_bool) == Some(true) {
+                                    let before_doc = self.document_before_write(self.ledger.get(key).and_then(|e| e.undo_depth));
+                                    if crate::tools::screenshot::rerender_diff_images_on_replay(&self.engine.doc, before_doc.as_ref(), &mut reply) {
                                         meta.insert("designos/images_rerendered".to_string(), json!(true));
+                                        if before_doc.is_none() {
+                                            meta.insert("designos/diff_before_unavailable".to_string(), json!(true));
+                                        }
                                     }
                                 }
                                 self.last_call_meta = Some(meta);
@@ -985,8 +1035,7 @@ impl Session {
                                     "/idempotency_key",
                                     format!("Key {key} is stale because its write was undone or is no longer present in the document."),
                                 )
-                                .with_received(json!(key))
-                                .with_corrected_example(corrected_example_with_new_key(&raw_args, key)));
+                                .with_received(json!(key)));
                             }
                             CallLedgerDecision::Absent => {}
                         }
@@ -2614,51 +2663,6 @@ mod tests {
     }
 
     #[test]
-    fn reconnect_without_document_state_is_stale() {
-        let (ws, sess) = temp_test_dirs("reconnect-no-canvas");
-        let created_id: u64;
-        let page: u64;
-        {
-            let mut s1 = Session::with_session_dir(&ws, &sess).unwrap();
-            page = s1.engine.doc.pages[0].0;
-            let reply = s1
-                .call(
-                    "designos_apply_batch",
-                    json!({
-                        "idempotency_key": "k1",
-                        "ops": [{"op": "create", "parent": page, "kind": "frame", "name": "Hero"}]
-                    }),
-                )
-                .unwrap();
-            created_id = reply["created"][0].as_u64().unwrap();
-            // Do NOT write canvas.designos — new session starts without created_id
-        }
-
-        let mut s2 = Session::with_session_dir(&ws, &sess).unwrap();
-        let count_before = s2.engine.doc.nodes.len();
-        let depth_before = s2.engine.history.undo_depth();
-
-        let err = s2
-            .call(
-                "designos_apply_batch",
-                json!({
-                    "idempotency_key": "k1",
-                    "ops": [{"op": "create", "parent": page, "kind": "frame", "name": "Hero"}]
-                }),
-            )
-            .unwrap_err();
-        assert_eq!(err.code, ErrorCode::IdempotencyKeyStale);
-        assert!(err.safe_to_retry);
-        assert_eq!(s2.engine.doc.nodes.len(), count_before);
-        assert_eq!(s2.engine.history.undo_depth(), depth_before);
-
-        let get_err = s2.call("designos_get_node", json!({"node_id": created_id})).unwrap_err();
-        assert_eq!(get_err.code, ErrorCode::NodeNotFound);
-
-        let _ = fs::remove_dir_all(ws.parent().unwrap());
-    }
-
-    #[test]
     fn reconnect_after_node_deleted_is_stale() {
         let (ws, sess) = temp_test_dirs("reconnect-deleted");
         let created_id: u64;
@@ -2947,7 +2951,7 @@ mod tests {
         let err = s.call("designos_apply_batch", payload).unwrap_err();
         assert_eq!(err.code, ErrorCode::IdempotencyKeyStale);
         assert!(err.safe_to_retry);
-        assert_eq!(err.corrected_example.as_ref().unwrap()["idempotency_key"], "k1-2");
+        assert!(err.corrected_example.is_none(), "a stale key offers no ready-made resend");
         assert_eq!(s.engine.doc.nodes.len(), initial_count);
         assert_eq!(s.engine.revision, rev_after_undo);
         assert_eq!(s.engine.history.undo_depth(), depth_after_undo);
@@ -3138,3 +3142,7 @@ mod tests {
         let _ = fs::remove_dir_all(ws.parent().unwrap());
     }
 }
+
+#[cfg(test)]
+#[path = "server_idempotency_tests.rs"]
+mod idempotency_tests;

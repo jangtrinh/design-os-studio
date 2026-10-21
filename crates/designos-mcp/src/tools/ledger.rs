@@ -113,13 +113,13 @@ pub fn validate_idempotency_key_str(key: &str) -> Result<(), ToolError> {
         return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/idempotency_key", "idempotency_key must be 1..=128 characters in [A-Za-z0-9._:-]")
             .with_received(json!(key.len()))
             .with_expected("1..=128 characters in [A-Za-z0-9._:-]")
-            .with_corrected_example(json!("run-1")));
+            .with_corrected_example(json!({"idempotency_key": "run-1"})));
     }
     if !is_valid_idempotency_key(key) {
         return Err(ToolError::new(ErrorCode::InvalidArguments, "/idempotency_key", "idempotency_key must be 1..=128 characters in [A-Za-z0-9._:-]")
             .with_received(json!(key))
             .with_expected("1..=128 characters in [A-Za-z0-9._:-]")
-            .with_corrected_example(json!("run-1")));
+            .with_corrected_example(json!({"idempotency_key": "run-1"})));
     }
     Ok(())
 }
@@ -141,7 +141,7 @@ pub fn extract_and_strip_idempotency_key(args: &mut Value) -> Result<Option<Stri
         other => Err(ToolError::new(ErrorCode::InvalidArguments, "/idempotency_key", "idempotency_key must be a string")
             .with_received(other)
             .with_expected("1..=128 characters in [A-Za-z0-9._:-]")
-            .with_corrected_example(json!("run-1"))),
+            .with_corrected_example(json!({"idempotency_key": "run-1"}))),
     }
 }
 
@@ -583,51 +583,91 @@ impl Ledger {
 
     /// Reconciles the ledger after Studio writes a newer `canvas.designos` snapshot (§3.4, §3.6, §3.7).
     ///
+    /// Studio republishes the canvas after it applies each of the agent's edits, so a reload must
+    /// not clear the ledger while the agent's writes are still in the document.
+    ///
     /// - A checkable applied entry has `!entry.dead && entry.undo_depth.is_none_or(|d| current_undo_depth >= d)`
     ///   and `!entry.live.is_empty() || !entry.gone.is_empty()`.
     /// - If there is at least one checkable applied entry and every checkable applied entry fails
     ///   `entry_matches_document(entry, doc)`, the canvas is a different document: clear the ledger
     ///   and truncate `<session_dir>/idempotency-ledger.jsonl`.
-    /// - Otherwise, keep the ledger file and detach in-memory `undo_depth` (since `History` is reset
-    ///   on canvas reload), marking stale (`entry.dead = true` + `"stale"` transition) only those
-    ///   entries that were undone before reload, have empty `live` and `gone` (§3.7), or whose
-    ///   `live`/`gone` presence check fails in `doc`.
-    pub fn on_canvas_reload(&mut self, current_undo_depth: usize, doc: &Document) {
+    /// - Otherwise the ledger file is kept and the in-memory `undo_depth` is detached (`History` is
+    ///   reset on canvas reload). Entries undone before the reload, or without checkable ids, turn
+    ///   stale for good (`entry.dead = true` + `"stale"` transition).
+    /// - A checkable applied entry whose result is missing from `doc` is either a Studio-side undo
+    ///   or something the canvas leaves out. Studio's undo takes back the newest writes first, so
+    ///   when no later entry's result is still in `doc` and the canvas is not a scoped copy, the
+    ///   entry is forgotten: the retry runs as a new write (§3.6, owner ruling 2026-10-19). Any
+    ///   other missing entry turns stale: the editor deleted or left out that layer on its own.
+    pub fn on_canvas_reload(&mut self, current_undo_depth: usize, doc: &Document, scoped_canvas: bool) {
         if self.entries.is_empty() {
             return;
         }
-        let mut checkable_applied = 0usize;
-        let mut matching_checkable = 0usize;
-        for entry in self.entries.values() {
-            let is_applied = !entry.dead && entry.undo_depth.is_none_or(|d| current_undo_depth >= d);
-            let is_checkable = !entry.live.is_empty() || !entry.gone.is_empty();
-            if is_applied && is_checkable {
-                checkable_applied += 1;
-                if entry_matches_document(entry, doc) {
-                    matching_checkable += 1;
-                }
-            }
-        }
-        if checkable_applied > 0 && matching_checkable == 0 {
+        let is_applied = |e: &LedgerEntry| !e.dead && e.undo_depth.is_none_or(|d| current_undo_depth >= d);
+        let is_checkable = |e: &LedgerEntry| !e.live.is_empty() || !e.gone.is_empty();
+        let applied_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e)).count();
+        let present_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)).count();
+        if applied_checkable > 0 && present_checkable == 0 {
             self.clear();
             return;
         }
+        // Position (in write order) of the newest entry whose result is still in the document.
+        let newest_present =
+            self.order.iter().rposition(|key| self.entries.get(key).is_some_and(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)));
         let mut newly_stale = Vec::new();
-        for key in &self.order {
-            if let Some(entry) = self.entries.get_mut(key) {
-                let undone_before_reload = entry.undo_depth.is_some_and(|d| current_undo_depth < d);
-                let uncheckable = entry.live.is_empty() && entry.gone.is_empty();
-                let presence_failed = !uncheckable && !entry_matches_document(entry, doc);
-                if !entry.dead && (undone_before_reload || uncheckable || presence_failed) {
+        let mut forgotten = Vec::new();
+        for (pos, key) in self.order.iter().enumerate() {
+            let Some(entry) = self.entries.get_mut(key) else { continue };
+            let undone_before_reload = entry.undo_depth.is_some_and(|d| current_undo_depth < d);
+            let uncheckable = !is_checkable(entry);
+            let presence_failed = !uncheckable && !entry_matches_document(entry, doc);
+            if !entry.dead {
+                if presence_failed && !undone_before_reload && !scoped_canvas && newest_present.is_none_or(|newest| pos > newest) {
+                    forgotten.push(entry.key.clone());
+                } else if undone_before_reload || uncheckable || presence_failed {
                     entry.dead = true;
                     newly_stale.push(entry.key.clone());
                 }
-                entry.undo_depth = None;
-                entry.auto_fix_undo_depth = None;
+            }
+            entry.undo_depth = None;
+            entry.auto_fix_undo_depth = None;
+        }
+        for key in &newly_stale {
+            self.append_transition(key, "stale");
+        }
+        if !forgotten.is_empty() {
+            self.forget(&forgotten);
+        }
+    }
+
+    /// Removes `keys` for good, in memory and in the ledger file, so each behaves as unknown.
+    fn forget(&mut self, keys: &[String]) {
+        for key in keys {
+            if let Some(removed) = self.entries.remove(key) {
+                self.total_reply_bytes = self.total_reply_bytes.saturating_sub(entry_reply_bytes(&removed));
             }
         }
-        for key in newly_stale {
-            self.append_transition(&key, "stale");
+        self.order.retain(|k| !keys.contains(k));
+        self.rewrite_file();
+    }
+
+    /// Rewrites `<session_dir>/idempotency-ledger.jsonl` from the entries held in memory (state
+    /// transitions are folded into each entry's `dead` flag). Like every append, best effort.
+    fn rewrite_file(&self) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let mut body = String::new();
+        for entry in self.order.iter().filter_map(|k| self.entries.get(k)) {
+            if let Ok(line) = serde_json::to_string(entry) {
+                body.push_str(&line);
+                body.push('\n');
+            }
+        }
+        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+        let written = fs::File::create(&tmp).and_then(|mut f| f.write_all(body.as_bytes()).and_then(|_| f.sync_all()));
+        if written.is_err() || fs::rename(&tmp, path).is_err() {
+            let _ = fs::remove_file(&tmp);
         }
     }
 

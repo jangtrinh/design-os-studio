@@ -70,7 +70,7 @@ pub enum ErrorCode {
     HistoryDropped,
     InternalError,
 
-    // Active pack codes (5)
+    // Active pack codes (3)
     InvalidSelector,
     UnknownLanguage,
     OutsideOwnedFrames,
@@ -92,6 +92,8 @@ pub enum ErrorCode {
     ImageTooLarge,
     NodesOnDifferentPages,
     UnknownPrompt,
+
+    // Idempotency-key codes (2)
     IdempotencyKeyReused,
     IdempotencyKeyStale,
 }
@@ -303,7 +305,7 @@ impl ErrorCode {
             Self::NodeInProgressByOtherRun => "Wait for the other run to finish, or pass force:true only when that run is known dead.",
             Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
             Self::IdempotencyKeyStale => {
-                "Read the target nodes; this write was undone or is not in the open document. Send it again with a new idempotency_key only if you still want it."
+                "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
             }
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
@@ -1009,7 +1011,16 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
         return;
     };
     let ex_map = ex_map.clone();
-    if orig_map.contains_key("spec") {
+    if err.path == "/idempotency_key" {
+        // A top-level argument: it replaces the key in the call whatever the tool's shape.
+        let mut full = original_args.clone();
+        if let Value::Object(ref mut m) = full {
+            for (k, v) in ex_map {
+                m.insert(k, v);
+            }
+        }
+        err.corrected_example = Some(full);
+    } else if orig_map.contains_key("spec") {
         if ex_map.contains_key("spec") || ex_map.contains_key("parent_id") {
             let mut full = original_args.clone();
             if let Value::Object(ref mut m) = full {
