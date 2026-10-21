@@ -8851,6 +8851,87 @@ Done!
     }
 
     #[test]
+    fn header_strip_keeps_still_running_notice_stop_and_mention_apart_at_narrow_widths() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, ids) = make_three_layer_doc();
+        let sel = [ids[0], ids[1]];
+        for width in [280.0f32, 300.0] {
+            let mut st = isolated_683_state(68413);
+            let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-still-running"));
+            *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Thinking".into()));
+            st.tabs[idx].still_running_notice = Some(crate::agent_stop::STILL_RUNNING_NOTICE.to_string());
+
+            let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(width, 600.0));
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() }, |ui| {
+                crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                    let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                });
+            });
+            let rect_of = |name: &str| -> Option<Rect> { ctx.data(|d| d.get_temp(Id::new(("test-rect", name.to_string())))) };
+            let chip = rect_of("agent-selection-chip-left").expect("chip");
+            let notice = rect_of("agents-header-turn-status").expect("still-running notice takes the right slot");
+            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
+            let stop = rect_of("agents-header-stop-btn").expect("Stop button");
+            let popout = rect_of("agents-header-popout").expect("pop-out button");
+            let strip = [("chip", chip), ("notice", notice), ("mention", mention)];
+            for (i, (an, a)) in strip.iter().enumerate() {
+                assert!(a.left() >= panel_rect.left() && a.right() <= panel_rect.right(), "{an} {a:?} inside {width}px panel");
+                for (bn, b) in strip.iter().skip(i + 1) {
+                    assert!(!a.intersects(*b), "{an} {a:?} overlaps {bn} {b:?} at {width}px");
+                }
+            }
+            assert!(chip.right() <= notice.left() && notice.right() <= mention.left(), "chip | notice | mention order at {width}px");
+            assert!(stop.right() <= popout.left() && !stop.intersects(popout), "Stop {stop:?} left of pop-out {popout:?} at {width}px");
+            assert!(popout.right() <= panel_rect.right(), "pop-out inside panel");
+            assert!(stop.bottom() <= chip.top().min(mention.top()), "Stop sits in the chrome bar above the strip");
+
+            kill_tabs(&mut st);
+            let _ = std::fs::remove_dir_all(&st.session_dir);
+        }
+    }
+
+    #[test]
+    fn esc_with_the_mention_popup_open_closes_the_popup_and_does_not_stop_the_turn() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let (doc, page, _ids) = make_three_layer_doc();
+        let mut st = isolated_683_state(68414);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-esc-popup"));
+        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Thinking".into()));
+        st.viewport_focused = false;
+        st.chrome_focused = true;
+        st.mention_popup.toggle_terminal_mode_for("agents-left-pty", &doc, page);
+        assert!(st.mention_popup.is_open());
+
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 600.0));
+        let esc_frame = |st: &mut TerminalState| {
+            let raw = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+                events: vec![egui::Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| {
+                crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                    let _ = show_left_with_doc(st, ui, panel_rect, None, summary, &doc, page);
+                });
+            });
+        };
+        esc_frame(&mut st);
+        assert!(!st.mention_popup.is_open(), "Esc closes the popup");
+        assert!(st.tabs[idx].stop_state.is_none(), "the same Esc must not stop the running turn");
+        assert!(st.tabs[idx].stop_sent_keys.is_empty(), "no interrupt key was sent");
+
+        esc_frame(&mut st);
+        assert!(st.tabs[idx].stop_state.is_some(), "a second Esc with the popup closed stops the turn");
+
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
     fn skill_text_documents_the_grammar() {
         let st = TerminalState::for_tab(65501);
         let _ = std::fs::create_dir_all(&st.session_dir);
