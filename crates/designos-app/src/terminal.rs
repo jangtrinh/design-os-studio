@@ -12655,6 +12655,7 @@ Done!
             let mut st = TerminalState::for_tab(8604);
             let t0 = std::time::Instant::now();
             st.sync_live_file_context(&doc, page, &[], None);
+            st.flush_live_sync();
             let _ = st.resolve_bootstrap_markdown(std::time::Duration::from_millis(500));
             let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
             assert!(elapsed_ms <= 300.0, "large fixture bootstrap build took {elapsed_ms:.2}ms (> 300ms budget)");
@@ -12738,6 +12739,7 @@ Done!
             let workspace = std::env::temp_dir();
             let file_path = workspace.join("bootstrap-fixture-8606.designos");
             st.sync_live_file_context(&fx.doc, fx.page1, &fx.selected_ids, Some(&file_path));
+            st.flush_live_sync();
             let _ = st.resolve_bootstrap_markdown(std::time::Duration::from_millis(500));
 
             let studio_boot = read_json(&st.bootstrap_json_path);
@@ -12791,6 +12793,7 @@ Done!
             let fx = build_tokens_fixture();
             let mut st = TerminalState::for_tab(8608);
             st.sync_live_file_context(&fx.doc, fx.page1, &[], None);
+            st.flush_live_sync();
             st.start_bootstrap_job(fx.doc.clone(), fx.page1, None, Some(std::time::Duration::from_millis(1200)));
 
             let t0 = std::time::Instant::now();
@@ -12821,6 +12824,7 @@ Done!
             // and mark the run delivered so turn 2 only prints page context.
             let mut st_claude = TerminalState::for_tab(8610);
             st_claude.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
+            st_claude.flush_live_sync();
             let _ = st_claude.resolve_bootstrap_markdown(std::time::Duration::from_millis(500));
             st_claude.reset_agent_run(Some(&file_path));
             st_claude.start_bootstrap_job(fx.doc.clone_without_images(), fx.page1, Some(file_path.clone()), Some(std::time::Duration::from_millis(4500)));
@@ -12955,6 +12959,7 @@ Done!
             let mut st = TerminalState::for_tab(8614);
             let file_path = std::env::temp_dir().join("bootstrap-fixture-8614.designos");
             st.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
+            st.flush_live_sync();
             let ctx_json = read_json(&st.context_json_path);
             assert_eq!(ctx_json["scoped"], json!(true), "context.json must mark >25k node session as scoped");
 
