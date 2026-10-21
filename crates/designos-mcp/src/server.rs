@@ -379,7 +379,8 @@ impl Session {
                                     self.engine.history = designos_doc::History::default();
                                     self.history_dropped = true;
                                 }
-                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped);
+                                let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+                                self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
                                 self.bridge.last_canvas_mtime = Some(mtime);
                                 reloaded_live_canvas = true;
                             }

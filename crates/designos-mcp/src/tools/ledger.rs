@@ -588,29 +588,36 @@ impl Ledger {
     ///
     /// - A checkable applied entry has `!entry.dead && entry.undo_depth.is_none_or(|d| current_undo_depth >= d)`
     ///   and `!entry.live.is_empty() || !entry.gone.is_empty()`.
-    /// - If there is at least one checkable applied entry and every checkable applied entry fails
-    ///   `entry_matches_document(entry, doc)`, the canvas is a different document: clear the ledger
-    ///   and truncate `<session_dir>/idempotency-ledger.jsonl`.
+    /// - An applied entry whose result is missing from `doc` and whose `created_ms` is at or after
+    ///   `canvas_mtime_ms` is pending: the snapshot was written before the agent's edit was
+    ///   appended to the edit log, so it cannot hold the edit yet. A pending entry is kept as it
+    ///   is (neither forgotten nor stale) and ignored by the rules below; the next snapshot,
+    ///   written after the editor applied the edit, decides it. No time margin is used: a real
+    ///   Studio undo happens after Studio read the edit, so its snapshot is newer than the entry.
+    /// - If there is at least one checkable applied entry (pending ones aside) and every one fails
+    ///   `entry_matches_document(entry, doc)`, the canvas is a different document: every entry is
+    ///   dropped from the ledger and its file, except the ones already stale for good (they keep
+    ///   answering STALE, so an undone write is not resurrected) and the pending ones.
     /// - Otherwise the ledger file is kept and the in-memory `undo_depth` is detached (`History` is
     ///   reset on canvas reload). Entries undone before the reload, or without checkable ids, turn
     ///   stale for good (`entry.dead = true` + `"stale"` transition).
-    /// - A checkable applied entry whose result is missing from `doc` is either a Studio-side undo
-    ///   or something the canvas leaves out. Studio's undo takes back the newest writes first, so
-    ///   when no later entry's result is still in `doc` and the canvas is not a scoped copy, the
-    ///   entry is forgotten: the retry runs as a new write (§3.6, owner ruling 2026-10-19). Any
-    ///   other missing entry turns stale: the editor deleted or left out that layer on its own.
-    pub fn on_canvas_reload(&mut self, current_undo_depth: usize, doc: &Document, scoped_canvas: bool) {
+    /// - A checkable applied entry whose result is missing from `doc` is a Studio-side undo, a layer
+    ///   the user deleted, or something the canvas leaves out. Studio's undo takes back the newest
+    ///   writes first, so when no later entry's result is still in `doc` and the canvas is not a
+    ///   scoped copy, the entry is forgotten: the retry runs as a new write (§3.6, owner ruling
+    ///   2026-10-19). That includes a user deleting the agent's newest layer by hand, which cannot
+    ///   be told apart from an undo. Any other missing entry (a later write is still present, or
+    ///   the canvas is scoped) turns stale: the editor deleted or left out that layer on its own.
+    pub fn on_canvas_reload(&mut self, current_undo_depth: usize, doc: &Document, scoped_canvas: bool, canvas_mtime_ms: u64) {
         if self.entries.is_empty() {
             return;
         }
         let is_applied = |e: &LedgerEntry| !e.dead && e.undo_depth.is_none_or(|d| current_undo_depth >= d);
         let is_checkable = |e: &LedgerEntry| !e.live.is_empty() || !e.gone.is_empty();
-        let applied_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e)).count();
+        let is_pending = |e: &LedgerEntry| is_applied(e) && is_checkable(e) && canvas_mtime_ms <= e.created_ms && !entry_matches_document(e, doc);
+        let applied_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e) && !is_pending(e)).count();
         let present_checkable = self.entries.values().filter(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)).count();
-        if applied_checkable > 0 && present_checkable == 0 {
-            self.clear();
-            return;
-        }
+        let different_document = applied_checkable > 0 && present_checkable == 0;
         // Position (in write order) of the newest entry whose result is still in the document.
         let newest_present =
             self.order.iter().rposition(|key| self.entries.get(key).is_some_and(|e| is_applied(e) && is_checkable(e) && entry_matches_document(e, doc)));
@@ -621,8 +628,8 @@ impl Ledger {
             let undone_before_reload = entry.undo_depth.is_some_and(|d| current_undo_depth < d);
             let uncheckable = !is_checkable(entry);
             let presence_failed = !uncheckable && !entry_matches_document(entry, doc);
-            if !entry.dead {
-                if presence_failed && !undone_before_reload && !scoped_canvas && newest_present.is_none_or(|newest| pos > newest) {
+            if !entry.dead && !is_pending(entry) {
+                if different_document || (presence_failed && !undone_before_reload && !scoped_canvas && newest_present.is_none_or(|newest| pos > newest)) {
                     forgotten.push(entry.key.clone());
                 } else if undone_before_reload || uncheckable || presence_failed {
                     entry.dead = true;

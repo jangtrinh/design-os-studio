@@ -11,16 +11,22 @@ use designos_doc::live_patch::{replay_live_patch, LiveLogLine, LivePatch, LivePa
 use designos_doc::Document;
 
 /// The edit-log lines made on the canvas whose modification time is `canvas_base` (`None` when
-/// there is no canvas file), after the last document switch in the log. Unreadable lines are skipped.
+/// there is no canvas file), after the last document switch in the log. Unreadable lines are skipped
+/// and counted on stderr.
 pub fn unabsorbed_patches(log: &[u8], canvas_base: Option<u64>) -> Vec<LivePatch> {
     let mut patches = Vec::new();
+    let mut skipped = 0usize;
     for line in log.split(|b| *b == b'\n').filter(|l| !l.iter().all(u8::is_ascii_whitespace)) {
         match LiveLogLine::parse(line) {
             Ok(LiveLogLine::Patch(patch)) => patches.push(patch),
             // Everything above a switch was made on the previous document.
             Ok(LiveLogLine::DocEpoch(_)) => patches.clear(),
-            Err(_) => {}
+            Err(_) => skipped += 1,
         }
+    }
+    if skipped > 0 {
+        // A crashed writer can leave a torn line. Say so: keys whose write sat in it answer STALE.
+        eprintln!("designos-mcp: skipped {skipped} unreadable line(s) in the edit log while replaying it onto the loaded canvas");
     }
     patches.retain(|p| p.base == canvas_base);
     patches
