@@ -96,6 +96,10 @@ pub enum ErrorCode {
     // Idempotency-key codes (2)
     IdempotencyKeyReused,
     IdempotencyKeyStale,
+
+    // Query codes (E15-17) (2)
+    CursorStale,
+    RuleUnavailable,
 }
 
 #[allow(non_upper_case_globals)]
@@ -137,7 +141,7 @@ impl ErrorCode {
     pub const IdempotencyKeyConflict: Self = Self::IdempotencyKeyReused;
     pub const InvalidIdempotencyKey: Self = Self::InvalidArguments;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools and the 2 idempotency codes).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes and the 2 query codes).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -208,6 +212,8 @@ impl ErrorCode {
         Self::UnknownPrompt,
         Self::IdempotencyKeyReused,
         Self::IdempotencyKeyStale,
+        Self::CursorStale,
+        Self::RuleUnavailable,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -281,6 +287,8 @@ impl ErrorCode {
             Self::UnknownPrompt => "UNKNOWN_PROMPT",
             Self::IdempotencyKeyReused => "IDEMPOTENCY_KEY_REUSED",
             Self::IdempotencyKeyStale => "IDEMPOTENCY_KEY_STALE",
+            Self::CursorStale => "CURSOR_STALE",
+            Self::RuleUnavailable => "RULE_UNAVAILABLE",
         }
     }
 
@@ -303,6 +311,8 @@ impl ErrorCode {
             Self::InternalError => "Call designos_get_document to inspect current state before retrying.",
             Self::InProgressTargetNotRoot => "Flag the root frame named in valid_options instead of a nested layer.",
             Self::NodeInProgressByOtherRun => "Wait for the other run to finish, or pass force:true only when that run is known dead.",
+            Self::CursorStale => "Run the query again without a cursor.",
+            Self::RuleUnavailable => "Remove the rule from the selector, or run it where its engine is available.",
             Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
             Self::IdempotencyKeyStale => {
                 "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
@@ -382,6 +392,8 @@ impl ErrorCode {
             "UNKNOWN_PROMPT" => Some(Self::UnknownPrompt),
             "IDEMPOTENCY_KEY_REUSED" | "IDEMPOTENCY_KEY_CONFLICT" | "E_IDEMPOTENCY_CONFLICT" => Some(Self::IdempotencyKeyReused),
             "IDEMPOTENCY_KEY_STALE" => Some(Self::IdempotencyKeyStale),
+            "CURSOR_STALE" => Some(Self::CursorStale),
+            "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
             _ => None,
         }
     }
