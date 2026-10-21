@@ -4329,9 +4329,9 @@ pub fn show_left_with_doc(
             chip_right = (status_r.left() - theme::INSET_CONTROL).max(strip_left + theme::TARGET_MIN);
         }
         let chip_bounds = Rect::from_min_max(Pos2::new(strip_left, ctx_r.top()), Pos2::new(chip_right, ctx_r.bottom()));
-        let (_chip_rect, chip_clicked) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false);
-        if chip_clicked {
+        if let Some((_chip_rect, true)) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false)
+        {
             actions.push(TerminalAction::SendSelectionToAgent);
         }
 
@@ -5283,11 +5283,13 @@ fn render_terminal_surface(
     if right_x - min_tabs_left >= theme::TARGET_MIN {
         let chip_max_w = (right_x - min_tabs_left).min(260.0);
         let chip_bounds = Rect::from_min_max(Pos2::new(right_x - chip_max_w, tab_bar_rect.top()), Pos2::new(right_x, tab_bar_rect.bottom()));
-        let (chip_rect, chip_clicked) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true);
-        right_x = chip_rect.left() - theme::SPACE_INLINE;
-        if chip_clicked {
-            actions.push(TerminalAction::SendSelectionToAgent);
+        if let Some((chip_rect, chip_clicked)) =
+            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true)
+        {
+            right_x = chip_rect.left() - theme::SPACE_INLINE;
+            if chip_clicked {
+                actions.push(TerminalAction::SendSelectionToAgent);
+            }
         }
     }
 
@@ -7933,19 +7935,22 @@ Done!
         let mut st = TerminalState::for_tab(65401);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
 
-        let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> String {
+        let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> Option<String> {
+            let text_id = Id::new(("test-text", "agent-selection-chip-left".to_string()));
+            ctx.data_mut(|d| d.remove_temp::<String>(text_id));
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
             let _ = ctx.run_ui(raw, |ui| {
                 crate::agent_selection_chip::with_selection_summary(&doc, page, sel, |summary| {
                     let _ = show_left_with_selection(st, ui, panel_rect, None, summary);
                 });
             });
-            ctx.data(|d| d.get_temp::<String>(Id::new(("test-text", "agent-selection-chip-left".to_string())))).expect("chip text recorded in the same frame")
+            ctx.data(|d| d.get_temp::<String>(text_id))
         };
 
-        assert_eq!(run_one_frame(&mut st, &[]), "Page 1 · none selected");
-        assert_eq!(run_one_frame(&mut st, &[ids[0]]), "Page 1 · 1 selected · A");
-        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]), "Page 1 · 3 selected · A, B +1");
+        assert_eq!(run_one_frame(&mut st, &[]), None, "nothing selected: no chip text is painted");
+        assert_eq!(run_one_frame(&mut st, &[ids[0]]).as_deref(), Some("Page 1 · 1 selected · A"));
+        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]).as_deref(), Some("Page 1 · 3 selected · A, B, +1"));
+        assert_eq!(run_one_frame(&mut st, &[]), None, "clearing the selection hides the chip again in the same frame");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
@@ -8106,28 +8111,36 @@ Done!
     }
 
     #[test]
-    fn empty_selection_chip_is_inert() {
+    fn empty_selection_hides_the_chip() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let (doc, page, _ids) = make_three_layer_doc();
+        let (doc, page, ids) = make_three_layer_doc();
         let mut st = TerminalState::for_tab(65405);
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn stub tab");
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
+        let dock_rect = Rect::from_min_size(Pos2::new(0.0, 500.0), Vec2::new(1200.0, 300.0));
         let _ = std::fs::remove_file(&st.selection_spec_path);
+        let recorded = |ctx: &egui::Context, name: &str| -> (Option<Rect>, Option<String>) {
+            ctx.data(|d| (d.get_temp(Id::new(("test-rect", name.to_string()))), d.get_temp(Id::new(("test-text", name.to_string())))))
+        };
 
         let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
-        let _ = ctx.run_ui(raw0, |ui| {
+        let mut emitted = Vec::new();
+        let _ = ctx.run_ui(raw0.clone(), |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                emitted.extend(show_left_with_selection(&mut st, ui, panel_rect, None, summary));
+                emitted.extend(show_dock_with_selection(&mut st, ui, dock_rect, None, summary));
             });
         });
-        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip-left".to_string())))).expect("chip rect recorded");
-        let click_pos = chip_rect.center();
+        assert_eq!(recorded(&ctx, "agent-selection-chip-left"), (None, None), "no chip in the panel header strip when nothing is selected");
+        assert_eq!(recorded(&ctx, "agent-selection-chip-dock"), (None, None), "no chip in the dock bar when nothing is selected");
+        assert_eq!(recorded(&ctx, "agent-selection-chip"), (None, None));
 
-        let mut emitted = Vec::new();
+        // Where the chip would have sat, a click raises nothing and writes nothing.
+        let click_pos = Pos2::new(panel_rect.left() + 40.0, 80.0);
         let raw_click = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
             events: vec![
@@ -8139,13 +8152,26 @@ Done!
         };
         let _ = ctx.run_ui(raw_click, |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                emitted = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                emitted.extend(show_left_with_selection(&mut st, ui, panel_rect, None, summary));
             });
         });
+        assert!(!emitted.contains(&TerminalAction::SendSelectionToAgent), "no chip, no send action: {emitted:?}");
+        assert!(rec.lock().unwrap().is_empty(), "an empty selection writes nothing to the PTY");
+        assert!(!st.selection_spec_path.exists(), "an empty selection writes no selection.spec.json");
 
-        assert!(emitted.is_empty(), "clicking empty selection chip must raise no action: {emitted:?}");
-        assert!(rec.lock().unwrap().is_empty(), "empty selection chip must write nothing to PTY");
-        assert!(!st.selection_spec_path.exists(), "empty selection chip must write no selection.spec.json");
+        // A selection brings the chip back in both places.
+        let sel = [ids[0]];
+        let _ = ctx.run_ui(raw0, |ui| {
+            crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
+                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
+                let _ = show_dock_with_selection(&mut st, ui, dock_rect, None, summary);
+            });
+        });
+        let (left_rect, left_text) = recorded(&ctx, "agent-selection-chip-left");
+        let (dock_rect_chip, dock_text) = recorded(&ctx, "agent-selection-chip-dock");
+        assert!(left_rect.is_some() && dock_rect_chip.is_some(), "a selected layer shows the chip in the strip and in the dock");
+        assert_eq!(left_text.as_deref(), Some("Page 1 · 1 selected · A"));
+        assert_eq!(dock_text.as_deref(), Some("Page 1 · 1 selected · A"));
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);

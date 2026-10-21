@@ -1,13 +1,13 @@
 //! Live selection chip in the Agents panel header and dock bar (`#654`).
 //!
-//! Displays `page · N selected · first names` (or `page · none selected` when nothing is
-//! selected), updates in the same frame as `app.selection`, writes nothing to the PTY when
-//! selection changes, and on click writes `selection.spec.json` and pastes one fixed sentence
+//! Displays `page · N selected · first names`, updates in the same frame as `app.selection`, and
+//! is hidden (not painted, no target, no tooltip) while nothing is selected. Writes nothing to the
+//! PTY when selection changes; on click writes `selection.spec.json` and pastes one fixed sentence
 //! into the active agent tab without pressing Enter.
 
 use crate::{theme, widgets};
 use designos_doc::{BooleanOp, Document, NodeId, NodeKind};
-use egui::{Align2, FontId, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, FontId, Id, Painter, Pos2, Rect, Sense, Ui, Vec2};
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 
@@ -72,8 +72,8 @@ impl SelectionSummary {
         Self { page: page_name, count: selection.len(), names }
     }
 
-    /// Formats the full, un-elided chip label.
-    pub fn chip_text(&self) -> String {
+    /// Formats the full, un-elided chip label; `None` while nothing is selected (the chip is hidden).
+    pub fn chip_text(&self) -> Option<String> {
         selection_chip_text(&self.page, self.count, &self.names)
     }
 }
@@ -94,20 +94,16 @@ pub fn with_selection_summary<R>(doc: &Document, page: NodeId, selection: &[Node
 }
 
 /// Formats the selection chip text:
-/// - `count == 0` -> `"{page} · none selected"`
-/// - `count > 0`  -> `"{page} · {count} selected · {first_names}"` (with `+{overflow}` when `count > 2`).
-pub fn selection_chip_text<S: AsRef<str>>(page: &str, count: usize, names: &[S]) -> String {
+/// - `count == 0` -> `None` (nothing selected: the chip is hidden)
+/// - `count > 0`  -> `"{page} · {count} selected · {first_names}"` (`A, B, +M` when `count > 2`).
+pub fn selection_chip_text<S: AsRef<str>>(page: &str, count: usize, names: &[S]) -> Option<String> {
+    if count == 0 {
+        return None;
+    }
     let page_clean = first_line_trimmed(page);
     let page_str = if page_clean.is_empty() { "Page 1" } else { page_clean.as_str() };
-    if count == 0 {
-        return format!("{page_str} · none selected");
-    }
     let names_part = format_names_part(count, names);
-    if names_part.is_empty() {
-        format!("{page_str} · {count} selected")
-    } else {
-        format!("{page_str} · {count} selected · {names_part}")
-    }
+    Some(if names_part.is_empty() { format!("{page_str} · {count} selected") } else { format!("{page_str} · {count} selected · {names_part}") })
 }
 
 fn format_names_part<S: AsRef<str>>(count: usize, names: &[S]) -> String {
@@ -117,32 +113,27 @@ fn format_names_part<S: AsRef<str>>(count: usize, names: &[S]) -> String {
     }
     let joined = shown.join(", ");
     if count > shown.len() {
-        format!("{joined} +{}", count - shown.len())
+        format!("{joined}, +{}", count - shown.len())
     } else {
         joined
     }
 }
 
 /// Elides the chip text to fit `max_w` pixels in `font`, shrinking the layer names part first
-/// and the page name second so `· N selected` remains visible as long as possible.
-pub fn elide_selection_chip_text(p: &Painter, summary: &SelectionSummary, font: &FontId, max_w: f32) -> String {
-    let full = summary.chip_text();
-    if widgets::text_width(p, &full, font) <= max_w {
-        return full;
+/// and the page name second so `· N selected` remains visible as long as possible. `None` while
+/// nothing is selected.
+pub fn elide_selection_chip_text(p: &Painter, summary: &SelectionSummary, font: &FontId, max_w: f32) -> Option<String> {
+    let full = summary.chip_text()?;
+    Some(elide_chip_text(p, summary, &full, font, max_w))
+}
+
+fn elide_chip_text(p: &Painter, summary: &SelectionSummary, full: &str, font: &FontId, max_w: f32) -> String {
+    if widgets::text_width(p, full, font) <= max_w {
+        return full.to_string();
     }
     let ellipsis_w = widgets::text_width(p, "…", font);
     let page_clean = first_line_trimmed(&summary.page);
     let page_str = if page_clean.is_empty() { "Page 1" } else { page_clean.as_str() };
-
-    if summary.count == 0 {
-        let suffix = " · none selected";
-        let suffix_w = widgets::text_width(p, suffix, font);
-        if max_w >= suffix_w + ellipsis_w {
-            let elided_page = widgets::elide(p, page_str, font, max_w - suffix_w);
-            return format!("{elided_page}{suffix}");
-        }
-        return widgets::elide(p, &full, font, max_w);
-    }
 
     let names_part = format_names_part(summary.count, &summary.names);
     if !names_part.is_empty() {
@@ -160,18 +151,19 @@ pub fn elide_selection_chip_text(p: &Painter, summary: &SelectionSummary, font: 
         }
     }
 
-    widgets::elide(p, &full, font, max_w)
+    widgets::elide(p, full, font, max_w)
 }
 
 /// Paints the `CONTROL_DENSE` (24px) selection pill inside `bounds` (either left-aligned or
-/// right-aligned depending on `align_right`). Returns `(pill_rect, clicked)`.
-pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &SelectionSummary, bounds: Rect, align_right: bool) -> (Rect, bool) {
-    let p = ui.painter().clone();
+/// right-aligned depending on `align_right`). Returns `Some((pill_rect, clicked))`, or `None`
+/// without painting, recording or registering anything while nothing is selected.
+pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &SelectionSummary, bounds: Rect, align_right: bool) -> Option<(Rect, bool)> {
     let font = theme::font_caption();
-    let h = theme::CONTROL_DENSE;
     let max_pill_w = bounds.width().max(theme::TARGET_MIN);
     let max_text_w = (max_pill_w - 2.0 * theme::INSET_CONTROL).max(0.0);
-    let shown = elide_selection_chip_text(&p, summary, &font, max_text_w);
+    let p = ui.painter().clone();
+    let shown = elide_selection_chip_text(&p, summary, &font, max_text_w)?;
+    let h = theme::CONTROL_DENSE;
     let text_w = widgets::text_width(&p, &shown, &font);
     let pill_w = (text_w + 2.0 * theme::INSET_CONTROL).clamp(theme::TARGET_MIN.min(max_pill_w), max_pill_w);
     let x = if align_right { bounds.right() - pill_w } else { bounds.left() };
@@ -179,26 +171,12 @@ pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &Select
     let pill_rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(pill_w, h));
     let radius = theme::cr_pill(h);
 
-    let has_selection = summary.count > 0;
-    let sense = if has_selection { Sense::click() } else { Sense::hover() };
-    let resp = ui.interact(pill_rect, Id::new(id_salt), sense);
-    if has_selection {
-        widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Selection chip");
-    }
+    let resp = ui.interact(pill_rect, Id::new(id_salt), Sense::click());
+    widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Selection chip");
 
-    let (fill, stroke, text_col) = if has_selection {
-        let bg = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
-        (bg, None, theme::TEXT)
-    } else {
-        let bg = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
-        (bg, Some(Stroke::new(theme::BORDER_WIDTH, theme::BORDER)), theme::TEXT_SECONDARY)
-    };
-
+    let fill = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
     p.rect_filled(pill_rect, radius, fill);
-    if let Some(st) = stroke {
-        p.rect_stroke(pill_rect, radius, st, StrokeKind::Inside);
-    }
-    p.text(Pos2::new(pill_rect.left() + theme::INSET_CONTROL, pill_rect.center().y), Align2::LEFT_CENTER, &shown, font, text_col);
+    p.text(Pos2::new(pill_rect.left() + theme::INSET_CONTROL, pill_rect.center().y), Align2::LEFT_CENTER, &shown, font, theme::TEXT);
 
     widgets::record(ui, "agent-selection-chip", pill_rect);
     widgets::record(ui, id_salt, pill_rect);
@@ -208,10 +186,9 @@ pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &Select
         d.insert_temp(Id::new(("test-text", id_salt.to_string())), shown);
     });
 
-    let clicked = has_selection && resp.clicked();
-    let tip = if has_selection { "Send the selection to the agent" } else { "Select layers to send them" };
-    let _ = resp.on_hover_text(tip);
-    (pill_rect, clicked)
+    let clicked = resp.clicked();
+    let _ = resp.on_hover_text("Send the selection to the agent");
+    Some((pill_rect, clicked))
 }
 
 fn node_kind_label(kind: &NodeKind) -> String {
@@ -286,10 +263,10 @@ mod tests {
 
     #[test]
     fn chip_text_formats() {
-        assert_eq!(selection_chip_text("Page 1", 0, &[] as &[&str]), "Page 1 · none selected");
-        assert_eq!(selection_chip_text("Page 1", 1, &["Hero"]), "Page 1 · 1 selected · Hero");
-        assert_eq!(selection_chip_text("Page 1", 2, &["A", "B"]), "Page 1 · 2 selected · A, B");
-        assert_eq!(selection_chip_text("Page 1", 3, &["A", "B", "C"]), "Page 1 · 3 selected · A, B +1");
+        assert_eq!(selection_chip_text("Page 1", 0, &[] as &[&str]), None, "nothing selected hides the chip");
+        assert_eq!(selection_chip_text("Page 1", 1, &["Hero"]).as_deref(), Some("Page 1 · 1 selected · Hero"));
+        assert_eq!(selection_chip_text("Page 1", 2, &["A", "B"]).as_deref(), Some("Page 1 · 2 selected · A, B"));
+        assert_eq!(selection_chip_text("Page 1", 3, &["A", "B", "C"]).as_deref(), Some("Page 1 · 3 selected · A, B, +1"));
     }
 
     #[test]
@@ -308,7 +285,7 @@ mod tests {
         let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 200.0))), ..Default::default() };
         let _ = ctx.run_ui(raw, |ui| {
             let p = ui.painter();
-            let full = summary.chip_text();
+            let full = summary.chip_text().expect("a non-empty selection has chip text");
             let full_w = widgets::text_width(p, &full, &font);
             let prefix = "Marketing Landing Page · 3 selected · ";
             let prefix_w = widgets::text_width(p, prefix, &font);
@@ -316,14 +293,14 @@ mod tests {
             // Narrow enough to clip names, wide enough to keep the full page name + count.
             let mid_w = prefix_w + 45.0;
             assert!(mid_w < full_w);
-            let elided_names_first = elide_selection_chip_text(p, &summary, &font, mid_w);
+            let elided_names_first = elide_selection_chip_text(p, &summary, &font, mid_w).expect("chip text");
             assert!(elided_names_first.starts_with(prefix), "page and count must stay intact while names shrink first: {elided_names_first:?}");
             assert!(elided_names_first.ends_with('…'), "elided chip text must end with ellipsis: {elided_names_first:?}");
             assert!(widgets::text_width(p, &elided_names_first, &font) <= mid_w + 0.5);
 
             // Even narrower: page name shrinks next while keeping `· 3 selected · …`.
             let narrow_w = prefix_w - 25.0;
-            let elided_page_second = elide_selection_chip_text(p, &summary, &font, narrow_w);
+            let elided_page_second = elide_selection_chip_text(p, &summary, &font, narrow_w).expect("chip text");
             assert!(elided_page_second.contains("· 3 selected"), "count stays visible while page shrinks: {elided_page_second:?}");
             assert!(elided_page_second.ends_with('…'), "must end with ellipsis: {elided_page_second:?}");
             assert!(widgets::text_width(p, &elided_page_second, &font) <= narrow_w + 0.5);
@@ -346,7 +323,7 @@ mod tests {
         let summary = SelectionSummary::from_doc(&doc, page, &sel);
         assert_eq!(summary.count, 200);
         assert_eq!(summary.names, vec!["Layer 0".to_string(), "Layer 1".to_string()]);
-        assert_eq!(summary.chip_text(), "Page 1 · 200 selected · Layer 0, Layer 1 +198");
+        assert_eq!(summary.chip_text().as_deref(), Some("Page 1 · 200 selected · Layer 0, Layer 1, +198"));
 
         let (json, count) = build_selection_spec_json(&doc, page, &sel).unwrap().expect("payload built");
         assert_eq!(count, 200);
@@ -377,11 +354,21 @@ mod tests {
         assert_eq!(page_a, page_b);
         assert_ne!(doc_a.runtime_id(), doc_b.runtime_id());
 
-        let text_a = with_selection_summary(&doc_a, page_a, &[], |s| s.chip_text());
-        assert_eq!(text_a, "Checkout · none selected");
+        let layer_a = doc_a.alloc_id();
+        let mut node_a = Node::frame(layer_a, DocRect::new(0.0, 0.0, 10.0, 10.0));
+        node_a.name = "Hero".to_string();
+        doc_a.insert(page_a, node_a).unwrap();
+        let layer_b = doc_b.alloc_id();
+        let mut node_b = Node::frame(layer_b, DocRect::new(0.0, 0.0, 10.0, 10.0));
+        node_b.name = "Hero".to_string();
+        doc_b.insert(page_b, node_b).unwrap();
+        assert_eq!(doc_a.mutation_epoch(), doc_b.mutation_epoch());
 
-        let text_b = with_selection_summary(&doc_b, page_b, &[], |s| s.chip_text());
-        assert_eq!(text_b, "Settings · none selected");
+        let text_a = with_selection_summary(&doc_a, page_a, &[layer_a], |s| s.chip_text());
+        assert_eq!(text_a.as_deref(), Some("Checkout · 1 selected · Hero"));
+
+        let text_b = with_selection_summary(&doc_b, page_b, &[layer_b], |s| s.chip_text());
+        assert_eq!(text_b.as_deref(), Some("Settings · 1 selected · Hero"));
     }
 
     #[test]
