@@ -3,7 +3,7 @@
 
 use crate::comments::settings;
 use crate::terminal::{AgentCliPreset, PermissionMode};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -31,20 +31,43 @@ impl PermissionMode {
     }
 }
 
-/// Reads `"agent_permission_mode"` from `<root>/settings.json`, defaulting to [`AgentPermissionMode::Skip`].
-pub fn load_permission_mode(root: &Path) -> AgentPermissionMode {
-    settings::load_choice(root, SETTING_KEY).map(|s| AgentPermissionMode::parse(&s)).unwrap_or_default()
+/// Modes the user picked whose save to `settings.json` failed (read-only library, full disk), per library root.
+/// The picked mode keeps applying in this process: reading the older value still on disk would silently turn
+/// Ask back into Skip at the next agent start. A later successful save of that root clears its entry.
+static UNSAVED_MODES: Mutex<BTreeMap<PathBuf, AgentPermissionMode>> = Mutex::new(BTreeMap::new());
+
+fn unsaved_modes() -> std::sync::MutexGuard<'static, BTreeMap<PathBuf, AgentPermissionMode>> {
+    UNSAVED_MODES.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The mode saved in `<root>/settings.json`, or `None` when the file or key is missing. Unlike
-/// [`load_permission_mode`] it does not invent a default, so a caller can keep its in-memory mode.
+/// Reads `"agent_permission_mode"` from `<root>/settings.json`, defaulting to [`AgentPermissionMode::Skip`].
+pub fn load_permission_mode(root: &Path) -> AgentPermissionMode {
+    load_saved_permission_mode(root).unwrap_or_default()
+}
+
+/// The mode in force for `<root>`: the one whose save failed, else the one saved in `<root>/settings.json`, or
+/// `None` when neither exists. Unlike [`load_permission_mode`] it does not invent a default, so a caller can keep
+/// its in-memory mode.
 pub fn load_saved_permission_mode(root: &Path) -> Option<AgentPermissionMode> {
+    if let Some(mode) = unsaved_modes().get(root) {
+        return Some(*mode);
+    }
     settings::load_choice(root, SETTING_KEY).map(|s| AgentPermissionMode::parse(&s))
 }
 
-/// Persists `"agent_permission_mode"` (`"skip"` or `"ask"`) to `<root>/settings.json`.
+/// Persists `"agent_permission_mode"` (`"skip"` or `"ask"`) to `<root>/settings.json`. A failed save is
+/// remembered for this process (see [`UNSAVED_MODES`]) so the chosen mode still applies; the error is returned.
 pub fn save_permission_mode(root: &Path, mode: AgentPermissionMode) -> Result<(), String> {
-    settings::save_choice(root, SETTING_KEY, mode.as_str())
+    let saved = settings::save_choice(root, SETTING_KEY, mode.as_str());
+    match &saved {
+        Ok(()) => {
+            unsaved_modes().remove(root);
+        }
+        Err(_) => {
+            unsaved_modes().insert(root.to_path_buf(), mode);
+        }
+    }
+    saved
 }
 
 /// Strips the auto-approve / skip-permissions flag from a CLI command string when in `Ask` mode.

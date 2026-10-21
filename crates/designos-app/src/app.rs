@@ -413,7 +413,11 @@ impl App {
             entry.terminal.permission_mode = mode;
         }
         if let Some(lib) = &self.lib {
-            let _ = crate::agent_permissions::save_permission_mode(lib.root(), mode);
+            // A failed save leaves the older mode on disk. The picked mode keeps applying in this process
+            // (`save_permission_mode`), and the user is told it did not persist.
+            if crate::agent_permissions::save_permission_mode(lib.root(), mode).is_err() {
+                self.terminal.status_msg = Some("Mode not saved. Check folder permissions.".into());
+            }
         }
     }
 }

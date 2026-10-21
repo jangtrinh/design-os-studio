@@ -762,6 +762,61 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A Claude tab bound to a library with a stub `claude` on its PATH, started while the library still holds Skip.
+    #[cfg(unix)]
+    fn claude_window_started_in_skip(tag: &str) -> (PathBuf, TerminalState) {
+        use crate::agent_permissions::AgentPermissionMode;
+        let dir = temp_test_dir(tag);
+        let bin_dir = dir.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("bin dir");
+        write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        let mut st = TerminalState::for_tab(1);
+        st.bind_library_file(&dir, "file-perm", "p1-w1-tab-1");
+        st.path_prepend.push(bin_dir);
+        assert_eq!(st.permission_mode, AgentPermissionMode::Skip, "this window cached Skip when it bound");
+        (dir, st)
+    }
+
+    /// Another window (its own process) saves Ask after this window bound: the next Claude tab launches without
+    /// the skip-permissions flag, not just with `tab.permission_mode` set.
+    #[cfg(unix)]
+    #[test]
+    fn a_claude_tab_launches_in_ask_when_another_window_saved_ask() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let (dir, mut st) = claude_window_started_in_skip("claude-ask-launch");
+        save_permission_mode(&dir, AgentPermissionMode::Ask).expect("the other window saves Ask");
+
+        let idx = st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
+        let launched = st.tabs[idx].spawned_command.clone().expect("an agent tab records its launch command");
+        assert!(launched.starts_with("claude --session-id "), "a new session starts: {launched}");
+        assert!(!launched.contains("--dangerously-skip-permissions"), "Ask must not launch with the skip flag: {launched}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Resuming a recorded Claude session also honours the Ask another window saved.
+    #[cfg(unix)]
+    #[test]
+    fn a_resumed_claude_tab_launches_in_ask_when_another_window_saved_ask() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let (dir, mut st) = claude_window_started_in_skip("claude-ask-resume");
+        let first = st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude in Skip");
+        let first_launch = st.tabs[first].spawned_command.clone().expect("launch command");
+        assert!(first_launch.contains("--dangerously-skip-permissions"), "the Skip window launches with the flag: {first_launch}");
+        let recorded = st.session_registry.sessions.first().cloned().expect("the tab is recorded in sessions.json");
+        st.session_registry.sessions[0].status = SessionEntryStatus::Exited;
+
+        save_permission_mode(&dir, AgentPermissionMode::Ask).expect("the other window saves Ask");
+        let resumed = st.resume_session_by_tab_id(recorded.tab_id, None).expect("resume the recorded session");
+        let launched = st.tabs[resumed].spawned_command.clone().expect("a resumed tab records its launch command");
+        assert!(launched.starts_with("claude --resume "), "the recorded session resumes: {launched}");
+        assert!(!launched.contains("--dangerously-skip-permissions"), "Ask must not resume with the skip flag: {launched}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // 4. `resume_commands_per_cli`
     #[test]
     fn resume_commands_per_cli() {

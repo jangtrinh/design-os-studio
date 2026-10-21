@@ -10299,6 +10299,99 @@ Done!
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Restores write access to a library root on drop, so a failed assertion cannot leave a folder the temp cleaner cannot delete.
+    #[cfg(unix)]
+    struct ReadOnlyRoot(PathBuf);
+
+    #[cfg(unix)]
+    impl ReadOnlyRoot {
+        fn lock(root: &Path) -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o555)).expect("make the root read-only");
+            Self(root.to_path_buf())
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ReadOnlyRoot {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    /// The user picks Ask but `settings.json` cannot be written: the agent about to start must still run in Ask,
+    /// not fall back to the Skip that is still on disk.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_mode_save_keeps_ask_for_the_next_agent_tab() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let root = permission_window_root("failed-save");
+        let mut st = TerminalState::for_tab(5);
+        st.bind_library_file(&root, "file-e", "win-e");
+        save_permission_mode(&root, AgentPermissionMode::Skip).expect("Skip is saved while the root is writable");
+        {
+            let _read_only = ReadOnlyRoot::lock(&root);
+            st.permission_mode = AgentPermissionMode::Ask;
+            if save_permission_mode(&root, AgentPermissionMode::Ask).is_ok() {
+                eprintln!("the root stayed writable (running as root?): nothing to prove here");
+                return;
+            }
+            let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+            assert_eq!(st.permission_mode, AgentPermissionMode::Ask, "the unsaved Ask survives the spawn");
+            assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Ask, "the new tab runs in Ask mode");
+            kill_tabs(&mut st);
+            st.shutdown();
+        }
+        assert_eq!(
+            crate::agent_permissions::load_saved_permission_mode(&root),
+            Some(AgentPermissionMode::Ask),
+            "the unsaved choice is what the next window of this process reads"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The picker path: the app setter tells the user the save failed, the unsaved Ask still reaches the next
+    /// agent tab and a project tab opened afterwards, and a later successful save clears the memory of it.
+    #[cfg(unix)]
+    #[test]
+    fn the_app_setter_reports_a_failed_save_and_keeps_ask_until_a_save_works() {
+        use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
+        let root = permission_window_root("app-setter");
+        let mut app = crate::app::App::new(designos_doc::Document::new("Scratch"));
+        app.lib = Some(designos_library::Library::open(&root).expect("open library"));
+        app.terminal.bind_library_file(&root, "file-f", "win-f");
+        save_permission_mode(&root, AgentPermissionMode::Skip).expect("Skip is saved while the root is writable");
+
+        let read_only = ReadOnlyRoot::lock(&root);
+        if std::fs::write(root.join("probe"), b"x").is_ok() {
+            eprintln!("the root stayed writable (running as root?): nothing to prove here");
+            return;
+        }
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+        assert_eq!(app.terminal.status_msg.as_deref(), Some("Mode not saved. Check folder permissions."));
+        let idx = app.terminal.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
+        assert_eq!(app.terminal.tabs[idx].permission_mode, AgentPermissionMode::Ask, "the active window keeps Ask");
+
+        let mut opened_later = TerminalState::for_tab(6);
+        opened_later.bind_library_file(&root, "file-g", "win-g");
+        assert_eq!(opened_later.permission_mode, AgentPermissionMode::Ask, "a project tab opened later reads the unsaved Ask, not the Skip on disk");
+
+        drop(read_only);
+        app.set_agent_permission_mode(AgentPermissionMode::Ask);
+        assert_eq!(crate::comments::settings::load_choice(&root, crate::agent_permissions::SETTING_KEY).as_deref(), Some("ask"), "the retry reaches the disk");
+        save_permission_mode(&root, AgentPermissionMode::Skip).expect("Skip is saved again");
+        let mut after = TerminalState::for_tab(7);
+        after.bind_library_file(&root, "file-h", "win-h");
+        assert_eq!(after.permission_mode, AgentPermissionMode::Skip, "a successful save clears the unsaved mode");
+
+        kill_tabs(&mut app.terminal);
+        app.terminal.shutdown();
+        opened_later.shutdown();
+        after.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// A mode set through the normal path (in memory and saved) wins on the next spawn.
     #[test]
     fn new_agent_tab_uses_the_mode_set_and_saved_in_this_window() {
