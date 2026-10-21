@@ -62,9 +62,10 @@ for a different payload, I get a named error and nothing changes.
      when Studio has not rewritten `canvas.designos` yet. A loaded entry is checked against that
      patch-replayed document (item 7).
    - Without a session directory (standalone `--workspace` use), it is in memory for the process.
-   - It is cleared when the document closes or switches: `designos_open_file`,
-     `designos_new_document`, and a canvas reload that replaces the document
-     (`sync_from_live_canvas_if_newer`, `server.rs:194-219`). Clearing truncates the file.
+   - It is cleared when the document closes or switches through the agent: `designos_open_file`
+     and `designos_new_document`. Clearing truncates the file. A canvas reload is not a clearing
+     event: one that replaces the document drops the applied entries and rewrites the file, and one
+     that still holds the agent's writes keeps them (item 6, `Ledger::on_canvas_reload`).
 5. Capacity: at most 5,000 entries or 16 MiB of stored replies; beyond that the oldest entries are
    dropped. A dropped key behaves as unknown. The cap and the drop count are reported by
    `designos_get_app_state` (E15-16).
@@ -86,9 +87,29 @@ for a different payload, I get a named error and nothing changes.
      the depth rule does not apply, item 7 alone decides) and a loaded `stale` entry stays stale. A
      new entry stored after the reload gets a real depth and follows the depth rule.
    - Studio-side undo: it changes the canvas snapshot, which the session picks up through the canvas
-     reload (`sync_from_live_canvas_if_newer`). That reload clears the whole ledger (item 4), so a
-     retry after a Studio undo runs as a new write. This differs from an MCP-side `designos_undo` (the
-     retry is refused); the owner ruling of 2026-10-19 kept this split.
+     reload (`sync_from_live_canvas_if_newer`). A retry after a Studio undo runs as a new write. This
+     differs from an MCP-side `designos_undo` (the retry is refused); the owner ruling of 2026-10-19
+     kept this split. The reload does not clear the ledger while the agent's writes are still in the
+     document, because Studio republishes the canvas after each edit it applies. It reconciles
+     entry by entry (`Ledger::on_canvas_reload`):
+     - A snapshot that is not a scoped copy and in which no checkable applied entry is present is a
+       different document: the applied entries are dropped from memory and rewritten out of the file. Entries the agent
+       undid, entries with nothing to check and entries already stale stay stale (an undone write
+       is not resurrected). A scoped copy leaves layers out on purpose, so on one this rule never
+       applies: the missing entries fall to the next bullet and answer STALE (item 7), never a
+       duplicate.
+     - A checkable applied entry whose result is missing is forgotten (a new write on retry) only
+       when no later entry's result is still present and the canvas is not a scoped copy. This also
+       covers a user deleting the agent's newest layer by hand, which cannot be told from an undo.
+       Any other missing entry turns stale.
+     - Pending: an applied entry whose result is missing and whose `created_ms` is at or after the
+       snapshot's modification time is neither forgotten nor stale. The snapshot was written before
+       the edit reached the edit log (`created_ms` is set after the append), so it cannot hold the
+       edit. The next snapshot decides. There is no time margin: a real Studio undo is made after
+       Studio read the edit, so its snapshot is newer than the entry.
+     - Held/unread patch guard: Studio does not publish a canvas while `doc-patch.jsonl` has an
+       unread complete line (ending in a newline) or while it holds an edit it has not applied. A
+       partial line without a newline, left by a crashed writer, does not block publishing.
    Documented in the tool description ("a key names one logical write").
 7. Presence check on every replay. A key counts as applied only while the open document holds what the
    write produced. At store time the call records `live` = `[{id, kind}]` for every node the reply says
@@ -98,7 +119,7 @@ for a different payload, I get a named error and nothing changes.
    nodes created and deleted inside one batch are not listed). On lookup, before the stored reply is
    returned: every `live` id must exist with the same `kind`, and no `gone` id may exist. Any miss →
    `IDEMPOTENCY_KEY_STALE`, nothing runs. On a reconnect (`Session::with_session_dir`), the server
-   loads `canvas.designos` (`server.rs:194-214`) and replays **only `doc-patch.jsonl` lines not
+   loads `canvas.designos` (`Session::with_session_dir`, `replay_unabsorbed_live_patches` in `server.rs`) and replays **only `doc-patch.jsonl` lines not
    already absorbed into the `canvas.designos` snapshot** (patches newer than the snapshot) onto the
    loaded document through `designos_doc::live_patch::replay_live_patch` before running the presence
    check. An already-absorbed `Insert` whose id is in `canvas.designos` is a duplicate even if the

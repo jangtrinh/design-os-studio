@@ -120,10 +120,7 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, Options { panel: Some(panel.into()), ..Options::default() });
         shell.app.system_html = no_system_clipboard;
-        if shell.app.terminal.tabs.is_empty() {
-            let _ = shell.app.terminal.spawn_tab(crate::terminal::AgentCliPreset::Shell, shell.app.file_path.as_deref());
-        }
-        assert_eq!(shell.app.terminal.tabs.len(), 1, "precondition: --panel {panel} starts the shell during build");
+        assert!(shell.app.terminal.picker_open || !shell.app.terminal.tabs.is_empty(), "precondition: --panel {panel} opens the agent surface during build");
         let started_with = shell.app.terminal.session_env();
 
         let mut s = Sim {

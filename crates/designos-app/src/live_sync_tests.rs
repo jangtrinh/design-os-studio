@@ -346,6 +346,101 @@ fn agent_undo_after_a_canvas_reload_never_touches_user_layers() {
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
+/// A small unscoped document with one frame, an app bound to a fresh session, and the canvas
+/// path the editor publishes to. The first publish already happened.
+fn small_published_app() -> (App, NodeId, std::path::PathBuf) {
+    let mut doc = Document::new("Unread edit");
+    let page = doc.add_page("Page 1");
+    let frame = doc.alloc_id();
+    doc.insert(page, Node::frame(frame, Rect::new(0.0, 0.0, 40.0, 40.0))).expect("frame");
+    let mut app = App::new(doc);
+    app.terminal = TerminalState::for_tab(unique_tab_id());
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    let canvas = app.terminal.live_canvas_path.clone();
+    assert!(canvas.exists(), "precondition: the first publish wrote the canvas");
+    (app, frame, canvas)
+}
+
+#[test]
+fn the_editor_holds_its_canvas_back_while_an_agent_edit_is_unread_and_publishes_after_applying_it() {
+    let (mut app, frame, canvas) = small_published_app();
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+
+    // The user clicks a layer in the same frame: the publish key changed, but the agent's edit has
+    // not been read yet, so a canvas written now would lack it and look like the user's undo.
+    app.selection = vec![frame];
+    std::fs::remove_file(&canvas).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    assert!(!canvas.exists(), "the canvas must not be rewritten while an agent edit sits unread in the log");
+
+    // The same frame reads the log and applies the edit, which publishes the canvas with it.
+    let actions = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, actions);
+    let published = std::fs::read_to_string(&canvas).expect("the canvas is published after the edit was applied");
+    assert!(published.contains("Agent layer"), "the published canvas holds the agent's edit");
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn an_agent_edit_appended_between_writing_and_renaming_the_canvas_holds_it_back() {
+    let (mut app, frame, canvas) = small_published_app();
+    let session_dir = app.terminal.session_dir.clone();
+    let workspace = std::env::temp_dir().join(format!("designos-live-sync-ws-{}", unique_tab_id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &session_dir).expect("mcp session");
+    let before = std::fs::read(&canvas).unwrap();
+    let before_mtime = std::fs::metadata(&canvas).unwrap().modified().unwrap();
+    let key_before = app.terminal.last_synced_key;
+
+    // The log is empty when the publish starts, so both checks before the rename pass; the agent
+    // appends once the temporary canvas file is complete.
+    crate::terminal::set_before_rename_test_hook(Box::new(move || {
+        session.call("designos_create_node", json!({ "kind": "rectangle", "name": "Late agent layer", "width": 20.0, "height": 20.0 })).expect("create");
+    }));
+    app.selection = vec![frame];
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+
+    assert_eq!(std::fs::read(&canvas).unwrap(), before, "the old canvas stays in place");
+    assert_eq!(std::fs::metadata(&canvas).unwrap().modified().unwrap(), before_mtime);
+    assert_eq!(app.terminal.last_synced_key, key_before, "the publish is retried on a later frame");
+    let leftovers: Vec<_> =
+        std::fs::read_dir(canvas.parent().unwrap()).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains(".tmp.")).collect();
+    assert!(leftovers.is_empty(), "the temporary canvas file is removed: {leftovers:?}");
+
+    let actions = app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut app, actions);
+    let published = std::fs::read_to_string(&canvas).expect("published after applying the edit");
+    assert!(published.contains("Late agent layer"));
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&session_dir);
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[test]
+fn a_partial_log_line_left_by_a_crashed_writer_does_not_block_the_canvas() {
+    use std::io::Write;
+    let (mut app, frame, canvas) = small_published_app();
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(&app.terminal.live_patch.path).unwrap();
+    log.write_all(br#"{"v":1,"ops":[{"op":"remove","id":"#).unwrap();
+    drop(log);
+
+    app.selection = vec![frame];
+    std::fs::remove_file(&canvas).unwrap();
+    app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, None);
+    assert!(canvas.exists(), "a line without a newline is not an edit the editor can read: it must not hold the canvas back");
+
+    app.terminal.shutdown();
+    let _ = std::fs::remove_dir_all(&app.terminal.session_dir);
+}
+
 /// The same round trip on a real file: `DESIGNOS_LIVE_SYNC_FIG=<file.fig>` and, optionally,
 /// `DESIGNOS_LIVE_SYNC_OUT=<result.designos>` to save the edited document for a screenshot run
 /// (plus `<result>.card.png`, the agent's own render of the card on its next call).

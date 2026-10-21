@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 
 use egui::accesskit::{Live, Role};
-use egui::{Context, Id, Key, Rect, Sense, Ui};
+use egui::{Context, Id, Key, Ui};
 
 use crate::app::{App, RailItem};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState};
@@ -321,11 +321,8 @@ pub fn status_description_named(agent: &str, status: &AgentTabStatus) -> String 
 ///
 /// Only labels widget `Id`s that are actually created via `ui.interact` in the current frame.
 pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
-    if state.side_panel_pty_open {
-        // Keep `composer_id` registered in `used_ids` while the Agents panel is in PTY mode
-        // so `request_focus(composer_id())` persists across frames.
-        let _ = ui.interact(Rect::ZERO, composer_id(), Sense::focusable_noninteractive());
-    }
+    // The composer `TextEdit` (`agent_composer::show_composer`) registers `composer_id()` itself in both
+    // panel modes, so `request_focus(composer_id())` persists across frames without a placeholder widget.
     if !is_accesskit_active() {
         return;
     }
@@ -461,7 +458,12 @@ pub fn try_focus_shortcut(app: &mut App, ctx: &Context) -> bool {
         return false;
     }
 
-    let focused_in_agents = ctx.memory(|m| m.focused().is_some_and(is_agents_panel_focus));
+    // With a shell tab the terminal holds the keyboard through `viewport_focused` alone (no egui focus id).
+    let terminal_holds_keys = app.ui.rail == Some(RailItem::Agents)
+        && app.terminal.side_panel_pty_open
+        && app.terminal.viewport_focused
+        && app.terminal.active_tab().is_some_and(|t| t.is_shell_process());
+    let focused_in_agents = terminal_holds_keys || ctx.memory(|m| m.focused().is_some_and(is_agents_panel_focus));
     if focused_in_agents {
         app.terminal.viewport_focused = false;
         ctx.memory_mut(|m| m.request_focus(canvas_id()));
@@ -472,8 +474,15 @@ pub fn try_focus_shortcut(app: &mut App, ctx: &Context) -> bool {
             let file = app.file_path.as_deref();
             app.terminal.open_for_agent_use(file);
         }
-        app.terminal.viewport_focused = app.terminal.side_panel_pty_open;
-        ctx.memory_mut(|m| m.request_focus(composer_id()));
+        // A shell tab disables the composer ("Select an agent tab"), so focus goes to the terminal itself.
+        let composer_disabled = app.terminal.side_panel_pty_open && app.terminal.active_tab().is_some_and(|t| t.is_shell_process());
+        if composer_disabled {
+            app.terminal.viewport_focused = true;
+            ctx.memory_mut(|m| m.surrender_focus(composer_id()));
+        } else {
+            app.terminal.viewport_focused = false;
+            ctx.memory_mut(|m| m.request_focus(composer_id()));
+        }
     }
     true
 }

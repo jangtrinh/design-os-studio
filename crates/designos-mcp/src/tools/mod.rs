@@ -6,6 +6,11 @@ pub mod design_context;
 pub mod errors;
 pub mod guidelines;
 pub mod issues;
+pub mod ledger;
+pub use ledger as idempotency;
+pub mod ledger_reconnect;
+#[cfg(test)]
+mod ledger_tests;
 pub mod libraries;
 pub mod library_source;
 pub mod metadata;

@@ -11,6 +11,8 @@ use std::time::SystemTime;
 
 /// Most bytes one poll reads; the rest waits for the next frame.
 const MAX_POLL_BYTES: u64 = 64 << 20;
+/// Bytes read at a time when looking for an unread complete line.
+const SCAN_CHUNK_BYTES: usize = 64 << 10;
 /// Leading bytes remembered to notice a log rewritten in place.
 const HEAD_BYTES: usize = 256;
 
@@ -99,6 +101,58 @@ impl LivePatchLog {
     /// Agent changes wait for the canvas to go idle.
     pub fn has_held(&self) -> bool {
         !self.pending.is_empty() || self.pending_doc.is_some()
+    }
+
+    /// A complete line (ending in a newline) was appended that no poll has read yet. A line still
+    /// being written, or left behind by a crashed writer, has no newline and does not count: it
+    /// would hold the editor's canvas back until the next append. While an oversized line is being
+    /// discarded its own tail never counts, but a normal line after the tail does.
+    ///
+    /// Reads at most one line's worth of bytes (the limit on a line) per sought newline, in
+    /// chunks, and stops at the first newline that decides it.
+    pub fn has_unread_complete_line(&self) -> bool {
+        let Ok(meta) = std::fs::metadata(&self.path) else { return false };
+        let len = meta.len();
+        // A recreated or truncated log is unread from its start, exactly as `poll_with_offsets` sees it.
+        let rewritten = self.identity.is_some_and(|old| old != identity(&meta)) || len < self.offset || !self.head_unchanged();
+        let (start, skipping) = if rewritten { (0, false) } else { (self.offset, self.skipping) };
+        if len <= start {
+            return false;
+        }
+        // The end of the discarded tail is not a line; the newline after it ends the next one.
+        let mut newlines_needed = if skipping { 2 } else { 1 };
+        let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return false;
+        }
+        let mut remaining = (len - start).min(self.max_poll_bytes);
+        let mut chunk = vec![0u8; SCAN_CHUNK_BYTES];
+        // Bytes since the last newline: a line longer than the limit is reported, never applied.
+        let mut run = 0usize;
+        while remaining > 0 {
+            let want = chunk.len().min(remaining as usize);
+            let Ok(n) = file.read(&mut chunk[..want]) else { return false };
+            if n == 0 {
+                return false;
+            }
+            remaining -= n as u64;
+            for byte in &chunk[..n] {
+                if *byte == b'\n' {
+                    newlines_needed -= 1;
+                    run = 0;
+                    if newlines_needed == 0 {
+                        return true;
+                    }
+                } else {
+                    run += 1;
+                }
+            }
+            let in_discarded_tail = skipping && newlines_needed == 2;
+            if run > self.max_line_bytes && !in_discarded_tail {
+                return false;
+            }
+        }
+        false
     }
 
     /// Complete log lines appended since the last poll, in log order. Unreadable and oversized
@@ -354,6 +408,77 @@ mod tests {
         assert_eq!(seen, [1, 2]);
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].contains("over the"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn only_a_complete_unread_line_counts_as_unread() {
+        let path = temp_log("unread");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        assert!(!log.has_unread_complete_line(), "lines from before the bind are not unread");
+        let next = line(2);
+        append(&path, &next[..10]);
+        assert!(!log.has_unread_complete_line(), "a line without a newline yet does not count");
+        append(&path, &next[10..]);
+        assert!(log.has_unread_complete_line());
+        assert_eq!(ids(&log.poll().0), [2]);
+        assert!(!log.has_unread_complete_line(), "a poll reads the line");
+    }
+
+    #[test]
+    fn a_recreated_log_and_a_discarded_oversized_line_are_judged_like_the_poll_does() {
+        let path = temp_log("unread-rotate");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &(line(7) + &line(8)));
+        assert!(log.has_unread_complete_line(), "everything in a recreated log is unread");
+        assert_eq!(ids(&log.poll().0), [7, 8]);
+        log.max_line_bytes = 64;
+        append(&path, &"x".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        append(&path, "\n");
+        assert!(!log.has_unread_complete_line(), "the tail of an oversized line is dropped, so it must not hold the canvas back");
+    }
+
+    #[test]
+    fn a_normal_line_after_an_oversized_tail_and_a_log_recreated_meanwhile_count_as_unread() {
+        let path = temp_log("unread-skipping");
+        append(&path, &line(1));
+        let mut log = LivePatchLog::bind(path.clone());
+        log.max_line_bytes = 64;
+        append(&path, &"x".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        assert!(!log.has_unread_complete_line(), "the unfinished oversized line is not an edit");
+        append(&path, &format!("tail\n{}", line(2)));
+        assert!(log.has_unread_complete_line(), "the line after the oversized tail is an unread edit");
+        assert_eq!(ids(&log.poll().0), [2]);
+        assert!(!log.skipping);
+
+        append(&path, &"y".repeat(200));
+        let _ = log.poll();
+        assert!(log.skipping);
+        std::fs::remove_file(&path).unwrap();
+        append(&path, &line(3));
+        assert!(log.has_unread_complete_line(), "a log recreated while skipping is unread from its start");
+        assert_eq!(ids(&log.poll().0), [3]);
+    }
+
+    #[test]
+    fn the_unread_check_stops_at_the_first_newline_and_ignores_a_line_over_the_limit() {
+        let path = temp_log("unread-bounded");
+        let mut log = LivePatchLog::bind(path.clone());
+        log.max_line_bytes = 64;
+        append(&path, &"z".repeat(300_000));
+        assert!(!log.has_unread_complete_line(), "an unfinished line past the limit is never applied");
+        append(&path, "\n");
+        assert!(!log.has_unread_complete_line(), "a complete line over the limit is reported by the poll, not applied");
+        let mut log = LivePatchLog::bind(temp_log("unread-bounded-ok"));
+        append(&log.path.clone(), &(line(5) + &"q".repeat(300_000)));
+        assert!(log.has_unread_complete_line(), "the first newline decides, whatever follows it");
+        assert_eq!(ids(&log.poll().0), [5]);
     }
 
     fn switch_line(doc: &Document, epoch: u64) -> (String, Vec<u8>) {

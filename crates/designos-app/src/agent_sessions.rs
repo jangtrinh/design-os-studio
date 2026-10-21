@@ -1271,9 +1271,7 @@ mod tests {
         assert!(st.tabs.is_empty(), "closing the last tab leaves no tab");
         assert!(st.picker_open, "closing the last tab shows the new-session picker");
 
-        // Frames and the chat shell path must not bring the closed conversation back.
-        st.ensure_shell_for_chat(None);
-        st.close_tab(0);
+        // Frames must not bring the closed conversation back.
         std::thread::sleep(std::time::Duration::from_millis(300));
         assert!(st.tabs.is_empty() && st.picker_open);
         assert_eq!(resumes(&st), 1, "only the open resumed the session; the close must not start `claude --resume` again");

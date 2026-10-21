@@ -986,7 +986,10 @@ mod tests {
         st_empty.spawn_tab(AgentCliPreset::Claude, None).expect("spawn chosen cli");
         assert!(!st_empty.picker_open);
         assert!(st_empty.pending_prompt.is_none(), "Held prompt must be consumed once a CLI is spawned");
-        assert!(st_empty.chat_turns.iter().any(|t| t.text.contains("Build hero section")));
+        assert!(
+            st_empty.tabs[0].composer.pending_send.as_deref() == Some("Build hero section")
+                || st_empty.tabs[0].composer.history.iter().any(|h| h.contains("Build hero section"))
+        );
 
         st_empty.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1102,13 +1105,18 @@ mod tests {
     #[test]
     fn chat_submit_starts_its_shell_lazily() {
         let dir = temp_test_dir("chat-lazy-shell");
+        let bin_dir = dir.join("bin");
+        write_stub_cli(&bin_dir, "claude", "sleep 5");
         let mut st = TerminalState::new_for_session("doc-chat-lazy", "Landing", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
         st.open_for_agent_use(None);
-        assert!(st.tabs.is_empty(), "No shell before chat submit");
+        assert!(st.tabs.is_empty(), "No tab before chat submit");
 
         st.submit_chat_prompt("Create a card", None);
-        assert_eq!(st.tabs.len(), 1, "submit_chat_prompt must lazily spawn its shell tab on submit");
-        assert!(st.tabs[0].is_shell_process());
+        assert_eq!(st.tabs.len(), 1, "submit_chat_prompt must lazily start the tab's agent on submit");
+        assert!(!st.tabs[0].is_shell_process());
+        assert_eq!(st.tabs[0].composer.pending_send.as_deref(), Some("Create a card"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

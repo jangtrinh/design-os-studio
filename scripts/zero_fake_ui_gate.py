@@ -472,45 +472,67 @@ def extract_fn_body(src: str, fn_name: str) -> str:
     return src[brace_start:]
 
 
-def check_z01(terminal_rs: str) -> Tuple[bool, str]:
+RETIRED_ONESHOT_CLI_PATTERN = (
+    r"claude\s+--dangerously-skip-permissions\s+-p\b|\bclaude\s+-p\b|"
+    r"codex\s+--dangerously-bypass-approvals-and-sandbox\s+exec\b|\bcodex\s+exec\b|"
+    r"agy\s+--dangerously-skip-permissions\s+-p\b|\bagy\s+-p\b|"
+    r"grok\s+--always-approve\s+-p\b|\bgrok\s+-p\b"
+)
+RETIRED_CHAT_THREAD_PATTERN = (
+    r"\b(?:build_real_cli_command|is_design_creation_prompt|AgentChatTurn|AgentChatRole|"
+    r"chat_turns|chat_scroll|next_turn_id|ensure_shell_for_chat|sync_chat_from_pty|"
+    r"wrap_chat_lines|render_agent_chat_thread)\b"
+)
+
+
+def check_z01(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
+    composer_rs = sources.code("agent_composer.rs")
     has_avail = "fn runtime_binary_available" in terminal_rs
     submit_body = extract_fn_body(terminal_rs, "submit_chat_prompt")
-    helper_body = extract_fn_body(terminal_rs, "build_real_cli_command")
-    combined = submit_body + "\n" + helper_body
-    cli_checks = {
-        "claude": ("claude --dangerously-skip-permissions -p" in combined or "claude -p" in combined),
-        "codex": ("codex --dangerously-bypass-approvals-and-sandbox exec" in combined or "codex exec" in combined),
-        "agy": ("agy --dangerously-skip-permissions -p" in combined or "agy -p" in combined),
-        "grok": ("grok --always-approve -p" in combined or "grok -p" in combined),
-    }
-    missing = [name for name, present in cli_checks.items() if not present]
-    calls_avail = "runtime_binary_available" in submit_body
-    ok = has_avail and calls_avail and not missing
+    send_body = (
+        extract_fn_body(composer_rs, "send_to_agent")
+        + "\n"
+        + extract_fn_body(composer_rs, "write_prompt_to_live_tab")
+    )
+    routes_to_live_send = (
+        "send_to_agent" in submit_body
+        and "try_write_bytes" in send_body
+        and "format_composer_paste_bytes" in send_body
+    )
+    oneshot_hits = sources.code_hits(RETIRED_ONESHOT_CLI_PATTERN)
+    ok = has_avail and routes_to_live_send and not oneshot_hits
     if ok:
-        return True, "runtime_binary_available + real CLI invocations (claude, codex, agy, grok with skip-permissions) verified in submit_chat_prompt"
+        return (
+            True,
+            "`runtime_binary_available` + `submit_chat_prompt` -> `send_to_agent` writes bracketed paste into the live PTY; zero one-shot (`-p` / `exec`) invocations in shipped code",
+        )
     reasons = []
     if not has_avail:
         reasons.append("missing `fn runtime_binary_available`")
-    if not calls_avail:
-        reasons.append("`submit_chat_prompt` does not call `runtime_binary_available`")
-    if missing:
-        reasons.append(f"missing CLI invocations: {missing}")
+    if not routes_to_live_send:
+        reasons.append("`submit_chat_prompt` does not route through `send_to_agent` / `write_prompt_to_live_tab`")
+    if oneshot_hits:
+        reasons.append(f"retired one-shot CLI flags in shipped code: {oneshot_hits}")
     return False, "; ".join(reasons)
 
 
-def check_z02(terminal_rs: str) -> Tuple[bool, str]:
+def check_z02(sources: "SourceSet") -> Tuple[bool, str]:
+    terminal_rs = sources.code("terminal.rs")
     body = extract_fn_body(terminal_rs, "set_active_runtime")
     has_preset = bool(re.search(r"tab\.preset\s*=\s*runtime", body))
-    # Typing into the tab lands as a chat prompt when the tab hosts an agent TUI.
     no_pty_write = "send_line" not in body and "write_all" not in body
     spawn_env = "DESIGNOS_AGENT_RUNTIME" in extract_fn_body(terminal_rs, "configure_pty_env")
-    cmd_env = "DESIGNOS_AGENT_RUNTIME" in extract_fn_body(terminal_rs, "build_real_cli_command")
-    ok = bool(body) and has_preset and no_pty_write and spawn_env and cmd_env
+    retired_hits = sources.code_hits(RETIRED_CHAT_THREAD_PATTERN)
+    ok = bool(body) and has_preset and no_pty_write and spawn_env and not retired_hits
     if ok:
-        return True, "`set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn + per CLI command"
+        return (
+            True,
+            "`set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn; retired one-shot chat symbols absent from shipped code",
+        )
     return False, (
         f"tab.preset mutation={has_preset}, no PTY write in set_active_runtime={no_pty_write}, "
-        f"env in configure_pty_env={spawn_env}, env in build_real_cli_command={cmd_env}"
+        f"env in configure_pty_env={spawn_env}, retired chat symbols in shipped code={retired_hits}"
     )
 
 
@@ -522,15 +544,17 @@ def check_z03(terminal_rs: str) -> Tuple[bool, str]:
     comment_noop = bool(re.search(r'format!\(\s*"#\s*\[', body)) or bool(
         re.search(r'send_line\(\s*"#', body)
     )
-    has_send = ("send_line" in body) or ("submit_chat_prompt" in body)
+    has_send = ("send_to_agent" in body) or ("send_line" in body) or ("submit_chat_prompt" in body)
     ok = (not comment_noop) and has_send
     if ok:
-        return True, "`dispatch_figma_ai_prompt` dispatches executable PTY/CLI command without `#` comment prefix"
+        return True, "`dispatch_figma_ai_prompt` dispatches through `send_to_agent` without `#` comment prefix"
     return False, f"dispatch_figma_ai_prompt comment_noop={comment_noop}, has_send={has_send}"
 
 
 def check_z04(sources: "SourceSet") -> Tuple[bool, str]:
     terminal_rs = sources.code("terminal.rs")
+    composer_rs = sources.code("agent_composer.rs")
+    combined = terminal_rs + "\n" + composer_rs
     required_ids = [
         "agents-header-ai",
         "agents-header-popout",
@@ -544,9 +568,9 @@ def check_z04(sources: "SourceSet") -> Tuple[bool, str]:
         pattern = re.compile(
             rf'"{re.escape(wid)}"[\s\S]{{0,520}}?(?:Sense::click\(\)|\.clicked\(\))|Sense::click\(\)[\s\S]{{0,520}}?"{re.escape(wid)}"'
         )
-        if not pattern.search(terminal_rs):
+        if not pattern.search(combined):
             missing.append(wid)
-    has_fake_mic = "agents-composer-mic" in terminal_rs
+    has_fake_mic = "agents-composer-mic" in combined
     if not missing and not has_fake_mic:
         return True, f"All 5 header/composer controls ({', '.join(required_ids)}) have interactive Sense::click() handlers; fake mic removed"
     return False, f"Missing interactive Sense::click() handler for: {missing}, has_fake_mic={has_fake_mic}"
@@ -916,6 +940,7 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
     sources = sources or SourceSet.from_disk()
     read_src = sources.raw
     terminal_rs = read_src("terminal.rs")
+    composer_rs = read_src("agent_composer.rs")
     specs_rs = read_src("specs.rs")
     home_rs = read_src("home/mod.rs")
     right_rs = read_src("panels/right.rs")
@@ -927,10 +952,10 @@ def run_all_checks(sources: Optional["SourceSet"] = None) -> List[Dict[str, Any]
     vars_view_rs = read_src("variables/view.rs")
 
     specs = [
-        ("Z01", "terminal.rs", "Real CLI binary detection & invocation in submit_chat_prompt", lambda: check_z01(terminal_rs)),
-        ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn, never typed", lambda: check_z02(terminal_rs)),
+        ("Z01", "terminal.rs + agent_composer.rs", "Live PTY send_to_agent in submit_chat_prompt; zero one-shot (-p / exec) calls", lambda: check_z01(sources)),
+        ("Z02", "terminal.rs", "set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn; one-shot chat symbols removed", lambda: check_z02(sources)),
         ("Z03", "terminal.rs", "dispatch_figma_ai_prompt sends executable command without # comment prefix", lambda: check_z03(terminal_rs)),
-        ("Z04", "terminal.rs", "All 5 Agents header & composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
+        ("Z04", "terminal.rs + agent_composer.rs", "All 5 Agents header & composer buttons have Sense::click() handlers; fake mic removed", lambda: check_z04(sources)),
         ("Z05", "specs.rs", "specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input)", lambda: check_z05(specs_rs)),
         ("Z06", "specs.rs", "Right Inspector dynamic active_section_toc & interactive SpecComment", lambda: check_z06(specs_rs)),
         ("Z07", "specs.rs", "Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract", lambda: check_z07(specs_rs)),

@@ -78,15 +78,6 @@ pub fn strip_skip_permission_flags(cmd: &str) -> String {
         .replace(" --approval-mode yolo", " --approval-mode default")
 }
 
-/// Mode-aware wrapper around [`crate::terminal::build_real_cli_command`].
-pub fn build_real_cli_command_for_mode(preset: AgentCliPreset, mode: AgentPermissionMode, prompt: &str, live_spec: &Path, selection_json: &Path) -> String {
-    let base = crate::terminal::build_real_cli_command(preset, prompt, live_spec, selection_json);
-    match mode {
-        AgentPermissionMode::Skip => base,
-        AgentPermissionMode::Ask => strip_skip_permission_flags(&base),
-    }
-}
-
 /// Mode-aware wrapper around [`crate::agent_sessions::build_new_session_command`].
 pub fn build_new_session_command_for_mode(preset: AgentCliPreset, mode: AgentPermissionMode, session_uuid: Option<&str>) -> String {
     let base = crate::agent_sessions::build_new_session_command(preset, session_uuid);

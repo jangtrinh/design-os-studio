@@ -1044,6 +1044,96 @@ pub fn attach_diff_to_reply(before_doc: &Document, after_doc: &Document, touched
     }
 }
 
+/// Re-renders `"content"` image blocks from the current document for an idempotent replay of a
+/// `diff_image: true` tool call (§8.6). `before_doc` is the document as it was before that call
+/// (`None` when it cannot be rebuilt: the "before" image then equals the "after" one). Returns
+/// `true` only when image blocks were re-rendered.
+pub fn rerender_diff_images_on_replay(doc: &Document, before_doc: Option<&Document>, reply: &mut Value) -> bool {
+    let Some(pages) = reply.get("diff").and_then(|d| d.get("pages")).and_then(Value::as_array).cloned() else {
+        return false;
+    };
+    let before_doc_opt = before_doc;
+
+    let mut content_blocks = Vec::new();
+    for page in &pages {
+        let has_images = page.get("images").and_then(Value::as_array).is_some_and(|arr| !arr.is_empty());
+        if !has_images {
+            continue;
+        }
+        let Some(page_id_u64) = page.get("page_id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let page_id = NodeId(page_id_u64);
+        let Some(region_obj) = page.get("region").and_then(Value::as_object) else {
+            continue;
+        };
+        let x = region_obj.get("x").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        let y = region_obj.get("y").and_then(Value::as_f64).unwrap_or(0.0) as f32;
+        let width = region_obj.get("width").and_then(Value::as_f64).unwrap_or(1.0) as f32;
+        let height = region_obj.get("height").and_then(Value::as_f64).unwrap_or(1.0) as f32;
+        let target = ScreenshotTarget::Region(RegionTarget { page_id: page_id_u64, x, y, width, height });
+
+        let after_res = if doc.get(page_id).is_some() {
+            render_target(doc, target.clone(), 1.0, 1024)
+        } else if let Some(bdoc) = before_doc_opt {
+            render_target(bdoc, target.clone(), 1.0, 1024)
+        } else {
+            continue;
+        };
+        let Ok(rendered_after) = after_res else {
+            continue;
+        };
+        let rendered_before = if let Some(bdoc) = before_doc_opt {
+            if bdoc.get(page_id).is_some() {
+                match render_target(bdoc, target, 1.0, 1024) {
+                    Ok(r) => r,
+                    Err(_) => rendered_after.clone(),
+                }
+            } else if let Some(pm) = Pixmap::new(rendered_after.width, rendered_after.height) {
+                RenderedImage { pixmap: pm, ..rendered_after.clone() }
+            } else {
+                rendered_after.clone()
+            }
+        } else {
+            rendered_after.clone()
+        };
+
+        let (w, h) = (rendered_after.width, rendered_after.height);
+        let Some(before_rgba) = designos_export::image::RgbaImage::from_raw(w, h, designos_export::rgba_bytes(&rendered_before.pixmap)) else {
+            continue;
+        };
+        let Some(after_rgba) = designos_export::image::RgbaImage::from_raw(w, h, designos_export::rgba_bytes(&rendered_after.pixmap)) else {
+            continue;
+        };
+        let opts = designos_diff::DiffOptions { tolerance: 0, detect_aa: false, ignore: Vec::new() };
+        let (_report, diff_rgba) = designos_diff::diff_image(&before_rgba, &after_rgba, &opts);
+
+        let before_png = rendered_before.encode(ScreenshotFormat::Png, 80);
+        let after_png = rendered_after.encode(ScreenshotFormat::Png, 80);
+        let diff_png = designos_export::tiny_skia::IntSize::from_wh(w, h)
+            .and_then(|sz| Pixmap::from_vec(diff_rgba.into_raw(), sz))
+            .map(|pm| encode_png_pixmap(&pm))
+            .unwrap_or_default();
+
+        for (role, bytes) in [("before", &before_png), ("after", &after_png), ("diff", &diff_png)] {
+            content_blocks.push(json!({
+                "type": "image",
+                "mimeType": "image/png",
+                "data": BASE64_STANDARD.encode(bytes),
+                "role": role,
+            }));
+        }
+    }
+
+    if content_blocks.is_empty() {
+        return false;
+    }
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("content".into(), Value::Array(content_blocks));
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

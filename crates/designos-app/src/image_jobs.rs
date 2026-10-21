@@ -1796,24 +1796,54 @@ mod tests {
         let tmp = TestDir::new("default-cli-flow");
         let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
         app.terminal.bind_session(&format!("test-default-cli-{}", std::process::id()));
+        // A stub `claude` that enables bracketed paste and records each submitted line.
+        let bin_dir = tmp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let recv = tmp.path().join("recv.txt");
+        let stub = bin_dir.join("claude");
+        std::fs::write(
+            &stub,
+            format!("#!/bin/sh\nprintf '\\033[?2004hReady> '\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> '{}'\ndone\n", recv.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        app.terminal.path_prepend.push(bin_dir);
         // Do NOT set `app.image_jobs.agent_script`: exercise the real default terminal submission flow.
         app.image_jobs.agent_script = None;
 
         let job_id = app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts via terminal");
+        let needle = format!("Image task {job_id}");
+        let deadline = Instant::now() + Duration::from_secs(6);
+        let mut received = String::new();
+        while Instant::now() < deadline {
+            let _ = app.terminal.poll_live_agent_bridge();
+            received = std::fs::read_to_string(&recv).unwrap_or_default();
+            if received.contains(&needle) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let shells: Vec<(AgentCliPreset, String)> = app
+            .terminal
+            .tabs
+            .iter()
+            .filter(|t| t.is_shell_process())
+            .map(|t| (t.spawn_preset, String::from_utf8_lossy(&t.written_bytes).into_owned()))
+            .collect();
+        let (spawn_preset, spawned_command, is_shell) =
+            app.terminal.active_tab().map(|t| (t.spawn_preset, t.spawned_command.clone(), t.is_shell_process())).expect("active agent tab spawned or selected");
         app.cancel_image_job(Some(orig_id));
         app.terminal.shutdown();
 
-        assert_ne!(app.terminal.active_runtime, AgentCliPreset::Shell, "default image job flow must select an agent CLI preset, never Shell");
-        assert!(app.terminal.chat_turns.len() >= 2, "expected system + assistant turns recorded in terminal");
-        let first_turn = &app.terminal.chat_turns[0];
-        assert_eq!(first_turn.role, crate::terminal::AgentChatRole::System, "image job prompt must be recorded as a System turn, not a User message");
-        assert!(first_turn.text.contains(&format!("Image task {job_id}")), "expected image task prompt in first turn: {}", first_turn.text);
-        let cmd = &first_turn.shell_cmd;
-        let invokes_real_cli = cmd.contains("claude --dangerously-skip-permissions -p")
-            || cmd.contains("codex --dangerously-bypass-approvals-and-sandbox exec")
-            || cmd.contains("agy --dangerously-skip-permissions -p")
-            || cmd.contains("grok --always-approve -p");
-        assert!(invokes_real_cli, "expected real agent CLI invocation in shell_cmd, got: {cmd}");
+        assert!(!is_shell, "the image prompt must go to an agent CLI tab, never a shell");
+        assert_eq!(spawn_preset, AgentCliPreset::Claude);
+        assert!(spawned_command.as_deref().is_some_and(|c| c.contains("claude")), "the tab must launch the agent binary: {spawned_command:?}");
+        assert!(received.contains(&needle), "the agent CLI must receive the image task prompt: {received:?}");
+        assert!(shells.is_empty(), "no shell tab may exist or receive the prompt: {shells:?}");
     }
 
     #[test]

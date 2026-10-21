@@ -133,6 +133,7 @@ pub enum Icon {
     Wand,
     StarFour,
     BookOpen,
+    #[allow(dead_code)]
     Microphone,
     ArrowUp,
     ArrowSquareOut,

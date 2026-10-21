@@ -268,6 +268,20 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
         "pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =",
         'const _FAKE_MIC: &str = "agents-composer-mic";\npub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =',
     ),
+    (
+        '36. retired one-shot "claude -p" command back in terminal.rs',
+        "Z01",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        'let _ = "claude -p";\n        let _ = self.send_to_agent(prompt, file_path);',
+    ),
+    (
+        "37. retired build_real_cli_command helper back in terminal.rs",
+        "Z02",
+        "terminal.rs",
+        "let _ = self.send_to_agent(prompt, file_path);",
+        "fn build_real_cli_command() {}\n        let _ = self.send_to_agent(prompt, file_path);",
+    ),
 ]
 
 
