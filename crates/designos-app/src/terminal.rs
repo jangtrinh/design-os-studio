@@ -4399,9 +4399,9 @@ pub fn show_left_with_doc(
         widgets::record(ui, "agents-needs-approval-pill", pill_r);
     }
 
-    // Header right controls: `AI` badge + Pop-out/PTY toggle + `•••` More menu
+    // Header right controls: `AI` badge + Pop-out/PTY toggle. There is no `•••` More button: no spec defines a menu behind it (Zero Fake UI, P6).
     let h_cy = header_rect.top() + 18.0;
-    let ai_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 78.0, h_cy), Vec2::new(24.0, 18.0));
+    let ai_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 50.0, h_cy), Vec2::new(24.0, 18.0));
     let ai_resp = ui.interact(ai_rect, Id::new("agents-header-ai"), Sense::click());
     let ai_bg = if !state.chat_mode || state.side_panel_pty_open {
         Color32::from_rgb(0x16, 0x35, 0x52)
@@ -4420,7 +4420,7 @@ pub fn show_left_with_doc(
         state.side_panel_pty_open = !state.chat_mode;
     }
 
-    let pop_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 46.0, h_cy), Vec2::splat(24.0));
+    let pop_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 18.0, h_cy), Vec2::splat(24.0));
     let pop_resp = ui.interact(pop_rect, Id::new("term-left-dock-toggle"), Sense::click());
     if pop_resp.hovered() || state.side_panel_pty_open || state.dock_open {
         p.rect_filled(pop_rect, CornerRadius::same(4), TERM_BG_HOVER);
@@ -4433,17 +4433,6 @@ pub fn show_left_with_doc(
         state.dock_open = !state.dock_open;
         state.side_panel_pty_open = state.dock_open;
     }
-
-    let more_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 18.0, h_cy), Vec2::splat(24.0));
-    let more_resp = ui.interact(more_rect, Id::new("agents-more-menu"), Sense::click());
-    if more_resp.hovered() {
-        p.rect_filled(more_rect, CornerRadius::same(4), TERM_BG_HOVER);
-    }
-    for dx in [-4.5f32, 0.0, 4.5] {
-        p.circle_filled(Pos2::new(more_rect.center().x + dx, more_rect.center().y), 1.4, Color32::from_rgb(0xD4, 0xD4, 0xD4));
-    }
-    widgets::record(ui, "agents-more-menu", more_rect);
-    widgets::record(ui, "agents-header-more", more_rect);
 
     let mut top_y = header_rect.bottom();
 
@@ -5886,6 +5875,111 @@ Done!
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
         }
+    }
+
+    /// Zero Fake UI (`design/principles.md` P6): a control the chat-view header draws must do something when clicked.
+    /// The `More` button (`agents-more-menu`) lost its only effect when the "What's next?" category cards went away, and the
+    /// #688 spec defines no menu behind it (rule 7 keeps the real actions on the header and dock bar), so it is not drawn
+    /// and the pop-out toggle takes the right-edge slot, where the terminal view already puts it.
+    #[test]
+    fn chat_header_draws_no_control_that_does_nothing() {
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
+        let chat_view = || {
+            let ctx = egui::Context::default();
+            crate::theme::install_fonts(&ctx);
+            crate::theme::apply(&ctx);
+            let mut st = TerminalState::default();
+            st.side_panel_pty_open = false;
+            st.chat_mode = true;
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let _ = show_left(&mut st, ui, panel_rect, None);
+            });
+            (ctx, st)
+        };
+        let rect_of = |ctx: &egui::Context, name: &str| -> Option<Rect> { ctx.data(|d| d.get_temp(Id::new(("test-rect", name.to_string())))) };
+        // Everything a click can change in the panel: its view flags, dropdowns, draft, tab list, status line, an egui popup, or an action.
+        let observable = |ctx: &egui::Context, st: &TerminalState| {
+            format!(
+                "{:?}",
+                (
+                    st.chat_mode,
+                    st.side_panel_pty_open,
+                    st.dock_open,
+                    st.runtime_dropdown_open,
+                    st.sessions_popover_open,
+                    st.active_runtime,
+                    st.status_msg.clone(),
+                    st.composer_draft().to_string(),
+                    st.tabs.len(),
+                    egui::Popup::is_any_open(ctx),
+                )
+            )
+        };
+
+        let header_ids = ["agents-header-back", "agents-header-ai", "agents-header-popout", "agents-more-menu", "agents-header-more"];
+        let mut drawn = Vec::new();
+        let mut inert = Vec::new();
+        for id in header_ids {
+            let (ctx, mut st) = chat_view();
+            let Some(rect) = rect_of(&ctx, id) else { continue };
+            drawn.push(id);
+            let before = observable(&ctx, &st);
+            let pos = rect.center();
+            let mut actions = Vec::new();
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+                ],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, |ui| {
+                actions = show_left(&mut st, ui, panel_rect, None);
+            });
+            if actions.is_empty() && observable(&ctx, &st) == before {
+                inert.push(id);
+            }
+            kill_tabs(&mut st);
+        }
+        assert!(inert.is_empty(), "header controls drawn in the chat view that do nothing when clicked: {inert:?}");
+        assert_eq!(drawn, ["agents-header-back", "agents-header-ai", "agents-header-popout"], "the chat header draws Back, AI and pop-out only");
+
+        let (ctx, mut st) = chat_view();
+        let ai = rect_of(&ctx, "agents-header-ai").expect("AI toggle");
+        let popout = rect_of(&ctx, "agents-header-popout").expect("pop-out toggle");
+        assert!(ai.right() <= popout.left() && !ai.intersects(popout), "AI toggle {ai:?} sits left of pop-out {popout:?}");
+        assert!(
+            panel_rect.right() - popout.right() <= 8.0,
+            "pop-out {popout:?} sits at the right edge of {panel_rect:?} like the terminal view's dock toggle, with no empty slot beside it"
+        );
+        kill_tabs(&mut st);
+    }
+
+    /// The accessibility tree announces the header controls that are drawn and no others (`label_agents_panel` labels only
+    /// widgets created in the frame).
+    #[test]
+    fn chat_header_announces_only_the_controls_it_draws() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        crate::agent_a11y::enable_accesskit(&ctx);
+        let mut st = TerminalState::default();
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let update = out.platform_output.accesskit_update.expect("AccessKit TreeUpdate expected");
+        let buttons: Vec<&str> = update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button).filter_map(|(_, n)| n.label()).collect();
+        for named in ["Back", "Toggle AI chat", "Toggle terminal dock"] {
+            assert!(buttons.contains(&named), "the header control {named:?} stays announced: {buttons:?}");
+        }
+        assert!(!buttons.contains(&"More options"), "a control that is not drawn must not be announced: {buttons:?}");
+        kill_tabs(&mut st);
     }
 
     #[test]

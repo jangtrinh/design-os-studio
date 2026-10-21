@@ -344,7 +344,6 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
         widgets::labelled(ui, Id::new("agents-header-back"), Role::Button, "Back");
         widgets::labelled(ui, Id::new("agents-header-ai"), Role::Button, "Toggle AI chat");
         widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, "Toggle terminal dock");
-        widgets::labelled(ui, Id::new("agents-more-menu"), Role::Button, "More options");
     }
 
     // 2. Tab strip region + tab/runtime controls created in this frame
