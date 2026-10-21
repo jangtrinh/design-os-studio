@@ -2113,6 +2113,15 @@ impl TerminalState {
         self.bootstrap_job = Some(BootstrapJobHandle { generation: job_gen, state, doc, opts, enabled_tools });
     }
 
+    /// Stops the background bootstrap build from writing into the session folder: a build that finishes after the
+    /// folder was removed would bring it back. A worker already writing finishes its files first (it holds the
+    /// write lock); every later one sees the new generation and writes nothing.
+    fn stop_bootstrap_writes(&mut self) {
+        self.bootstrap_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.bootstrap_job = None;
+        drop(self.bootstrap_write_lock.lock());
+    }
+
     /// Non-blockingly harvests a completed background bootstrap job if finished.
     pub fn poll_bootstrap_job(&mut self) {
         let finished_md = self.bootstrap_job.as_ref().and_then(|job| {
@@ -2512,6 +2521,7 @@ impl TerminalState {
     /// only copy of a library file's session).
     fn cleanup_ephemeral_session_dir(&mut self) {
         self.snapshot_worker.cancel_and_wait();
+        self.stop_bootstrap_writes();
         if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
             if self.lock_owner.is_some() {
                 if let crate::agent_sessions::SessionKey::LibraryFile { ref lib_root, ref file_id } = self.key {
@@ -12405,6 +12415,8 @@ Done!
 
         /// Waits for the in-flight bootstrap job so the hook finds the full reply instead of the compact fallback.
         fn settle_bootstrap(st: &mut TerminalState) -> String {
+            // The session files (`hooks.json`, `SKILL.md`) are written by the snapshot worker, not on the calling thread.
+            st.flush_live_sync();
             st.resolve_bootstrap_markdown(std::time::Duration::from_secs(20))
         }
 
@@ -12489,6 +12501,7 @@ Done!
             let cfg = json!({"designos": {"enabled_tools": enabled}});
             std::fs::write(st.session_dir.join("mcp-config.json"), serde_json::to_vec_pretty(&cfg).unwrap()).expect("mcp-config.json");
             st.sync_live_file_context(&doc, page, &[], None);
+            st.flush_live_sync();
             settle_bootstrap(&mut st);
 
             let expected = designos_mcp::rules::generate_rules_pack(Some(&enabled)).expect("filtered pack");
@@ -12515,6 +12528,7 @@ Done!
             assert_eq!(fx.selected_ids.len(), 3);
             let mut st = TerminalState::for_tab(8602);
             st.sync_live_file_context(&fx.doc, fx.page1, &fx.selected_ids, None);
+            st.flush_live_sync();
             let _ = st.resolve_bootstrap_markdown(std::time::Duration::from_millis(500));
 
             // 1. Check bootstrap.json and bootstrap.md on disk
@@ -12561,6 +12575,7 @@ Done!
             let workspace = std::env::temp_dir();
             let file_path = workspace.join("bootstrap-fixture-8603.designos");
             st.sync_live_file_context(&fx.doc, fx.page1, &fx.selected_ids, Some(&file_path));
+            st.flush_live_sync();
 
             let mut mcp = designos_mcp::server::Session::with_session_dir(&workspace, &st.session_dir).expect("mcp session");
 
@@ -12666,6 +12681,7 @@ Done!
             let workspace = std::env::temp_dir();
             let file_path = workspace.join("bootstrap-fixture-8605.designos");
             st.sync_live_file_context(&fx.doc, fx.page1, &[], Some(&file_path));
+            st.flush_live_sync();
             settle_bootstrap(&mut st);
 
             let first_prompt = run_prompt_hook(&st);

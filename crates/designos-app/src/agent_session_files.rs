@@ -781,6 +781,25 @@ mod tests {
         st.shutdown();
     }
 
+    /// The first-turn bootstrap block is built on a background thread that writes into the session folder when
+    /// it is done. A build still running when the window closes must not bring the removed folder back.
+    #[test]
+    fn a_bootstrap_build_that_finishes_after_shutdown_does_not_recreate_the_session_folder() {
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session(&unique_test_id("bootstrap-after-close"));
+        let session_dir = st.session_dir.clone();
+        let mut doc = Document::new("Unsaved Window");
+        let page = doc.add_page("Page 1");
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        st.start_bootstrap_job(doc.clone(), page, None, Some(Duration::from_millis(400)));
+
+        st.shutdown();
+        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!session_dir.exists(), "the bootstrap build re-created {}", session_dir.display());
+    }
+
     #[test]
     fn a_publish_after_shutdown_does_not_recreate_the_session_folder() {
         let mut st = TerminalState::for_tab(1);
@@ -824,6 +843,7 @@ mod tests {
             current_page_name: "Page 1".into(),
             file_path: None,
             run_id: "writer-test-run".into(),
+            bootstrap_run_id: 1,
             agent_runtime: "claude".into(),
             ask_mode: false,
             unread_probe: None,
