@@ -834,11 +834,14 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                 let now_ms = app.doc.now_ms();
                 let exp_ms = ip.expiry_ms(now_ms, designos_doc::default_in_progress_stale_ms());
                 let agent_str = ip.agent.as_deref().unwrap_or("Agent");
-                let run_str = ip.run_id.as_deref().unwrap_or("none");
-                let tip = match exp_ms {
-                    Some(exp) => format!("{agent_str} is working here · run {run_str} · stale in {}s", exp.saturating_sub(now_ms) / 1000),
-                    None => format!("{agent_str} is working here · run {run_str}"),
-                };
+                let mut segments = vec![format!("{agent_str} is working here")];
+                if let Some(run) = ip.run_id.as_deref() {
+                    segments.push(format!("run {run}"));
+                }
+                if let Some(exp) = exp_ms {
+                    segments.push(format!("stale in {}s", exp.saturating_sub(now_ms) / 1000));
+                }
+                let tip = segments.join(" · ");
                 resp.on_hover_text(tip);
             }
         }

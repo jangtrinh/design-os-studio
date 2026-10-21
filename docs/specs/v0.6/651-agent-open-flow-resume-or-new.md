@@ -59,8 +59,8 @@ switch. A file with no sessions yet shows the new-session picker; Studio never s
    active and status. It lists the file's registry
    entries, newest first, one row each: the CLI (icon and name), the label (rename target), last active as
    a relative time, and a status. Status is the live tab's `AgentTabStatus` for a running tab
-   (`Working`, `WaitingForInput`, `Done`, `Idle`, `terminal.rs:357-364`) and `Not running` for the rest;
-   `Missing` when #653 marked the entry's session as gone. Choosing a row focuses its live tab, or resumes it
+   in the owner status set (`Working…`, `Needs approval` for a pending approval, `Needs input` for any other wait, `Done`, `Failed`, `Stopped`;
+   `Idle` for an idle tab) and `Not running` for the rest; `Resume failed` when #653 marked the entry's session as gone. Choosing a row focuses its live tab, or resumes it
    in a new tab.
 6. **Rename and Remove from list (owner ruling).** A row renames in place and has a "Remove from list" action: it forgets Studio's registry entry and leaves the CLI's own conversation untouched. The new label is stored in the registry (#653) and shown on the tab title; it does not rename the
    conversation inside the CLI. Empty labels revert to the default (`<CLI> <date>`).
@@ -105,7 +105,7 @@ The form is the one the owner ruled on 2026-10-19 (ghost button + popover, renam
 1. Registry holds sessions but the CLI is no longer installed: rule 2.2 starts the tab, it exits within five
    seconds, the failure panel says "not installed" with its install link (#673 classification).
 2. Two tabs for the same session: rule 5 focuses the live one.
-3. The only session is `Missing`: treated as no session (rule 2.3), the picker shows.
+3. The only session is marked missing (row label `Resume failed`): treated as no session (rule 2.3), the picker shows.
 4. Opening the panel while a resume is still starting: no second spawn (a tab in `spawned_at < 5 s` counts as live).
 5. A file opened from disk is keyed by a hash of its canonical path (#653 owner ruling 2026-10-19); an unsaved in-memory scratch document with neither a library id nor a file path has no registry key, so rule 2.3 applies.
 6. Reopening after all tabs were closed by the user: rule 2.2 resumes the last session again (this is the

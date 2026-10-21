@@ -743,7 +743,7 @@ impl App {
 
         if self.image_jobs.watcher.is_some() {
             let pos = self.image_jobs.queue.len();
-            self.show_toast(format!("Queued image job ({pos} in queue)"), false);
+            self.show_toast(format!("Queued image job · {pos} in queue"), false);
         } else {
             self.pump_next_queued_image_job();
         }

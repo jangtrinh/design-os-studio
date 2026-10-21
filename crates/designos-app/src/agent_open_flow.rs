@@ -8,7 +8,7 @@ use egui::{Align2, Color32, Id, Key, Painter, Pos2, Rect, RichText, Sense, Strok
 
 use crate::agent_sessions::{preset_from_cli_name, save_registry, unix_timestamp_secs, SessionEntryStatus};
 use crate::icons::{self, Icon};
-use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState};
+use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState, NEEDS_APPROVAL_LABEL, NEEDS_INPUT_LABEL};
 use crate::theme;
 use crate::widgets;
 
@@ -16,8 +16,9 @@ const STATUS_DOT_X: f32 = 8.0;
 const PROVIDER_DOT_X: f32 = 16.0;
 const TITLE_LEFT_X: f32 = 24.0;
 const ACTION_BTN_H: f32 = 20.0;
-const ACTION_RENAME_W: f32 = 40.0;
-const ACTION_REMOVE_W: f32 = 80.0;
+/// Row actions of the Sessions popover. Their buttons are as wide as the label plus the segment inset on each side.
+const RENAME_ACTION_LABEL: &str = "Rename";
+const REMOVE_ACTION_LABEL: &str = "Remove from list";
 const SESSIONS_BTN_CHEVRON_OFFSET: f32 = 8.0;
 const SESSIONS_BTN_CHEVRON_SIZE: f32 = 8.0;
 const POPOVER_MIN_W: f32 = 216.0;
@@ -46,8 +47,8 @@ impl SessionRowStatus {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Live(AgentTabStatus::Working(_)) => "Working…",
-            Self::Live(AgentTabStatus::WaitingForInput(Some(detail))) if detail == "Needs approval" => "Needs approval",
-            Self::Live(AgentTabStatus::WaitingForInput(_)) => "Needs input",
+            Self::Live(AgentTabStatus::WaitingForInput(Some(detail))) if detail == NEEDS_APPROVAL_LABEL => NEEDS_APPROVAL_LABEL,
+            Self::Live(AgentTabStatus::WaitingForInput(_)) => NEEDS_INPUT_LABEL,
             Self::Live(AgentTabStatus::Done) => "Done",
             Self::Live(AgentTabStatus::Idle) => "Idle",
             Self::Live(AgentTabStatus::Error(_)) => "Failed",
@@ -163,7 +164,7 @@ impl TerminalState {
                 let effective = match explicit {
                     AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
                     // Same predicate as the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
-                    AgentTabStatus::WaitingForInput(_) if tab.needs_approval() => AgentTabStatus::WaitingForInput(Some("Needs approval".to_string())),
+                    AgentTabStatus::WaitingForInput(_) if tab.needs_approval() => AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.to_string())),
                     AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
                     _ if recent_pty => AgentTabStatus::Working(None),
                     other => other,
@@ -492,16 +493,18 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     let mut commit_rename = false;
     let mut cancel_rename = false;
 
+    let action_w = |label: &str| widgets::text_width(&p, label, &theme::font_caption()) + 2.0 * theme::INSET_SEGMENT;
+    let (rename_w, remove_w) = (action_w(RENAME_ACTION_LABEL), action_w(REMOVE_ACTION_LABEL));
+
     for row in &rows {
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let row_widget_id = format!("agents-session-row-{}", row.tab_id);
 
         let remove_r = Rect::from_min_size(
-            Pos2::new(r_rect.right() - theme::INSET_SEGMENT - ACTION_REMOVE_W, r_rect.bottom() - bottom_line_offset - action_half_h),
-            Vec2::new(ACTION_REMOVE_W, ACTION_BTN_H),
+            Pos2::new(r_rect.right() - theme::INSET_SEGMENT - remove_w, r_rect.bottom() - bottom_line_offset - action_half_h),
+            Vec2::new(remove_w, ACTION_BTN_H),
         );
-        let rename_r =
-            Rect::from_min_size(Pos2::new(remove_r.left() - theme::SPACE_FACT - ACTION_RENAME_W, remove_r.top()), Vec2::new(ACTION_RENAME_W, ACTION_BTN_H));
+        let rename_r = Rect::from_min_size(Pos2::new(remove_r.left() - theme::SPACE_FACT - rename_w, remove_r.top()), Vec2::new(rename_w, ACTION_BTN_H));
 
         // Register `row_resp` first and child action buttons (`rename_resp`, `remove_resp`) after so the
         // child buttons win pointer hit-testing inside `r_rect` in egui 0.35.
@@ -559,7 +562,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
             p.text(Pos2::new(label_x, top_y_line), Align2::LEFT_CENTER, lbl_str, theme::font_body(), theme::TEXT);
         }
 
-        // Line 2: relative time + status on the left, Rename + Remove session on the right
+        // Line 2: relative time + status on the left, Rename + Remove from list on the right
         let meta_txt = format!("{} · {}", row.relative_time, row.status.label());
         let meta_avail_w = (rename_r.left() - theme::SPACE_INLINE - cli_x).max(theme::CONTROL_ROW);
         let meta_elided = widgets::elide(&p, &meta_txt, &theme::font_caption(), meta_avail_w);
@@ -568,13 +571,13 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         if rename_resp.hovered() {
             p.rect_filled(rename_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        p.text(rename_r.center(), Align2::CENTER_CENTER, "Rename", theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(rename_r.center(), Align2::CENTER_CENTER, RENAME_ACTION_LABEL, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agents-session-rename-{}", row.tab_id), rename_r);
 
         if remove_resp.hovered() {
             p.rect_filled(remove_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        p.text(remove_r.center(), Align2::CENTER_CENTER, "Remove session", theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(remove_r.center(), Align2::CENTER_CENTER, REMOVE_ACTION_LABEL, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agents-session-remove-{}", row.tab_id), remove_r);
 
         widgets::record(ui, &row_widget_id, r_rect);
@@ -1264,7 +1267,7 @@ mod tests {
         });
         let row_r = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-session-row-1".to_string())))).expect("row rect");
 
-        // Click the row title area (away from Rename / Remove session).
+        // Click the row title area (away from Rename / Remove from list).
         click_at(&ctx, screen, Pos2::new(row_r.left() + 30.0, row_r.top() + 8.0), |ui| render_sessions_popover(&mut st, ui, panel_rect, 40.0, None));
 
         assert!(st.tabs.is_empty(), "nothing may spawn");
@@ -1424,7 +1427,7 @@ mod tests {
         assert_eq!(st.renaming_session_tab_id, Some(1), "Clicking Rename must start inline rename instead of being stolen by row_resp");
         assert!(st.tabs.is_empty(), "Clicking Rename must not trigger select_session_row");
 
-        // Click Remove session (press + release on remove_r.center()) -> must remove session from registry, NOT select/resume row
+        // Click Remove from list (press + release on remove_r.center()) -> must remove session from registry, NOT select/resume row
         let remove_pos = remove_r.center();
         for pressed in [true, false] {
             let raw = egui::RawInput {
@@ -1439,8 +1442,8 @@ mod tests {
                 render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
             });
         }
-        assert!(st.session_registry.sessions.is_empty(), "Clicking Remove session must remove the session entry");
-        assert!(st.tabs.is_empty(), "Clicking Remove session must not trigger select_session_row");
+        assert!(st.session_registry.sessions.is_empty(), "Clicking Remove from list must remove the session entry");
+        assert!(st.tabs.is_empty(), "Clicking Remove from list must not trigger select_session_row");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
