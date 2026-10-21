@@ -682,13 +682,75 @@ mod tests {
 
         st.close_tab(0);
         assert!(!session_dir.exists(), "closing the tab must remove its ephemeral session dir {}", session_dir.display());
+    }
 
-        // Also verify shutdown() removes an ephemeral session directory.
+    #[test]
+    fn shutdown_removes_an_ephemeral_session_dir() {
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session(&unique_test_id("ephemeral-shutdown"));
+        let session_dir = st.session_dir.clone();
+        let mut doc = Document::new("Unsaved Window");
+        let page = doc.add_page("Page 1");
+
         st.sync_live_file_context(&doc, page, &[], None);
         st.flush_live_sync();
         assert!(session_dir.exists());
         st.shutdown();
         assert!(!session_dir.exists(), "shutdown must remove the ephemeral session dir {}", session_dir.display());
+    }
+
+    /// The frame that closes a window (or the last tab) goes on to publish the document: that publish must
+    /// not bring back the folder the close just removed (spec rule 4, edge case 8).
+    #[test]
+    fn a_publish_after_the_last_tab_closed_does_not_recreate_the_session_folder() {
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session(&unique_test_id("no-recreate-tab"));
+        let session_dir = st.session_dir.clone();
+        let mut doc = Document::new("Unsaved Tab");
+        let page = doc.add_page("Page 1");
+
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        st.spawn_tab(crate::terminal::AgentCliPreset::Shell, None).expect("spawn a shell tab");
+        st.close_tab(0);
+        assert!(!session_dir.exists(), "precondition: closing the last tab removed the folder");
+
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        assert!(!session_dir.exists(), "the publish after the close re-created {}", session_dir.display());
+
+        // A new tab gives the terminal a folder again, and the document is published into it.
+        st.spawn_tab(crate::terminal::AgentCliPreset::Shell, None).expect("spawn a second shell tab");
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        assert!(session_dir.join("canvas.designos").is_file(), "publishing resumes once a tab runs again");
+        st.shutdown();
+    }
+
+    #[test]
+    fn a_publish_after_shutdown_does_not_recreate_the_session_folder() {
+        let mut st = TerminalState::for_tab(1);
+        st.bind_session(&unique_test_id("no-recreate-window"));
+        let session_dir = st.session_dir.clone();
+        let mut doc = Document::new("Unsaved Window");
+        let page = doc.add_page("Page 1");
+
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        st.shutdown();
+        assert!(!session_dir.exists(), "precondition: shutdown removed the folder");
+
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        assert!(!session_dir.exists(), "the publish after shutdown re-created {}", session_dir.display());
+
+        // Binding to a session again (a document opened in this terminal) lifts the stop.
+        st.bind_session(&unique_test_id("no-recreate-window-next"));
+        let next_dir = st.session_dir.clone();
+        st.sync_live_file_context(&doc, page, &[], None);
+        st.flush_live_sync();
+        assert!(next_dir.join("canvas.designos").is_file(), "a rebound terminal publishes again");
+        st.shutdown();
     }
 
     #[test]

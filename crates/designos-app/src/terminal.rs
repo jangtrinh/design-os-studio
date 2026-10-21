@@ -1202,6 +1202,11 @@ pub struct TerminalState {
     pub last_copied_failure_details: Option<String>,
     /// Background single-thread latest-wins snapshot writer (`#690` §6).
     snapshot_worker: crate::agent_session_files::SnapshotWorker,
+    /// The session folder was removed or released (the last tab closed, or the window shut down), so no
+    /// snapshot is queued: the frame that closes things still publishes the document afterwards, and that
+    /// publish would bring the folder back. A rebind (`update_session_dir_paths`) or an agent start
+    /// (`provision_session_agent_files`) gives the terminal a folder again and clears it.
+    session_closed: bool,
 }
 
 impl Default for TerminalState {
@@ -1444,6 +1449,7 @@ impl TerminalState {
             composer_cursor_byte: None,
             last_copied_failure_details: None,
             snapshot_worker: crate::agent_session_files::SnapshotWorker::new(),
+            session_closed: false,
         }
     }
 
@@ -1733,6 +1739,7 @@ impl TerminalState {
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
         self.snapshot_worker.cancel_and_wait();
+        self.session_closed = false;
         self.active_run_id = format!("{}-1-{}", self.session_id, self.next_run_seq.max(1));
         self.live_spec_path = session_dir.join("live-spec.json");
         self.live_doc_sync_path = session_dir.join("doc-sync.designos");
@@ -2208,6 +2215,11 @@ impl TerminalState {
 
         let _ = self.reconcile_snapshot_worker();
 
+        // The folder was just removed or released: publishing now would bring it back (see `session_closed`).
+        if self.session_closed {
+            return;
+        }
+
         // The canvas the agent reads must keep holding every edit the agent made. While one of its
         // edits waits for the user to finish, or the user is mid-edit, or deferred auto-layout
         // subtrees are still draining, the editor's document is not settled yet, so publishing now
@@ -2309,6 +2321,7 @@ impl TerminalState {
     /// a fresh one instead of letting the stale one overwrite these files.
     fn provision_session_agent_files(&mut self, file_path: Option<&Path>) {
         self.snapshot_worker.cancel_and_wait();
+        self.session_closed = false;
         self.last_synced_key = None;
         let job = crate::agent_session_files::SnapshotJob {
             session_dir: self.session_dir.clone(),
@@ -2491,6 +2504,7 @@ impl TerminalState {
             }
             let _ = std::fs::remove_dir_all(&self.session_dir);
             self.last_synced_key = None;
+            self.session_closed = true;
         }
     }
 
@@ -2517,6 +2531,8 @@ impl TerminalState {
         }
         self.cleanup_ephemeral_session_dir();
         self.release_lock();
+        // A library file's stable folder stays on disk, but this window no longer owns it: publish nothing more.
+        self.session_closed = true;
     }
 
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
