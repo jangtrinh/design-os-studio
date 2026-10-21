@@ -1,0 +1,1 @@
+Prompt is too long: 204812 tokens > 200000 maximum context length. Run /clear to start a new conversation.

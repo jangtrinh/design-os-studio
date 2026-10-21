@@ -10,6 +10,7 @@
 
 #![allow(dead_code)]
 
+use crate::agent_session_failure::{self, BannerEvent, SessionFailure, SessionFailureClass};
 use crate::agent_start_failure::{self, FixAction, StartFailure};
 use crate::icons::{self, Icon};
 use crate::panels::clipped;
@@ -542,6 +543,16 @@ pub struct TerminalTab {
     pub last_receipt: Option<String>,
     /// Set on a restart-resumed tab (`#653`) that was running without a known turn (`#684 §8.6`).
     pub resumed_without_known_turn: bool,
+    /// Classified mid-session failure (`AX-686`), shown as a banner above the terminal output.
+    pub session_failure: Option<SessionFailure>,
+    /// Byte offset in `raw_log` where the current turn started (`UserPromptSubmit` / `PreInvocation`).
+    pub last_turn_log_offset: usize,
+    /// Byte length of `raw_log` last scanned for live mid-session failures so we only scan when new output arrives.
+    pub last_scanned_log_len: usize,
+    /// Most recent user turn text submitted to this tab, resent by `Wait and retry` / `Retry` (`#686`).
+    pub last_user_prompt: Option<String>,
+    /// Current uncommitted interactive line typed into the VT100 viewport before `Enter`.
+    pub input_line_buffer: String,
 }
 
 impl TerminalTab {
@@ -584,6 +595,7 @@ impl TerminalTab {
     ) -> Result<Self, String> {
         let rows = rows.max(6);
         let cols = cols.max(20);
+        agent_session_failure::warm_cli_version_cache(preset);
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }).map_err(|e| format!("openpty failed: {e}"))?;
 
@@ -695,7 +707,9 @@ impl TerminalTab {
                                     return;
                                 }
                                 if let Ok(mut st) = status_bg.lock() {
-                                    if !matches!(*st, AgentTabStatus::Stopped) || matches!(next_status, AgentTabStatus::Working(_)) {
+                                    let blocked = matches!(*st, AgentTabStatus::Error(_))
+                                        || (matches!(*st, AgentTabStatus::Stopped) && !matches!(next_status, AgentTabStatus::Working(_)));
+                                    if !blocked {
                                         *st = next_status;
                                     }
                                 }
@@ -795,6 +809,11 @@ impl TerminalTab {
             still_running_notice: None,
             last_receipt: None,
             resumed_without_known_turn: false,
+            session_failure: None,
+            last_turn_log_offset: 0,
+            last_scanned_log_len: 0,
+            last_user_prompt: None,
+            input_line_buffer: String::new(),
         })
     }
 
@@ -917,6 +936,10 @@ impl TerminalTab {
 
     /// Writes a single line followed by `\r` to execute in the PTY.
     pub fn send_line(&mut self, line: &str) {
+        if !line.trim().is_empty() {
+            self.last_user_prompt = Some(line.trim().to_string());
+            self.clear_session_failure();
+        }
         let _ = self.writer.write_all(line.as_bytes());
         let _ = self.writer.write_all(b"\r");
         let _ = self.writer.flush();
@@ -947,9 +970,34 @@ impl TerminalTab {
         !self.is_shell_process() && self.is_alive()
     }
 
+    /// Records a classified mid-session failure on this tab and sets its status dot to `Error`.
+    pub fn set_session_failure(&mut self, failure: SessionFailure) {
+        let class = failure.class;
+        self.session_failure = Some(failure);
+        if let Ok(mut st) = self.agent_status.lock() {
+            *st = AgentTabStatus::Error(Some(class.slug().to_string()));
+        }
+    }
+
+    /// Clears any active mid-session failure banner (on the next turn or when the user runs its fix).
+    pub fn clear_session_failure(&mut self) {
+        self.session_failure = None;
+        self.last_turn_log_offset = self.raw_log.lock().map(|g| g.len()).unwrap_or(0);
+        self.last_scanned_log_len = self.last_turn_log_offset;
+        if let Ok(mut st) = self.agent_status.lock() {
+            if matches!(*st, AgentTabStatus::Error(_)) {
+                *st = AgentTabStatus::Idle;
+            }
+        }
+    }
+
     /// Writes `Ctrl-E` (end-of-line) then `Ctrl-U` (kill line / tty VKILL), then `line` and `\r`.
     #[allow(dead_code)]
     pub fn send_line_clearing_pending(&mut self, line: &str) {
+        if !line.trim().is_empty() {
+            self.last_user_prompt = Some(line.trim().to_string());
+            self.clear_session_failure();
+        }
         let _ = self.writer.write_all(b"\x05\x15");
         let _ = self.writer.write_all(line.as_bytes());
         let _ = self.writer.write_all(b"\r");
@@ -1096,6 +1144,8 @@ pub struct TerminalState {
     pub mention_popup: crate::agent_mention_popup::MentionPopupState,
     /// Last observed byte offset of the caret inside the composer `TextEdit` (`#655`).
     pub composer_cursor_byte: Option<usize>,
+    /// Most recent redacted failure details copied via `Copy details` (`AX-686`).
+    pub last_copied_failure_details: Option<String>,
 }
 
 impl Default for TerminalState {
@@ -1234,6 +1284,7 @@ impl TerminalState {
             active_mentions: Vec::new(),
             mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
             composer_cursor_byte: None,
+            last_copied_failure_details: None,
         }
     }
 
@@ -1977,7 +2028,43 @@ impl TerminalState {
         })
     }
 
-    /// Runs the fix the user clicked on a tab's "failed to start" panel.
+    /// Clears any active session failure on the active tab.
+    fn clear_active_tab_session_failure(&mut self) {
+        if let Some(tab) = self.active_tab_mut() {
+            tab.clear_session_failure();
+        }
+    }
+
+    /// Retries the most recent user turn on the active tab (respawning the tab if the process exited).
+    /// The prompt goes through the composer send path, so it is pasted the same way as a typed message and
+    /// queued until a freshly started tab is ready. The banner stays up when the send is refused.
+    fn retry_active_tab_turn(&mut self, file_path: Option<&Path>) {
+        let prompt = self
+            .active_tab()
+            .and_then(|t| t.last_user_prompt.clone())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "continue".to_string());
+        let alive = self.active_tab_mut().is_some_and(|t| t.is_alive());
+        if !alive {
+            let preset = self
+                .active_tab()
+                .map(|t| t.spawn_preset)
+                .filter(|p| !matches!(p, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp))
+                .unwrap_or(self.active_runtime);
+            if self.spawn_tab(preset, file_path).is_err() {
+                return;
+            }
+        }
+        let outcome = self.send_system_prompt(&prompt, file_path);
+        if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
+            self.clear_active_tab_session_failure();
+            if let Some(tab) = self.active_tab_mut() {
+                tab.last_user_prompt = Some(prompt);
+            }
+        }
+    }
+
+    /// Runs the fix the user clicked on a tab's "failed to start" panel or mid-session failure banner.
     pub fn apply_start_fix(&mut self, fix: FixAction, file_path: Option<&Path>) {
         match fix {
             FixAction::OpenInstallPage(url) => {
@@ -1987,7 +2074,14 @@ impl TerminalState {
                     self.status_msg = Some(e);
                 }
             }
+            FixAction::OpenBilling(url) => {
+                self.clear_active_tab_session_failure();
+                if let Err(e) = crate::home::open_link(url) {
+                    self.status_msg = Some(e);
+                }
+            }
             FixAction::RunLogin(command) => {
+                self.clear_active_tab_session_failure();
                 // A login runs as a plain command tab: it is not an agent tab, so a quick
                 // "already signed in" exit is not reported as a failed start.
                 if let Ok(idx) = self.spawn_tab_running(AgentCliPreset::Shell, file_path, Some(command)) {
@@ -1997,6 +2091,7 @@ impl TerminalState {
                 }
             }
             FixAction::OpenShell => {
+                self.clear_active_tab_session_failure();
                 let _ = self.spawn_tab(AgentCliPreset::Shell, file_path);
             }
             FixAction::StartNewSession(_preset) => {
@@ -2006,6 +2101,36 @@ impl TerminalState {
                 }
                 self.picker_open = true;
             }
+            FixAction::RetryText => {
+                self.retry_active_tab_turn(file_path);
+            }
+            FixAction::NewSession => {
+                let preset = self
+                    .active_tab()
+                    .map(|t| t.spawn_preset)
+                    .filter(|p| !matches!(p, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp))
+                    .unwrap_or(self.active_runtime);
+                self.clear_active_tab_session_failure();
+                let _ = self.spawn_tab(preset, file_path);
+            }
+            FixAction::RetryWhenOnline => {
+                let started = self.active_tab().and_then(|t| t.session_failure.as_ref()).is_some_and(|failure| failure.start_retry_when_online_probe(None));
+                if started {
+                    self.status_msg = Some("Checking network connection…".into());
+                }
+            }
+        }
+    }
+
+    /// Harvests any completed background `RetryWhenOnline` probe for the active tab without blocking the UI thread.
+    pub fn poll_pending_online_retries(&mut self, file_path: Option<&Path>) {
+        let probe_result = self.active_tab().and_then(|t| t.session_failure.as_ref()).and_then(|failure| failure.poll_retry_when_online_probe());
+        match probe_result {
+            Some(true) => self.retry_active_tab_turn(file_path),
+            Some(false) => {
+                self.status_msg = Some("Still offline — check your network connection and try again.".into());
+            }
+            None => {}
         }
     }
 
@@ -2541,13 +2666,21 @@ impl TerminalState {
                     }
                 }
                 let tab_visible = self.surface_visible && tab_idx == self.active_tab;
+                let is_turn_start = matches!(record.e.as_str(), "UserPromptSubmit" | "PreInvocation");
+                if is_turn_start {
+                    self.tabs[tab_idx].clear_session_failure();
+                }
                 let effect = self.tabs[tab_idx].turn_tracker.on_event(&record);
                 if let Some(new_status) = effect.new_status {
-                    if let Ok(mut st) = self.tabs[tab_idx].agent_status.lock() {
-                        if matches!(*st, AgentTabStatus::WaitingForInput(_)) && matches!(new_status, AgentTabStatus::Working(_) | AgentTabStatus::Done) {
-                            tabs_left_waiting.push(tab_idx);
+                    // A classified failure keeps its `Error` dot until the next turn starts (`#686`).
+                    let keeps_failure = self.tabs[tab_idx].session_failure.is_some() && !is_turn_start && !matches!(new_status, AgentTabStatus::Error(_));
+                    if !keeps_failure {
+                        if let Ok(mut st) = self.tabs[tab_idx].agent_status.lock() {
+                            if matches!(*st, AgentTabStatus::WaitingForInput(_)) && matches!(new_status, AgentTabStatus::Working(_) | AgentTabStatus::Done) {
+                                tabs_left_waiting.push(tab_idx);
+                            }
+                            *st = new_status.clone();
                         }
-                        *st = new_status.clone();
                     }
                     let patch_off = self.live_patch.current_offset();
                     self.ledger_for_tab_mut(tab_idx).on_status_change(matches!(new_status, AgentTabStatus::Working(_)), patch_off, std::time::Instant::now());
@@ -2559,6 +2692,26 @@ impl TerminalState {
                         }
                     } else if matches!(new_status, AgentTabStatus::Working(_)) {
                         self.tabs[tab_idx].unread = false;
+                    }
+                }
+                if let Some(hook_error) = effect.error_class.as_deref() {
+                    let tab = &mut self.tabs[tab_idx];
+                    let tail = tab
+                        .raw_log
+                        .lock()
+                        .map(|log| {
+                            let turn_slice = if tab.last_turn_log_offset < log.len() { &log[tab.last_turn_log_offset..] } else { log.as_str() };
+                            agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
+                        })
+                        .unwrap_or_default();
+                    if let Some(failure) = agent_session_failure::classify_session_failure(tab.spawn_preset, Some(hook_error), &tail) {
+                        let keeps_existing = tab
+                            .session_failure
+                            .as_ref()
+                            .is_some_and(|existing| existing.class != SessionFailureClass::Unknown && failure.class == SessionFailureClass::Unknown);
+                        if !keeps_existing {
+                            tab.set_session_failure(failure);
+                        }
                     }
                 }
                 // While the window is unfocused the active Ask-mode tab raises its own "needs approval" notification
@@ -2761,6 +2914,18 @@ impl TerminalState {
                         diag.fix = FixAction::StartNewSession(tab.spawn_preset);
                     }
                     tab.start_failure = Some(diag);
+                } else if exit_code != Some(0) && !was_stopped && tab.session_failure.is_none() {
+                    let tail = tab
+                        .raw_log
+                        .lock()
+                        .map(|log| {
+                            let turn_slice = if tab.last_turn_log_offset < log.len() { &log[tab.last_turn_log_offset..] } else { log.as_str() };
+                            agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
+                        })
+                        .unwrap_or_default();
+                    if let Some(failure) = agent_session_failure::classify_session_failure(tab.spawn_preset, None, &tail) {
+                        tab.set_session_failure(failure);
+                    }
                 }
                 let prev_status = tab.effective_status();
                 if let Some((next_status, _receipt)) = tab.turn_tracker.on_process_exit(now_secs as f64, &prev_status) {
@@ -2803,6 +2968,28 @@ impl TerminalState {
                 agent_exited = true;
                 stopped_exited |= was_stopped;
                 actions.push(TerminalAction::ClearInProgress { run_id: Some(tab.run_id.clone()), agent: Some(tab.spawn_preset.binary_name().to_string()) });
+            } else if tab.session_failure.is_none()
+                && !matches!(tab.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Stopped))
+                && tab.stop_state.is_none()
+            {
+                let tail_opt = tab.raw_log.lock().ok().and_then(|log| {
+                    if log.len() < tab.last_turn_log_offset {
+                        tab.last_turn_log_offset = 0;
+                        tab.last_scanned_log_len = 0;
+                    }
+                    if log.len() > tab.last_scanned_log_len && log.len() > tab.last_turn_log_offset {
+                        tab.last_scanned_log_len = log.len();
+                        let turn_slice = &log[tab.last_turn_log_offset..];
+                        Some(agent_session_failure::tail_slice_last_n_lines(turn_slice, agent_session_failure::CLASSIFY_TAIL_LINES).to_string())
+                    } else {
+                        None
+                    }
+                });
+                if let Some(tail) = tail_opt {
+                    if let Some(failure) = agent_session_failure::classify_turn_output_if_matched(tab.spawn_preset, &tail) {
+                        tab.set_session_failure(failure);
+                    }
+                }
             }
         }
         if registry_dirty {
@@ -2834,6 +3021,7 @@ impl TerminalState {
             None
         };
         self.notification_latch.update(self.approval_notifier.as_ref(), Some(self.window_focused), cli_label, &self.doc_name, request_key.as_deref());
+        self.poll_pending_online_retries(None);
 
         actions
     }
@@ -3874,6 +4062,7 @@ fn agy_session_hooks(status_path: &Path) -> serde_json::Value {
             "PostToolUse": handler("PostToolUse", "working", None),
             "PostToolUseFailure": handler("PostToolUseFailure", "working", None),
             "Stop": handler("Stop", "done", Some(&end_mark)),
+            "StopFailure": handler("StopFailure", "error", Some(&end_mark)),
         }
     })
 }
@@ -4188,6 +4377,7 @@ pub fn show_left_with_doc(
     doc: &Document,
     current_page: NodeId,
 ) -> Vec<TerminalAction> {
+    state.poll_pending_online_retries(file_path);
     let mut actions = state.poll_live_agent_bridge();
     crate::agent_a11y::label_agents_panel(state, ui);
     let p = ui.painter().clone();
@@ -4800,6 +4990,7 @@ fn render_terminal_surface(
     doc: &Document,
     current_page: NodeId,
 ) -> Vec<TerminalAction> {
+    state.poll_pending_online_retries(file_path);
     let mut actions = state.poll_live_agent_bridge();
     crate::agent_a11y::label_terminal_surface(state, ui, surface_id);
     let p = ui.painter().clone();
@@ -5114,6 +5305,31 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         }
         return;
     }
+    let mut viewport_rect = viewport_rect;
+    let session_id = state.session_id.clone();
+    let session_banner_ctx = state.active_tab_mut().and_then(|t| {
+        if t.is_shell_process() {
+            return None;
+        }
+        let alive = t.is_alive();
+        t.session_failure.clone().map(|f| (f, alive))
+    });
+    if let Some((failure, tab_alive)) = session_banner_ctx {
+        let now_hhmm = agent_session_failure::current_local_hhmm();
+        let (remaining_rect, evt) = agent_session_failure::paint_banner(ui, viewport_rect, &failure, &session_id, tab_alive, Some(&now_hhmm), surface_id);
+        match evt {
+            Some(BannerEvent::RunFix(fix)) => {
+                state.pending_start_fix = Some(fix);
+            }
+            Some(BannerEvent::CopyDetails(details)) => {
+                ui.ctx().copy_text(details.clone());
+                state.last_copied_failure_details = Some(details);
+                state.status_msg = Some("Copied redacted failure details to clipboard.".into());
+            }
+            None => {}
+        }
+        viewport_rect = remaining_rect;
+    }
     let p = ui.painter().clone();
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
 
@@ -5236,10 +5452,12 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                             }
                         }
                         Event::Paste(text) => {
+                            tab.input_line_buffer.push_str(text);
                             raw_bytes.extend_from_slice(&format_paste_bytes(text, bracketed_paste));
                         }
                         Event::Text(text) => {
                             if !i.modifiers.command && !i.modifiers.ctrl && !i.modifiers.alt && text != "\n" && text != "\r" {
+                                tab.input_line_buffer.push_str(text);
                                 raw_bytes.extend_from_slice(text.as_bytes());
                             }
                         }
@@ -5260,7 +5478,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                     Key::Z if modifiers.ctrl && !modifiers.mac_cmd && !modifiers.shift => {
                                         raw_bytes.push(0x1a);
                                     }
-                                    Key::Backspace => raw_bytes.push(0x15),
+                                    Key::Backspace => {
+                                        tab.input_line_buffer.clear();
+                                        raw_bytes.push(0x15);
+                                    }
                                     Key::ArrowLeft => raw_bytes.push(0x01),
                                     Key::ArrowRight => raw_bytes.push(0x05),
                                     _ => {}
@@ -5278,12 +5499,16 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                         if tab.selection.is_some() {
                                             copy_selection = true;
                                         } else {
+                                            tab.input_line_buffer.clear();
                                             raw_bytes.push(0x03);
                                         }
                                     }
                                     Key::D => raw_bytes.push(0x04),
                                     Key::L => raw_bytes.push(0x0c),
-                                    Key::U => raw_bytes.push(0x15),
+                                    Key::U => {
+                                        tab.input_line_buffer.clear();
+                                        raw_bytes.push(0x15);
+                                    }
                                     Key::W => raw_bytes.push(0x17),
                                     Key::A => raw_bytes.push(0x01),
                                     Key::E => raw_bytes.push(0x05),
@@ -5292,9 +5517,23 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                                 }
                             } else {
                                 match key {
-                                    Key::Enter if modifiers.shift => raw_bytes.extend_from_slice(b"\x1b\r"),
-                                    Key::Enter => raw_bytes.push(b'\r'),
-                                    Key::Backspace => raw_bytes.push(0x7f),
+                                    Key::Enter if modifiers.shift => {
+                                        tab.input_line_buffer.push(' ');
+                                        raw_bytes.extend_from_slice(b"\x1b\r");
+                                    }
+                                    Key::Enter => {
+                                        let committed = tab.input_line_buffer.trim();
+                                        if !committed.is_empty() {
+                                            tab.last_user_prompt = Some(committed.to_string());
+                                        }
+                                        tab.input_line_buffer.clear();
+                                        tab.clear_session_failure();
+                                        raw_bytes.push(b'\r');
+                                    }
+                                    Key::Backspace => {
+                                        let _ = tab.input_line_buffer.pop();
+                                        raw_bytes.push(0x7f);
+                                    }
                                     Key::Tab => raw_bytes.push(b'\t'),
                                     Key::Escape => {
                                         if search_open {
@@ -8102,6 +8341,119 @@ Done!
     }
 
     #[test]
+    fn banner_clears_on_the_next_turn() {
+        let mut st = provisioned_session(686_001);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 2'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+
+        // 1. Trigger a mid-session StopFailure via hook + captured output
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("Error: 429 rate_limit_error: Rate limit reached. Resets at 14:30\n");
+            }
+        }
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::RateLimited));
+        assert_eq!(
+            st.active_tab().and_then(|t| t.agent_status.lock().ok().map(|s| s.clone())),
+            Some(AgentTabStatus::Error(Some(SessionFailureClass::RateLimited.slug().to_string())))
+        );
+
+        // 2. Next turn (`UserPromptSubmit`) clears `session_failure` and resets the status dot to Working
+        let prompt_cmd = claude_hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().expect("UserPromptSubmit hook command").to_string();
+        run_hook_command(&prompt_cmd);
+        let _ = st.poll_live_agent_bridge();
+
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "UserPromptSubmit must clear session_failure");
+        assert!(matches!(st.active_tab().and_then(|t| t.agent_status.lock().ok().map(|s| s.clone())), Some(AgentTabStatus::Working(_))));
+
+        // 3. Antigravity `PreInvocation` also clears an active session_failure (events route to the Antigravity tab)
+        st.tabs[0].spawn_preset = AgentCliPreset::Antigravity;
+        let agy_hooks = read_json(&st.session_dir.join(".agents").join("hooks.json"));
+        let agy_stop_failure = agy_hooks["designos-status"]["StopFailure"][0]["command"].as_str().expect("agy StopFailure hook").to_string();
+        run_hook_command(&agy_stop_failure);
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some());
+
+        let agy_pre = agy_hooks["designos-status"]["PreInvocation"][0]["command"].as_str().expect("agy PreInvocation hook").to_string();
+        run_hook_command(&agy_pre);
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "PreInvocation must clear session_failure");
+        assert!(matches!(st.active_tab().and_then(|t| t.agent_status.lock().ok().map(|s| s.clone())), Some(AgentTabStatus::Working(_))));
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn non_zero_exit_after_start_window_records_session_failure_and_zero_exit_does_not() {
+        let mut st = exited_stub_state();
+        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().unwrap().start_failure.is_none());
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::Unknown));
+        assert_eq!(
+            st.active_tab().and_then(|t| t.agent_status.lock().ok().map(|s| s.clone())),
+            Some(AgentTabStatus::Error(Some(SessionFailureClass::Unknown.slug().to_string())))
+        );
+
+        // Clean exit (exit code 0) after START_FAILURE_WINDOW must never record a failure
+        let mut clean_cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'echo BYE; exit 0'");
+        isolate_zsh_from_home(&mut clean_cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(2, AgentCliPreset::Claude, 24, 80, None, None, Some(clean_cmd)).expect("spawn clean stub");
+        let mut st_clean = TerminalState::default();
+        st_clean.tabs = vec![tab];
+        st_clean.active_tab = 0;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while st_clean.active_tab_mut().unwrap().is_alive() {
+            assert!(std::time::Instant::now() < deadline, "clean stub must exit");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        st_clean.active_tab_mut().unwrap().spawned_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
+        let _ = st_clean.poll_live_agent_bridge();
+        assert!(st_clean.active_tab().unwrap().start_failure.is_none());
+        assert!(st_clean.active_tab().unwrap().session_failure.is_none(), "exit code 0 is a clean exit and must not record session_failure");
+    }
+
+    #[test]
+    fn live_turn_output_classifies_all_four_agent_clis_while_process_is_alive() {
+        for (idx, (preset, sample)) in [
+            (AgentCliPreset::Claude, "API Error: 529 overloaded_error\n"),
+            (AgentCliPreset::Codex, "503 service unavailable\n"),
+            (AgentCliPreset::Grok, "500 server_error\n"),
+            (AgentCliPreset::Antigravity, "unavailable (503)\n"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut st = provisioned_session(686_100 + idx as u64);
+            let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 2'");
+            isolate_zsh_from_home(&mut cmd);
+            let tab = TerminalTab::spawn_with_session_cmd(1, preset, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+            st.tabs = vec![tab];
+            st.active_tab = 0;
+
+            if let Some(t) = st.active_tab_mut() {
+                if let Ok(mut log) = t.raw_log.lock() {
+                    log.push_str(sample);
+                }
+            }
+            let _ = st.poll_live_agent_bridge();
+            assert_eq!(
+                st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)),
+                Some(SessionFailureClass::ProviderServerError),
+                "preset {preset:?} must classify live turn output while process is alive"
+            );
+            kill_tabs(&mut st);
+        }
+    }
+
+    #[test]
     fn gemini_project_settings_written_in_the_session_folder_only() {
         let home_settings = std::env::var("HOME").ok().filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".gemini").join("settings.json"));
         let home_before = home_settings.as_ref().and_then(|p| std::fs::read(p).ok());
@@ -9660,6 +10012,63 @@ Done!
     }
 
     #[test]
+    fn a_user_stop_is_never_classified_as_a_session_failure() {
+        let mut st = isolated_683_state(68631);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stop-no-failure"));
+        let events_path = st.session_dir.join("agent-events.jsonl");
+        std::fs::write(&events_path, "{\"t\":400.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-stop-no-failure\"}}\n").unwrap();
+        let _ = st.poll_live_agent_bridge();
+
+        // The user stops the turn from the panel; the CLI then prints text that looks like a rate limit.
+        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Stopped;
+        st.tabs[idx].turn_tracker.stop_by_user(400.5);
+        st.tabs[idx].raw_log.lock().unwrap().push_str("Error: 429 rate_limit_error: Rate limit reached. Resets at 14:30\n");
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].session_failure.is_none(), "output printed after a user Stop must not raise a failure banner");
+        assert_eq!(st.tabs[idx].effective_status(), AgentTabStatus::Stopped);
+
+        // A StopFailure that arrives after the Stop is stale and is ignored too.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&events_path).unwrap();
+        std::io::Write::write_all(&mut f, b"{\"t\":401.0,\"e\":\"StopFailure\",\"p\":{\"session_id\":\"sid-stop-no-failure\",\"error\":\"rate_limit\"}}\n")
+            .unwrap();
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].session_failure.is_none(), "a StopFailure after a user Stop must not raise a failure banner");
+        assert_eq!(st.tabs[idx].effective_status(), AgentTabStatus::Stopped);
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn a_stop_failure_event_sets_the_banner_and_the_next_prompt_clears_it() {
+        let mut st = isolated_683_state(68632);
+        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-failure-banner"));
+        let events_path = st.session_dir.join("agent-events.jsonl");
+        std::fs::write(&events_path, "{\"t\":500.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-failure-banner\"}}\n").unwrap();
+        let _ = st.poll_live_agent_bridge();
+        let append = |line: &str| {
+            let mut f = std::fs::OpenOptions::new().append(true).open(&events_path).unwrap();
+            std::io::Write::write_all(&mut f, line.as_bytes()).unwrap();
+        };
+        append("{\"t\":501.0,\"e\":\"StopFailure\",\"p\":{\"session_id\":\"sid-failure-banner\",\"error\":\"rate_limit\"}}\n");
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.tabs[idx].session_failure.as_ref().map(|f| f.class), Some(SessionFailureClass::RateLimited));
+        assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Error(_)));
+
+        // A tool event still in flight does not revive the tab or clear the banner.
+        append("{\"t\":501.5,\"e\":\"PostToolUse\",\"p\":{\"session_id\":\"sid-failure-banner\"}}\n");
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].session_failure.is_some());
+        assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Error(_)));
+
+        append("{\"t\":502.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-failure-banner\"}}\n");
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.tabs[idx].session_failure.is_none(), "the next turn clears the banner");
+        assert!(matches!(st.tabs[idx].effective_status(), AgentTabStatus::Working(_)));
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
     fn tool_events_in_flight_after_a_stop_do_not_revive_the_tab_until_a_new_prompt() {
         let mut st = isolated_683_state(68461);
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-stopped"));
@@ -10885,6 +11294,224 @@ Done!
         });
         let agy_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
         assert!(agy_rect.is_none(), "Antigravity tab must not paint agents-header-usage: {agy_rect:?}");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn retry_text_resends_recorded_turn_and_a_repeated_stop_failure_classifies_again() {
+        let mut st = provisioned_session(686_002);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+
+        st.active_tab_mut().unwrap().send_line("design a card hero");
+        assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("design a card hero"));
+
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("API Error: 529 overloaded_error\n");
+            }
+        }
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::ProviderServerError));
+
+        // Retry action clears the banner and resends the user's prompt
+        st.retry_active_tab_turn(None);
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none());
+
+        // If the retried turn fails with the exact same StopFailure payload, it must classify again
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("API Error: 529 overloaded_error\n");
+            }
+        }
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(
+            st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)),
+            Some(SessionFailureClass::ProviderServerError),
+            "repeated StopFailure after Retry must fire again"
+        );
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn stop_failure_event_routes_to_owning_agent_tab_when_another_tab_is_active() {
+        let mut st = provisioned_session(686_003);
+        let mut cmd1 = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 2'");
+        isolate_zsh_from_home(&mut cmd1);
+        let tab1 = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd1)).expect("spawn claude tab");
+        if let Ok(mut log) = tab1.raw_log.lock() {
+            log.push_str("Error: 401 authentication_error: Invalid API key\n");
+        }
+
+        let mut cmd2 = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 2'");
+        isolate_zsh_from_home(&mut cmd2);
+        let tab2 = TerminalTab::spawn_with_session_cmd(2, AgentCliPreset::Shell, 24, 80, None, None, Some(cmd2)).expect("spawn shell tab");
+
+        st.tabs = vec![tab1, tab2];
+        st.active_tab = 1; // Shell tab is active while Claude tab finishes with StopFailure
+
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+
+        assert_eq!(
+            st.tabs[0].session_failure.as_ref().map(|f| f.class),
+            Some(SessionFailureClass::LoginExpired),
+            "StopFailure must attach to the Claude tab that emitted it"
+        );
+        assert!(st.tabs[1].session_failure.is_none(), "Active Shell tab must not be polluted by Claude StopFailure");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn pre_and_post_tool_use_hooks_do_not_clear_live_classified_failure_or_advance_offset() {
+        let mut st = provisioned_session(686_004);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'sleep 2'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub tab");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("Error: 429 rate_limit_error: Rate limit reached. Resets at 14:30\n");
+            }
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::RateLimited));
+
+        let claude_hooks = read_json(&st.session_dir.join("hooks.json"));
+        for hook_name in ["PreToolUse", "PostToolUse"] {
+            let tool_cmd = claude_hooks["hooks"][hook_name][0]["hooks"][0]["command"].as_str().expect("tool hook command").to_string();
+            run_hook_command(&tool_cmd);
+            let _ = st.poll_live_agent_bridge();
+            assert_eq!(
+                st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)),
+                Some(SessionFailureClass::RateLimited),
+                "{hook_name} must not clear an active session_failure banner"
+            );
+            assert_eq!(
+                st.active_tab().and_then(|t| t.agent_status.lock().ok().map(|s| s.clone())),
+                Some(AgentTabStatus::Error(Some(SessionFailureClass::RateLimited.slug().to_string()))),
+                "{hook_name} must not overwrite Error status dot while session_failure is active"
+            );
+        }
+
+        // Subsequent StopFailure without an explicit error field must still see the turn's rate_limit_error output
+        let stop_failure_cmd = claude_hooks["hooks"]["StopFailure"][0]["hooks"][0]["command"].as_str().expect("StopFailure hook command").to_string();
+        run_hook_command(&stop_failure_cmd);
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(
+            st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)),
+            Some(SessionFailureClass::RateLimited),
+            "StopFailure after tool hooks must retain RateLimited rather than downgrading to Unknown"
+        );
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn codex_submit_and_viewport_enter_clear_session_failure_on_next_turn() {
+        let mut st = provisioned_session(686_005);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
+        isolate_zsh_from_home(&mut cmd);
+        let tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Codex, 24, 80, None, None, Some(cmd)).expect("spawn codex stub");
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+        st.active_runtime = AgentCliPreset::Codex;
+
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("503 service unavailable\n");
+            }
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::ProviderServerError));
+
+        // 1. `submit_chat_prompt` clears the banner and advances `last_turn_log_offset`
+        st.submit_chat_prompt("build hero frame", None);
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "submit_chat_prompt must clear session_failure for hookless CLIs");
+        let _ = st.poll_live_agent_bridge();
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "old matched output must not re-trigger after submit_chat_prompt");
+
+        // 2. Pressing Enter in the focused VT100 viewport also clears the banner and advances `last_turn_log_offset`
+        if let Some(t) = st.active_tab_mut() {
+            if let Ok(mut log) = t.raw_log.lock() {
+                log.push_str("503 service unavailable\n");
+            }
+        }
+        let _ = st.poll_live_agent_bridge();
+        assert_eq!(st.active_tab().and_then(|t| t.session_failure.as_ref().map(|f| f.class)), Some(SessionFailureClass::ProviderServerError));
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        st.side_panel_pty_open = true;
+        st.viewport_focused = true;
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(320.0, 600.0));
+        let raw = egui::RawInput {
+            screen_rect: Some(rect),
+            events: vec![
+                egui::Event::Text("next turn".to_string()),
+                egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() },
+            ],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw, |ui| {
+            let _ = show_left(&mut st, ui, rect, None);
+        });
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "Enter in the terminal viewport must clear session_failure");
+        kill_tabs(&mut st);
+    }
+
+    #[test]
+    fn retry_when_online_probes_on_worker_without_blocking_ui_thread() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind slow probe listener");
+        let addr = listener.local_addr().unwrap();
+        let server_handle = std::thread::spawn(move || {
+            if let Ok((_stream, _)) = listener.accept() {
+                std::thread::sleep(std::time::Duration::from_millis(450));
+            }
+        });
+
+        let mut st = provisioned_session(686_006);
+        let mut cmd = build_agent_shell_cmd(&default_shell_program(), "sh -c 'cat'");
+        isolate_zsh_from_home(&mut cmd);
+        let mut tab = TerminalTab::spawn_with_session_cmd(1, AgentCliPreset::Claude, 24, 80, None, None, Some(cmd)).expect("spawn stub");
+        let mut failure = agent_session_failure::classify_session_failure(
+            AgentCliPreset::Claude,
+            Some("network_offline"),
+            "TypeError: fetch failed (ECONNREFUSED): unable to connect to network.",
+        )
+        .expect("classified");
+        failure.probe_url_override = Some(format!("http://{addr}/status"));
+        tab.set_session_failure(failure);
+        st.tabs = vec![tab];
+        st.active_tab = 0;
+
+        let t0 = std::time::Instant::now();
+        st.apply_start_fix(FixAction::RetryWhenOnline, None);
+        let ui_elapsed = t0.elapsed();
+        assert!(
+            ui_elapsed < std::time::Duration::from_millis(120),
+            "RetryWhenOnline must spawn probe on a worker thread without blocking UI thread (took {ui_elapsed:?})"
+        );
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while st.status_msg.as_deref() != Some("Still offline — check your network connection and try again.") {
+            assert!(std::time::Instant::now() < deadline, "worker probe must report offline result on subsequent bridge poll");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            let _ = st.poll_live_agent_bridge();
+        }
+        assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "failed probe must leave the banner up");
+        let _ = server_handle.join();
         kill_tabs(&mut st);
     }
 }

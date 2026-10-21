@@ -396,6 +396,9 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, status_msg: &mu
     if !system && tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
         tab.composer.sent_in_start_window = Some(prompt.to_string());
     }
+    // The sent text is what `Retry` resends, and a new turn dismisses a mid-session failure banner (`#686`).
+    tab.last_user_prompt = Some(prompt.to_string());
+    tab.clear_session_failure();
     tab.composer.last_outcome = Some(SendOutcome::Written);
     tab.composer.notice = None;
     *status_msg = Some(format!("Sent to {}", tab.title));
