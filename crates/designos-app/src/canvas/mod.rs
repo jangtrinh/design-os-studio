@@ -1,8 +1,8 @@
 //! The canvas: renders the page into a texture, handles viewport gestures,
 //! tools and interactions, and paints the selection overlays.
 
-pub mod agent_changes_chip;
 pub mod agent_banner;
+pub mod agent_changes_chip;
 pub mod agent_overlay;
 pub mod builder;
 pub mod create;
