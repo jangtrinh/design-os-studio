@@ -47,16 +47,22 @@ pub const WRITE_TOOLS: &[&str] = &[
     "designos_lint_fix",
 ];
 
-/// Maps legacy non-prefixed tool aliases to their canonical `designos_*` tool name.
+/// Aliases whose canonical tool is not simply `designos_<alias>`.
+const ALIAS_RENAMES: &[(&str, &str)] = &[("query_nodes", "designos_query_xpath"), ("check_design", "designos_lint")];
+
+/// Maps every non-prefixed alias the engine dispatches (`engine::ALIASES`) to its canonical `designos_*` tool name.
 pub fn canonical_tool_name(name: &str) -> &str {
-    match name {
-        "get_metadata" => "designos_get_metadata",
-        "export_fig_file" => "designos_export_fig_file",
-        "query_nodes" => "designos_query_xpath",
-        "check_design" => "designos_lint",
-        "get_guidelines" => "designos_get_guidelines",
-        other => other,
-    }
+    static MAP: std::sync::OnceLock<std::collections::BTreeMap<&'static str, String>> = std::sync::OnceLock::new();
+    let map = MAP.get_or_init(|| {
+        crate::engine::ALIASES
+            .iter()
+            .map(|alias| {
+                let canon = ALIAS_RENAMES.iter().find(|(a, _)| a == alias).map_or_else(|| format!("designos_{alias}"), |(_, c)| (*c).to_string());
+                (*alias, canon)
+            })
+            .collect()
+    });
+    map.get(name).map_or(name, String::as_str)
 }
 
 /// Per-session `designos.enabled_tools` configuration parsed from `mcp-config.json` (§8.5).
@@ -113,6 +119,12 @@ impl EnabledToolsConfig {
         };
         let mut enabled = BTreeSet::new();
         let mut unknown_warnings = Vec::new();
+        // `known_tools` is the tool universe the list was written against; a tool outside it did not
+        // exist then, so the user could not have switched it off.
+        if let Some(snapshot) = val.get("designos").and_then(|d| d.get(KNOWN_TOOLS_KEY)).and_then(Value::as_array) {
+            let seen: BTreeSet<&str> = snapshot.iter().filter_map(Value::as_str).map(canonical_tool_name).collect();
+            enabled.extend(known.iter().filter(|name| !seen.contains(name.as_str())).cloned());
+        }
         for item in arr {
             let Some(raw_name) = item.as_str().map(str::trim).filter(|s| !s.is_empty()) else {
                 continue;
@@ -143,9 +155,39 @@ impl EnabledToolsConfig {
         let canon = canonical_tool_name(tool_name);
         ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool '{canon}' is disabled in this session."))
             .with_received(json!(canon))
-            .with_next_step(format!("Ask the user to enable {canon} in Studio's agent settings."))
+            .with_next_step(format!("Ask the user to enable {canon} in mcp-config.json, then restart."))
             .with_safe_to_retry(true)
     }
+}
+
+/// `designos` key holding the tool universe a stored `enabled_tools` list was written against.
+const KNOWN_TOOLS_KEY: &str = "known_tools";
+
+/// The `designos` block Studio writes into `mcp-config.json` for a user-restricted tool list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DesignosConfigBlock {
+    /// Tools the session enables after tools unknown to the stored snapshot were switched on.
+    pub enabled: BTreeSet<String>,
+    /// JSON for the `designos` key: `enabled_tools` plus the `known_tools` snapshot.
+    pub block: Value,
+}
+
+/// Decides what Studio persists under `designos` after reading the existing `mcp-config.json`.
+/// `None` means "every tool" and the key stays absent, so tools added by later builds are
+/// enabled on files that were opened earlier. A user-edited list is kept, and tools newer than its
+/// `known_tools` snapshot are switched on and recorded.
+pub fn reconcile_designos_block(existing_raw: Option<&str>) -> Option<DesignosConfigBlock> {
+    reconcile_designos_block_with_known(existing_raw, cached_known_tool_names())
+}
+
+pub fn reconcile_designos_block_with_known(existing_raw: Option<&str>, known: &BTreeSet<String>) -> Option<DesignosConfigBlock> {
+    let cfg = EnabledToolsConfig::from_mcp_config_json_with_known(existing_raw?, known);
+    let enabled = cfg.enabled?;
+    if known.iter().all(|name| enabled.contains(name)) {
+        return None;
+    }
+    let block = json!({ "enabled_tools": enabled, KNOWN_TOOLS_KEY: known });
+    Some(DesignosConfigBlock { enabled, block })
 }
 
 /// Bundle of JSON Schemas derived from `designos-doc` spec types via `schemars`.
@@ -803,23 +845,30 @@ mod tests {
         assert!(err.contains("RULES_BUDGET_EXCEEDED"), "{err}");
     }
 
+    /// Fails when `args` uses a property the tool's advertised `inputSchema` does not declare,
+    /// or omits a required one: the rules pack must never show a call the schema rejects.
+    fn assert_args_conform_to_input_schema(name: &str, args: &Value) {
+        let tool = crate::server::tools().into_iter().find(|t| t.name == name).unwrap_or_else(|| panic!("unknown tool {name}"));
+        let obj = args.as_object().unwrap_or_else(|| panic!("arguments for {name} must be a JSON object"));
+        let schema_val = serde_json::to_value(&tool.input_schema).expect("tool input_schema JSON");
+        let props = schema_val.get("properties").and_then(Value::as_object).expect("inputSchema.properties");
+        for key in obj.keys() {
+            assert!(props.contains_key(key), "arguments for {name} use undeclared property '{key}'");
+        }
+        if let Some(req) = schema_val.get("required").and_then(Value::as_array) {
+            for r in req.iter().filter_map(Value::as_str) {
+                assert!(obj.contains_key(r), "arguments for {name} are missing required property '{r}'");
+            }
+        }
+    }
+
     #[test]
     fn worked_examples_conform_to_tool_schemas_and_dispatch() {
         for tool in crate::server::tools() {
             let name = tool.name.as_ref();
             let raw = tool_worked_example(name);
             let parsed: Value = serde_json::from_str(raw).unwrap_or_else(|e| panic!("worked example for {name} is not valid JSON: {e}"));
-            let obj = parsed.as_object().unwrap_or_else(|| panic!("worked example for {name} must be a JSON object"));
-            let schema_val = serde_json::to_value(&tool.input_schema).expect("tool input_schema JSON");
-            let props = schema_val.get("properties").and_then(Value::as_object).expect("inputSchema.properties");
-            for key in obj.keys() {
-                assert!(props.contains_key(key), "worked example for {name} uses undeclared property '{key}'");
-            }
-            if let Some(req) = schema_val.get("required").and_then(Value::as_array) {
-                for r in req.iter().filter_map(Value::as_str) {
-                    assert!(obj.contains_key(r), "worked example for {name} is missing required property '{r}'");
-                }
-            }
+            assert_args_conform_to_input_schema(name, &parsed);
         }
 
         let mut engine = crate::engine::Engine::default();
@@ -851,9 +900,9 @@ mod tests {
         let root_id = spec_in_progress["root_node_id"].as_u64().unwrap();
         assert!(engine.doc.get_in_progress(designos_doc::NodeId(root_id)).is_some());
 
-        engine
-            .call("designos_set_in_progress", json!({"node_id": root_id, "in_progress": false}))
-            .expect("designos_set_in_progress clearing in_progress: false must succeed");
+        let clear_args = json!({"node_ids": [root_id], "value": false});
+        assert_args_conform_to_input_schema("designos_set_in_progress", &clear_args);
+        engine.call("designos_set_in_progress", clear_args).expect("designos_set_in_progress clearing with value: false must succeed");
         assert!(engine.doc.get_in_progress(designos_doc::NodeId(root_id)).is_none());
     }
 
@@ -870,6 +919,91 @@ mod tests {
         assert!(desc.starts_with(body), "{purpose}");
         let next = desc[body.len()..].chars().next().unwrap();
         assert!(next.is_whitespace(), "cut must land on a word boundary: {purpose}");
+    }
+
+    fn names(items: &[&str]) -> BTreeSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn tools_added_after_the_snapshot_are_enabled() {
+        let known = names(&["a", "b", "c"]);
+        // Written when only `a` and `b` existed; the user kept `a` on and `b` off.
+        let raw = r#"{"designos":{"enabled_tools":["a"],"known_tools":["a","b"]}}"#;
+        let cfg = EnabledToolsConfig::from_mcp_config_json_with_known(raw, &known);
+        assert_eq!(cfg.enabled, Some(names(&["a", "c"])), "new tool `c` is on, `b` stays off");
+
+        // No snapshot: the list is taken literally.
+        let literal = EnabledToolsConfig::from_mcp_config_json_with_known(r#"{"designos":{"enabled_tools":["a"]}}"#, &known);
+        assert_eq!(literal.enabled, Some(names(&["a"])));
+    }
+
+    #[test]
+    fn studio_never_persists_the_default_list() {
+        let known = names(&["a", "b", "c"]);
+        // Absent key, missing file, and an explicit full list all mean "every tool".
+        assert!(reconcile_designos_block_with_known(None, &known).is_none());
+        assert!(reconcile_designos_block_with_known(Some(r#"{"mcpServers":{}}"#), &known).is_none());
+        assert!(reconcile_designos_block_with_known(Some(r#"{"designos":{"enabled_tools":["a","b","c"]}}"#), &known).is_none());
+
+        // A user list keeps its choice and records the tool universe it was made against.
+        let custom = reconcile_designos_block_with_known(Some(r#"{"designos":{"enabled_tools":["a"]}}"#), &known).expect("custom list kept");
+        assert_eq!(custom.enabled, names(&["a"]));
+        assert_eq!(custom.block, json!({"enabled_tools": ["a"], "known_tools": ["a", "b", "c"]}));
+
+        // A later build adds `d`: the stored snapshot lacks it, so it is enabled and the snapshot advances.
+        let later = names(&["a", "b", "c", "d"]);
+        let next = reconcile_designos_block_with_known(Some(&json!({"designos": custom.block}).to_string()), &later).expect("still custom");
+        assert_eq!(next.enabled, names(&["a", "d"]));
+        assert_eq!(next.block, json!({"enabled_tools": ["a", "d"], "known_tools": ["a", "b", "c", "d"]}));
+
+        // Syncing again changes nothing.
+        let again = reconcile_designos_block_with_known(Some(&json!({"designos": next.block.clone()}).to_string()), &later).unwrap();
+        assert_eq!(again.block, next.block);
+    }
+
+    #[test]
+    fn a_tool_added_after_the_session_was_written_is_listed_and_callable() {
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("designos-mcp-newtool-{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A session written by a build that did not have `designos_lint` yet.
+        let all: Vec<String> = crate::server::tools().into_iter().map(|t| t.name.to_string()).collect();
+        let old: Vec<&String> = all.iter().filter(|n| *n != "designos_lint").collect();
+        let cfg = json!({"designos": {"enabled_tools": ["designos_get_document", "designos_lint_never_existed"], "known_tools": old}});
+        std::fs::write(dir.join("mcp-config.json"), cfg.to_string()).unwrap();
+
+        let server = crate::server::DesignOSServer::with_session_dir(&dir, &dir).expect("server");
+        let listed: Vec<String> = server.list_enabled_tools().into_iter().map(|t| t.name.to_string()).collect();
+        assert!(listed.contains(&"designos_lint".to_string()), "new tool must be listed: {listed:?}");
+        assert!(listed.contains(&"designos_get_document".to_string()));
+        assert!(!listed.contains(&"designos_create_node".to_string()), "a tool the user left off stays off");
+        let out = server.call("designos_lint", json!({}));
+        if let Err(e) = &out {
+            assert_ne!(e.to_json_value()["error"]["code"], "TOOL_DISABLED", "new tool must be callable");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_dispatched_alias_canonicalises_to_a_listed_tool() {
+        let known = cached_known_tool_names();
+        for alias in crate::engine::ALIASES {
+            let canon = canonical_tool_name(alias);
+            assert_ne!(canon, *alias, "alias `{alias}` must be mapped");
+            assert!(known.contains(canon), "alias `{alias}` -> `{canon}` is not a listed tool");
+        }
+        assert_eq!(canonical_tool_name("designos_lint"), "designos_lint");
+        assert_eq!(canonical_tool_name("not_a_tool"), "not_a_tool");
+    }
+
+    #[test]
+    fn tool_disabled_next_step_points_at_the_config_file() {
+        let err = EnabledToolsConfig::tool_disabled_error("designos_create_node").to_json_value();
+        let step = err["error"]["next_step"].as_str().unwrap();
+        assert!(step.contains("mcp-config.json") && step.contains("designos_create_node"), "{step}");
+        assert!(!step.to_lowercase().contains("settings"), "no reference to a screen that does not exist: {step}");
+        assert!(step.split_whitespace().count() <= 12, "{step}");
     }
 
     #[test]
@@ -967,7 +1101,7 @@ mod tests {
             "`diff_image`",
             "fix in place",
             "never delete and rebuild",
-            "`in_progress: false`",
+            "`value: false`",
             "`idempotency_key`",
             "re-read",
             "every group in a card",
@@ -991,6 +1125,6 @@ mod tests {
         let disabled_err = EnabledToolsConfig::tool_disabled_error("designos_create_node").to_json_value();
         assert_eq!(disabled_err["error"]["code"], "TOOL_DISABLED");
         assert_eq!(disabled_err["error"]["safe_to_retry"], true);
-        assert!(disabled_err["error"]["next_step"].as_str().unwrap().contains("Ask the user to enable designos_create_node in Studio's agent settings."));
+        assert!(disabled_err["error"]["next_step"].as_str().unwrap().contains("designos_create_node"));
     }
 }

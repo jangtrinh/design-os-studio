@@ -178,7 +178,7 @@ pub struct NodeSpec {
     /// Handoff annotations attached to this node.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub annotations: Vec<String>,
-    /// Agent `in_progress` flag (`true`, `false`, or a detailed object).
+    /// Agent `in_progress` flag: `true`, `false`, or `{run_id, agent, status, stale_after_s}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_progress: Option<InProgressSpec>,
     /// Resolved canvas comment threads on export.

@@ -169,7 +169,6 @@ pub fn call_get_guidelines(doc: &Document, raw_args: Value) -> Result<Value, Str
     }
 
     if topic == "rules" {
-        let _ = EMBEDDED_RULES;
         let raw = crate::rules::generate_rules_pack(None)?;
         let (content, truncated) = truncate_markdown(&raw, opts.max_tokens, "rules");
         return Ok(json!({

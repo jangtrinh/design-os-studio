@@ -1687,21 +1687,13 @@ impl TerminalState {
         let workspace_dir = session_workspace_dir(file_path);
         let mcp_config_path = self.session_dir.join("mcp-config.json");
 
-        // `designos.enabled_tools` lists every tool by default; a user-edited list survives each page or selection sync.
-        static DEFAULT_ENABLED_TOOLS: std::sync::OnceLock<Vec<serde_json::Value>> = std::sync::OnceLock::new();
-        let default_tools =
-            DEFAULT_ENABLED_TOOLS.get_or_init(|| designos_mcp::server::tools().into_iter().map(|t| serde_json::Value::String(t.name.into_owned())).collect());
-        let custom_enabled_tools = std::fs::read_to_string(&mcp_config_path)
-            .ok()
-            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-            .and_then(|val| val.get("designos").and_then(|d| d.get("enabled_tools")).and_then(|v| v.as_array()).cloned())
-            .filter(|arr| arr != default_tools);
-        let preserved_enabled_tools = custom_enabled_tools.as_deref().unwrap_or(default_tools.as_slice());
+        // The default (every tool) is never written down: an absent `designos` key means "all", so a tool a later
+        // build adds is on for sessions that survive an update. A user-edited `enabled_tools` list is kept across
+        // each page or selection sync, together with the `known_tools` snapshot that lets new tools be switched on.
+        let existing_config = std::fs::read_to_string(&mcp_config_path).ok();
+        let custom_tools = designos_mcp::rules::reconcile_designos_block(existing_config.as_deref());
 
-        let mcp_config = serde_json::json!({
-            "designos": {
-                "enabled_tools": preserved_enabled_tools
-            },
+        let mut mcp_config = serde_json::json!({
             "mcpServers": {
                 "designos": {
                     "command": mcp_bin.display().to_string(),
@@ -1725,6 +1717,9 @@ impl TerminalState {
                 }
             }
         });
+        if let (Some(custom), Some(root)) = (&custom_tools, mcp_config.as_object_mut()) {
+            root.insert("designos".into(), custom.block.clone());
+        }
         let mcp_config_bytes = serde_json::to_vec_pretty(&mcp_config).ok();
         if let Some(bytes) = &mcp_config_bytes {
             let _ = atomic_write_session_file(&mcp_config_path, bytes);
@@ -1766,14 +1761,11 @@ impl TerminalState {
         }
 
         // The session `SKILL.md` carries the rules pack for the tools this session enables.
-        let rules_body: std::borrow::Cow<'static, str> = match (&custom_enabled_tools, &mcp_config_bytes) {
-            (Some(_), Some(bytes)) => {
-                let enabled_cfg = designos_mcp::rules::EnabledToolsConfig::from_mcp_config_json(&String::from_utf8_lossy(bytes));
-                designos_mcp::rules::generate_rules_pack(enabled_cfg.enabled.as_ref())
-                    .map(std::borrow::Cow::Owned)
-                    .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD))
-            }
-            _ => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
+        let rules_body: std::borrow::Cow<'static, str> = match &custom_tools {
+            Some(custom) => designos_mcp::rules::generate_rules_pack(Some(&custom.enabled))
+                .map(std::borrow::Cow::Owned)
+                .unwrap_or(std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD)),
+            None => std::borrow::Cow::Borrowed(designos_mcp::rules::GENERATED_RULES_MD),
         };
         let skill_md = designos_mcp::rules::format_session_skill_md(
             &self.doc_name,
@@ -6846,13 +6838,12 @@ Done!
 
         let mcp_cfg_path = st.session_dir.join("mcp-config.json");
         let initial_cfg = read_json(&mcp_cfg_path);
-        let default_tools = initial_cfg["designos"]["enabled_tools"].as_array().expect("designos.enabled_tools populated by default");
-        assert_eq!(default_tools.len(), designos_mcp::server::tools().len());
+        assert!(initial_cfg.get("designos").is_none(), "the default (every tool) is never written down: {initial_cfg}");
         assert_eq!(initial_cfg["mcpServers"]["designos"]["env"]["DESIGNOS_MCP_CONFIG"].as_str(), Some(mcp_cfg_path.display().to_string().as_str()));
 
         // A restricted tool list written into mcp-config.json survives the next page sync.
         let mut custom_cfg = initial_cfg.clone();
-        custom_cfg["designos"]["enabled_tools"] = serde_json::json!(["designos_get_document", "designos_list_nodes"]);
+        custom_cfg["designos"] = serde_json::json!({"enabled_tools": ["designos_get_document", "designos_list_nodes"]});
         std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&custom_cfg).unwrap()).unwrap();
 
         st.sync_live_file_context(&doc, page2, &[], None);
@@ -6863,6 +6854,8 @@ Done!
             serde_json::json!(["designos_get_document", "designos_list_nodes"]),
             "provision_session_agent_files must preserve configured designos.enabled_tools"
         );
+        let snapshot = after_cfg["designos"]["known_tools"].as_array().expect("known_tools snapshot recorded next to a custom list");
+        assert_eq!(snapshot.len(), designos_mcp::server::tools().len());
 
         for rel in ["SKILL.md", "AGENTS.md", ".claude/skills/designos-studio/SKILL.md", ".agents/skills/designos-studio/SKILL.md"] {
             let content = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("read {rel}: {e}"));
@@ -6872,6 +6865,34 @@ Done!
             assert!(!content.contains("### `designos_render_png`"), "{rel} must omit disabled render_png section");
         }
         let _ = std::fs::remove_dir_all(&st.session_dir);
+    }
+
+    #[test]
+    fn session_written_before_a_tool_existed_gets_the_new_tool_on_the_next_sync() {
+        let mut st = TerminalState::for_tab(798);
+        let mut doc = Document::new("Persistent Session File");
+        let page = doc.add_page("Page 1");
+        let mcp_cfg_path = st.session_dir.join("mcp-config.json");
+
+        // An older build wrote a restricted list against a tool set without `designos_lint`.
+        let older: Vec<String> = designos_mcp::server::tools().into_iter().map(|t| t.name.to_string()).filter(|n| n != "designos_lint").collect();
+        let cfg = serde_json::json!({"designos": {"enabled_tools": ["designos_get_document"], "known_tools": older}});
+        std::fs::create_dir_all(&st.session_dir).unwrap();
+        std::fs::write(&mcp_cfg_path, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+
+        st.sync_live_file_context(&doc, page, &[], None);
+
+        let after = read_json(&mcp_cfg_path);
+        assert_eq!(after["designos"]["enabled_tools"], serde_json::json!(["designos_get_document", "designos_lint"]));
+        let reloaded = designos_mcp::rules::EnabledToolsConfig::from_mcp_config_json(&after.to_string());
+        assert!(reloaded.is_tool_enabled("designos_lint") && !reloaded.is_tool_enabled("designos_create_node"));
+
+        // A session on the default never gets a frozen copy of the tool list.
+        let mut default_st = TerminalState::for_tab(797);
+        default_st.sync_live_file_context(&doc, page, &[], None);
+        assert!(read_json(&default_st.session_dir.join("mcp-config.json")).get("designos").is_none());
+        let _ = std::fs::remove_dir_all(&st.session_dir);
+        let _ = std::fs::remove_dir_all(&default_st.session_dir);
     }
 
     fn read_json(path: &std::path::Path) -> serde_json::Value {

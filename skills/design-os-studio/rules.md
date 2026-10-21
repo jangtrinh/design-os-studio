@@ -7,10 +7,10 @@ Follow this 7-step loop on every design task in DESIGN:OS Studio:
 1. **Orient (Read first)** — Use session bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
 2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or surface guides `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new top-level frames beside existing frames on the active page — never stack at `(0, 0)`.
 
-3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Set `in_progress: true` on the root frame. Use components as instances (`kind: "instance"`), tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
+3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances (`kind: "instance"`), tokens as `var:` / `style:` references, and auto layout (`layout`) by default.
 4. **Verify (`issues` + screenshot)** — Check the per-call `issues` block (`issues: {total, new_in_this_call, items}`) first; then inspect a screenshot of the finished section: Call `designos_render_png` on the finished frame (default scale, long edge <= 1024) or use `diff_image` and inspect the PNG for visual hierarchy, alignment, clipping, and contrast.
 5. **Fix in place** — Fix findings in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild a section to fix it.
-6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress` with `in_progress: false`) when done, and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`) to resolve remaining errors.
+6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress` with `node_ids: [root]`, `value: false`) when done, and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`) to resolve remaining errors.
 
 7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
 
@@ -254,7 +254,7 @@ Declarative node specification for `apply_spec` and `export_spec`.
 | `height` | `NumberOrVar` | Height in px (or `"var:..."` Number variable reference). |
 | `height_sizing` | `string` | `"fixed"`, `"hug"`, or `"fill"`. |
 | `id` | `integer` | Node ID (assigned on export; optional on input). |
-| `in_progress` | `InProgressSpec` | Agent `in_progress` flag (`true`, `false`, or a detailed object). |
+| `in_progress` | `InProgressSpec` | Agent `in_progress` flag: `true`, `false`, or `{run_id, agent, status, stale_after_s}`. |
 | `kind` | `string` | `"frame"`, `"rectangle"`, `"ellipse"`, `"text"`, `"section"`, `"component"`, or `"instance"`. |
 | `layout` | `LayoutSpec` | Auto-Layout 5.0 configuration. |
 | `line_height` | `NumberOrVar` | Line height in px (or `"var:..."`). |
