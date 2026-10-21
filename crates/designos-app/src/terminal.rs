@@ -876,7 +876,8 @@ impl TerminalTab {
                 Some((theme::INFO, text))
             }
             AgentTabStatus::WaitingForInput(detail) => {
-                let text = detail.unwrap_or_else(|| "Needs approval".to_string());
+                // The same predicate as the tab pill: a pending approval is "Needs approval", any other wait is "Needs input".
+                let text = detail.unwrap_or_else(|| if self.needs_approval() { "Needs approval" } else { "Needs input" }.to_string());
                 Some((theme::WARNING, text))
             }
             AgentTabStatus::Error(reason) => {

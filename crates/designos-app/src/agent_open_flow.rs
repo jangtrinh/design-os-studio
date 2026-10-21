@@ -162,6 +162,8 @@ impl TerminalState {
                     && tab.last_output_at.lock().ok().and_then(|g| *g).is_some_and(|ts| ts.elapsed() < std::time::Duration::from_millis(600));
                 let effective = match explicit {
                     AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
+                    // Same predicate as the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
+                    AgentTabStatus::WaitingForInput(_) if tab.needs_approval() => AgentTabStatus::WaitingForInput(Some("Needs approval".to_string())),
                     AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
                     _ if recent_pty => AgentTabStatus::Working(None),
                     other => other,
@@ -919,6 +921,19 @@ mod tests {
         assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(Some("Needs approval".into()))).label(), "Needs approval");
         assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(None)).label(), "Needs input");
         assert_eq!(SessionRowStatus::Live(AgentTabStatus::Error(None)).label(), "Failed");
+
+        // The live row follows the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
+        if let Ok(mut status_guard) = st.tabs[0].agent_status.lock() {
+            *status_guard = AgentTabStatus::WaitingForInput(Some("Bash".to_string()));
+        }
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs input");
+        st.tabs[0].pending_approvals.push(crate::agent_permissions::ApprovalRequest {
+            id: "req-1".into(),
+            tool_name: "Bash".into(),
+            input_summary: "cargo test".into(),
+            timestamp: 1,
+        });
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs approval");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
