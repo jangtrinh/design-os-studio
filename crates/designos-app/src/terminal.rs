@@ -83,6 +83,15 @@ pub enum PermissionMode {
     Ask,
 }
 
+/// An agent CLI a sample-prompt click can start (`#688`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartableAgentCli {
+    /// A built-in preset whose binary is installed.
+    Preset(AgentCliPreset),
+    /// A saved `"Other CLI..."` entry.
+    Custom(crate::agent_cli_catalog::CustomCliEntry),
+}
+
 /// Presets for launching an interactive PTY session inside DESIGN:OS Studio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AgentCliPreset {
@@ -310,11 +319,6 @@ pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
     }
     dirs
 }
-
-/// Prompt sent by the `"Make design (First Draft)"` action (`#681` §3 rule 5, §13).
-#[allow(dead_code)]
-pub const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =
-    "Design a first draft for the selected frame, or for this page if nothing is selected, using this file's variables and styles.";
 
 /// Checks if `bin` exists as an executable file in `PATH` (or common user/system CLI directories, or as an explicit path).
 pub fn runtime_binary_available(bin: &str) -> bool {
@@ -950,6 +954,8 @@ pub struct TerminalState {
     pub dock_height: f32,
     /// Unattached composer state held while `tabs` is empty; moved into the first spawned tab (`#689` §4).
     pub unattached_composer: crate::agent_composer::ComposerState,
+    /// Why the last sample-prompt click could not start an agent session; painted under the prompts until the next click.
+    pub sample_prompt_error: Option<String>,
     /// Bridge actions a send polled for early (to learn whether the tab failed to start); the next
     /// [`Self::poll_live_agent_bridge`] returns them first so no spec or live-log apply is lost.
     pub deferred_bridge_actions: Vec<TerminalAction>,
@@ -974,9 +980,6 @@ pub struct TerminalState {
     pub runtime_dropdown_open: bool,
     /// Fix clicked on a tab's "failed to start" panel, applied by the surface that knows the open file.
     pub pending_start_fix: Option<FixAction>,
-    /// Which of the Figma Agent categories (`0..3`) is expanded when in legacy chat mode.
-    #[allow(dead_code)]
-    pub expanded_agent_cat: Option<usize>,
     /// Context that selects which starter sample prompts appear in the empty state (`#688`).
     pub prompt_context: crate::agent_sample_prompts::PromptContext,
     /// Active CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`, `Shell`).
@@ -1143,6 +1146,7 @@ impl TerminalState {
             dock_open: false,
             dock_height: 400.0,
             unattached_composer: crate::agent_composer::ComposerState::default(),
+            sample_prompt_error: None,
             deferred_bridge_actions: Vec::new(),
             status_msg: None,
             next_tab_id: 1,
@@ -1157,7 +1161,6 @@ impl TerminalState {
             chat_mode: false,
             runtime_dropdown_open: false,
             pending_start_fix: None,
-            expanded_agent_cat: None,
             prompt_context: crate::agent_sample_prompts::PromptContext::NoSelection,
             active_runtime: AgentCliPreset::Shell,
             search_open: false,
@@ -1368,8 +1371,31 @@ impl TerminalState {
         self.tabs.get(tab_idx).is_some_and(|t| matches!(t.agent_status.lock().ok().as_deref(), Some(AgentTabStatus::Working(_))))
     }
 
+    /// True when `preset`'s binary is reachable the way a spawn would find it: the shared PATH, the user CLI
+    /// folders and `path_prepend` (tests may replace the PATH with `path_override`).
+    fn agent_binary_reachable(&self, preset: AgentCliPreset) -> bool {
+        #[cfg(test)]
+        if let Some(ref p) = self.path_override {
+            return runtime_binary_available_in(preset.binary_name(), Some(p.as_os_str()), false);
+        }
+        preset.is_installed() || self.path_prepend.iter().any(|d| d.join(preset.binary_name()).is_file())
+    }
+
+    /// OpenCode is not in the picker's probed catalog, so its presence is checked on PATH once per probe cycle
+    /// (`AgentPickerState::ensure_probed` clears the memo) instead of every painted frame.
+    fn opencode_installed(&mut self) -> bool {
+        if let Some(known) = self.picker.opencode_installed {
+            return known;
+        }
+        let found = self.agent_binary_reachable(AgentCliPreset::OpenCode);
+        self.picker.opencode_installed = Some(found);
+        found
+    }
+
     /// Returns the first installed agent CLI in priority order (`Claude`, `Codex`, `Antigravity`, `Grok`, `Gemini`, `OpenCode`).
-    pub fn first_installed_agent_cli(&self) -> Option<AgentCliPreset> {
+    /// The catalog presets read the `#652` picker's cached probes (a PATH check only while a probe is still `Checking`),
+    /// so the answer always agrees with the picker rows and costs O(1) per frame once probed.
+    pub fn first_installed_agent_cli(&mut self) -> Option<AgentCliPreset> {
         const AGENT_PRESETS: [AgentCliPreset; 6] = [
             AgentCliPreset::Claude,
             AgentCliPreset::Codex,
@@ -1378,41 +1404,65 @@ impl TerminalState {
             AgentCliPreset::Gemini,
             AgentCliPreset::OpenCode,
         ];
-        #[cfg(test)]
-        {
-            if let Some(ref p) = self.path_override {
-                return AGENT_PRESETS.into_iter().find(|preset| runtime_binary_available_in(preset.binary_name(), Some(p.as_os_str()), false));
-            }
-            Some(AgentCliPreset::Claude)
-        }
-        #[cfg(not(test))]
-        {
-            AGENT_PRESETS.into_iter().find(|preset| preset.is_installed() || self.path_prepend.iter().any(|d| d.join(preset.binary_name()).is_file()))
-        }
+        AGENT_PRESETS.into_iter().find(|preset| match preset {
+            AgentCliPreset::OpenCode => self.opencode_installed(),
+            other => self.picker.cache.is_preset_installed(*other),
+        })
     }
 
-    /// Returns `true` when at least one supported agent CLI is installed (`#688` §3 rule 6).
-    pub fn any_agent_cli_installed(&self) -> bool {
-        self.first_installed_agent_cli().is_some()
+    /// What a sample-prompt click can start: the first installed built-in CLI, else the first saved `"Other CLI..."` entry.
+    pub fn first_startable_agent_cli(&mut self) -> Option<StartableAgentCli> {
+        if let Some(preset) = self.first_installed_agent_cli() {
+            return Some(StartableAgentCli::Preset(preset));
+        }
+        let root = crate::agent_picker::resolve_settings_root(self);
+        crate::comments::settings::load_custom_clis(&root).into_iter().next().map(StartableAgentCli::Custom)
     }
 
-    /// Opens an agent CLI session tab and makes it active when the user clicks a sample prompt in the empty
-    /// state and no tab accepts agent input yet (`#688`). The caller fills the composer afterwards, so the
-    /// draft lands in the tab that is active when the click is handled.
-    pub fn ensure_agent_session_for_sample_prompt(&mut self, file_path: Option<&Path>) {
-        if let Some(idx) = self.tabs.iter_mut().position(|t| t.accepts_agent_input()) {
+    /// Returns `true` when at least one agent CLI can be started: a built-in one or a saved custom one (`#688` §3 rule 6).
+    pub fn any_agent_cli_installed(&mut self) -> bool {
+        self.first_startable_agent_cli().is_some()
+    }
+
+    /// Makes an agent tab that accepts input the active tab when the user clicks a sample prompt in the empty
+    /// state: the first live agent tab, else a new session on the first startable CLI (`#688`). The caller fills the
+    /// composer afterwards, so the draft lands in the tab that is active when the click is handled.
+    /// A draft typed into an exited active tab moves to the tab that takes over, so no text is left behind.
+    /// Returns `false` when no session could be started; the reason is in `sample_prompt_error`.
+    pub fn ensure_agent_session_for_sample_prompt(&mut self, file_path: Option<&Path>) -> bool {
+        self.sample_prompt_error = None;
+        let active = self.active_tab;
+        let dead_active = self.tabs.get_mut(active).is_some_and(|t| !t.accepts_agent_input()).then_some(active);
+        let started = if let Some(idx) = self.tabs.iter_mut().position(|t| t.accepts_agent_input()) {
             self.active_tab = idx;
             if matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
                 self.active_runtime = self.tabs[idx].spawn_preset;
             }
-            self.viewport_focused = false;
-            return;
+            true
+        } else {
+            let spawned = match self.first_startable_agent_cli() {
+                Some(StartableAgentCli::Preset(preset)) => {
+                    self.active_runtime = preset;
+                    self.spawn_tab(preset, file_path).map_err(|_| preset.tab_title().to_string())
+                }
+                Some(StartableAgentCli::Custom(entry)) => self.spawn_custom_cli_tab(&entry.label, &entry.command, file_path).map_err(|_| entry.label.clone()),
+                None => Err("an agent CLI".to_string()),
+            };
+            if let Err(name) = &spawned {
+                self.sample_prompt_error = Some(format!("Couldn't start {name}."));
+            }
+            spawned.is_ok()
+        };
+        if !started {
+            return false;
         }
-        if let Some(preset) = self.first_installed_agent_cli() {
-            self.active_runtime = preset;
-            let _ = self.spawn_tab(preset, file_path);
-            self.viewport_focused = false;
+        self.viewport_focused = false;
+        if let Some(dead) = dead_active.filter(|d| *d != self.active_tab) {
+            let stranded = std::mem::take(&mut self.tabs[dead].composer.draft);
+            self.tabs[dead].composer.cursor = None;
+            crate::agent_sample_prompts::apply_sample_prompt_to_draft(&mut self.tabs[self.active_tab].composer.draft, &stranded);
         }
+        true
     }
 
     /// Creates a `TerminalState` bound to `file_id` (and `lib_root` when provided) with `doc_name`.
@@ -4320,7 +4370,6 @@ pub fn show_left_with_doc(
     if back_resp.clicked() {
         state.side_panel_pty_open = true;
         state.chat_mode = false;
-        state.expanded_agent_cat = None;
     }
 
     p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_strong(), Color32::WHITE);
@@ -4384,9 +4433,6 @@ pub fn show_left_with_doc(
     }
     widgets::record(ui, "agents-more-menu", more_rect);
     widgets::record(ui, "agents-header-more", more_rect);
-    if more_resp.clicked() {
-        state.expanded_agent_cat = None;
-    }
 
     let mut top_y = header_rect.bottom();
 
@@ -7187,6 +7233,10 @@ Done!
         kill_tabs(&mut st);
     }
 
+    /// Prompt the retired "Make design" action sent; kept to prove a composer send writes a prompt and applies no spec.
+    const MAKE_DESIGN_FIRST_DRAFT_PROMPT: &str =
+        "Design a first draft for the selected frame, or for this page if nothing is selected, using this file's variables and styles.";
+
     #[test]
     fn make_design_sends_a_prompt_and_applies_nothing() {
         let ctx = egui::Context::default();
@@ -9778,7 +9828,7 @@ Done!
 
     #[test]
     fn no_cli_installed_shows_install_guidance() {
-        const NO_CLI_LINE: &str = "No agent CLI found. Install one below.";
+        const NO_CLI_LINE: &str = "No agent CLI found. Install one to start.";
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
@@ -9789,7 +9839,8 @@ Done!
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         st.path_override = Some(std::ffi::OsString::new());
-        assert!(!st.any_agent_cli_installed(), "empty PATH must report no agent CLI installed");
+        pin_installed_catalog_clis(&mut st, &[]);
+        assert!(!st.any_agent_cli_installed(), "no probed CLI, empty PATH and no saved CLI must report no agent CLI installed");
 
         let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
@@ -9900,6 +9951,7 @@ Done!
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         st.path_override = Some(stub_dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Grok]);
         st.sync_live_file_context(&doc, page, &[], None);
         assert!(st.tabs.is_empty(), "precondition: tab list starts empty");
         assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Grok));
@@ -9988,6 +10040,7 @@ Done!
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert!(!st.tabs[0].accepts_agent_input(), "precondition: initial agent tab has exited");
+        st.tabs[0].composer.draft = "Keep the header intact.".to_string();
 
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
@@ -10010,8 +10063,25 @@ Done!
         assert_eq!(st.tabs.len(), 2, "clicking sample prompt when existing agent tab has exited must spawn a new session tab");
         assert_eq!(st.active_tab, 1, "newly spawned agent tab must be selected");
         assert!(st.active_tab_mut().unwrap().accepts_agent_input(), "newly spawned agent tab must accept input");
-        assert_eq!(st.composer_draft(), sample_prompts(PromptContext::NoSelection)[0].text.as_str());
+        assert_eq!(
+            st.composer_draft(),
+            format!("Keep the header intact. {}", sample_prompts(PromptContext::NoSelection)[0].text),
+            "the text typed into the exited tab moves to the new tab and the prompt is appended"
+        );
+        assert!(st.tabs[0].composer.draft.is_empty(), "the draft is moved, not copied: the exited tab keeps nothing");
         kill_tabs(&mut st);
+    }
+
+    /// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
+    fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[AgentCliPreset]) {
+        for preset in crate::agent_cli_catalog::CATALOG_PRESETS {
+            let probe = crate::agent_cli_catalog::CliProbe {
+                installed: installed.contains(&preset),
+                version: None,
+                signed_in: crate::agent_cli_catalog::SignIn::Unknown,
+            };
+            st.picker.cache.set_probe(preset, probe);
+        }
     }
 
     fn install_stub_claude(tag: &str) -> PathBuf {
@@ -10044,7 +10114,7 @@ Done!
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState::for_tab(68808);
+        let mut st = TerminalState::for_tab(68812);
         st.side_panel_pty_open = false;
         st.chat_mode = true;
         st.path_override = Some(stub_dir.as_os_str().to_os_string());
@@ -10159,6 +10229,7 @@ Done!
         }
         let mut st = TerminalState::for_tab(68811);
         st.path_override = Some(dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Gemini]);
         assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Gemini));
         assert!(st.any_agent_cli_installed());
 
@@ -10167,6 +10238,7 @@ Done!
         std::fs::create_dir_all(&only_opencode).expect("create stub dir");
         std::fs::copy(dir.join("opencode"), only_opencode.join("opencode")).expect("copy stub");
         st.path_override = Some(only_opencode.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[]);
         assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::OpenCode));
 
         let ctx = egui::Context::default();
@@ -10185,5 +10257,162 @@ Done!
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&only_opencode);
+    }
+
+    fn click_events(pos: Pos2) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ]
+    }
+
+    /// The shipped default view (terminal, not chat): a click on a starter prompt opens the first installed CLI, fills the
+    /// composer, keeps the composer focused on the frames after the click and writes nothing to the PTY.
+    #[test]
+    fn clicking_a_starter_prompt_in_the_default_terminal_view_opens_a_session_and_fills_the_composer() {
+        use crate::agent_sample_prompts::sample_prompts;
+
+        let stub_dir = install_stub_claude("default-view-click");
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = TerminalState::for_tab(68813);
+        assert!(st.side_panel_pty_open, "precondition: the default view is the terminal");
+        st.path_override = Some(stub_dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Claude]);
+        assert!(st.tabs.is_empty(), "precondition: no session is open");
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the starter prompts are drawn in the terminal view");
+
+        let mut actions = Vec::new();
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
+            actions = show_left(&mut st, ui, panel_rect, None);
+        });
+        assert!(actions.is_empty(), "a prompt click emits no TerminalAction: {actions:?}");
+
+        // Two more frames: the new tab's terminal viewport draws now and must not take the focus away.
+        for _ in 0..2 {
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let _ = show_left(&mut st, ui, panel_rect, None);
+            });
+        }
+        assert_eq!(st.tabs.len(), 1, "the click opens exactly one session");
+        assert_eq!(st.active_tab().unwrap().spawn_preset, AgentCliPreset::Claude, "the first installed CLI starts");
+        assert_eq!(st.composer_draft(), sample_prompts(st.prompt_context)[0].text.as_str(), "the draft is the prompt text");
+        assert!(st.active_tab().unwrap().written_bytes.is_empty(), "a prompt click never writes to the PTY");
+        assert!(!st.viewport_focused, "the terminal viewport must not keep the keyboard");
+        assert!(ctx.memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input"))), "the composer stays focused after the click");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&stub_dir);
+    }
+
+    /// The install check reads the picker's cached probes, not the PATH, so it costs nothing per frame and agrees with the rows.
+    #[test]
+    fn the_install_check_reads_the_pickers_cached_probes_not_the_path() {
+        let stub_dir = install_stub_claude("cached-probes");
+        let mut st = TerminalState::for_tab(68814);
+        st.path_override = Some(stub_dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[]);
+        assert!(!st.any_agent_cli_installed(), "a claude binary on PATH does not count while the probes say it is not installed");
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Codex]);
+        assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Codex), "a probe that says installed counts without any PATH hit");
+        let _ = std::fs::remove_dir_all(&stub_dir);
+    }
+
+    /// A saved "Other CLI..." entry counts as an agent CLI: the prompts show and a click starts that command.
+    #[test]
+    fn a_saved_other_cli_counts_and_a_prompt_click_starts_it() {
+        let root = std::env::temp_dir().join(format!("designos-688-custom-cli-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create settings root");
+        crate::comments::settings::add_custom_cli(&root, "Aider", "/bin/sleep 5").expect("save the custom CLI");
+
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = TerminalState::for_tab(68815);
+        st.path_override = Some(std::ffi::OsString::new());
+        st.picker.settings_root_override = Some(root.clone());
+        pin_installed_catalog_clis(&mut st, &[]);
+        assert!(st.any_agent_cli_installed(), "a saved custom CLI is startable");
+
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the prompts are drawn when a custom CLI is saved");
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        assert_eq!(st.tabs.len(), 1, "the click starts the saved command");
+        assert_eq!(st.tabs[0].spawned_command.as_deref(), Some("/bin/sleep 5"));
+        assert!(st.sample_prompt_error.is_none());
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A start failure is painted under the prompts instead of vanishing into an unseen status line.
+    #[test]
+    fn a_start_failure_is_painted_under_the_prompts() {
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = TerminalState::for_tab(68816);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.sample_prompt_error = Some("Couldn't start Claude Code.".to_string());
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        assert!(texts.iter().any(|t| t.text == "Couldn't start Claude Code."), "the failure line must be painted: {texts:?}");
+        assert!(empty_state_rect(&ctx, "agents-start-error").is_some());
+        kill_tabs(&mut st);
+    }
+
+    /// An exited active tab's draft follows the click onto the other live tab instead of staying behind.
+    #[test]
+    fn a_draft_on_an_exited_tab_follows_the_click_to_another_live_tab() {
+        use crate::agent_sample_prompts::sample_prompts;
+
+        let stub_dir = install_stub_claude("draft-follows");
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let mut st = TerminalState::for_tab(68817);
+        st.side_panel_pty_open = false;
+        st.chat_mode = true;
+        st.path_override = Some(stub_dir.as_os_str().to_os_string());
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn the live claude stub");
+        spawn_stub_exiting_agent_into(&mut st);
+        assert!(wait_until_tab_exits(&mut st, 10), "the second agent tab must exit");
+        assert_eq!(st.active_tab, 1, "precondition: the exited tab is active");
+        st.tabs[1].composer.draft = "Keep the header intact.".to_string();
+
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("prompt row recorded");
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        assert_eq!(st.tabs.len(), 2, "the live tab is reused, no third tab");
+        assert_eq!(st.active_tab, 0, "the live tab takes over");
+        let prompt = &sample_prompts(st.prompt_context)[0].text;
+        assert!(st.tabs[0].composer.draft.contains("Keep the header intact."), "the exited tab's text moved: {:?}", st.tabs[0].composer.draft);
+        assert!(st.tabs[0].composer.draft.ends_with(prompt.as_str()), "the prompt is appended after it: {:?}", st.tabs[0].composer.draft);
+        assert!(st.tabs[1].composer.draft.is_empty(), "moved, not copied");
+        kill_tabs(&mut st);
+        let _ = std::fs::remove_dir_all(&stub_dir);
     }
 }

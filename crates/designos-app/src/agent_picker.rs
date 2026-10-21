@@ -32,6 +32,8 @@ pub struct AgentPickerState {
     pub other_command_input: String,
     pub other_error: Option<String>,
     pub settings_root_override: Option<PathBuf>,
+    /// Memo of the OpenCode PATH check, which the probed catalog does not cover; cleared when a probe cycle starts.
+    pub opencode_installed: Option<bool>,
 }
 
 impl AgentPickerState {
@@ -40,6 +42,7 @@ impl AgentPickerState {
     pub fn ensure_probed(&mut self) {
         if !self.probe_started {
             self.probe_started = true;
+            self.opencode_installed = None;
             self.cache.refresh_async();
         }
     }
@@ -56,6 +59,7 @@ impl AgentPickerState {
     #[allow(dead_code)]
     pub fn refresh(&mut self) {
         self.probe_started = true;
+        self.opencode_installed = None;
         self.open_row_order.clear();
         self.open_row_order_settled = false;
         self.cache.refresh_async();

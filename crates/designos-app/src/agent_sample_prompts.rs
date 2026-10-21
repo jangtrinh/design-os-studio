@@ -234,7 +234,7 @@ pub fn attach_hint_line(caps: AttachHintCapabilities) -> Option<String> {
 }
 
 /// Line shown instead of the prompts when no agent CLI is installed (`#688` §13).
-pub const NO_CLI_LINE: &str = "No agent CLI found. Install one below.";
+pub const NO_CLI_LINE: &str = "No agent CLI found. Install one to start.";
 
 /// Result of painting the empty state.
 pub struct EmptyStateOutcome {
@@ -247,7 +247,14 @@ pub struct EmptyStateOutcome {
 /// Renders the `"What's next?"` empty state inside `center_rect` using Studio theme tokens (`#688` §7).
 /// `install_links` adds one install-page button per CLI under the no-CLI line; the caller leaves it off when
 /// the `#652` picker, which carries its own install guidance, is drawn above (`#688` §3 rules 3 and 6).
-pub fn paint_empty_state(ui: &mut Ui, center_rect: Rect, ctx: PromptContext, any_cli_installed: bool, install_links: bool) -> EmptyStateOutcome {
+pub fn paint_empty_state(
+    ui: &mut Ui,
+    center_rect: Rect,
+    ctx: PromptContext,
+    any_cli_installed: bool,
+    install_links: bool,
+    start_error: Option<&str>,
+) -> EmptyStateOutcome {
     let p = ui.painter().clone();
     widgets::record(ui, &format!("agents-empty-context-{}", ctx.as_str()), center_rect);
     let heading_y = center_rect.top() + theme::SPACE_SECTION;
@@ -348,6 +355,14 @@ pub fn paint_empty_state(ui: &mut Ui, center_rect: Rect, ctx: PromptContext, any
         y = hint_rect.bottom();
     }
 
+    if let Some(message) = start_error {
+        let error_rect = Rect::from_min_size(Pos2::new(row_x, y + theme::SPACE_GROUP), Vec2::new(row_w, theme::LINE_CAPTION));
+        let elided = widgets::elide(&p, message, &theme::font_caption(), row_w);
+        p.text(Pos2::new(row_x, error_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::DANGER);
+        widgets::record(ui, "agents-start-error", error_rect);
+        y = error_rect.bottom();
+    }
+
     EmptyStateOutcome { prompt_clicked, content_height: y - center_rect.top() + theme::INSET_PANEL }
 }
 
@@ -363,6 +378,7 @@ const COMPOSER_INPUT_ID: &str = "agents-ask-for-changes-input";
 pub fn show_empty_state(state: &mut TerminalState, ui: &mut Ui, area: Rect, file_path: Option<&Path>) {
     let cli_installed = state.any_agent_cli_installed();
     let prompt_ctx = state.prompt_context;
+    let start_error = state.sample_prompt_error.clone();
     let picker_rows = if state.tabs.is_empty() { Some(crate::agent_picker::rows_for_state(state)) } else { None };
     let picker_h = picker_rows.as_ref().map_or(0.0, |rows| crate::agent_picker::picker_outer_height(rows.len(), state.picker.other_form_open));
     let origin = Pos2::new(area.left(), area.top() - state.left_scroll.max(0.0));
@@ -373,7 +389,7 @@ pub fn show_empty_state(state: &mut TerminalState, ui: &mut Ui, area: Rect, file
             crate::agent_picker::show_picker_panel_with_rows(state, ui, picker_rect, file_path, rows);
         }
         let prompts_rect = Rect::from_min_size(Pos2::new(origin.x, origin.y + picker_h), Vec2::new(area.width(), area.height()));
-        outcome = paint_empty_state(ui, prompts_rect, prompt_ctx, cli_installed, picker_h <= 0.0);
+        outcome = paint_empty_state(ui, prompts_rect, prompt_ctx, cli_installed, picker_h <= 0.0, start_error.as_deref());
     });
 
     let max_scroll = (picker_h + outcome.content_height - area.height()).max(0.0);
@@ -387,11 +403,12 @@ pub fn show_empty_state(state: &mut TerminalState, ui: &mut Ui, area: Rect, file
     state.left_scroll = state.left_scroll.clamp(0.0, max_scroll);
 
     if let Some(text) = outcome.prompt_clicked {
-        state.ensure_agent_session_for_sample_prompt(file_path);
-        apply_sample_prompt_to_draft(&mut state.active_composer_mut().draft, text);
-        state.active_composer_mut().cursor = None;
-        state.viewport_focused = false;
-        focus_composer_at_end(state, ui);
+        if state.ensure_agent_session_for_sample_prompt(file_path) {
+            apply_sample_prompt_to_draft(&mut state.active_composer_mut().draft, text);
+            state.active_composer_mut().cursor = None;
+            state.viewport_focused = false;
+            focus_composer_at_end(state, ui);
+        }
     }
 }
 
