@@ -808,27 +808,62 @@
   },
   {
     "name": "designos_query_xpath",
-    "description": "Query layers in the document using an XPath-like selector (tag, @name, @component, @fill, and //descendant steps).\n\nExamples:\n1) Find instances by component name:\n{\"selector\":\"//INSTANCE[@component='Button']\"}\n2) Find text descendants inside a named frame:\n{\"selector\":\"//FRAME[@name='Hero']//TEXT\"}\n3) Find layers that have a fill:\n{\"selector\":\"//RECTANGLE[@fill]\",\"page_id\":1}",
+    "description": "Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).\n\nExamples:\n1) Truncated text:\n{\"selector\":\"//TEXT[has-problem('text-truncated')]\"}\n2) Hard-coded fills inside a frame:\n{\"selector\":\"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]\"}\n3) Layers an agent is working on:\n{\"selector\":\"//*[@inProgress]\"}",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "cursor": {
+          "description": "Opaque continuation cursor returned by the previous page.",
+          "type": "string"
+        },
+        "format": {
+          "default": "rows",
+          "enum": [
+            "rows",
+            "objects"
+          ],
+          "type": "string"
+        },
+        "hardcoded": {
+          "description": "Optional filter: when true, only return nodes with hardcoded color values; when false, exclude them.",
+          "type": "boolean"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_scanned": {
+          "default": 50000,
+          "maximum": 200000,
+          "minimum": 1000,
+          "type": "integer"
+        },
+        "node_id": {
+          "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "page_id": {
           "description": "DesignOS numeric node ID; obtain from list_nodes/get_document.",
           "minimum": 1,
           "type": "integer"
         },
-        "query": {
-          "description": "Kind or name substring query (alternative to selector).",
-          "maxLength": 1024,
+        "selector": {
+          "description": "XPath-subset selector. Examples: //TEXT[has-problem('text-truncated')], //FRAME[@name='Card']//*[has-hardcoded('fills/0')], //*[@inProgress].",
+          "maxLength": 2048,
+          "minLength": 1,
           "type": "string"
         },
-        "selector": {
-          "description": "XPath-style selector (e.g. //FRAME[@name='Card']//TEXT).",
-          "maxLength": 1024,
-          "type": "string"
+        "with_problems": {
+          "default": false,
+          "type": "boolean"
         }
       },
-      "required": [],
+      "required": [
+        "selector"
+      ],
       "type": "object"
     },
     "annotations": {

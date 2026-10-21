@@ -1,9 +1,15 @@
 //! MCP `designos_query_xpath` (`query_nodes`) streaming query handler and schema (E15-17 / #602).
 
-use designos_doc::query::{run_with_env, QueryFormat, QueryOptions, DEFAULT_LIMIT, DEFAULT_MAX_SCANNED, MAX_LIMIT, MAX_MAX_SCANNED, MIN_MAX_SCANNED};
+use crate::engine::parse;
+use crate::tools::errors::{ErrorCode, ToolError};
+use designos_doc::query::{
+    run_with_env, QueryError, QueryFormat, QueryOptions, DEFAULT_LIMIT, DEFAULT_MAX_SCANNED, MAX_LIMIT, MAX_MAX_SCANNED, MIN_MAX_SCANNED,
+};
 use designos_doc::{Document, NodeId};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+const SELECTOR_EXAMPLE: &str = "//FRAME[@name='Card']";
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,38 +80,77 @@ pub fn tool_schema(id_schema: &Value) -> (Value, Vec<&'static str>) {
     (props, vec!["selector"])
 }
 
+/// Maps a [`QueryError`] onto the named MCP catalogue. `scope_path` is the argument that named the
+/// scope (`/page_id` or `/node_id`). The catalogue has no `CURSOR_STALE` or `RULE_UNAVAILABLE`:
+/// a stale cursor is an invalid cursor whose `next_step` says to restart, and an unavailable rule
+/// is reported as invalid arguments that are not safe to retry unchanged.
+fn query_error(err: QueryError, scope_path: &str) -> ToolError {
+    match err {
+        QueryError::InvalidSelector { message, corrected_example } => {
+            ToolError::new(ErrorCode::InvalidSelector, "/selector", message).with_corrected_example(json!({ "selector": corrected_example }))
+        }
+        QueryError::InvalidCursor { message } => ToolError::new(ErrorCode::InvalidCursor, "/cursor", message),
+        QueryError::CursorStale { cursor_epoch, document_epoch } => ToolError::new(
+            ErrorCode::InvalidCursor,
+            "/cursor",
+            format!("CURSOR_STALE: cursor revision {cursor_epoch} does not match document revision {document_epoch}"),
+        )
+        .with_next_step("Run the query again without a cursor."),
+        QueryError::UnknownRule { rule } => ToolError::new(ErrorCode::UnknownRule, "/selector", format!("unknown lint rule '{rule}' in has-problem()"))
+            .with_valid_options(designos_doc::lint::all_rule_ids()),
+        QueryError::RuleUnavailable { rule, reason } => {
+            ToolError::new(ErrorCode::InvalidArguments, "/selector", format!("RULE_UNAVAILABLE: lint rule '{rule}' cannot be evaluated ({reason})"))
+                .with_safe_to_retry(false)
+        }
+        QueryError::NodeNotFound { id } => ToolError::new(ErrorCode::NodeNotFound, scope_path, format!("node {} not found", id.0)),
+        QueryError::ExactlyOneScope => ToolError::new(ErrorCode::ExactlyOneScope, "", "provide at most one of page_id or node_id"),
+    }
+}
+
 /// Executes `designos_query_xpath` against `doc` and `active_page_id`.
-pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_args: Value) -> Result<Value, String> {
-    let args: QueryXpathToolArgs = serde_json::from_value(raw_args).map_err(|e| format!("INVALID_SELECTOR: {e}"))?;
+pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_args: Value) -> Result<Value, ToolError> {
+    let args: QueryXpathToolArgs = parse(raw_args)?;
 
     if args.selector.trim().is_empty() || args.selector.len() > 2048 {
-        return Err("INVALID_SELECTOR: selector must be 1..=2048 characters (path: /selector, corrected_example: //FRAME[@name='Card'], safe_to_retry: true)"
-            .to_string());
+        return Err(ToolError::new(ErrorCode::InvalidSelector, "/selector", "selector must be 1..=2048 characters")
+            .with_corrected_example(json!({ "selector": SELECTOR_EXAMPLE })));
     }
 
     let explicit_within = args.node_id.or_else(|| args.node_ids.as_ref().and_then(|v| v.first().copied()));
+    let scope_path = if explicit_within.is_some() { "/node_id" } else { "/page_id" };
 
     if args.page_id.is_some() && explicit_within.is_some() {
-        return Err("EXACTLY_ONE_SCOPE: provide at most one of page_id or node_id (safe_to_retry: true)".to_string());
+        return Err(query_error(QueryError::ExactlyOneScope, scope_path));
     }
 
     let limit = args.limit.unwrap_or(DEFAULT_LIMIT);
     if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(format!("INVALID_LIMIT: limit must be between 1 and {MAX_LIMIT} (safe_to_retry: true)"));
+        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/limit", format!("limit must be between 1 and {MAX_LIMIT}"))
+            .with_received(json!(limit))
+            .with_expected(format!("1..={MAX_LIMIT}")));
     }
 
     let max_scanned = args.max_scanned.unwrap_or(DEFAULT_MAX_SCANNED);
-    if !(1..=MAX_MAX_SCANNED).contains(&max_scanned) {
-        return Err(format!("INVALID_BUDGET: max_scanned must be between {MIN_MAX_SCANNED} and {MAX_MAX_SCANNED} (safe_to_retry: true)"));
+    if !(MIN_MAX_SCANNED..=MAX_MAX_SCANNED).contains(&max_scanned) {
+        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/max_scanned", format!("max_scanned must be between {MIN_MAX_SCANNED} and {MAX_MAX_SCANNED}"))
+            .with_received(json!(max_scanned))
+            .with_expected(format!("{MIN_MAX_SCANNED}..={MAX_MAX_SCANNED}")));
     }
 
-    let format = QueryFormat::parse(args.format.as_deref()).map_err(|e| e.to_string())?;
+    let format = QueryFormat::parse(args.format.as_deref()).map_err(|_| {
+        ToolError::new(
+            ErrorCode::InvalidArguments,
+            "/format",
+            format!("unknown format '{}'; expected 'rows' or 'objects'", args.format.as_deref().unwrap_or_default()),
+        )
+        .with_valid_options(["rows", "objects"])
+    })?;
 
     let resolved_page = if explicit_within.is_some() {
         None
     } else if let Some(pid) = args.page_id {
         if pid == 0 {
-            return Err("NODE_NOT_FOUND: page_id must be >= 1".to_string());
+            return Err(ToolError::new(ErrorCode::NodeNotFound, "/page_id", "page_id must be >= 1"));
         }
         Some(NodeId(pid))
     } else {
@@ -113,7 +158,7 @@ pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_a
     };
 
     let within = match explicit_within {
-        Some(0) => return Err("NODE_NOT_FOUND: node_id must be >= 1".to_string()),
+        Some(0) => return Err(ToolError::new(ErrorCode::NodeNotFound, "/node_id", "node_id must be >= 1")),
         Some(id) => Some(NodeId(id)),
         None => None,
     };
@@ -134,7 +179,7 @@ pub fn execute_query_xpath(doc: &Document, active_page_id: Option<NodeId>, raw_a
         },
         Some(&designos_render::RenderLintEnv),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| query_error(e, scope_path))?;
 
     Ok(json!({
         "columns": page.columns,
@@ -188,5 +233,68 @@ mod tests {
         let query_val = engine.call("designos_query_xpath", json!({"selector": "//TEXT[has-problem('text-truncated')]", "page_id": page.0})).unwrap();
         let query_ids: Vec<u64> = query_val["rows"].as_array().unwrap().iter().map(|r| r[0].as_u64().unwrap()).collect();
         assert_eq!(query_ids, lint_ids, "designos_query_xpath must use RenderLintEnv and return identical IDs to designos_lint");
+    }
+
+    fn engine_with_text_frame() -> (Engine, NodeId) {
+        let mut engine = Engine::default();
+        let page = engine.doc.pages[0];
+        let fid = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+        (engine, page)
+    }
+
+    #[test]
+    fn invalid_selector_names_the_selector_path_with_a_corrected_example() {
+        let (mut engine, page) = engine_with_text_frame();
+        let err = engine.call("designos_query_xpath", json!({"selector": "//FRAME[@name='unclosed", "page_id": page.0})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidSelector);
+        assert_eq!(err.path, "/selector");
+        assert!(err.corrected_example.is_some(), "an invalid selector carries a corrected example: {err:?}");
+        assert!(err.safe_to_retry);
+    }
+
+    #[test]
+    fn unknown_page_and_conflicting_scope_are_named_errors() {
+        let (mut engine, page) = engine_with_text_frame();
+        let missing = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": 999_999})).unwrap_err();
+        assert_eq!(missing.code, ErrorCode::NodeNotFound);
+        assert_eq!(missing.path, "/page_id");
+        let missing_node = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "node_id": 999_999})).unwrap_err();
+        assert_eq!(missing_node.code, ErrorCode::NodeNotFound);
+        assert_eq!(missing_node.path, "/node_id");
+        let both = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": page.0, "node_id": page.0})).unwrap_err();
+        assert_eq!(both.code, ErrorCode::ExactlyOneScope);
+    }
+
+    #[test]
+    fn argument_errors_keep_their_catalogue_codes_and_paths() {
+        let (mut engine, page) = engine_with_text_frame();
+        let limit = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": page.0, "limit": 501})).unwrap_err();
+        assert_eq!((limit.code, limit.path.as_str()), (ErrorCode::ValueOutOfRange, "/limit"));
+        let budget = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": page.0, "max_scanned": 10})).unwrap_err();
+        assert_eq!((budget.code, budget.path.as_str()), (ErrorCode::ValueOutOfRange, "/max_scanned"));
+        let format = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "page_id": page.0, "format": "csv"})).unwrap_err();
+        assert_eq!((format.code, format.path.as_str()), (ErrorCode::InvalidArguments, "/format"));
+        assert_eq!(format.valid_options, vec!["rows".to_string(), "objects".to_string()]);
+        let rule = engine.call("designos_query_xpath", json!({"selector": "//*[has-problem('nope')]", "page_id": page.0})).unwrap_err();
+        assert_eq!(rule.code, ErrorCode::UnknownRule);
+        assert!(rule.valid_options.iter().any(|r| r == "text-truncated"), "{rule:?}");
+        let unknown = engine.call("designos_query_xpath", json!({"selector": "//FRAME", "pagee": 1})).unwrap_err();
+        assert_eq!(unknown.code, ErrorCode::UnknownField);
+    }
+
+    #[test]
+    fn a_cursor_from_before_an_edit_is_refused_with_a_restart_step() {
+        let (mut engine, page) = engine_with_text_frame();
+        let second = engine.doc.alloc_id();
+        engine.doc.insert(page, Node::frame(second, Rect::new(0.0, 120.0, 200.0, 100.0))).unwrap();
+        let page_one = engine.call("designos_query_xpath", json!({"selector": "//*", "page_id": page.0, "limit": 1})).unwrap();
+        let cursor = page_one["cursor"].as_str().expect("a one-row page leaves a cursor").to_string();
+        engine.call("designos_create_node", json!({"parent_id": page.0, "kind": "frame", "name": "Late"})).unwrap();
+        let err = engine.call("designos_query_xpath", json!({"selector": "//*", "page_id": page.0, "limit": 1, "cursor": cursor})).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidCursor);
+        assert_eq!(err.path, "/cursor");
+        assert!(err.message.starts_with("CURSOR_STALE"), "{err:?}");
+        assert!(err.next_step.contains("without a cursor"), "{err:?}");
     }
 }

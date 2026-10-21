@@ -905,7 +905,7 @@ impl Engine {
             }
             "designos_query_xpath" | "query_nodes" => {
                 self.settle_layout();
-                crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), args).map_err(ToolError::from)
+                crate::tools::query::execute_query_xpath(&self.doc, self.resolve_default_page().ok(), args)
             }
             "designos_get_metadata" | "get_metadata" => crate::tools::metadata::call_get_metadata(self, args).map_err(ToolError::from),
             "designos_lint" | "check_design" | "designos_lint_fix" => {
@@ -1847,7 +1847,16 @@ pub fn tools() -> Vec<Value> {
     let (q_props, q_req) = crate::tools::query::tool_schema(&id);
     add(
         "query_xpath",
-        "Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).",
+        concat!(
+            "Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).\n\n",
+            "Examples:\n",
+            "1) Truncated text:\n",
+            "{\"selector\":\"//TEXT[has-problem('text-truncated')]\"}\n",
+            "2) Hard-coded fills inside a frame:\n",
+            "{\"selector\":\"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]\"}\n",
+            "3) Layers an agent is working on:\n",
+            "{\"selector\":\"//*[@inProgress]\"}"
+        ),
         q_props,
         q_req,
         json!({
