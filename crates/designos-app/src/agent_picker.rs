@@ -405,6 +405,14 @@ fn permission_caption(mode: crate::terminal::PermissionMode) -> &'static str {
     }
 }
 
+/// Footer line of the `+` menu: a failed resume replaces the permission caption until the menu closes.
+fn footer_caption(state: &TerminalState) -> (&str, egui::Color32) {
+    match state.resume_notice.as_deref() {
+        Some(notice) => (notice, theme::DANGER),
+        None => (permission_caption(state.permission_mode), theme::TEXT_TERTIARY),
+    }
+}
+
 /// Renders the compact `+` dropdown menu (`CONTROL_STANDARD` = 28 px rows, `#652` §3 rule 5 & §7).
 pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     let rows = rows_for_state(state);
@@ -539,8 +547,9 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
 
     // Footer permission caption (`Skip permissions`, `#652` §3 rule 9)
     let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + theme::SPACE_FACT);
-    let perm_str = widgets::elide(&p, permission_caption(state.permission_mode), &theme::font_caption(), inner_w - theme::SPACE_INLINE);
-    p.text(Pos2::new(inner_left + theme::SPACE_FACT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), theme::TEXT_TERTIARY);
+    let (footer_txt, footer_col) = footer_caption(state);
+    let perm_str = widgets::elide(&p, footer_txt, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
+    p.text(Pos2::new(inner_left + theme::SPACE_FACT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), footer_col);
 
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
@@ -644,7 +653,10 @@ fn apply_picker_interaction(state: &mut TerminalState, rows: &[PickerRow], inter
         PickerInteraction::ResumeLastSession => {
             state.runtime_dropdown_open = false;
             state.picker.on_close();
-            let _ = state.resume_last_session(file_path);
+            if let Err(e) = state.resume_last_session(file_path) {
+                state.runtime_dropdown_open = true;
+                state.set_resume_failure(&e);
+            }
         }
         PickerInteraction::SelectRow(idx) => {
             state.picker.selected_index = idx;
@@ -690,6 +702,33 @@ mod tests {
         st.picker.cache.set_probe(AgentCliPreset::Gemini, CliProbe { installed: true, version: Some("0.38.2".into()), signed_in: SignIn::Unknown });
         st.picker.cache.set_probe(AgentCliPreset::Antigravity, CliProbe { installed: false, version: None, signed_in: SignIn::Unknown });
         st.picker.probe_started = true;
+    }
+
+    #[test]
+    fn failed_resume_last_session_keeps_the_plus_menu_open_with_a_notice() {
+        let dir = temp_test_dir("resume-last-fail");
+        let mut st = TerminalState::new_for_session("doc-resume-last-fail", "Landing", Some(&dir));
+        st.codex_cwd_scoped = false;
+        st.session_registry.sessions.push(crate::agent_sessions::SessionEntry {
+            tab_id: 1,
+            title: "Codex #1".into(),
+            cli: "codex".into(),
+            session_id: None,
+            created_at: 100,
+            last_active_at: 200,
+            status: crate::agent_sessions::SessionEntryStatus::Exited,
+            extra: Default::default(),
+        });
+
+        apply_picker_interaction(&mut st, &[], PickerInteraction::ResumeLastSession, None);
+
+        assert!(st.tabs.is_empty());
+        assert!(st.runtime_dropdown_open, "menu stays open so the notice is seen");
+        assert_eq!(st.resume_notice.as_deref(), Some("Can't resume. Start a new session."));
+        assert_eq!(footer_caption(&st).0, "Can't resume. Start a new session.");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // 7. `other_cli_form_saves_and_lists_the_entry`

@@ -1006,6 +1006,8 @@ pub struct TerminalState {
     pub picker_open: bool,
     /// True when the `"Sessions"` popover is open (`#651` §3 rule 5).
     pub sessions_popover_open: bool,
+    /// Visible reason a Sessions row or "Resume" action did not open a tab; painted in the Sessions popover and the new-session picker footer.
+    pub resume_notice: Option<String>,
     /// `tab_id` of the session entry currently being renamed in place inside the `"Sessions"` popover (`#651` §3 rule 6).
     pub renaming_session_tab_id: Option<u64>,
     /// Draft text for the active inline session rename (`#651` §3 rule 6).
@@ -1160,6 +1162,7 @@ impl TerminalState {
             picker: crate::agent_picker::AgentPickerState::default(),
             picker_open: false,
             sessions_popover_open: false,
+            resume_notice: None,
             renaming_session_tab_id: None,
             rename_session_input: String::new(),
             pending_prompt: None,
@@ -4103,6 +4106,7 @@ pub fn show_left_with_doc(
         widgets::record(ui, "agents-runtime-add-btn", add_rect);
         if add_resp.clicked() {
             state.runtime_dropdown_open = !state.runtime_dropdown_open;
+            state.resume_notice = None;
             if state.runtime_dropdown_open {
                 state.sessions_popover_open = false;
             } else {
@@ -4221,6 +4225,7 @@ pub fn show_left_with_doc(
             }
         }
 
+        state.expire_resume_notice();
         // Floating `+` Runtime Selector Dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell` — all skipping dangerous permissions)
         if state.runtime_dropdown_open {
             render_runtime_dropdown_menu(state, ui, rect, bar_r.bottom() + 4.0, file_path);

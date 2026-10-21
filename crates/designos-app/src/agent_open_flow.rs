@@ -212,10 +212,29 @@ impl TerminalState {
                 return;
             }
             if row.status != SessionRowStatus::Missing {
-                let _ = self.resume_session_by_tab_id(entry_tab_id, file_path);
-                self.picker_open = false;
-                self.sessions_popover_open = false;
+                match self.resume_session_by_tab_id(entry_tab_id, file_path) {
+                    Ok(_) => {
+                        self.picker_open = false;
+                        self.sessions_popover_open = false;
+                    }
+                    // Keep the popover open so the notice shows next to the row that was clicked.
+                    Err(e) => self.set_resume_failure(&e),
+                }
             }
+        }
+    }
+
+    /// Records a resume failure as a short visible notice (the raw reason stays in `status_msg`).
+    pub fn set_resume_failure(&mut self, raw_error: &str) {
+        self.resume_notice = Some(resume_failure_copy(raw_error).to_string());
+        self.status_msg = Some(raw_error.to_string());
+    }
+
+    /// Drops the resume notice once neither the Sessions popover nor the `+` menu is open, so a closed
+    /// surface never leaves a stale error behind (called every frame before those surfaces paint).
+    pub fn expire_resume_notice(&mut self) {
+        if !self.sessions_popover_open && !self.runtime_dropdown_open {
+            self.resume_notice = None;
         }
     }
 
@@ -271,6 +290,20 @@ impl TerminalState {
         if self.session_registry.sessions.len() != before {
             let _ = save_registry(&self.session_dir, &self.session_registry);
         }
+    }
+}
+
+/// Maps a resume error from `terminal.rs` to one short sentence with a recovery. Each string must fit the
+/// narrowest `+` menu footer (see `resume_notice_copy_fits_the_narrowest_menus_without_eliding`).
+pub fn resume_failure_copy(raw_error: &str) -> &'static str {
+    if raw_error.starts_with("No previous agent session") {
+        "No earlier session. Start a new one."
+    } else if raw_error.starts_with("No resumable session") {
+        "Session is gone. Start a new one."
+    } else if raw_error.contains("safe session resume") || raw_error.starts_with("Unsupported CLI") {
+        "Can't resume. Start a new session."
+    } else {
+        "Resume failed. Start a new session."
     }
 }
 
@@ -380,6 +413,7 @@ pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: 
     ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-btn-rect"), btn_rect));
     if resp.clicked() {
         state.sessions_popover_open = !state.sessions_popover_open;
+        state.resume_notice = None;
         if state.sessions_popover_open {
             state.runtime_dropdown_open = false;
             let pass_nr = ui.ctx().cumulative_pass_nr();
@@ -399,7 +433,8 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     let header_h = theme::FIELD_HEIGHT;
     let body_count = rows.len().max(1) as f32;
     let pop_w = (panel_rect.width() - pad).clamp(POPOVER_MIN_W, POPOVER_MAX_W);
-    let pop_h = pad * 2.0 + header_h + theme::SPACE_FACT + body_count * (row_h + row_gap);
+    let notice_h = if state.resume_notice.is_some() { header_h } else { 0.0 };
+    let pop_h = pad * 2.0 + header_h + theme::SPACE_FACT + body_count * (row_h + row_gap) + notice_h;
     let pop_x = (panel_rect.right() - pop_w - theme::SPACE_ROW).max(panel_rect.left() + theme::SPACE_ROW);
     let pop_r = Rect::from_min_size(Pos2::new(pop_x, top_y), Vec2::new(pop_w, pop_h));
 
@@ -439,6 +474,13 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
             theme::TEXT_TERTIARY,
         );
         widgets::record(ui, "agents-sessions-empty", empty_r);
+    }
+
+    if let Some(notice) = state.resume_notice.as_deref() {
+        let notice_r = Rect::from_min_size(Pos2::new(inner_left, pop_r.bottom() - pad - header_h), Vec2::new(inner_w, header_h));
+        let txt = widgets::elide(&p, notice, &theme::font_caption(), inner_w - theme::INSET_CONTROL);
+        p.text(Pos2::new(notice_r.left() + theme::INSET_CONTROL, notice_r.center().y), Align2::LEFT_CENTER, txt, theme::font_caption(), theme::DANGER);
+        widgets::record(ui, "agents-sessions-notice", notice_r);
     }
 
     let mut select_tab_id: Option<u64> = None;
@@ -1157,6 +1199,153 @@ mod tests {
         st.apply_start_fix(fix, None);
         assert!(st.tabs.is_empty());
         assert!(st.picker_open, "FixAction::StartNewSession must open the new-session picker");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn painted_texts(out: &egui::FullOutput) -> Vec<String> {
+        crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect()
+    }
+
+    fn click_at(ctx: &egui::Context, screen: Rect, pos: Pos2, mut frame: impl FnMut(&mut Ui)) {
+        for pressed in [true, false] {
+            let raw = egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+                ],
+                ..Default::default()
+            };
+            let _ = ctx.run_ui(raw, &mut frame);
+        }
+    }
+
+    const NOT_RESUMABLE_NOTICE: &str = "Can't resume. Start a new session.";
+
+    #[test]
+    fn clicking_a_non_resumable_session_row_shows_a_notice_and_keeps_the_popover_open() {
+        let dir = temp_test_dir("row-not-resumable");
+        let mut st = TerminalState::new_for_session("doc-row-fail", "Landing", Some(&dir));
+        st.codex_cwd_scoped = false;
+        st.session_registry.sessions.push(make_session_entry(1, "Codex #1", "codex", None, 100, 200, SessionEntryStatus::Exited));
+        save_registry(&st.session_dir, &st.session_registry).expect("save registry");
+        st.sessions_popover_open = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 720.0));
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+        });
+        let row_r = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-session-row-1".to_string())))).expect("row rect");
+
+        // Click the row title area (away from Rename / Remove from list).
+        click_at(&ctx, screen, Pos2::new(row_r.left() + 30.0, row_r.top() + 8.0), |ui| render_sessions_popover(&mut st, ui, panel_rect, 40.0, None));
+
+        assert!(st.tabs.is_empty(), "nothing may spawn");
+        assert!(st.sessions_popover_open, "popover stays open so the notice is seen");
+        assert_eq!(st.resume_notice.as_deref(), Some(NOT_RESUMABLE_NOTICE));
+
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+        });
+        assert!(painted_texts(&out).iter().any(|t| t == NOT_RESUMABLE_NOTICE), "notice must be painted in the popover: {:?}", painted_texts(&out));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_failure_copy_matches_the_errors_terminal_really_returns() {
+        let dir = temp_test_dir("copy-real-errors");
+        let mut st = TerminalState::new_for_session("doc-copy", "Landing", Some(&dir));
+        st.codex_cwd_scoped = false;
+
+        let none_recorded = st.resume_last_session(None).expect_err("empty registry has nothing to resume");
+        assert_eq!(resume_failure_copy(&none_recorded), "No earlier session. Start a new one.");
+
+        let gone = st.resume_session_by_tab_id(99, None).expect_err("unknown tab id is gone");
+        assert_eq!(resume_failure_copy(&gone), "Session is gone. Start a new one.");
+
+        st.session_registry.sessions.push(make_session_entry(1, "Codex #1", "codex", None, 100, 200, SessionEntryStatus::Exited));
+        let unsupported = st.resume_session_by_tab_id(1, None).expect_err("codex without a scoped cwd cannot resume safely");
+        assert_eq!(resume_failure_copy(&unsupported), NOT_RESUMABLE_NOTICE);
+        let newest_unsupported = st.resume_last_session(None).expect_err("newest entry cannot resume safely");
+        assert_eq!(resume_failure_copy(&newest_unsupported), NOT_RESUMABLE_NOTICE);
+
+        // Spawn failures and anything unrecognised still get an honest recovery.
+        assert_eq!(resume_failure_copy("PTY error: boom"), "Resume failed. Start a new session.");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_notice_copy_fits_the_narrowest_menus_without_eliding() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        // 200 px is the narrowest width the Agents panel can be dragged to (`shell.rs` left panel clamp).
+        let narrow_panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(200.0, 720.0));
+        let dir = temp_test_dir("copy-fit");
+        let mut st = TerminalState::new_for_session("doc-copy-fit", "Landing", Some(&dir));
+        for raw in
+            ["No previous agent session to resume", "No resumable session with tab_id 4", "CLI 'x' does not support safe session resume", "PTY error: boom"]
+        {
+            st.set_resume_failure(raw);
+            let notice = st.resume_notice.clone().expect("notice set");
+            st.sessions_popover_open = true;
+            st.runtime_dropdown_open = false;
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                render_sessions_popover(&mut st, ui, narrow_panel, 40.0, None);
+            });
+            assert!(painted_texts(&out).contains(&notice), "popover elides {notice:?}: {:?}", painted_texts(&out));
+
+            st.sessions_popover_open = false;
+            st.runtime_dropdown_open = true;
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                crate::agent_picker::render_runtime_dropdown_menu(&mut st, ui, narrow_panel, 40.0, None);
+            });
+            assert!(painted_texts(&out).contains(&notice), "+ menu footer elides {notice:?}: {:?}", painted_texts(&out));
+        }
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_notice_does_not_outlive_the_menu_that_showed_it() {
+        let dir = temp_test_dir("notice-lifecycle");
+        let mut st = TerminalState::new_for_session("doc-notice-life", "Landing", Some(&dir));
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(200.0, 800.0));
+        let frame = |st: &mut TerminalState| {
+            ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+                let _ = crate::terminal::show_left(st, ui, panel_rect, None);
+            })
+        };
+
+        st.set_resume_failure("CLI 'codex' does not support safe session resume");
+        st.runtime_dropdown_open = true;
+        let open = painted_texts(&frame(&mut st));
+        assert!(open.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "notice shows in the open + menu: {open:?}");
+
+        // Picking a row (or Esc, or an outside click) closes the menu: the notice must go with it.
+        st.runtime_dropdown_open = false;
+        let _ = frame(&mut st);
+        assert!(st.resume_notice.is_none(), "closed menu must not keep a stale notice");
+
+        st.runtime_dropdown_open = true;
+        let reopened = painted_texts(&frame(&mut st));
+        assert!(!reopened.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "reopened menu must not replay the old notice: {reopened:?}");
+        assert!(reopened.iter().any(|t| t == "Skip permissions"), "permission caption comes back: {reopened:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

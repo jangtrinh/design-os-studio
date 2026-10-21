@@ -1911,8 +1911,8 @@ impl App {
         let opts = designos_webcapture::ImportOptions { origin: origin.map(|v| (v.x, v.y)), ..designos_webcapture::ImportOptions::default() };
         let doc_ref = &self.doc;
         let page_id = self.page;
-        let built = std::thread::scope(|s| s.spawn(move || designos_webcapture::import_capture_json(doc_ref, page_id, raw_json, &opts)).join())
-            .map_err(|_| "Web capture import worker thread panicked".to_string())?;
+        let joined = std::thread::scope(|s| s.spawn(move || designos_webcapture::import_capture_json(doc_ref, page_id, raw_json, &opts)).join());
+        let built = self.web_capture_worker_result(joined)?;
         let (cmd, report) = built.map_err(|e| {
             let msg = format!("Web capture import failed: {e}");
             self.show_toast(msg.clone(), true);
@@ -1936,6 +1936,14 @@ impl App {
         self.fit_selection();
         self.show_toast(report.summary_toast(), false);
         Ok(report)
+    }
+
+    /// Unwraps the import worker's join result; a panic becomes a failure toast, not a silent `Err`.
+    fn web_capture_worker_result<T>(&mut self, joined: std::thread::Result<T>) -> Result<T, String> {
+        joined.map_err(|_| {
+            self.show_toast("Web capture import stopped unexpectedly. Try again.", true);
+            "Web capture import worker thread panicked".to_string()
+        })
     }
 
     pub fn open_path(&mut self, p: PathBuf) {
@@ -2602,5 +2610,16 @@ mod tests {
         app.undo();
         assert_eq!(app.doc.get(page).unwrap().children, vec![existing]);
         assert!(app.doc.get(report.root_node_id).is_none());
+    }
+
+    #[test]
+    fn web_capture_worker_panic_shows_a_failure_toast() {
+        let mut app = App::new(Document::new("t"));
+        let joined = std::thread::spawn(|| -> u8 { panic!("import worker boom") }).join();
+        let err = app.web_capture_worker_result(joined).expect_err("a panic is an error");
+        assert_eq!(err, "Web capture import worker thread panicked");
+        let toast = app.toast.as_ref().expect("a failure toast must be shown");
+        assert_eq!(toast.text, "Web capture import stopped unexpectedly. Try again.");
+        assert!(toast.error);
     }
 }
