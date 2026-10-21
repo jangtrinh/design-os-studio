@@ -3260,7 +3260,7 @@ impl TerminalState {
                         }
                     } || self.path_prepend.iter().any(|d| d.join(tab.spawn_preset.binary_name()).is_file());
                     let mut diag = agent_start_failure::diagnose(tab.spawn_preset, installed, exit_code, &output);
-                    if tab.is_resumed && diag.cause == agent_start_failure::StartFailureCause::ExitedEarly {
+                    if tab.is_resumed && !matches!(diag.fix, FixAction::OpenInstallPage(_) | FixAction::RunLogin(_)) {
                         diag.fix = FixAction::StartNewSession(tab.spawn_preset);
                     }
                     tab.start_failure = Some(diag);

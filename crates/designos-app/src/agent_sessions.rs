@@ -1421,7 +1421,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resumed_cli_failing_from_auth_or_flag_stays_exited_and_keeps_login_or_shell_fix() {
+    fn resumed_cli_failing_from_login_stays_exited_but_a_bad_flag_marks_the_entry_missing() {
         let dir = temp_test_dir("resume-auth-and-flag");
         let bin_dir = dir.join("bin");
         std::fs::create_dir_all(&bin_dir).expect("bin dir");
@@ -1457,15 +1457,17 @@ mod tests {
         );
         assert_eq!(st.resumable_sessions().len(), 1);
 
-        // Now test UnknownFlag on resume: must keep OpenShell fix and Exited status.
+        // A resume that dies on an unknown flag cannot be retried as it is: the entry is Missing and the panel
+        // offers a new session (spec 653 rule 8 and 651 rule 7: only install and login keep the entry resumable).
         write_executable_script(&bin_dir, "claude", "#!/bin/sh\necho 'error: unknown option --bad-flag'\nexit 1\n");
         st.resume_last_session(None).expect("spawn resume for unknown flag");
         st.poll_until_start_failure(crate::test_timing::STUB_WAIT);
         let failure2 = st.active_tab().and_then(|t| t.start_failure.as_ref()).expect("failure card for unknown flag");
         assert_eq!(failure2.cause, crate::agent_start_failure::StartFailureCause::UnknownFlag);
-        assert_eq!(failure2.fix, crate::agent_start_failure::FixAction::OpenShell);
+        assert_eq!(failure2.fix, crate::agent_start_failure::FixAction::StartNewSession(AgentCliPreset::Claude));
         let on_disk2 = load_or_init_registry(&st.session_dir);
-        assert_eq!(on_disk2.sessions[0].status, SessionEntryStatus::Exited);
+        assert_eq!(on_disk2.sessions[0].status, SessionEntryStatus::Missing, "a resume that fails on a flag marks the entry Missing");
+        assert!(st.resumable_sessions().is_empty(), "the Missing entry is no longer offered for resume");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
