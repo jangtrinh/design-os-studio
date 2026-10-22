@@ -1361,6 +1361,10 @@ impl Shell {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.drive_screenshot(&ctx);
+        // macOS: a Quit chosen while the window was hidden brought it back and waits here for a frame that can draw the
+        // question; the close it asks for comes round to the branch below on the next frame.
+        #[cfg(target_os = "macos")]
+        crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             if !self.app.may_quit(&ctx) {
                 // Edits no save has written are being asked about: the window stays open, and the close comes round again.
