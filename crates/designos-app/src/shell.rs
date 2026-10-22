@@ -105,9 +105,12 @@ impl Shell {
                 shell.app.canvas.gpu.set_max_texture(max);
             }
         }
-        // GPU canvas on by default; small test fixture screenshots stay on the deterministic CPU path unless --gpu
+        // GPU canvas on by default, except on a software renderer; small test fixture screenshots stay on the deterministic CPU path unless --gpu
         let saved = library.as_deref().and_then(|l| crate::comments::settings::load_flag(l, "use_gpu"));
-        shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { gpu_flag || saved.unwrap_or(true) };
+        let software = cc.wgpu_render_state.as_ref().is_some_and(canvas::gpu_default::adapter_is_software);
+        let start = canvas::gpu_default::decide(saved, gpu_flag, software);
+        shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
+        shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.app.tabs.always_visible = true;
         if shell.app.home.is_none() {
             let mut tabs = std::mem::take(&mut shell.app.tabs);

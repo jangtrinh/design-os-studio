@@ -355,6 +355,10 @@ impl Node {
         self.item = self.item.icon(i);
         self
     }
+    fn tip(mut self, text: &str) -> Self {
+        self.item = self.item.tooltip(text);
+        self
+    }
 }
 
 fn to_items(nodes: &[Node]) -> Vec<MenuItem> {
@@ -547,7 +551,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
             "Preferences",
             vec![
                 leaf("Your name…", "", Action::YourName),
-                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available),
+                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
                 leaf("Agent permissions…", "", Action::AgentPermissions),
             ],
         ),
@@ -555,6 +559,15 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("AI balance", "", Action::OpenAgents).sep(),
         submenu("Help and account", help),
     ]
+}
+
+/// Why the GPU canvas is off when the app chose that (a software renderer); empty when the user did.
+fn gpu_off_reason(app: &App) -> &'static str {
+    if app.canvas.gpu.off_for_software && !app.canvas.gpu.pref {
+        crate::canvas::gpu_default::SOFTWARE_OFF_REASON
+    } else {
+        ""
+    }
 }
 
 fn tool_nodes(app: &App, g: usize) -> Vec<Node> {
@@ -1072,6 +1085,39 @@ mod tests {
         assert!(matches_query("Zoom to fit", "zoom fit"));
         assert!(matches_query("Zoom to fit", ""));
         assert!(!matches_query("Zoom to fit", "pen"));
+    }
+
+    /// The tooltip of Preferences -> "Use GPU rendering" in the main menu.
+    fn gpu_row_tooltip(app: &App) -> String {
+        let nodes = main_nodes(app);
+        let prefs = nodes.iter().find(|n| n.item.label == "Preferences").expect("Preferences submenu");
+        prefs.kids.iter().find(|n| n.item.label == "Use GPU rendering").expect("Use GPU rendering row").item.tooltip.clone()
+    }
+
+    #[test]
+    fn preferences_says_why_the_gpu_canvas_is_off_for_a_software_renderer() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        app.canvas.gpu.available = true;
+        assert_eq!(gpu_row_tooltip(&app), "", "a real GPU needs no explanation");
+        app.canvas.gpu.pref = false;
+        assert_eq!(gpu_row_tooltip(&app), "", "a choice the user made needs no explanation");
+        app.canvas.gpu.off_for_software = true;
+        assert_eq!(gpu_row_tooltip(&app), crate::canvas::gpu_default::SOFTWARE_OFF_REASON);
+    }
+
+    #[test]
+    fn choosing_the_gpu_canvas_drops_the_software_explanation() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        app.canvas.gpu.available = true;
+        app.canvas.gpu.pref = false;
+        app.canvas.gpu.off_for_software = true;
+        app.toggle_gpu();
+        assert!(app.canvas.gpu.pref, "toggled on");
+        assert!(!app.canvas.gpu.off_for_software, "the user chose, so the default no longer applies");
+        assert_eq!(gpu_row_tooltip(&app), "");
+        app.toggle_gpu();
+        assert!(!app.canvas.gpu.pref && !app.canvas.gpu.off_for_software, "an explicit off is the user's own choice, not the adapter's");
+        assert_eq!(gpu_row_tooltip(&app), "");
     }
 
     #[test]

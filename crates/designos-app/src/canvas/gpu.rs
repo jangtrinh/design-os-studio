@@ -28,6 +28,9 @@ pub struct GpuView {
     pub pref: bool,
     /// The device and renderer initialised.
     pub available: bool,
+    /// The canvas started on the CPU tiles because the adapter is a software renderer and the
+    /// user had not chosen: Preferences says why. Cleared once the user picks either way.
+    pub off_for_software: bool,
     max_texture: u32,
     pub(crate) compiler: SceneCompiler,
     last_key: Option<FrameKey>,
@@ -52,6 +55,7 @@ impl Default for GpuView {
         Self {
             pref: true,
             available: false,
+            off_for_software: false,
             max_texture: 0,
             compiler,
             last_key: None,
@@ -206,6 +210,7 @@ impl App {
             return;
         }
         self.canvas.gpu.pref = !self.canvas.gpu.pref;
+        self.canvas.gpu.off_for_software = false;
         self.canvas.gpu.last_key = None;
         let on = self.canvas.gpu.pref;
         if let Some(lib) = &self.lib {

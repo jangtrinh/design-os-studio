@@ -8,6 +8,7 @@ pub mod builder;
 pub mod create;
 pub mod draw;
 pub mod gpu;
+pub mod gpu_default;
 pub mod grids;
 pub mod handles;
 pub mod hit;
