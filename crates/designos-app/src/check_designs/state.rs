@@ -40,7 +40,7 @@ impl LibrarySources {
 pub struct CheckDesignsState {
     pub open: bool,
     pub scope: Option<Scope>,
-    /// "Selection (3 layers)" or "Page 1", shown under the title.
+    /// "Selection · 3 layers" or "Page: Page 1", shown under the title.
     pub scope_label: String,
     pub report: Report,
     /// Active incremental scan cursor while a scan is in flight.
@@ -88,6 +88,11 @@ impl CheckDesignsState {
     }
 }
 
+/// The scope line for a selection: the count is plain text after a middle dot, singular for one layer.
+fn selection_scope_label(layers: usize) -> String {
+    format!("Selection · {layers} {}", crate::widgets::plural(layers, "layer", "layers"))
+}
+
 impl App {
     /// Opens the panel on the selected layers, or on the whole page when nothing is selected.
     pub fn open_check_designs(&mut self) {
@@ -96,7 +101,7 @@ impl App {
             let name = self.doc.get(self.page).map(|p| p.name.clone()).unwrap_or_default();
             (Scope::Page(self.page), format!("Page: {name}"))
         } else {
-            let label = if layers.len() == 1 { "Selection (1 layer)".to_string() } else { format!("Selection ({} layers)", layers.len()) };
+            let label = selection_scope_label(layers.len());
             (Scope::Layers(layers), label)
         };
         self.check_designs = CheckDesignsState { open: true, scope: Some(scope), scope_label: label, ..CheckDesignsState::default() };

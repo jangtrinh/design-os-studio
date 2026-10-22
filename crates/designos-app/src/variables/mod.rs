@@ -493,14 +493,15 @@ impl App {
     }
 }
 
+/// The export toast. A count that follows the outcome stays in plain text after a middle dot, never in parentheses.
 fn format_export_variables_toast(var_count: usize, summary: &ExportSummary) -> String {
     let path_display = summary.written_path.display();
     let label = summary.format_label;
-    if summary.omitted_count == 0 {
-        format!("Exported {var_count} variables ({label}) to {path_display}")
-    } else {
-        let n = summary.omitted_count;
-        format!("Exported {var_count} variables ({label}) to {path_display} ({n} extension keys not carried)")
+    let noun = crate::widgets::plural(var_count, "variable", "variables");
+    let exported = format!("Exported {var_count} {noun} ({label}) to {path_display}");
+    match summary.omitted_count {
+        0 => exported,
+        n => format!("{exported} · {n} extension {} not carried", crate::widgets::plural(n, "key", "keys")),
     }
 }
 
@@ -643,6 +644,16 @@ mod tests {
         s.set_value(&g, &mode, VariableValue::Number(12.0));
         assert!(app.commit_store(s, &[], &[]));
         app
+    }
+
+    #[test]
+    fn export_toast_keeps_counts_out_of_parentheses_and_agrees_in_number() {
+        let summary = |omitted_count| ExportSummary { format_label: "DTCG", written_path: "/out/tokens.json".into(), omitted_count };
+        assert_eq!(format_export_variables_toast(12, &summary(0)), "Exported 12 variables (DTCG) to /out/tokens.json");
+        assert_eq!(format_export_variables_toast(1, &summary(0)), "Exported 1 variable (DTCG) to /out/tokens.json");
+        assert_eq!(format_export_variables_toast(12, &summary(3)), "Exported 12 variables (DTCG) to /out/tokens.json · 3 extension keys not carried");
+        assert_eq!(format_export_variables_toast(1, &summary(1)), "Exported 1 variable (DTCG) to /out/tokens.json · 1 extension key not carried");
+        assert!(!format_export_variables_toast(12, &summary(3)).contains("(3"), "an omitted count never sits in parentheses");
     }
 
     #[test]

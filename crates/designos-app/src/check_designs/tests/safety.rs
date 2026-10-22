@@ -315,6 +315,22 @@ fn a_page_scope_on_a_page_that_still_exists_is_not_moved() {
     assert_eq!(app.check_designs.scope, Some(Scope::Page(first)), "the scope stays fixed while its page exists");
 }
 
+#[test]
+fn the_selection_scope_line_counts_layers_in_plain_text() {
+    let mut f = fx();
+    let one = f.frame(f.page, "One", None);
+    let two = f.frame(f.page, "Two", None);
+    let mut app = f.app();
+    app.select_only(one);
+    app.open_check_designs();
+    assert_eq!(app.check_designs.scope_label, "Selection · 1 layer");
+    app.selection = vec![one, two];
+    app.open_check_designs();
+    assert_eq!(app.check_designs.scope_label, "Selection · 2 layers");
+    assert_eq!(app.check_designs.scope, Some(Scope::Layers(vec![one, two])));
+    assert!(!app.check_designs.scope_label.contains('('), "a count never sits in parentheses");
+}
+
 // ---------------------------------------------------------------- resolving detached frames
 
 #[test]

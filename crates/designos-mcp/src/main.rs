@@ -7,35 +7,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = match (args.next(), args.next(), args.next()) {
         (Some(flag), Some(path), None) if flag == "--workspace" => std::path::PathBuf::from(path),
         (Some(flag), None, None) if flag == "--list-lint-rules" => {
-            for rule_id in [
-                "overflow-parent",
-                "overflowing-children",
-                "clipped-partial",
-                "clipped-full",
-                "sibling-overlap",
-                "overlapping-siblings",
-                "text-truncated",
-                "text-unexpected-wrap",
-                "collapsed-size",
-                "zero-bounds",
-                "sizing-conflict",
-                "text-missing-fill",
-                "absolute-in-auto-layout",
-                "placeholder-text",
-                "contrast",
-                "low-contrast-text",
-                "off-scale",
-                "inconsistent-spacing",
-                "non-scale-font-size",
-                "inconsistent-radius",
-                "hardcoded-value",
-                "hardcoded-color",
-                "hardcoded-number",
-                "unstyled-text",
-                "detached-instance",
-                "missing-auto-layout",
-                "tap-target-size",
-            ] {
+            // One canonical registry id per line, alphabetical so the listing is the same on every run.
+            // Aliases are accepted by the linter but never listed.
+            let mut rule_ids = designos_doc::lint::all_rule_ids();
+            rule_ids.sort_unstable();
+            for rule_id in rule_ids {
                 println!("{rule_id}");
             }
             return Ok(());

@@ -81,14 +81,15 @@ impl ImportReport {
         self.skipped.iter().filter(|s| s.reason == "subscribed library collection is read-only").count()
     }
 
-    /// Formats the UI toast message per `E1-9` §7:
-    /// `"Imported 120 variables (4 skipped — details)"` or `"Imported 120 variables"`.
+    /// Formats the UI toast message (`E1-9` §7): `"Imported 120 variables · 4 skipped"`, or
+    /// `"Imported 120 variables"` when nothing was skipped. The skipped list opens beside the toast.
     pub fn toast_message(&self) -> String {
         let count = self.added + self.updated + self.unchanged;
+        let imported = format!("Imported {count} {}", if count == 1 { "variable" } else { "variables" });
         if self.skipped.is_empty() {
-            format!("Imported {count} variables")
+            imported
         } else {
-            format!("Imported {count} variables ({} skipped — details)", self.skipped.len())
+            format!("{imported} · {} skipped", self.skipped.len())
         }
     }
 }
@@ -2593,6 +2594,22 @@ mod tests {
     }
 
     #[test]
+    fn import_toast_puts_counts_in_plain_text_and_agrees_in_number() {
+        let report = |added: usize, skipped: usize| ImportReport {
+            added,
+            skipped: (0..skipped).map(|i| SkippedVariable { path: format!("Color/{i}"), reason: "unsupported".into() }).collect(),
+            ..ImportReport::default()
+        };
+        assert_eq!(report(120, 4).toast_message(), "Imported 120 variables · 4 skipped");
+        assert_eq!(report(1, 1).toast_message(), "Imported 1 variable · 1 skipped");
+        assert_eq!(report(0, 2).toast_message(), "Imported 0 variables · 2 skipped");
+        assert_eq!(report(120, 0).toast_message(), "Imported 120 variables");
+        for skipped in [0, 1, 4] {
+            assert!(!report(3, skipped).toast_message().contains('('), "a count never sits in parentheses");
+        }
+    }
+
+    #[test]
     fn figma_native_import_lossless() {
         let mut doc = Document::new("d");
         let opts = ImportVariablesOptions {
@@ -3595,7 +3612,7 @@ mod tests {
         let rep = import_variables(&mut doc, clean_native, VariablesFormat::FigmaNative, ImportVariablesOptions::default()).unwrap();
         assert_eq!(rep.added, 1);
         assert!(rep.skipped.is_empty(), "existing library variables must not be reported as skipped: {:?}", rep.skipped);
-        assert_eq!(rep.toast_message(), "Imported 1 variables");
+        assert_eq!(rep.toast_message(), "Imported 1 variable");
 
         // 2. Importing a REST JSON whose library collection holds VariableID:1:8 does NOT overwrite local "Accent"
         let clashing_rest = json!({
