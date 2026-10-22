@@ -74,12 +74,14 @@
             {
               "name": "CLI Mode Button",
               "preset": "easeui-button-secondary",
-              "text": "designos --comments-json"
+              "text": "designos --comments-json",
+              "color": "#F4F4F5"
             },
             {
               "name": "Apply Spec CTA",
               "preset": "easeui-button-primary",
-              "text": "Apply Spec to Canvas"
+              "text": "Apply Spec to Canvas",
+              "color": "#F4F4F5"
             }
           ]
         }
@@ -115,7 +117,8 @@
             {
               "name": "Pipeline Section Badge",
               "preset": "easeui-badge",
-              "text": "1 · SPEC-DRIVEN ENGINE"
+              "text": "1 · SPEC-DRIVEN ENGINE",
+              "color": "#F4F4F5"
             },
             {
               "name": "Pipeline Heading",

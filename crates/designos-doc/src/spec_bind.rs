@@ -2025,4 +2025,68 @@ mod tests {
         let rect = doc.get(report.root_node_id).unwrap();
         assert_eq!(rect.variables.bindings.get("fills/0").map(String::as_str), Some("v_color_primary"));
     }
+    fn text_fills_of(doc: &Document, id: NodeId) -> Vec<Paint> {
+        match &doc.get(id).unwrap().kind {
+            NodeKind::Text(t) => t.style.fills.clone(),
+            other => panic!("not a text node: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn text_without_a_colour_is_black_like_every_other_way_to_make_text() {
+        let mut doc = Document::new("Text default");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Card",
+            "fill": "#FFFFFF",
+            "children": [
+                { "kind": "text", "name": "Plain", "text": "Plain" },
+                { "kind": "text", "name": "Sized", "text": "Sized", "font_size": 20, "font_weight": 700 },
+                { "preset": "easeui-button-primary", "name": "Button", "text": "Go" }
+            ]
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_report(page, &spec).unwrap();
+
+        let black = vec![Paint::solid(Color::BLACK)];
+        assert_eq!(black, vec![Paint::solid(Color::rgb(0, 0, 0))]);
+        for name in ["Card/Plain", "Card/Sized"] {
+            let id = NodeId(report.name_to_id[name]);
+            assert_eq!(text_fills_of(&doc, id), black, "{name}");
+        }
+        let button = doc.get(NodeId(report.name_to_id["Card/Button"])).unwrap();
+        let label = doc.get(button.children[0]).expect("label child");
+        assert_eq!(text_fills_of(&doc, label.id), black, "the label made from the `text` shorthand");
+        assert!(doc
+            .get(NodeId(report.name_to_id["Card/Sized"]))
+            .is_some_and(|n| matches!(&n.kind, NodeKind::Text(t) if t.style.font_size == 20.0 && t.style.font_weight == 700)));
+    }
+
+    #[test]
+    fn text_with_an_explicit_colour_keeps_it() {
+        let mut doc = Document::new("Text colour");
+        let page = doc.add_page("Page");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Panel",
+            "preset": "easeui-panel",
+            "children": [
+                { "kind": "text", "name": "Light", "text": "Light", "text_color": "#F4F4F5" },
+                { "kind": "text", "name": "Token", "text": "Token", "color": "$easeui.text.primary" },
+                { "preset": "easeui-badge", "name": "Badge", "text": "New", "text_color": "#10B981" }
+            ]
+        }))
+        .unwrap();
+        let report = doc.apply_spec_with_report(page, &spec).unwrap();
+
+        let light = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
+        assert_eq!(text_fills_of(&doc, NodeId(report.name_to_id["Panel/Light"])), light);
+        let token = doc.get(NodeId(report.name_to_id["Panel/Token"])).unwrap();
+        let drawn = crate::resolved_node(&doc, token.id).unwrap();
+        let NodeKind::Text(drawn_text) = &drawn.kind else { panic!("text node") };
+        assert_eq!(drawn_text.style.fills, light, "the token resolves to the same light grey");
+        let badge = doc.get(NodeId(report.name_to_id["Panel/Badge"])).unwrap();
+        assert_eq!(text_fills_of(&doc, badge.children[0]), vec![Paint::solid(Color::rgb(0x10, 0xB9, 0x81))]);
+    }
 }
