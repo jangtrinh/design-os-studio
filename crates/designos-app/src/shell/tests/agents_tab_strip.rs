@@ -165,3 +165,104 @@ fn the_screen_reader_name_of_a_tab_says_when_its_agent_exited() {
     assert_eq!(name, Some(format!("{title} (exited)")), "a screen reader is told that the agent of the tab exited");
     finish(s, dir);
 }
+
+/// Every painted shape of the last frame, with groups opened.
+fn flat_shapes(s: &Sim) -> Vec<&egui::epaint::Shape> {
+    fn walk<'a>(shape: &'a egui::epaint::Shape, out: &mut Vec<&'a egui::epaint::Shape>) {
+        match shape {
+            egui::epaint::Shape::Vec(inner) => inner.iter().for_each(|shape| walk(shape, out)),
+            other => out.push(other),
+        }
+    }
+    let mut out = Vec::new();
+    s.shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut out));
+    out
+}
+
+/// Contrast of the tab title that starts with `prefix` against the opaque fill it is painted on.
+fn painted_title_contrast(s: &Sim, prefix: &str) -> f32 {
+    use egui::epaint::Shape;
+    let shapes = flat_shapes(s);
+    let title = shapes
+        .iter()
+        .find_map(|shape| match shape {
+            Shape::Text(text) if text.galley.job.text.starts_with(prefix) => Some(text),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no text starting with {prefix:?} was painted"));
+    let colour = title.galley.job.sections[0].format.color;
+    let centre = title.galley.rect.translate(title.pos.to_vec2()).center();
+    let fill = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            Shape::Rect(rect) if rect.fill.a() == 255 && rect.rect.contains(centre) => Some((rect.rect.width() * rect.rect.height(), rect.fill)),
+            _ => None,
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, fill)| fill)
+        .expect("an opaque fill under the title");
+    crate::lint::contrast_ratio(crate::lint::composite_over(colour, fill), fill)
+}
+
+/// A strip with a Claude tab and a Grok tab, the Grok tab active, then the Claude agent exits.
+fn strip_with_an_exited_first_tab(tag: &str) -> (Sim, PathBuf) {
+    let (mut s, dir) = strip_sim(tag);
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Grok, None).expect("stub grok starts");
+    s.shell.app.terminal.viewport_focused = false;
+    frames(&mut s, 3);
+    exit_tab(&mut s, 0);
+    (s, dir)
+}
+
+#[test]
+fn an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not() {
+    let (mut s, dir) = strip_with_an_exited_first_tab("exit-contrast");
+    let inactive = painted_title_contrast(&s, "Claude");
+    assert!(inactive >= 4.5, "the title of an exited tab behind the active one is {inactive:.2}:1, 4.5:1 is the floor");
+
+    s.shell.app.terminal.active_tab = 0;
+    frames(&mut s, 3);
+    let active = painted_title_contrast(&s, "Claude");
+    assert!(active >= 4.5, "the title of the active exited tab is {active:.2}:1, 4.5:1 is the floor");
+    finish(s, dir);
+}
+
+#[test]
+fn an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one() {
+    use egui::epaint::Shape;
+    let (s, dir) = strip_with_an_exited_first_tab("exit-dot");
+    let dots: Vec<_> = flat_shapes(&s).into_iter().filter_map(|shape| if let Shape::Circle(c) = shape { Some(*c) } else { None }).collect();
+    let rings = dots.iter().filter(|c| c.fill.a() == 0 && !c.stroke.is_empty() && c.radius > 2.9 && c.radius < 3.5).count();
+    let idle_dots = dots.iter().filter(|c| c.fill == crate::theme::TEXT_SECONDARY && c.radius == 2.7).count();
+    assert_eq!(rings, 1, "the exited tab shows a hollow ring: {dots:?}");
+    assert_eq!(idle_dots, 1, "only the running idle tab keeps the filled dot: {dots:?}");
+    finish(s, dir);
+}
+
+#[test]
+fn closing_the_plus_menu_with_plus_discards_the_other_cli_draft() {
+    let (mut s, dir) = strip_sim("plus-draft");
+    let plus = s.rect_of("agents-runtime-add-btn").center();
+
+    let _release = as_in_a_release_build(&mut s);
+    s.click(plus);
+    assert!(menu_is_open(&s));
+    {
+        let picker = &mut s.shell.app.terminal.picker;
+        picker.open_other_form();
+        picker.other_label_input = "Aider".into();
+        picker.other_command_input = "aider --draft".into();
+    }
+    frames(&mut s, 2);
+
+    s.click(plus);
+    let picker = &s.shell.app.terminal.picker;
+    assert!(!menu_is_open(&s), "the click on `+` closes the menu");
+    assert!(!picker.other_form_open, "and the Other CLI form goes with it, as it does for a press anywhere else");
+    assert!(picker.other_label_input.is_empty() && picker.other_command_input.is_empty(), "and so does what was typed in it");
+
+    s.click(plus);
+    assert!(menu_is_open(&s), "the next click opens the menu again");
+    assert!(!s.shell.app.terminal.picker.other_form_open, "on its list, not on the old form");
+    finish(s, dir);
+}

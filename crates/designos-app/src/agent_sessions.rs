@@ -365,25 +365,28 @@ pub fn is_agent_cli_preset(preset: AgentCliPreset) -> bool {
     )
 }
 
-/// True only for agent CLIs whose resume command is verified to be scoped to the session folder (`#653` §3 rules 4 & 6).
-/// `Codex` (`codex resume --last`) and `Antigravity` (`agy --continue`) are gated on `codex_cwd_scoped`
-/// and `agy_cwd_scoped` respectively; `Shell` and `DesignOsHelp` are never registered.
-pub fn is_registrable_cli_scoped(preset: AgentCliPreset, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> bool {
+/// True only for agent CLIs whose sessions Studio can resume safely (`#653` §3 rules 4 & 6), so the newest entry is
+/// always one that can be resumed.
+/// - `Codex` is never registered: its `resume --last` takes no session id, so it continues the newest Codex
+///   conversation whichever session was picked. Codex is registered once Studio captures a session id and resumes by
+///   it (`#926`); verifying the cwd scope (`codex_cwd_scoped`) does not change that.
+/// - `Antigravity` (`agy --continue`) is registered once `agy_cwd_scoped` is verified.
+/// - `Shell` and `DesignOsHelp` are never registered.
+pub fn is_registrable_cli_scoped(preset: AgentCliPreset, agy_cwd_scoped: bool) -> bool {
     match preset {
         AgentCliPreset::Claude | AgentCliPreset::Grok | AgentCliPreset::Gemini | AgentCliPreset::OpenCode => true,
-        AgentCliPreset::Codex => codex_cwd_scoped,
         AgentCliPreset::Antigravity => agy_cwd_scoped,
-        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => false,
+        AgentCliPreset::Codex | AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => false,
     }
 }
 
-/// Default registrability check when neither `codex_cwd_scoped` nor `agy_cwd_scoped` has been verified.
+/// Default registrability check when `agy_cwd_scoped` has not been verified.
 pub fn is_registrable_cli(preset: AgentCliPreset) -> bool {
-    is_registrable_cli_scoped(preset, false, false)
+    is_registrable_cli_scoped(preset, false)
 }
 
 /// True for CLIs that accept `--session-id <uuid>` on new start (`Claude` and `Grok`).
-/// `Codex`, `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`).
+/// `Antigravity`, `Gemini`, and `OpenCode` record `session_id: None` (`Rule 6`); Codex is not recorded.
 pub fn uses_preassigned_session_id(preset: AgentCliPreset) -> bool {
     matches!(preset, AgentCliPreset::Claude | AgentCliPreset::Grok)
 }
@@ -450,6 +453,8 @@ pub fn preset_from_cli_name(cli: &str) -> Option<AgentCliPreset> {
 }
 
 /// Builds the CLI resume command for `entry` with explicit `codex_cwd_scoped` and `agy_cwd_scoped` gates (`#653` §3 rule 6, `#679` §3).
+/// The gates only decide whether an entry that already exists can be resumed. Codex entries are not recorded today
+/// ([`is_registrable_cli_scoped`]), so `codex_cwd_scoped` resumes nothing in practice.
 /// Rejects any non-empty `entry.session_id` that is not a valid 36-char UUID (`is_valid_session_uuid`) for Claude/Grok.
 pub fn build_resume_command_scoped(entry: &SessionEntry, codex_cwd_scoped: bool, agy_cwd_scoped: bool) -> Option<String> {
     let preset = preset_from_cli_name(&entry.cli)?;
@@ -983,21 +988,23 @@ mod tests {
         st.bind_library_file(&dir, "file-codex-1", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
 
-        // Before `codex_cwd_scoped` / `agy_cwd_scoped` are verified, neither CLI records an entry in `sessions`.
-        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn unscoped codex");
+        // Codex is recorded only with its own session id, and `codex resume --last` gives Studio none (`#926`).
+        // So it is not recorded, and Antigravity is not either until `agy_cwd_scoped` is verified.
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex");
         st.spawn_tab(AgentCliPreset::Antigravity, None).expect("spawn unscoped agy");
-        assert!(st.session_registry.sessions.is_empty(), "unverified codex/agy must not be registered");
+        assert!(st.session_registry.sessions.is_empty(), "codex has no session id and unverified agy is not scoped: neither is registered");
 
-        // Once `codex_cwd_scoped` is verified, Codex registers with `session_id: null` and no SQLite query.
+        // Verifying the cwd scope of `codex resume --last` does not make Codex recordable: it still has no id.
         st.codex_cwd_scoped = true;
-        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn scoped codex");
+        st.spawn_tab(AgentCliPreset::Codex, None).expect("spawn codex with a verified cwd scope");
+        assert!(st.session_registry.sessions.is_empty(), "a verified cwd scope does not record Codex");
+        assert!(load_or_init_registry(&st.session_dir).sessions.is_empty(), "and none reaches sessions.json (which only remembers `last_cli`)");
 
+        // Antigravity is recorded once its scope is verified.
+        st.agy_cwd_scoped = true;
+        st.spawn_tab(AgentCliPreset::Antigravity, None).expect("spawn scoped agy");
         assert_eq!(st.session_registry.sessions.len(), 1);
-        assert_eq!(st.session_registry.sessions[0].cli, "codex");
-        assert_eq!(st.session_registry.sessions[0].session_id, None);
-
-        let raw = std::fs::read_to_string(st.session_dir.join("sessions.json")).expect("read sessions.json");
-        assert!(raw.contains("\"session_id\": null"), "Codex entry must serialize session_id: null, got:\n{raw}");
+        assert_eq!(st.session_registry.sessions[0].cli, "agy");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1365,10 +1372,10 @@ mod tests {
         }
     }
 
-    // 14. `codex_registration_is_gated_on_cwd_scope`
+    // 14. `codex_is_never_registered_and_its_resume_stays_gated_on_cwd_scope`
     #[test]
-    fn codex_registration_is_gated_on_cwd_scope() {
-        assert!(!is_registrable_cli(AgentCliPreset::Codex), "Codex must not register until cwd scope is verified");
+    fn codex_is_never_registered_and_its_resume_stays_gated_on_cwd_scope() {
+        assert!(!is_registrable_cli(AgentCliPreset::Codex), "Codex is not registered without a session id of its own");
         assert!(!is_registrable_cli(AgentCliPreset::Antigravity), "Antigravity must not register until cwd scope is verified");
         assert!(is_registrable_cli(AgentCliPreset::Claude));
         assert!(is_registrable_cli(AgentCliPreset::Grok));

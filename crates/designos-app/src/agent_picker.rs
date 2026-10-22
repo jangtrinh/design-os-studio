@@ -47,11 +47,13 @@ impl AgentPickerState {
     }
 
     /// Resets the open-latch when the picker or `+` menu closes so the next open triggers a fresh
-    /// background probe while keeping the cached result on screen (`#652` §5).
+    /// background probe while keeping the cached result on screen (`#652` §5). Closing also drops the `Other CLI…`
+    /// form and what was typed in it, however the menu was closed (a press elsewhere, `+`, a tab, Esc, a pick).
     pub fn on_close(&mut self) {
         self.probe_started = false;
         self.open_row_order.clear();
         self.open_row_order_settled = false;
+        self.close_other_form();
     }
 
     /// Triggers a fresh background probe (e.g. when re-opening the picker).
@@ -262,14 +264,15 @@ fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, C
     }
 }
 
-/// Height of the `Other CLI…` form card: padding, the label and command fields, a caption block of two caption
-/// lines, and the button row. The card is the same in the full picker and in the `+` menu.
-const OTHER_FORM_CARD_HEIGHT: f32 = 120.0;
+/// Height of the `Other CLI…` form card: padding, the label and command fields, a caption block of two caption lines
+/// at `theme::LINE_CAPTION`, 8 px, and the button row at the 24 px target minimum. The card is the same in the full
+/// picker and in the `+` menu, and its height is a multiple of 4 px.
+const OTHER_FORM_CARD_HEIGHT: f32 = 128.0;
 /// Room the picker and the `+` menu give the open form: the 2 px inset above the card, the card, and a 6 px margin.
 const OTHER_FORM_HEIGHT: f32 = OTHER_FORM_CARD_HEIGHT + 8.0;
-/// Two lines of the 10 px caption. The caption wraps to this block and never runs under the buttons.
-const OTHER_FORM_CAPTION_HEIGHT: f32 = 24.0;
-const OTHER_FORM_BUTTON_HEIGHT: f32 = 20.0;
+/// Two lines of the caption at its line height. The caption wraps to this block and never runs under the buttons.
+const OTHER_FORM_CAPTION_HEIGHT: f32 = 2.0 * theme::LINE_CAPTION;
+const OTHER_FORM_BUTTON_HEIGHT: f32 = theme::TARGET_MIN;
 const PICKER_FOOTER_HEIGHT: f32 = 22.0;
 
 /// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
@@ -606,7 +609,6 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
                 if !menu_r.contains(pos) && !in_add {
                     state.runtime_dropdown_open = false;
                     state.picker.on_close();
-                    state.picker.close_other_form();
                 }
             }
         }
@@ -670,7 +672,8 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
         Rect::from_min_size(Pos2::new(form_r.left() + pad, cmd_rect.bottom() + theme::SPACE_ROW), Vec2::new(field_w, OTHER_FORM_CAPTION_HEIGHT));
     let caption_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
     let caption_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
-    let mut caption_job = egui::text::LayoutJob::single_section(caption_txt.to_string(), egui::TextFormat::simple(theme::font_caption(), caption_col));
+    let caption_format = egui::TextFormat { line_height: Some(theme::LINE_CAPTION), ..egui::TextFormat::simple(theme::font_caption(), caption_col) };
+    let mut caption_job = egui::text::LayoutJob::single_section(caption_txt.to_string(), caption_format);
     caption_job.wrap = egui::text::TextWrapping { max_width: field_w, max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
     let caption = p.layout_job(caption_job);
     let caption_pos = Pos2::new(caption_block.left(), caption_block.center().y - caption.size().y * 0.5);
@@ -1244,6 +1247,22 @@ mod tests {
         caption
     }
 
+    #[test]
+    fn closing_the_picker_discards_the_other_cli_draft() {
+        let mut st = TerminalState::for_tab(1);
+        st.picker.open_other_form();
+        st.picker.other_label_input = "Aider".into();
+        st.picker.other_command_input = "aider --draft".into();
+        st.picker.other_error = Some("Enter a command to run.".into());
+
+        st.picker.on_close();
+
+        assert!(!st.picker.other_form_open);
+        assert!(st.picker.other_label_input.is_empty() && st.picker.other_command_input.is_empty());
+        assert_eq!(st.picker.other_error, None);
+        st.shutdown();
+    }
+
     fn one_line(s: &str) -> String {
         s.split_whitespace().collect::<Vec<_>>().join(" ")
     }
@@ -1259,6 +1278,18 @@ mod tests {
                 caption.rect
             );
         }
+        let rows = caption.text.lines().count() as f32;
+        assert!(
+            (caption.rect.height() - rows * theme::LINE_CAPTION).abs() < 0.5,
+            "{what}: a caption row is {} px high, the caption line height is {} px ({:?})",
+            caption.rect.height() / rows,
+            theme::LINE_CAPTION,
+            caption.text
+        );
+        for (name, button) in [("Cancel", form.cancel), ("Save", form.save)] {
+            assert!(button.height() >= theme::TARGET_MIN, "{what}: {name} is {} px high, the least for a target is {}", button.height(), theme::TARGET_MIN);
+        }
+        assert!(form.card.height() % theme::SPACE_FACT == 0.0, "{what}: the card is {} px high, a multiple of 4 is the rhythm", form.card.height());
         assert!(form.card.contains_rect(caption.rect), "{what}: the caption {:?} stays inside the form card {:?}", caption.rect, form.card);
         assert!(form.card.contains_rect(form.cancel) && form.card.contains_rect(form.save), "{what}: both buttons stay inside the form card {:?}", form.card);
     }
