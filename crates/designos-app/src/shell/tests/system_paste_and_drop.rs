@@ -843,6 +843,77 @@ fn an_image_dropped_on_a_non_clipping_frame_inside_a_clipping_frame_is_never_par
     check_nested_drop(false);
 }
 
+/// A 60x40 picture: it fits the 100 px wide overlap below.
+fn narrow_image() -> Option<ClipImage> {
+    Some(solid(60, 40))
+}
+
+/// A frame (`frame`) or rectangle at `at` in `parent`, `size` big; `clips` is the frame's own setting.
+fn add_layer(app: &mut crate::app::App, parent: NodeId, frame: bool, name: &str, at: (f32, f32), size: (f32, f32), clips: bool) -> NodeId {
+    let (id, rect) = (app.doc.alloc_id(), designos_doc::Rect::new(0.0, 0.0, size.0, size.1));
+    let mut n = if frame { designos_doc::Node::frame(id, rect) } else { designos_doc::Node::rectangle(id, rect) };
+    n.name = name.into();
+    n.transform = designos_doc::Affine::translate(at.0, at.1);
+    if let Some(f) = n.kind.frame_props_mut() {
+        f.clips_content = clips;
+    }
+    app.doc.insert(parent, n).unwrap()
+}
+
+/// Two clipping frames that only partly overlap, with the frame the paste joins inside the inner one. The `Welcome`
+/// screen clips (world 120..480 x 120..760). A clipping `Panel` sticks out past its right edge (world 380..620 x
+/// 300..500), so only 380..480 x 300..500 of it shows. A non-clipping `Strip` inside the panel (world 400..600 x
+/// 320..480) is the frame the paste joins, through the `Chip` rectangle selected in it. Returns the strip, the chip,
+/// the panel and the screen.
+fn strip_in_a_panel_sticking_out_of_a_screen(s: &mut Sim) -> (NodeId, NodeId, NodeId, NodeId) {
+    clip_every_frame(s);
+    let welcome = s.by_name("Welcome");
+    let app = &mut s.shell.app;
+    let panel = add_layer(app, welcome, true, "Panel", (260.0, 180.0), (240.0, 200.0), true);
+    let strip = add_layer(app, panel, true, "Strip", (20.0, 20.0), (200.0, 160.0), false);
+    let chip = add_layer(app, strip, false, "Chip", (10.0, 10.0), (20.0, 20.0), false);
+    app.changed();
+    s.frame(vec![]);
+    (strip, chip, panel, welcome)
+}
+
+fn check_paste_into_the_overlap_of_two_clipping_frames(text: bool) {
+    let mut s = Sim::new();
+    let (strip, chip, panel, welcome) = strip_in_a_panel_sticking_out_of_a_screen(&mut s);
+    // the part that shows is the overlap of the two clipping frames, narrower than the panel and the strip
+    let ((wx, wy, ww, wh), (px, py, pw, ph)) = (world_box(&s, welcome), world_box(&s, panel));
+    let overlap = (wx.max(px), wy.max(py), (wx + ww).min(px + pw), (wy + wh).min(py + ph));
+    assert!(overlap.2 < px + pw && overlap.0 < world_box(&s, strip).0 + world_box(&s, strip).2, "precondition: the panel sticks out of the screen");
+    s.shell.app.selection = vec![chip];
+    let before = ids(&s);
+    if text {
+        ctrl_v(&mut s, Some("Release notes for Friday"));
+    } else {
+        s.shell.app.system_image = narrow_image;
+        ctrl_v(&mut s, None);
+    }
+    let new = added(&s, &before);
+    assert_eq!(new.len(), 1, "{new:?}");
+    assert_eq!(parent_of(&s, new[0]), strip, "it joins the strip");
+    let (x, y, w, h) = world_box(&s, new[0]);
+    assert!(
+        x >= overlap.0 - 0.5 && x + w <= overlap.2 + 0.5 && y >= overlap.1 - 0.5 && y + h <= overlap.3 + 0.5,
+        "inside the overlap {overlap:?}, not just inside the panel: ({x}, {y}) {w}x{h}"
+    );
+    let share = visible_share(&s, new[0]);
+    assert!(share >= 0.99, "visible share {share}");
+}
+
+#[test]
+fn pasted_text_lands_in_the_overlap_of_a_clipping_panel_sticking_out_of_a_clipping_screen() {
+    check_paste_into_the_overlap_of_two_clipping_frames(true);
+}
+
+#[test]
+fn a_pasted_image_lands_in_the_overlap_of_a_clipping_panel_sticking_out_of_a_clipping_screen() {
+    check_paste_into_the_overlap_of_two_clipping_frames(false);
+}
+
 // --------------------------------------------------------------------------- Edit > Paste while typing
 
 #[test]
