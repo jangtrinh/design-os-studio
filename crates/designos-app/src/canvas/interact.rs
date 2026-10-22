@@ -1251,7 +1251,8 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
         let mut dup = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
         let clip = crate::clipboard::capture(&app.doc, &ids);
-        let copies = clip.map(|c| crate::clipboard::instantiate(&mut app.doc, &c)).unwrap_or_default();
+        let copies =
+            clip.map(|c| crate::clipboard::instantiate_linking_mains(&mut app.doc, &c, |doc, id| doc.get(id).and_then(|n| n.parent))).unwrap_or_default();
         // A copy lands next to its original, but the drop may carry it elsewhere: only a copy that
         // ends up in a slot it would overfill is refused, and that is decided at release.
         let mut blocked = Vec::new();
@@ -1738,6 +1739,22 @@ fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) 
     true
 }
 
+/// The main components that `ids` (with their layers) hold an instance of, directly or through the content of the
+/// mains those instances link to.
+fn mains_held_by(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
+    let mut mains: Vec<NodeId> = Vec::new();
+    let mut to_walk = ids.to_vec();
+    while let Some(root) = to_walk.pop() {
+        doc.walk(root, |n, _| {
+            if let Some(main) = designos_doc::instance_component(n).filter(|m| !mains.contains(m)) {
+                mains.push(main);
+                to_walk.push(main);
+            }
+        });
+    }
+    mains
+}
+
 /// `cur` is where the layers were dropped; without it they stay in the container they are in.
 fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> bool {
     let copies = m.dup_blocked.is_some();
@@ -1766,7 +1783,11 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> boo
         return true;
     }
     let Some(cur) = cur else { return true };
-    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
+    // A layer is not dropped into a main it holds an instance of, nor into a layer inside it: that main would hold
+    // itself. A copy of a main dropped on the main lands beside it.
+    let mut skip = m.ids.clone();
+    skip.extend(mains_held_by(&app.doc, &m.ids));
+    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &skip);
     // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
     let moving: Vec<NodeId> =
         m.ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.parent != Some(target)) && !app.doc.is_ancestor(*id, target)).collect();
@@ -2468,6 +2489,60 @@ fn update_hover_and_cursor(app: &mut App, rect: ERect, inp: &Inp, hovered: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let ids: Vec<NodeId> = [0.0, 200.0]
+            .iter()
+            .map(|x| {
+                let id = d.alloc_id();
+                d.insert(page, designos_doc::Node::frame(id, Rect::new(*x, 0.0, 100.0, 100.0))).unwrap()
+            })
+            .collect();
+        let (main, plain) = (ids[0], ids[1]);
+        designos_doc::create_component(&mut d, main).apply(&mut d).unwrap();
+        let mut app = App::new(d);
+        app.selection = vec![main, plain];
+        let nodes = app.doc.nodes.len();
+        let m = start_move(&mut app, main, v2(0.0, 0.0), true).unwrap();
+        let [copy_of_main, copy_of_plain] = m.ids[..] else { panic!("two copies, got {:?}", m.ids) };
+        assert!(matches!(app.doc.get(copy_of_main).unwrap().kind, NodeKind::Instance { component: Some(c), .. } if c == main));
+        assert!(matches!(app.doc.get(copy_of_plain).unwrap().kind, NodeKind::Frame(_)));
+        assert!(app.run_tx(m.tx));
+        let mains = app.doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).count();
+        assert_eq!(mains, 1, "the file keeps its one main");
+        app.undo();
+        assert_eq!(app.doc.nodes.len(), nodes, "one undo takes both copies away");
+    }
+
+    #[test]
+    fn mains_held_by_follows_instances_through_the_mains_they_link_to() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let main = |d: &mut Document, name: &str| {
+            let id = d.alloc_id();
+            let f = d.insert(page, designos_doc::Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+            d.get_mut(f).unwrap().name = name.into();
+            designos_doc::create_component(d, f).apply(d).unwrap();
+            f
+        };
+        let (button, card, plain) = (main(&mut d, "Button"), main(&mut d, "Card"), main(&mut d, "Plain"));
+        // Card holds a Button instance; a layer on the page holds a Card instance.
+        let Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, button, card, v2(0.0, 0.0)) else { panic!("instance") };
+        Command::Insert { parent: card, index: 0, nodes }.apply(&mut d).unwrap();
+        let Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, card, page, v2(0.0, 0.0)) else { panic!("instance") };
+        let card_instance = nodes[0].id;
+        Command::Insert { parent: page, index: 0, nodes }.apply(&mut d).unwrap();
+
+        let mut held = mains_held_by(&d, &[card_instance]);
+        held.sort();
+        let mut want = vec![button, card];
+        want.sort();
+        assert_eq!(held, want, "the Card instance holds Card, and Button through it");
+        assert!(mains_held_by(&d, &[plain]).is_empty(), "a main holds no main of its own");
+    }
 
     #[test]
     fn snap_point_aligns_to_edges() {

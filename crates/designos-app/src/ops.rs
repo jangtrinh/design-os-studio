@@ -565,7 +565,9 @@ impl App {
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
-        let copies = clipboard::capture(&self.doc, &tops).map(|c| clipboard::instantiate(&mut self.doc, &c)).unwrap_or_default();
+        let copies = clipboard::capture(&self.doc, &tops)
+            .map(|c| clipboard::instantiate_linking_mains(&mut self.doc, &c, |doc, id| doc.get(id).and_then(|n| n.parent)))
+            .unwrap_or_default();
         for (id, mut nodes) in tops.into_iter().zip(copies) {
             let Some(parent) = self.doc.get(id).and_then(|n| n.parent) else { continue };
             if let Some(root) = nodes.first() {
@@ -725,8 +727,8 @@ impl App {
     }
 
     fn paste_clip(&mut self, clip: clipboard::Clip) {
-        let parent = self.container_for_insert();
-        let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let parent = clipboard::paste_parent(&self.doc, &clip, self.container_for_insert());
+        let lists = clipboard::instantiate_linking_mains(&mut self.doc, &clip, |_, _| Some(parent));
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {
             return;

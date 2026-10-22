@@ -4,7 +4,7 @@
 use crate::app::App;
 use crate::edit::Tx;
 use crate::layout;
-use designos_doc::{Affine, Command, Document, Node, NodeId, NodeKind, PropKind, PropValue, Vec2};
+use designos_doc::{create_instance, Affine, Command, Document, Node, NodeId, NodeKind, PropKind, PropValue, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -348,6 +348,29 @@ pub struct Clip {
     magic: u32,
     pub roots: Vec<NodeId>,
     pub nodes: Vec<Node>,
+    /// The document the layers were copied from. A clip from an older build has none, so it never links.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<Origin>,
+}
+
+/// An open document: which Studio process it is open in, and which document there (its runtime id, which a loaded
+/// or new document gets afresh and a clone keeps). The clip travels through the system clipboard, so another
+/// Studio window's document that happens to have the same runtime id must not pass for this one.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+struct Origin {
+    process: u64,
+    document: u64,
+}
+
+impl Origin {
+    fn of(doc: &Document) -> Self {
+        static PROCESS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        let process = *PROCESS.get_or_init(|| {
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+            (nanos ^ u64::from(std::process::id()).rotate_left(32)).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        });
+        Self { process, document: doc.runtime_id() }
+    }
 }
 
 /// Serializes `ids` (and their subtrees) from `doc`.
@@ -359,7 +382,7 @@ pub fn capture(doc: &Document, ids: &[NodeId]) -> Option<Clip> {
     if nodes.is_empty() {
         return None;
     }
-    Some(Clip { magic: MAGIC, roots: ids.to_vec(), nodes })
+    Some(Clip { magic: MAGIC, roots: ids.to_vec(), nodes, origin: Some(Origin::of(doc)) })
 }
 
 pub fn to_json(clip: &Clip) -> Option<String> {
@@ -410,6 +433,80 @@ fn instantiate_mapped(doc: &mut Document, clip: &Clip) -> (Vec<Vec<Node>>, HashM
         out.push(list);
     }
     (out, map)
+}
+
+/// The main component a copied root stands for in `doc`, when `doc` is the file it was copied from.
+struct MainLink {
+    /// The main an instance of the root is linked to: the root itself, or a set's default variant (its first one,
+    /// as Assets lists it).
+    comp: NodeId,
+    /// The layer that holds `comp` and its set, if any: an instance cannot go inside it. A variant's is its set.
+    scope: NodeId,
+}
+
+/// `Some` for a root of `clip` that was a main component (or a component set) and still is, in the document it was
+/// copied from. A clip pasted into another file, a main since cut or deleted, and a layer made a main after it was
+/// copied all give `None`: those copy for real.
+fn main_link(doc: &Document, clip: &Clip, root: NodeId) -> Option<MainLink> {
+    if clip.origin != Some(Origin::of(doc)) {
+        return None;
+    }
+    let live = doc.get(root)?;
+    // Most roots are no main: leave before the scan of the clip.
+    if !matches!(live.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
+        return None;
+    }
+    let copied = clip.nodes.iter().find(|n| n.id == root)?;
+    if std::mem::discriminant(&copied.kind) != std::mem::discriminant(&live.kind) {
+        return None;
+    }
+    match &live.kind {
+        NodeKind::Component(_) => {
+            let in_set = live.parent.filter(|p| matches!(doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
+            Some(MainLink { comp: root, scope: in_set.unwrap_or(root) })
+        }
+        NodeKind::ComponentSet(_) => {
+            let comp = live.children.iter().copied().find(|c| matches!(doc.get(*c).map(|n| &n.kind), Some(NodeKind::Component(_))))?;
+            Some(MainLink { comp, scope: root })
+        }
+        _ => None,
+    }
+}
+
+/// Where a paste of `clip` goes when the insert container is `parent`: the same, unless that is a main (or set) the
+/// clip holds, or a layer inside one. Its instance cannot sit inside the main it links to, so it goes beside it,
+/// in the main's own parent.
+pub fn paste_parent(doc: &Document, clip: &Clip, mut parent: NodeId) -> NodeId {
+    for root in &clip.roots {
+        let Some(link) = main_link(doc, clip, *root) else { continue };
+        if link.scope == *root && (parent == *root || doc.is_ancestor(*root, parent)) {
+            parent = doc.get(*root).and_then(|n| n.parent).unwrap_or(parent);
+        }
+    }
+    parent
+}
+
+/// [`instantiate`], except that in the file a main component (or a component set) was copied from, its copy is an
+/// instance of it (of the set's default variant): the file keeps one main, as Figma does. `parent_of` gives the
+/// parent each root will be inserted under, by the root's id in `clip`. A copy that would sit in a component set
+/// stays a copy, because that is how a variant is added; so does one that would sit inside its own main.
+/// The instance takes the position of the layer it replaces.
+pub fn instantiate_linking_mains(doc: &mut Document, clip: &Clip, parent_of: impl Fn(&Document, NodeId) -> Option<NodeId>) -> Vec<Vec<Node>> {
+    let mut lists = instantiate(doc, clip);
+    for (root, list) in clip.roots.iter().zip(lists.iter_mut()) {
+        let Some(link) = main_link(doc, clip, *root) else { continue };
+        let Some(parent) = parent_of(doc, *root) else { continue };
+        let in_set = matches!(doc.get(parent).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)));
+        if in_set || parent == link.scope || doc.is_ancestor(link.scope, parent) {
+            continue;
+        }
+        let Command::Insert { nodes: mut instance, .. } = create_instance(doc, link.comp, parent, Vec2::ZERO) else { continue };
+        if let (Some(root_copy), Some(root_instance)) = (list.first(), instance.first_mut()) {
+            root_instance.transform = root_copy.transform;
+        }
+        *list = instance;
+    }
+    lists
 }
 
 /// Fresh-id deep copy of the subtree rooted at `id` (root first).
@@ -473,6 +570,100 @@ pub(crate) mod tests {
         assert_eq!(ids.len(), 4);
         assert_eq!(ids.iter().collect::<std::collections::BTreeSet<_>>().len(), 4, "{ids:?}");
         assert!(ids.iter().all(|id| d.get(*id).is_none()), "none collides with an existing node");
+    }
+
+    // ---- copies of a main component
+
+    /// A page holding a main component `main` (with one layer in it) and a plain frame `plain`.
+    fn doc_with_a_main() -> (Document, NodeId, NodeId, NodeId) {
+        let (mut d, page, f) = doc();
+        let plain_id = d.alloc_id();
+        let plain = d.insert(page, Node::frame(plain_id, Rect::new(300.0, 0.0, 50.0, 50.0))).unwrap();
+        designos_doc::create_component(&mut d, f).apply(&mut d).unwrap();
+        d.get_mut(f).unwrap().transform = Affine::translate(40.0, 60.0);
+        (d, page, f, plain)
+    }
+
+    fn linked(d: &mut Document, clip: &Clip, parent: NodeId) -> Vec<Vec<Node>> {
+        instantiate_linking_mains(d, clip, |_, _| Some(parent))
+    }
+
+    #[test]
+    fn a_clip_names_the_document_it_came_from_in_its_json() {
+        let (d, _, main, _) = doc_with_a_main();
+        let clip = from_json(&to_json(&capture(&d, &[main]).unwrap()).unwrap()).unwrap();
+        assert!(main_link(&d, &clip, main).is_some(), "the file it was copied from");
+        let mut other = d.clone();
+        other.renew_runtime_id();
+        assert!(main_link(&other, &clip, main).is_none(), "another file with the same node ids");
+
+        // The same document number in another Studio process (the clip came through the system clipboard).
+        let mut value: serde_json::Value = serde_json::from_str(&to_json(&clip).unwrap()).unwrap();
+        let process = value["origin"]["process"].as_u64().unwrap();
+        value["origin"]["process"] = serde_json::json!(process.wrapping_add(1));
+        let foreign = from_json(&value.to_string()).unwrap();
+        assert!(main_link(&d, &foreign, main).is_none(), "another process with the same document number");
+    }
+
+    #[test]
+    fn a_clip_from_an_older_build_has_no_origin_and_copies_for_real() {
+        let (mut d, page, main, _) = doc_with_a_main();
+        let mut value: serde_json::Value = serde_json::from_str(&to_json(&capture(&d, &[main]).unwrap()).unwrap()).unwrap();
+        assert!(value.as_object_mut().unwrap().remove("origin").is_some(), "the newer build writes the origin");
+        let clip = from_json(&value.to_string()).expect("an old clip still reads");
+        let lists = linked(&mut d, &clip, page);
+        assert!(matches!(lists[0][0].kind, NodeKind::Component(_)));
+    }
+
+    #[test]
+    fn a_main_copied_in_its_own_file_becomes_an_instance_where_the_original_stood() {
+        let (mut d, page, main, plain) = doc_with_a_main();
+        let clip = capture(&d, &[main, plain]).unwrap();
+        let lists = linked(&mut d, &clip, page);
+        assert_eq!(lists.len(), 2);
+        let inst = &lists[0][0];
+        assert!(matches!(inst.kind, NodeKind::Instance { component: Some(c), .. } if c == main), "{:?}", inst.kind);
+        assert_eq!(inst.component.source, Some(main));
+        assert_eq!(inst.transform, d.get(main).unwrap().transform, "same place as the main");
+        assert_eq!(lists[0].len(), 2, "the layer inside the main is mirrored");
+        assert!(inst.parent.is_none() && lists[0][1].parent == Some(inst.id) && lists[0][1].component.source.is_some());
+        assert!(matches!(lists[1][0].kind, NodeKind::Frame(_)), "a plain frame is still a copy");
+        assert!(d.get(inst.id).is_none(), "nothing is inserted yet");
+    }
+
+    #[test]
+    fn a_main_that_was_cut_or_changed_since_the_copy_is_copied_for_real() {
+        let (mut d, page, main, _) = doc_with_a_main();
+        let clip = capture(&d, &[main]).unwrap();
+        let mut detached = d.clone();
+        detached.get_mut(main).unwrap().kind = NodeKind::Frame(Default::default());
+        assert!(matches!(linked(&mut detached, &clip, page)[0][0].kind, NodeKind::Component(_)), "no longer a main: copied as it was");
+        d.remove(main).unwrap();
+        assert!(matches!(linked(&mut d, &clip, page)[0][0].kind, NodeKind::Component(_)), "no main left to link to");
+
+        let (mut d, page, frame) = doc();
+        let clip = capture(&d, &[frame]).unwrap();
+        designos_doc::create_component(&mut d, frame).apply(&mut d).unwrap();
+        assert!(matches!(linked(&mut d, &clip, page)[0][0].kind, NodeKind::Frame(_)), "what was copied was a frame");
+    }
+
+    #[test]
+    fn a_main_pasted_into_itself_or_a_set_stays_a_copy_and_a_paste_moves_out_of_the_main() {
+        let (mut d, page, main, _) = doc_with_a_main();
+        let clip = capture(&d, &[main]).unwrap();
+        let inner = d.get(main).unwrap().children[0];
+        assert_eq!(paste_parent(&d, &clip, main), page, "beside the main");
+        assert_eq!(paste_parent(&d, &clip, inner), page, "from a layer inside it too");
+        assert_eq!(paste_parent(&d, &clip, page), page);
+        assert!(matches!(linked(&mut d, &clip, main)[0][0].kind, NodeKind::Component(_)), "an instance cannot sit in its own main");
+
+        designos_doc::combine_as_variants(&mut d, &[main]).apply(&mut d).unwrap();
+        let set = d.get(main).unwrap().parent.unwrap();
+        assert!(matches!(d.get(set).unwrap().kind, NodeKind::ComponentSet(_)));
+        let clip = capture(&d, &[main]).unwrap();
+        assert!(matches!(linked(&mut d, &clip, set)[0][0].kind, NodeKind::Component(_)), "a variant copied in its set is a new variant");
+        let lists = linked(&mut d, &clip, page);
+        assert!(matches!(lists[0][0].kind, NodeKind::Instance { component: Some(c), .. } if c == main), "a variant copied elsewhere is linked");
     }
 
     // ---- paste from Figma
