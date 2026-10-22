@@ -75,12 +75,13 @@ macro_rules! codex_mcp_overrides {
 }
 
 /// How Studio launches an agent CLI with respect to tool-approval prompts (`#645`, `#679`).
+/// Ask is the default and the fail-closed answer for any unknown or unreadable setting (`#841`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum PermissionMode {
-    /// Skip approval prompts using the CLI's documented bypass flag (default in Studio).
-    #[default]
+    /// Skip approval prompts using the CLI's documented bypass flag. Only a saved `"skip"` selects it.
     Skip,
-    /// Ask for approval using the CLI's default interactive mode.
+    /// Ask for approval using the CLI's default interactive mode (default in Studio).
+    #[default]
     Ask,
 }
 
@@ -807,7 +808,7 @@ impl TerminalTab {
             unread: false,
             doc_name,
             turn_tracker: crate::agent_turn_status::TabTurnTracker::default(),
-            permission_mode: crate::agent_permissions::AgentPermissionMode::Skip,
+            permission_mode: crate::agent_permissions::AgentPermissionMode::default(),
             approvals_dir,
             pending_approvals: Vec::new(),
             stop_state: None,
@@ -1473,7 +1474,7 @@ impl TerminalState {
             window_focused: true,
             surface_visible: true,
             status_changes: Vec::new(),
-            permission_mode: crate::agent_permissions::AgentPermissionMode::Skip,
+            permission_mode: crate::agent_permissions::AgentPermissionMode::default(),
             pending_approvals: Vec::new(),
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
@@ -1952,10 +1953,11 @@ impl TerminalState {
 
     /// Re-reads the saved permission mode of the bound library so a mode another window (a separate
     /// process) saved applies to the agent about to start. Called per spawn or prompt, never per frame.
-    /// Without a library, or without a saved mode, the in-memory mode stays.
+    /// A bound library whose saved mode is missing or unreadable means Ask (fail closed), so a stale in-memory
+    /// Skip never outlives the setting. Without a library the in-memory mode stays.
     fn refresh_permission_mode_from_disk(&mut self) {
-        if let Some(mode) = self.library_root.as_deref().and_then(crate::agent_permissions::load_saved_permission_mode) {
-            self.permission_mode = mode;
+        if let Some(root) = self.library_root.as_deref() {
+            self.permission_mode = crate::agent_permissions::load_permission_mode(root);
         }
     }
 
@@ -8871,6 +8873,8 @@ mod tests {
         let sink = std::sync::Arc::new(crate::agent_notify::StubNotificationSink::new());
         st.notifier = crate::agent_notify::AgentNotifier::with_sink(sink.clone());
         let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-notify-perm"));
+        // A Skip-mode tab: an Ask-mode tab leaves this notification to the approval latch (`#656`), and Ask is the default (`#841`).
+        st.tabs[idx].permission_mode = crate::agent_permissions::AgentPermissionMode::Skip;
         st.active_tab = idx;
         st.window_focused = false;
         st.surface_visible = true;
@@ -10504,11 +10508,12 @@ mod tests {
     fn new_agent_tab_honours_the_permission_mode_another_window_saved() {
         use crate::agent_permissions::{save_permission_mode, AgentPermissionMode};
         let root = permission_window_root("other-window");
+        save_permission_mode(&root, AgentPermissionMode::Skip).expect("the library holds Skip (Ask is the default)");
         let mut window_a = TerminalState::for_tab(1);
         window_a.bind_library_file(&root, "file-a", "win-a");
         let mut window_b = TerminalState::for_tab(2);
         window_b.bind_library_file(&root, "file-b", "win-b");
-        assert_eq!(window_b.permission_mode, AgentPermissionMode::Skip, "window B cached the default when it bound");
+        assert_eq!(window_b.permission_mode, AgentPermissionMode::Skip, "window B cached the saved Skip when it bound");
 
         window_a.permission_mode = AgentPermissionMode::Ask;
         save_permission_mode(&root, AgentPermissionMode::Ask).expect("window A persists Ask");

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use egui::{Align2, Color32, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_cli_catalog::{
-    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, CUSTOM_CLI_WARNING, DEFAULT_PERMISSION_CAPTION,
+    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, ASK_PERMISSION_CAPTION, CUSTOM_CLI_WARNING, SKIP_PERMISSION_CAPTION,
 };
 use crate::agent_start_failure::FixAction;
 use crate::comments::settings::{add_custom_cli, load_custom_clis};
@@ -412,7 +412,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
         y += form_h;
     }
 
-    // Footer: Default permission caption (`Skip permissions`, `#652` §3 rule 9)
+    // Footer: caption of the active permission mode (`Ask before acting` by default, `#652` §3 rule 9, `#841`)
     let footer_y = (card_r.bottom() - theme::SPACE_GROUP).max(y + theme::SPACE_INLINE);
     let perm_elided = widgets::elide(&p, permission_caption(state.permission_mode), &theme::font_caption(), inner_w);
     p.text(Pos2::new(inner_left, footer_y), Align2::LEFT_CENTER, perm_elided, theme::font_caption(), theme::TEXT_TERTIARY);
@@ -420,11 +420,11 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
     apply_picker_interaction(state, &rows, interaction, file_path);
 }
 
-/// Footer caption for the active launch mode (`Skip permissions` or `Ask before acting`, `#656`).
+/// Footer caption for the active launch mode (`Ask before acting` by default, `Skip permissions` once picked, `#656`, `#841`).
 fn permission_caption(mode: crate::terminal::PermissionMode) -> &'static str {
     match mode {
-        crate::terminal::PermissionMode::Skip => DEFAULT_PERMISSION_CAPTION,
-        crate::terminal::PermissionMode::Ask => "Ask before acting",
+        crate::terminal::PermissionMode::Skip => SKIP_PERMISSION_CAPTION,
+        crate::terminal::PermissionMode::Ask => ASK_PERMISSION_CAPTION,
     }
 }
 
@@ -568,7 +568,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
         y += form_h;
     }
 
-    // Footer permission caption (`Skip permissions`, `#652` §3 rule 9)
+    // Footer permission caption of the active mode (`#652` §3 rule 9, `#841`)
     let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + theme::SPACE_FACT);
     let (footer_txt, footer_col) = footer_caption(state);
     let perm_str = widgets::elide(&p, footer_txt, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
@@ -812,7 +812,8 @@ mod tests {
         for lbl in &expected_labels {
             assert!(full_all.iter().any(|t| t.contains(lbl)), "Full picker missing '{lbl}': {full_all:?}");
         }
-        assert!(full_all.iter().any(|t| t.contains("Skip permissions")), "Full picker must show permission caption");
+        assert!(full_all.iter().any(|t| t.contains("Ask before acting")), "Full picker must show the permission caption, Ask by default (#841): {full_all:?}");
+        assert!(!full_all.iter().any(|t| t.contains("Skip permissions")), "a default picker must not offer Skip as the active mode (#841): {full_all:?}");
         let full_claude_rect =
             ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker-row-agents-dropdown-claude".to_string())))).expect("full picker claude rect");
         assert!((full_claude_rect.height() - theme::CONTROL_ROW).abs() < 0.5, "Full picker row height must be CONTROL_ROW (40px)");
@@ -831,6 +832,37 @@ mod tests {
         let plus_claude_rect =
             ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-dropdown-claude".to_string())))).expect("compact + menu claude rect");
         assert!((plus_claude_rect.height() - theme::CONTROL_STANDARD).abs() < 0.5, "Compact + menu row height must be CONTROL_STANDARD (28px)");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The footer names the mode that is active: Ask on a fresh state, Skip only after the user picked it (`#841`).
+    #[test]
+    fn picker_footer_names_the_active_permission_mode() {
+        let root = temp_test_dir("picker-footer-mode");
+        let mut st = TerminalState::for_tab(84_102);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
+        let footer_texts = |st: &mut TerminalState| -> Vec<String> {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+                show_picker_panel(st, ui, panel_rect, None);
+            });
+            crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect()
+        };
+
+        let fresh = footer_texts(&mut st);
+        assert!(fresh.iter().any(|t| t == "Ask before acting"), "a fresh picker footer says Ask: {fresh:?}");
+        assert!(!fresh.iter().any(|t| t == "Skip permissions"), "{fresh:?}");
+
+        st.permission_mode = crate::terminal::PermissionMode::Skip;
+        let skipped = footer_texts(&mut st);
+        assert!(skipped.iter().any(|t| t == "Skip permissions"), "a user-picked Skip shows in the footer: {skipped:?}");
+        assert!(!skipped.iter().any(|t| t == "Ask before acting"), "{skipped:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);

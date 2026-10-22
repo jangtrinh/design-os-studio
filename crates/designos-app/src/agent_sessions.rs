@@ -632,6 +632,8 @@ mod tests {
         crate::io::save_path(&Document::new("Poster"), &real.join("poster.designos")).expect("save disk file");
         let via_link = work.join("link").join("poster.designos");
 
+        // The library holds Skip (Ask is the default), so a re-read of the Ask saved below would be visible.
+        crate::agent_permissions::save_permission_mode(&root, crate::agent_permissions::AgentPermissionMode::Skip).expect("save Skip");
         let mut app = App::new(Document::new("Scratch"));
         app.attach_library(root.clone());
         app.open_path(via_link);
@@ -776,6 +778,7 @@ mod tests {
         let bin_dir = dir.join("bin");
         std::fs::create_dir_all(&bin_dir).expect("bin dir");
         write_executable_script(&bin_dir, "claude", "#!/bin/sh\nsleep 30\n");
+        crate::agent_permissions::save_permission_mode(&dir, AgentPermissionMode::Skip).expect("the library holds Skip");
         let mut st = TerminalState::for_tab(1);
         st.bind_library_file(&dir, "file-perm", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
