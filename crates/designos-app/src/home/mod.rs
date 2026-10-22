@@ -16,6 +16,7 @@ mod unsaved;
 pub mod updater;
 
 pub use dialog::{Dialog, Intent};
+pub(crate) use session::library_file_disk_path;
 pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, DiskState, LibFile};
 pub use unsaved::UnsavedDot;

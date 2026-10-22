@@ -169,26 +169,6 @@ fn a_file_that_changed_while_its_tab_was_away_asks_when_the_tab_comes_back() {
 }
 
 #[test]
-fn leaving_the_tab_withdraws_the_question_and_coming_back_asks_again() {
-    let (mut s, _d, path) = external_sim_with(&two_rects());
-    edit(&mut s);
-    let file_tab = visit_a_library_tab(&mut s, &path);
-    switch_to(&mut s, file_tab);
-    rewrite_on_disk(&path, &other_document());
-    wait(&mut s, 1.5);
-    assert!(conflict_open(&s));
-    let other = 1 - file_tab;
-    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
-    tabs.switch_to(other, &mut s.shell.app);
-    s.shell.app.tabs = tabs;
-    wait(&mut s, 1.0);
-    assert!(!conflict_open(&s), "the question was about the other document");
-    switch_to(&mut s, file_tab);
-    wait(&mut s, 1.5);
-    assert!(conflict_open(&s), "still unanswered");
-}
-
-#[test]
 fn a_clean_document_still_follows_the_file_on_disk() {
     let (mut s, _d, path) = external_sim_with(&two_rects());
     rewrite_on_disk(&path, &other_document());
@@ -284,4 +264,125 @@ fn a_library_tab_whose_file_changed_while_it_was_away_follows_the_file() {
     assert!(synced_toast(&s), "the file changed while the tab was away: {:?}", s.app().toast.as_ref().map(|t| &t.text));
     assert!(!conflict_open(&s), "a library file has autosave, so nothing is asked");
     assert!(!dot(&s));
+}
+
+fn click_tab(s: &mut Sim, idx: usize) {
+    let id = s.app().tabs.entries[idx].id;
+    let r = s.rect_of(&format!("project-tab-id-{id}"));
+    assert!(r.is_finite(), "tab {idx} is painted");
+    s.click(r.center());
+    wait(s, 0.1);
+}
+
+fn text_of(doc: &Document, id: designos_doc::NodeId) -> String {
+    doc.get(id).and_then(|n| n.kind.any_text()).map(|t| t.content.clone()).unwrap_or_else(|| "<none>".into())
+}
+
+#[test]
+fn a_write_of_exactly_the_document_on_screen_asks_nothing_and_clears_the_dot() {
+    // another writer (an agent saving the edits it made live, a second window) writes what is already on screen
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let depth = s.app().hist.undo_depth();
+    let on_screen = s.app().doc.clone();
+    rewrite_on_disk(&path, &on_screen);
+    wait(&mut s, 1.5);
+    assert!(!conflict_open(&s), "the file holds the document on screen: nothing to choose");
+    assert!(!dot(&s), "the file is the document, so it is saved");
+    assert_eq!(s.app().hist.undo_depth(), depth, "the undo history is intact");
+    assert_eq!(s.app().doc.nodes.len(), on_screen.nodes.len());
+    // and the next edit is unsaved again, against this file
+    edit(&mut s);
+    assert!(dot(&s));
+}
+
+#[test]
+fn an_agent_that_saves_its_own_live_edit_over_the_open_file_asks_nothing_and_keeps_its_undo_steps() {
+    let (mut s, d, path) = external_sim_with(&two_rects());
+    let session_dir = s.app().terminal.session_dir.clone();
+    {
+        let app = &mut s.shell.app;
+        let (doc, page, sel) = (app.doc.clone(), app.page, app.selection.clone());
+        app.terminal.sync_live_file_context(&doc, page, &sel, Some(&path));
+        app.terminal.flush_live_sync();
+    }
+    let mut session = designos_mcp::server::Session::with_session_dir(&d.0, &session_dir).expect("an mcp session");
+    let before = s.app().doc.nodes.len();
+    session
+        .call("designos_create_node", serde_json::json!({ "kind": "rectangle", "name": "Agent layer", "width": 20.0, "height": 20.0 }))
+        .expect("the agent creates a layer");
+    let actions = s.shell.app.terminal.poll_live_agent_bridge();
+    crate::shell::execute_terminal_actions(&mut s.shell.app, actions);
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().doc.nodes.len(), before + 1, "the live edit is on screen");
+    assert!(dot(&s), "and unsaved");
+    let depth = s.app().hist.undo_depth();
+    assert!(depth >= 1, "as an undo step the turn revert can use");
+    std::thread::sleep(Duration::from_millis(30));
+    session.call("designos_save_file", serde_json::json!({ "path": "outside.designos", "overwrite": true })).expect("the agent saves the file");
+    wait(&mut s, 1.5);
+    assert_eq!(nodes_on_disk(&path), before + 1, "the file holds the agent's edit");
+    assert!(!conflict_open(&s), "the file is the document on screen: no question");
+    assert!(!dot(&s), "so it is saved");
+    assert_eq!(s.app().hist.undo_depth(), depth, "the agent's undo steps are kept");
+    s.shell.app.terminal.shutdown();
+}
+
+#[test]
+fn a_tab_click_with_an_open_text_session_puts_the_typing_in_the_history_and_protects_it() {
+    let mut doc = two_rects();
+    let page = doc.pages[0];
+    let text_id = doc.alloc_id();
+    doc.insert(page, designos_doc::Node::text(text_id, designos_doc::Rect::new(0.0, 100.0, 200.0, 30.0), "Original", designos_doc::TextStyle::default()))
+        .unwrap();
+    let (mut s, _d, path) = external_sim_with(&doc);
+    let file_tab = visit_a_library_tab(&mut s, &path);
+    click_tab(&mut s, file_tab);
+    wait(&mut s, SETTLED);
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, text_id);
+    crate::canvas::textsession::insert_text(&mut s.shell.app, "Typed by the user", crate::textedit::EditKind::Typing);
+    s.frame(vec![]);
+    assert!(s.app().canvas.text.is_some(), "a text session is open");
+    assert!(!dot(&s), "the typing is not in the history yet");
+    // a real click on the other tab
+    click_tab(&mut s, 1 - file_tab);
+    wait(&mut s, SETTLED);
+    let parked = &s.app().tabs.entries[file_tab];
+    assert!(text_of(&parked.doc, text_id).contains("Typed by the user"), "the typing is in the parked document");
+    assert!(!parked.hist.is_clean(), "and in its history: an undo step");
+    assert!(super::unsaved_dot::dot_on_tab(&s, |t| t.file_path.as_deref() == Some(path.as_path())), "so the parked tab shows the dot");
+    // another program rewrites the file while the tab is away; coming back asks instead of replacing the typing
+    rewrite_on_disk(&path, &other_document());
+    wait(&mut s, 1.0);
+    click_tab(&mut s, file_tab);
+    wait(&mut s, 1.5);
+    assert!(conflict_open(&s), "the typing is unsaved, so the changed file is asked about");
+    assert!(text_of(&s.app().doc, text_id).contains("Typed by the user"), "and the typing is still on screen");
+}
+
+#[test]
+fn after_keep_mine_a_round_trip_does_not_ask_about_the_same_write_again() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let file_tab = visit_a_library_tab(&mut s, &path);
+    click_tab(&mut s, file_tab);
+    wait(&mut s, SETTLED);
+    rewrite_on_disk(&path, &other_document());
+    wait(&mut s, 1.5);
+    assert!(conflict_open(&s));
+    s.key(Key::Escape);
+    wait(&mut s, 2.0);
+    assert!(!conflict_open(&s));
+    click_tab(&mut s, 1 - file_tab);
+    wait(&mut s, 1.0);
+    click_tab(&mut s, file_tab);
+    wait(&mut s, 2.0);
+    assert!(!conflict_open(&s), "the write was answered: it is not asked about again");
+    assert!(dot(&s), "the edit is still unsaved");
+    // a new write is a new question
+    let mut third = other_document();
+    third.name = "A third version".into();
+    rewrite_on_disk(&path, &third);
+    wait(&mut s, 1.5);
+    assert!(conflict_open(&s), "another write asks again");
 }

@@ -258,6 +258,7 @@ impl TabsState {
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
     pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -297,6 +298,7 @@ impl TabsState {
         }
         self.sync_from_app(app);
         if self.hist_in_app && self.active_idx < self.entries.len() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -346,12 +348,10 @@ impl TabsState {
         // rest of the unsaved state, is handed over by the caller.
         app.autosave.dot.adopt(tab_dirty);
         // The file state is this document's own, not the previous tab's: an outside write is a write that happened
-        // while the tab was away, never the switch itself. A question about the previous tab's file is withdrawn.
+        // while the tab was away, never the switch itself. (A click on another tab while the "File changed on disk"
+        // question is open lands on its scrim and answers it, so no switch comes in with a question open.)
         let tab_path = app.watched_disk_path();
         app.autosave.adopt_disk_state(tab_disk, tab_path);
-        if app.dialog.as_ref().is_some_and(|d| d.intent == crate::home::Intent::DiskChanged) {
-            app.dialog = None;
-        }
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
@@ -403,6 +403,7 @@ impl TabsState {
     pub fn enter_home(&mut self, app: &mut App) {
         if app.home.is_none() {
             // The closing version needs the live document and its file, which parking detaches.
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.save_close_version();
             self.park_active_from_app(app);

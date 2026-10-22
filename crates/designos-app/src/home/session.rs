@@ -41,6 +41,11 @@ impl Drop for DiskWatcher {
     }
 }
 
+/// Where the projects library keeps the file `file_id` of `project_id`.
+pub(crate) fn library_file_disk_path(lib: &Library, project_id: &str, file_id: &str) -> PathBuf {
+    lib.path("projects").join(project_id).join("files").join(format!("{file_id}.designos"))
+}
+
 /// What a tab remembers of its file while another tab is shown: the hash it last wrote or read, and when the
 /// file last changed. Both belong to one document, so they travel with its tab, and a tab switch is never
 /// mistaken for a write by another program (which would reload the file over unsaved edits) or for an edit.
@@ -48,6 +53,9 @@ impl Drop for DiskWatcher {
 pub struct DiskState {
     pub saved_hash: u64,
     pub disk_mtime: Option<std::time::SystemTime>,
+    /// The write the user was asked about and answered "Keep mine": it is not asked about again, also after a
+    /// trip to another tab.
+    pub conflict_mtime: Option<std::time::SystemTime>,
 }
 
 #[derive(Default)]
@@ -76,7 +84,8 @@ pub struct Autosave {
     /// The unsaved dot of the open document's tab.
     pub dot: UnsavedDot,
     /// The modification time of a write by another program that the user was asked about (the document
-    /// outside the library has edits no save has written). The same write is not asked about twice.
+    /// outside the library has edits no save has written). The same write is not asked about twice; kept
+    /// per tab in [`DiskState`].
     pub conflict_mtime: Option<std::time::SystemTime>,
     /// Background thread watching `watched_disk_path()` off the UI thread.
     watcher: Option<DiskWatcher>,
@@ -84,7 +93,7 @@ pub struct Autosave {
 
 impl Autosave {
     pub fn disk_state(&self) -> DiskState {
-        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime }
+        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime, conflict_mtime: self.conflict_mtime }
     }
 
     /// Takes over the file state a parked tab kept, for the document at `path` that is about to be shown.
@@ -97,7 +106,7 @@ impl Autosave {
         self.changed_at = None;
         self.confirmed = false;
         self.save_failed_at = None;
-        self.conflict_mtime = None;
+        self.conflict_mtime = state.conflict_mtime;
     }
 
     /// An edit is waiting for the idle delay before it is saved.
@@ -549,6 +558,7 @@ impl App {
             self.show_toast("The projects library is unavailable", true);
             return;
         };
+        self.commit_open_text_session();
         crate::decks::ui::flush_notes(self);
         self.save_close_version();
         self.stop_plugin();
@@ -578,13 +588,13 @@ impl App {
 
     /// Disk path of a library file; also the key of its cached pre-repair bytes.
     pub(crate) fn lib_file_disk_path(&self, lf: &LibFile) -> Option<PathBuf> {
-        self.lib.as_ref().map(|lib| lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+        self.lib.as_ref().map(|lib| library_file_disk_path(lib, &lf.project_id, &lf.id))
     }
 
     /// Disk path of the currently open document (library file or external path) for live hot-reload polling.
     pub(crate) fn watched_disk_path(&self) -> Option<PathBuf> {
         if let (Some(lib), Some(lf)) = (&self.lib, &self.lib_file) {
-            Some(lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+            Some(library_file_disk_path(lib, &lf.project_id, &lf.id))
         } else {
             self.file_path.clone()
         }
@@ -615,7 +625,7 @@ impl App {
                 return;
             }
         }
-        let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{}.designos", entry.id));
+        let disk_path = library_file_disk_path(&lib, &entry.project, &entry.id);
         let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
             Err(e) => {
@@ -725,7 +735,7 @@ impl App {
         doc: &mut Document,
         hist: &mut designos_doc::History,
     ) -> Result<(Option<String>, bool), String> {
-        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
+        let disk_path = library_file_disk_path(lib, &lf.project_id, &lf.id);
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
         let replaced = lib.save_file_counted(&lf.id, doc).map_err(|e| format!("Cannot save: {e}"))?;
         if wrote_backup {
@@ -911,6 +921,16 @@ impl App {
                 self.show_toast(format!("Synced external agent changes ({w})"), true);
                 ctx.request_repaint();
             }
+            return;
+        }
+        if unsaved_outside_the_library && new_hash == doc_hash(&self.doc) {
+            // The file holds exactly the document on screen (an agent saved the edits it made live, or a second window
+            // wrote the same): there is nothing to choose. It is the saved document now, and the history stays.
+            self.autosave.disk_mtime = mtime;
+            self.autosave.note_known_mtime(mtime);
+            self.autosave.saved_hash = new_hash;
+            self.mark_saved();
+            ctx.request_repaint();
             return;
         }
         if unsaved_outside_the_library {

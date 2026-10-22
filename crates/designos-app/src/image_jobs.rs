@@ -838,11 +838,10 @@ impl App {
                                                 // The file now holds the document: its tab must not read the write as another program's.
                                                 tab.disk = crate::home::DiskState {
                                                     saved_hash: crate::home::doc_hash(&tab.doc),
-                                                    disk_mtime: std::fs::metadata(
-                                                        lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)),
-                                                    )
-                                                    .ok()
-                                                    .and_then(|m| m.modified().ok()),
+                                                    disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
+                                                        .ok()
+                                                        .and_then(|m| m.modified().ok()),
+                                                    conflict_mtime: None,
                                                 };
                                             }
                                         }
@@ -2167,6 +2166,50 @@ mod tests {
         assert!(!app.has_unsaved_edits());
         app.undo();
         assert!(app.has_unsaved_edits());
+        assert!(app.close_tab(1));
+        assert!(app.close_tab(0));
+    }
+
+    #[test]
+    fn a_job_that_landed_on_a_parked_library_tab_does_not_rewrite_its_file_when_the_tab_comes_back() {
+        let tmp = TestDir::new("parked-lib-no-rewrite");
+        let (mut app, orig_id, _) = sample_app_with_image_layer(tmp.path());
+        app.image_jobs.custom_jobs_root = None;
+        let mut doc_b = Document::new("File B");
+        doc_b.add_page("Page 1");
+        let lib = designos_library::Library::open(tmp.path().join("library")).unwrap();
+        let proj = lib.create_project("Project").unwrap();
+        let entry_a = lib.create_file(&proj.id, None, "File A", &app.doc).unwrap();
+        let entry_b = lib.create_file(&proj.id, None, "File B", &doc_b).unwrap();
+        app.lib = Some(lib.clone());
+        app.open_library_file(&entry_a.id);
+        let mut tabs = std::mem::take(&mut app.tabs);
+        tabs.reconcile_frame(&mut app);
+        app.tabs = tabs;
+        let stub_png = tmp.path().join("parked_no_rewrite_out.png");
+        write_rgba_png(&stub_png, 100, 100, true);
+        app.image_jobs.agent_script = Some(format!("sleep 0.05 && cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", stub_png.display()));
+        app.start_image_job(orig_id, 0, ImageOp::RemoveBackground).expect("job starts on File A");
+        app.go_home();
+        app.open_library_file(&entry_b.id);
+        wait_for_job_completion(&mut app);
+        let written = lib.load_file(&entry_a.id).unwrap().get(app.page).unwrap().children.len();
+        assert_eq!(written, 2, "the result was written to File A while its tab was parked");
+        let modified = lib.file(&entry_a.id).unwrap().modified;
+        // back on the tab: the write was this app's own, so nothing is read again and nothing is written
+        app.switch_tab(0);
+        crate::canvas::tiles::take_rev(&mut app);
+        let saves = app.autosave.saves;
+        let ctx = egui::Context::default();
+        for step in 1..=40 {
+            app.now = 100.0 + step as f64 * 0.1;
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                app.autosave_tick(ui.ctx());
+            });
+        }
+        assert_eq!(app.autosave.saves, saves, "autosave wrote nothing");
+        assert_eq!(lib.file(&entry_a.id).unwrap().modified, modified, "File A was not rewritten");
+        assert!(!app.has_unsaved_edits(), "and the tab shows no dot");
         assert!(app.close_tab(1));
         assert!(app.close_tab(0));
     }
