@@ -85,6 +85,9 @@ struct MenuState {
     scroll: Vec<f32>,
     /// Level whose highlighted row has to be brought into view this frame.
     reveal: Option<usize>,
+    /// The primary button went down while this menu was up and has not come up yet. Only a release that ends such
+    /// a press picks a row, so the release of the click that opened the menu never does.
+    armed: bool,
     seen: u64,
 }
 
@@ -113,6 +116,33 @@ pub fn preset_path(ctx: &egui::Context, id: Id, path: &[usize]) {
         st.hl.push(None);
     }
     store_state(ctx, id, st);
+}
+
+/// Walks the frame's button events in arrival order and returns where the last press (of any button) went down and
+/// where the primary button went up to end a press the menu saw. `armed` carries "a primary press is still down"
+/// from frame to frame.
+///
+/// egui's own click needs the release within 6 px and 0.8 s of the press and on the widget that took the press, and
+/// it resolves widgets with the pointer position at the END of the frame. A menu that picked on that click dropped
+/// picks after a small move or a slow frame, and never saw a press on the opening button slide onto a row. The raw
+/// events know each position, whatever the window batched into one frame.
+fn primary_gesture(events: &[egui::Event], armed: &mut bool) -> (Option<Pos2>, Option<Pos2>) {
+    let (mut press, mut release) = (None, None);
+    for ev in events {
+        if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
+            if *pressed {
+                press = Some(*pos);
+            }
+            if *button == egui::PointerButton::Primary {
+                if *pressed {
+                    *armed = true;
+                } else if std::mem::take(armed) {
+                    release = Some(*pos);
+                }
+            }
+        }
+    }
+    (press, release)
 }
 
 /// The panel of one menu level: size, per-row tops (relative to the panel top).
@@ -266,6 +296,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
     let before = st.hl.clone();
     let screen = ctx.content_rect();
     let mut result = TreeResult::Open;
+    let (press_pos, release_pos) = ctx.input(|i| primary_gesture(&i.events, &mut st.armed));
 
     // ---- keyboard
     let (down, up, right, left, enter, esc) = ctx.input_mut(|i| {
@@ -359,6 +390,11 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
 
     // ---- paint + interaction
     let moved = wheeled || ctx.input(|i| i.pointer.delta() != Vec2::ZERO || i.pointer.any_pressed());
+    // A press of any button outside every level (and off the button that opened the menu) closes it, and the gesture
+    // it starts picks nothing, wherever it is released.
+    let press_outside = press_pos.is_some_and(|p| !rects.iter().any(|r| r.contains(p)) && !anchor.is_some_and(|a| a.contains(p)));
+    let release_pos = release_pos.filter(|_| !press_outside);
+    let release_owner = release_pos.and_then(|p| level_under(Some(p), &rects));
     let font = theme::font_menu();
     let mut hover_hit: Option<(usize, usize)> = None;
     let mut clicked: Option<(usize, usize)> = None;
@@ -404,7 +440,10 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 if owner == Some(k) && ptr.is_some_and(|p| hit.contains(p)) {
                     hover_hit = Some((k, i));
                 }
-                if resp.clicked() && !it.disabled {
+                // A release over the row picks it, however far or long the pointer travelled since the press; a plain
+                // click is the same gesture, and `clicked` still covers a click that carries no pointer position.
+                let released_here = release_owner == Some(k) && release_pos.is_some_and(|p| hit.contains(p));
+                if (released_here || resp.clicked()) && !it.disabled {
                     clicked = Some((k, i));
                 }
                 if lit {
@@ -486,15 +525,11 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
     }
 
     // ---- outside press closes
-    if result == TreeResult::Open {
-        let pressed = ctx.input(|i| i.pointer.any_pressed());
-        if pressed {
-            if let Some(p) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !rects.iter().any(|r| r.contains(p)) && !anchor.is_some_and(|a| a.contains(p)) {
-                    result = TreeResult::Closed;
-                }
-            }
-        }
+    if result == TreeResult::Open && press_outside {
+        result = TreeResult::Closed;
+    }
+    if result != TreeResult::Open {
+        st.armed = false;
     }
     if st.hl != before {
         ctx.request_repaint();
@@ -568,13 +603,14 @@ mod tests {
         items: Vec<MenuItem>,
         t: f64,
         picked: Option<usize>,
+        closed: bool,
     }
 
     impl Popup {
         fn new(items: Vec<MenuItem>, pos: Pos2) -> Self {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
-            let mut p = Self { ctx, id: Id::new("test-menu"), pos, items, t: 0.0, picked: None };
+            let mut p = Self { ctx, id: Id::new("test-menu"), pos, items, t: 0.0, picked: None, closed: false };
             p.frame(vec![]);
             p.frame(vec![]);
             p
@@ -598,9 +634,15 @@ mod tests {
             let (ctx, id, pos, items) = (self.ctx.clone(), self.id, self.pos, &self.items);
             let mut result = MenuResult::Open;
             let _ = self.ctx.run_ui(raw, |_| result = popup_menu(&ctx, id, pos, 160.0, items, None));
-            if let MenuResult::Picked(i) = result {
-                self.picked = Some(i);
+            match result {
+                MenuResult::Picked(i) => self.picked = Some(i),
+                MenuResult::Closed => self.closed = true,
+                MenuResult::Open => {}
             }
+        }
+
+        fn button(at: Pos2, pressed: bool) -> egui::Event {
+            egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }
         }
 
         fn rect(&self, name: &str) -> Rect {
@@ -765,5 +807,77 @@ mod tests {
         m.picked = None;
         m.click(m.row(3).center());
         assert_eq!(m.picked, None, "a disabled row stays unclickable");
+    }
+
+    #[test]
+    fn a_release_over_a_row_picks_it_whatever_happened_since_the_press() {
+        // Press on one row, wait 1.25 s, release 40 px away on another: far past egui's 6 px and 0.8 s click.
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (from, to) = (m.row(0).center(), m.row(1).center() + Vec2::new(40.0, 0.0));
+        m.frame(vec![egui::Event::PointerMoved(from), Popup::button(from, true)]);
+        for _ in 0..25 {
+            m.frame(vec![]);
+        }
+        m.frame(vec![egui::Event::PointerMoved(to), Popup::button(to, false)]);
+        assert_eq!(m.picked, Some(1));
+        // The same gesture inside one frame.
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        m.frame(vec![egui::Event::PointerMoved(from), Popup::button(from, true), egui::Event::PointerMoved(to), Popup::button(to, false)]);
+        assert_eq!(m.picked, Some(1));
+    }
+
+    #[test]
+    fn a_release_over_a_disabled_row_or_off_the_rows_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let on = m.row(0).center();
+        let disabled = m.row(3).center();
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, true), egui::Event::PointerMoved(disabled), Popup::button(disabled, false)]);
+        assert_eq!(m.picked, None, "row 3 is disabled");
+        let off = Pos2::new(400.0, 400.0);
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, true), egui::Event::PointerMoved(off), Popup::button(off, false)]);
+        assert_eq!((m.picked, m.closed), (None, false), "a press inside the menu that ends outside leaves it open");
+    }
+
+    #[test]
+    fn a_release_whose_press_the_menu_never_saw_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let on = m.row(1).center();
+        m.frame(vec![egui::Event::PointerMoved(on), Popup::button(on, false)]);
+        assert_eq!(m.picked, None);
+    }
+
+    #[test]
+    fn a_press_outside_closes_the_menu_and_its_release_over_a_row_picks_nothing() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let (outside, on) = (Pos2::new(600.0, 500.0), m.row(1).center());
+        m.frame(vec![egui::Event::PointerMoved(outside), Popup::button(outside, true), egui::Event::PointerMoved(on), Popup::button(on, false)]);
+        assert!(m.closed);
+        assert_eq!(m.picked, None);
+    }
+
+    #[test]
+    fn primary_gesture_pairs_each_release_with_the_press_before_it() {
+        let (a, b) = (Pos2::new(1.0, 1.0), Pos2::new(2.0, 2.0));
+        let secondary = |pressed| egui::Event::PointerButton { pos: a, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE };
+        let mut armed = false;
+        assert_eq!(primary_gesture(&[Popup::button(b, false), secondary(false)], &mut armed), (None, None), "no press, no pick");
+        assert!(!armed);
+        assert_eq!(primary_gesture(&[secondary(true), secondary(false)], &mut armed), (Some(a), None), "another button arms nothing");
+        assert!(!armed);
+        assert_eq!(primary_gesture(&[Popup::button(a, true), Popup::button(b, false)], &mut armed), (Some(a), Some(b)));
+        assert!(!armed, "the release ends the press");
+        assert_eq!(primary_gesture(&[Popup::button(a, true)], &mut armed), (Some(a), None));
+        assert!(armed, "the press is still down at the end of the frame");
+        // A release at the start of the next frame ends that press; the press after it starts a new one.
+        assert_eq!(primary_gesture(&[Popup::button(b, false), Popup::button(a, true), secondary(true)], &mut armed), (Some(a), Some(b)));
+        assert!(armed);
+    }
+
+    #[test]
+    fn a_secondary_press_outside_closes_the_menu() {
+        let mut m = Popup::new(short_items(), Pos2::new(100.0, 100.0));
+        let outside = Pos2::new(600.0, 500.0);
+        m.frame(vec![egui::Event::PointerButton { pos: outside, button: egui::PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE }]);
+        assert!(m.closed);
     }
 }

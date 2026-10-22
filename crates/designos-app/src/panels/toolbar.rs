@@ -100,10 +100,31 @@ pub fn chevron_rect(screen: Rect, gi: usize) -> Rect {
     Rect::from_min_size(Pos2::new(b.right() + theme::TOOL_CHEVRON_GAP, b.top()), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON))
 }
 
-/// Top-left of group `gi`'s dropdown of height `h`: above the button, slightly overlapping the bar.
-pub fn tool_menu_pos(screen: Rect, gi: usize, h: f32) -> Pos2 {
-    let b = group_button_rect(screen, gi);
-    Pos2::new(b.right() + theme::TOOL_MENU_DX, toolbar_rect(screen).top() + theme::TOOL_MENU_OVERLAP - h)
+/// Top-left of the dropdown of height `h` that hangs off `chevron`: above the group's button, slightly overlapping the
+/// bar. It is placed from the chevron that opened it, so it stays against that chevron wherever the toolbar is laid out
+/// (the window, or a deck's canvas).
+pub fn tool_menu_pos(chevron: Rect, h: f32) -> Pos2 {
+    let bar_top = chevron.top() - (theme::TOOLBELT_HEIGHT - theme::TOOL_BUTTON) / 2.0;
+    Pos2::new(chevron.left() - theme::TOOL_CHEVRON_GAP + theme::TOOL_MENU_DX, bar_top + theme::TOOL_MENU_OVERLAP - h)
+}
+
+/// Whether the primary button went down inside `rect` this frame and nothing popped up over that spot.
+///
+/// Read from the button events, not from a widget response: egui resolves a press against the pointer position at the
+/// END of the frame, so a press followed by a move in the same frame (a slow frame or a quick flick) never reaches the
+/// widget it began on.
+fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
+    let presses: Vec<Pos2> = ui.input(|i| {
+        i.events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } => Some(*pos),
+                _ => None,
+            })
+            .collect()
+    });
+    let ctx = ui.ctx();
+    presses.into_iter().any(|p| rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l.order != egui::Order::Foreground))
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
@@ -209,6 +230,7 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             x += theme::TOOL_CHEVRON_GAP;
             let cr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON));
             let cresp = ui.interact(cr, ui.id().with(("tool-chev", gi)), Sense::click());
+            widgets::record(ui, &format!("tool-chevron-{gi}"), cr);
             let open = app.ui.menu == Some(MenuKind::ToolGroup(gi));
             // The chevron stays transparent unless hovered or its menu is open.
             if open || cresp.hovered() {
@@ -216,8 +238,12 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             }
             let cc = Pos2::new(br.right() + theme::TOOL_CHEVRON_CENTER_DX, cr.center().y);
             icons::paint(&p, Icon::ChevronDown, cc, theme::TOOL_CHEVRON_ICON, theme::ICON_SECONDARY);
-            if cresp.clicked() {
+            // The menu opens on the press, so the same press can slide onto a row and pick it on release; a second
+            // press on the chevron closes it.
+            if primary_pressed_in(ui, cr) {
                 app.ui.menu = if open { None } else { Some(MenuKind::ToolGroup(gi)) };
+            }
+            if app.ui.menu == Some(MenuKind::ToolGroup(gi)) {
                 app.ui.menu_anchor = Some(cr);
             }
             x += theme::TOOL_CHEVRON_W;

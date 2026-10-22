@@ -88,13 +88,182 @@ fn shape_dropdown_picks_a_tool_and_remembers_it() {
     assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(2)));
     // Rectangle, Line, Ellipse, Polygon, Star, Image: the Arrow tool is hidden.
     let h = theme::MENU_PADDING * 2.0 + 6.0 * theme::MENU_ITEM_HEIGHT;
-    let pos = toolbar::tool_menu_pos(screen, 2, h);
+    let pos = toolbar::tool_menu_pos(chev, h);
     // 232px wide panel, opening above the bar.
     assert_eq!(pos.y + h, toolbar::toolbar_rect(screen).top() + theme::TOOL_MENU_OVERLAP);
     s.click(Pos2::new(pos.x + 100.0, pos.y + theme::MENU_PADDING + 2.0 * theme::MENU_ITEM_HEIGHT + 12.0));
     assert_eq!(s.app().tool, Tool::Ellipse);
     assert_eq!(s.app().group_pick[2], 2);
     assert_eq!(s.app().ui.menu, None);
+}
+
+/// Group of the Rectangle / Line / Ellipse / Polygon / Star / Image dropdown.
+const SHAPE_GROUP: usize = 2;
+/// Rows of that dropdown (the Arrow tool is hidden).
+const ROW_RECTANGLE: usize = 0;
+const ROW_ELLIPSE: usize = 2;
+
+fn chevron_center(s: &Sim) -> Pos2 {
+    s.rect_of(&format!("tool-chevron-{SHAPE_GROUP}")).center()
+}
+
+fn row_center(s: &Sim, row: usize) -> Pos2 {
+    s.rect_of(&format!("menu-row-0-{row}")).center()
+}
+
+/// A Sim with the shape dropdown open, opened by a plain click on its chevron.
+fn shape_menu_open() -> Sim {
+    let mut s = Sim::new();
+    s.click(chevron_center(&s));
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)));
+    s.frame(vec![]);
+    s
+}
+
+fn assert_picked_ellipse(s: &Sim) {
+    assert_eq!(s.app().tool, Tool::Ellipse, "the row under the release was picked");
+    assert_eq!(s.app().group_pick[SHAPE_GROUP], ROW_ELLIPSE);
+    assert_eq!(s.app().ui.menu, None, "picking closes the menu");
+}
+
+#[test]
+fn a_row_is_picked_when_the_pointer_moves_before_the_release() {
+    let mut s = shape_menu_open();
+    let row = row_center(&s, ROW_ELLIPSE);
+    s.mv(row);
+    s.button(true);
+    // 20 px along the row: far beyond the 6 px an egui click tolerates.
+    s.mv(row + Vec2::new(20.0, 0.0));
+    s.button(false);
+    s.frame(vec![]);
+    assert_picked_ellipse(&s);
+}
+
+#[test]
+fn a_row_is_picked_after_a_long_press() {
+    let mut s = shape_menu_open();
+    let row = row_center(&s, ROW_ELLIPSE);
+    s.mv(row);
+    s.button(true);
+    // 1.25 s at 50 ms a frame: past the 0.8 s an egui click tolerates.
+    for _ in 0..25 {
+        s.frame(vec![]);
+    }
+    s.button(false);
+    s.frame(vec![]);
+    assert_picked_ellipse(&s);
+}
+
+#[test]
+fn press_on_the_chevron_slide_to_a_row_and_release_picks_it() {
+    let mut s = Sim::new();
+    s.mv(chevron_center(&s));
+    s.button(true);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "the menu opens on the press");
+    s.mv(row_center(&s, ROW_ELLIPSE));
+    s.button(false);
+    s.frame(vec![]);
+    assert_picked_ellipse(&s);
+}
+
+#[test]
+fn a_slide_from_one_row_to_another_in_one_frame_picks_the_row_under_the_release() {
+    let mut s = shape_menu_open();
+    let (from, to) = (row_center(&s, ROW_RECTANGLE), row_center(&s, ROW_ELLIPSE));
+    s.mv(from);
+    s.one_frame().press().move_to(to).release().send();
+    s.frame(vec![]);
+    assert_picked_ellipse(&s);
+}
+
+#[test]
+fn press_move_and_release_in_one_frame_start_on_the_chevron_and_end_on_a_row() {
+    // The row geometry exists only once the menu has been open: read it, then close the menu again.
+    let mut s = shape_menu_open();
+    let (chev, row) = (chevron_center(&s), row_center(&s, ROW_ELLIPSE));
+    s.click(chev);
+    assert_eq!(s.app().ui.menu, None, "a second press on the chevron closes the menu");
+    s.mv(chev);
+    s.one_frame().press().move_to(row).release().send();
+    s.frame(vec![]);
+    assert_picked_ellipse(&s);
+}
+
+#[test]
+fn a_click_on_the_chevron_opens_the_menu_and_leaves_it_open() {
+    let mut s = Sim::new();
+    s.click(chevron_center(&s));
+    s.frame(vec![]);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "the release on the chevron does not close it");
+    assert_eq!(s.app().tool, Tool::Move);
+}
+
+#[test]
+fn a_press_and_release_on_the_chevron_in_one_frame_opens_the_menu_once() {
+    let mut s = Sim::new();
+    s.mv(chevron_center(&s));
+    s.one_frame().press().release().send();
+    s.frame(vec![]);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "the press opened it and the release did not close it");
+    assert_eq!(s.app().tool, Tool::Move);
+}
+
+#[test]
+fn releasing_outside_every_row_picks_nothing() {
+    let mut s = shape_menu_open();
+    let row = row_center(&s, ROW_ELLIPSE);
+    s.mv(row);
+    s.button(true);
+    s.mv(Pos2::new(row.x, row.y - 400.0));
+    s.button(false);
+    s.frame(vec![]);
+    assert_eq!(s.app().tool, Tool::Move);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)), "the press began inside the menu, so it stays open");
+}
+
+#[test]
+fn a_release_that_opened_the_menu_never_picks_a_row() {
+    // The main menu opens on the release of a click. A release the menu never saw the press of, here over the
+    // leaf row "Back to files", must not pick it.
+    let mut s = Sim::new();
+    open_main(&mut s);
+    s.mv(Pos2::new(100.0, main_row_center(0)));
+    s.button(false);
+    s.frame(vec![]);
+    assert_eq!(s.app().ui.menu, Some(MenuKind::Main), "a release without a press in the menu picks nothing");
+}
+
+/// The open dropdown hangs off its chevron: its left edge starts at the group's button (the chevron's left edge minus
+/// the gap) plus the dx, and its bottom edge sits above the chevron by the bar's inner padding minus the overlap.
+fn assert_menu_hangs_off_the_chevron(s: &Sim) {
+    let (chev, menu) = (s.rect_of(&format!("tool-chevron-{SHAPE_GROUP}")), s.rect_of("menu-level-0"));
+    let want_left = chev.left() - theme::TOOL_CHEVRON_GAP + theme::TOOL_MENU_DX;
+    let want_bottom = chev.top() - (theme::TOOLBELT_HEIGHT - theme::TOOL_BUTTON) / 2.0 + theme::TOOL_MENU_OVERLAP;
+    assert!((menu.left() - want_left).abs() < 0.5, "menu left {} want {want_left} (chevron {chev:?})", menu.left());
+    assert!((menu.bottom() - want_bottom).abs() < 0.5, "menu bottom {} want {want_bottom} (chevron {chev:?})", menu.bottom());
+}
+
+#[test]
+fn the_dropdown_opens_against_its_chevron() {
+    let s = shape_menu_open();
+    assert_menu_hangs_off_the_chevron(&s);
+}
+
+#[test]
+fn the_dropdown_opens_against_its_chevron_in_a_deck() {
+    let mut s = Sim::new();
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, crate::panels::menus::Action::NewDeck);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(s.app().is_deck());
+    s.click(chevron_center(&s));
+    assert_eq!(s.app().ui.menu, Some(MenuKind::ToolGroup(SHAPE_GROUP)));
+    s.frame(vec![]);
+    assert_menu_hangs_off_the_chevron(&s);
+    // And a row of it can be picked.
+    s.click(row_center(&s, ROW_ELLIPSE));
+    assert_picked_ellipse(&s);
 }
 
 #[test]
