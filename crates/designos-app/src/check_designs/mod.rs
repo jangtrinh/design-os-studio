@@ -66,7 +66,7 @@ impl Rule {
     /// Group heading in the panel.
     pub fn title(self) -> &'static str {
         match self {
-            Rule::HardCodedValue => "Colours",
+            Rule::HardCodedValue => "Color",
             Rule::Contrast => "Contrast",
             Rule::DetachedInstance => "Detached instances",
             Rule::LibraryAssets => "Library assets",
