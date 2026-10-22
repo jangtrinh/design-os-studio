@@ -81,6 +81,8 @@ pub struct ProjectTab {
     /// The document was changed by a writer that leaves no undo step, since its last save. The rest of the
     /// unsaved dot is read from `hist`: see [`tab_is_unsaved`].
     pub dirty: bool,
+    /// What the tab remembers of its file while another tab is shown: its saved hash and the file's mtime.
+    pub disk: crate::home::DiskState,
 }
 
 impl ProjectTab {
@@ -109,6 +111,7 @@ impl ProjectTab {
             dev_mode: app.ui.dev_mode,
             pinned: false,
             dirty: app.autosave.dot.flag(),
+            disk: app.autosave.disk_state(),
         }
     }
 
@@ -231,6 +234,7 @@ impl TabsState {
         tab.lib_file = app.lib_file.clone();
         tab.dev_mode = app.ui.dev_mode;
         tab.dirty = app.autosave.dot.flag();
+        tab.disk = app.autosave.disk_state();
     }
 
     /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
@@ -254,6 +258,7 @@ impl TabsState {
     /// Parks the active tab's state (moving `app.doc`, `app.hist`, `app.terminal`, and `app.image_jobs` into `entries[active_idx]`).
     pub(crate) fn park_active_from_app(&mut self, app: &mut App) {
         if self.entries.is_empty() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -267,6 +272,7 @@ impl TabsState {
             tab.terminal = Self::park_terminal(app);
             tab.image_jobs = app.image_jobs.take_for_park();
             tab.dirty = app.autosave.dot.flag();
+            tab.disk = app.autosave.disk_state();
             self.entries.push(tab);
             self.active_idx = 0;
             self.hist_in_app = false;
@@ -292,6 +298,7 @@ impl TabsState {
         }
         self.sync_from_app(app);
         if self.hist_in_app && self.active_idx < self.entries.len() {
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.stop_plugin();
             app.exit_version_view();
@@ -304,6 +311,7 @@ impl TabsState {
             self.entries[self.active_idx].terminal = Self::park_terminal(app);
             self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
             self.entries[self.active_idx].dirty = app.autosave.dot.flag();
+            self.entries[self.active_idx].disk = app.autosave.disk_state();
             self.hist_in_app = false;
         }
     }
@@ -319,14 +327,14 @@ impl TabsState {
         app.exit_version_view();
         app.flush_autosave();
 
-        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty) = {
+        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty, tab_disk) = {
             let tab = &mut self.entries[idx];
             let doc = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
                 std::mem::take(&mut app.doc)
             } else {
                 std::mem::take(&mut tab.doc)
             };
-            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty)
+            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty, tab.disk)
         };
         crate::io::ensure_page(&mut doc);
         let page = if doc.pages.contains(&tab_page) { tab_page } else { doc.pages[0] };
@@ -339,6 +347,11 @@ impl TabsState {
         // The flag a tab had when it was left comes back with its document. The undo history, which holds the
         // rest of the unsaved state, is handed over by the caller.
         app.autosave.dot.adopt(tab_dirty);
+        // The file state is this document's own, not the previous tab's: an outside write is a write that happened
+        // while the tab was away, never the switch itself. (A click on another tab while the "File changed on disk"
+        // question is open lands on its scrim and answers it, so no switch comes in with a question open.)
+        let tab_path = app.watched_disk_path();
+        app.autosave.adopt_disk_state(tab_disk, tab_path);
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
@@ -390,6 +403,7 @@ impl TabsState {
     pub fn enter_home(&mut self, app: &mut App) {
         if app.home.is_none() {
             // The closing version needs the live document and its file, which parking detaches.
+            app.commit_open_text_session();
             crate::decks::ui::flush_notes(app);
             app.save_close_version();
             self.park_active_from_app(app);
@@ -554,6 +568,7 @@ impl TabsState {
             dev_mode: false,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         self.entries.push(tab);
         let new_idx = self.entries.len() - 1;
@@ -849,6 +864,7 @@ impl TabsState {
             dev_mode: copy_dev_mode,
             pinned: false,
             dirty: false,
+            disk: Default::default(),
         };
         let insert_idx = (idx + 1).min(self.entries.len());
         self.entries.insert(insert_idx, new_tab);

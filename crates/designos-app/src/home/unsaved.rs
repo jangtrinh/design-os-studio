@@ -43,6 +43,15 @@ impl App {
         !self.hist.is_clean() || self.autosave.dot.flag()
     }
 
+    /// Ends an open text session with its text kept, so the typing is a step of the history. Until then it is in
+    /// the document but in no history: the dot cannot show it, a tab switch would take it for nothing, and a
+    /// write by another program would replace it unasked. Every place that parks or closes the document calls this first.
+    pub(crate) fn commit_open_text_session(&mut self) {
+        if self.canvas.text.is_some() {
+            crate::canvas::textsession::finish_text(self, true);
+        }
+    }
+
     /// The document on screen is exactly what a save wrote (or what was loaded from disk).
     pub(crate) fn mark_saved(&mut self) {
         self.hist.mark_clean();

@@ -41,6 +41,23 @@ impl Drop for DiskWatcher {
     }
 }
 
+/// Where the projects library keeps the file `file_id` of `project_id`.
+pub(crate) fn library_file_disk_path(lib: &Library, project_id: &str, file_id: &str) -> PathBuf {
+    lib.path("projects").join(project_id).join("files").join(format!("{file_id}.designos"))
+}
+
+/// What a tab remembers of its file while another tab is shown: the hash it last wrote or read, and when the
+/// file last changed. Both belong to one document, so they travel with its tab, and a tab switch is never
+/// mistaken for a write by another program (which would reload the file over unsaved edits) or for an edit.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DiskState {
+    pub saved_hash: u64,
+    pub disk_mtime: Option<std::time::SystemTime>,
+    /// The write the user was asked about and answered "Keep mine": it is not asked about again, also after a
+    /// trip to another tab.
+    pub conflict_mtime: Option<std::time::SystemTime>,
+}
+
 #[derive(Default)]
 pub struct Autosave {
     /// Last canvas revision seen (a change bumps it).
@@ -61,13 +78,37 @@ pub struct Autosave {
     /// When the last save of unsaved edits failed. Those edits stay in the editor and the next frame
     /// after `AUTOSAVE_IDLE` tries again; no timer is scheduled for it.
     pub save_failed_at: Option<f64>,
+    /// The file `saved_hash` and `disk_mtime` describe. A different watched path means another document
+    /// replaced the one these belong to, and they are taken again for it.
+    pub disk_path: Option<PathBuf>,
     /// The unsaved dot of the open document's tab.
     pub dot: UnsavedDot,
+    /// The modification time of a write by another program that the user was asked about (the document
+    /// outside the library has edits no save has written). The same write is not asked about twice; kept
+    /// per tab in [`DiskState`].
+    pub conflict_mtime: Option<std::time::SystemTime>,
     /// Background thread watching `watched_disk_path()` off the UI thread.
     watcher: Option<DiskWatcher>,
 }
 
 impl Autosave {
+    pub fn disk_state(&self) -> DiskState {
+        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime, conflict_mtime: self.conflict_mtime }
+    }
+
+    /// Takes over the file state a parked tab kept, for the document at `path` that is about to be shown.
+    /// Whatever the tab shown before left in the transient fields (a pending save, a failed one, a question
+    /// about a write) was about that document.
+    pub fn adopt_disk_state(&mut self, state: DiskState, path: Option<PathBuf>) {
+        self.saved_hash = state.saved_hash;
+        self.disk_mtime = state.disk_mtime;
+        self.disk_path = path;
+        self.changed_at = None;
+        self.confirmed = false;
+        self.save_failed_at = None;
+        self.conflict_mtime = state.conflict_mtime;
+    }
+
     /// An edit is waiting for the idle delay before it is saved.
     pub fn pending(&self) -> bool {
         self.changed_at.is_some() && self.confirmed
@@ -517,6 +558,7 @@ impl App {
             self.show_toast("The projects library is unavailable", true);
             return;
         };
+        self.commit_open_text_session();
         crate::decks::ui::flush_notes(self);
         self.save_close_version();
         self.stop_plugin();
@@ -546,13 +588,13 @@ impl App {
 
     /// Disk path of a library file; also the key of its cached pre-repair bytes.
     pub(crate) fn lib_file_disk_path(&self, lf: &LibFile) -> Option<PathBuf> {
-        self.lib.as_ref().map(|lib| lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+        self.lib.as_ref().map(|lib| library_file_disk_path(lib, &lf.project_id, &lf.id))
     }
 
     /// Disk path of the currently open document (library file or external path) for live hot-reload polling.
-    fn watched_disk_path(&self) -> Option<PathBuf> {
+    pub(crate) fn watched_disk_path(&self) -> Option<PathBuf> {
         if let (Some(lib), Some(lf)) = (&self.lib, &self.lib_file) {
-            Some(lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id)))
+            Some(library_file_disk_path(lib, &lf.project_id, &lf.id))
         } else {
             self.file_path.clone()
         }
@@ -574,8 +616,7 @@ impl App {
                 let mut tabs = std::mem::take(&mut self.tabs);
                 tabs.switch_to(existing, self);
                 self.tabs = tabs;
-                self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
-                self.autosave.disk_mtime = self.watched_disk_path().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());
+                // The tab's own file state came back with it: the file is not read again unless it changed meanwhile.
                 self.history_open_file();
                 let _ = lib.mark_opened(id);
                 if needs_thumb && self.doc.nodes.len() <= 25_000 {
@@ -584,7 +625,7 @@ impl App {
                 return;
             }
         }
-        let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{}.designos", entry.id));
+        let disk_path = library_file_disk_path(&lib, &entry.project, &entry.id);
         let (mut doc, warning) = match crate::io::load_path_with_warning(&disk_path) {
             Ok(x) => x,
             Err(e) => {
@@ -694,7 +735,7 @@ impl App {
         doc: &mut Document,
         hist: &mut designos_doc::History,
     ) -> Result<(Option<String>, bool), String> {
-        let disk_path = lib.path("projects").join(&lf.project_id).join("files").join(format!("{}.designos", lf.id));
+        let disk_path = library_file_disk_path(lib, &lf.project_id, &lf.id);
         let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
         let replaced = lib.save_file_counted(&lf.id, doc).map_err(|e| format!("Cannot save: {e}"))?;
         if wrote_backup {
@@ -797,6 +838,15 @@ impl App {
             self.autosave.changed_at = None;
         }
         let watched_path = self.watched_disk_path();
+        if self.autosave.disk_path != watched_path {
+            if self.autosave.disk_path.is_some() {
+                // Another document replaced the one the file state belongs to (File > Open, New, Save As): it is not
+                // that file's state, and reading it as one would load this file over the document just opened.
+                // The first look at the new file takes its own baseline.
+                self.autosave.adopt_disk_state(DiskState::default(), watched_path.clone());
+            }
+            self.autosave.disk_path = watched_path.clone();
+        }
         if self.autosave.disk_mtime.is_none() {
             if let Some(ref p) = watched_path {
                 self.autosave.disk_mtime = std::fs::metadata(p).ok().and_then(|m| m.modified().ok());
@@ -817,7 +867,9 @@ impl App {
 
     /// Loads the file again when it changed on disk (a write by an agent or another tool).
     /// Nothing is replaced while an edit is under way or unsaved edits exist; the write the watcher
-    /// reported stays flagged for the frame after the edit is over.
+    /// reported stays flagged for the frame after the edit is over. A document outside the library has no
+    /// autosave, so its unsaved edits can wait long: a write that really changes the file under them is put
+    /// to the user instead ([`Self::ask_which_version_to_keep`]).
     fn reload_external_write(&mut self, ctx: &egui::Context, watched_path: Option<PathBuf>, busy: bool) {
         if busy || self.autosave.changed_at.is_some() {
             return;
@@ -837,21 +889,92 @@ impl App {
             // taken over, so a later frame looks at the file again once those edits are saved or undone.
             return;
         }
-        self.autosave.disk_mtime = mtime;
-        self.autosave.note_known_mtime(mtime);
+        let unsaved_outside_the_library = self.lib_file.is_none() && self.has_unsaved_edits();
+        if unsaved_outside_the_library && (mtime == self.autosave.conflict_mtime || self.dialog.is_some()) {
+            // Asked about this write already (and the edits were kept), or another dialog is open: read nothing.
+            return;
+        }
+        if !unsaved_outside_the_library {
+            self.autosave.disk_mtime = mtime;
+            self.autosave.note_known_mtime(mtime);
+        }
         // The same load as an open, so a damaged file reports what was repaired or replaced the same way.
-        let Ok((mut new_doc, warning)) = crate::io::load_path_with_warning(&path) else { return };
+        let Ok((mut new_doc, warning)) = crate::io::load_path_with_warning(&path) else {
+            if unsaved_outside_the_library {
+                // A file that cannot be read gives nothing to choose: the edits stay, and the write is not asked about.
+                self.autosave.disk_mtime = mtime;
+                self.autosave.note_known_mtime(mtime);
+            }
+            return;
+        };
         if let Some(lf) = &self.lib_file {
             new_doc.name = lf.name.clone();
         }
         let new_hash = doc_hash(&new_doc);
         if new_hash == self.autosave.saved_hash {
+            if unsaved_outside_the_library {
+                // The file holds what it held when the document was last saved or opened: it was touched, not changed.
+                self.autosave.disk_mtime = mtime;
+                self.autosave.note_known_mtime(mtime);
+            }
             if let Some(w) = warning {
                 self.show_toast(format!("Synced external agent changes ({w})"), true);
                 ctx.request_repaint();
             }
             return;
         }
+        if unsaved_outside_the_library && new_hash == doc_hash(&self.doc) {
+            // The file holds exactly the document on screen (an agent saved the edits it made live, or a second window
+            // wrote the same): there is nothing to choose. It is the saved document now, and the history stays.
+            self.autosave.disk_mtime = mtime;
+            self.autosave.note_known_mtime(mtime);
+            self.autosave.saved_hash = new_hash;
+            self.mark_saved();
+            ctx.request_repaint();
+            return;
+        }
+        if unsaved_outside_the_library {
+            self.ask_which_version_to_keep(ctx, mtime);
+            return;
+        }
+        self.install_disk_document(ctx, new_doc, new_hash, warning);
+    }
+
+    /// The file changed under unsaved edits. Opens the question once per write; the edits stay on screen
+    /// whatever the answer, and "Keep mine" (or closing the question) leaves the write unread.
+    fn ask_which_version_to_keep(&mut self, ctx: &egui::Context, mtime: Option<std::time::SystemTime>) {
+        // The file no longer holds the version the history marks as saved: an undo back to that point must not make the
+        // document look clean, or the next look at the file would install the rejected one. The dot stays until a save.
+        self.mark_edited_outside_history();
+        self.autosave.conflict_mtime = mtime;
+        self.dialog = Some(super::dialog::Dialog::disk_changed());
+        ctx.request_repaint();
+    }
+
+    /// "Use file": the answer that drops the edits. Loads the file again (it may have changed once more) and
+    /// shows it with a fresh history: undo steps of the document it replaces do not apply to it.
+    pub(super) fn use_disk_version(&mut self, ctx: &egui::Context) {
+        let (Some(asked), None) = (self.autosave.conflict_mtime.take(), self.lib_file.as_ref()) else { return };
+        let Some(path) = self.file_path.clone() else { return };
+        let mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok()).or(Some(asked));
+        match crate::io::load_path_with_warning(&path) {
+            Ok((new_doc, warning)) => {
+                self.autosave.disk_mtime = mtime;
+                self.autosave.note_known_mtime(mtime);
+                let new_hash = doc_hash(&new_doc);
+                self.install_disk_document(ctx, new_doc, new_hash, warning);
+                self.hist = designos_doc::History::default();
+                self.mark_saved();
+            }
+            Err(e) => {
+                // Nothing was replaced: the question comes back with the next write.
+                self.show_toast(e, true);
+            }
+        }
+    }
+
+    /// Puts the document that was read from the file on screen, as the document the file holds.
+    fn install_disk_document(&mut self, ctx: &egui::Context, new_doc: Document, new_hash: u64, warning: Option<String>) {
         let old_page = self.page;
         let old_sel = self.selection.clone();
         self.doc = new_doc;
