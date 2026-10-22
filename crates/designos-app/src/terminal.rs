@@ -1166,6 +1166,12 @@ pub struct TerminalState {
     pub search_case_sensitive: bool,
     /// True when the last pointer press was in the panel's non-terminal chrome (header, tab strip, composer) (`#684 §3.1`).
     pub chrome_focused: bool,
+    /// Whether the composer held egui focus when the previous frame painted it. A click elsewhere and a bare `Esc` both
+    /// take egui focus away before the panel code of the same frame runs, so the focus of the current frame cannot tell
+    /// "the user was typing" from "the user never was". The review card (`#922`) and the panel `Esc` (`#923`) read this.
+    pub composer_focused_last_frame: bool,
+    /// The composer's focus after it was painted this frame; it becomes [`Self::composer_focused_last_frame`] in the next.
+    composer_focused_now: bool,
     /// Deferred undo depth to fold once a user edit in progress finishes (`#684 §3.4`).
     pub pending_stop_fold_depth: Option<usize>,
     /// Deferred stop close metadata (`depth`, `pre_close_patch_count`, `run_id`, `agent`) (`#684 §3.4`, `§3.5`).
@@ -1463,6 +1469,8 @@ impl TerminalState {
             search_query: String::new(),
             search_case_sensitive: false,
             chrome_focused: false,
+            composer_focused_last_frame: false,
+            composer_focused_now: false,
             pending_stop_fold_depth: None,
             pending_stop_close: None,
             current_undo_depth: 0,
@@ -2692,6 +2700,17 @@ impl TerminalState {
     /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
         self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
+    }
+
+    /// Starts one frame of the Agents panel: the composer focus that ended the previous frame becomes the baseline for
+    /// this one (see [`Self::composer_focused_last_frame`]).
+    fn begin_composer_focus_frame(&mut self) {
+        self.composer_focused_last_frame = std::mem::take(&mut self.composer_focused_now);
+    }
+
+    /// Records whether the composer holds egui focus after it was painted this frame.
+    pub(crate) fn record_composer_focus(&mut self, focused: bool) {
+        self.composer_focused_now = focused;
     }
 
     /// Returns the currently active terminal tab when one exists.
@@ -4978,6 +4997,7 @@ pub fn show_left_with_doc(
     crate::agent_a11y::label_agents_panel(state, ui);
     let p = ui.painter().clone();
     let composer_input_id = Id::new("agents-ask-for-changes-input");
+    state.begin_composer_focus_frame();
     if ui.memory(|m| m.has_focus(composer_input_id)) {
         state.viewport_focused = false;
     }
