@@ -26,7 +26,12 @@ pub struct AgentPickerState {
     pub open_row_order: Vec<String>,
     /// True once `open_row_order` was built from fully-probed rows (no catalog row left `Checking`).
     pub open_row_order_settled: bool,
+    /// Starting point of the keyboard cursor: the first selectable row, parked here while the list is built.
+    /// It is a row to act on only once [`AgentPickerState::keyboard_cursor`] is set.
     pub selected_index: usize,
+    /// True once the user moved `selected_index` with the arrow keys since the picker opened. Return acts on that
+    /// row, and the row is drawn as focused, only then: a bare Return opens and starts nothing.
+    pub keyboard_cursor: bool,
     pub other_form_open: bool,
     pub other_label_input: String,
     pub other_command_input: String,
@@ -42,6 +47,7 @@ impl AgentPickerState {
     pub fn ensure_probed(&mut self) {
         if !self.probe_started {
             self.probe_started = true;
+            self.keyboard_cursor = false;
             self.opencode_installed = None;
             self.cache.refresh_async();
         }
@@ -51,6 +57,7 @@ impl AgentPickerState {
     /// background probe while keeping the cached result on screen (`#652` §5).
     pub fn on_close(&mut self) {
         self.probe_started = false;
+        self.keyboard_cursor = false;
         self.open_row_order.clear();
         self.open_row_order_settled = false;
     }
@@ -210,6 +217,24 @@ pub fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_pa
     }
 }
 
+/// Moves the keyboard cursor one selectable row down (`forward`) or up. The first press only reveals the cursor:
+/// down lands on the first selectable row and up on the last, so no row is skipped.
+fn move_keyboard_cursor(picker: &mut AgentPickerState, selectable: &[usize], forward: bool) {
+    let current = picker.keyboard_cursor.then(|| selectable.iter().position(|&idx| idx == picker.selected_index)).flatten();
+    let next = match (current, forward) {
+        (None, true) => 0,
+        (None, false) => selectable.len() - 1,
+        (Some(pos), true) => (pos + 1) % selectable.len(),
+        (Some(0), false) => selectable.len() - 1,
+        (Some(pos), false) => pos - 1,
+    };
+    picker.selected_index = selectable[next];
+    picker.keyboard_cursor = true;
+}
+
+/// Arrow keys move the keyboard cursor and Return acts on the row it stands on. Return does nothing until an arrow
+/// key put the cursor on a row. A row that has egui focus (Tab) takes Return itself, as a click: egui reports any
+/// focused widget as keyboard input, so this handler stays out of its way.
 fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow], file_path: Option<&Path>) {
     if state.picker.other_form_open || ui.ctx().egui_wants_keyboard_input() {
         if state.picker.other_form_open && ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -222,23 +247,22 @@ fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow]
         return;
     }
     if ui.input(|i| i.key_pressed(Key::ArrowDown)) {
-        let cur_pos = selectable_indices.iter().position(|&idx| idx == state.picker.selected_index).unwrap_or(0);
-        let next_pos = (cur_pos + 1) % selectable_indices.len();
-        state.picker.selected_index = selectable_indices[next_pos];
+        move_keyboard_cursor(&mut state.picker, &selectable_indices, true);
     } else if ui.input(|i| i.key_pressed(Key::ArrowUp)) {
-        let cur_pos = selectable_indices.iter().position(|&idx| idx == state.picker.selected_index).unwrap_or(0);
-        let prev_pos = if cur_pos == 0 { selectable_indices.len() - 1 } else { cur_pos - 1 };
-        state.picker.selected_index = selectable_indices[prev_pos];
+        move_keyboard_cursor(&mut state.picker, &selectable_indices, false);
     } else if ui.input(|i| i.key_pressed(Key::Enter)) {
-        if let Some(row) = rows.get(state.picker.selected_index) {
-            if row.selectable {
-                let _ = execute_row_selection(state, row, file_path);
-            }
+        if let Some(row) = rows.get(state.picker.selected_index).filter(|r| state.picker.keyboard_cursor && r.selectable) {
+            let _ = execute_row_selection(state, row, file_path);
         }
     } else if ui.input(|i| i.key_pressed(Key::Escape)) {
         state.runtime_dropdown_open = false;
         state.picker.on_close();
     }
+}
+
+/// Whether a row is drawn as the focused one: the keyboard cursor or Tab focus stands on it.
+fn row_has_cursor(state: &TerminalState, idx: usize, row: &PickerRow, resp: &egui::Response) -> bool {
+    row.selectable && ((state.picker.keyboard_cursor && idx == state.picker.selected_index) || resp.has_focus())
 }
 
 fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, Color32) {
@@ -315,7 +339,9 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let row_id = format!("picker-row-{}", row.id);
         let resp = ui.interact(r_rect, Id::new(&row_id), Sense::click());
-        let is_selected = idx == state.picker.selected_index && row.selectable;
+        // Focus ring on the row the keyboard stands on; the file's last chosen CLI keeps the neutral fill.
+        let has_cursor = row_has_cursor(state, idx, row, &resp);
+        let is_selected = has_cursor || (row.selectable && row.is_last_choice);
 
         let bg = if is_selected {
             theme::BG_SELECTED
@@ -328,7 +354,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
         p.rect_stroke(
             r_rect,
             theme::cr(theme::RADIUS_CONTROL),
-            Stroke::new(theme::BORDER_WIDTH, if is_selected { STATUS_INFO_BORDER } else { theme::BORDER }),
+            Stroke::new(theme::BORDER_WIDTH, if has_cursor { STATUS_INFO_BORDER } else { theme::BORDER }),
             StrokeKind::Inside,
         );
 
@@ -492,7 +518,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     for (idx, row) in rows.iter().enumerate() {
         let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let resp = ui.interact(row_r, Id::new(&row.id), Sense::click());
-        let is_selected = idx == state.picker.selected_index && row.selectable;
+        let is_selected = row_has_cursor(state, idx, row, &resp) || (row.selectable && row.is_last_choice);
         if is_selected {
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() && row.selectable {

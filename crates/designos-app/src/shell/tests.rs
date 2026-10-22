@@ -1118,6 +1118,7 @@ mod typography;
 mod variables;
 mod vector;
 
+mod agent_picker_return;
 mod agents_panel_only;
 mod assets_thumbs;
 mod libraries;
