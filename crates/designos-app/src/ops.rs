@@ -102,6 +102,18 @@ fn transform_nodes(doc: &mut Document, ed: &mut Edit, nodes: &[(NodeId, Affine)]
     }
 }
 
+/// The child of `parent` that is, or contains, `layer`.
+fn child_holding(doc: &Document, parent: NodeId, layer: NodeId) -> Option<NodeId> {
+    let mut cur = layer;
+    loop {
+        let up = doc.get(cur)?.parent?;
+        if up == parent {
+            return Some(cur);
+        }
+        cur = up;
+    }
+}
+
 /// The first slot limit broken by taking `leaving` (slot, count) layers out of their slots and
 /// putting `entering` layers into one. Parents that are not slots are not limited.
 pub(crate) fn slot_edit_error(doc: &Document, leaving: &[(NodeId, usize)], entering: Option<(NodeId, &[&Node])>) -> Option<SlotConstraintError> {
@@ -566,7 +578,9 @@ impl App {
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
-        let copies = clipboard::capture(&self.doc, &tops).map(|c| clipboard::instantiate(&mut self.doc, &c)).unwrap_or_default();
+        let copies = clipboard::capture(&self.doc, &tops)
+            .map(|c| clipboard::instantiate_linking_mains(&mut self.doc, &c, |doc, id| doc.get(id).and_then(|n| n.parent)))
+            .unwrap_or_default();
         for (id, mut nodes) in tops.into_iter().zip(copies) {
             let Some(parent) = self.doc.get(id).and_then(|n| n.parent) else { continue };
             if let Some(root) = nodes.first() {
@@ -726,8 +740,8 @@ impl App {
     }
 
     fn paste_clip(&mut self, clip: clipboard::Clip) {
-        let parent = self.container_for_insert();
-        let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let parent = clipboard::paste_parent(&self.doc, &clip, self.container_for_insert());
+        let lists = clipboard::instantiate_linking_mains(&mut self.doc, &clip, |_, _| Some(parent));
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
         if !self.slot_insert_allowed(parent, &roots) {
             return;
@@ -756,8 +770,12 @@ impl App {
     /// selection (or inside the selected container at its top-left `(0, 0)`).
     pub fn paste_over_selection(&mut self) {
         let Some(clip) = self.clip.clone() else { return };
-        let parent = self.container_for_insert();
-        let (target_local, base_idx) = if let Some(&sel_id) = self.selection.first() {
+        let container = self.container_for_insert();
+        // A layer that holds an instance of a main cannot go in that main: it goes beside it, as Ctrl+V does, over the
+        // layer that holds the selection there.
+        let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
+        let (target_local, base_idx) = if let Some(sel_id) = over {
             if sel_id == parent {
                 (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
             } else if let Some(n) = self.doc.get(sel_id) {
@@ -811,12 +829,25 @@ impl App {
         let mut new_sel = Vec::new();
         let mut affected_parents = Vec::new();
         for target_id in tops {
-            let Some((parent, index, tx0, ty0)) = self.doc.get(target_id).and_then(|n| {
+            let Some((old_parent, index, tx0, ty0)) = self.doc.get(target_id).and_then(|n| {
                 let p = n.parent?;
                 let idx = self.doc.get(p)?.children.iter().position(|&c| c == target_id).unwrap_or(0);
                 Some((p, idx, n.transform.tx, n.transform.ty))
             }) else {
                 continue;
+            };
+            // A replacement that holds an instance of the main the target sits in cannot go there: it goes beside that
+            // main, as Ctrl+V does, and takes its place.
+            let parent = clipboard::paste_parent(&self.doc, &clip, old_parent);
+            let (index, tx0, ty0) = if parent == old_parent {
+                (index, tx0, ty0)
+            } else {
+                let Some(beside) = child_holding(&self.doc, parent, old_parent).and_then(|b| self.doc.get(b).map(|n| (b, n.transform.tx, n.transform.ty)))
+                else {
+                    continue;
+                };
+                let after = self.doc.get(parent).and_then(|p| p.children.iter().position(|&c| c == beside.0)).map_or(0, |i| i + 1);
+                (after, beside.1, beside.2)
             };
             if tx.cmd(&mut self.doc, Command::Remove { id: target_id }).is_err() {
                 continue;
@@ -839,8 +870,10 @@ impl App {
                 let ins_idx = (index + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
                 let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index: ins_idx, nodes });
             }
-            if !affected_parents.contains(&parent) {
-                affected_parents.push(parent);
+            for p in [parent, old_parent] {
+                if !affected_parents.contains(&p) {
+                    affected_parents.push(p);
+                }
             }
         }
         for p in affected_parents {
@@ -1604,6 +1637,11 @@ impl App {
         let mut moved = false;
         for (i, id) in ids.iter().enumerate() {
             if *id == new_parent || self.doc.is_ancestor(*id, new_parent) {
+                continue;
+            }
+            // A layer that holds an instance of a main is not dropped into that main, nor into a layer in it: that
+            // main would hold itself.
+            if reparent_would_hold_itself(&self.doc, &[*id], new_parent) {
                 continue;
             }
             let old_p = self.doc.get(*id).and_then(|n| n.parent);

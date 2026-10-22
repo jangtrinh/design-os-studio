@@ -51,12 +51,17 @@ struct Ctx<'a> {
     cmds: Vec<Command>,
     invs: Vec<Command>,
     saved_dirty: crate::DirtyLog,
+    /// Set when a sync left an instance on its main because the swap it asked for would make a main hold itself.
+    refused_swap: bool,
+    /// Whether a main holds an instance of itself, asked the first time a sync meets it inside its own mirror. The
+    /// answer holds for the whole sync: a mirror only repeats what the main already reaches.
+    holds_itself: BTreeMap<NodeId, bool>,
 }
 
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty }
+        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: false, holds_itself: BTreeMap::new() }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -572,11 +577,67 @@ pub fn create_component(doc: &mut Document, node: NodeId) -> Command {
     }
 }
 
+/// The main components that `ids` (with their layers) hold an instance of, directly or through the content of the
+/// mains those instances link to.
+pub fn mains_held_by(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
+    let mut direct = Vec::new();
+    for id in ids {
+        doc.walk(*id, |n, _| direct.extend(instance_component(n)));
+    }
+    mains_held_through(doc, direct)
+}
+
+/// Whether moving the layers `ids` under `new_parent` would make a main hold itself: a layer that holds an instance
+/// of a main (directly or through other mains) does not go into that main, nor into a layer inside it. A move into the
+/// layer's own subtree is a different refusal, which the callers keep.
+pub fn reparent_would_hold_itself(doc: &Document, ids: &[NodeId], new_parent: NodeId) -> bool {
+    mains_held_by(doc, ids).into_iter().any(|m| new_parent == m || doc.is_ancestor(m, new_parent))
+}
+
+/// `mains` and every main that the content of those holds an instance of, through any number of mains.
+pub fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId>) -> Vec<NodeId> {
+    let mut held: Vec<NodeId> = Vec::new();
+    let mut to_walk: Vec<NodeId> = Vec::new();
+    for main in mains {
+        if !held.contains(&main) {
+            held.push(main);
+            to_walk.push(main);
+        }
+    }
+    while let Some(root) = to_walk.pop() {
+        doc.walk(root, |n, _| {
+            if let Some(main) = instance_component(n).filter(|m| !held.contains(m)) {
+                held.push(main);
+                to_walk.push(main);
+            }
+        });
+    }
+    held
+}
+
+/// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
+/// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
+/// Such a main mirrors itself without end.
+fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
+    // the mains `at` is in; most places are in none, and then nothing can hold itself
+    let mut enclosing = Vec::new();
+    let mut cur = Some(at);
+    while let Some(n) = cur.and_then(|id| doc.get(id)) {
+        if matches!(n.kind, NodeKind::Component(_)) {
+            enclosing.push(n.id);
+        }
+        cur = n.parent;
+    }
+    !enclosing.is_empty() && mains_held_through(doc, [component]).iter().any(|m| enclosing.contains(m))
+}
+
 /// Instantiates `component` under `parent`, with its origin at `at` (parent
-/// space). The copy mirrors the whole component subtree.
+/// space). The copy mirrors the whole component subtree. Nothing is created
+/// where the instance would make a main hold itself: in the component, or in a
+/// main that the component holds an instance of, however deep.
 pub fn create_instance(doc: &mut Document, component: NodeId, parent: NodeId, at: Vec2) -> Command {
     let Some(comp) = doc.get(component).cloned() else { return nothing() };
-    if !matches!(comp.kind, NodeKind::Component(_)) || parent == component || doc.is_ancestor(component, parent) {
+    if !matches!(comp.kind, NodeKind::Component(_)) || would_hold_itself(doc, component, parent) {
         return nothing();
     }
     if !doc.get(parent).map(|p| p.kind.is_container()).unwrap_or(false) {
@@ -785,7 +846,30 @@ fn sync_one(c: &mut Ctx, id: NodeId) {
     let Some(r) = reference_of(&c.s, id) else { return };
     let top = c.s.get(id).map(is_top).unwrap_or(false);
     let holder = holder_of(&c.s, id);
-    sync_pair(c, r, id, top, holder);
+    let mut seen = mains_around(c.s, r);
+    sync_pair(c, r, id, top, holder, &mut seen);
+}
+
+/// The mains whose content `id` sits in: the main it is inside, and the main of every instance it is inside.
+/// An instance of one of these mains, inside what mirrors `id`, is a repeat.
+fn mains_around(d: &Document, id: NodeId) -> Vec<NodeId> {
+    let mut mains = Vec::new();
+    let mut cur = d.get(id).and_then(|n| n.parent);
+    while let Some(n) = cur.and_then(|p| d.get(p)) {
+        let main = if matches!(n.kind, NodeKind::Component(_)) { Some(n.id) } else { instance_component(n) };
+        mains.extend(main.filter(|m| !mains.contains(m)));
+        cur = n.parent;
+    }
+    mains
+}
+
+/// The main a reference node stands for: a main itself, or the main an instance links to.
+fn main_of_reference(n: &Node) -> Option<NodeId> {
+    if matches!(n.kind, NodeKind::Component(_)) {
+        Some(n.id)
+    } else {
+        instance_component(n)
+    }
 }
 
 /// Sibling variant that `inst`'s variant property values select, if different.
@@ -1200,7 +1284,11 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     }
 }
 
-fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
+/// Brings instance node `i` in line with its reference `r`. `seen` holds the mains whose content `r` sits in or
+/// mirrors, so that a main that holds an instance of itself (a file from an older build or an agent can carry one)
+/// is mirrored once instead of without end: an instance of a main already in `seen` is a repeat, and keeps the
+/// subtree it has.
+fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
@@ -1223,7 +1311,10 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
                 desired = v;
             }
         }
-        if desired != cur {
+        // not a main that would hold itself: the instance stays on the main it has
+        if desired != cur && would_hold_itself(c.s, desired, i) {
+            c.refused_swap = true;
+        } else if desired != cur {
             swap_main(c, i, desired);
             inode = match c.s.get(i) {
                 Some(n) => n.clone(),
@@ -1252,6 +1343,18 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
     if inode.component.overrides.contains(&OverrideField::SlotContent) {
         return;
     }
+    // A main that holds an instance of itself, met again inside its own mirror, is a repeat: the instance keeps the
+    // subtree it has. A main that holds nothing of itself can sit in an instance of itself (a swap does that) and
+    // is mirrored as usual.
+    let own = main_of_reference(&rn);
+    if let Some(m) = own.filter(|m| seen.contains(m)) {
+        let holds_itself = *c.holds_itself.entry(m).or_insert_with(|| mains_held_by(c.s, &[m]).contains(&m));
+        if holds_itself {
+            return;
+        }
+    }
+    let seen_before = seen.len();
+    seen.extend(own);
     let in_slot = rn.component.bindings.contains_key(&OverrideField::SlotContent) || is_slot_container(&c.s, i) || is_slot_container(&c.s, ref_id);
     let rkids = c.s.get(ref_id).map(|x| x.children.clone()).unwrap_or_default();
     let ikids = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
@@ -1284,14 +1387,14 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
     let mut desired: Vec<NodeId> = Vec::new();
     for (idx, rc) in rkids.iter().enumerate() {
         if let Some(ic) = by_src.get(rc).copied().filter(|k| c.s.get(*k).is_some()) {
-            sync_pair(c, *rc, ic, false, child_holder);
+            sync_pair(c, *rc, ic, false, child_holder, seen);
             desired.push(ic);
         } else {
             let nodes = copy_tree(&mut c.s, *rc, true);
             let Some(nid) = nodes.first().map(|n| n.id) else { continue };
             let at = idx.min(c.s.get(i).map(|x| x.children.len()).unwrap_or(0));
             c.push(Command::Insert { parent: i, index: at, nodes });
-            sync_pair(c, *rc, nid, false, child_holder);
+            sync_pair(c, *rc, nid, false, child_holder, seen);
             desired.push(nid);
         }
     }
@@ -1307,6 +1410,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId) {
             c.push(Command::Reparent { id: *id, parent: i, index: k });
         }
     }
+    seen.truncate(seen_before);
 }
 
 // ---------------------------------------------------------------------------
@@ -1321,7 +1425,8 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
     if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
         return nothing();
     }
-    if new_comp == instance || c.s.is_ancestor(new_comp, instance) {
+    // not inside the new component, nor inside a main it holds an instance of: that main would hold itself
+    if new_comp == instance || would_hold_itself(c.s, new_comp, instance) {
         return nothing();
     }
     swap_main(&mut c, instance, new_comp);
@@ -1348,7 +1453,14 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
         c.update(n);
     }
     sync_one(&mut c, instance);
-    c.finish()
+    // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes.
+    let refused = c.refused_swap;
+    let cmd = c.finish();
+    if refused {
+        nothing()
+    } else {
+        cmd
+    }
 }
 
 /// Adds a property definition to a component or component set.
@@ -2376,6 +2488,68 @@ mod tests {
         assert_eq!(f.d.get(child_named(&f.d, i, "bg")).unwrap().component.source, Some(f.bg));
         // Not into itself.
         assert!(matches!(create_instance(&mut f.d, f.comp, f.comp, Vec2::ZERO), Command::Batch(v) if v.is_empty()));
+    }
+
+    fn is_nothing(c: &Command) -> bool {
+        matches!(c, Command::Batch(v) if v.is_empty())
+    }
+
+    /// A main on `parent`.
+    fn main_on(f: &mut Fx, parent: NodeId) -> NodeId {
+        let id = f.d.alloc_id();
+        let n = f.d.insert(parent, Node::frame(id, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let c = create_component(&mut f.d, n);
+        apply(&mut f.d, c);
+        n
+    }
+
+    /// `f.comp` is main B, with a frame `host` inside it. Main A holds an instance of B, and main C one of A.
+    /// Returns (A, C, host).
+    fn mains_holding_each_other(f: &mut Fx) -> (NodeId, NodeId, NodeId) {
+        let hid = f.d.alloc_id();
+        let host = f.d.insert(f.comp, Node::frame(hid, Rect::new(5.0, 5.0, 30.0, 30.0))).unwrap();
+        let page = f.page;
+        let (a, c) = (main_on(f, page), main_on(f, page));
+        let ins = create_instance(&mut f.d, f.comp, a, Vec2::ZERO);
+        apply(&mut f.d, ins);
+        let ins = create_instance(&mut f.d, a, c, Vec2::ZERO);
+        apply(&mut f.d, ins);
+        (a, c, host)
+    }
+
+    #[test]
+    fn an_instance_cannot_go_into_a_main_that_its_component_holds_directly_or_through_other_mains() {
+        let mut f = fx();
+        let (a, c, host) = mains_holding_each_other(&mut f);
+        let b = f.comp;
+        // A holds B: an instance of A in B or in a layer of B would make B hold itself.
+        assert!(is_nothing(&create_instance(&mut f.d, a, b, Vec2::ZERO)), "an instance of A in B");
+        assert!(is_nothing(&create_instance(&mut f.d, a, host, Vec2::ZERO)), "an instance of A in a layer of B");
+        // C holds A, which holds B.
+        assert!(is_nothing(&create_instance(&mut f.d, c, a, Vec2::ZERO)), "an instance of C in A");
+        assert!(is_nothing(&create_instance(&mut f.d, c, b, Vec2::ZERO)), "an instance of C in B, through A");
+        // Everywhere else it goes: on the page, and an instance of B inside the main that holds it already.
+        assert!(matches!(create_instance(&mut f.d, a, f.page, Vec2::ZERO), Command::Insert { .. }));
+        assert!(matches!(create_instance(&mut f.d, b, c, Vec2::ZERO), Command::Insert { .. }));
+    }
+
+    #[test]
+    fn an_instance_is_not_swapped_to_a_component_that_holds_the_main_it_sits_in() {
+        let mut f = fx();
+        let (a, _c, _host) = mains_holding_each_other(&mut f);
+        let page = f.page;
+        let z = main_on(&mut f, page);
+        // an instance of Z inside B: swapping it to A would put an instance of A in B, and A holds B
+        let ins = create_instance(&mut f.d, z, f.comp, Vec2::ZERO);
+        apply(&mut f.d, ins);
+        let inside_b = *f.d.get(f.comp).unwrap().children.last().unwrap();
+        assert_eq!(instance_component(f.d.get(inside_b).unwrap()), Some(z));
+        assert!(is_nothing(&swap_instance(&mut f.d, inside_b, a)), "no swap inside B");
+        // the same swap on the page is fine
+        let ins = create_instance(&mut f.d, z, f.page, Vec2::new(300.0, 0.0));
+        apply(&mut f.d, ins);
+        let on_page = *f.d.get(f.page).unwrap().children.last().unwrap();
+        assert!(!is_nothing(&swap_instance(&mut f.d, on_page, a)), "swap on the page");
     }
 
     #[test]

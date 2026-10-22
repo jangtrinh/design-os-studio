@@ -332,10 +332,14 @@ fn combine_selection_builds_a_component_set() {
     let mut s = Sim::new();
     let main = s.by_name("Primary button");
     let first = s.app().doc.get(main).unwrap().clone();
+    // Duplicating a main makes an instance of it, so the second variant is made from that instance.
     s.shell.app.selection = vec![main];
     s.shell.app.duplicate_selection();
     let copy = s.shell.app.selection[0];
     assert_ne!(copy, main);
+    assert!(matches!(s.app().doc.get(copy).unwrap().kind, NodeKind::Instance { component: Some(c), .. } if c == main));
+    s.shell.app.create_component();
+    assert!(matches!(s.app().doc.get(copy).unwrap().kind, NodeKind::Component(_)), "the instance became a main of its own");
     s.shell.app.selection = vec![main, copy];
     s.shell.app.combine_selection_as_variants();
     let set = s.app().selection[0];

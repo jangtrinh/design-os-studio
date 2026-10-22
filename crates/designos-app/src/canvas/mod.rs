@@ -49,6 +49,9 @@ pub struct MoveState {
     /// `Some` while dragging Alt-copies (`ids` are the copies). Holds the slots whose limit a copy
     /// breaks if it stays in them; the verdict is taken at release, once the drop is known.
     pub dup_blocked: Option<Vec<(NodeId, designos_doc::SlotConstraintError)>>,
+    /// Alt-copies of a main component or set, as (the main, its copy): what the copy is, an instance or a real
+    /// copy, is decided at release, once the drop is known.
+    pub main_copies: Vec<(NodeId, NodeId)>,
 }
 
 pub enum ResizeKind {

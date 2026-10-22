@@ -840,6 +840,8 @@ impl TabsState {
         let copy_title = format!("{} (Copy)", src.title);
         let mut copy_doc = src.doc.clone();
         copy_doc.name = copy_title.clone();
+        // a file of its own: layers copied in the original paste here as real copies, not as links to its mains
+        copy_doc.renew_runtime_id();
         let copy_kind = src.kind;
         let copy_page = src.page;
         let copy_selection = src.selection.clone();

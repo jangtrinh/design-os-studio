@@ -60,6 +60,7 @@ impl Live {
             moved: true,
             reorder: None,
             dup_blocked: None,
+            main_copies: Vec::new(),
         };
         self.app.canvas.inter = Interaction::Move(state);
     }

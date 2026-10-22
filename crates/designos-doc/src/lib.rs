@@ -22,6 +22,8 @@ mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
 mod comments;
+#[cfg(test)]
+mod component_cycle_tests;
 mod components;
 mod dev;
 pub mod diff;
@@ -849,6 +851,12 @@ impl Document {
         self.dirty.runtime_id
     }
 
+    /// Gives this document an id of its own, for a clone that is opened as a file of its own (a duplicated tab):
+    /// a clone otherwise has the id of the document it came from.
+    pub fn renew_runtime_id(&mut self) {
+        self.dirty.runtime_id = NEXT_DOC_RUNTIME_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     #[inline]
     pub fn mutation_epoch(&self) -> u64 {
         self.dirty.epoch
@@ -1552,6 +1560,19 @@ mod tests {
         let removed = d.remove(frame).unwrap();
         assert_eq!(removed.len(), 2);
         assert!(d.get(rect).is_none());
+    }
+
+    #[test]
+    fn a_clone_shares_the_runtime_id_until_it_is_renewed_and_a_loaded_document_gets_its_own() {
+        let mut d = Document::new("t");
+        d.add_page("Page 1");
+        let mut copy = d.clone();
+        assert_eq!(copy.runtime_id(), d.runtime_id());
+        copy.renew_runtime_id();
+        assert_ne!(copy.runtime_id(), d.runtime_id());
+        let (loaded, _) = Document::from_json_with_report(&d.to_json().unwrap()).unwrap();
+        assert_ne!(loaded.runtime_id(), d.runtime_id());
+        assert_ne!(loaded.runtime_id(), copy.runtime_id());
     }
 
     #[test]
