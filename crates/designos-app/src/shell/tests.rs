@@ -153,6 +153,19 @@ impl Sim {
     fn type_text(&mut self, s: &str) {
         self.frame(vec![Event::Text(s.into())]);
     }
+    /// Starts a frame that carries several input events at once; see [`OneFrame`].
+    fn one_frame(&mut self) -> OneFrame<'_> {
+        let pos = self.pos;
+        OneFrame { sim: self, events: Vec::new(), pos }
+    }
+    /// A whole drag, press to release, delivered in ONE frame, then one empty frame to settle.
+    /// `mv`, `button` and [`Sim::drag`] spread the same gesture over eight frames, which hides every bug that only
+    /// shows when the window is slow.
+    fn drag_in_one_frame(&mut self, a: Pos2, b: Pos2) {
+        let mid = a + (b - a) * 0.5;
+        self.one_frame().move_to(a).press().move_to(mid).move_to(b).release().send();
+        self.frame(vec![]);
+    }
     fn field_rect(&self, key: &str) -> Rect {
         self.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}"))))).unwrap_or_else(|| panic!("no field {key}"))
     }
@@ -182,6 +195,69 @@ impl Sim {
             dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
             self.shell.app.terminal.path_override = Some(std::env::join_paths(dirs).expect("a PATH made of existing dirs"));
         }
+    }
+}
+
+/// Input events that reach the window inside ONE egui frame, in the order they are chained.
+///
+/// Every other [`Sim`] helper (`mv`, `button`, `click`, `drag`, `key`, `type_text`) runs one frame per event. A
+/// real window is not that polite: on a slow frame, or a quick flick, the OS hands egui a whole
+/// "press, moves, release" gesture, or a click followed by keys, between two frames. egui then reports only the
+/// LAST pointer position of the frame, reports the button as pressed AND released but no longer down, and
+/// delivers the key and text events together. Code that samples the pointer once per frame sees a different
+/// gesture than the user made.
+///
+/// Chain the events in the order they arrived and finish with [`OneFrame::send`], which runs exactly one frame:
+///
+/// ```ignore
+/// s.mv(a);                                    // earlier frame: the pointer rests on `a`
+/// s.one_frame().press().move_to(b).release().send(); // press, move and release share one frame
+/// s.one_frame().key(Key::R).text("x").send();  // a key and typed text share one frame
+/// ```
+///
+/// Pointer events take the position of the last `move_to` (the pointer position of the previous frame when there
+/// is none), and every event carries the modifiers [`Sim::mods`] holds when it is chained.
+struct OneFrame<'a> {
+    sim: &'a mut Sim,
+    events: Vec<Event>,
+    pos: Pos2,
+}
+
+impl OneFrame<'_> {
+    fn move_to(mut self, p: Pos2) -> Self {
+        self.pos = p;
+        self.events.push(Event::PointerMoved(p));
+        self
+    }
+    fn button(mut self, button: PointerButton, pressed: bool) -> Self {
+        self.events.push(Event::PointerButton { pos: self.pos, button, pressed, modifiers: self.sim.mods });
+        self
+    }
+    /// Primary button down at the current position.
+    fn press(self) -> Self {
+        self.button(PointerButton::Primary, true)
+    }
+    /// Primary button up at the current position.
+    fn release(self) -> Self {
+        self.button(PointerButton::Primary, false)
+    }
+    /// A key going down and up again, like [`Sim::key`] but without a frame between the two.
+    fn key(mut self, key: Key) -> Self {
+        let modifiers = self.sim.mods;
+        for pressed in [true, false] {
+            self.events.push(Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers });
+        }
+        self
+    }
+    /// Typed text, like [`Sim::type_text`].
+    fn text(mut self, s: &str) -> Self {
+        self.events.push(Event::Text(s.into()));
+        self
+    }
+    /// Runs the one frame that holds every chained event.
+    fn send(self) {
+        self.sim.pos = self.pos;
+        self.sim.frame(self.events);
     }
 }
 
@@ -1023,6 +1099,7 @@ mod decks;
 mod dev;
 mod effect_grid_styles;
 mod empty_slot_flows;
+mod fast_drag_draw;
 mod figma_paste;
 mod find;
 mod gpu_screenshot_wait;
