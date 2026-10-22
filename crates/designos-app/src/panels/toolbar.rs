@@ -108,7 +108,8 @@ pub fn tool_menu_pos(chevron: Rect, h: f32) -> Pos2 {
     Pos2::new(chevron.left() - theme::TOOL_CHEVRON_GAP + theme::TOOL_MENU_DX, bar_top + theme::TOOL_MENU_OVERLAP - h)
 }
 
-/// Whether the primary button went down inside `rect` this frame and nothing popped up over that spot.
+/// Whether the primary button went down inside `rect` this frame and no popup, floating panel or dialog (a layer above
+/// the one the toolbar is drawn in) was over that spot.
 ///
 /// Read from the button events, not from a widget response: egui resolves a press against the pointer position at the
 /// END of the frame, so a press followed by a move in the same frame (a slow frame or a quick flick) never reaches the
@@ -123,8 +124,8 @@ fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
             })
             .collect()
     });
-    let ctx = ui.ctx();
-    presses.into_iter().any(|p| rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l.order != egui::Order::Foreground))
+    let (ctx, own) = (ui.ctx(), ui.layer_id());
+    presses.into_iter().any(|p| rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l == own))
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
@@ -691,5 +692,39 @@ mod tests {
         }
         assert_eq!(app.doc.get(id).unwrap().fills.len(), 1, "no layer fill may be removed by a retired action");
         assert!(!app.hist.can_undo());
+    }
+
+    /// Runs two frames (an area is hit-tested from its second frame on); the second one carries a primary press at
+    /// `press`, with a floating panel over `panel` unless it is empty. Returns whether the toolbar saw the press in `rect`.
+    fn press_seen(rect: Rect, press: Pos2, panel: Rect) -> bool {
+        let ctx = egui::Context::default();
+        let mut seen = false;
+        for frame in 0..2 {
+            let events = if frame == 1 {
+                vec![egui::Event::PointerButton { pos: press, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]
+            } else {
+                vec![]
+            };
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                if panel.is_positive() {
+                    egui::Area::new(egui::Id::new("floating-panel")).order(egui::Order::Middle).fixed_pos(panel.min).show(ui.ctx(), |ui| {
+                        ui.allocate_exact_size(panel.size(), Sense::click());
+                    });
+                }
+                seen = primary_pressed_in(ui, rect);
+            });
+        }
+        seen
+    }
+
+    #[test]
+    fn a_press_on_a_floating_panel_over_the_chevron_is_not_a_chevron_press() {
+        let chevron = Rect::from_min_size(Pos2::new(400.0, 600.0), Vec2::new(16.0, 32.0));
+        let on_chevron = chevron.center();
+        let panel = Rect::from_min_size(Pos2::new(380.0, 560.0), Vec2::new(120.0, 100.0));
+        assert!(press_seen(chevron, on_chevron, Rect::NOTHING), "nothing over the chevron: the press is its");
+        assert!(!press_seen(chevron, on_chevron, panel), "a panel over the chevron takes the press");
+        assert!(!press_seen(chevron, Pos2::new(300.0, 620.0), Rect::NOTHING), "a press beside the chevron is not its");
     }
 }
