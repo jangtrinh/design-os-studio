@@ -1240,6 +1240,11 @@ impl Shell {
     /// `.webcapture` / `.capture.json` files are imported at the drop point,
     /// anything else (the first file) is opened as a document.
     fn handle_drops(&mut self, ctx: &Context) {
+        // A question is modal: a file dropped while one is open is ignored, as on Home. It must not replace the
+        // action that is pending (a quit, a close) or put content on the canvas behind the question.
+        if self.app.dialog.is_some() || self.app.leave.is_asking() {
+            return;
+        }
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos().or(i.pointer.latest_pos())));
         let extension_of = |f: &egui::DroppedFile| {
             let name = f.path.as_ref().and_then(|p| p.to_str()).unwrap_or(&f.name);

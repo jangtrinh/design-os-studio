@@ -1132,6 +1132,7 @@ mod history;
 mod home;
 mod layer_drag_fast;
 mod leave_prompt;
+mod leave_prompt_edges;
 mod live_agent_edits;
 mod menus;
 mod panel_keys;

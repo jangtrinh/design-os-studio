@@ -528,6 +528,50 @@ fn shared_libraries_follow_the_projects_library_root_and_open_its_files() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn go_to_main_component_waits_for_the_save_changes_question_and_does_not_navigate_in_the_old_document() {
+    let root = tmp("gotomainask");
+    let mut s = Sim::with(Options { library: Some(root.clone()), ..Default::default() });
+    let home_file = s.app().lib.as_ref().unwrap().all_files()[0].id.clone();
+    s.shell.app.open_library_file(&home_file);
+    assert!(s.shell.app.publish_file());
+    let lib_id = s.app().doc.library.published.clone().unwrap().library_id;
+    s.shell.app.flush_autosave();
+    // A document outside the library uses the library, and has edits no save has written (the dropped instance).
+    let mut consumer = designos_doc::Document::new("Consumer");
+    consumer.add_page("P");
+    s.shell.app.open_new_tab("Consumer", consumer, crate::tabs::ProjectTabKind::Design);
+    s.frame(vec![]);
+    assert!(s.app().lib_file.is_none(), "outside the library");
+    // A local component of the same name: what the search for the main component finds in this document, if it looks.
+    let local = {
+        let app = &mut s.shell.app;
+        let (page, id) = (app.page, app.doc.alloc_id());
+        let mut frame = designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 30.0));
+        frame.name = "Primary button".into();
+        let mut tx = crate::edit::Tx::new();
+        tx.cmd(&mut app.doc, Command::Insert { parent: page, index: 0, nodes: vec![frame] }).unwrap();
+        let make = designos_doc::create_component(&mut app.doc, id);
+        tx.cmd(&mut app.doc, make).unwrap();
+        app.run_tx(tx);
+        id
+    };
+    s.shell.app.set_library_enabled(&lib_id, true);
+    let key = {
+        let snap = s.shell.app.latest_snapshot(&lib_id).unwrap();
+        snap.assets.iter().find(|x| x.name == "Primary button").unwrap().key.clone()
+    };
+    let inst = s.shell.app.drop_library_asset(&lib_id, &key, designos_doc::Vec2::new(40.0, 40.0)).unwrap();
+    assert!(s.app().has_unsaved_edits());
+    let (page, selection) = (s.app().page, s.app().selection.clone());
+    s.shell.app.go_to_main(inst);
+    assert!(s.app().leave.is_asking(), "opening the main component's file asks first");
+    assert_eq!(s.app().doc.name, "Consumer", "the file is not open yet");
+    assert_eq!((s.app().page, s.app().selection.clone()), (page, selection), "and nothing was selected or shown in this document meanwhile");
+    assert!(!s.app().selection.contains(&local), "in particular not its own component of that name");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// File B holds an instance whose slot (limits `min`/`max`) already has one child; returns (slot, centre of the slot).
 fn slot_with_one_child_in_b(b: &mut Sim, max: u32) -> (NodeId, designos_doc::Vec2) {
     slot_in_b(b, None, max, 1)

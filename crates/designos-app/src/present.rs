@@ -106,6 +106,13 @@ impl PresentState {
         self.videos = Default::default();
     }
 
+    /// Puts the window back to the full-screen state it had before the view opened.
+    fn restore_window(&self, ctx: &Context) {
+        if self.fullscreen != self.initial_fullscreen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.initial_fullscreen));
+        }
+    }
+
     fn set_fullscreen(&mut self, ctx: &Context, fullscreen: bool) {
         self.fullscreen = fullscreen;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(fullscreen));
@@ -639,8 +646,16 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     if !st.close {
         app.proto.present = Some(st);
-    } else if st.fullscreen != st.initial_fullscreen {
-        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(st.initial_fullscreen));
+    } else {
+        st.restore_window(&ctx);
+    }
+}
+
+/// Leaves the Present view from outside it (a window close request that has to ask first): the window goes back to
+/// the full-screen state it had before the view, as when the view is closed from inside.
+pub fn leave(app: &mut App, ctx: &Context) {
+    if let Some(st) = app.proto.present.take() {
+        st.restore_window(ctx);
     }
 }
 

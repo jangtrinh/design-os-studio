@@ -79,7 +79,8 @@ impl App {
     }
 
     /// For a window close request: true when the window may close now. Otherwise the questions are open (or
-    /// were already), and the caller cancels the close; it comes round again when they are answered.
+    /// were already), and the caller cancels the close; it comes round again when they are answered. A question is
+    /// asked over the editor, so the Present view, which draws no dialog, is left first.
     pub fn may_quit(&mut self, ctx: &egui::Context) -> bool {
         if self.leave.quit_approved {
             return true;
@@ -87,7 +88,11 @@ impl App {
         if self.leave.is_asking() {
             return false;
         }
-        !self.begin_leave(Some(ctx), Leave::Quit)
+        let asking = self.begin_leave(Some(ctx), Leave::Quit);
+        if asking {
+            crate::present::leave(self, ctx);
+        }
+        !asking
     }
 
     /// For [`App::open_path`]: true when it must wait for the answers (`open_path` returns, and runs again when they
@@ -117,8 +122,13 @@ impl App {
         !self.leave.confirmed_open && self.begin_leave(None, action)
     }
 
-    /// Starts the questions for `action`. False when there is nothing to ask about.
+    /// Starts the questions for `action`. False when there is nothing to ask about. While a question is open the
+    /// answer is modal: a request that arrives meanwhile (a dropped file, another open) is ignored, so it does not
+    /// replace the action that is pending, and counts as asked about (true) so that the caller does not go on.
     fn begin_leave(&mut self, ctx: Option<&egui::Context>, action: Leave) -> bool {
+        if self.leave.is_asking() {
+            return true;
+        }
         // Typed text, a drag and a scrub are not in the history until they end: end them where they are, so that they
         // count, and so that Save writes a settled document.
         self.commit_open_edits();

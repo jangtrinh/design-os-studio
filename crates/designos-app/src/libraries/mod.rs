@@ -793,6 +793,11 @@ impl App {
                     Ok(file_id) => self.open_library_file(&file_id),
                     Err(path) => self.open_path(path),
                 }
+                // The open waits for the answer to "Save changes": the shown document is still this one, and the
+                // main component is not in it. The file opens without the navigation once it is answered.
+                if self.leave.is_asking() {
+                    return;
+                }
                 let found = self.doc.pages.iter().find_map(|p| {
                     let mut hit = None;
                     self.doc.walk(*p, |n, _| {

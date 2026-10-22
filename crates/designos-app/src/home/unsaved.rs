@@ -52,13 +52,16 @@ impl App {
         }
     }
 
-    /// Ends what is under way, so that the document is settled and everything in it is in the history: an open text
-    /// session (its text kept), a drag or another canvas gesture (ended where it last drew, as the one undo step the
-    /// release would have made), and a property scrub (its change as one undo step). For a place that asks about
-    /// unsaved edits, or saves, while the pointer may still be down.
+    /// Ends what is under way, so that the document is settled and everything in it is in the history: the speaker
+    /// notes being typed (a draft that lives only in the notes field until "Save notes" or a slide change, so no dot
+    /// shows it), a drag or another canvas gesture (ended where it last drew, as the one undo step the release would
+    /// have made), an open text session (its text kept), and a property scrub (its change as one undo step). For a place
+    /// that asks about unsaved edits, or saves, while the pointer may still be down.
     pub(crate) fn commit_open_edits(&mut self) {
-        self.commit_open_text_session();
+        crate::decks::ui::flush_notes(self);
+        // The gesture first: drawing a sticky or a board shape ends in a text session, which is then ended too.
         crate::canvas::interact::commit_open_gesture(self);
+        self.commit_open_text_session();
         if self.scrub.is_some() {
             self.scrub_end();
         }

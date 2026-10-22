@@ -12,24 +12,24 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn dialog_title(s: &Sim) -> Option<String> {
+pub(super) fn dialog_title(s: &Sim) -> Option<String> {
     s.app().dialog.as_ref().map(|d| d.title.clone())
 }
 
-fn asks_about(s: &Sim, name: &str) -> bool {
+pub(super) fn asks_about(s: &Sim, name: &str) -> bool {
     dialog_title(s).as_deref() == Some(&format!("Save changes to {name}?"))
 }
 
-fn click(s: &mut Sim, name: &str) {
+pub(super) fn click(s: &mut Sim, name: &str) {
     let r = s.rect_of(name);
     s.click(r.center());
 }
 
-fn tab_id(s: &Sim, idx: usize) -> u64 {
+pub(super) fn tab_id(s: &Sim, idx: usize) -> u64 {
     s.app().tabs.entries[idx].id
 }
 
-fn close_tab_by_click(s: &mut Sim, idx: usize) {
+pub(super) fn close_tab_by_click(s: &mut Sim, idx: usize) {
     let id = tab_id(s, idx);
     click(s, &format!("tab-close-{id}"));
     wait(s, 0.1);
@@ -40,7 +40,7 @@ fn rewrite(path: &Path, doc: &Document) {
 }
 
 /// A second tab, an untitled document with edits no save has written. It becomes the active tab.
-fn add_an_unsaved_untitled_tab(s: &mut Sim) {
+pub(super) fn add_an_unsaved_untitled_tab(s: &mut Sim) {
     let mut doc = two_rects();
     doc.name = "Untitled".into();
     s.shell.app.open_new_tab("Untitled", doc, crate::tabs::ProjectTabKind::Design);
@@ -51,7 +51,7 @@ fn add_an_unsaved_untitled_tab(s: &mut Sim) {
 /// Opens a second, clean tab (an untitled document) next to the file's tab, goes back to the file's tab, which is
 /// at index 0, and edits it: the file has an edit no save has written. (Takes the sim by reference: a `Sim` is large,
 /// and a test thread's stack holds only a few copies of it.)
-fn make_two_tabs(s: &mut Sim) {
+pub(super) fn make_two_tabs(s: &mut Sim) {
     let mut doc = two_rects();
     doc.name = "Second".into();
     s.shell.app.open_new_tab("Second", doc, crate::tabs::ProjectTabKind::Design);
