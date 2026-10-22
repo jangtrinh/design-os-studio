@@ -274,6 +274,20 @@ pub fn drop_svg(app: &mut App, svg: &str, name: &str, at: Option<egui::Pos2>, nt
     }
 }
 
+/// Places a dropped PNG, JPEG or WebP file as an image layer, through the Image tool's `place_image_bytes`: centered
+/// on screen position `at` (the drop point; the viewport center when it is outside the canvas), into the frame under
+/// that point, at most 400 px on its longest side. `nth` staggers several files dropped together, as for SVG.
+pub fn drop_image(app: &mut App, bytes: Vec<u8>, name: &str, at: Option<egui::Pos2>, nth: usize) {
+    let view = app.canvas_rect;
+    let screen = at.filter(|p| view.contains(*p)).unwrap_or(view.center());
+    let mut p = app.view.to_page(view.min, screen);
+    p.x += 24.0 * nth as f32;
+    p.y += 24.0 * nth as f32;
+    // A file that is not a readable picture is placed at the point as it is, so `place_image_bytes` says why it cannot.
+    let origin = crate::system_paste::image_size(&bytes).map_or(p, |(w, h)| crate::system_paste::centered_image_origin(p, w, h));
+    crate::canvas::interact::place_image_bytes(app, origin, name, bytes);
+}
+
 /// Imports SVG markup as a Frame named `name` centered on page point `center`
 /// (rounded to whole pixels), appended to `parent`'s children as one undoable
 /// step, and selects it.

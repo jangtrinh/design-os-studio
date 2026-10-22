@@ -103,7 +103,8 @@ fn the_image_layer(s: &Sim, before: &Ids) -> (NodeId, (u32, u32)) {
     assert!(matches!(n.kind, NodeKind::Rectangle), "{:?}", n.kind);
     let PaintKind::Image { image_ref, .. } = &n.fills[0].kind else { panic!("not an image fill: {:?}", n.fills) };
     let bytes = s.app().doc.images.get(image_ref).expect("the picture is embedded");
-    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png).expect("embedded as PNG");
+    // PNG and JPEG are embedded as they came, WebP is converted to PNG
+    let img = image::load_from_memory(bytes).expect("an embedded picture the renderer can decode");
     assert_eq!(s.app().selection, vec![new[0]], "the new layer is selected");
     (new[0], (img.width(), img.height()))
 }
@@ -318,4 +319,165 @@ fn when_the_system_clipboard_cannot_be_read_the_in_app_copy_still_pastes() {
     assert_eq!(named(&s, "Button"), buttons + 1);
     ctrl_v(&mut s, None);
     assert_eq!(named(&s, "Button"), buttons + 2);
+}
+
+// ---------------------------------------------------------------------------------------------- dropped files
+
+fn tmp(name: &str) -> std::path::PathBuf {
+    let mut p = std::env::temp_dir();
+    p.push(format!("designos_drop_test_{}_{name}", std::process::id()));
+    p
+}
+
+fn encoded(format: image::ImageFormat, w: u32, h: u32) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    let img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(w, h, image::Rgba([220, 80, 40, 255])));
+    // JPEG has no alpha channel
+    let img = if format == image::ImageFormat::Jpeg { image::DynamicImage::ImageRgb8(img.to_rgb8()) } else { img };
+    img.write_to(&mut out, format).expect("encode");
+    out.into_inner()
+}
+
+fn write_file(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let p = tmp(name);
+    std::fs::write(&p, bytes).unwrap();
+    p
+}
+
+fn dropped(path: &std::path::Path) -> egui::DroppedFile {
+    egui::DroppedFile { path: Some(path.to_path_buf()), ..Default::default() }
+}
+
+impl Sim {
+    /// One frame with synthetic dropped files; the pointer rests where the last move left it.
+    fn drop_on_window(&mut self, files: Vec<egui::DroppedFile>) {
+        self.t += 0.05;
+        let raw = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
+            time: Some(self.t),
+            dropped_files: files,
+            modifiers: self.mods,
+            ..Default::default()
+        };
+        let ctx = self.ctx.clone();
+        let shell = &mut self.shell;
+        let _ = ctx.run_ui(raw, |ui| shell.draw(ui));
+        self.frame(vec![]);
+    }
+}
+
+/// The image layer a drop made: id and the decoded size of its embedded picture.
+fn image_layers(s: &Sim, before: &Ids) -> Vec<NodeId> {
+    added(s, before)
+        .into_iter()
+        .filter(|id| matches!(s.app().doc.get(*id).map(|n| n.fills.first().map(|f| &f.kind)), Some(Some(PaintKind::Image { .. }))))
+        .collect()
+}
+
+#[test]
+fn dropping_a_png_places_one_selected_image_layer_at_the_pointer() {
+    let path = write_file("photo.png", &encoded(image::ImageFormat::Png, 800, 600));
+    let mut s = Sim::new();
+    let before = ids(&s);
+    let target = s.screen(60.0, 900.0);
+    s.mv(target);
+    s.drop_on_window(vec![dropped(&path)]);
+    std::fs::remove_file(&path).ok();
+    let (id, picture) = the_image_layer(&s, &before);
+    assert_eq!(picture, (800, 600));
+    let size = s.app().doc.get(id).unwrap().size;
+    assert_eq!((size.x, size.y), (400.0, 300.0), "400 px on the longest side, like the Image tool");
+    assert!(s.app().doc.get(id).unwrap().name.ends_with("photo"), "named after the file: {}", s.app().doc.get(id).unwrap().name);
+    let (c, page) = (center_of(&s, id), s.app().view.to_page(s.app().canvas_rect.min, target));
+    assert!((c.x - page.x).abs() <= 1.0 && (c.y - page.y).abs() <= 1.0, "({}, {}) vs drop ({}, {})", c.x, c.y, page.x, page.y);
+    undoes_in_one_step(&mut s, &before);
+}
+
+#[test]
+fn jpeg_and_webp_files_drop_as_image_layers_too() {
+    for (name, format) in [("photo.jpg", image::ImageFormat::Jpeg), ("PHOTO.JPEG", image::ImageFormat::Jpeg), ("photo.webp", image::ImageFormat::WebP)] {
+        let path = write_file(name, &encoded(format, 64, 32));
+        let mut s = Sim::new();
+        let before = ids(&s);
+        let target = s.screen(60.0, 900.0);
+        s.mv(target);
+        s.drop_on_window(vec![dropped(&path)]);
+        std::fs::remove_file(&path).ok();
+        let (id, picture) = the_image_layer(&s, &before);
+        assert_eq!(picture, (64, 32), "{name}");
+        let size = s.app().doc.get(id).unwrap().size;
+        assert_eq!((size.x, size.y), (64.0, 32.0), "{name}: a small picture keeps its own size");
+    }
+}
+
+#[test]
+fn several_dropped_files_are_offset_24px_each() {
+    let paths: Vec<_> = (0..3).map(|i| write_file(&format!("many-{i}.png"), &encoded(image::ImageFormat::Png, 50, 50))).collect();
+    let mut s = Sim::new();
+    let before = ids(&s);
+    let target = s.screen(60.0, 900.0);
+    s.mv(target);
+    s.drop_on_window(paths.iter().map(|p| dropped(p)).collect());
+    for p in &paths {
+        std::fs::remove_file(p).ok();
+    }
+    let layers = image_layers(&s, &before);
+    assert_eq!(layers.len(), 3);
+    let mut centers: Vec<DV> = layers.iter().map(|id| center_of(&s, *id)).collect();
+    centers.sort_by(|a, b| a.x.total_cmp(&b.x));
+    for pair in centers.windows(2) {
+        assert!((pair[1].x - pair[0].x - 24.0).abs() <= 1.0 && (pair[1].y - pair[0].y - 24.0).abs() <= 1.0, "{pair:?}");
+    }
+}
+
+#[test]
+fn an_image_dropped_outside_the_canvas_lands_at_the_viewport_center() {
+    let path = write_file("outside.png", &encoded(image::ImageFormat::Png, 40, 40));
+    let mut s = Sim::new();
+    let before = ids(&s);
+    s.mv(Pos2::new(4.0, 4.0));
+    assert!(!s.app().canvas_rect.contains(Pos2::new(4.0, 4.0)), "precondition: the pointer is off the canvas");
+    s.drop_on_window(vec![dropped(&path)]);
+    std::fs::remove_file(&path).ok();
+    let (id, _) = the_image_layer(&s, &before);
+    assert_centered_on_viewport(&s, id);
+}
+
+#[test]
+fn image_bytes_without_a_path_drop_too() {
+    let mut s = Sim::new();
+    let before = ids(&s);
+    let file = egui::DroppedFile { name: "logo.png".into(), bytes: Some(encoded(image::ImageFormat::Png, 30, 30).into()), ..Default::default() };
+    s.mv(s.screen(60.0, 900.0));
+    s.drop_on_window(vec![file]);
+    let (id, _) = the_image_layer(&s, &before);
+    assert_eq!(s.app().doc.get(id).unwrap().name, "logo");
+}
+
+#[test]
+fn a_broken_image_file_says_so_and_adds_nothing() {
+    let path = write_file("broken.png", b"this is not a picture");
+    let mut s = Sim::new();
+    let before = ids(&s);
+    let doc_name = s.app().doc.name.clone();
+    s.mv(s.screen(60.0, 900.0));
+    s.drop_on_window(vec![dropped(&path)]);
+    std::fs::remove_file(&path).ok();
+    assert_eq!(ids(&s), before);
+    assert_eq!(s.app().doc.name, doc_name, "the open document stays open");
+    assert!(toast(&s).is_some_and(|(_, error)| error), "an error toast: {:?}", toast(&s));
+}
+
+#[test]
+fn a_dropped_design_file_still_opens_even_beside_an_image() {
+    let mut other = designos_doc::Document::new("Dropped design");
+    other.add_page("Page 1");
+    let design = write_file("design.designos", other.to_json().unwrap().as_bytes());
+    let picture = write_file("beside.png", &encoded(image::ImageFormat::Png, 20, 20));
+    let mut s = Sim::new();
+    s.drop_on_window(vec![dropped(&picture), dropped(&design)]);
+    std::fs::remove_file(&design).ok();
+    std::fs::remove_file(&picture).ok();
+    assert_eq!(s.app().doc.name, "Dropped design", "the non-image file keeps its old meaning");
+    assert!(!s.app().doc.images.values().any(|b| b.starts_with(b"\x89PNG")), "no image layer was made");
 }

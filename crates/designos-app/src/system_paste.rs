@@ -145,13 +145,23 @@ impl App {
     }
 }
 
+/// Where `place_image_bytes`, which puts an image's top-left corner at the point it is given, must put a
+/// `width` x `height` picture so that the layer (at most 400 px on its longest side) is centered on page point `center`.
+pub(crate) fn centered_image_origin(center: Vec2, width: u32, height: u32) -> Vec2 {
+    let (w, h) = (width as f32, height as f32);
+    let scale = (PLACED_IMAGE_MAX_SIDE / w.max(h)).min(1.0);
+    Vec2::new((center.x - w * scale / 2.0).round(), (center.y - h * scale / 2.0).round())
+}
+
+/// The pixel size of a PNG, JPEG or WebP picture, read from its header without decoding it.
+pub(crate) fn image_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
+}
+
 /// Inserts the clipboard image as an image layer, centered on page point `center` and at most 400 px on its
 /// longest side like the Image tool, as one undo step.
 fn place_pasted_image(app: &mut App, center: Vec2, png: Vec<u8>, width: u32, height: u32) {
-    let (w, h) = (width as f32, height as f32);
-    let scale = (PLACED_IMAGE_MAX_SIDE / w.max(h)).min(1.0);
-    let top_left = Vec2::new((center.x - w * scale / 2.0).round(), (center.y - h * scale / 2.0).round());
-    interact::place_image_bytes(app, top_left, "Pasted image", png);
+    interact::place_image_bytes(app, centered_image_origin(center, width, height), "Pasted image", png);
 }
 
 /// Layer name of pasted text: its first line that has any text, cut to a short length.

@@ -1234,16 +1234,18 @@ impl eframe::App for Shell {
 }
 
 impl Shell {
-    /// Files dropped on the window: `.svg` files are placed at the drop point,
+    /// Files dropped on the window: `.svg`, `.png`, `.jpg` and `.webp` files are placed at the drop point,
     /// `.webcapture` / `.capture.json` files are imported at the drop point,
     /// anything else (the first file) is opened as a document.
     fn handle_drops(&mut self, ctx: &Context) {
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos().or(i.pointer.latest_pos())));
-        let is_svg = |f: &egui::DroppedFile| {
+        let extension_of = |f: &egui::DroppedFile| {
             let name = f.path.as_ref().and_then(|p| p.to_str()).unwrap_or(&f.name);
-            name.rsplit('.').next().is_some_and(|e| e.eq_ignore_ascii_case("svg"))
+            name.rsplit('.').next().map(str::to_ascii_lowercase).unwrap_or_default()
         };
-        if let Some(path) = files.iter().filter(|f| !is_svg(f)).find_map(|f| f.path.clone()) {
+        let is_svg = |f: &egui::DroppedFile| extension_of(f) == "svg";
+        let is_placed = |f: &egui::DroppedFile| crate::canvas::interact::IMAGE_EXTENSIONS.contains(&extension_of(f).as_str());
+        if let Some(path) = files.iter().filter(|f| !is_placed(f)).find_map(|f| f.path.clone()) {
             if crate::io::is_web_capture_path(&path) {
                 let page_pos = pos.map(|s| self.app.view.to_page(self.app.canvas_rect.min, s));
                 self.app.import_web_capture_path_at(path, page_pos);
@@ -1252,24 +1254,36 @@ impl Shell {
             }
             return;
         }
-        for (nth, f) in files.iter().filter(|f| is_svg(f)).enumerate() {
-            let text = match (&f.path, &f.bytes) {
-                (Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
-                (None, Some(b)) => String::from_utf8(b.to_vec()).map_err(|_| "The SVG is not valid UTF-8".to_string()),
-                (None, None) => continue,
-            };
+        for (nth, f) in files.iter().filter(|f| is_placed(f)).enumerate() {
             let stem = f
                 .path
                 .as_deref()
                 .and_then(|p| p.file_stem())
                 .and_then(|s| s.to_str())
-                .or_else(|| f.name.strip_suffix(".svg"))
+                .or_else(|| f.name.rsplit_once('.').map(|(stem, _)| stem))
                 .filter(|s| !s.is_empty())
-                .unwrap_or("svg")
+                .unwrap_or(if is_svg(f) { "svg" } else { "Image" })
                 .to_string();
-            match text {
-                Ok(t) => crate::clipboard::drop_svg(&mut self.app, &t, &stem, pos, nth),
-                Err(e) => self.app.show_toast(e, true),
+            if is_svg(f) {
+                let text = match (&f.path, &f.bytes) {
+                    (Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
+                    (None, Some(b)) => String::from_utf8(b.to_vec()).map_err(|_| "The SVG is not valid UTF-8".to_string()),
+                    (None, None) => continue,
+                };
+                match text {
+                    Ok(t) => crate::clipboard::drop_svg(&mut self.app, &t, &stem, pos, nth),
+                    Err(e) => self.app.show_toast(e, true),
+                }
+            } else {
+                let bytes = match (&f.path, &f.bytes) {
+                    (Some(p), _) => std::fs::read(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
+                    (None, Some(b)) => Ok(b.to_vec()),
+                    (None, None) => continue,
+                };
+                match bytes {
+                    Ok(b) => crate::clipboard::drop_image(&mut self.app, b, &stem, pos, nth),
+                    Err(e) => self.app.show_toast(e, true),
+                }
             }
         }
     }
