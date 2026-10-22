@@ -152,7 +152,7 @@ fn a_family_picked_for_a_file_text_is_measured_again_when_it_arrives() {
 #[test]
 fn an_edit_that_leaves_the_box_alone_does_not_make_a_file_text_ours() {
     let (mut app, row, texts) = opened_row(&["TestRefitD1"], &["TestRefitD1"]);
-    // moved and recoloured, not measured: the file's box is still the box
+    // moved and made half transparent, not measured: the file's box is still the box (a text colour is in `after_edits`)
     app.edit_nodes(&[texts[0]], |n| {
         n.transform.tx += 5.0;
         n.opacity = 0.5;
@@ -239,7 +239,8 @@ fn the_time_is_checked_before_each_text_so_a_slice_without_time_fits_one() {
     while app.text_refit_pending() {
         app.poll_fonts();
         frames += 1;
-        assert!(frames <= texts.len(), "one text per frame at most: {frames} frames for {} texts", texts.len());
+        // one unit per frame at most: the texts, then the frame that hugs them
+        assert!(frames <= texts.len() + 1, "{frames} frames for {} texts and their row", texts.len());
     }
     assert_eq!(fitted(&app), texts.len(), "every text is fitted in the end");
 }
@@ -322,6 +323,8 @@ fn a_text_edited_while_a_gesture_holds_the_pass_joins_it() {
     assert!(fits(&app, texts[0]), "measured with the face that arrived: {:?}", size_of(&app, texts[0]));
     assert!(size_of(&app, texts[0]).x > edited.x + 20.0);
 }
+
+mod after_edits;
 
 #[test]
 fn a_script_face_matches_the_texts_that_use_the_script() {
