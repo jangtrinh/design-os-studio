@@ -29,9 +29,8 @@ pub fn apply_resize(doc: &mut Document, ed: &mut Edit, id: NodeId, size: Vec2, t
     let counter_horiz = doc.get(id).and_then(|n| n.parent).and_then(|p| doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
     let w_changed = (size.x - old.x).abs() > 1e-4;
     let h_changed = (size.y - old.y).abs() > 1e-4;
+    layout::set_box(doc, ed, id, transform, size);
     if let Some(n) = ed.node(doc, id) {
-        n.size = size;
-        n.transform = transform;
         if w_changed {
             n.layout_child.set_axis_sizing(true, Sizing::Fixed, counter_horiz);
             if let Some(al) = n.kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
@@ -56,8 +55,12 @@ pub fn apply_resize(doc: &mut Document, ed: &mut Edit, id: NodeId, size: Vec2, t
             }
         }
     }
-    if doc.get(id).map(|n| n.kind.is_container()).unwrap_or(false) {
-        layout::apply_constraints(doc, ed, id, old, size);
+    let (is_container, is_boolean) = doc.get(id).map(|n| (n.kind.is_container(), matches!(n.kind, NodeKind::BooleanOp(_)))).unwrap_or_default();
+    if is_container {
+        // a boolean group's operands are its shape: `set_box` scaled them, constraints do not apply
+        if !is_boolean {
+            layout::apply_constraints(doc, ed, id, old, size);
+        }
         layout::layout_node(doc, ed, id);
     }
     if relayout {
