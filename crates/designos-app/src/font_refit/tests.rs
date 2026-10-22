@@ -326,6 +326,7 @@ fn a_text_edited_while_a_gesture_holds_the_pass_joins_it() {
 
 mod after_edits;
 mod guards;
+mod open_edit;
 mod undone_edits;
 
 #[test]

@@ -278,6 +278,8 @@ impl App {
             // the boxes moved behind the canvas's back, like a deferred relayout
             self.changed();
             self.canvas.tiles.invalidate_all();
+            // and behind the history's: an edit still open (the colour picker's) must not replay them as its own
+            self.doc.note_layout_written_outside_history();
         }
         if refit.queue.is_empty() {
             refit.arrived = None;
