@@ -26,7 +26,6 @@ pub struct AgentPickerState {
     pub open_row_order: Vec<String>,
     /// True once `open_row_order` was built from fully-probed rows (no catalog row left `Checking`).
     pub open_row_order_settled: bool,
-    pub selected_index: usize,
     pub other_form_open: bool,
     pub other_label_input: String,
     pub other_command_input: String,
@@ -122,11 +121,6 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
         let order = state.picker.open_row_order.clone();
         rows.sort_by_key(|r| order.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
     }
-    if state.picker.selected_index >= rows.len() || !rows.get(state.picker.selected_index).is_some_and(|r| r.selectable) {
-        if let Some(first_sel) = rows.iter().position(|r| r.selectable) {
-            state.picker.selected_index = first_sel;
-        }
-    }
     rows
 }
 
@@ -210,34 +204,50 @@ pub fn execute_row_selection(state: &mut TerminalState, row: &PickerRow, file_pa
     }
 }
 
-fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow], file_path: Option<&Path>) {
-    if state.picker.other_form_open || ui.ctx().egui_wants_keyboard_input() {
-        if state.picker.other_form_open && ui.input(|i| i.key_pressed(Key::Escape)) {
+/// The row focus moves to from `from` on an arrow key: the next (`forward`) or previous selectable row, wrapping
+/// at both ends. `None` when no row is selectable.
+fn step_row(selectable: &[bool], from: usize, forward: bool) -> Option<usize> {
+    let n = selectable.len();
+    (1..=n).map(|step| if forward { (from + step) % n } else { (from + n - step % n) % n }).find(|&idx| selectable[idx])
+}
+
+/// Arrow keys move egui focus between the rows of the list, and Return is egui's own click on the focused row.
+/// Both act only while a row has focus (reached with Tab, or by a click): with nothing focused the picker ignores
+/// them, so a layer selected on the canvas keeps its arrow and Return shortcuts and a stray Return starts nothing.
+/// `row_id` is the widget id the surface draws a row with.
+fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow], row_id: impl Fn(&PickerRow) -> Id) {
+    let ctx = ui.ctx();
+    if state.picker.other_form_open {
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
             state.picker.close_other_form();
         }
         return;
     }
-    let selectable_indices: Vec<usize> = rows.iter().enumerate().filter_map(|(i, r)| r.selectable.then_some(i)).collect();
-    if selectable_indices.is_empty() {
-        return;
-    }
-    if ui.input(|i| i.key_pressed(Key::ArrowDown)) {
-        let cur_pos = selectable_indices.iter().position(|&idx| idx == state.picker.selected_index).unwrap_or(0);
-        let next_pos = (cur_pos + 1) % selectable_indices.len();
-        state.picker.selected_index = selectable_indices[next_pos];
-    } else if ui.input(|i| i.key_pressed(Key::ArrowUp)) {
-        let cur_pos = selectable_indices.iter().position(|&idx| idx == state.picker.selected_index).unwrap_or(0);
-        let prev_pos = if cur_pos == 0 { selectable_indices.len() - 1 } else { cur_pos - 1 };
-        state.picker.selected_index = selectable_indices[prev_pos];
-    } else if ui.input(|i| i.key_pressed(Key::Enter)) {
-        if let Some(row) = rows.get(state.picker.selected_index) {
-            if row.selectable {
-                let _ = execute_row_selection(state, row, file_path);
-            }
+    let focused = rows.iter().position(|r| ctx.memory(|m| m.has_focus(row_id(r))));
+    if let Some(from) = focused {
+        let forward = if ui.input(|i| i.key_pressed(Key::ArrowDown)) {
+            Some(true)
+        } else if ui.input(|i| i.key_pressed(Key::ArrowUp)) {
+            Some(false)
+        } else {
+            None
+        };
+        let selectable: Vec<bool> = rows.iter().map(|r| r.selectable).collect();
+        if let Some(to) = forward.and_then(|forward| step_row(&selectable, from, forward)) {
+            ctx.memory_mut(|m| m.request_focus(row_id(&rows[to])));
         }
-    } else if ui.input(|i| i.key_pressed(Key::Escape)) {
+    }
+    // egui drops a focused widget's focus on Escape before this runs, so Escape on a focused row lands here too.
+    if !ctx.egui_wants_keyboard_input() && ui.input(|i| i.key_pressed(Key::Escape)) {
         state.runtime_dropdown_open = false;
         state.picker.on_close();
+    }
+}
+
+/// Keeps arrow keys with the focused row: egui would otherwise also move focus to the nearest widget on its own.
+fn keep_arrows_on_row(ui: &Ui, resp: &egui::Response) {
+    if resp.has_focus() {
+        ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, egui::EventFilter { vertical_arrows: true, ..Default::default() }));
     }
 }
 
@@ -278,7 +288,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
     if state.picker.cache.is_probing() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     }
-    handle_picker_keyboard(state, ui, &rows, file_path);
+    handle_picker_keyboard(state, ui, &rows, |row| Id::new(format!("picker-row-{}", row.id)));
 
     let p = ui.painter().clone();
     let pad = theme::INSET_POPOVER;
@@ -315,7 +325,10 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let row_id = format!("picker-row-{}", row.id);
         let resp = ui.interact(r_rect, Id::new(&row_id), Sense::click());
-        let is_selected = idx == state.picker.selected_index && row.selectable;
+        // Focus ring on the row the keyboard stands on; the file's last chosen CLI keeps the neutral fill.
+        keep_arrows_on_row(ui, &resp);
+        let has_cursor = resp.has_focus();
+        let is_selected = has_cursor || (row.selectable && row.is_last_choice);
 
         let bg = if is_selected {
             theme::BG_SELECTED
@@ -328,7 +341,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
         p.rect_stroke(
             r_rect,
             theme::cr(theme::RADIUS_CONTROL),
-            Stroke::new(theme::BORDER_WIDTH, if is_selected { STATUS_INFO_BORDER } else { theme::BORDER }),
+            Stroke::new(theme::BORDER_WIDTH, if has_cursor { STATUS_INFO_BORDER } else { theme::BORDER }),
             StrokeKind::Inside,
         );
 
@@ -442,7 +455,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     if state.picker.cache.is_probing() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     }
-    handle_picker_keyboard(state, ui, &rows, file_path);
+    handle_picker_keyboard(state, ui, &rows, |row| Id::new(&row.id));
 
     let last_resume = state.resumable_sessions().first().map(|e| e.title.clone());
     let menu_inset = theme::SPACE_GROUP;
@@ -492,7 +505,8 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     for (idx, row) in rows.iter().enumerate() {
         let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let resp = ui.interact(row_r, Id::new(&row.id), Sense::click());
-        let is_selected = idx == state.picker.selected_index && row.selectable;
+        keep_arrows_on_row(ui, &resp);
+        let is_selected = resp.has_focus() || (row.selectable && row.is_last_choice);
         if is_selected {
             p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
         } else if resp.hovered() && row.selectable {
@@ -682,7 +696,6 @@ fn apply_picker_interaction(state: &mut TerminalState, rows: &[PickerRow], inter
             }
         }
         PickerInteraction::SelectRow(idx) => {
-            state.picker.selected_index = idx;
             if let Some(row) = rows.get(idx) {
                 let _ = execute_row_selection(state, row, file_path);
             }
@@ -1132,5 +1145,22 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&st.session_dir);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn arrow_steps_skip_disabled_rows_and_wrap() {
+        // rows: 0 on, 1 off, 2 off, 3 on, 4 on, 5 off
+        let rows = [true, false, false, true, true, false];
+        assert_eq!(step_row(&rows, 0, true), Some(3), "down skips the disabled rows");
+        assert_eq!(step_row(&rows, 3, true), Some(4));
+        assert_eq!(step_row(&rows, 4, true), Some(0), "down wraps from the last enabled row to the first");
+        assert_eq!(step_row(&rows, 0, false), Some(4), "up wraps from the first enabled row to the last");
+        assert_eq!(step_row(&rows, 4, false), Some(3));
+        assert_eq!(step_row(&rows, 3, false), Some(0), "up skips the disabled rows");
+        assert_eq!(step_row(&rows, 1, true), Some(3), "from a disabled row down goes to the next enabled row");
+        assert_eq!(step_row(&rows, 5, false), Some(4), "from a disabled row up goes to the previous enabled row");
+        assert_eq!(step_row(&[true], 0, true), Some(0), "a lone enabled row keeps focus");
+        assert_eq!(step_row(&[false, false], 0, true), None, "nothing to step to");
+        assert_eq!(step_row(&[], 0, true), None);
     }
 }
