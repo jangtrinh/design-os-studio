@@ -35,6 +35,11 @@ struct Inp {
     /// Where the primary button went up before the last press of the frame: the end of the gesture that was open
     /// when the frame began.
     prior_release_pos: Option<Pos2>,
+    /// The modifiers held when the primary button went up (see `release_pos`). `mods` is the state at the END of the
+    /// frame and may already have changed since: a gesture that ends at the release was drawn with these.
+    release_mods: Option<Modifiers>,
+    /// The modifiers held at `prior_release_pos`.
+    prior_release_mods: Option<Modifiers>,
     pressed: bool,
     down: bool,
     /// The primary button went up after the last press of this frame, so the gesture that press started is over.
@@ -54,7 +59,7 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
         // Events are walked in arrival order: a release only ends the gesture of the press that came before it.
         let (mut press, mut mid_press, mut release, mut prior_release) = (None, None, None, None);
         for ev in &i.events {
-            if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
+            if let egui::Event::PointerButton { pos, button, pressed, modifiers } = ev {
                 match (button, pressed) {
                     (egui::PointerButton::Primary, true) => {
                         press = Some(*pos);
@@ -63,7 +68,7 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
                         let seen = release.take();
                         prior_release = prior_release.or(seen);
                     }
-                    (egui::PointerButton::Primary, false) => release = Some(*pos),
+                    (egui::PointerButton::Primary, false) => release = Some((*pos, *modifiers)),
                     (egui::PointerButton::Middle, true) => mid_press = Some(*pos),
                     _ => {}
                 }
@@ -73,8 +78,10 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
         Inp {
             pos: i.pointer.latest_pos(),
             press_pos: if pressed { press } else { mid_press },
-            release_pos: release,
-            prior_release_pos: prior_release,
+            release_pos: release.map(|r| r.0),
+            prior_release_pos: prior_release.map(|r| r.0),
+            release_mods: release.map(|r| r.1),
+            prior_release_mods: prior_release.map(|r| r.1),
             pressed,
             down: i.pointer.primary_down(),
             released: i.pointer.primary_released() && (release.is_some() || press.is_none()),
@@ -342,17 +349,24 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         // a release that never reached us must not complete a later gesture
         ctx.data_mut(|d| d.remove_temp::<Pos2>(grid_pill_press_id()));
     }
-    if (inp.pressed || inp.mid_pressed) && hovered {
+    let new_press = inp.pressed || inp.mid_pressed;
+    if new_press && hovered {
         app.terminal.viewport_focused = false;
         if let Some(focused_id) = ctx.memory(|m| m.focused()) {
             ctx.memory_mut(|m| m.surrender_focus(focused_id));
         }
-        // A new press ends a draw still open (a middle press, a pan habit, while the primary button is held; a press
-        // after a lost release). Without this the press starts another gesture over the draw's state, and the
-        // half-drawn shape stays in the document outside undo.
-        if matches!(app.canvas.inter, Interaction::Draw(_)) {
-            on_release(app, rect, &Inp { release_pos: inp.prior_release_pos, ..inp.clone() });
-        }
+    }
+    // A new press ends a draw, move, resize or rotate still open (a middle press, a pan habit, while the primary
+    // button is held; a release and a press in one slow frame; a press after a lost release). Without this the
+    // press starts another gesture over the open one, and what it did stays in the document outside undo.
+    // A release before this frame's press ends the gesture wherever that press lands: on a panel it never reaches
+    // the canvas, and the gesture would follow the held button.
+    let open_gesture =
+        matches!(app.canvas.inter, Interaction::Draw(_) | Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_));
+    if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some()) {
+        end_open_gesture(app, rect, &inp);
+    }
+    if new_press && hovered {
         on_press(app, &ctx, rect, &inp);
     }
     if inp.released {
@@ -368,7 +382,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
             _ => inp.released || !inp.down && !inp.pressed,
         };
         if ended {
-            on_release(app, rect, &inp);
+            on_release(app, rect, &Inp { mods: inp.release_mods.unwrap_or(inp.mods), ..inp.clone() }, release_end(&inp));
         }
     }
     if resp.secondary_clicked() && hovered {
@@ -1035,18 +1049,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::ZoomMarquee { cur: c, .. } => {
             *c = cur;
         }
-        Interaction::Pending(p) => {
-            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
-                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
-                if let Some(mut m) = start_move(app, node, start, alt) {
-                    update_move(app, &mut m, cur, inp);
-                    inter = Interaction::Move(m);
-                } else {
-                    inter = Interaction::None;
-                }
-            }
-        }
-        Interaction::Move(m) => update_move(app, m, cur, inp),
+        Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur),
         Interaction::Marquee { start, cur: c, base } => {
@@ -1069,28 +1072,6 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
                 }
                 app.selection = sel;
             }
-        }
-        Interaction::Resize(r) => update_resize(app, r, cur, inp),
-        Interaction::Rotate(r) => {
-            r.tx.ed.revert(&mut app.doc);
-            if r.group.is_empty() {
-                let mut ang = r.rot0 + (handles::angle_of(r.center, cur) - r.start_angle);
-                if inp.mods.shift {
-                    ang = handles::snap_angle(ang, 15.0);
-                }
-                let t = handles::rotate_about_center(&r.t0, r.size, ang);
-                if let Some(n) = r.tx.ed.node(&mut app.doc, r.id) {
-                    n.transform = t;
-                }
-                layout::relayout_up(&mut app.doc, &mut r.tx.ed, r.id);
-            } else {
-                let mut delta = handles::angle_of(r.center, cur) - r.start_angle;
-                if inp.mods.shift {
-                    delta = handles::snap_angle(delta, 15.0);
-                }
-                crate::ops::rotate_nodes_about(&mut app.doc, &mut r.tx.ed, &r.group, r.center, delta);
-            }
-            app.changed();
         }
         Interaction::CornerRadius(cr) => {
             cr.tx.ed.revert(&mut app.doc);
@@ -1201,6 +1182,62 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
     if matches!(app.canvas.inter, Interaction::None) {
         app.canvas.inter = inter;
     }
+}
+
+/// Takes a pending click, a move, a resize or a rotate to the pointer at `pos` (`cur` in page space).
+/// `on_drag` does this on every frame the button is held, but not on the frame of the release.
+fn follow_pointer(app: &mut App, inter: &mut Interaction, pos: Pos2, cur: DV, inp: &Inp) {
+    match inter {
+        Interaction::Pending(p) => {
+            if (pos - p.start_screen).length() > theme::DRAG_THRESHOLD_PX {
+                let (node, start, alt) = (p.node, p.start_page, inp.mods.alt);
+                *inter = match start_move(app, node, start, alt) {
+                    Some(mut m) => {
+                        update_move(app, &mut m, cur, inp);
+                        Interaction::Move(m)
+                    }
+                    None => Interaction::None,
+                };
+            }
+        }
+        Interaction::Move(m) => update_move(app, m, cur, inp),
+        Interaction::Resize(r) => update_resize(app, r, cur, inp),
+        Interaction::Rotate(r) => update_rotate(app, r, cur, inp),
+        _ => {}
+    }
+}
+
+/// Ends the draw, move, resize or rotate that a new press finds open.
+/// A primary press ends it where the primary button went up before that press, with the modifiers held then. A
+/// primary press with no release before it means the release was lost: the gesture ends as it was last drawn, because
+/// the pointer is now somewhere that has nothing to do with it. A middle press leaves the primary button live, so the
+/// gesture ends at this frame's release if there is one, else at the pointer.
+fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
+    let (end, mods) = if inp.pressed { (inp.prior_release_pos, inp.prior_release_mods) } else { (inp.release_pos.or(inp.pos), inp.release_mods) };
+    let ending = Inp { mods: mods.unwrap_or(inp.mods), ..inp.clone() };
+    if !inp.pressed && matches!(app.canvas.inter, Interaction::Pending(_)) {
+        // A pan habit over a pending click is not a click, so the selection stays. A pointer that went past the drag
+        // threshold within this frame still makes the move.
+        let mut inter = std::mem::take(&mut app.canvas.inter);
+        if let Some(p) = end {
+            let page = app.view.to_page(rect.min, p);
+            follow_pointer(app, &mut inter, p, page, &ending);
+        }
+        if !matches!(inter, Interaction::Pending(_)) {
+            app.canvas.inter = inter;
+        }
+    }
+    if !matches!(app.canvas.inter, Interaction::None) {
+        on_release(app, rect, &ending, end);
+    }
+}
+
+/// Where the primary button went up in this frame: the place a move, resize or rotate still open at the release
+/// ends. `None` for a click, a press and a release at one spot in one frame, which must not resize or rotate
+/// anything by the few pixels between the pointer and the middle of the handle it hit.
+fn release_end(inp: &Inp) -> Option<Pos2> {
+    let end = inp.release_pos.or(inp.pos)?;
+    (!(inp.pressed && inp.press_pos == Some(end))).then_some(end)
 }
 
 fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<MoveState> {
@@ -1324,6 +1361,28 @@ fn update_move(app: &mut App, m: &mut MoveState, cur: DV, inp: &Inp) {
     app.changed();
 }
 
+fn update_rotate(app: &mut App, r: &mut RotateState, cur: DV, inp: &Inp) {
+    r.tx.ed.revert(&mut app.doc);
+    if r.group.is_empty() {
+        let mut ang = r.rot0 + (handles::angle_of(r.center, cur) - r.start_angle);
+        if inp.mods.shift {
+            ang = handles::snap_angle(ang, 15.0);
+        }
+        let t = handles::rotate_about_center(&r.t0, r.size, ang);
+        if let Some(n) = r.tx.ed.node(&mut app.doc, r.id) {
+            n.transform = t;
+        }
+        layout::relayout_up(&mut app.doc, &mut r.tx.ed, r.id);
+    } else {
+        let mut delta = handles::angle_of(r.center, cur) - r.start_angle;
+        if inp.mods.shift {
+            delta = handles::snap_angle(delta, 15.0);
+        }
+        crate::ops::rotate_nodes_about(&mut app.doc, &mut r.tx.ed, &r.group, r.center, delta);
+    }
+    app.changed();
+}
+
 fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
     r.tx.ed.revert(&mut app.doc);
     let mut mouse = cur;
@@ -1440,9 +1499,15 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
 }
 
 // ------------------------------------------------------------------ release
-fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
-    let cur = inp.pos.map(|p| app.view.to_page(rect.min, p)).unwrap_or(DV::ZERO);
-    let inter = std::mem::take(&mut app.canvas.inter);
+/// Ends the open gesture. `end` is where the pointer let go: `on_drag` does not run on the frame of the release, and
+/// the release can share its frame with the press and the moves, so a move, resize or rotate is first brought to
+/// `end`. `None` when that place is not known (or the gesture was a click): the gesture then ends as it was last drawn.
+fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
+    let mut inter = std::mem::take(&mut app.canvas.inter);
+    let cur = end.map(|p| app.view.to_page(rect.min, p));
+    if let (Some(pos), Some(page)) = (end, cur) {
+        follow_pointer(app, &mut inter, pos, page, inp);
+    }
     app.canvas.guides.clear();
     app.canvas.measures.clear();
     match inter {
@@ -1515,7 +1580,7 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
         Interaction::Draw(mut d) => {
             // `on_drag` does not run on the frame of the release, and the release can share its frame with the press
             // and the moves. Shape the draw to where the pointer let go, then decide between a drag and a click.
-            if let Some(p) = inp.release_pos.or(inp.pos) {
+            if let Some(p) = end {
                 update_draw(app, &mut d, app.view.to_page(rect.min, p), inp);
                 app.canvas.guides.clear();
                 app.canvas.measures.clear();
@@ -1653,7 +1718,7 @@ pub fn commit_auto_layout_inline_value(app: &mut App, id: NodeId, kind: handles:
 
 /// Settles a finished drag: reparents into the container under the pointer and records the slot
 /// edits it made. Returns false when a slot limit refuses the drop (the caller undoes the drag).
-fn release_move(app: &mut App, m: &mut MoveState, cur: DV, space: bool) -> bool {
+fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) -> bool {
     // Holding Space on release suppresses reparenting into a different container (MI-12).
     if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur) {
         return false;
@@ -1672,8 +1737,8 @@ fn release_move(app: &mut App, m: &mut MoveState, cur: DV, space: bool) -> bool 
     true
 }
 
-fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) -> bool {
-    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
+/// `cur` is where the layers were dropped; without it they stay in the container they are in.
+fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> bool {
     let copies = m.dup_blocked.is_some();
     let mut touched_parents = Vec::new();
     if let Some(r) = m.reorder.take() {
@@ -1699,6 +1764,8 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: DV) -> bool {
         }
         return true;
     }
+    let Some(cur) = cur else { return true };
+    let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &m.ids);
     // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
     let moving: Vec<NodeId> =
         m.ids.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.parent != Some(target)) && !app.doc.is_ancestor(*id, target)).collect();
@@ -2370,6 +2437,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2401,6 +2470,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2436,6 +2507,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2591,6 +2664,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: false,
             released: false,
@@ -2767,6 +2842,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
