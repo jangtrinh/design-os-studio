@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::canvas::tools::Tool;
-use designos_doc::{AutoLayout, BooleanOp, Node, Path, PathCmd, Rect as DRect, Sizing};
+use designos_doc::{ArcData, AutoLayout, BooleanOp, Node, Path, PathCmd, Rect as DRect, Sizing};
 use designos_render::vectorops::node_paths;
 
 const STROKE: f32 = 4.0;
@@ -298,6 +298,144 @@ fn a_resized_vector_and_union_keep_their_geometry_through_a_fig_file() {
         assert!(
             lo.x.abs() < SLACK && lo.y.abs() < SLACK && (hi.x - now.x).abs() < SLACK && (hi.y - now.y).abs() < SLACK,
             "{what} still fills its box after the round trip: {lo:?} to {hi:?} in {now:?}"
+        );
+    }
+}
+
+/// A shape the way a `.fig` import leaves it: the primitive, plus Figma's outline of it and of its stroke at
+/// the size it had. The renderers prefer those outlines to the primitive, so they must not outlive a resize.
+fn imported(s: &mut Sim, kind: NodeKind, name: &str) -> NodeId {
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::new(id, kind);
+    n.transform = designos_doc::Affine::translate(300.0, 300.0);
+    n.size = DV::new(100.0, 100.0);
+    let id = add(s, n, name);
+    let outline = node_paths(&s.app().doc, s.app().doc.get(id).unwrap()).expect("a shape has an outline");
+    let n = s.shell.app.doc.get_mut(id).unwrap();
+    (n.fill_geometry, n.stroke_geometry) = (Some(outline.clone()), Some(outline));
+    s.shell.app.selection = vec![id];
+    s.shell.app.changed();
+    s.frame(vec![]);
+    id
+}
+
+fn imported_kinds() -> [(NodeKind, &'static str); 4] {
+    [
+        (NodeKind::Ellipse(ArcData::default()), "Imported oval"),
+        (NodeKind::Star { count: 5, inner_ratio: 0.4 }, "Imported star"),
+        (NodeKind::Polygon { count: 6 }, "Imported hexagon"),
+        (NodeKind::Rectangle, "Imported box"),
+    ]
+}
+
+/// The shape is drawn the way the same primitive is drawn at its size when nothing is imported.
+#[track_caller]
+fn assert_drawn_at_its_size(doc: &designos_doc::Document, id: NodeId, what: &str) {
+    let mut native = doc.get(id).unwrap().clone();
+    (native.fill_geometry, native.stroke_geometry) = (None, None);
+    let want = ink_of(&node_paths(doc, &native).unwrap());
+    let got = ink(doc, id);
+    assert!(
+        (got.0.x - want.0.x).abs() < SLACK && (got.0.y - want.0.y).abs() < SLACK && (got.1.x - want.1.x).abs() < SLACK && (got.1.y - want.1.y).abs() < SLACK,
+        "{what}: drawn {got:?} instead of {want:?} for the box {:?}",
+        native.size
+    );
+}
+
+#[test]
+fn dragging_a_handle_draws_an_imported_shape_at_its_new_size() {
+    for (kind, name) in imported_kinds() {
+        let mut s = Sim::new();
+        let id = imported(&mut s, kind, name);
+        assert_drawn_at_its_size(&s.app().doc, id, &format!("{name} before the drag"));
+        let (before, depth) = (s.app().doc.get(id).unwrap().clone(), s.app().hist.undo_depth());
+
+        drag_bottom_right(&mut s);
+
+        let n = s.app().doc.get(id).unwrap();
+        assert!(n.size.x > before.size.x + 20.0 && n.size.y > before.size.y + 10.0, "{name}: the handle grew the box: {:?}", n.size);
+        assert_drawn_at_its_size(&s.app().doc, id, &format!("{name} after the drag"));
+        assert!(n.stroke_geometry.is_none(), "{name}: an outlined stroke of the old size is not kept");
+        assert_eq!(n.stroke.weight, STROKE, "{name}: a plain resize leaves the stroke weight alone");
+        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{name}: one gesture is one undo step");
+
+        s.cmd_key(Key::Z);
+        assert_eq!(*s.app().doc.get(id).unwrap(), before, "{name}: undo brings back the box and both outlines");
+    }
+}
+
+#[test]
+fn typing_a_width_and_a_height_draws_an_imported_shape_at_its_new_size() {
+    for (kind, name) in imported_kinds() {
+        let mut s = Sim::new();
+        let id = imported(&mut s, kind, name);
+        let (before, depth) = (s.app().doc.get(id).unwrap().clone(), s.app().hist.undo_depth());
+
+        type_into(&mut s, "w", "250");
+        type_into(&mut s, "h", "40");
+
+        assert_eq!(s.app().doc.get(id).unwrap().size, DV::new(250.0, 40.0), "{name}");
+        assert_drawn_at_its_size(&s.app().doc, id, &format!("{name} after the W and H fields"));
+        assert!(s.app().doc.get(id).unwrap().stroke_geometry.is_none(), "{name}: an outlined stroke of the old size is not kept");
+
+        s.cmd_key(Key::Z);
+        s.cmd_key(Key::Z);
+        assert_eq!(s.app().hist.undo_depth(), depth, "{name}");
+        assert_eq!(*s.app().doc.get(id).unwrap(), before, "{name}: two undos restore the box and both outlines");
+    }
+}
+
+#[test]
+fn typing_a_width_drops_the_outlined_stroke_of_an_imported_line() {
+    let mut s = Sim::new();
+    let id = s.shell.app.doc.alloc_id();
+    let mut line = Node::new(id, NodeKind::Line);
+    line.size = DV::new(100.0, 0.0);
+    let id = add(&mut s, line, "Rule");
+    let outline = vec![Path {
+        cmds: vec![
+            PathCmd::MoveTo(DV::new(0.0, -2.0)),
+            PathCmd::LineTo(DV::new(100.0, -2.0)),
+            PathCmd::LineTo(DV::new(100.0, 2.0)),
+            PathCmd::LineTo(DV::new(0.0, 2.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: designos_doc::FillRule::NonZero,
+    }];
+    s.shell.app.doc.get_mut(id).unwrap().stroke_geometry = Some(outline);
+    s.shell.app.selection = vec![id];
+    s.shell.app.changed();
+    s.frame(vec![]);
+
+    type_into(&mut s, "w", "250");
+
+    let n = s.app().doc.get(id).unwrap();
+    assert_eq!(n.size.x, 250.0);
+    assert!(n.stroke_geometry.is_none(), "a stroke outline of the old length is not kept");
+}
+
+#[test]
+fn a_resized_imported_shape_keeps_its_drawing_through_a_fig_file() {
+    let mut s = Sim::new();
+    let mut ids = Vec::new();
+    for (kind, name) in imported_kinds() {
+        let id = imported(&mut s, kind, name);
+        type_into(&mut s, "w", "220");
+        type_into(&mut s, "h", "60");
+        ids.push((id, name));
+    }
+    let bytes = designos_fig::export_fig(&s.app().doc).expect("export .fig");
+    let back = designos_fig::import_fig(&bytes).expect("import .fig");
+    for (id, name) in ids {
+        let back_id = back.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("{name} is in the file")).id;
+        let (want, got) = (s.app().doc.get(id).unwrap(), back.get(back_id).unwrap());
+        assert_eq!(got.size, want.size, "{name} keeps its size");
+        assert_drawn_at_its_size(&s.app().doc, id, &format!("{name} before the export"));
+        assert_drawn_at_its_size(&back, back_id, &format!("{name} after the round trip"));
+        let (a, b) = (ink(&s.app().doc, id), ink(&back, back_id));
+        assert!(
+            (a.0.x - b.0.x).abs() < SLACK && (a.0.y - b.0.y).abs() < SLACK && (a.1.x - b.1.x).abs() < SLACK && (a.1.y - b.1.y).abs() < SLACK,
+            "{name} is drawn the same after the round trip: {a:?} vs {b:?}"
         );
     }
 }

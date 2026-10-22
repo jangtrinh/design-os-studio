@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use designos_doc::*;
 use designos_render::tiny_skia::Pixmap;
-use designos_render::vectorops::flatten_nodes;
+use designos_render::vectorops::{flatten_nodes, node_paths};
 use designos_render::{render_page, Viewport};
 
 const VIEW: (u32, u32) = (260, 140);
@@ -80,6 +80,8 @@ fn flattened_star(t: &mut T, at: Vec2, side: f32) -> NodeId {
     vector
 }
 
+/// Parity lock: the doc-level resize already scales a vector on its own, so this passes without the editor fix.
+/// The editor's resize is covered by the app tests.
 #[test]
 fn resized_flattened_star_matches_cpu() {
     let mut t = T::new();
@@ -127,6 +129,54 @@ fn resized_union_matches_cpu() {
     let Some(mut g) = gpu() else { return };
     let c = compare(&mut g, "resized_union", &t.doc, t.page, Viewport::default(), VIEW, 8);
     assert_ink_fills(&c.gpu, box_, "GPU, after the resize");
+    assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.97, "{:?}", c.report);
+}
+
+/// An ellipse or a star the way a `.fig` import leaves it: the primitive plus Figma's outline of it at the old size,
+/// which both renderers prefer to the primitive. `native` leaves the outline out.
+fn shape(t: &mut T, kind: NodeKind, at: Vec2, size: Vec2, native: bool) -> NodeId {
+    let id = t.add(None, |id| {
+        let mut n = Node::new(id, kind);
+        n.transform = Affine::translate(at.x, at.y);
+        n.size = size;
+        n.fills = vec![Paint::solid(Color::rgb(0x18, 0xA0, 0xFB))];
+        n
+    });
+    if !native {
+        let outline = node_paths(&t.doc, t.doc.get(id).unwrap()).expect("a shape has an outline");
+        t.node(id).fill_geometry = Some(outline);
+    }
+    id
+}
+
+fn oval() -> NodeKind {
+    NodeKind::Ellipse(ArcData::default())
+}
+
+fn star() -> NodeKind {
+    NodeKind::Star { count: 5, inner_ratio: 0.4 }
+}
+
+#[test]
+fn resized_imported_ellipse_and_star_match_cpu() {
+    let (old, new) = (Vec2::new(100.0, 100.0), Vec2::new(110.0, 60.0));
+    let mut t = T::new();
+    let ids = [shape(&mut t, oval(), Vec2::new(10.0, 10.0), old, false), shape(&mut t, star(), Vec2::new(130.0, 10.0), old, false)];
+    for id in ids {
+        resize(&mut t.doc, id, new);
+    }
+    // the same two shapes made at the new size, with no imported outline to go stale
+    let mut native = T::new();
+    shape(&mut native, oval(), Vec2::new(10.0, 10.0), new, true);
+    shape(&mut native, star(), Vec2::new(130.0, 10.0), new, true);
+
+    let (resized, fresh) = (cpu_render(&t), cpu_render(&native));
+    assert_eq!(painted(&resized), painted(&fresh), "the resized shapes are drawn at their new size");
+    assert_eq!(resized.data(), fresh.data(), "and exactly as the same shapes made at that size");
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "resized_imported_shapes", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert_eq!(painted(&c.gpu), painted(&fresh), "GPU, after the resize");
     assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(c.report.ssim > 0.97, "{:?}", c.report);
 }

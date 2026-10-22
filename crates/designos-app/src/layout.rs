@@ -178,14 +178,21 @@ pub fn relayout_around(doc: &mut Document, ed: &mut Edit, id: NodeId) {
     relayout_up(doc, ed, id);
 }
 
-/// Gives `id` the box `(transform, size)`. A vector and a boolean group are drawn from geometry stored in
-/// their own space, so that geometry, and the operands of a boolean group, scale to the new box; stroke
-/// weights stay as they are. Every other kind is drawn from its box alone.
+/// Gives `id` the box `(transform, size)` and brings along what is drawn from it:
+/// - a vector scales its stored paths, and a boolean group scales its operands;
+/// - a basic shape (rectangle, ellipse, star, polygon, line) drops the outlines a `.fig` import stored for its old
+///   size, so the renderers draw the primitive at the new one;
+/// - every other kind is drawn from its box alone.
+///
+/// A stroke keeps its weight, except that the outlined stroke (`stroke_geometry`) of an imported vector is scaled
+/// with the box like the rest of its geometry.
 pub fn set_box(doc: &mut Document, ed: &mut Edit, id: NodeId, transform: Affine, size: Vec2) {
     let Some(n) = ed.node(doc, id) else { return };
     let old = n.size;
     match n.kind {
-        NodeKind::Vector { .. } => designos_doc::apply_constrained_geometry(n, transform, size),
+        NodeKind::Vector { .. } | NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Star { .. } | NodeKind::Polygon { .. } | NodeKind::Line => {
+            designos_doc::apply_constrained_geometry(n, transform, size)
+        }
         NodeKind::BooleanOp(_) => {
             designos_doc::apply_constrained_geometry(n, transform, size);
             apply_constraints(doc, ed, id, old, size);
