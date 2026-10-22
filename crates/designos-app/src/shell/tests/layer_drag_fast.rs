@@ -373,3 +373,176 @@ fn a_layer_deleted_while_the_button_is_held_is_not_dragged() {
     assert!(s.app().layers.drag.is_none());
     assert!(s.app().toast.is_none(), "no failed-move toast");
 }
+
+/// A long drag of list row `from` (list at scroll 0) to `to`, over several frames, button still held. Returns the
+/// dragged layer.
+fn long_drag(s: &mut Sim, from: usize, to: Pos2) -> NodeId {
+    let moved = s.app().layers.rows_cache[from].id;
+    let a = row_centre(from, 0.0);
+    s.mv(a);
+    s.button(true);
+    s.mv(a + (to - a) * 0.5);
+    s.mv(to);
+    assert!(s.app().layers.drag.is_some(), "the drag is under way");
+    moved
+}
+
+/// The (parent, index) the drop indicator drawn on the last frame points at, for the dragged layer.
+fn indicator_target(s: &Sim, moved: NodeId) -> (NodeId, usize) {
+    let drop = s.app().layers.drop.expect("the last drawn frame shows a drop indicator");
+    crate::panels::layers::resolve_drop(&s.app().doc, &s.app().layers.rows_cache, drop, &[moved]).expect("the indicator resolves")
+}
+
+fn landed(s: &Sim, id: NodeId) -> (NodeId, usize) {
+    let parent = s.app().doc.get(id).unwrap().parent.unwrap();
+    (parent, s.app().doc.get(parent).unwrap().children.iter().position(|c| *c == id).unwrap())
+}
+
+fn release_at(pos: Pos2) -> Event {
+    Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }
+}
+
+/// 36 px of trackpad scroll, unsmoothed.
+fn trackpad_scroll() -> Vec<Event> {
+    (0..6)
+        .map(|_| Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: Vec2::new(0.0, -6.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        })
+        .collect()
+}
+
+/// Layers has no auto-scroll, so a long drag reaches a row off screen by wheel; the drop must land on the indicator
+/// the user aimed with, which was drawn at the scroll of the frame before the release.
+#[test]
+fn a_long_drag_released_without_a_scroll_lands_on_the_indicator() {
+    let mut s = with_many_rows();
+    let at = row_centre(10, 0.0) + Vec2::new(0.0, 6.0);
+    let moved = long_drag(&mut s, 2, at);
+    let expected = indicator_target(&s, moved);
+    s.frame(vec![release_at(at)]);
+    s.frame(vec![]);
+    assert_eq!(landed(&s, moved), expected);
+}
+
+#[test]
+fn a_long_drag_released_in_a_frame_that_also_scrolls_lands_on_the_indicator_the_user_saw() {
+    let mut s = with_many_rows();
+    let at = row_centre(10, 0.0) + Vec2::new(0.0, 6.0);
+    let moved = long_drag(&mut s, 2, at);
+    let expected = indicator_target(&s, moved);
+    let mut events = trackpad_scroll();
+    events.push(release_at(at));
+    s.frame(events);
+    s.frame(vec![]);
+    assert_eq!(landed(&s, moved), expected, "scroll before the release");
+}
+
+#[test]
+fn a_long_drag_released_before_a_scroll_in_the_same_frame_lands_on_the_indicator_the_user_saw() {
+    let mut s = with_many_rows();
+    let at = row_centre(10, 0.0) + Vec2::new(0.0, 6.0);
+    let moved = long_drag(&mut s, 2, at);
+    let expected = indicator_target(&s, moved);
+    let mut events = vec![release_at(at)];
+    events.extend(trackpad_scroll());
+    s.frame(events);
+    s.frame(vec![]);
+    assert_eq!(landed(&s, moved), expected, "scroll after the release");
+}
+
+#[test]
+fn a_long_drag_released_one_frame_after_a_mouse_wheel_notch_lands_on_the_indicator_the_user_saw() {
+    // egui smooths a wheel notch over several frames, so the list is still scrolling in the frame of the release.
+    let mut s = with_many_rows();
+    let at = row_centre(10, 0.0) + Vec2::new(0.0, 6.0);
+    let moved = long_drag(&mut s, 2, at);
+    s.frame(vec![Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: Vec2::new(0.0, -2.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    }]);
+    let expected = indicator_target(&s, moved);
+    s.frame(vec![release_at(at)]);
+    s.frame(vec![]);
+    assert_eq!(landed(&s, moved), expected);
+}
+
+#[test]
+fn a_click_release_then_a_press_and_move_in_one_frame_moves_nothing_while_the_button_is_held() {
+    // A quick "click a row, then grab another" on a slow frame: the click's release, the new press and a move past the
+    // click reach share one frame. The release belongs to the click, so the new drag has not ended.
+    let (mut s, before) = start();
+    s.mv(Pos2::new(X, WELCOME_Y));
+    s.button(true);
+    s.one_frame().release().move_to(card()).press().move_to(above_dashboard()).send();
+    assert_eq!(page_order(&s), before, "no layer moves while the button is still held");
+    // Letting go over the canvas cancels the drag.
+    s.mv(Pos2::new(900.0, 500.0));
+    s.button(false);
+    s.frame(vec![]);
+    assert_eq!(page_order(&s), before, "releasing outside the list drops nothing");
+    assert!(s.app().layers.drag.is_none());
+}
+
+#[test]
+fn a_press_the_list_never_saw_released_is_forgotten_when_the_list_skipped_frames() {
+    let mut s = Sim::new();
+    let card_id = s.by_name("Card");
+    let was = landed(&s, card_id);
+    s.mv(card());
+    s.button(true);
+    assert!(s.app().layers.press.is_some(), "the list saw the press on Card");
+    // The sidebar goes away while the button is held and the release is never seen.
+    s.shell.app.ui.left_collapsed = true;
+    s.frame(vec![]);
+    s.button(false);
+    // A later gesture is held while the sidebar comes back; its pointer is far from the old press.
+    s.mv(Pos2::new(900.0, 500.0));
+    s.button(true);
+    s.shell.app.ui.left_collapsed = false;
+    s.mv(above_dashboard());
+    assert!(s.app().layers.press.is_none(), "the old press is forgotten");
+    assert!(s.app().layers.drag.is_none(), "no layer drag starts from the old press");
+    s.button(false);
+    s.frame(vec![]);
+    // (The canvas drag may create a node of its own, so only Card is compared.)
+    assert_eq!(landed(&s, card_id), was, "Card stays where it was");
+}
+
+#[test]
+fn a_layer_that_is_no_longer_on_the_list_is_not_dragged() {
+    // The page changes while the button is held (a keyboard page switch): the pressed layer is on another page.
+    let mut s = Sim::new();
+    let card_id = s.by_name("Card");
+    s.mv(card());
+    s.button(true);
+    assert!(s.app().layers.press.is_some());
+    s.shell.app.add_page().expect("a page is added and shown");
+    s.frame(vec![]);
+    s.one_frame().move_to(Pos2::new(X, DASHBOARD_Y)).release().send();
+    s.frame(vec![]);
+    assert!(!s.app().selection.contains(&card_id), "a layer of another page is not selected");
+    assert!(s.app().layers.drag.is_none());
+}
+
+#[test]
+fn a_drag_the_list_lost_sight_of_is_forgotten() {
+    // The sidebar goes away mid-drag and comes back while the button is still held; letting go over a row then drops
+    // nothing, because the drag it would drop is from before the list was hidden.
+    let mut s = with_many_rows();
+    let before = page_order(&s);
+    let at = row_centre(10, 0.0) + Vec2::new(0.0, 6.0);
+    long_drag(&mut s, 2, at);
+    s.shell.app.ui.left_collapsed = true;
+    s.frame(vec![]);
+    s.shell.app.ui.left_collapsed = false;
+    s.frame(vec![]);
+    assert!(s.app().layers.drag.is_none(), "the drag did not survive the pass the list skipped");
+    s.frame(vec![release_at(at)]);
+    s.frame(vec![]);
+    assert_eq!(page_order(&s), before);
+}

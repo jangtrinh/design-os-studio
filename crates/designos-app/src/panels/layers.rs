@@ -45,6 +45,8 @@ pub struct LayersState {
     /// The row the primary button went down on and where, until it comes up: the row a drag starts from (see
     /// `track_row_drag`).
     pub press: Option<(NodeId, Pos2)>,
+    /// The egui pass the list was last drawn in: a press or drag that outlived a pass the list skipped is forgotten.
+    pub drawn_pass: u64,
     pub last_sel: Vec<NodeId>,
     pub anchor: Option<NodeId>,
     /// Name filter (the header's search icon): shown, its text, and a focus request.
@@ -336,11 +338,13 @@ fn row_at(app: &App, ui: &Ui, region: Rect, scroll: f32, pos: Pos2) -> Option<No
 
 /// What the primary button did to the row drag in one frame.
 struct DragFrame {
-    /// Where the button came up this frame, or where the pointer is when a drag begins while it is still held: the
-    /// position a drop is aimed at. `None` when the frame has neither.
+    /// Where a drop is aimed: where the button came up when it ended a drag, or where the pointer is when a drag begins
+    /// while the button is still held. `None` when the frame has neither.
     at: Option<Pos2>,
-    /// The drag began on the release of this frame, so a press and a release shared it (a slow frame, a quick flick).
-    began_on_release: bool,
+    /// A release ended a drag this frame: one already under way, or one that began on that release (a press and a
+    /// release shared the frame, a slow frame or a quick flick). Only then is the drag dropped. A release that ends
+    /// nothing (the end of a click) does not finish a drag that began in the same frame.
+    ended: bool,
 }
 
 /// Follows the primary button through this frame's events: remembers the row it went down on, starts a row drag when
@@ -362,17 +366,29 @@ fn track_row_drag(app: &mut App, ui: &Ui, region: Rect, scroll_seen: f32, filter
             })
             .collect()
     });
+    // A gesture the list lost sight of (it was hidden for a pass, by Cmd+\ or another view) is over: its release went
+    // unseen, so its press and drag must not pick up a later gesture.
+    let pass = ui.ctx().cumulative_pass_nr();
+    if pass > app.layers.drawn_pass.saturating_add(1) {
+        app.layers.press = None;
+        app.layers.drag = None;
+        app.layers.drop = None;
+    }
+    app.layers.drawn_pass = pass;
     let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
-    let mut frame = DragFrame { at: None, began_on_release: false };
+    let mut frame = DragFrame { at: None, ended: false };
     for (pressed, pos) in buttons {
         if pressed {
             app.layers.press = row_at(app, ui, region, scroll_seen, pos).map(|id| (id, pos));
         } else {
-            frame.at = Some(pos);
-            if let Some((id, from)) = app.layers.press.take() {
-                if from.distance(pos) > reach && start_row_drag(app, id, filtering) {
-                    frame.began_on_release = true;
-                }
+            let under_way = app.layers.drag.is_some();
+            let began = match app.layers.press.take() {
+                Some((id, from)) => !under_way && from.distance(pos) > reach && start_row_drag(app, id, filtering),
+                None => false,
+            };
+            if under_way || began {
+                frame.at = Some(pos);
+                frame.ended = true;
             }
         }
     }
@@ -390,9 +406,13 @@ fn track_row_drag(app: &mut App, ui: &Ui, region: Rect, scroll_seen: f32, filter
 }
 
 /// Picks up row `id` (selecting it unless it already is) when no drag is under way, the rows can be dragged and the
-/// layer still exists: an agent edit or an undo can delete it while the button is held.
+/// layer is still on the list: an agent edit or an undo can delete it while the button is held, and a page switch or a
+/// collapsed parent can take it off the list.
 fn start_row_drag(app: &mut App, id: NodeId, filtering: bool) -> bool {
     if app.layers.drag.is_some() || app.layers.renaming.is_some() || filtering || app.doc.get(id).is_none() {
+        return false;
+    }
+    if !app.layers.rows_cache.iter().any(|r| r.id == id) {
         return false;
     }
     if !app.selection.contains(&id) {
@@ -450,10 +470,10 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let selected: HashSet<NodeId> = app.selection.iter().copied().collect();
 
     // Drag bookkeeping.
-    // A drop is aimed at where the button came up, not where the pointer is at the end of the frame, and a drag that
-    // began on that release is aimed at the rows the user saw.
+    // A drop is aimed at where the button came up, not where the pointer is at the end of the frame, and at the rows
+    // the user saw when they let go: the list the previous frame drew, not the one this frame's scroll is moving.
     let pointer = drag_frame.at.or_else(|| ui.input(|i| i.pointer.interact_pos()));
-    let drop_scroll = if drag_frame.began_on_release { scroll_seen } else { scroll };
+    let drop_scroll = if drag_frame.ended { scroll_seen } else { scroll };
     if let (Some(ids), Some(pos)) = (app.layers.drag.clone(), pointer) {
         app.layers.drop = if region.contains(pos) { drop_for(pos.y - region.top() + drop_scroll, &app.layers.rows_cache, &app.doc, &ids) } else { None };
     }
@@ -746,7 +766,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     scrollbar(ui, region, scroll, content_h);
 
     // Finish drag.
-    if app.layers.drag.is_some() && ui.input(|i| i.pointer.primary_released()) {
+    if app.layers.drag.is_some() && drag_frame.ended {
         let ids = app.layers.drag.take().unwrap_or_default();
         if let Some(d) = app.layers.drop.take() {
             if let Some((parent, index)) = resolve_drop(&app.doc, &app.layers.rows_cache, d, &ids) {
