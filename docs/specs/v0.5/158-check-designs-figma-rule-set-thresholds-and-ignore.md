@@ -48,7 +48,7 @@ As a designer used to Figma's Check designs, I want:
    | `Detached instances` | `REQUIRE_NO_DETACHED_COMPONENTS` | exists |
    | `Library assets` | `REQUIRE_ASSETS_FROM_SELECTED_LIBRARIES` | new (rule 4) |
    | `Text styles` | `REQUIRE_TEXT_STYLES` | new (rule 5) |
-   | `Colours` | `RECOMMEND_VARIABLES` | exists: hard-coded colours, plus `Contrast`, which keeps its own group |
+   | `Color` | `RECOMMEND_VARIABLES` | exists: hard-coded colours, plus `Contrast`, which keeps its own group |
    | `Corner radius` | `REQUIRE_CORNER_RADIUS_VARIABLES` | from #154 |
    | `Padding` | `REQUIRE_PADDING_VARIABLES` | from #154 |
    | `Horizontal spacing` | `REQUIRE_HORIZONTAL_SPACING_VARIABLES` | from #154 (`itemSpacing` of horizontal stacks) |

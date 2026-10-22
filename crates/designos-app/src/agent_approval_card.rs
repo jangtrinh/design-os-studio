@@ -213,12 +213,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
                 "Skip permissions (default)",
                 "Launch CLIs with their auto-approve flag. Fastest inside a trusted project.",
             ),
-            (
-                AgentPermissionMode::Ask,
-                "agent-perm-ask",
-                "Ask before agents act",
-                "Launch CLIs without skip flags and surface tool approvals in the Agents panel.",
-            ),
+            (AgentPermissionMode::Ask, "agent-perm-ask", "Ask before acting", "Launch CLIs without skip flags and surface tool approvals in the Agents panel."),
         ];
 
         for (opt_mode, widget_id, title, caption) in options {

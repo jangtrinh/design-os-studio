@@ -462,7 +462,7 @@ fn ignoring_contrast_keeps_hardcoded_value_in_both_check_designs_and_linter_and_
         lint_report.findings
     );
 
-    // Toggling the single "Colours & contrast" switch writes both RECOMMEND_VARIABLES and CONTRAST.
+    // Toggling the single "Color & contrast" switch writes both RECOMMEND_VARIABLES and CONTRAST.
     app.undo(); // restore contrast finding
     assert!(app.set_check_designs_rule(Rule::HardCodedValue, false));
     assert!(app.doc.check_designs.disabled_rules.contains("RECOMMEND_VARIABLES"));

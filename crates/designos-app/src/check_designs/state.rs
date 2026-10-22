@@ -168,7 +168,7 @@ impl App {
     }
 
     /// Enables or disables `rule` (by its `figma_id()`) as one undo step.
-    /// The single "Colours & contrast" switch toggles both `Rule::HardCodedValue` and `Rule::Contrast`.
+    /// The single "Color & contrast" switch toggles both `Rule::HardCodedValue` and `Rule::Contrast`.
     pub fn set_check_designs_rule(&mut self, rule: Rule, on: bool) -> bool {
         let mut next = self.doc.check_designs.clone();
         let ids: &[&str] = match rule {

@@ -49,7 +49,7 @@ const PROGRESS_LABEL_Y: f32 = 15.0;
 const PROGRESS_BAR_H: f32 = 4.0;
 
 const POPOVER_RULES: [(Rule, &str); 9] = [
-    (Rule::HardCodedValue, "Colours & contrast"),
+    (Rule::HardCodedValue, "Color & contrast"),
     (Rule::DetachedInstance, "Detached instances"),
     (Rule::LibraryAssets, "Library assets"),
     (Rule::TextStyles, "Text styles"),

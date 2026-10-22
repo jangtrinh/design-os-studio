@@ -229,7 +229,7 @@ pub fn check_designs_outcome(doc: &Document, bounds: &SubtreeBounds, n: &Node) -
     let mut message = format!("Contrast {:.2}:1 is below {}:1 ({level_tag})", floor2(f.ratio), ratio_label(f.required));
     let (recolor, fix_label) = match (owner(doc, n, f.paint), suggest_recolor(&f)) {
         (Some(own), _) => {
-            message.push_str(&format!(" · colour comes from {own}"));
+            message.push_str(&format!(" · color comes from {own}"));
             (None, String::new())
         }
         (None, Some(color)) => {
@@ -302,7 +302,7 @@ pub fn check_designs_outcome_with_env(
     };
     let mut message = format!("Contrast {:.2}:1 is below {}:1 ({level_tag})", floor2(ratio), ratio_label(required));
     if let Some(own) = owner(doc, n, paint) {
-        message.push_str(&format!(" · colour comes from {own}"));
+        message.push_str(&format!(" · color comes from {own}"));
     }
     if let Some(sug) = suggest_passing_variable(doc, n, &res_n, fg, bg, required) {
         if let Some(to) = sug.to.as_str() {
