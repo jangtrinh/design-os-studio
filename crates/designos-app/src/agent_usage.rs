@@ -66,7 +66,7 @@ impl UsageSource {
         match self {
             UsageSource::ClaudeTranscript => "From Claude's transcript",
             UsageSource::ClaudeStatusLine => "From Claude's statusLine",
-            UsageSource::GrokUsage => "From grok usage",
+            UsageSource::GrokUsage => "From Grok usage",
         }
     }
 }
@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(reading.cost, Some(CostLabel::Reference(0.42)));
         assert_eq!(reading.format_caption(), "in 12.4k · out 3.1k · $0.42 ref.");
         let tooltip = reading.format_tooltip();
-        assert!(tooltip.contains("From grok usage"), "{tooltip}");
+        assert!(tooltip.contains("From Grok usage"), "{tooltip}");
         assert!(tooltip.contains("list-price reference, not a bill"), "{tooltip}");
     }
 

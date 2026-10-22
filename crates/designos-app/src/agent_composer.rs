@@ -79,7 +79,7 @@ impl RefuseReason {
     pub fn message(&self) -> &'static str {
         match self {
             Self::Empty => "Enter a prompt to send",
-            Self::TooLong => "Message exceeds 100,000 characters",
+            Self::TooLong => "Message is over 100,000 characters. Shorten it.",
             Self::NoAgent => "Select an agent tab",
             Self::Permission => "Answer the permission prompt in the terminal",
             Self::NotReady => "Agent is still starting",
@@ -1600,7 +1600,7 @@ mod tests {
         assert_eq!(outcome, SendOutcome::Queued);
         assert_eq!(st.tabs.len(), 1, "Sending while not running must start the agent tab");
         assert_eq!(st.active_composer().pending_send.as_deref(), Some("Build hero card when ready"));
-        assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude… your message will be sent"));
+        assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude Code… your message will be sent"));
 
         // Poll bridge until the newly spawned agent becomes ready, receives the queued message, and gets `\r`.
         let deadline = Instant::now() + Duration::from_secs(5);

@@ -31,7 +31,7 @@ pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
 ///
 /// - For `Claude`, shows the tool name, monospace input summary, queue count (`"1 of N"`), and
 ///   secondary **Deny** + primary **Approve** buttons.
-/// - For `Codex`, `Grok`, and `Antigravity` (`agy`), shows `"<CLI> is waiting for approval in its terminal"`
+/// - For `Codex`, `Grok`, and `Antigravity` (`agy`), shows `"<CLI> needs approval in its terminal"`
 ///   and a single **Open tab** button (never **Approve** or **Deny**).
 pub fn paint_approval_card(
     ui: &mut Ui,
@@ -86,7 +86,7 @@ pub fn paint_approval_card(
         let tool = first_req.map(|r| r.tool_name.as_str()).unwrap_or("tool");
         format!("{} wants to run {tool}", preset.tab_title())
     } else {
-        format!("{} is waiting for approval in its terminal", preset.tab_title())
+        format!("{} needs approval in its terminal", preset.tab_title())
     };
     let title_x = badge_r.right() + theme::SPACE_INLINE;
     let title_max_w = (header_r.right() - count_reserve - title_x).max(theme::CONTROL_DENSE);

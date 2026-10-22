@@ -28,8 +28,8 @@ As a screen-reader user, I want to hear when an agent finishes, needs my input o
 ## 3. Behaviour rules
 
 1. **Announcements.** For each status change of an agent tab, exactly one polite announcement:
-   - turn ended: "<agent> finished";
-   - needs input: "<agent> needs your input";
+   - turn ended: "<agent> is done";
+   - waiting: "<agent> needs approval" when an approval is pending, "<agent> needs input" for any other wait (a wait is announced once per label class);
    - error: "<agent> failed: <class>" (the class in words: "rate limited", "login expired", "billing or quota", "provider server error", "context full", "no network", or "unknown error").
    `<agent>` is the same name the tab shows. Changes to running, stopped or idle are not announced.
 2. **Mechanism.** One invisible node per Agents panel with `Live::Polite`. Its label is set to the announcement text in the frame the change is drained, and cleared two frames later. It has no visual and no pointer target. Announcements are queued, one per frame, so two changes in a frame are both spoken.
@@ -76,7 +76,7 @@ Seams: extend `Sim` to enable AccessKit and keep `platform_output.accesskit_upda
 | Case | Expected | Fails before |
 |---|---|---|
 | `announcement_node_appears_when_a_stub_turn_ends` | the update holds one node with `Live::Polite` and the text "Claude finished" | yes |
-| `needs_input_and_error_texts` | "Claude needs your input"; "Claude failed: rate limited" | yes |
+| `needs_input_and_error_texts` | "Claude needs input"; "Claude needs approval"; "Claude failed: rate limited" | yes |
 | `running_and_stopped_are_not_announced` | no node text | yes |
 | `two_changes_in_one_frame_are_both_spoken` | two texts in two frames | yes |
 | `regions_have_roles_and_names` | four named regions in the tree | yes |

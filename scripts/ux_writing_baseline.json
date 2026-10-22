@@ -2,12 +2,6 @@
   "version": 1,
   "entries": [
     {
-      "file": "dev/sections.rs",
-      "kind": "words",
-      "literal": "Mark as ready for dev",
-      "count": 1
-    },
-    {
       "file": "history/panel.rs",
       "kind": "words",
       "literal": "Duplicate as new file",
@@ -35,12 +29,6 @@
       "file": "panels/context.rs",
       "kind": "words",
       "literal": "Go to main component",
-      "count": 1
-    },
-    {
-      "file": "panels/context.rs",
-      "kind": "words",
-      "literal": "Mark as ready for dev",
       "count": 1
     },
     {
@@ -101,60 +89,6 @@
       "file": "panels/menus.rs",
       "kind": "words",
       "literal": "design:os studio on GitHub",
-      "count": 1
-    },
-    {
-      "file": "shell.rs",
-      "kind": "count-in-parens",
-      "literal": "Absolute fallbacks ({})",
-      "count": 1
-    },
-    {
-      "file": "shell.rs",
-      "kind": "count-in-parens",
-      "literal": "Font substitutions ({})",
-      "count": 1
-    },
-    {
-      "file": "shell.rs",
-      "kind": "count-in-parens",
-      "literal": "Notes ({})",
-      "count": 1
-    },
-    {
-      "file": "shell.rs",
-      "kind": "count-in-parens",
-      "literal": "Uncaptured images ({})",
-      "count": 1
-    },
-    {
-      "file": "shell.rs",
-      "kind": "count-in-parens",
-      "literal": "Unsupported CSS ({})",
-      "count": 1
-    },
-    {
-      "file": "variables/view.rs",
-      "kind": "words",
-      "literal": "Export variables (Design tokens / DTCG)…",
-      "count": 1
-    },
-    {
-      "file": "variables/view.rs",
-      "kind": "words",
-      "literal": "Export variables (Figma REST)…",
-      "count": 2
-    },
-    {
-      "file": "variables/view.rs",
-      "kind": "words",
-      "literal": "Import variables (Design tokens / DTCG)…",
-      "count": 1
-    },
-    {
-      "file": "variables/view.rs",
-      "kind": "words",
-      "literal": "Import variables (Figma REST)…",
       "count": 1
     },
     {

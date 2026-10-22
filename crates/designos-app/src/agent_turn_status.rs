@@ -527,8 +527,8 @@ impl TurnReceipt {
     /// Formats the receipt as a single caption line (`#683` §3.5, §8.3, §8.5):
     /// - Completed: `Worked for 1m 20s · 12 tool calls · 7 layers changed` (omitting any unknown count)
     /// - Stopped: `Stopped by you after 42s`
-    /// - Failed: `Failed after 42s · <class>`
-    /// - Process exited without `Stop`: `Ended without a stop event`
+    /// - Failed: `Failed after 42s · <class label>` (the same label the screen reader announces)
+    /// - Process exited without `Stop`: `Ended without reporting a result`
     pub fn format_line(&self) -> String {
         let dur = format_duration_secs(self.ended_s - self.started_s);
         match &self.outcome {
@@ -545,8 +545,8 @@ impl TurnReceipt {
                 line
             }
             TurnOutcome::StoppedByUser => format!("Stopped by you after {dur}"),
-            TurnOutcome::Failed { class } => format!("Failed after {dur} · {class}"),
-            TurnOutcome::EndedWithoutStop => "Ended without a stop event".to_string(),
+            TurnOutcome::Failed { class } => format!("Failed after {dur} · {}", crate::agent_a11y::classify_error(Some(class)).as_str()),
+            TurnOutcome::EndedWithoutStop => "Ended without reporting a result".to_string(),
         }
     }
 
@@ -688,13 +688,13 @@ impl TabTurnTracker {
             "PermissionRequest" => {
                 self.ensure_turn_started(record.t);
                 let detail = record.tool_name().map(str::to_string);
-                TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsInput), ..Default::default() }
+                TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
             }
             "Notification" => {
                 if record.notification_type() == Some("permission_prompt") {
                     self.ensure_turn_started(record.t);
                     let detail = record.tool_name().map(str::to_string);
-                    TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsInput), ..Default::default() }
+                    TurnEventEffect { new_status: Some(AgentTabStatus::WaitingForInput(detail)), notify: Some(NotifyKind::NeedsApproval), ..Default::default() }
                 } else {
                     TurnEventEffect::default()
                 }
@@ -806,7 +806,7 @@ impl TabTurnTracker {
     }
 
     /// Edge case 3 (`#683` §8.3): when the agent process exits while a turn is still running without
-    /// having fired `Stop`, leaves running and records `"Ended without a stop event"`.
+    /// having fired `Stop`, leaves running and records `"Ended without reporting a result"`.
     pub fn on_process_exit(&mut self, now_s: f64, current_status: &AgentTabStatus) -> Option<(AgentTabStatus, TurnReceipt)> {
         let was_running = self.in_turn || matches!(current_status, AgentTabStatus::Working(_) | AgentTabStatus::WaitingForInput(_));
         if !was_running {
@@ -830,6 +830,20 @@ impl TabTurnTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug() {
+        let failed = |class: &str| TurnReceipt {
+            started_s: 100.0,
+            ended_s: 142.0,
+            tool_calls: None,
+            layers_changed: None,
+            outcome: TurnOutcome::Failed { class: class.to_string() },
+        };
+        assert_eq!(failed("rate_limit").format_line(), "Failed after 42s \u{00b7} rate limited");
+        assert_eq!(failed("authentication_failed").format_line(), "Failed after 42s \u{00b7} login expired");
+        assert_eq!(failed("unknown").format_line(), "Failed after 42s \u{00b7} unknown error");
+    }
 
     #[test]
     fn streaming_parser_handles_multiline_and_incomplete_records() {

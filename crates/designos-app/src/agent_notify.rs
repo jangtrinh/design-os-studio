@@ -1,4 +1,4 @@
-//! OS notifications when an agent turn finishes or needs input in the background (`#683`).
+//! OS notifications when an agent turn finishes or needs approval in the background (`#683`).
 //!
 //! ## Spike S1 — Notification click-to-focus across platforms (`#683` §3.8, Rule 8)
 //!
@@ -24,15 +24,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Status line message shown once when the OS denies or cannot deliver notifications (`#683` §8.8).
-pub const NOTIFICATIONS_OFF_STATUS_MSG: &str = "Notifications are off";
+pub const NOTIFICATIONS_OFF_STATUS_MSG: &str = "Notifications are off. Turn them on in system settings.";
 
 /// Why an agent tab is requesting user attention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotifyKind {
     /// A turn completed (or ended with an error) while the window was unfocused or the tab hidden.
     Finished,
-    /// The agent is waiting on a permission prompt or user input.
-    NeedsInput,
+    /// The agent is waiting on a permission prompt (only permission requests raise this).
+    NeedsApproval,
 }
 
 /// One formatted OS notification emitted for an agent tab (`#683` §3.6).
@@ -50,8 +50,8 @@ impl AgentNotification {
         let agent_name = agent_name.into();
         let file_name = file_name.into();
         let message = match kind {
-            NotifyKind::Finished => format!("{agent_name} finished in {file_name}"),
-            NotifyKind::NeedsInput => format!("{agent_name} needs your input"),
+            NotifyKind::Finished => format!("{agent_name} is done in {file_name}"),
+            NotifyKind::NeedsApproval => format!("{agent_name} needs approval"),
         };
         Self { tab_id, agent_name, file_name, kind, message }
     }

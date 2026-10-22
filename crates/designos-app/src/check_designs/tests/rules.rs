@@ -91,9 +91,9 @@ fn library_assets_rule_flags_instance_style_and_variable_from_disabled_library()
     let lib_findings: Vec<&Finding> = report.of(Rule::LibraryAssets).collect();
     assert_eq!(lib_findings.len(), 3, "{:#?}", report.findings);
     let msgs: Vec<&str> = lib_findings.iter().map(|x| x.message.as_str()).collect();
-    assert!(msgs.contains(&"Uses \"Button\" from library \"Design System\", which isn't enabled in this file"), "{msgs:#?}");
-    assert!(msgs.contains(&"Uses \"Surface/Brand\" from library \"Design System\", which isn't enabled in this file"), "{msgs:#?}");
-    assert!(msgs.contains(&"Uses \"Brand/Primary\" from library \"Design System\", which isn't enabled in this file"), "{msgs:#?}");
+    assert!(msgs.contains(&"\"Button\" is from \"Design System\", which is off in this file. Enable it in Libraries."), "{msgs:#?}");
+    assert!(msgs.contains(&"\"Surface/Brand\" is from \"Design System\", which is off in this file. Enable it in Libraries."), "{msgs:#?}");
+    assert!(msgs.contains(&"\"Brand/Primary\" is from \"Design System\", which is off in this file. Enable it in Libraries."), "{msgs:#?}");
     assert!(lib_findings.iter().all(|x| x.fix.is_none()));
 }
 

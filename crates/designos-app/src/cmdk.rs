@@ -147,8 +147,8 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
         id: "cmdk-synth-spec",
         section: "Image editing",
         icon: Icon::Image,
-        title: "Insert example card (template)",
-        subtitle: "Inserts an example EaseUI BrainWave 2.0 NodeSpec template subtree with Auto-Layout & $easeui.* tokens",
+        title: "Insert example card",
+        subtitle: "EaseUI card with auto layout and tokens",
         badge: "AI",
         shortcut: "↵",
         tab_mask: 0b1011,
@@ -225,7 +225,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
         section: "Development",
         icon: Icon::Comment,
         title: "Send Selection & Pin-Comments to Agent Terminal",
-        subtitle: "Exports selected frame to the session selection.spec.json and pipes into PTY stdin",
+        subtitle: "Sends the selected frame to the agent",
         badge: "Development",
         shortcut: "⇧⌘E",
         tab_mask: 0b0100,
@@ -358,7 +358,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             p.rect_filled(img_btn_r, CornerRadius::same(6), CMDK_BG_ROW_HOVER);
         }
         icons::paint(&p, Icon::Image, img_btn_r.center(), 14.0, theme::ICON_SECONDARY);
-        if img_resp.on_hover_text("Insert example card (template)").clicked() {
+        if img_resp.on_hover_text("Insert example card").clicked() {
             let prompt = if state.query.trim().is_empty() { "pricing card" } else { state.query.trim() };
             let spec = synthesize_spec_from_prompt(prompt);
             state.status = Some(format!("Synthesized '{}' on Canvas", spec.name));
@@ -1698,7 +1698,7 @@ mod tests {
         assert_eq!(all_tab_items[1].title, "Replace content");
         assert_eq!(all_tab_items[1].badge, "AI");
         assert_eq!(all_tab_items[2].section, "Image editing");
-        assert_eq!(all_tab_items[2].title, "Insert example card (template)");
+        assert_eq!(all_tab_items[2].title, "Insert example card");
         assert_eq!(all_tab_items[2].badge, "AI");
         assert_eq!(all_tab_items[3].title, "Boost resolution");
         assert_eq!(all_tab_items[4].title, "Edit image with prompt");

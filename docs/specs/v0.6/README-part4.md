@@ -133,7 +133,7 @@ New logic goes into new modules named in each spec (`agent_turn_status.rs`, `age
 - `crates/designos-app/src/live_patch_apply.rs`: #677, then #682, #693, #695 (call sites).
 - `crates/designos-fig/src/rest_import.rs` and `kiwi.rs` (hot files, `docs/releasing.md:21`): FU-669.1 and .2, FU-582, then #691, then #5, then part 1's E1-4. `kiwi.rs` also by #5 item 2.
 - `crates/designos-app/src/check_designs/*`: FU-663, then #157, then #158; part 1's E15-9 and E15-11 after.
-- `scripts/zero_fake_ui_gate.py` and `zero_fake_ui_gate_selftest.py`: #681 (adds `Z15`, updates `Z04`), #689 (rewrites `Z01` and `Z02`), #690 (adds `Z16`). Gate numbers follow merge order; renumber at rebase if the order changes.
+- `scripts/zero_fake_ui_gate.py` and `zero_fake_ui_gate_selftest.py`: #681 (adds `Z15`, updates `Z04`), #689 (rewrites `Z01` and `Z02`), #690 (adds `Z17`). Gate numbers follow merge order; renumber at rebase if the order changes.
 - `crates/designos-app/src/theme.rs` and `design/design.tokens.json`: #683 (`INFO`, `SUCCESS`, `WARNING`) and #682 (agent colours). Whoever lands first adds the shared tokens; `design_os_self_evolve.py` checks parity.
 - `crates/designos-app/Cargo.toml`: #688 and #686 read TOML data; the first to land adds `toml` as a direct dependency (it is in `Cargo.lock` already). `ureq` is already a dependency (used by #686).
 - `crates/designos-app/src/comments/settings.rs`: #682 (`load_choice`), part 3's AX-656 and part 1's E15-14 (flags). One store, no second file.

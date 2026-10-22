@@ -201,7 +201,7 @@ while [ "$ELAPSED_MS" -lt "$TIMEOUT_MS" ]; do
                 exit 0
                 ;;
             deny)
-                printf '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"deny","message":"Denied in design:os Studio"}}}}}}\n'
+                printf '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"deny","message":"Denied in design:os studio"}}}}}}\n'
                 exit 0
                 ;;
             *)
@@ -422,7 +422,7 @@ pub struct OsApprovalNotifier;
 
 impl ApprovalNotifier for OsApprovalNotifier {
     fn notify_needs_approval(&self, cli_label: &str, doc_name: &str) {
-        let title = "design:os Studio";
+        let title = "design:os studio";
         let body = format!("{cli_label} needs approval — {doc_name}");
         #[cfg(target_os = "macos")]
         {

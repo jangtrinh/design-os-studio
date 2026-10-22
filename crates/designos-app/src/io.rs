@@ -360,7 +360,7 @@ pub fn pick_open() -> Option<PathBuf> {
 }
 
 pub fn pick_web_capture() -> Option<PathBuf> {
-    rfd::FileDialog::new().add_filter("Web capture (.capture.json, .webcapture.json)", &["json", "webcapture"]).pick_file()
+    rfd::FileDialog::new().add_filter("Web capture", &["json", "webcapture"]).pick_file()
 }
 
 pub fn pick_save(default_name: &str) -> Option<PathBuf> {

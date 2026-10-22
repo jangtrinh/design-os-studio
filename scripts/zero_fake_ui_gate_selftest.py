@@ -311,9 +311,9 @@ REGRESSIONS: List[Tuple[str, str, str, str, str]] = [
     (
         "41. baseline entry fixed but not removed from the baseline",
         "Z16",
-        "dev/sections.rs",
-        'primary_button(ui, row, "ready", "Mark as ready for dev")',
-        'primary_button(ui, row, "ready", "Mark ready")',
+        "history/panel.rs",
+        'MenuItem::new("Duplicate as new file").sep(),',
+        'MenuItem::new("Duplicate file").sep(),',
     ),
     (
         "42. 4-word label through the custom paint_card_button helper",
@@ -389,7 +389,7 @@ def ratchet_checks(base: "gate.SourceSet") -> List[str]:
             out.append(f"ratchet: {label} {detail}")
 
     grown = base.with_replacement("panels/vertex.rs", '"vtx-join", "Join"', '"vtx-join", "Join these two points"')
-    shrunk = base.with_replacement("dev/sections.rs", '"ready", "Mark as ready for dev"', '"ready", "Mark ready"')
+    shrunk = base.with_replacement("history/panel.rs", '"Duplicate as new file"', '"Duplicate file"')
     baseline = ux.load_baseline()
     check("--write-ux-baseline logic: a new label is growth", bool(ux.growth_offenders(ux.scan_labels(grown.files, grown.code), baseline)))
     check("--write-ux-baseline logic: a fixed label is not growth", not ux.growth_offenders(ux.scan_labels(shrunk.files, shrunk.code), baseline))

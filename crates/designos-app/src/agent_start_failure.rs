@@ -225,7 +225,7 @@ impl StartFailure {
             FixAction::OpenBilling(_) => "Open billing".to_string(),
             FixAction::RetryText => "Retry".to_string(),
             FixAction::NewSession => "Start new session".to_string(),
-            FixAction::RetryWhenOnline => "Retry when online".to_string(),
+            FixAction::RetryWhenOnline => "Retry connection".to_string(),
         }
     }
 }
@@ -337,7 +337,7 @@ mod tests {
         let by_probe = d(AgentCliPreset::Claude, false, Some(127), "");
         assert_eq!(by_probe.cause, StartFailureCause::NotInstalled);
         assert_eq!(by_probe.fix, FixAction::OpenInstallPage("https://docs.claude.com/en/docs/claude-code/setup"));
-        assert_eq!(by_probe.fix_label(), "Install Claude CLI");
+        assert_eq!(by_probe.fix_label(), "Install Claude Code");
         let by_output = d(AgentCliPreset::Codex, true, Some(127), "zsh:1: command not found: codex\n");
         assert_eq!(by_output.cause, StartFailureCause::NotInstalled);
         assert_eq!(by_output.fix, FixAction::OpenInstallPage("https://github.com/openai/codex"));
@@ -575,6 +575,6 @@ mod tests {
         f.fix = FixAction::NewSession;
         assert_eq!(f.fix_label(), "Start new session");
         f.fix = FixAction::RetryWhenOnline;
-        assert_eq!(f.fix_label(), "Retry when online");
+        assert_eq!(f.fix_label(), "Retry connection");
     }
 }

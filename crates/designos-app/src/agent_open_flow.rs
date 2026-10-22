@@ -8,7 +8,7 @@ use egui::{Align2, Color32, Id, Key, Painter, Pos2, Rect, RichText, Sense, Strok
 
 use crate::agent_sessions::{preset_from_cli_name, save_registry, unix_timestamp_secs, SessionEntryStatus};
 use crate::icons::{self, Icon};
-use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState};
+use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState, NEEDS_APPROVAL_LABEL, NEEDS_INPUT_LABEL};
 use crate::theme;
 use crate::widgets;
 
@@ -16,8 +16,9 @@ const STATUS_DOT_X: f32 = 8.0;
 const PROVIDER_DOT_X: f32 = 16.0;
 const TITLE_LEFT_X: f32 = 24.0;
 const ACTION_BTN_H: f32 = 20.0;
-const ACTION_RENAME_W: f32 = 48.0;
-const ACTION_REMOVE_W: f32 = 104.0;
+/// Row actions of the Sessions popover. Their buttons are as wide as the label plus the segment inset on each side.
+const RENAME_ACTION_LABEL: &str = "Rename";
+const REMOVE_ACTION_LABEL: &str = "Remove from list";
 const SESSIONS_BTN_CHEVRON_OFFSET: f32 = 8.0;
 const SESSIONS_BTN_CHEVRON_SIZE: f32 = 8.0;
 const POPOVER_MIN_W: f32 = 216.0;
@@ -45,14 +46,15 @@ pub enum SessionRowStatus {
 impl SessionRowStatus {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Live(AgentTabStatus::Working(_)) => "Working",
-            Self::Live(AgentTabStatus::WaitingForInput(_)) => "WaitingForInput",
+            Self::Live(AgentTabStatus::Working(_)) => "Working…",
+            Self::Live(AgentTabStatus::WaitingForInput(Some(detail))) if detail == NEEDS_APPROVAL_LABEL => NEEDS_APPROVAL_LABEL,
+            Self::Live(AgentTabStatus::WaitingForInput(_)) => NEEDS_INPUT_LABEL,
             Self::Live(AgentTabStatus::Done) => "Done",
             Self::Live(AgentTabStatus::Idle) => "Idle",
-            Self::Live(AgentTabStatus::Error(_)) => "Error",
+            Self::Live(AgentTabStatus::Error(_)) => "Failed",
             Self::Live(AgentTabStatus::Stopped) => "Stopped",
             Self::NotRunning => "Not running",
-            Self::Missing => "Missing",
+            Self::Missing => "Resume failed",
         }
     }
 }
@@ -75,7 +77,7 @@ pub struct SessionPopoverRow {
 /// Maps a persisted CLI binary name (`claude`, `codex`, `grok`, `agy`) to its display name.
 pub fn cli_display_name(cli: &str) -> String {
     match cli.trim() {
-        "claude" => "Claude".to_string(),
+        "claude" => "Claude Code".to_string(),
         "codex" => "Codex".to_string(),
         "grok" => "Grok".to_string(),
         "agy" => "Antigravity".to_string(),
@@ -161,7 +163,10 @@ impl TerminalState {
                     && tab.last_output_at.lock().ok().and_then(|g| *g).is_some_and(|ts| ts.elapsed() < std::time::Duration::from_millis(600));
                 let effective = match explicit {
                     AgentTabStatus::Working(d) => AgentTabStatus::Working(d),
-                    AgentTabStatus::WaitingForInput(d) => AgentTabStatus::WaitingForInput(d),
+                    // Same predicate as the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
+                    AgentTabStatus::WaitingForInput(_) if tab.needs_approval() => AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.to_string())),
+                    // A heuristic's text match (Codex, Skip mode) is not a pending approval: the row says `Needs input`.
+                    AgentTabStatus::WaitingForInput(_) => AgentTabStatus::WaitingForInput(None),
                     _ if recent_pty => AgentTabStatus::Working(None),
                     other => other,
                 };
@@ -489,16 +494,18 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     let mut commit_rename = false;
     let mut cancel_rename = false;
 
+    let action_w = |label: &str| widgets::text_width(&p, label, &theme::font_caption()) + 2.0 * theme::INSET_SEGMENT;
+    let (rename_w, remove_w) = (action_w(RENAME_ACTION_LABEL), action_w(REMOVE_ACTION_LABEL));
+
     for row in &rows {
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let row_widget_id = format!("agents-session-row-{}", row.tab_id);
 
         let remove_r = Rect::from_min_size(
-            Pos2::new(r_rect.right() - theme::INSET_SEGMENT - ACTION_REMOVE_W, r_rect.bottom() - bottom_line_offset - action_half_h),
-            Vec2::new(ACTION_REMOVE_W, ACTION_BTN_H),
+            Pos2::new(r_rect.right() - theme::INSET_SEGMENT - remove_w, r_rect.bottom() - bottom_line_offset - action_half_h),
+            Vec2::new(remove_w, ACTION_BTN_H),
         );
-        let rename_r =
-            Rect::from_min_size(Pos2::new(remove_r.left() - theme::SPACE_FACT - ACTION_RENAME_W, remove_r.top()), Vec2::new(ACTION_RENAME_W, ACTION_BTN_H));
+        let rename_r = Rect::from_min_size(Pos2::new(remove_r.left() - theme::SPACE_FACT - rename_w, remove_r.top()), Vec2::new(rename_w, ACTION_BTN_H));
 
         // Register `row_resp` first and child action buttons (`rename_resp`, `remove_resp`) after so the
         // child buttons win pointer hit-testing inside `r_rect` in egui 0.35.
@@ -565,13 +572,13 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         if rename_resp.hovered() {
             p.rect_filled(rename_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        p.text(rename_r.center(), Align2::CENTER_CENTER, "Rename", theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(rename_r.center(), Align2::CENTER_CENTER, RENAME_ACTION_LABEL, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agents-session-rename-{}", row.tab_id), rename_r);
 
         if remove_resp.hovered() {
             p.rect_filled(remove_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
-        p.text(remove_r.center(), Align2::CENTER_CENTER, "Remove from list", theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(remove_r.center(), Align2::CENTER_CENTER, REMOVE_ACTION_LABEL, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agents-session-remove-{}", row.tab_id), remove_r);
 
         widgets::record(ui, &row_widget_id, r_rect);
@@ -902,17 +909,41 @@ mod tests {
 
         let rows = st.sessions_popover_rows();
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0].cli_display_name, "Claude");
-        assert_eq!(rows[0].status.label(), "Working");
+        assert_eq!(rows[0].cli_display_name, "Claude Code");
+        assert_eq!(rows[0].status.label(), "Working…");
         assert!(rows[0].is_focused_tab);
 
         assert_eq!(rows[1].label, "Missing Grok");
         assert_eq!(rows[1].status, SessionRowStatus::Missing);
-        assert_eq!(rows[1].status.label(), "Missing");
+        assert_eq!(rows[1].status.label(), "Resume failed");
 
         assert_eq!(rows[2].label, "Exited Codex");
         assert_eq!(rows[2].status, SessionRowStatus::NotRunning);
         assert_eq!(rows[2].status.label(), "Not running");
+
+        // A pending approval and a plain question are two states with two labels.
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(Some("Needs approval".into()))).label(), "Needs approval");
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::WaitingForInput(None)).label(), "Needs input");
+        assert_eq!(SessionRowStatus::Live(AgentTabStatus::Error(None)).label(), "Failed");
+
+        // The live row follows the tab pill: a pending approval reads "Needs approval", any other wait "Needs input".
+        if let Ok(mut status_guard) = st.tabs[0].agent_status.lock() {
+            *status_guard = AgentTabStatus::WaitingForInput(Some("Bash".to_string()));
+        }
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs input");
+        // A text-match wait that carries the approval label but has no pending request is still `Needs input`.
+        if let Ok(mut status_guard) = st.tabs[0].agent_status.lock() {
+            *status_guard = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.to_string()));
+        }
+        assert!(st.tabs[0].pending_approvals.is_empty());
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs input");
+        st.tabs[0].pending_approvals.push(crate::agent_permissions::ApprovalRequest {
+            id: "req-1".into(),
+            tool_name: "Bash".into(),
+            input_summary: "cargo test".into(),
+            timestamp: 1,
+        });
+        assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs approval");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::terminal::AgentCliPreset;
 
 /// Status message shown when another live Studio window already holds `session.lock` for this file.
-pub const ANOTHER_WINDOW_OWNS_SESSION_MSG: &str = "Another window owns this file's agent session";
+pub const ANOTHER_WINDOW_OWNS_SESSION_MSG: &str = "This file's agents run in another window. Switch to it.";
 
 /// How a `TerminalState` is bound to disk.
 #[derive(Clone, Debug, PartialEq, Eq)]

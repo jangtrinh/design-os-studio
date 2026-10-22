@@ -39,7 +39,7 @@ pub(super) fn check(doc: &Document, libs: &LibrarySources, n: &Node, src: Option
                         node_name: n.name.clone(),
                         rule: Rule::LibraryAssets,
                         property: "component".into(),
-                        message: format!("Uses \"{asset}\" from library \"{lib_name}\", which isn't enabled in this file"),
+                        message: format!("\"{asset}\" is from \"{lib_name}\", which is off in this file. Enable it in Libraries."),
                         fix: None,
                         fix_label: String::new(),
                     });
@@ -64,7 +64,7 @@ pub(super) fn check(doc: &Document, libs: &LibrarySources, n: &Node, src: Option
                     node_name: n.name.clone(),
                     rule: Rule::LibraryAssets,
                     property: slot.clone(),
-                    message: format!("Uses \"{asset}\" from library \"{lib_name}\", which isn't enabled in this file"),
+                    message: format!("\"{asset}\" is from \"{lib_name}\", which is off in this file. Enable it in Libraries."),
                     fix: None,
                     fix_label: String::new(),
                 });
@@ -92,7 +92,7 @@ pub(super) fn check(doc: &Document, libs: &LibrarySources, n: &Node, src: Option
                 node_name: n.name.clone(),
                 rule: Rule::LibraryAssets,
                 property: prop.clone(),
-                message: format!("Uses \"{}\" from library \"{lib_name}\", which isn't enabled in this file", v.name),
+                message: format!("\"{}\" is from \"{lib_name}\", which is off in this file. Enable it in Libraries.", v.name),
                 fix: None,
                 fix_label: String::new(),
             });

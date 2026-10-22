@@ -1,5 +1,5 @@
 //! Top-centre canvas banner shown when the user selects or edits inside a frame an agent is
-//! working on (`#693` — `"<agent name> is working here"` with `"Make a copy"` and `"Edit anyway"`).
+//! working on (`#693` — `"<agent name> is working here"` with `"Duplicate frame"` and `"Edit anyway"`).
 //!
 //! Layout (`docs/specs/v0.6/693-user-edits-inside-a-frame-an-agent-is-working-on.md` §7):
 //! - Floating pill at the top centre of the canvas, `RADIUS_FRAME`, fill `BG_SECONDARY`,
@@ -8,7 +8,7 @@
 //! - Left: an 8 px dot (`SPACE_INLINE`) in the agent's colour (`#682` token), then the sentence
 //!   `"<agent name> is working here"` in body type (`font_body_medium`), `TEXT`, elided to fit.
 //! - Right: two buttons of `CONTROL_STANDARD` (`28 px`), `RADIUS_CONTROL`:
-//!   - `"Make a copy"` (primary action): `BG_BRAND` fill with `AGENT_LABEL_TEXT` dark label.
+//!   - `"Duplicate frame"` (primary action): `BG_BRAND` fill with `AGENT_LABEL_TEXT` dark label.
 //!   - `"Edit anyway"` (neutral action): `BG_TERTIARY` fill with `TEXT` label.
 //! - No animation, no timer; repaints on events only.
 
@@ -18,7 +18,7 @@ use crate::widgets;
 use egui::{Id, Pos2, Rect as ERect, Sense, Stroke, StrokeKind, Ui, Vec2};
 
 /// Paints the top-centre busy-frame banner when the user selects or edits inside a busy frame,
-/// and handles `"Make a copy"` and `"Edit anyway"` clicks (`#693`).
+/// and handles `"Duplicate frame"` and `"Edit anyway"` clicks (`#693`).
 pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
     if app.canvas.tiles.unlimited_budget {
         return;
@@ -32,7 +32,7 @@ pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
     let painter = ui.painter_at(canvas_rect);
     let body_font = theme::font_body_medium();
     let btn_font = theme::font_body_strong();
-    let copy_label = "Make a copy";
+    let copy_label = "Duplicate frame";
     let edit_label = "Edit anyway";
 
     let copy_galley = painter.layout_no_wrap(copy_label.to_string(), btn_font.clone(), theme::AGENT_LABEL_TEXT);
@@ -90,7 +90,7 @@ pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
     painter.circle_filled(dot_center, dot_d * 0.5, info.color());
     painter.galley(text_pos, text_galley, theme::TEXT);
 
-    // Primary button: "Make a copy" (`BG_BRAND` with dark label)
+    // Primary button: "Duplicate frame" (`BG_BRAND` with dark label)
     let copy_fill = if copy_resp.is_pointer_button_down_on() {
         theme::BG_BRAND_PRESSED
     } else if copy_resp.hovered() {

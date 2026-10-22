@@ -1313,7 +1313,7 @@ mod agent_a11y {
         let (_, node) = update
             .nodes
             .iter()
-            .find(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"))
+            .find(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code is done"))
             .expect("polite announcement node for finished turn");
         assert_eq!(node.role(), egui::accesskit::Role::Status);
 
@@ -1321,8 +1321,7 @@ mod agent_a11y {
         s.frame(vec![]);
         s.frame(vec![]);
         let update_after = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        let still_present =
-            update_after.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"));
+        let still_present = update_after.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code is done"));
         assert!(!still_present, "announcement node label must be cleared two frames later");
     }
 
@@ -1332,7 +1331,7 @@ mod agent_a11y {
         open_agents_panel_with_accesskit(&mut s);
 
         let cases = [
-            (crate::terminal::AgentTabStatus::WaitingForInput(None), "Claude Code needs your input"),
+            (crate::terminal::AgentTabStatus::WaitingForInput(None), "Claude Code needs input"),
             (crate::terminal::AgentTabStatus::Error(Some("HTTP 429 rate limit exceeded".to_string())), "Claude Code failed: rate limited"),
             (crate::terminal::AgentTabStatus::Error(Some("401 unauthorized token expired".to_string())), "Claude Code failed: login expired"),
             (crate::terminal::AgentTabStatus::Error(None), "Claude Code failed: unknown error"),
@@ -1389,13 +1388,13 @@ mod agent_a11y {
 
         s.frame(vec![]);
         let update_first = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        let has_first = update_first.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code finished"));
+        let has_first = update_first.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Claude Code is done"));
         assert!(has_first, "first announcement must be spoken on frame 1");
 
         // On the next frame, the second queued announcement is spoken.
         s.frame(vec![]);
         let update_second = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        let has_second = update_second.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Codex finished"));
+        let has_second = update_second.nodes.iter().any(|(_, n)| n.live() == Some(egui::accesskit::Live::Polite) && n.label() == Some("Codex is done"));
         assert!(has_second, "second announcement must be spoken on frame 2");
     }
 
@@ -1430,14 +1429,23 @@ mod agent_a11y {
         open_agents_panel_with_accesskit(&mut s);
 
         // In default chat mode (`side_panel_pty_open == false`), composer and runtime pills are created;
-        // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Selection chip`) must not be published.
+        // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Send selection to agent`) must not be published.
         let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["Send", "Shell", "Attach context", "Toggle terminal", "Attach PRD context"] {
+        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal", "Attach PRD context"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in chat mode");
         }
-        let (shell_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Shell").expect("Shell button");
-        assert_eq!(shell_node_id, egui::Id::new("agents-runtime-pty-toggle").accesskit_id(), "Shell label must target agents-runtime-pty-toggle");
-        for absent in ["Stop", "Selection chip", "New session", "Close tab", "Insert audit prompt"] {
+        // The Shell pill and the composer's book button both show the terminal, so both carry the same honest name.
+        let show_terminal_ids: Vec<_> =
+            update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button && n.label() == Some("Show terminal")).map(|(id, _)| *id).collect();
+        assert!(show_terminal_ids.contains(&egui::Id::new("agents-runtime-pty-toggle").accesskit_id()), "the Shell pill must be named Show terminal");
+        assert!(show_terminal_ids.contains(&egui::Id::new("agents-composer-book").accesskit_id()), "the composer book button must be named Show terminal");
+        let (claude_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Use Claude Code").expect("Claude pill");
+        assert_eq!(claude_node_id, egui::Id::new("agents-runtime-claude").accesskit_id(), "Use Claude Code must target agents-runtime-claude");
+        assert!(
+            find_accesskit_node(update, egui::accesskit::Role::Button, "New Claude Code session").is_none(),
+            "a runtime pill starts no session, so its name must not say so"
+        );
+        for absent in ["Stop", "Send selection to agent", "New session", "Close tab", "Insert audit prompt"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in chat mode");
         }
 
@@ -1448,15 +1456,15 @@ mod agent_a11y {
         s.frame(vec![]);
 
         let update_pty = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["New session", "Close tab", "Toggle terminal dock"] {
+        for label in ["New session", "Close tab", "Show terminal dock"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in PTY mode");
         }
-        for absent in ["Stop", "Selection chip", "Send"] {
+        for absent in ["Stop", "Send selection to agent", "Send"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in PTY mode");
         }
 
         // Select a node on the canvas: the selection chip switches to `Sense::click()` and publishes
-        // `Role::Button` with accessible name `"Selection chip"`.
+        // `Role::Button` with accessible name `"Send selection to agent"`.
         let page = s.shell.app.page;
         let fid = s.shell.app.doc.alloc_id();
         let frame_node = designos_doc::Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
@@ -1465,8 +1473,8 @@ mod agent_a11y {
         s.frame(vec![]);
 
         let update_pty_selected = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Selection chip")
-            .expect("expected Role::Button with label \"Selection chip\" in PTY mode when a node is selected");
+        let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Send selection to agent")
+            .expect("expected Role::Button with label \"Send selection to agent\" in PTY mode when a node is selected");
         assert_eq!(chip_node_id, egui::Id::new("agent-selection-chip-left").accesskit_id());
         for absent in ["Stop", "Send"] {
             assert!(

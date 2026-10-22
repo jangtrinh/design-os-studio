@@ -600,14 +600,14 @@ impl SessionFailure {
     pub fn new(preset: AgentCliPreset, class: SessionFailureClass, reset_at: Option<String>, raw_output: &str) -> Self {
         let detail_line = match class {
             SessionFailureClass::RateLimited => match &reset_at {
-                Some(t) => format!("Rate limited until {t}."),
-                None => "Rate limited.".to_string(),
+                Some(t) => format!("Rate limited until {t}"),
+                None => "Rate limited".to_string(),
             },
-            SessionFailureClass::LoginExpired => "Login expired.".to_string(),
-            SessionFailureClass::BillingOrQuota => "Billing or quota problem.".to_string(),
+            SessionFailureClass::LoginExpired => "Login expired".to_string(),
+            SessionFailureClass::BillingOrQuota => "Billing or quota problem".to_string(),
             SessionFailureClass::ProviderServerError => "The provider has a problem.".to_string(),
             SessionFailureClass::ContextFull => "This conversation is full.".to_string(),
-            SessionFailureClass::NetworkOffline => "No network.".to_string(),
+            SessionFailureClass::NetworkOffline => "No network".to_string(),
             // Rule 5: Unknown failure names no class and no cause; shows last output lines + Copy details.
             SessionFailureClass::Unknown => String::new(),
         };
@@ -656,7 +656,7 @@ impl SessionFailure {
             SessionFailureClass::BillingOrQuota => Some("Open billing"),
             SessionFailureClass::ProviderServerError => Some("Retry"),
             SessionFailureClass::ContextFull => Some("Start new session"),
-            SessionFailureClass::NetworkOffline => Some("Retry when online"),
+            SessionFailureClass::NetworkOffline => Some("Retry connection"),
             SessionFailureClass::Unknown => None,
         }
     }
@@ -784,7 +784,7 @@ impl SessionFailure {
     }
 
     /// Starts a single connectivity probe on a background worker thread (`#686` §11) so clicking
-    /// `"Retry when online"` never blocks the UI thread.
+    /// `"Retry connection"` never blocks the UI thread.
     pub fn start_retry_when_online_probe(&self, ctx: Option<egui::Context>) -> bool {
         if self.online_probe_state.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_err() {
             return false;

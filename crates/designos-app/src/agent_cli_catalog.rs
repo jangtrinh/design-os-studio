@@ -3,14 +3,14 @@
 //!
 //! Behaviour rules (`docs/specs/v0.6/652-new-session-picker-installed-clis-version-login.md` §3):
 //! - Four built-in CLI descriptors (`Claude`, `Codex`, `Grok`, `Antigravity`) plus custom CLI
-//!   entries (`custom_clis` in Studio's `settings.json`), `"Other CLI..."`, and `"Shell"` last.
+//!   entries (`custom_clis` in Studio's `settings.json`), `"Other CLI…"`, and `"Shell"` last.
 //! - Probes run on background worker threads, never on the UI thread, with a 3 s timeout per call.
 //! - Claude sign-in parses only the boolean `loggedIn` field of `claude auth status` JSON (`true`
-//!   -> `Signed in`, `false` -> `Not signed in`, missing/non-boolean/non-JSON -> `Sign-in not checked`),
+//!   -> `Signed in`, `false` -> `Not signed in`, missing/non-boolean/non-JSON -> `Sign-in unknown`),
 //!   never storing or logging account names or emails.
 //! - Codex sign-in parses `codex login status` exit 0 with a line starting `"Logged in"` -> `Signed in`;
-//!   every other output or exit code -> `Sign-in not checked`.
-//! - Grok and Antigravity have no status command -> `Sign-in not checked`.
+//!   every other output or exit code -> `Sign-in unknown`.
+//! - Grok and Antigravity have no status command -> `Sign-in unknown`.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -27,7 +27,7 @@ use crate::terminal::{extra_cli_path_dirs, runtime_binary_available, AgentCliPre
 /// Per-command timeout for version and sign-in probes (`#652` §3 rule 2).
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Warning caption shown on `"Other CLI..."` and saved custom CLI rows (`#652` §3 rule 7).
+/// Warning caption shown on `"Other CLI…"` and saved custom CLI rows (`#652` §3 rule 7).
 pub const CUSTOM_CLI_WARNING: &str = "Plain command: Studio tools not connected";
 
 /// Default footer permission caption (`#652` §3 rule 9).
@@ -48,8 +48,8 @@ impl SignIn {
         match self {
             Self::Yes => "Signed in",
             Self::No => "Not signed in",
-            Self::Unknown => "Sign-in not checked",
-            Self::Checking => "Checking...",
+            Self::Unknown => "Sign-in unknown",
+            Self::Checking => "Checking…",
         }
     }
 }
@@ -96,12 +96,12 @@ pub const CATALOG_PRESETS: [AgentCliPreset; 5] =
 
 /// Returns the catalog of built-in CLI descriptors in fixed order (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`).
 /// Per `#679` §3 rule 3 & §13 (and Open Question 2A), only CLIs with a verified per-session Studio MCP
-/// registration path are admitted to the default catalog; other CLIs can be run via `"Other CLI..."`.
+/// registration path are admitted to the default catalog; other CLIs can be run via `"Other CLI…"`.
 pub fn catalog() -> Vec<CliDescriptor> {
     vec![
         CliDescriptor {
             preset: AgentCliPreset::Claude,
-            name: "Claude",
+            name: "Claude Code",
             binary: "claude",
             install_folders: AgentCliPreset::Claude.install_dirs(),
             version_cmd: &["claude", "--version"],
@@ -362,7 +362,7 @@ pub fn parse_claude_sign_in(stdout: &str) -> SignIn {
 
 /// Parses `codex login status` output (`#652` §3 rule 3):
 /// `Signed in` ONLY when the command exits 0 and prints a line starting with `"Logged in"`.
-/// Every other output or exit code returns `SignIn::Unknown` (`"Sign-in not checked"`).
+/// Every other output or exit code returns `SignIn::Unknown` (`"Sign-in unknown"`).
 pub fn parse_codex_sign_in(exit_ok: bool, stdout: &str, stderr: &str) -> SignIn {
     if !exit_ok {
         return SignIn::Unknown;
@@ -615,12 +615,12 @@ pub struct PickerRow {
 }
 
 /// Builds the ordered list of picker rows according to `#652` §3 rules 3, 4, 6, 7, 8:
-/// 1. Installed (or still-probing `Checking...`) CLIs first in fixed catalog order
+/// 1. Installed (or still-probing `Checking…`) CLIs first in fixed catalog order
 ///    (`Claude`, `Codex`, `Grok`, `Antigravity`, `Gemini CLI`), with the file's `last_cli`
 ///    ordered first when present and confirmed installed;
 /// 2. Confirmed-uninstalled CLIs after them, greyed (`Not installed`, `selectable: false`) with `FixAction::OpenInstallPage`;
 /// 3. Saved `custom_clis` entries (with caption `"Plain command: Studio tools not connected"`);
-/// 4. `"Other CLI..."` row (with caption `"Plain command: Studio tools not connected"`);
+/// 4. `"Other CLI…"` row (with caption `"Plain command: Studio tools not connected"`);
 /// 5. `"Shell"` row last (never the default).
 pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: Option<&str>, custom_clis: &[CustomCliEntry]) -> Vec<PickerRow> {
     let descriptors = catalog();
@@ -736,7 +736,7 @@ pub fn build_picker_rows(probes: &HashMap<AgentCliPreset, CliProbe>, last_cli: O
 
     rows.push(PickerRow {
         id: "agents-dropdown-other-cli".to_string(),
-        label: "Other CLI...".to_string(),
+        label: "Other CLI…".to_string(),
         version: None,
         state_label: None,
         caption: Some(CUSTOM_CLI_WARNING.to_string()),
@@ -838,7 +838,7 @@ mod tests {
         let cache = CatalogProbeCache::new(runner, PROBE_TIMEOUT);
         cache.refresh_blocking();
         let rows = build_picker_rows(&cache.snapshot(), None, &[]);
-        let claude_row = rows.iter().find(|r| r.label == "Claude").expect("Claude row");
+        let claude_row = rows.iter().find(|r| r.label == "Claude Code").expect("Claude Code row");
         assert_eq!(claude_row.version.as_deref(), Some("2.1.302"));
         assert_eq!(claude_row.state_label.as_deref(), Some("Signed in"));
         assert!(claude_row.selectable);
@@ -846,7 +846,7 @@ mod tests {
 
         let gemini_row = rows.iter().find(|r| r.label == "Gemini CLI").expect("Gemini CLI row");
         assert_eq!(gemini_row.version.as_deref(), Some("0.38.2"));
-        assert_eq!(gemini_row.state_label.as_deref(), Some("Sign-in not checked"));
+        assert_eq!(gemini_row.state_label.as_deref(), Some("Sign-in unknown"));
         assert_eq!(gemini_row.caption, None);
         assert!(gemini_row.selectable);
         assert!(rows.iter().all(|r| r.label != "OpenCode"), "OpenCode stays out of default catalog until MCP path is verified");
@@ -857,11 +857,11 @@ mod tests {
     fn claude_signed_out_json() {
         assert_eq!(parse_claude_sign_in(r#"{"loggedIn": false}"#), SignIn::No);
         assert_eq!(parse_claude_sign_in(r#"{"loggedIn": false}"#).label(), "Not signed in");
-        // Missing field, non-boolean field, or non-JSON -> Sign-in not checked (never a guess)
+        // Missing field, non-boolean field, or non-JSON -> Sign-in unknown (never a guess)
         assert_eq!(parse_claude_sign_in(r#"{"account": "none"}"#), SignIn::Unknown);
         assert_eq!(parse_claude_sign_in(r#"{"loggedIn": "false"}"#), SignIn::Unknown);
         assert_eq!(parse_claude_sign_in("not json output"), SignIn::Unknown);
-        assert_eq!(SignIn::Unknown.label(), "Sign-in not checked");
+        assert_eq!(SignIn::Unknown.label(), "Sign-in unknown");
     }
 
     // 4. `codex_only_the_captured_signed_in_phrase_counts`
@@ -869,7 +869,7 @@ mod tests {
     fn codex_only_the_captured_signed_in_phrase_counts() {
         assert_eq!(parse_codex_sign_in(true, "Logged in using ChatGPT\n", ""), SignIn::Yes);
         assert_eq!(parse_codex_sign_in(true, "Logged in using ChatGPT\n", "").label(), "Signed in");
-        // Non-zero exit or any other output -> Sign-in not checked
+        // Non-zero exit or any other output -> Sign-in unknown
         assert_eq!(parse_codex_sign_in(false, "Logged in using ChatGPT\n", ""), SignIn::Unknown);
         assert_eq!(parse_codex_sign_in(true, "Not logged in\n", ""), SignIn::Unknown);
         assert_eq!(parse_codex_sign_in(false, "Not logged in\n", ""), SignIn::Unknown);
@@ -886,7 +886,7 @@ mod tests {
         for preset in [AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini] {
             let probe = snap.get(&preset).expect("probe");
             assert_eq!(probe.signed_in, SignIn::Unknown);
-            assert_eq!(probe.signed_in.label(), "Sign-in not checked");
+            assert_eq!(probe.signed_in.label(), "Sign-in unknown");
         }
     }
 
@@ -903,7 +903,7 @@ mod tests {
         assert!(!last.is_last_choice, "Shell is never the default");
 
         let other = rows.iter().find(|r| r.kind == PickerRowKind::OtherCli).expect("Other CLI row");
-        assert_eq!(other.label, "Other CLI...");
+        assert_eq!(other.label, "Other CLI…");
         assert_eq!(other.caption.as_deref(), Some("Plain command: Studio tools not connected"));
     }
 
@@ -950,7 +950,7 @@ mod tests {
 
         // Installed CLIs (Claude, Codex, Antigravity, Gemini CLI) come before uninstalled (Grok)
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(&labels[..5], &["Claude", "Codex", "Antigravity", "Gemini CLI", "Grok"]);
+        assert_eq!(&labels[..5], &["Claude Code", "Codex", "Antigravity", "Gemini CLI", "Grok"]);
 
         let grok_row = &rows[4];
         assert_eq!(grok_row.state_label.as_deref(), Some("Not installed"));
@@ -990,8 +990,8 @@ mod tests {
         // First frame snapshot returns immediately before the blocking runner finishes, and no catalog CLI is selectable before `is_installed` finishes.
         let first_frame_rows = build_picker_rows(&cache.snapshot(), None, &[]);
         assert!(t0.elapsed() < Duration::from_millis(200), "refresh_async must not block the UI thread");
-        let claude_first = first_frame_rows.iter().find(|r| r.label == "Claude").expect("Claude row");
-        assert_eq!(claude_first.state_label.as_deref(), Some("Checking..."));
+        let claude_first = first_frame_rows.iter().find(|r| r.label == "Claude Code").expect("Claude Code row");
+        assert_eq!(claude_first.state_label.as_deref(), Some("Checking…"));
         assert!(!claude_first.selectable, "unprobed CLI must not be selectable before is_installed completes");
 
         // Wait for background worker to enter `run`, then release it
@@ -1003,7 +1003,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         let updated_rows = build_picker_rows(&cache.snapshot(), None, &[]);
-        let claude = updated_rows.iter().find(|r| r.label == "Claude").unwrap();
+        let claude = updated_rows.iter().find(|r| r.label == "Claude Code").unwrap();
         assert_eq!(claude.version.as_deref(), Some("2.1.302"));
         assert!(claude.selectable);
     }
@@ -1020,7 +1020,7 @@ mod tests {
         let probe = probe_descriptor(desc, &runner, short_timeout);
         assert!(probe.installed);
         assert_eq!(probe.signed_in, SignIn::Unknown);
-        assert_eq!(probe.signed_in.label(), "Sign-in not checked");
+        assert_eq!(probe.signed_in.label(), "Sign-in unknown");
     }
 
     // 12. `last_choice_orders_first_and_is_per_file`
@@ -1045,9 +1045,9 @@ mod tests {
         let labels_a: Vec<&str> = rows_a.iter().take(4).map(|r| r.label.as_str()).collect();
         let labels_b: Vec<&str> = rows_b.iter().take(4).map(|r| r.label.as_str()).collect();
 
-        assert_eq!(labels_a, vec!["Codex", "Claude", "Grok", "Antigravity"]);
+        assert_eq!(labels_a, vec!["Codex", "Claude Code", "Grok", "Antigravity"]);
         assert!(rows_a[0].is_last_choice);
-        assert_eq!(labels_b, vec!["Claude", "Codex", "Grok", "Antigravity"]);
+        assert_eq!(labels_b, vec!["Claude Code", "Codex", "Grok", "Antigravity"]);
         assert!(!rows_b[0].is_last_choice);
 
         file_a.shutdown();
