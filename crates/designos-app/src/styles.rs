@@ -87,6 +87,10 @@ impl App {
                 n.style_refs.insert("stroke".into(), key.into());
             }
             Style::Fill(paints) => {
+                // The style's paints replace the layer's, so a variable bound to the old ones (and a
+                // previous fill style link) must go in the same edit; left in place the canvas would
+                // keep drawing the variable's colour over the style. This runs before the new link is set.
+                detach_fill_paints(n);
                 match &mut n.kind {
                     NodeKind::Text(t) => {
                         // Runs carry their own colour; a colour style recolours them all, as
@@ -387,6 +391,9 @@ pub fn replace_color(doc: &mut Document, ed: &mut Edit, roots: &[NodeId], old: C
         }
     }
 }
+
+#[cfg(test)]
+mod fill_binding_tests;
 
 #[cfg(test)]
 mod instance_refit_tests;
