@@ -1109,6 +1109,7 @@ mod gpu_screenshot_wait;
 mod grid_track_editing;
 mod history;
 mod home;
+mod layer_drag_fast;
 mod live_agent_edits;
 mod menus;
 mod panel_keys;

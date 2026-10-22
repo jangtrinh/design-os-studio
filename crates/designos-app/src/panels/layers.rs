@@ -42,6 +42,11 @@ pub struct LayersState {
     pub rename_seen: bool,
     pub drag: Option<Vec<NodeId>>,
     pub drop: Option<Drop>,
+    /// The row the primary button went down on and where, until it comes up: the row a drag starts from (see
+    /// `track_row_drag`).
+    pub press: Option<(NodeId, Pos2)>,
+    /// The egui pass the list was last drawn in: a press or drag that outlived a pass the list skipped is forgotten.
+    pub drawn_pass: u64,
     pub last_sel: Vec<NodeId>,
     pub anchor: Option<NodeId>,
     /// Name filter (the header's search icon): shown, its text, and a focus request.
@@ -314,7 +319,113 @@ fn visible_rows_cached(app: &mut App) -> Vec<Row> {
     app.layers.rows_cache.clone()
 }
 
+/// Width of the strip at the right edge of the list that is not a row's to drag from: the scrollbar track
+/// (`scrollbar` draws it 8 px wide) and the reach of the panel's resize handle.
+const EDGE_STRIP_W: f32 = 8.0;
+
+/// The row under `pos`, when `pos` is on a row of the list and no popup, floating panel or dialog (a layer above the one
+/// the list is drawn in) is over it.
+fn row_at(app: &App, ui: &Ui, region: Rect, scroll: f32, pos: Pos2) -> Option<NodeId> {
+    if !region.contains(pos) || pos.x >= region.right() - EDGE_STRIP_W || ui.ctx().layer_id_at(pos).is_some_and(|l| l != ui.layer_id()) {
+        return None;
+    }
+    let i = ((pos.y - region.top() + scroll) / theme::LAYER_ROW_HEIGHT).floor();
+    if i < 0.0 {
+        return None;
+    }
+    app.layers.rows_cache.get(i as usize).map(|r| r.id)
+}
+
+/// What the primary button did to the row drag in one frame.
+struct DragFrame {
+    /// Where a drop is aimed: where the button came up when it ended a drag, or where the pointer is when a drag begins
+    /// while the button is still held. `None` when the frame has neither.
+    at: Option<Pos2>,
+    /// A release ended a drag this frame: one already under way, or one that began on that release (a press and a
+    /// release shared the frame, a slow frame or a quick flick). Only then is the drag dropped. A release that ends
+    /// nothing (the end of a click) does not finish a drag that began in the same frame.
+    ended: bool,
+}
+
+/// Follows the primary button through this frame's events: remembers the row it went down on, starts a row drag when
+/// the pointer has travelled farther than a click's reach from there, and reports where the button came up.
+///
+/// The press, the release and the position of each come from the button events, not from egui's `drag_started`:
+/// egui resolves a press against the pointer position at the END of the frame and starts a drag only on a frame after
+/// the press, and a release inside a frame drops a pending drag. So when the move and the release land in the frame
+/// after the press, or all three share a frame (a slow frame, a quick flick), egui reports no drag, or a drag of the
+/// row under the END of the move, and the layer is not reordered. The same goes for the drop: egui's pointer position is
+/// where the hand is at the end of the frame, which on a slow frame is past the point where the button came up.
+fn track_row_drag(app: &mut App, ui: &Ui, region: Rect, scroll_seen: f32, filtering: bool) -> DragFrame {
+    let buttons: Vec<(bool, Pos2)> = ui.input(|i| {
+        i.events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, .. } => Some((*pressed, *pos)),
+                _ => None,
+            })
+            .collect()
+    });
+    // A gesture the list lost sight of (it was hidden for a pass, by Cmd+\ or another view) is over: its release went
+    // unseen, so its press and drag must not pick up a later gesture.
+    let pass = ui.ctx().cumulative_pass_nr();
+    if pass > app.layers.drawn_pass.saturating_add(1) {
+        app.layers.press = None;
+        app.layers.drag = None;
+        app.layers.drop = None;
+    }
+    app.layers.drawn_pass = pass;
+    let reach = ui.ctx().options(|o| o.input_options.max_click_dist);
+    let mut frame = DragFrame { at: None, ended: false };
+    for (pressed, pos) in buttons {
+        if pressed {
+            app.layers.press = row_at(app, ui, region, scroll_seen, pos).map(|id| (id, pos));
+        } else {
+            let under_way = app.layers.drag.is_some();
+            let began = match app.layers.press.take() {
+                Some((id, from)) => !under_way && from.distance(pos) > reach && start_row_drag(app, id, filtering),
+                None => false,
+            };
+            if under_way || began {
+                frame.at = Some(pos);
+                frame.ended = true;
+            }
+        }
+    }
+    if ui.input(|i| i.pointer.primary_down()) {
+        if let (Some((id, from)), Some(now)) = (app.layers.press, ui.input(|i| i.pointer.interact_pos())) {
+            if from.distance(now) > reach && start_row_drag(app, id, filtering) {
+                frame.at = Some(now);
+            }
+        }
+    } else {
+        // No button is down, so no row is pressed, whatever release this list did or did not get to see.
+        app.layers.press = None;
+    }
+    frame
+}
+
+/// Picks up row `id` (selecting it unless it already is) when no drag is under way, the rows can be dragged and the
+/// layer is still on the list: an agent edit or an undo can delete it while the button is held, and a page switch or a
+/// collapsed parent can take it off the list.
+fn start_row_drag(app: &mut App, id: NodeId, filtering: bool) -> bool {
+    if app.layers.drag.is_some() || app.layers.renaming.is_some() || filtering || app.doc.get(id).is_none() {
+        return false;
+    }
+    if !app.layers.rows_cache.iter().any(|r| r.id == id) {
+        return false;
+    }
+    if !app.selection.contains(&id) {
+        app.select_only(id);
+    }
+    app.layers.drag = Some(app.top_selection());
+    true
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
+    // Where the list was when the user last looked at it: a press is aimed at what the previous frame drew, not at what
+    // this frame's scroll (the wheel, or the reveal below) is about to move under it.
+    let scroll_seen = app.layers.scroll;
     // Reveal newly selected layers once marquee interaction settles.
     let in_marquee = matches!(app.canvas.inter, crate::canvas::Interaction::Marquee { .. });
     if !in_marquee && app.selection != app.layers.last_sel {
@@ -351,15 +462,20 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     app.layers.scroll = scroll;
     app.hover_layer = None;
 
+    let drag_frame = track_row_drag(app, ui, region, scroll_seen, filter.is_some());
+
     let first = (scroll / theme::LAYER_ROW_HEIGHT).floor().max(0.0) as usize;
     let last = (((scroll + region.height()) / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1).min(total_rows);
     let visible_slice: Vec<Row> = if first < last { app.layers.rows_cache[first..last].to_vec() } else { Vec::new() };
     let selected: HashSet<NodeId> = app.selection.iter().copied().collect();
 
     // Drag bookkeeping.
-    let pointer = ui.input(|i| i.pointer.interact_pos());
+    // A drop is aimed at where the button came up, not where the pointer is at the end of the frame, and at the rows
+    // the user saw when they let go: the list the previous frame drew, not the one this frame's scroll is moving.
+    let pointer = drag_frame.at.or_else(|| ui.input(|i| i.pointer.interact_pos()));
+    let drop_scroll = if drag_frame.ended { scroll_seen } else { scroll };
     if let (Some(ids), Some(pos)) = (app.layers.drag.clone(), pointer) {
-        app.layers.drop = if region.contains(pos) { drop_for(pos.y - region.top() + scroll, &app.layers.rows_cache, &app.doc, &ids) } else { None };
+        app.layers.drop = if region.contains(pos) { drop_for(pos.y - region.top() + drop_scroll, &app.layers.rows_cache, &app.doc, &ids) } else { None };
     }
 
     clipped(ui, region, |ui| {
@@ -626,12 +742,6 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     app.layers.anchor = Some(row.id);
                 }
             }
-            if resp.drag_started() && app.layers.renaming.is_none() && filter.is_none() {
-                if !is_sel {
-                    app.select_only(row.id);
-                }
-                app.layers.drag = Some(app.top_selection());
-            }
         }
 
         // Drop indicator.
@@ -656,7 +766,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     scrollbar(ui, region, scroll, content_h);
 
     // Finish drag.
-    if app.layers.drag.is_some() && ui.input(|i| i.pointer.primary_released()) {
+    if app.layers.drag.is_some() && drag_frame.ended {
         let ids = app.layers.drag.take().unwrap_or_default();
         if let Some(d) = app.layers.drop.take() {
             if let Some((parent, index)) = resolve_drop(&app.doc, &app.layers.rows_cache, d, &ids) {
@@ -1032,5 +1142,29 @@ mod tests {
         assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");
         assert_eq!(colors(1), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden instance greys the name and the label together");
         assert_eq!(colors(2), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden rectangle greys the name and the label together");
+    }
+
+    #[test]
+    fn a_floating_panel_over_the_list_takes_the_press_from_the_row() {
+        let (d, ..) = sample();
+        let mut app = App::new(d);
+        ensure_rows_cache(&mut app);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 600.0));
+        let panel = Rect::from_min_size(Pos2::new(100.0, 0.0), Vec2::new(120.0, 100.0));
+        let (under_panel, beside_panel) = (Pos2::new(160.0, 20.0), Pos2::new(20.0, 20.0));
+        let ctx = egui::Context::default();
+        let mut found = (None, None);
+        // An area is hit-tested from its second frame on.
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                egui::Area::new(egui::Id::new("floating-panel")).order(egui::Order::Middle).fixed_pos(panel.min).show(ui.ctx(), |ui| {
+                    ui.allocate_exact_size(panel.size(), Sense::click());
+                });
+                found = (row_at(&app, ui, region, 0.0, under_panel), row_at(&app, ui, region, 0.0, beside_panel));
+            });
+        }
+        assert_eq!(found.0, None, "a press on a floating panel is the panel's, not a row's");
+        assert!(found.1.is_some(), "beside the panel the same height is a row");
     }
 }
