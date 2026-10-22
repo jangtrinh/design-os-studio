@@ -72,12 +72,30 @@ pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
         ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            richtext::apply_all(t, &f);
-            n.size = layout::fit_text(t, n.size);
-        }
+    // The edit asks for any font face it introduces (family, weight, italic), so no caller does.
+    ts::requesting_new_faces(app, sel, |app| {
+        app.edit_nodes(sel, |n| {
+            if let NodeKind::Text(t) = &mut n.kind {
+                richtext::apply_all(t, &f);
+                n.size = layout::fit_text(t, n.size);
+            }
+        });
     });
+}
+
+/// Sets the family of the edited text. Picking the family again retries a face whose fetch failed
+/// ("Font unavailable"), so the document's fonts are loaded even when nothing changed.
+pub(crate) fn pick_family(app: &mut App, sel: &[NodeId], family: &str) {
+    app.fonts.retry_family(family);
+    set_style(app, sel, |s| s.font_family = family.to_string());
+    // Name the faces the picked text uses, so the retry reaches them in a document too large to scan.
+    let faces: Vec<_> = sel
+        .iter()
+        .filter_map(|id| app.doc.get(*id)?.kind.any_text())
+        .flat_map(designos_fonts::text_faces)
+        .filter(|r| r.family.eq_ignore_ascii_case(family))
+        .collect();
+    app.fonts.load_for_with(&app.doc, faces);
 }
 
 /// Applies `f` to the base style only (paragraph level fields such as alignment).
@@ -172,8 +190,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     // ---- family
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
     if let Some(f) = family_picker(ui, pane.full(0.0), &fam_label) {
-        set_style(app, sel, |s| s.font_family = f.clone());
-        app.fonts.load_for(&app.doc);
+        pick_family(app, sel, &f);
     }
     row_end(pane);
 
@@ -183,7 +200,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     if let Some(i) = dropdown(ui, pane.col(0, 0.0), "font-weight", cur, &names) {
         let w = WEIGHTS[i].1;
         set_style(app, sel, |s| s.font_weight = w);
-        app.fonts.load_for(&app.doc);
     }
     let fs_r = pane.col(1, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui| field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")) {
@@ -255,7 +271,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         let italic = sum.italic;
         if let Some(i) = seg_text(ui, pane, theme::SECTION_CONTENT_X, "italic", &["Normal", "Italic"], italic.map(|b| b as usize), 48.0) {
             set_style(app, sel, |s| s.italic = i == 1);
-            app.fonts.load_for(&app.doc);
         }
         row_end(pane);
     }

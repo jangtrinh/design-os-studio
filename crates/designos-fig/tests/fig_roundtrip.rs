@@ -4051,3 +4051,29 @@ fn uncollided_keyless_component_still_round_trips() {
     let rt_b = find(&rt, "KeylessB").id;
     assert_eq!(swap_preferred(&rt, "Host", "Icon"), vec![rt_a, rt_b]);
 }
+
+/// A weight edit on text with a `wght` axis leaves the weight and the axis in step (700 and 700).
+/// The pair, on the base style and on a run, must survive a save and a reopen.
+#[test]
+fn bold_text_with_a_wght_axis_keeps_weight_and_axis_through_fig_export_and_import() {
+    let mut doc = Document::new("BoldAxis");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut base = TextStyle { font_family: "Inter".into(), font_size: 24.0, font_weight: 400, ..TextStyle::default() };
+    base.set_axis("wght", 400.0);
+    let mut bold = base.clone();
+    bold.font_weight = 700;
+    bold.set_axis("wght", 700.0);
+    let text = TextProps { content: "Bold word here".into(), style: base, runs: vec![TextRun { start: 0, end: 4, style: bold }], ..TextProps::default() };
+    let mut node = Node::new(id, NodeKind::Text(text));
+    node.name = "BoldAxisLabel".into();
+    node.size = Vec2::new(220.0, 32.0);
+    doc.insert(page, node).unwrap();
+
+    let rt = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    let NodeKind::Text(tp) = &find(&rt, "BoldAxisLabel").kind else { panic!("expected a text node") };
+    assert_eq!((tp.style.font_weight, tp.style.get_axis("wght")), (400, Some(400.0)), "base");
+    assert_eq!(tp.runs.len(), 1);
+    assert_eq!((tp.runs[0].start, tp.runs[0].end), (0, 4));
+    assert_eq!((tp.runs[0].style.font_weight, tp.runs[0].style.get_axis("wght")), (700, Some(700.0)), "bold run");
+}

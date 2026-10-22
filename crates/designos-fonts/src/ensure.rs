@@ -19,7 +19,7 @@ pub struct FontReport {
     pub loaded: Vec<LoadedFont>,
     /// Requests served by fonts already embedded in the binary (nothing to do).
     pub bundled: Vec<FontRequest>,
-    /// Requests skipped because the caller said the family is already available.
+    /// Requests skipped because the caller said the face is already available.
     pub skipped: Vec<FontRequest>,
     /// Requests that could not be satisfied; rendering falls back to Inter.
     pub failed: Vec<(FontRequest, FontError)>,
@@ -31,23 +31,27 @@ pub fn ensure_fonts(doc: &Document, cache: &FontCache) -> FontReport {
     ensure_fonts_with(doc, cache, |_| false)
 }
 
-/// Like [`ensure_fonts`], but families for which `is_available(family)` is true
-/// (e.g. installed system fonts) are skipped.
-pub fn ensure_fonts_with(doc: &Document, cache: &FontCache, is_available: impl Fn(&str) -> bool) -> FontReport {
+/// Like [`ensure_fonts`], but faces for which `is_available(request)` is true
+/// (e.g. faces of installed system fonts) are skipped.
+pub fn ensure_fonts_with(doc: &Document, cache: &FontCache, is_available: impl Fn(&FontRequest) -> bool) -> FontReport {
     // Noto fallbacks for the complex scripts the text uses come with the fonts it names.
     ensure_font_requests_with(requests_for(doc).into_iter().chain(script_requests_for(doc)), cache, is_available)
 }
 
 /// Resolves an explicit set of [`FontRequest`]s against bundled fonts,
 /// `is_available`, and `cache` without cloning the [`Document`].
-pub fn ensure_font_requests_with(requests: impl IntoIterator<Item = FontRequest>, cache: &FontCache, is_available: impl Fn(&str) -> bool) -> FontReport {
+pub fn ensure_font_requests_with(
+    requests: impl IntoIterator<Item = FontRequest>,
+    cache: &FontCache,
+    is_available: impl Fn(&FontRequest) -> bool,
+) -> FontReport {
     let mut report = FontReport::default();
     for req in requests {
         let family = substitute(&req.family).map(str::to_string).unwrap_or_else(|| req.family.clone());
         let effective = FontRequest::new(family.clone(), req.weight, req.italic);
         if bundled_for(&effective).is_some() {
             report.bundled.push(req);
-        } else if is_available(&req.family) {
+        } else if is_available(&req) {
             report.skipped.push(req);
         } else {
             match cache.resolve(&effective) {
@@ -99,7 +103,7 @@ mod tests {
     fn ensure_substitutes_and_reports_offline_failures() {
         let doc = doc_with(&[("SF Pro Text", 500, false), ("Inter", 700, false), ("Roboto", 400, false), ("Installed", 400, false)]);
         let cache = FontCache::with_dir(std::env::temp_dir().join("designos-fonts-ensure-none")).offline();
-        let r = ensure_fonts_with(&doc, &cache, |f| f == "Installed");
+        let r = ensure_fonts_with(&doc, &cache, |r| r.family == "Installed");
         assert_eq!(r.bundled.len(), 2); // Inter + SF Pro Text -> Inter
         assert_eq!(r.skipped, vec![FontRequest::new("Installed", 400, false)]);
         assert!(r.loaded.is_empty());

@@ -179,7 +179,7 @@ mod tests {
         let again = ensure_fonts_with(&doc, &FontCache::with_dir(&dir).offline(), |_| false);
         assert_eq!(again.loaded.len(), 1);
         // and an installed copy is skipped
-        let skipped = ensure_fonts_with(&doc, &FontCache::with_dir(&dir).offline(), |f| f == "Noto Sans Hebrew");
+        let skipped = ensure_fonts_with(&doc, &FontCache::with_dir(&dir).offline(), |r| r.family == "Noto Sans Hebrew");
         assert!(skipped.loaded.is_empty() && skipped.skipped.iter().any(|r| r.family == "Noto Sans Hebrew"));
         let _ = std::fs::remove_dir_all(&dir);
     }
