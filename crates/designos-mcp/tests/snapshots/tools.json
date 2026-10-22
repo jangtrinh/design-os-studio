@@ -258,6 +258,7 @@
           "type": "boolean"
         },
         "fill": {
+          "description": "A #RRGGBB or #RRGGBBAA hex color, a $easeui.* token, or var:<collection>/<name>.",
           "maxLength": 1024,
           "type": "string"
         },
@@ -359,6 +360,7 @@
           "type": "boolean"
         },
         "fill": {
+          "description": "A #RRGGBB or #RRGGBBAA hex color, a $easeui.* token, or var:<collection>/<name>.",
           "maxLength": 1024,
           "type": "string"
         },

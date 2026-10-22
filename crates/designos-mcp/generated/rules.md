@@ -67,14 +67,14 @@ Follow this 7-step loop on every design task:
 ### `designos_create_node`
 - **Purpose:** Create one layer in a container; defaults to x/y=0, width/height=100.
 - **Args:** required: `parent_id`, `kind` (optional: `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `text`, `width`, `x`, `y`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `VALUE_OUT_OF_RANGE`, `INVALID_COLOR`, `OUTSIDE_OWNED_FRAMES`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `VALUE_OUT_OF_RANGE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"parent_id":1,"kind":"frame","name":"Hero","width":1200,"height":640}`
 
 ### `designos_update_node`
 - **Purpose:** Update specified fields of one non-page layer.
 - **Args:** required: `node_id` (optional: `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `opacity`, `text`, `visible`, `width`, `x`, `y`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `INVALID_COLOR`, `OUTSIDE_OWNED_FRAMES`
-- **Example:** `{"node_id":2,"name":"Header","width":1200,"height":80}`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `PAGE_ROOT_PROTECTED`, `MOVE_CYCLE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
+- **Example:** `{"node_id":2,"name":"Header","fill":"var:Color/Primary"}`
 
 ### `designos_delete_node`
 - **Purpose:** Remove a non-page layer and its entire subtree.
@@ -345,7 +345,7 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 - **Per-call `issues` block (E15-12):** Mutating responses attach `issues: {total, new_in_this_call, truncated, items, issues_skipped_rules}` with `{rule_id, severity, node_id, node_path, message, fix_hint, auto_fixable}`. Resolve `new_in_this_call > 0` before continuing.
 - **Session lint tuning:** Use `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false` when bulk-loading scaffolding.
 - **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.
-- **Retry contract:** When `safe_to_retry: true`, repair using `corrected_example` or `valid_options` and retry once. When `safe_to_retry: false`, re-read state, then follow `next_step`. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).
+- **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).
 
 ## Design Quality & Anti-Generic Rules
 

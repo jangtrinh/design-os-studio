@@ -26,7 +26,8 @@ fn solid(p: &Paint) -> Color {
     }
 }
 
-/// The colour behind a text node: the first visible solid fill at half opacity or more on its ancestors, else the page background.
+/// The colour behind a text node: the first visible paint that is solid at half opacity or more on its ancestors (a hidden
+/// ancestor still counts, since it is shown later), else the page background.
 fn backdrop_of(e: &Engine, text: NodeId) -> Color {
     let mut cur = e.doc.get(text).and_then(|n| n.parent);
     while let Some(id) = cur {
@@ -34,12 +35,10 @@ fn backdrop_of(e: &Engine, text: NodeId) -> Color {
         if let NodeKind::Page { background } = &n.kind {
             return *background;
         }
-        if n.visible {
-            for p in n.fills.iter().rev() {
-                if let (true, PaintKind::Solid(c)) = (p.visible, &p.kind) {
-                    if p.opacity * c.a >= 0.5 {
-                        return *c;
-                    }
+        for p in n.fills.iter().rev() {
+            if let (true, PaintKind::Solid(c)) = (p.visible, &p.kind) {
+                if p.opacity * c.a >= 0.5 {
+                    return *c;
                 }
             }
         }
@@ -89,6 +88,28 @@ fn apply_spec_text_without_a_colour_is_black_on_white_and_light_on_a_dark_card()
     }
     let button = e.doc.get(NodeId(dark["name_to_id"]["Card/Button"].as_u64().unwrap())).unwrap();
     assert_eq!(drawn_text_fills(&e, button.children[0]), vec![light], "the label made from `text` on a dark preset");
+}
+
+#[test]
+fn text_in_a_frame_hidden_before_or_after_is_black_on_white_and_light_on_dark() {
+    let mut e = Engine::default();
+    let spec = e
+        .call(
+            "designos_apply_spec",
+            json!({"parent_id": page(&e), "spec": {"kind": "frame", "name": "Menu", "fill": "#FFFFFF", "visible": false, "children": [
+                {"kind": "text", "name": "Item", "text": "Item"}
+            ]}}),
+        )
+        .unwrap();
+    let item = NodeId(spec["name_to_id"]["Menu/Item"].as_u64().unwrap());
+    assert_eq!(drawn_text_fills(&e, item), vec![Paint::solid(Color::BLACK)], "a frame built hidden");
+
+    let frame = e.call("designos_create_node", json!({"parent_id": page(&e), "kind": "frame", "name": "Popover", "fill": "#FFFFFF"})).unwrap();
+    let frame_id = frame["node"]["id"].as_u64().unwrap();
+    e.call("designos_update_node", json!({"node_id": frame_id, "visible": false})).unwrap();
+    let text = e.call("designos_apply_spec", json!({"parent_id": frame_id, "spec": {"kind": "text", "name": "Note", "text": "Note"}})).unwrap();
+    let note = NodeId(text["root_node_id"].as_u64().unwrap());
+    assert_eq!(drawn_text_fills(&e, note), vec![Paint::solid(Color::BLACK)], "text added to a frame that was hidden afterwards");
 }
 
 #[test]
@@ -143,6 +164,7 @@ fn the_rules_pack_example_draws_every_text_node_readable_on_the_fill_behind_it()
         let fills = drawn_text_fills(&e, id);
         let ratio = contrast_ratio(solid(&fills[0]), backdrop_of(&e, id));
         assert!(ratio >= 4.5, "{:?} contrast {ratio:.2}:1", e.doc.get(id).unwrap().name);
+        assert_eq!(fills, vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))], "text on the dark card is the light colour");
     }
 }
 

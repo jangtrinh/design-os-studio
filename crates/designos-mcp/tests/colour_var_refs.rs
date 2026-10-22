@@ -229,3 +229,47 @@ fn an_empty_variable_reference_is_an_unknown_variable_not_a_bad_colour() {
     assert_eq!(err["code"], "UNKNOWN_VARIABLE", "{err}");
     assert_bound_to(&e, id, "color/primary", PRIMARY);
 }
+
+#[test]
+fn an_unknown_variable_is_answered_with_variables_of_the_kind_the_field_takes() {
+    let mut e = palette();
+    let id = bound_frame(&mut e);
+
+    // A colour field: never the number variable `Color/Gap`.
+    let err = err_json(e.call("designos_update_node", json!({"node_id": id.0, "fill": "var:Color/Gp"})).unwrap_err());
+    let options: Vec<&str> = err["valid_options"].as_array().expect("valid_options").iter().filter_map(Value::as_str).collect();
+    assert!(!options.contains(&"Color/Gap"), "a number variable is not offered for a fill: {options:?}");
+    assert!(options.contains(&"Color/Primary") && options.contains(&"Color/Danger"), "the colour variables are: {options:?}");
+    assert_ne!(err["corrected_example"]["fill"], "var:Color/Gap", "{err}");
+
+    // The same through a batch op and through apply_spec.
+    let batch = err_json(e.call("designos_apply_batch", json!({"ops": [{"op": "update", "node": id.0, "fill": "var:Color/Gp"}]})).unwrap_err());
+    let batch_options = batch["cause"]["valid_options"].as_array().expect("valid_options");
+    assert!(batch_options.iter().all(|o| o != "Color/Gap"), "{batch}");
+    let spec = err_json(e.call("designos_apply_spec", json!({"parent_id": page(&e), "spec": {"kind": "frame", "fill": "var:Color/Gp"}})).unwrap_err());
+    assert!(spec["valid_options"].as_array().expect("valid_options").iter().all(|o| o != "Color/Gap"), "{spec}");
+
+    // A number field is offered only number variables.
+    let width = err_json(e.call("designos_apply_spec", json!({"parent_id": page(&e), "spec": {"kind": "frame", "width": "var:Color/Gp"}})).unwrap_err());
+    let width_options: Vec<&str> = width["valid_options"].as_array().expect("valid_options").iter().filter_map(Value::as_str).collect();
+    assert_eq!(width_options, ["Color/Gap"], "{width}");
+}
+
+#[test]
+fn with_no_variable_of_the_kind_the_error_offers_none() {
+    let mut e = Engine::default();
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_variables",
+            "upsert_collections": [{"id": "size", "name": "Size", "modes": [{"id": "m", "name": "M"}], "default_mode": "m"}],
+            "upsert_variables": [{"id": "size/gap", "name": "Gap", "collection": "size", "kind": "number", "values": {"m": 8}}]}]}),
+    )
+    .unwrap();
+    let id = apply(&mut e, json!({"kind": "rectangle", "name": "Box", "width": 20, "height": 20}));
+
+    let err = err_json(e.call("designos_update_node", json!({"node_id": id.0, "fill": "var:Size/Gp"})).unwrap_err());
+
+    assert_eq!(err["code"], "UNKNOWN_VARIABLE", "{err}");
+    assert!(err.get("valid_options").is_none_or(|o| o.as_array().is_some_and(Vec::is_empty)), "nothing to offer: {err}");
+    assert!(err.get("corrected_example").is_none(), "no example that would fail again: {err}");
+}

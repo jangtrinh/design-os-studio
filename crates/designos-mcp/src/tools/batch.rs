@@ -1328,6 +1328,10 @@ fn apply_set_style_op(
         let cur =
             doc.get(node_id).ok_or_else(|| op_failed_error(op_idx, "set_style", ErrorCode::NodeNotFound, &path, format!("node {} not found", node_id.0)))?;
         let mut updated = cur.clone();
+        if prop == StyleProperty::Fill {
+            // The style's paints replace the node's, so a variable bound to the old ones would keep drawing over them.
+            designos_doc::detach_fill_paints(&mut updated);
+        }
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
         apply_style_values(&mut updated, st, &resolved_key);
         if &updated != cur {

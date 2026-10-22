@@ -6,6 +6,7 @@ mod support;
 
 use designos_doc::live_patch::{replay_live_patch, LiveLogLine, LivePatchState};
 use designos_doc::{Document, NodeId, NodeKind, Paint};
+use designos_mcp::engine::Engine;
 use designos_mcp::server::Session;
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, time::SystemTime};
@@ -136,6 +137,57 @@ fn one_undo_restores_the_colour_and_the_binding() {
 
     e.call("designos_redo", json!({})).unwrap();
     assert_plain(&e, frame, RED);
+}
+
+fn apply_red_fill_style(e: &mut Engine, id: NodeId) {
+    let op =
+        json!({"op": "set_style", "upsert": [{"key": "s_red", "name": "Red", "property": "fill", "fill": RED}], "apply": [{"node": id.0, "style": "Red"}]});
+    e.call("designos_apply_batch", json!({ "ops": [op] })).expect("set_style");
+}
+
+#[test]
+fn linking_a_fill_style_drops_the_variable_binding_and_one_undo_restores_it() {
+    let mut e = palette();
+    let frame = bound_frame(&mut e);
+    let text = bound_text(&mut e);
+    let before_frame = node(&e, frame).clone();
+    let before_text = node(&e, text).clone();
+
+    apply_red_fill_style(&mut e, frame);
+    apply_red_fill_style(&mut e, text);
+
+    for id in [frame, text] {
+        assert_eq!(fill_bindings(&e, id), Vec::<(String, String)>::new(), "no fill binding left on {id:?}");
+        assert_eq!(node(&e, id).style_refs.get("fill").map(String::as_str), Some("s_red"), "the style is linked to {id:?}");
+        let drawn = drawn_paints(&e, id);
+        assert!(drawn.len() == 1 && solid_hex(&drawn[0]) == RED, "{id:?} draws the style colour: {drawn:?}");
+    }
+    assert!(red_pixels(&e, text) > 20, "the rendered text is red");
+    let (r, g, b) = centre_pixel(&e, frame);
+    assert!(r > 240 && g < 15 && b < 15, "the frame renders red, got {r},{g},{b}");
+
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(node(&e, text), &before_text, "one undo restores the text node");
+    assert_bound_to(&e, text, "color/primary", PRIMARY);
+    e.call("designos_undo", json!({})).unwrap();
+    assert_eq!(node(&e, frame), &before_frame, "one undo restores the frame");
+    assert_bound_to(&e, frame, "color/primary", PRIMARY);
+}
+
+#[test]
+fn linking_a_stroke_style_leaves_the_fill_binding_alone() {
+    let mut e = palette();
+    let frame = bound_frame(&mut e);
+
+    e.call(
+        "designos_apply_batch",
+        json!({"ops": [{"op": "set_style", "upsert": [{"key": "s_edge", "name": "Edge", "property": "stroke", "fill": "#00FF00"}],
+                        "apply": [{"node": frame.0, "style": "Edge"}]}]}),
+    )
+    .expect("set_style");
+
+    assert_bound_to(&e, frame, "color/primary", PRIMARY);
+    assert_eq!(node(&e, frame).style_refs.get("stroke").map(String::as_str), Some("s_edge"));
 }
 
 /// A session bound to an open editor: its edits go to `doc-patch.jsonl`, and the editor replays them.

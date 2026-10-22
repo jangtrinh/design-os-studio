@@ -1567,7 +1567,7 @@ impl Document {
         libraries: &[LibrarySnapshot],
         report: &mut SpecApplyReport,
     ) -> Result<String, SpecBindError> {
-        let var_id = crate::resolve_variable_ref(self, index, libraries, raw_ref, fname, fpath)?;
+        let var_id = crate::resolve_variable_ref_of_kind(self, index, libraries, raw_ref, fname, fpath, keys.first().and_then(|k| crate::property_kind(k)))?;
         crate::validate_variable_binding_for_keys(self, index, &var_id, keys, node_kind, raw_ref, fname, fpath)?;
         report.bindings_created += crate::apply_variable_binding(self, id, keys, &var_id, fpath, &mut report.warnings);
         Ok(var_id)

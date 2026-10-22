@@ -5,10 +5,11 @@
 //! commits it as one `Command` and one undo step undoes the colour together with its binding.
 
 use crate::tools::errors::{ErrorCode, ToolError};
+use crate::tools::library_source::enabled_snapshots;
 use crate::tools::set_node_fills;
 use designos_doc::{
-    bind_variable_on_node, resolve_colour_ref, resolve_easeui_color, Document, Node, NodeId, Paint, ResolvedColourRef, SpecBindIndex, SpecError, SpecWarning,
-    VariableValue,
+    bind_variable_on_node, names_library_variable, resolve_colour_ref, resolve_easeui_color, Document, Node, NodeId, Paint, ResolvedColourRef, SpecBindIndex,
+    SpecError, SpecWarning, VariableValue,
 };
 use serde_json::json;
 
@@ -21,6 +22,17 @@ fn invalid_colour(raw: &str) -> ToolError {
     ToolError::new(ErrorCode::ValueOutOfRange, "/fill", format!("invalid fill color '{raw}'"))
         .with_received(json!(raw))
         .with_expected("#RRGGBB or #RRGGBBAA hex, a $easeui.* token, or var:<collection>/<name>")
+}
+
+/// The reference names a variable of an enabled library. This write cannot import it, because an import is a document
+/// change of its own; `designos_apply_spec` imports it, and the write works after that.
+fn library_variable_error(raw: &str) -> ToolError {
+    ToolError::new(ErrorCode::UnknownVariable, "/fill", "Library variable. Import it with designos_apply_spec first.")
+        .with_received(json!(raw))
+        .with_next_step("Call designos_apply_spec with this var: once, then retry.")
+        // The same call cannot succeed before the import, and the example below is another tool's call, not this one's.
+        .with_safe_to_retry(false)
+        .with_corrected_example(json!({"tool": "designos_apply_spec", "arguments": {"spec": {"kind": "rectangle", "fill": raw}}}))
 }
 
 /// Checks a `fill` string that is not applied yet. A `var:` reference is only resolved against a
@@ -58,8 +70,12 @@ pub(crate) fn write_fill(
     }
     let kind = node.kind.clone();
     let mut index = SpecBindIndex::build(doc);
-    let resolved = resolve_colour_ref(doc, &mut index, &[], mode_anchor, &kind, "fills/0", "fill", raw, "/fill", warnings)
-        .map_err(|e| crate::tools::errors::from_spec_error(SpecError::from(e), ""))?;
+    let resolved = resolve_colour_ref(doc, &mut index, &[], mode_anchor, &kind, "fills/0", "fill", raw, "/fill", warnings).map_err(|e| {
+        if e.code == "UNKNOWN_VARIABLE" && names_library_variable(doc, &enabled_snapshots(doc), raw) {
+            return library_variable_error(raw);
+        }
+        crate::tools::errors::from_spec_error(SpecError::from(e), "")
+    })?;
     let ResolvedColourRef::Variable { var_id, color } = resolved else {
         return Err(ToolError::new(ErrorCode::InternalError, "/fill", format!("'{raw}' did not resolve to a variable")));
     };

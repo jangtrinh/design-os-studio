@@ -458,11 +458,12 @@ impl SpecBindIndex {
         format!("var:id:{var_id}")
     }
 
-    fn closest_variables(&self, query: &str, limit: usize) -> Vec<String> {
+    /// The `limit` variables whose names are closest to `query`, only of `kind` when it is given.
+    fn closest_variables(&self, query: &str, limit: usize, kind: Option<VariableKind>) -> Vec<String> {
         let mut scored: Vec<(usize, usize, &str, &str)> = self
             .all_vars
             .iter()
-            .filter(|iv| !iv.var_id.starts_with("easeui-deprecated/"))
+            .filter(|iv| !iv.var_id.starts_with("easeui-deprecated/") && kind.is_none_or(|k| iv.resolved_kind == k))
             .map(|iv| {
                 let d_full = levenshtein(query, &iv.full_path);
                 let d_name = levenshtein(query, &iv.var_name);
@@ -654,6 +655,20 @@ pub fn resolve_variable_ref(
     field_name: &str,
     spec_path: &str,
 ) -> Result<String, SpecBindError> {
+    resolve_variable_ref_of_kind(doc, index, libraries, raw_ref, field_name, spec_path, None)
+}
+
+/// Like [`resolve_variable_ref`] for a field that takes variables of `kind` (a colour field takes colour variables):
+/// the names offered when the reference is unknown are only of that kind.
+pub fn resolve_variable_ref_of_kind(
+    doc: &mut Document,
+    index: &mut SpecBindIndex,
+    libraries: &[LibrarySnapshot],
+    raw_ref: &str,
+    field_name: &str,
+    spec_path: &str,
+    kind: Option<VariableKind>,
+) -> Result<String, SpecBindError> {
     let body = raw_ref.trim().strip_prefix("var:").unwrap_or(raw_ref.trim());
     if let Some(id_part) = body.strip_prefix("id:") {
         if doc.variables.contains_key(id_part) {
@@ -692,7 +707,7 @@ pub fn resolve_variable_ref(
                 }
             }
         }
-        let valid_options = index.closest_variables(id_part, 5);
+        let valid_options = index.closest_variables(id_part, 5, kind);
         let corrected_example = valid_options.first().map(|first| serde_json::json!({ field_name: format!("var:{first}") }));
         return Err(SpecBindError {
             code: "UNKNOWN_VARIABLE".to_string(),
@@ -793,7 +808,7 @@ pub fn resolve_variable_ref(
         return Ok(local_id);
     }
 
-    let valid_options = index.closest_variables(body, 5);
+    let valid_options = index.closest_variables(body, 5, kind);
     let corrected_example = valid_options.first().map(|first| serde_json::json!({ field_name: format!("var:{first}") }));
     Err(SpecBindError {
         code: "UNKNOWN_VARIABLE".to_string(),
@@ -1096,6 +1111,22 @@ pub fn resolve_mode_map(doc: &Document, mode_spec: &BTreeMap<String, String>, sp
     Ok(resolved)
 }
 
+/// Whether `raw_ref` (`var:...`) names a variable of an enabled library in `libraries`, one that [`resolve_variable_ref`]
+/// would import if it were given them. Nothing is imported into `doc`: the check runs on a bare document that enables the
+/// same libraries, so it follows the same naming rules as the import.
+pub fn names_library_variable(doc: &Document, libraries: &[LibrarySnapshot], raw_ref: &str) -> bool {
+    if libraries.is_empty() {
+        return false;
+    }
+    let mut probe = Document::new("library probe");
+    probe.library = doc.library.clone();
+    let mut index = SpecBindIndex::build(&probe);
+    match resolve_variable_ref(&mut probe, &mut index, libraries, raw_ref, "fill", "/fill") {
+        Ok(_) => true,
+        Err(e) => e.code == "AMBIGUOUS_VARIABLE",
+    }
+}
+
 /// Resolves a variable in the effective mode of `node_id` (falling back to the collection's default mode
 /// and emitting a `VARIABLE_MODE_FALLBACK` warning if the variable has no value in the effective mode).
 pub fn resolve_variable_with_fallback_warning(
@@ -1141,7 +1172,7 @@ pub fn resolve_colour_ref(
         return Ok(ResolvedColourRef::NoneOrTransparent);
     }
     if trimmed.starts_with("var:") {
-        let var_id = resolve_variable_ref(doc, index, libraries, trimmed, field_name, spec_path)?;
+        let var_id = resolve_variable_ref_of_kind(doc, index, libraries, trimmed, field_name, spec_path, property_kind(prop_key))?;
         validate_variable_binding_for_keys(doc, index, &var_id, &[prop_key], node_kind, trimmed, field_name, spec_path)?;
         let val = resolve_variable_with_fallback_warning(doc, node_id, &var_id, spec_path, warnings);
         let color = match val {
@@ -1200,8 +1231,9 @@ pub fn text_colour_for_backdrop(backdrop: Color) -> Color {
 }
 
 /// The colour of text a spec gives none, for a node to be placed under `parent`: [`text_colour_for_backdrop`] of the
-/// solid fill behind it. The fill is the first on `parent` or an ancestor that is visible, solid, and at half opacity or
-/// more; hidden, translucent, gradient and image paints are walked past. With none, the page background decides.
+/// solid fill behind it. The fill is the first paint on `parent` or an ancestor that is visible, solid, and at half opacity
+/// or more; hidden, translucent, gradient and image paints are walked past, but a hidden node's own fill counts. With
+/// none, the page background decides.
 /// An explicit colour, a style or a variable binding is applied afterwards and replaces this one.
 pub fn default_text_colour(doc: &Document, parent: NodeId) -> Color {
     let mut cur = Some(parent);
@@ -1210,14 +1242,13 @@ pub fn default_text_colour(doc: &Document, parent: NodeId) -> Color {
         if let NodeKind::Page { background } = &node.kind {
             return text_colour_for_backdrop(*background);
         }
-        if node.visible {
-            let solid = node.fills.iter().rev().find_map(|p| match p.kind {
-                PaintKind::Solid(c) if p.visible && p.opacity * c.a >= 0.5 => Some(c),
-                _ => None,
-            });
-            if let Some(c) = solid {
-                return text_colour_for_backdrop(c);
-            }
+        // A hidden node counts: it is shown later, and its fill is then what is behind its text.
+        let solid = node.fills.iter().rev().find_map(|p| match p.kind {
+            PaintKind::Solid(c) if p.visible && p.opacity * c.a >= 0.5 => Some(c),
+            _ => None,
+        });
+        if let Some(c) = solid {
+            return text_colour_for_backdrop(c);
         }
         cur = node.parent;
     }
@@ -2236,10 +2267,10 @@ mod tests {
         doc.get_mut(faint).unwrap().fills = vec![half];
         assert_eq!(uncoloured_text_under(&mut doc, faint), Color::BLACK, "paint opacity 0.5 counts");
 
-        // A hidden node or hidden paint paints nothing.
+        // A hidden frame is shown later, and its fill is then what is behind its text; only a paint that is itself hidden paints nothing.
         let hidden = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Hidden", "fill": "#FFFFFF" })).root_node_id;
         doc.get_mut(hidden).unwrap().visible = false;
-        assert_eq!(uncoloured_text_under(&mut doc, hidden), LIGHT_TEXT, "hidden node skipped");
+        assert_eq!(uncoloured_text_under(&mut doc, hidden), Color::BLACK, "a hidden frame's fill is behind its text once shown");
         let hidden_paint = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "HiddenPaint", "fill": "#FFFFFF" })).root_node_id;
         doc.get_mut(hidden_paint).unwrap().fills[0].visible = false;
         assert_eq!(uncoloured_text_under(&mut doc, hidden_paint), LIGHT_TEXT, "hidden paint skipped");
@@ -2248,6 +2279,27 @@ mod tests {
         let layered = apply(&mut doc, outer, serde_json::json!({ "kind": "frame", "name": "Layered", "fill": "#FFFFFF" })).root_node_id;
         doc.get_mut(layered).unwrap().fills.insert(0, Paint::solid(Color::BLACK));
         assert_eq!(uncoloured_text_under(&mut doc, layered), Color::BLACK, "the paint on top is a white backdrop");
+    }
+
+    #[test]
+    fn text_in_a_frame_built_hidden_is_readable_once_the_frame_is_shown() {
+        let mut doc = Document::new("Hidden frames");
+        let page = doc.add_page("Page");
+        let report = apply(
+            &mut doc,
+            page,
+            serde_json::json!({ "kind": "frame", "name": "Menus", "preset": "easeui-card", "children": [
+                { "kind": "frame", "name": "Light menu", "fill": "#FFFFFF", "visible": false, "children": [
+                    { "kind": "text", "name": "Item", "text": "Item" },
+                    { "kind": "frame", "name": "Inner", "fill": "none", "children": [{ "kind": "text", "name": "Deep", "text": "Deep" }] }
+                ]},
+                { "kind": "frame", "name": "Dark menu", "fill": "#18181B", "visible": false, "children": [{ "kind": "text", "name": "Item", "text": "Item" }] }
+            ]}),
+        );
+        for name in ["Menus/Light menu/Item", "Menus/Light menu/Inner/Deep"] {
+            assert_eq!(drawn_text_colour(&doc, named(&doc, &report, name)), Color::BLACK, "{name}: white frame, built hidden");
+        }
+        assert_eq!(drawn_text_colour(&doc, named(&doc, &report, "Menus/Dark menu/Item")), LIGHT_TEXT, "dark frame, built hidden");
     }
 
     #[test]
