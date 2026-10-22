@@ -1429,6 +1429,8 @@ impl Shell {
         let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
         self.app.terminal.set_window_focused(win_focused);
         self.app.terminal.surface_visible = !self.app.ui.left_collapsed && is_ai_panel;
+        // An agent that writes while no frame runs (Agents panel closed, no input) still reaches the canvas.
+        self.app.terminal.live_patch.wake_on_writes(&ctx, &self.app.terminal.live_spec_path);
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));

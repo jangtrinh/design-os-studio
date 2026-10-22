@@ -41,6 +41,8 @@ fn read_range(path: &Path, start: u64, len: u64) -> Option<Vec<u8>> {
 #[derive(Debug)]
 pub struct LivePatchLog {
     pub path: PathBuf,
+    /// Wakes an idle window when the agent appends to the log (see [`Self::wake_on_writes`]).
+    wake: crate::live_log_wake::LogWake,
     /// Bytes already consumed. Starts at the current length so lines from earlier runs are not
     /// replayed into a newly opened file.
     offset: u64,
@@ -173,6 +175,7 @@ impl LivePatchLog {
             last_polled_offsets: std::collections::VecDeque::new(),
             pending_epoch_switch: false,
             pending_doc: None,
+            wake: Default::default(),
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
             discarding: false,
@@ -184,6 +187,24 @@ impl LivePatchLog {
         };
         log.head = log.read_range(0, HEAD_BYTES as u64).unwrap_or_default();
         log
+    }
+
+    /// Keeps `ctx` awake for agent writes to this log and to `spec_path` (`live-spec.json`): call it every
+    /// frame. A window with nothing to animate runs no frame, and the log is only read inside one.
+    pub fn wake_on_writes(&mut self, ctx: &egui::Context, spec_path: &std::path::Path) {
+        self.wake.watch(ctx, &[&self.path, spec_path]);
+    }
+
+    /// Stops the wake thread (a project tab that is parked: only the showing tab's log is read, so an agent
+    /// writing in the background must not wake the window). `wake_on_writes` starts it again.
+    pub fn stop_wake(&mut self) {
+        self.wake = Default::default();
+    }
+
+    /// Whether the log's wake thread is running (tests).
+    #[cfg(test)]
+    pub fn wake_running(&self) -> bool {
+        self.wake.is_running()
     }
 
     /// Current byte offset read in `doc-patch.jsonl`.

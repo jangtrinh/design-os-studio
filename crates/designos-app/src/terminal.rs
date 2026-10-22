@@ -3113,7 +3113,8 @@ impl TerminalState {
         self.tabs.get(idx)
     }
 
-    /// Live bridge polling (`<50ms` hot-apply):
+    /// Live bridge polling, once per frame (`<50ms` hot-apply while the Agents panel's timer keeps frames coming; with
+    /// the panel closed `LivePatchLog::wake_on_writes` starts the frame, at most 500 ms after the write):
     /// 1. Polls `self.live_spec_path` (`live-spec.json`) -> `TerminalAction::ApplySpecFile(...)`
     /// 2. Polls `doc-patch.jsonl` (agent edits and document switches written by `designos-mcp`) -> `TerminalAction::ApplyLiveLog(...)`
     pub fn poll_live_agent_bridge(&mut self) -> Vec<TerminalAction> {
