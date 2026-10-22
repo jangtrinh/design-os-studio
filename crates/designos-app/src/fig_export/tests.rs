@@ -336,6 +336,6 @@ fn reveal_command_selects_the_file_in_each_file_manager() {
 
 #[test]
 fn a_test_never_opens_a_real_file_manager() {
-    let err = super::reveal_file(Path::new("/lib/exports/Design.fig")).err().expect("the production reveal refuses to run under test");
+    let err = super::reveal_file(Path::new("/lib/exports/Design.fig")).expect_err("the production reveal refuses to run under test");
     assert!(err.contains("/lib/exports/Design.fig"), "{err}");
 }
