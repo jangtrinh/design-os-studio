@@ -1393,7 +1393,7 @@ mod tests {
         st.runtime_dropdown_open = true;
         let reopened = painted_texts(&frame(&mut st));
         assert!(!reopened.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "reopened menu must not replay the old notice: {reopened:?}");
-        assert!(reopened.iter().any(|t| t == "Skip permissions"), "permission caption comes back: {reopened:?}");
+        assert!(reopened.iter().any(|t| t == "Ask before acting"), "permission caption comes back, Ask by default: {reopened:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

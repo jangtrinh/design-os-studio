@@ -22,11 +22,12 @@ impl PermissionMode {
         }
     }
 
+    /// Skip only for exactly `"skip"` (trimmed, case-insensitive). Anything else, including `""`, is Ask (fail closed, `#841`).
     pub fn parse(raw: &str) -> Self {
-        if raw.trim().eq_ignore_ascii_case("ask") {
-            Self::Ask
-        } else {
+        if raw.trim().eq_ignore_ascii_case("skip") {
             Self::Skip
+        } else {
+            Self::Ask
         }
     }
 }
@@ -40,7 +41,8 @@ fn unsaved_modes() -> std::sync::MutexGuard<'static, BTreeMap<PathBuf, AgentPerm
     UNSAVED_MODES.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Reads `"agent_permission_mode"` from `<root>/settings.json`, defaulting to [`AgentPermissionMode::Skip`].
+/// Reads `"agent_permission_mode"` from `<root>/settings.json`. A missing, unknown or unreadable value is
+/// [`AgentPermissionMode::Ask`] (fail closed, `#841`).
 pub fn load_permission_mode(root: &Path) -> AgentPermissionMode {
     load_saved_permission_mode(root).unwrap_or_default()
 }
@@ -513,16 +515,111 @@ mod tests {
     use std::process::{Command, Stdio};
 
     #[test]
-    fn default_mode_is_skip() {
-        let tmp = std::env::temp_dir().join(format!("designos-656-default-{}", std::process::id()));
+    fn default_mode_is_ask() {
+        let tmp = std::env::temp_dir().join(format!("designos-841-default-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
+        assert_eq!(AgentPermissionMode::default(), AgentPermissionMode::Ask);
+        assert_eq!(load_permission_mode(&tmp), AgentPermissionMode::Ask, "a library without the setting asks");
+        save_permission_mode(&tmp, AgentPermissionMode::Skip).unwrap();
         assert_eq!(load_permission_mode(&tmp), AgentPermissionMode::Skip);
         save_permission_mode(&tmp, AgentPermissionMode::Ask).unwrap();
         assert_eq!(load_permission_mode(&tmp), AgentPermissionMode::Ask);
-        save_permission_mode(&tmp, AgentPermissionMode::Skip).unwrap();
-        assert_eq!(load_permission_mode(&tmp), AgentPermissionMode::Skip);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn parse_returns_skip_only_for_the_word_skip() {
+        for raw in ["skip", "Skip", "SKIP", "  skip\n"] {
+            assert_eq!(AgentPermissionMode::parse(raw), AgentPermissionMode::Skip, "{raw:?} is a saved Skip");
+        }
+        for raw in ["ask", "ASK", "", "   ", "manual", "yolo", "skip-permissions", "skip permissions", "none", "false"] {
+            assert_eq!(AgentPermissionMode::parse(raw), AgentPermissionMode::Ask, "{raw:?} must fail closed to Ask");
+        }
+    }
+
+    /// The mode a library resolves to for each `settings.json` the owner listed (missing, `"skip"`, `"ask"`, `""`,
+    /// `"manual"`, invalid JSON) plus other shapes a hand edit or a failed write can leave behind.
+    #[test]
+    fn settings_json_resolves_to_a_mode_and_fails_closed() {
+        let cases: [(&str, Option<&str>, AgentPermissionMode); 11] = [
+            ("missing-file", None, AgentPermissionMode::Ask),
+            ("empty-object", Some("{}"), AgentPermissionMode::Ask),
+            ("skip", Some(r#"{"agent_permission_mode":"skip"}"#), AgentPermissionMode::Skip),
+            ("ask", Some(r#"{"agent_permission_mode":"ask"}"#), AgentPermissionMode::Ask),
+            ("empty-string", Some(r#"{"agent_permission_mode":""}"#), AgentPermissionMode::Ask),
+            ("manual", Some(r#"{"agent_permission_mode":"manual"}"#), AgentPermissionMode::Ask),
+            ("invalid-json", Some(r#"{"agent_permission_mode": "skip""#), AgentPermissionMode::Ask),
+            ("not-an-object", Some(r#""skip""#), AgentPermissionMode::Ask),
+            ("truncated-to-nothing", Some(""), AgentPermissionMode::Ask),
+            ("non-string-value", Some(r#"{"agent_permission_mode":true}"#), AgentPermissionMode::Ask),
+            ("other-keys-only", Some(r#"{"author":"Jang"}"#), AgentPermissionMode::Ask),
+        ];
+        for (tag, body, expected) in cases {
+            let tmp = std::env::temp_dir().join(format!("designos-841-settings-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(&tmp).unwrap();
+            if let Some(body) = body {
+                std::fs::write(tmp.join("settings.json"), body).unwrap();
+            }
+            assert_eq!(load_permission_mode(&tmp), expected, "settings.json case `{tag}`");
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
+    }
+
+    /// A new install (no library setting yet) starts every agent CLI without its skip flag.
+    #[test]
+    fn a_fresh_terminal_launches_every_cli_in_ask_mode() {
+        let st = crate::terminal::TerminalState::default();
+        assert_eq!(st.permission_mode, AgentPermissionMode::Ask);
+        for preset in [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini] {
+            let cmd = build_new_session_command_for_mode(preset, st.permission_mode, Some("019a0102-0304-7506-8708-090a0b0c0d0e"));
+            for flag in ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--always-approve", "--approval-mode yolo"] {
+                assert!(!cmd.contains(flag), "{preset:?} fresh launch kept `{flag}`: {cmd}");
+            }
+        }
+    }
+
+    /// A window that loaded Skip must not keep it once the saved mode turns unreadable or disappears: the next
+    /// agent it starts asks (fail closed), and a readable `"skip"` applies again.
+    #[test]
+    fn a_bound_window_falls_back_to_ask_when_the_saved_mode_is_unreadable() {
+        let root = std::env::temp_dir().join(format!("designos-841-refresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        save_permission_mode(&root, AgentPermissionMode::Skip).unwrap();
+        let mut st = crate::terminal::TerminalState::for_tab(84_101);
+        st.bind_library_file(&root, "file-841", "win-841");
+        assert_eq!(st.permission_mode, AgentPermissionMode::Skip, "the window loaded the saved Skip when it bound");
+
+        for (tag, body) in
+            [("invalid-json", "{\"agent_permission_mode\": \"skip\""), ("key-removed", "{}"), ("unknown-value", r#"{"agent_permission_mode":"manual"}"#)]
+        {
+            std::fs::write(root.join("settings.json"), body).unwrap();
+            let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn a tab");
+            assert_eq!(st.permission_mode, AgentPermissionMode::Ask, "{tag}: the spawn must not keep the stale Skip");
+            assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Ask, "{tag}: the new tab runs in Ask mode");
+
+            std::fs::write(root.join("settings.json"), r#"{"agent_permission_mode":"skip"}"#).unwrap();
+            let idx = st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn a tab");
+            assert_eq!(st.tabs[idx].permission_mode, AgentPermissionMode::Skip, "{tag}: a readable saved Skip applies again");
+        }
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Commands Studio runs for screenshot fixtures and previews run whatever the user's mode is, so none of them
+    /// may carry a skip or bypass flag. A new fixture command goes into this list.
+    #[test]
+    fn no_fixture_or_preview_command_carries_a_skip_or_bypass_flag() {
+        const FIXTURE_COMMANDS: [(&str, &str); 1] = [("--panel agents-start-failure", crate::terminal::START_FAILURE_FIXTURE_COMMAND)];
+        const BYPASS_FLAGS: [&str; 4] =
+            ["--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox", "--always-approve", "--approval-mode yolo"];
+        for (fixture, command) in FIXTURE_COMMANDS {
+            for flag in BYPASS_FLAGS {
+                assert!(!command.contains(flag), "fixture `{fixture}` runs `{command}`, which carries `{flag}`");
+            }
+        }
     }
 
     #[test]

@@ -207,13 +207,13 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         y += theme::LINE_BODY + theme::SPACE_GROUP;
 
         let options = [
+            (AgentPermissionMode::Skip, "agent-perm-skip", "Skip permissions", "Launch CLIs with their auto-approve flag. Fastest inside a trusted project."),
             (
-                AgentPermissionMode::Skip,
-                "agent-perm-skip",
-                "Skip permissions (default)",
-                "Launch CLIs with their auto-approve flag. Fastest inside a trusted project.",
+                AgentPermissionMode::Ask,
+                "agent-perm-ask",
+                "Ask before acting (default)",
+                "Launch CLIs without skip flags and surface tool approvals in the Agents panel.",
             ),
-            (AgentPermissionMode::Ask, "agent-perm-ask", "Ask before acting", "Launch CLIs without skip flags and surface tool approvals in the Agents panel."),
         ];
 
         for (opt_mode, widget_id, title, caption) in options {
@@ -270,4 +270,38 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         *open = false;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let mut open = true;
+        let mut mode = mode;
+        // egui sizes an `Area` on its first pass and paints it from the second.
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out =
+                ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |_ui| {
+                    let _ = paint_permissions_modal(&ctx, &mut open, &mut mode, None);
+                });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        texts
+    }
+
+    /// Ask is the default (`#841`), so the modal marks Ask and never calls Skip the default, whichever mode is selected.
+    #[test]
+    fn the_permissions_modal_marks_ask_as_the_default() {
+        for selected in [AgentPermissionMode::Ask, AgentPermissionMode::Skip] {
+            let texts = modal_texts(selected);
+            assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
+            assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
+        }
+    }
 }

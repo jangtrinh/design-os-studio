@@ -30,8 +30,11 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Warning caption shown on `"Other CLI…"` and saved custom CLI rows (`#652` §3 rule 7).
 pub const CUSTOM_CLI_WARNING: &str = "Plain command: Studio tools not connected";
 
-/// Default footer permission caption (`#652` §3 rule 9).
-pub const DEFAULT_PERMISSION_CAPTION: &str = "Skip permissions";
+/// Footer permission caption while agents launch with their skip flag (`#652` §3 rule 9).
+pub const SKIP_PERMISSION_CAPTION: &str = "Skip permissions";
+
+/// Footer permission caption while agents ask before acting, the default (`#656`, `#841`).
+pub const ASK_PERMISSION_CAPTION: &str = "Ask before acting";
 
 /// Sign-in state reported for a CLI descriptor (`#652` §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
