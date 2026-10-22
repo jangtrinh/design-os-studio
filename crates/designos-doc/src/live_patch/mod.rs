@@ -33,13 +33,16 @@ pub const LIVE_PATCH_VERSION: u32 = 2;
 /// Oldest format version this build still reads.
 pub const MIN_LIVE_PATCH_VERSION: u32 = 1;
 
+/// What to do about a log written by a newer build: Studio and `designos-mcp` must be the same version.
+pub const UPDATE_BOTH_HINT: &str = "Update Studio and designos-mcp to the same version.";
+
 /// Why this build cannot read a log line written in format version `v`, or `None` when it can.
-/// The text is shown to the user: a newer log means Studio and `designos-mcp` are different builds.
+/// A newer log means Studio and `designos-mcp` are different builds, so the text names the fix.
 pub fn log_version_refusal(v: u32) -> Option<String> {
     if v > LIVE_PATCH_VERSION {
-        Some(format!("Log version {v} is newer than this build reads (up to {LIVE_PATCH_VERSION}). Update Studio and designos-mcp to the same version."))
+        Some(format!("Log version {v} is newer than this build reads. {UPDATE_BOTH_HINT}"))
     } else if v < MIN_LIVE_PATCH_VERSION {
-        Some(format!("Log version {v} is no longer supported (this build reads {MIN_LIVE_PATCH_VERSION} to {LIVE_PATCH_VERSION})."))
+        Some(format!("Log version {v} is not supported."))
     } else {
         None
     }

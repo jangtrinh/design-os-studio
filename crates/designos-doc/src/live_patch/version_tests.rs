@@ -71,14 +71,14 @@ fn version_zero_is_refused() {
 }
 
 #[test]
-fn the_refusal_message_says_which_versions_this_build_reads() {
+fn the_refusal_message_names_the_version_and_the_fix() {
     assert_eq!(log_version_refusal(MIN_LIVE_PATCH_VERSION), None);
     assert_eq!(log_version_refusal(LIVE_PATCH_VERSION), None);
     let newer = log_version_refusal(LIVE_PATCH_VERSION + 1).expect("a newer version is refused");
-    assert!(newer.contains(&format!("Log version {}", LIVE_PATCH_VERSION + 1)), "{newer}");
-    assert!(newer.contains(&format!("up to {LIVE_PATCH_VERSION}")), "{newer}");
-    assert!(newer.ends_with(UPDATE_HINT), "{newer}");
-    assert!(log_version_refusal(0).is_some());
+    assert_eq!(newer, format!("Log version {} is newer than this build reads. {UPDATE_HINT}", LIVE_PATCH_VERSION + 1));
+    assert!(!newer.contains('('), "no parenthetical: {newer}");
+    assert_eq!(UPDATE_BOTH_HINT, UPDATE_HINT);
+    assert_eq!(log_version_refusal(0).as_deref(), Some("Log version 0 is not supported."));
 }
 
 #[test]

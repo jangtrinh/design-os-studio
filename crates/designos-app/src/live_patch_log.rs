@@ -3,7 +3,9 @@
 //! Runs on the UI thread every frame, so each poll reads a bounded amount, and a log that was
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
-use designos_doc::live_patch::{log_version_refusal, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{
+    log_version_refusal, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES, UPDATE_BOTH_HINT,
+};
 use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -351,8 +353,8 @@ impl LivePatchLog {
 
     /// The document written for `epoch`; `None` when a later switch has already replaced it.
     fn load_epoch(&self, epoch: &DocEpoch) -> Result<Option<Document>, String> {
-        if let Some(refusal) = log_version_refusal(epoch.v) {
-            return Err(format!("The document the agent opened was not loaded. {refusal}"));
+        if log_version_refusal(epoch.v).is_some() {
+            return Err(format!("Agent document not opened. {}", refusal_next_step(epoch.v)));
         }
         let bytes =
             std::fs::read(&self.doc_sync_path).map_err(|e| format!("Cannot read the document the agent opened ({}): {e}", self.doc_sync_path.display()))?;
@@ -377,15 +379,24 @@ impl LivePatchLog {
     }
 }
 
-/// What the user is told when edits written by a newer build are read: they are not applied, and
-/// the message names the fix. `versions` holds the format version of each refused edit.
+/// What the user is told when edits written by a newer build are read: what was not applied, then the fix.
+/// `versions` holds the format version of each refused edit.
 fn newer_edits_error(versions: &[u32]) -> String {
     let newest = versions.iter().copied().max().unwrap_or(LIVE_PATCH_VERSION + 1);
     let lead = match versions.len() {
-        1 => "An agent edit was".to_string(),
-        n => format!("{n} agent edits were"),
+        1 => "Agent edit not applied.".to_string(),
+        n => format!("{n} agent edits not applied."),
     };
-    format!("{lead} not applied. {}", log_version_refusal(newest).unwrap_or_default())
+    format!("{lead} {}", refusal_next_step(newest))
+}
+
+/// The second sentence of a refusal toast: the fix for a newer log, the plain fact for a version nothing writes.
+fn refusal_next_step(v: u32) -> String {
+    if v > LIVE_PATCH_VERSION {
+        UPDATE_BOTH_HINT.to_string()
+    } else {
+        log_version_refusal(v).unwrap_or_default()
+    }
 }
 
 fn display_name(path: &Path) -> String {
@@ -445,9 +456,9 @@ mod tests {
         let (lines, errors) = log.poll();
         assert_eq!(ids(&lines), [1, 2], "the edits this build can read are still read");
         assert_eq!(errors.len(), 1, "one message for the whole batch: {errors:?}");
-        assert!(errors[0].starts_with("2 agent edits were not applied."), "{}", errors[0]);
-        assert!(errors[0].contains(&format!("Log version {}", LIVE_PATCH_VERSION + 1)), "{}", errors[0]);
-        assert!(errors[0].ends_with("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
+        assert_eq!(errors[0], format!("2 agent edits not applied. {UPDATE_BOTH_HINT}"));
+        assert!(errors[0].split_whitespace().count() <= 14, "a toast, not a paragraph: {}", errors[0]);
+        assert!(!errors[0].contains('('), "no parenthetical in the toast: {}", errors[0]);
     }
 
     #[test]
@@ -458,7 +469,7 @@ mod tests {
         let (lines, errors) = log.poll();
         assert!(lines.is_empty());
         assert_eq!(errors.len(), 1, "{errors:?}");
-        assert!(errors[0].starts_with("An agent edit was not applied."), "{}", errors[0]);
+        assert_eq!(errors[0], format!("Agent edit not applied. {UPDATE_BOTH_HINT}"));
     }
 
     #[test]
@@ -466,7 +477,7 @@ mod tests {
         let mut log = LivePatchLog::bind(temp_log("newer-ingest"));
         let errors = log.ingest(vec![LiveLogLine::Newer { v: LIVE_PATCH_VERSION + 1 }]);
         assert_eq!(errors.len(), 1, "{errors:?}");
-        assert!(errors[0].contains("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
+        assert_eq!(errors[0], format!("Agent edit not applied. {UPDATE_BOTH_HINT}"));
         assert!(log.pending.is_empty(), "nothing is held for replay");
     }
 
@@ -698,8 +709,7 @@ mod tests {
         let (lines, _) = log.poll();
         let errors = log.ingest(lines);
         assert_eq!(errors.len(), 1, "the switch that loads reports the dropped edit, so no second error: {errors:?}");
-        assert!(errors[0].contains("Update Studio and designos-mcp to the same version."), "{}", errors[0]);
-        assert!(errors[0].contains(&format!("Log version {}", LIVE_PATCH_VERSION + 1)), "{}", errors[0]);
+        assert_eq!(errors[0], format!("Agent document not opened. {UPDATE_BOTH_HINT}"));
         assert_eq!(log.dropped_old_epoch, 1, "the edit made while stuck is reported with the switch that follows");
         assert_eq!(log.pending.iter().flat_map(|p| &p.ops).count(), 1, "only the edit after the loaded switch is held");
         assert_eq!(log.pending_doc.as_ref().map(|d| d.name.as_str()), Some("Recovered"));
