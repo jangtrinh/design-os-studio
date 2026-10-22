@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DESIGN:OS Studio — Parametric Arc, Donut, Star & Polygon (04 / 08)</title>
+  <title>DESIGN:OS Studio — Parametric Arc, Donut, Star &amp; Polygon (04 / 08)</title>
   <link rel="stylesheet" href="./sf-pro-rounded.css" />
   <style>
     :root {
@@ -421,6 +421,11 @@
       width: fit-content;
     }
 
+    .outro-credit-badge {
+      font-family: var(--font-mono);
+      color: #a1a1aa;
+    }
+
     /* Bottom iOS 26 Liquid Glass HUD Dock */
     #bottom-dock {
       position: absolute;
@@ -652,7 +657,7 @@
       </div>
       <div class="apple-pill-dark">
         <svg width="15" height="15"><use href="#icon-polygon"></use></svg>
-        <span id="top-phase-label">04 / 08 · Parametric Arc, Donut, Star & Polygon</span>
+        <span id="top-phase-label">04 / 08 · Parametric Arc, Donut, Star &amp; Polygon</span>
       </div>
     </header>
 
@@ -672,13 +677,13 @@
           <div class="intro-icon-orb">
             <svg width="36" height="36"><use href="#icon-polygon"></use></svg>
           </div>
-          <h1 class="intro-title">Parametric Arc, Donut, Star & Polygon</h1>
-          <p class="intro-subtitle">On-canvas Sweep angle, inner Donut ratio, Star point count & spike depth handles</p>
+          <h1 class="intro-title">Parametric Arc, Donut, Star &amp; Polygon</h1>
+          <p class="intro-subtitle">Untitled UI chart and icon shapes opened as live shapes: sweep arcs, hole ratio, star and polygon points</p>
         </div>
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-chip">O Ellipse</span><span class="apple-chip">Arc Sweep</span><span class="apple-chip">Donut Ratio</span><span class="apple-chip">Star Points & Ratio</span>
+            <span class="apple-chip">Arc Sweep</span><span class="apple-chip">Donut Hole</span><span class="apple-chip">Star Points</span><span class="apple-chip">Polygon</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-check-circle"></use></svg>
@@ -697,19 +702,19 @@
           </div>
           <div class="window-title-pill">
             <svg width="14" height="14"><use href="#icon-polygon"></use></svg>
-            <span>designos-studio — Parametric Arc, Donut, Star & Polygon</span>
+            <span>designos-studio — Parametric Arc, Donut, Star &amp; Polygon</span>
           </div>
           <div id="header-step-readout" class="window-step-counter">STEP 01 / 06</div>
         </div>
 
         <div class="studio-viewport">
           <div id="camera-rig">
-            <img id="real-step-1" class="real-studio-shot" src="../screenshots/micro/m04-step1.png" alt="Parametric Arc, Donut, Star & Polygon — Step 1: Select Full Ellipse (360°) & 5-Point Star" style="opacity:1" />
-              <img id="real-step-2" class="real-studio-shot" src="../screenshots/micro/m04-step2.png" alt="Parametric Arc, Donut, Star & Polygon — Step 2: Drag Sweep Handle -> Open Pie Arc (265°)" style="opacity:0" />
-              <img id="real-step-3" class="real-studio-shot" src="../screenshots/micro/m04-step3.png" alt="Parametric Arc, Donut, Star & Polygon — Step 3: Drag Inner Ratio Handle -> 58% Donut Ring" style="opacity:0" />
-              <img id="real-step-4" class="real-studio-shot" src="../screenshots/micro/m04-step4.png" alt="Parametric Arc, Donut, Star & Polygon — Step 4: Select Star & Drag Count Handle (5 -> 7 Points)" style="opacity:0" />
-              <img id="real-step-5" class="real-studio-shot" src="../screenshots/micro/m04-step5.png" alt="Parametric Arc, Donut, Star & Polygon — Step 5: Drag Star Inner Valley Handle (42% -> 62% Ratio)" style="opacity:0" />
-              <img id="real-step-6" class="real-studio-shot" src="../screenshots/micro/m04-step6.png" alt="Parametric Arc, Donut, Star & Polygon — Step 6: Complete Parametric Trio: Donut + Star + Rounded Hexagon" style="opacity:0" />
+            <img id="real-step-1" class="real-studio-shot" src="./micro-kit/m04-step1.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 1: Full ring: 360° sweep, 50% hole" style="opacity:1" />
+            <img id="real-step-2" class="real-studio-shot" src="./micro-kit/m04-step2.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 2: Chart slice: 126° sweep" style="opacity:0" />
+            <img id="real-step-3" class="real-studio-shot" src="./micro-kit/m04-step3.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 3: Donut slice: 126° sweep, 75% hole" style="opacity:0" />
+            <img id="real-step-4" class="real-studio-shot" src="./micro-kit/m04-step4.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 4: Gauge arc: 312° sweep" style="opacity:0" />
+            <img id="real-step-5" class="real-studio-shot" src="./micro-kit/m04-step5.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 5: Star icon: 5 points, 45% inner ratio" style="opacity:0" />
+            <img id="real-step-6" class="real-studio-shot" src="./micro-kit/m04-step6.webp" width="2880" height="1800" alt="Parametric Arc, Donut, Star &amp; Polygon - step 6: Radar polygon: 7 points" style="opacity:0" />
             <div id="active-target-ring" data-interactive="true"></div>
           </div>
         </div>
@@ -735,6 +740,7 @@
             <svg width="18" height="18"><use href="#icon-terminal-window"></use></svg>
             <span>cargo run --release -p designos-app --bin designos-studio</span>
           </div>
+          <div class="intro-real-badge outro-credit-badge"><span>Demo UI: Untitled UI PRO v8.0 kit by Untitled UI</span></div>
         </div>
 
         <div class="intro-bottom-row">
@@ -757,8 +763,8 @@
       <div class="step-dots">
         <div id="step-dot-0" class="step-dot active"><span>01</span></div><div id="step-dot-1" class="step-dot"><span>02</span></div><div id="step-dot-2" class="step-dot"><span>03</span></div><div id="step-dot-3" class="step-dot"><span>04</span></div><div id="step-dot-4" class="step-dot"><span>05</span></div><div id="step-dot-5" class="step-dot"><span>06</span></div>
       </div>
-      <span id="dock-step-title" class="dock-step-label">Select Full Ellipse (360°) & 5-Point Star</span>
-      <span id="dock-shortcut-pill">O · Select Shape</span>
+      <span id="dock-step-title" class="dock-step-label">Full ring: 360° sweep, 50% hole</span>
+      <span id="dock-shortcut-pill">Select Shape</span>
     </footer>
 
     <!-- Concentric Click Ripple & Canonical macOS Pointer Tip at (0,0) -->
@@ -791,7 +797,31 @@
       const BEAT = 0.5964214711729623;
       const TOTAL_BEATS = 50;
       const DURATION = 29.821074;
-      const STEPS = [{"step":1,"label":"Select Full Ellipse (360°) & 5-Point Star","detail":"Hovering the selected ellipse reveals the on-canvas Sweep handle on the right rim","shortcut":"O · Select Shape","cam":{"zoom":1.06,"panX":-18,"panY":10},"cursor":{"x0":0.44,"y0":0.45,"x1":0.47,"y1":0.44,"action":"click"}},{"step":2,"label":"Drag Sweep Handle -> Open Pie Arc (265°)","detail":"Dragging the Sweep handle cuts a precise sector with live angle readout","shortcut":"Drag Sweep Handle","cam":{"zoom":1.26,"panX":-46,"panY":18},"cursor":{"x0":0.47,"y0":0.44,"x1":0.42,"y1":0.36,"action":"drag"}},{"step":3,"label":"Drag Inner Ratio Handle -> 58% Donut Ring","detail":"Pulling the center Ratio handle hollows the pie into a parametric Donut gauge","shortcut":"Ratio -> 58%","cam":{"zoom":1.28,"panX":-48,"panY":18},"cursor":{"x0":0.42,"y0":0.36,"x1":0.43,"y1":0.46,"action":"drag"}},{"step":4,"label":"Select Star & Drag Count Handle (5 -> 7 Points)","detail":"Dragging the outer Star Count handle adds vertices live on the canvas","shortcut":"Star Count -> 7","cam":{"zoom":1.24,"panX":18,"panY":16},"cursor":{"x0":0.43,"y0":0.46,"x1":0.57,"y1":0.37,"action":"drag"}},{"step":5,"label":"Drag Star Inner Valley Handle (42% -> 62% Ratio)","detail":"Morphs the 8-point star into a soft badge emblem with 62% inner radius","shortcut":"Inner Ratio -> 62%","cam":{"zoom":1.22,"panX":20,"panY":16},"cursor":{"x0":0.57,"y0":0.37,"x1":0.58,"y1":0.44,"action":"drag"}},{"step":6,"label":"Complete Parametric Trio: Donut + Star + Rounded Hexagon","detail":"All three parametric primitives remain 100% live-editable in .fig v106","shortcut":"3 Live Primitives","cam":{"zoom":1,"panX":0,"panY":0},"cursor":{"x0":0.58,"y0":0.44,"x1":0.67,"y1":0.46,"action":"click"}}];
+      const STEPS = [{"step": 1, "label": "Full ring: 360° sweep, 50% hole", "detail": "Selected ellipse of the 50% donut chart", "shortcut": "Select Shape", "cam": {"zoom": 1.0, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.4796, "y0": 0.5575, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 2, "label": "Chart slice: 126° sweep", "detail": "Selected slice with its sweep handles", "shortcut": "Sweep: 126°", "cam": {"zoom": 1.15, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 3, "label": "Donut slice: 126° sweep, 75% hole", "detail": "Selected slice of the 75% donut chart", "shortcut": "Hole: 75%", "cam": {"zoom": 1.15, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 4, "label": "Gauge arc: 312° sweep", "detail": "Selected outer ring of the activity gauge", "shortcut": "Sweep: 312°", "cam": {"zoom": 1.15, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 5, "label": "Star icon: 5 points, 45% inner ratio", "detail": "Selected star from the rating icon", "shortcut": "Star: 5 · 45%", "cam": {"zoom": 1.1, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 6, "label": "Radar polygon: 7 points", "detail": "Selected polygon of the radar chart", "shortcut": "Polygon: 7", "cam": {"zoom": 1.0, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}];
+
+
+      const IMG_ASPECT = 2880 / 1800;
+
+      // Rect the contained screenshot occupies inside the studio viewport (letterboxed)
+      function imageRect(vw, vh) {
+        let w = vw;
+        let h = vw / IMG_ASPECT;
+        if (h > vh) {
+          h = vh;
+          w = vh * IMG_ASPECT;
+        }
+        return { x: (vw - w) / 2, y: (vh - h) / 2, w: w, h: h };
+      }
+
+      // Camera of a step: either fixed zoom/pan or zoom centred on a point of the screenshot
+      function cameraFor(step, rect, vw, vh, boost) {
+        const c = step.cam;
+        if (!c.focus) return { zoom: c.zoom * boost, panX: c.panX, panY: c.panY };
+        const z = c.zoom * boost;
+        const px = rect.x + rect.w * c.focus[0];
+        const py = rect.y + rect.h * c.focus[1];
+        return { zoom: z, panX: -(px - vw / 2) * z, panY: -(py - vh / 2) * z };
+      }
 
       const morphShell = document.getElementById('morph-shell');
       const introCard = document.getElementById('intro-card');
@@ -908,14 +938,16 @@
 
         // Smooth spring camera zoom/pan across the 6 real steps
         const stepSpring = springStep(stepLocalBeat * BEAT, 11.0, 0.85);
-        let camZoom = lerp(prevStep.cam.zoom, activeStep.cam.zoom, stepSpring);
-        let camPanX = lerp(prevStep.cam.panX, activeStep.cam.panX, stepSpring);
-        let camPanY = lerp(prevStep.cam.panY, activeStep.cam.panY, stepSpring);
-
+        const viewW = curW;
+        const viewH = curH - 38;
+        const shotRect = imageRect(viewW, viewH);
         // In 9:16 portrait mode, slightly boost zoom so the real Studio canvas & Inspector read crisply on mobile
-        if (isPortrait) {
-          camZoom *= 1.12;
-        }
+        const zoomBoost = isPortrait ? 1.12 : 1;
+        const prevCam = cameraFor(prevStep, shotRect, viewW, viewH, zoomBoost);
+        const nextCam = cameraFor(activeStep, shotRect, viewW, viewH, zoomBoost);
+        const camZoom = lerp(prevCam.zoom, nextCam.zoom, stepSpring);
+        const camPanX = lerp(prevCam.panX, nextCam.panX, stepSpring);
+        const camPanY = lerp(prevCam.panY, nextCam.panY, stepSpring);
 
         cameraRig.style.transform =
           'translate3d(' + camPanX.toFixed(2) + 'px, ' + camPanY.toFixed(2) + 'px, 0) scale(' + camZoom.toFixed(4) + ')';
@@ -931,8 +963,11 @@
         const relX = lerp(activeStep.cursor.x0, activeStep.cursor.x1, moveProgress);
         const relY = lerp(activeStep.cursor.y0, activeStep.cursor.y1, moveProgress);
 
-        const studioCursorX = shellLeft + curW * relX;
-        const studioCursorY = shellTop + 38 + (curH - 38) * relY;
+        // The pointer path is stored as fractions of the screenshot; map it through the camera so it lands on the frame
+        const shotX = shotRect.x + shotRect.w * relX;
+        const shotY = shotRect.y + shotRect.h * relY;
+        const studioCursorX = shellLeft + viewW / 2 + (shotX - viewW / 2) * camZoom + camPanX;
+        const studioCursorY = shellTop + 38 + viewH / 2 + (shotY - viewH / 2) * camZoom + camPanY;
 
         const outroTargetX = W * 0.50;
         const outroTargetY = H * 0.48;
@@ -949,8 +984,8 @@
         );
 
         // Position active target ring inside viewport so cursor hit-test is 100% verified
-        activeTargetRing.style.left = (relX * 100).toFixed(2) + '%';
-        activeTargetRing.style.top = (relY * 100).toFixed(2) + '%';
+        activeTargetRing.style.left = (shotRect.x + shotRect.w * relX).toFixed(1) + 'px';
+        activeTargetRing.style.top = (shotRect.y + shotRect.h * relY).toFixed(1) + 'px';
         activeTargetRing.style.opacity = (studioWeight * 0.85).toFixed(3);
 
         // Click / Drag impulse at stepLocalBeat = 2.4
