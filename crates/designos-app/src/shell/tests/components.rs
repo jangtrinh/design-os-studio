@@ -43,6 +43,51 @@ fn ctrl_alt_k_converts_a_frame_in_place() {
     assert_eq!(s.app().selection, vec![card]);
 }
 
+/// The demo "Dashboard" frame turned into a main component in place, nothing selected.
+fn dashboard_as_main_component() -> (Sim, NodeId, NodeId) {
+    let mut s = Sim::with(Options { select: Some("Dashboard".into()), ..Default::default() });
+    let board = s.by_name("Dashboard");
+    s.mods = ctrl_alt();
+    s.key(Key::K);
+    s.mods = Modifiers::NONE;
+    assert!(matches!(s.app().doc.get(board).unwrap().kind, NodeKind::Component(_)), "precondition: the frame became a main component");
+    s.shell.app.clear_selection();
+    s.frame(vec![]);
+    let tile = s.by_name("Tile A");
+    (s, board, tile)
+}
+
+#[test]
+fn marquee_over_part_of_a_main_component_selects_it_whole() {
+    let (mut s, board, tile) = dashboard_as_main_component();
+    // starts on empty canvas left of the main and ends over Tile A (page x 584..768, y 384..504)
+    s.drag(s.screen(520.0, 450.0), s.screen(700.0, 420.0));
+    assert_eq!(s.app().selection, vec![board], "the main is selected as a whole, not Tile A inside it ({tile:?})");
+}
+
+#[test]
+fn clicks_still_reach_the_layers_inside_a_main_component() {
+    let (mut s, board, tile) = dashboard_as_main_component();
+    s.click(s.screen(600.0, 400.0));
+    assert_eq!(s.app().selection, vec![tile], "a click lands on the layer");
+    s.shell.app.select_only(board);
+    s.mods = Modifiers::COMMAND;
+    s.click(s.screen(600.0, 400.0));
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.app().selection, vec![tile], "Cmd+click selects the layer deep");
+}
+
+#[test]
+fn double_click_after_a_marquee_steps_from_the_main_into_its_layer() {
+    let (mut s, board, tile) = dashboard_as_main_component();
+    s.drag(s.screen(520.0, 450.0), s.screen(700.0, 420.0));
+    assert_eq!(s.app().selection, vec![board], "precondition: the marquee selected the main whole");
+    let on_tile = s.screen(600.0, 400.0);
+    s.click(on_tile);
+    s.click(on_tile);
+    assert_eq!(s.app().selection, vec![tile], "the double-click lands on the layer inside the main");
+}
+
 #[test]
 fn ctrl_alt_b_detaches_an_instance() {
     let mut s = Sim::with(Options { select: Some("Get started".into()), ..Default::default() });
