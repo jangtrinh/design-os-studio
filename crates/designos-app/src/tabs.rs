@@ -433,7 +433,7 @@ impl TabsState {
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
                 if app.terminal.tabs.is_empty() {
-                    app.bind_terminal_to_open_file(&sid);
+                    self.bind_shown_terminal_to_open_file(app, &sid);
                 }
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
             }
@@ -489,7 +489,7 @@ impl TabsState {
                     app.terminal.skills.set_library_root(lib.root().to_path_buf());
                 }
                 app.terminal.bind_session(&sid);
-                app.bind_terminal_to_open_file(&sid);
+                self.bind_shown_terminal_to_open_file(app, &sid);
                 app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
                 app.image_jobs = crate::image_jobs::ImageJobsState::new_inheriting_config_from(&app.image_jobs);
                 self.hist_in_app = true;
@@ -512,7 +512,7 @@ impl TabsState {
                 let sid = self.session_id_for_tab(tab_id);
                 app.terminal.bind_session(&sid);
                 if app.terminal.tabs.is_empty() {
-                    app.bind_terminal_to_open_file(&sid);
+                    self.bind_shown_terminal_to_open_file(app, &sid);
                 }
             }
         }
@@ -527,7 +527,7 @@ impl TabsState {
             }
             app.terminal.bind_session(&sid);
             if app.terminal.tabs.is_empty() {
-                app.bind_terminal_to_open_file(&sid);
+                self.bind_shown_terminal_to_open_file(app, &sid);
             }
             app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
         }

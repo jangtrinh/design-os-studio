@@ -10,7 +10,7 @@ use designos_doc::{Document, Node, Rect as DRect};
 use std::path::Path;
 
 /// The document an agent opened: a page and one rectangle, so two nodes.
-fn agent_document() -> Document {
+pub(super) fn agent_document() -> Document {
     let mut d = Document::new("Agent opened this");
     let page = d.add_page("P");
     let id = d.alloc_id();
@@ -20,12 +20,12 @@ fn agent_document() -> Document {
 
 /// What the agent's switch leaves for the editor: the document it opened, waiting to be shown. (The log line that
 /// announces it is not what is under test, so it is not written.)
-fn agent_switches(s: &mut Sim, doc: Document) {
+pub(super) fn agent_switches(s: &mut Sim, doc: Document) {
     s.shell.app.terminal.live_patch.pending_doc = Some(doc);
     wait(s, SETTLED);
 }
 
-fn tab_of_file(s: &Sim, path: &Path) -> Option<usize> {
+pub(super) fn tab_of_file(s: &Sim, path: &Path) -> Option<usize> {
     s.app().tabs.entries.iter().position(|t| t.file_path.as_deref() == Some(path))
 }
 
@@ -36,7 +36,7 @@ fn tab_dot(s: &Sim, idx: usize) -> bool {
 
 /// The user's document, outside the library, has one edit no save has written: 4 nodes on screen, 3 in its file.
 /// (Takes the sim by reference: a `Sim` is large, and a test thread's stack holds only a few copies of it.)
-fn edit_the_users_document(s: &mut Sim, path: &Path) {
+pub(super) fn edit_the_users_document(s: &mut Sim, path: &Path) {
     edit(s);
     assert_eq!(s.app().doc.nodes.len(), 4);
     assert_eq!(nodes_on_disk(path), 3);
@@ -154,7 +154,7 @@ fn append_to_log(log: &Path, patch: &designos_doc::live_patch::LivePatch) {
 
 /// A stand-in agent CLI that stays alive, so the terminal has a running agent tab, as it has while an agent works.
 #[cfg(unix)]
-fn start_a_running_agent(s: &mut Sim, dir: &Path) {
+pub(super) fn start_a_running_agent(s: &mut Sim, dir: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let bin = dir.join("agent-bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -217,7 +217,7 @@ fn the_agents_terminal_follows_its_new_tab_and_later_patches_never_reach_the_use
 /// holds, so it waits for the answer; after Cancel nothing was dropped and the document opens as usual.
 #[test]
 fn an_agent_switch_waits_for_an_open_save_changes_question() {
-    use crate::home::{Answer, Leave};
+    use crate::home::Leave;
     let (mut s, _d, path) = external_sim_with(&two_rects());
     edit_the_users_document(&mut s, &path);
     let id = s.app().tabs.entries[s.app().tabs.active_idx].id;
@@ -229,7 +229,9 @@ fn an_agent_switch_waits_for_an_open_save_changes_question() {
     assert_eq!(s.app().tabs.entries.len(), 1);
     assert!(s.app().terminal.live_patch.pending_doc.is_some(), "the agent's document is held, not dropped");
 
-    s.shell.app.answer_save_changes_with(None, Answer::Cancel, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    // answered where the user answers it: the dialog closes with the answer, and only then does the document go
+    let cancel = s.rect_of("dialog-cancel");
+    s.click(cancel.center());
     wait(&mut s, SETTLED);
     assert_eq!(s.app().doc.name, "Agent opened this");
     assert_eq!(s.app().tabs.entries.len(), 2);

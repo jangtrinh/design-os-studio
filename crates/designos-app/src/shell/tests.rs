@@ -1135,6 +1135,7 @@ mod leave_prompt;
 mod leave_prompt_edges;
 mod live_agent_edits;
 mod live_patch_agent_switch;
+mod live_patch_agent_switch_edges;
 mod menus;
 mod panel_keys;
 mod proto;

@@ -60,4 +60,29 @@ impl TabsState {
         self.apply_to_app(self.active_idx, app);
         self.sync_from_app(app);
     }
+
+    /// Binds the terminal on screen to the session folder of the open file (`App::bind_terminal_to_open_file`), unless
+    /// another tab of this window already holds that folder. The user's document, kept in a tab of its own by
+    /// [`Self::show_agent_document_beside_the_users`], is the case: the agent that was working on its file stays in the
+    /// agent's tab with the folder's lock, so asking for the lock again could only fail, and every painted frame would
+    /// try. The tab stays on its own scratch folder, and binds once the holder lets go of the file. A lock held by another
+    /// window (another process) is not this: `bind_open_file` tells the user so.
+    pub(super) fn bind_shown_terminal_to_open_file(&self, app: &mut App, window_id: &str) {
+        if !self.another_tab_holds_the_open_files_session_folder(app) {
+            app.bind_terminal_to_open_file(window_id);
+        }
+    }
+
+    fn another_tab_holds_the_open_files_session_folder(&self, app: &App) -> bool {
+        let Some(lib) = &app.lib else { return false };
+        let lib_file_id = app.lib_file.as_ref().map(|lf| lf.id.as_str());
+        let disk_path = app.file_path.as_deref();
+        if lib_file_id.is_none() && disk_path.is_none() {
+            return false;
+        }
+        let holds_it = |t: &crate::terminal::TerminalState| {
+            t.lock_owner.is_some() && t.open_file_binding.as_ref().is_some_and(|b| b.same_file(lib.root(), lib_file_id, disk_path))
+        };
+        self.entries.iter().enumerate().any(|(i, tab)| i != self.active_idx && holds_it(&tab.terminal))
+    }
 }

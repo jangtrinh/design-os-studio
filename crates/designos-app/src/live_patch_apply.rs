@@ -49,11 +49,6 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
         let mut tabs = std::mem::take(&mut app.tabs);
         tabs.show_agent_document_beside_the_users(app, new_doc);
         app.tabs = tabs;
-        // A new history starts at depth 0: a turn that began on the document left behind began above it.
-        let depth = app.hist.undo_depth();
-        for tab in &mut app.terminal.tabs {
-            tab.turn_start_undo_depth = tab.turn_start_undo_depth.min(depth);
-        }
     } else {
         let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
         app.doc = new_doc;
@@ -61,6 +56,17 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
         app.file_path = None;
         app.lib_file = None;
         app.autosave.adopt_disk_state(Default::default(), None);
+        // The user's steps were made on the document that went. Replayed on this one they would hit layers that only
+        // share an id with the ones they changed, so the agent's document starts a history of its own, as when a file is opened.
+        app.hist = designos_doc::History::default();
+        app.history.reset();
+        app.selection.clear();
+        app.decks = Default::default();
+    }
+    // Either way the history on screen is a new one, at depth 0: a turn that began on the document left behind began above it.
+    let depth = app.hist.undo_depth();
+    for tab in &mut app.terminal.tabs {
+        tab.turn_start_undo_depth = tab.turn_start_undo_depth.min(depth);
     }
     // No undo step comes with a whole document, so the history cannot tell this is a change.
     app.mark_edited_outside_history();
@@ -91,9 +97,10 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if user_edit_in_progress(app) {
         return;
     }
-    // A question about unsaved edits names tabs by id, and the agent's document changes what a tab holds: it waits
-    // for the answer. Edits made on the document it opened wait behind it.
-    if app.leave.is_asking() && app.terminal.live_patch.pending_doc.is_some() {
+    // A question about the shown document (Save changes, File changed on disk, and any other) is answered about the
+    // document and the tab it was asked on, and the agent's document changes what both hold: it waits for the answer.
+    // Edits made on the document it opened wait behind it.
+    if app.terminal.live_patch.pending_doc.is_some() && (app.leave.is_asking() || app.dialog.is_some()) {
         return;
     }
     if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
