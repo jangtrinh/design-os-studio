@@ -16,7 +16,7 @@ use crate::icons::{self, Icon};
 use crate::panels::clipped;
 use crate::theme;
 use crate::widgets;
-use designos_doc::{Document, NodeId, NodeSpec};
+use designos_doc::{Document, NodeId};
 use egui::text::LayoutJob;
 use egui::{
     Align2, Color32, CornerRadius, Event, FontFamily, FontId, Id, Key, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, TextFormat, Ui, Vec2,
@@ -471,7 +471,6 @@ pub struct TerminalTab {
     pub child: Box<dyn Child + Send + Sync>,
     pub rows: u16,
     pub cols: u16,
-    pub last_spec_json: Arc<Mutex<Option<String>>>,
     pub raw_log: Arc<Mutex<String>>,
     /// Bytes the reader thread has trimmed off the front of `raw_log` so far (`MAX_RAW_LOG_BYTES`). A position in the
     /// output stream is `raw_log_drained` plus an index into `raw_log`; it only grows, so a stored position never goes stale.
@@ -680,7 +679,6 @@ impl TerminalTab {
 
         let init_parser = vt100::Parser::new(rows, cols, 5000);
         let parser = Arc::new(Mutex::new(init_parser));
-        let last_spec_json = Arc::new(Mutex::new(None));
         let raw_log = Arc::new(Mutex::new(String::new()));
         let raw_log_drained = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
@@ -690,7 +688,6 @@ impl TerminalTab {
         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let parser_bg = Arc::clone(&parser);
-        let spec_bg = Arc::clone(&last_spec_json);
         let log_bg = Arc::clone(&raw_log);
         let drained_bg = Arc::clone(&raw_log_drained);
         let status_bg = Arc::clone(&agent_status);
@@ -755,11 +752,6 @@ impl TerminalTab {
                                     // Counted while the log lock is held, so a reader of the log sees the log and the count change together.
                                     drained_bg.fetch_add(boundary, std::sync::atomic::Ordering::Release);
                                 }
-                                if let Some(spec) = extract_spec_json_from_log(&log) {
-                                    if let Ok(mut last) = spec_bg.lock() {
-                                        *last = Some(spec);
-                                    }
-                                }
                             }
                             if let Some(s_arc) = slave_bg.upgrade() {
                                 if let Ok(mut s) = s_arc.lock() {
@@ -789,7 +781,6 @@ impl TerminalTab {
             child,
             rows,
             cols,
-            last_spec_json,
             raw_log,
             raw_log_drained,
             selection: None,
@@ -4829,78 +4820,6 @@ fn last_lines_for_classification(turn_output: &str) -> String {
     agent_session_failure::tail_slice_last_n_lines(turn_output, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
 }
 
-/// Scans terminal output for a ```json ... ``` fence or JSON object representing a `NodeSpec`.
-/// Returns the latest valid `NodeSpec` JSON string if found.
-pub fn extract_spec_json_from_log(log: &str) -> Option<String> {
-    let mut search_end = log.len();
-    while let Some(fence_start) = log[..search_end].rfind("```json") {
-        let after_tag = &log[fence_start + 7..search_end];
-        if let Some(fence_end) = after_tag.find("```") {
-            let candidate = after_tag[..fence_end].trim();
-            if is_valid_node_spec_json(candidate) {
-                return Some(candidate.to_string());
-            }
-        }
-        search_end = fence_start;
-    }
-
-    let bytes = log.as_bytes();
-    let mut i = bytes.len();
-    let mut checked = 0usize;
-    while i > 0 && checked < 12 {
-        i -= 1;
-        if bytes[i] == b'}' {
-            if let Some(open_idx) = find_matching_open_brace(&log[..=i]) {
-                let candidate = log[open_idx..=i].trim();
-                if (candidate.contains("\"name\"") || candidate.contains("\"preset\"")) && is_valid_node_spec_json(candidate) {
-                    return Some(candidate.to_string());
-                }
-                checked += 1;
-            }
-        }
-    }
-    None
-}
-
-fn find_matching_open_brace(slice_ending_with_close: &str) -> Option<usize> {
-    let mut depth = 0i32;
-    let mut in_str = false;
-    let mut prev_backslash = false;
-    let chars: Vec<(usize, char)> = slice_ending_with_close.char_indices().collect();
-    for &(idx, ch) in chars.iter().rev() {
-        if in_str {
-            if ch == '"' && !prev_backslash {
-                in_str = false;
-            }
-            prev_backslash = ch == '\\';
-            continue;
-        }
-        match ch {
-            '"' => in_str = true,
-            '}' => depth += 1,
-            '{' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(idx);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn is_valid_node_spec_json(candidate: &str) -> bool {
-    if !candidate.starts_with('{') || !candidate.ends_with('}') {
-        return false;
-    }
-    if let Ok(spec) = serde_json::from_str::<NodeSpec>(candidate) {
-        !spec.name.trim().is_empty() || spec.preset.is_some() || !spec.children.is_empty() || !spec.kind.trim().is_empty()
-    } else {
-        false
-    }
-}
-
 /// Serializes the active selection (or first top-level frame on `page`) to
 /// the session's `selection.spec.json` with a `designos_context` object (node name, id, open
 /// pin-comments). Pastes only a fixed file-reference sentence into a live agent tab (never node
@@ -6164,30 +6083,7 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{Comment, CommentAnchor, CommentThread, Node};
-
-    #[test]
-    fn extract_spec_json_from_fenced_and_raw_terminal_output() {
-        let log = r#"
-$ claude "design an EaseUI card"
-Here is the NodeSpec blueprint:
-```json
-{
-  "name": "Agent Card",
-  "preset": "easeui-card",
-  "children": [
-    { "kind": "text", "name": "Title", "text": "Hello from Claude" }
-  ]
-}
-```
-Done!
-"#;
-        let extracted = extract_spec_json_from_log(log).expect("should extract fenced NodeSpec JSON");
-        let parsed: NodeSpec = serde_json::from_str(&extracted).expect("valid NodeSpec");
-        assert_eq!(parsed.name, "Agent Card");
-        assert_eq!(parsed.preset.as_deref(), Some("easeui-card"));
-        assert_eq!(parsed.children.len(), 1);
-    }
+    use designos_doc::{Comment, CommentAnchor, CommentThread, Node, NodeSpec};
 
     #[test]
     fn pty_spawn_and_vt100_screen_capture_work() {
