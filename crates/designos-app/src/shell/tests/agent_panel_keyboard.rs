@@ -6,6 +6,7 @@
 use super::*;
 use crate::terminal::AgentCliPreset;
 
+mod overlay_escape;
 mod review_card_focus;
 
 /// The Agents panel open on a stub Claude tab, with the terminal viewport holding the keyboard.

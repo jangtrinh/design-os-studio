@@ -1172,6 +1172,10 @@ pub struct TerminalState {
     pub composer_focused_last_frame: bool,
     /// The composer's focus after it was painted this frame; it becomes [`Self::composer_focused_last_frame`] in the next.
     composer_focused_now: bool,
+    /// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open ([`overlay_owns_keyboard`]).
+    /// The shell sets it before the panels draw: those overlays draw after the Agents panel in the same frame, so the
+    /// terminal would already have sent the keys to the agent when they looked for them (`#923`).
+    pub overlay_owns_keyboard: bool,
     /// Deferred undo depth to fold once a user edit in progress finishes (`#684 §3.4`).
     pub pending_stop_fold_depth: Option<usize>,
     /// Deferred stop close metadata (`depth`, `pre_close_patch_count`, `run_id`, `agent`) (`#684 §3.4`, `§3.5`).
@@ -1471,6 +1475,7 @@ impl TerminalState {
             chrome_focused: false,
             composer_focused_last_frame: false,
             composer_focused_now: false,
+            overlay_owns_keyboard: false,
             pending_stop_fold_depth: None,
             pending_stop_close: None,
             current_undo_depth: 0,
@@ -4982,6 +4987,22 @@ pub fn show_left_with_selection(
     show_left_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
 }
 
+/// True while a dialog, palette or menu that reads `Esc`, `Enter` and the arrows is open, so the Agents panel leaves the
+/// keyboard to it (`#923`). Floating panels that do not take the keyboard (the variables panel, toasts) are not listed.
+pub fn overlay_owns_keyboard(app: &crate::app::App) -> bool {
+    app.dialog.is_some()
+        || app.history.save_modal.is_some()
+        || app.dev.compare.is_some()
+        || app.plugins.open
+        || app.ui.permissions_modal_open
+        || app.cmdk.open
+        || app.ui.menu.is_some()
+        || app.ui.ctx_menu.is_some()
+        || app.web_capture_report_open
+        || app.libs.open
+        || app.libs.review
+}
+
 /// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).
 pub fn show_left_with_doc(
     state: &mut TerminalState,
@@ -5290,8 +5311,10 @@ pub fn show_left_with_doc(
         }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
-        if !state.viewport_focused && ui.input(|i| i.key_pressed(Key::Escape)) {
-            let composer_focused = ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
+        if !state.viewport_focused && !state.overlay_owns_keyboard && ui.input(|i| i.key_pressed(Key::Escape)) {
+            // egui takes the caret out of the composer on a bare `Esc` before this code runs, so where the caret was a
+            // frame ago counts as well: an `Esc` that leaves the composer must not also stop the turn (`#684`, `#923`).
+            let composer_focused = state.composer_focused_last_frame || ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
             crate::agent_stop::handle_panel_escape(state, composer_focused, designos_doc::now_ms());
         }
         if let Some(receipt) = &active_receipt {
@@ -5610,7 +5633,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     if vp_resp.clicked() || vp_resp.drag_started() {
         state.viewport_focused = true;
     }
-    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open();
+    // An open dialog or menu owns the keys: the terminal neither sends them to the agent nor shows its caret as active.
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard;
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;
