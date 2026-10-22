@@ -799,7 +799,8 @@ pub fn show(app: &mut App, ctx: &Context) {
             let nodes = tool_nodes(app, g);
             let items = to_items(&nodes);
             let h = theme::MENU_PADDING * 2.0 + items.len() as f32 * theme::MENU_ITEM_HEIGHT;
-            let pos = super::toolbar::tool_menu_pos(screen, g, h);
+            // Hung off the chevron that opened it; the window rect only stands in when nothing recorded one.
+            let pos = super::toolbar::tool_menu_pos(anchor.unwrap_or_else(|| super::toolbar::chevron_rect(screen, g)), h);
             match popup_tree(ctx, id, pos, theme::TOOL_MENU_WIDTH, &items, anchor) {
                 TreeResult::Picked(path) => {
                     app.ui.menu = None;
