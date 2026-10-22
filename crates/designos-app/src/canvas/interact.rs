@@ -24,7 +24,13 @@ pub fn dv(p: Pos2) -> DV {
 }
 
 struct Inp {
+    /// Where the pointer is at the end of the frame (egui reports only the last position of the frame).
     pos: Option<Pos2>,
+    /// Where the button that went down this frame went down. It differs from `pos` when the pointer moved on within
+    /// the same frame, which happens on a slow frame or a quick flick.
+    press_pos: Option<Pos2>,
+    /// Where the primary button went up this frame, when it did.
+    release_pos: Option<Pos2>,
     pressed: bool,
     down: bool,
     released: bool,
@@ -36,16 +42,34 @@ struct Inp {
 }
 
 fn gather(ui: &Ui, typing: bool) -> Inp {
-    ui.input(|i| Inp {
-        pos: i.pointer.latest_pos(),
-        pressed: i.pointer.primary_pressed(),
-        down: i.pointer.primary_down(),
-        released: i.pointer.primary_released(),
-        mid_pressed: i.pointer.button_pressed(egui::PointerButton::Middle),
-        mid_down: i.pointer.middle_down(),
-        mods: i.modifiers,
-        space: !typing && i.key_down(egui::Key::Space),
-        z_down: !typing && i.key_down(egui::Key::Z),
+    ui.input(|i| {
+        // The pointer state keeps only the last position of the frame; the button events know where each press and
+        // release happened, even when the press, the moves and the release arrive in one frame.
+        let (mut press, mut mid_press, mut release) = (None, None, None);
+        for ev in &i.events {
+            if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
+                match (button, pressed) {
+                    (egui::PointerButton::Primary, true) => press = Some(*pos),
+                    (egui::PointerButton::Primary, false) => release = Some(*pos),
+                    (egui::PointerButton::Middle, true) => mid_press = Some(*pos),
+                    _ => {}
+                }
+            }
+        }
+        let pressed = i.pointer.primary_pressed();
+        Inp {
+            pos: i.pointer.latest_pos(),
+            press_pos: if pressed { press } else { mid_press },
+            release_pos: release,
+            pressed,
+            down: i.pointer.primary_down(),
+            released: i.pointer.primary_released(),
+            mid_pressed: i.pointer.button_pressed(egui::PointerButton::Middle),
+            mid_down: i.pointer.middle_down(),
+            mods: i.modifiers,
+            space: !typing && i.key_down(egui::Key::Space),
+            z_down: !typing && i.key_down(egui::Key::Z),
+        }
     })
 }
 
@@ -308,6 +332,12 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
         app.terminal.viewport_focused = false;
         if let Some(focused_id) = ctx.memory(|m| m.focused()) {
             ctx.memory_mut(|m| m.surrender_focus(focused_id));
+        }
+        // A new press ends a draw still open (a middle press, a pan habit, while the primary button is held; a press
+        // after a lost release). Without this the press starts another gesture over the draw's state, and the
+        // half-drawn shape stays in the document outside undo.
+        if matches!(app.canvas.inter, Interaction::Draw(_)) {
+            on_release(app, rect, &inp);
         }
         on_press(app, &ctx, rect, &inp);
     }
@@ -618,7 +648,7 @@ pub fn update_smart_selection_drag(app: &mut App, sd: &mut SmartSelectionDragSta
 }
 
 fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
-    let Some(pos) = inp.pos else { return };
+    let Some(pos) = inp.press_pos.or(inp.pos) else { return };
     if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
         return;
     }
@@ -944,6 +974,37 @@ fn start_draw(app: &mut App, tool: Tool, page: DV) {
     app.changed();
 }
 
+/// Reshapes the shape being drawn so its far corner is at `cur` (page space), and records whether the pointer has
+/// moved far enough from the press for this to be a drag rather than a click.
+fn update_draw(app: &mut App, d: &mut DrawState, cur: DV, inp: &Inp) {
+    let zoom = app.view.zoom;
+    if inp.space {
+        let delta = sub(cur, d.last_page);
+        d.start = add(d.start, delta);
+    }
+    d.last_page = cur;
+    let (mut c, snapped) = if inp.mods.command { (cur, snap::SnapResult::default()) } else { snap_point(cur, &d.targets, zoom) };
+    if inp.mods.shift {
+        c = cur;
+    }
+    if !inp.mods.command {
+        if !snapped_on(&snapped.guides, snap::GuideAxis::X) {
+            c.x = px(app, c.x);
+        }
+        if !snapped_on(&snapped.guides, snap::GuideAxis::Y) {
+            c.y = px(app, c.y);
+        }
+    }
+    app.canvas.guides = snapped.guides;
+    app.canvas.measures.clear();
+    if dist(d.start, c) * zoom > theme::DRAG_THRESHOLD_PX {
+        d.dragged = true;
+    }
+    let g = create::draw_geom(d.tool, d.start, c, inp.mods.shift || crate::board::create::keeps_square(d.tool), inp.mods.alt);
+    create::apply_geom(&mut app.doc, &mut d.tx, d.id, d.parent, &g);
+    app.changed();
+}
+
 // ------------------------------------------------------------------ drag
 fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
     let Some(pos) = inp.pos else { return };
@@ -1099,33 +1160,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::ShapeControl(sc) => {
             update_shape_control(app, sc, cur, inp.mods.shift);
         }
-        Interaction::Draw(d) => {
-            if inp.space {
-                let delta = sub(cur, d.last_page);
-                d.start = add(d.start, delta);
-            }
-            d.last_page = cur;
-            let (mut c, snapped) = if inp.mods.command { (cur, snap::SnapResult::default()) } else { snap_point(cur, &d.targets, zoom) };
-            if inp.mods.shift {
-                c = cur;
-            }
-            if !inp.mods.command {
-                if !snapped_on(&snapped.guides, snap::GuideAxis::X) {
-                    c.x = px(app, c.x);
-                }
-                if !snapped_on(&snapped.guides, snap::GuideAxis::Y) {
-                    c.y = px(app, c.y);
-                }
-            }
-            app.canvas.guides = snapped.guides;
-            app.canvas.measures.clear();
-            if dist(d.start, c) * zoom > theme::DRAG_THRESHOLD_PX {
-                d.dragged = true;
-            }
-            let g = create::draw_geom(d.tool, d.start, c, inp.mods.shift || crate::board::create::keeps_square(d.tool), inp.mods.alt);
-            create::apply_geom(&mut app.doc, &mut d.tx, d.id, d.parent, &g);
-            app.changed();
-        }
+        Interaction::Draw(d) => update_draw(app, d, cur, inp),
         Interaction::Pencil(pts) => {
             if pts.last().map(|l| dist(*l, cur) * zoom > 1.5).unwrap_or(true) {
                 pts.push(cur);
@@ -1462,6 +1497,13 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp) {
             app.run_tx(s.tx);
         }
         Interaction::Draw(mut d) => {
+            // `on_drag` does not run on the frame of the release, and the release can share its frame with the press
+            // and the moves. Shape the draw to where the pointer let go, then decide between a drag and a click.
+            if let Some(p) = inp.release_pos.or(inp.pos) {
+                update_draw(app, &mut d, app.view.to_page(rect.min, p), inp);
+                app.canvas.guides.clear();
+                app.canvas.measures.clear();
+            }
             if !d.dragged && (crate::board::create::types_into(d.tool) || d.tool == Tool::Stamp) {
                 // a click places a board item at its default size, centred on the pointer
                 let r = crate::board::create::click_rect(d.tool, d.start);
@@ -2304,6 +2346,8 @@ mod tests {
         let mut m = start_move(&mut app, a, v2(50.0, 50.0), false).unwrap();
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2332,6 +2376,8 @@ mod tests {
         assert_ne!(m.ids[0], a, "alt-drag moves a duplicate");
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2364,6 +2410,8 @@ mod tests {
         };
         let inp = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
             pressed: false,
             down: true,
             released: false,
@@ -2516,6 +2564,8 @@ mod tests {
 
         let inp = Inp {
             pos: Some(Pos2::new(50.0, 50.0)),
+            press_pos: None,
+            release_pos: None,
             pressed: false,
             down: false,
             released: false,
@@ -2689,6 +2739,8 @@ mod tests {
         };
         let inp_cmd = Inp {
             pos: None,
+            press_pos: None,
+            release_pos: None,
             pressed: false,
             down: true,
             released: false,
