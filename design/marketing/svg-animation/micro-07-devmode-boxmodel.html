@@ -462,7 +462,7 @@
     }
 
     .step-dot.active {
-      color: #ffffff;
+      color: #111216;
       background: var(--accent);
       box-shadow: 0 0 12px rgba(13, 153, 255, 0.45);
     }
@@ -904,7 +904,7 @@
         headerStepReadout.textContent = 'STEP 0' + activeStep.step + ' / 06 · REAL STUDIO';
         dockStepTitle.textContent = activeStep.label;
         dockShortcutPill.textContent = activeStep.shortcut;
-        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0.18, 1).toFixed(3);
+        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0, 1).toFixed(3);
 
         // Smooth spring camera zoom/pan across the 6 real steps
         const stepSpring = springStep(stepLocalBeat * BEAT, 11.0, 0.85);
