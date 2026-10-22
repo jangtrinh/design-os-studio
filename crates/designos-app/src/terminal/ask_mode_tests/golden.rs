@@ -81,18 +81,37 @@ fn assert_launch_golden(preset: AgentCliPreset, cli: &str) {
     }
 }
 
+/// `text` with machine-specific paths and the session id replaced by placeholders. `paths` pairs each path with its
+/// placeholder, longest path first.
+///
+/// A path is written in two spellings: as it is, and with every backslash doubled inside a JSON or TOML string (a Windows
+/// path). On Windows the session folder is also joined with `\` where the goldens write `/`, so a separator that follows a
+/// placeholder becomes `/` in either spelling. Paths without backslashes are untouched by all of this.
+fn normalize_text(raw: &str, paths: &[(String, &str)], session_id: &str) -> String {
+    let mut text = raw.to_string();
+    for (path, placeholder) in paths {
+        text = text.replace(&path.replace('\\', "\\\\"), placeholder);
+        text = text.replace(path.as_str(), placeholder);
+    }
+    for placeholder in ["<SESSION>", "<WORKSPACE>"] {
+        text = text.replace(&format!("{placeholder}\\\\"), &format!("{placeholder}/"));
+        text = text.replace(&format!("{placeholder}\\"), &format!("{placeholder}/"));
+    }
+    text.replace(session_id, "<SESSION_ID>")
+}
+
 /// `rel` of the session folder as text, with the values that differ per machine and run replaced.
 fn normalized(st: &TerminalState, rel: &str) -> String {
     let raw = std::fs::read_to_string(st.session_dir.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
-    let mut text = raw;
+    let mut paths = Vec::new();
     if let Ok(canon) = st.session_dir.canonicalize() {
-        text = text.replace(&canon.display().to_string(), "<SESSION>");
+        paths.push((canon.display().to_string(), "<SESSION>"));
     }
-    text = text.replace(&st.session_dir.display().to_string(), "<SESSION>").replace(&st.session_id, "<SESSION_ID>");
+    paths.push((st.session_dir.display().to_string(), "<SESSION>"));
     if let Ok(cwd) = std::env::current_dir() {
-        text = text.replace(&cwd.display().to_string(), "<WORKSPACE>");
+        paths.push((cwd.display().to_string(), "<WORKSPACE>"));
     }
-    text
+    normalize_text(&raw, &paths, &st.session_id)
 }
 
 fn normalized_json(st: &TerminalState, rel: &str) -> Value {
@@ -207,10 +226,10 @@ fn claude_launch_and_config_match_the_golden() {
         let handlers = hooks["hooks"]["PermissionRequest"][0]["hooks"].as_array().expect("PermissionRequest handlers");
         let approve: Vec<&Value> = handlers.iter().filter(|h| h.get("timeout").is_some()).collect();
         if ask {
-            let session = st.session_dir.display().to_string();
+            let script = st.session_dir.join("approve-hook.sh").display().to_string();
             assert_eq!(
                 approve,
-                [&serde_json::json!({ "type": "command", "command": format!("sh '{session}/approve-hook.sh'"), "timeout": 300 })],
+                [&serde_json::json!({ "type": "command", "command": format!("sh '{script}'"), "timeout": 300 })],
                 "Claude Ask: the only handler with a decision is the in-panel approval hook"
             );
             let script = std::fs::read_to_string(st.session_dir.join("approve-hook.sh")).expect("approve-hook.sh");
@@ -287,4 +306,40 @@ fn grok_launch_and_config_match_the_golden() {
         assert_eq!(shape_of(&read_json(&st, ".grok/hooks/designos-status.json")), expected, "Grok {mode:?}: the keys of the status hooks changed");
         finish(st);
     }
+}
+
+/// The paths of a Windows runner, as Studio writes them: plain, with every backslash doubled inside a JSON or TOML string,
+/// verbatim (`\\?\`) after `canonicalize`, and joined with `\` where the goldens write `/`.
+#[test]
+fn windows_paths_are_normalized_in_every_spelling_they_are_written_in() {
+    let session = r"C:\Users\runneradmin\AppData\Local\Temp\designos-sessions\p1-tab-2";
+    let canonical = format!(r"\\?\{session}");
+    let workspace = r"D:\a\design-os-studio\design-os-studio\crates\designos-app";
+    let paths = vec![(canonical.clone(), "<SESSION>"), (session.to_string(), "<SESSION>"), (workspace.to_string(), "<WORKSPACE>")];
+    let esc = |p: &str| p.replace('\\', "\\\\");
+
+    let json = format!(
+        r#"{{"args":["--workspace","{w}"],"env":{{"CTX":"{s}\\context.json","DIR":"{s}","ID":"p1-tab-2-1-1"}},"{c}":"TRUST_FOLDER","{s}":"TRUST_FOLDER"}}"#,
+        w = esc(workspace),
+        s = esc(session),
+        c = esc(&canonical)
+    );
+    let got: Value = serde_json::from_str(&normalize_text(&json, &paths, "p1-tab-2")).expect("normalized JSON");
+    let want = serde_json::json!({
+        "args": ["--workspace", "<WORKSPACE>"],
+        "env": { "CTX": "<SESSION>/context.json", "DIR": "<SESSION>", "ID": "<SESSION_ID>-1-1" },
+        "<SESSION>": "TRUST_FOLDER",
+    });
+    assert_eq!(got, want);
+
+    // TOML basic strings escape backslashes the same way.
+    let toml = format!("args = [\"--workspace\", \"{w}\"]\nCTX = \"{s}\\\\context.json\"\n", w = esc(workspace), s = esc(session));
+    assert_eq!(normalize_text(&toml, &paths, "p1-tab-2"), "args = [\"--workspace\", \"<WORKSPACE>\"]\nCTX = \"<SESSION>/context.json\"\n");
+}
+
+#[test]
+fn unix_paths_are_normalized_as_before() {
+    let paths = vec![("/tmp/designos-sessions/p1-tab-2".to_string(), "<SESSION>"), ("/work/crates/designos-app".to_string(), "<WORKSPACE>")];
+    let text = r#"{"CTX":"/tmp/designos-sessions/p1-tab-2/context.json","W":"/work/crates/designos-app","ID":"p1-tab-2-1-1"}"#;
+    assert_eq!(normalize_text(text, &paths, "p1-tab-2"), r#"{"CTX":"<SESSION>/context.json","W":"<WORKSPACE>","ID":"<SESSION_ID>-1-1"}"#);
 }
