@@ -336,12 +336,20 @@ pub struct UndoStepMeta {
 }
 
 /// Linear undo stack.
+///
+/// It also remembers which point on the undo line is the document as last saved (or as opened),
+/// see [`Self::mark_clean`] and [`Self::is_clean`].
 #[derive(Default)]
 pub struct History {
     undo: Vec<Command>,
     redo: Vec<Command>,
     undo_meta: Vec<UndoStepMeta>,
     redo_meta: Vec<UndoStepMeta>,
+    /// Undo depth at which the document is as last saved or opened (0 for a fresh history).
+    clean_depth: usize,
+    /// Every step that led to the saved state was dropped (an edit after an undo past it, or a fold
+    /// across it): no point on the line is the saved document any more.
+    clean_lost: bool,
 }
 
 impl History {
@@ -351,10 +359,7 @@ impl History {
     /// Executes `cmd` and records an optional human-readable label on the resulting undo step.
     pub fn exec_labeled(&mut self, doc: &mut Document, cmd: Command, label: Option<String>) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
-        self.undo.push(inv);
-        self.undo_meta.push(UndoStepMeta { origin: StepOrigin::Unspecified, label, folded: false });
-        self.redo.clear();
-        self.redo_meta.clear();
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Unspecified, label, folded: false });
         Ok(())
     }
 
@@ -363,21 +368,40 @@ impl History {
     /// intervening user edits.
     pub fn exec_agent(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
-        self.undo.push(inv);
-        self.undo_meta.push(UndoStepMeta { origin: StepOrigin::Agent, label: None, folded: false });
-        self.redo.clear();
-        self.redo_meta.clear();
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::Agent, label: None, folded: false });
         Ok(())
     }
 
     /// Executes an edit explicitly marked as a user edit.
     pub fn exec_user(&mut self, doc: &mut Document, cmd: Command) -> Result<(), DocError> {
         let inv = cmd.apply(doc)?;
+        self.push_step(inv, UndoStepMeta { origin: StepOrigin::User, label: None, folded: false });
+        Ok(())
+    }
+
+    /// Puts a new step on the undo stack and drops the redo stack, which a new edit supersedes.
+    fn push_step(&mut self, inv: Command, meta: UndoStepMeta) {
+        if self.clean_depth > self.undo.len() {
+            // The saved state sat on the redo stack that this edit discards.
+            self.clean_lost = true;
+        }
         self.undo.push(inv);
-        self.undo_meta.push(UndoStepMeta { origin: StepOrigin::User, label: None, folded: false });
+        self.undo_meta.push(meta);
         self.redo.clear();
         self.redo_meta.clear();
-        Ok(())
+    }
+
+    /// Records that the document is exactly as saved at the current point on the undo line.
+    pub fn mark_clean(&mut self) {
+        self.clean_depth = self.undo.len();
+        self.clean_lost = false;
+    }
+
+    /// Whether the document is at the point [`Self::mark_clean`] recorded (a fresh history is clean at
+    /// depth 0). Undoing back to it, or redoing up to it, makes it clean again; an edit made after
+    /// undoing past it does not. Costs nothing: no step is inspected and the document is not hashed.
+    pub fn is_clean(&self) -> bool {
+        !self.clean_lost && self.undo.len() == self.clean_depth
     }
 
     /// Marks the most recently pushed undo step as an agent step.
@@ -443,6 +467,7 @@ impl History {
         if fold_end == fold_start {
             return None;
         }
+        let (undo_len, redo_len) = (self.undo.len(), self.redo.len());
         let mut run: Vec<Command> = self.undo.drain(fold_start..fold_end).collect();
         self.undo_meta.drain(fold_start..fold_end);
         // Each step on `self.undo` is an inverse command pushed in execution order (oldest first).
@@ -461,6 +486,15 @@ impl History {
         }
         self.redo = keep_redo;
         self.redo_meta = keep_meta;
+        // The depths `fold_start + 1..=fold_end` collapse into `fold_start + 1`; those above drop with them.
+        if self.clean_depth > undo_len {
+            self.clean_lost |= self.redo.len() != redo_len;
+        }
+        if self.clean_depth > fold_start && self.clean_depth < fold_end {
+            self.clean_lost = true;
+        } else if self.clean_depth >= fold_end {
+            self.clean_depth -= fold_end - fold_start - 1;
+        }
         Some((fold_start, fold_end))
     }
 
@@ -521,6 +555,9 @@ impl History {
     /// Forgets undo steps past `depth` without applying them, for edits the caller already
     /// reverted another way (by restoring a snapshot of the document).
     pub fn drop_undo_steps_after(&mut self, depth: usize) {
+        if self.clean_depth > depth {
+            self.clean_lost = true;
+        }
         self.undo.truncate(depth);
         self.undo_meta.truncate(depth);
     }
@@ -1242,6 +1279,134 @@ mod style_tests {
         assert!(d.styles.is_empty() && d.style_meta.is_empty());
         h.redo(&mut d).unwrap();
         assert_eq!(d.styles.len(), 1);
+    }
+
+    /// Executes one insert of a new rectangle as step `i`, as `kind` says: 0 unspecified, 1 user, 2 agent.
+    fn push_rect(d: &mut Document, h: &mut History, page: NodeId, i: usize, kind: u8) {
+        let id = d.alloc_id();
+        let cmd = Command::Insert { parent: page, index: i, nodes: vec![Node::rectangle(id, Rect::new(i as f32 * 20.0, 0.0, 10.0, 10.0))] };
+        match kind {
+            1 => h.exec_user(d, cmd).unwrap(),
+            2 => h.exec_agent(d, cmd).unwrap(),
+            _ => h.exec(d, cmd).unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_fresh_history_is_clean_until_an_edit_and_again_after_undoing_it() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut h = History::default();
+        assert!(h.is_clean());
+        push_rect(&mut d, &mut h, page, 0, 0);
+        assert!(!h.is_clean());
+        h.undo(&mut d).unwrap();
+        assert!(h.is_clean(), "undone back to the opened document");
+        h.redo(&mut d).unwrap();
+        assert!(!h.is_clean());
+    }
+
+    #[test]
+    fn marking_clean_moves_the_clean_point_and_undo_redo_walk_across_it() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut h = History::default();
+        push_rect(&mut d, &mut h, page, 0, 0);
+        push_rect(&mut d, &mut h, page, 1, 0);
+        h.mark_clean();
+        assert!(h.is_clean());
+        push_rect(&mut d, &mut h, page, 2, 0);
+        assert!(!h.is_clean(), "an edit above the saved point");
+        h.undo(&mut d).unwrap();
+        assert!(h.is_clean(), "undone back to the saved point");
+        h.undo(&mut d).unwrap();
+        assert!(!h.is_clean(), "undone past it");
+        h.redo(&mut d).unwrap();
+        assert!(h.is_clean(), "redone up to it");
+    }
+
+    #[test]
+    fn an_edit_after_undoing_past_the_clean_point_loses_it_until_the_next_mark() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut h = History::default();
+        push_rect(&mut d, &mut h, page, 0, 0);
+        push_rect(&mut d, &mut h, page, 1, 0);
+        h.mark_clean();
+        h.undo(&mut d).unwrap();
+        // a different edit takes the place of the saved step: same depth, other document
+        push_rect(&mut d, &mut h, page, 5, 0);
+        assert_eq!(h.undo_depth(), 2);
+        assert!(!h.is_clean(), "the saved state cannot be reached again");
+        h.undo(&mut d).unwrap();
+        h.redo(&mut d).unwrap();
+        assert!(!h.is_clean());
+        h.mark_clean();
+        assert!(h.is_clean());
+    }
+
+    #[test]
+    fn dropping_undo_steps_past_the_clean_point_loses_it() {
+        let mut d = Document::new("t");
+        let page = d.add_page("P");
+        let mut h = History::default();
+        push_rect(&mut d, &mut h, page, 0, 0);
+        h.mark_clean();
+        push_rect(&mut d, &mut h, page, 1, 0);
+        h.drop_undo_steps_after(1);
+        assert!(h.is_clean(), "the saved step is still there");
+        let mut h = History::default();
+        push_rect(&mut d, &mut h, page, 0, 0);
+        push_rect(&mut d, &mut h, page, 1, 0);
+        h.mark_clean();
+        h.drop_undo_steps_after(1);
+        assert!(!h.is_clean(), "the saved step was dropped");
+    }
+
+    #[test]
+    fn folding_agent_steps_keeps_a_clean_point_below_or_above_the_fold_and_loses_one_inside() {
+        // user edit, three agent steps, user edit: depths 1..=5; the fold turns 2..=4 into depth 2
+        let build = |clean_at: usize| {
+            let mut d = Document::new("t");
+            let page = d.add_page("P");
+            let mut h = History::default();
+            push_rect(&mut d, &mut h, page, 0, 1);
+            for (i, kind) in [(1, 2), (2, 2), (3, 2), (4, 1)] {
+                push_rect(&mut d, &mut h, page, i, kind);
+            }
+            // walk to the depth to save at, mark it, walk back up
+            for _ in clean_at..5 {
+                h.undo(&mut d).unwrap();
+            }
+            h.mark_clean();
+            for _ in clean_at..5 {
+                h.redo(&mut d).unwrap();
+            }
+            (d, h)
+        };
+        // saved at depth 1 (before the run): still depth 1
+        let (mut d, mut h) = build(1);
+        assert_eq!(h.fold_since_range(1, "Agent turn"), Some((1, 4)));
+        assert_eq!(h.undo_depth(), 3);
+        assert!(!h.is_clean());
+        h.undo(&mut d).unwrap();
+        h.undo(&mut d).unwrap();
+        assert!(h.is_clean(), "depth 1 is still the saved one");
+        // saved at depth 5 (above the run): now depth 3
+        let (_d, mut h) = build(5);
+        assert!(h.is_clean());
+        h.fold_since_range(1, "Agent turn");
+        assert!(h.is_clean(), "the top is still the saved state");
+        // saved at depth 3 (inside the run): gone
+        let (_d, mut h) = build(3);
+        h.fold_since_range(1, "Agent turn");
+        assert!(!h.is_clean());
+        let (mut d, mut h) = build(3);
+        h.fold_since_range(1, "Agent turn");
+        for _ in 0..3 {
+            let _ = h.undo(&mut d);
+        }
+        assert!(!h.is_clean(), "no depth is the state inside the folded run");
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// Seconds without a document change before a library file is autosaved.
 pub const AUTOSAVE_IDLE: f64 = 1.5;
 /// Seconds of calm after which a revision change is compared with the saved document.
-pub(super) const PROBE_DELAY: f64 = 0.3;
+const PROBE_DELAY: f64 = 0.3;
 
 /// The library file currently open in the editor.
 #[derive(Clone, Debug, PartialEq)]
@@ -732,6 +732,7 @@ impl App {
         if neutralized {
             self.changed();
         }
+        self.mark_saved();
         self.autosave.saved_hash = doc_hash(&self.doc);
         self.autosave.seen_rev = self.canvas.tiles.rev();
         self.autosave.changed_at = None;
@@ -764,10 +765,15 @@ impl App {
             return;
         }
         self.settle_pending_relayout();
-        if self.lib_file.is_some() && doc_hash(&self.doc) != self.autosave.saved_hash {
-            if let Err(e) = self.save_library_file() {
-                self.show_toast(&e, true);
-                self.pending_flush_notice = Some((self.now, e));
+        if self.lib_file.is_some() {
+            if doc_hash(&self.doc) != self.autosave.saved_hash {
+                if let Err(e) = self.save_library_file() {
+                    self.show_toast(&e, true);
+                    self.pending_flush_notice = Some((self.now, e));
+                }
+            } else {
+                // The edits netted out: the document is what the file holds.
+                self.mark_saved();
             }
         }
         self.autosave.changed_at = None;
@@ -803,7 +809,7 @@ impl App {
         let busy = ctx.input(|i| i.pointer.any_down()) || self.canvas.text.is_some();
         self.reload_external_write(ctx, watched_path, busy);
         self.save_when_settled(ctx, busy);
-        self.track_unsaved_dot(ctx, busy);
+        self.notice_save_outside_library();
         if !busy && self.autosave.changed_at.is_none() && self.autosave.watcher_dirty() {
             // A write was held back while an edit was under way and that edit is over: look at it on the next frame.
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -859,6 +865,7 @@ impl App {
         }
         self.selection = old_sel.into_iter().filter(|id| self.doc.get(*id).is_some()).collect();
         self.changed();
+        self.mark_saved();
         self.autosave.saved_hash = new_hash;
         self.autosave.seen_rev = self.canvas.tiles.rev();
         self.autosave.changed_at = None;
@@ -888,6 +895,8 @@ impl App {
             // Cheap-ish check once the revision settled: did the document really change?
             if doc_hash(&self.doc) == self.autosave.saved_hash {
                 self.autosave.changed_at = None;
+                // The edits netted out (a move and its undo by hand): the document is what the file holds.
+                self.mark_saved();
                 return;
             }
             self.autosave.confirmed = true;
@@ -903,6 +912,7 @@ impl App {
     fn save_unsaved_edits(&mut self) {
         if doc_hash(&self.doc) == self.autosave.saved_hash {
             self.autosave.save_failed_at = None;
+            self.mark_saved();
             return;
         }
         match self.save_library_file() {
@@ -954,6 +964,7 @@ impl App {
                 self.lib_file = Some(new_lf);
                 let window_id = self.tabs.active_session_id();
                 self.terminal.bind_saved_library_file(lib.root(), &e.id, &window_id);
+                self.mark_saved();
                 self.autosave = Autosave { seen_rev: self.canvas.tiles.rev(), saved_hash: doc_hash(&self.doc), ..Default::default() };
                 let disk_path = self.watched_disk_path();
                 self.autosave.disk_mtime = disk_path.as_ref().and_then(|p| std::fs::metadata(p).ok()).and_then(|m| m.modified().ok());

@@ -78,10 +78,9 @@ pub struct ProjectTab {
     pub lib_file: Option<LibFile>,
     pub dev_mode: bool,
     pub pinned: bool,
-    /// The tab has edits that no save has written (its unsaved dot).
+    /// The document was changed by a writer that leaves no undo step, since its last save. The rest of the
+    /// unsaved dot is read from `hist`: see [`tab_is_unsaved`].
     pub dirty: bool,
-    /// Hash of the document as last saved or opened, kept for a document outside the library.
-    pub clean_hash: u64,
 }
 
 impl ProjectTab {
@@ -109,8 +108,7 @@ impl ProjectTab {
             lib_file: app.lib_file.clone(),
             dev_mode: app.ui.dev_mode,
             pinned: false,
-            dirty: app.has_unsaved_edits(),
-            clean_hash: app.autosave.dot.clean_hash(),
+            dirty: app.autosave.dot.flag(),
         }
     }
 
@@ -232,8 +230,7 @@ impl TabsState {
         tab.file_path = app.file_path.clone();
         tab.lib_file = app.lib_file.clone();
         tab.dev_mode = app.ui.dev_mode;
-        tab.dirty = app.has_unsaved_edits();
-        tab.clean_hash = app.autosave.dot.clean_hash();
+        tab.dirty = app.autosave.dot.flag();
     }
 
     /// Moves the live document out of `app` and detaches `app` from its library file in the same step.
@@ -261,7 +258,6 @@ impl TabsState {
             app.stop_plugin();
             app.exit_version_view();
             app.flush_autosave();
-            let unsaved = app.unsaved_now();
             let id = self.alloc_id();
             let sid = self.session_id_for_tab(id);
             let mut tab = ProjectTab::from_app(id, app, None);
@@ -270,8 +266,7 @@ impl TabsState {
             app.terminal.bind_session(&sid);
             tab.terminal = Self::park_terminal(app);
             tab.image_jobs = app.image_jobs.take_for_park();
-            tab.dirty = unsaved;
-            tab.clean_hash = app.autosave.dot.clean_hash();
+            tab.dirty = app.autosave.dot.flag();
             self.entries.push(tab);
             self.active_idx = 0;
             self.hist_in_app = false;
@@ -301,7 +296,6 @@ impl TabsState {
             app.stop_plugin();
             app.exit_version_view();
             app.flush_autosave();
-            let unsaved = app.unsaved_now();
             let active_id = self.entries[self.active_idx].id;
             let sid = self.session_id_for_tab(active_id);
             app.terminal.bind_session(&sid);
@@ -309,8 +303,7 @@ impl TabsState {
             self.entries[self.active_idx].hist = std::mem::take(&mut app.hist);
             self.entries[self.active_idx].terminal = Self::park_terminal(app);
             self.entries[self.active_idx].image_jobs = app.image_jobs.take_for_park();
-            self.entries[self.active_idx].dirty = unsaved;
-            self.entries[self.active_idx].clean_hash = app.autosave.dot.clean_hash();
+            self.entries[self.active_idx].dirty = app.autosave.dot.flag();
             self.hist_in_app = false;
         }
     }
@@ -326,14 +319,14 @@ impl TabsState {
         app.exit_version_view();
         app.flush_autosave();
 
-        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, (tab_dirty, tab_clean_hash)) = {
+        let (mut doc, tab_page, tab_selection, tab_view, tab_file_path, tab_lib_file, tab_dev_mode, tab_kind, tab_dirty) = {
             let tab = &mut self.entries[idx];
             let doc = if tab.doc.nodes.is_empty() && idx == self.active_idx && !app.doc.nodes.is_empty() {
                 std::mem::take(&mut app.doc)
             } else {
                 std::mem::take(&mut tab.doc)
             };
-            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, (tab.dirty, tab.clean_hash))
+            (doc, tab.page, tab.selection.clone(), tab.view, tab.file_path.clone(), tab.lib_file.clone(), tab.dev_mode, tab.kind, tab.dirty)
         };
         crate::io::ensure_page(&mut doc);
         let page = if doc.pages.contains(&tab_page) { tab_page } else { doc.pages[0] };
@@ -343,8 +336,10 @@ impl TabsState {
         app.view = tab_view;
         app.file_path = tab_file_path;
         app.lib_file = tab_lib_file;
-        // The unsaved state a tab had when it was left comes back with its document.
-        app.autosave.dot.adopt(tab_clean_hash, tab_dirty, app.autosave.saved_hash);
+        // The flag a tab had when it was left comes back with its document. The undo history, which holds the
+        // rest of the unsaved state, is handed over by the caller.
+        let save_mark = app.save_mark();
+        app.autosave.dot.adopt(tab_dirty, save_mark);
         app.ui.dev_mode = tab_dev_mode;
         app.renaming_file = false;
         app.hover = None;
@@ -388,7 +383,7 @@ impl TabsState {
         app.image_jobs = std::mem::take(&mut self.entries[idx].image_jobs);
         app.terminal.bind_session(&sid);
         app.terminal.sync_live_file_context(&app.doc, app.page, &app.selection, app.file_path.as_deref());
-        self.entries[idx].dirty = app.has_unsaved_edits();
+        self.entries[idx].dirty = app.autosave.dot.flag();
         self.hist_in_app = true;
     }
 
@@ -560,7 +555,6 @@ impl TabsState {
             dev_mode: false,
             pinned: false,
             dirty: false,
-            clean_hash: 0,
         };
         self.entries.push(tab);
         let new_idx = self.entries.len() - 1;
@@ -856,7 +850,6 @@ impl TabsState {
             dev_mode: copy_dev_mode,
             pinned: false,
             dirty: false,
-            clean_hash: 0,
         };
         let insert_idx = (idx + 1).min(self.entries.len());
         self.entries.insert(insert_idx, new_tab);
@@ -911,10 +904,12 @@ enum TabUiAction {
     NewDeckTab,
 }
 
-/// Whether tab `idx` shows the unsaved dot.
+/// Whether tab `idx` shows the unsaved dot: its document is not at the point on its undo history that was
+/// last saved or opened, or a writer without an undo step changed it. The shown tab reads the live state, a
+/// parked tab the history it took along. Costs nothing: no document is hashed.
 pub(crate) fn tab_is_unsaved(app: &App, idx: usize) -> bool {
     let is_active = app.home.is_none() && idx == app.tabs.active_idx;
-    app.tabs.entries.get(idx).is_some_and(|t| if is_active { app.has_unsaved_edits() } else { t.dirty })
+    app.tabs.entries.get(idx).is_some_and(|t| if is_active { app.has_unsaved_edits() } else { !t.hist.is_clean() || t.dirty })
 }
 
 /// Renders the 1:1 Figma UI3 Top Window Tab Bar (`32px` height) inside `ui`.
@@ -986,6 +981,9 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let tab_id = tab.id;
         let is_active = !is_home && idx == active_idx;
         let is_dirty = tab_is_unsaved(app, idx);
+        if is_active {
+            app.autosave.dot.painted(is_dirty);
+        }
         let tab_w = if tab.pinned && tab.title.len() <= 8 { ideal_w.min(132.0) } else { ideal_w };
         let tab_rect = Rect::from_min_size(Pos2::new(x, bar_rect.top() + 3.0), Vec2::new(tab_w, 26.0));
         if tab_rect.right() > bar_rect.right() - 104.0 {

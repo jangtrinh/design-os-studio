@@ -39,6 +39,8 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
     let keep_page = if new_doc.pages.contains(&app.page) { app.page } else { new_doc.pages[0] };
     app.doc = new_doc;
     app.page = keep_page;
+    // No undo step comes with a whole document, so the history cannot tell this is a change.
+    app.mark_edited_outside_history();
     // Id remaps belong to the document that was replaced. Patches still held were made on the new one.
     app.terminal.live_patch.state = LivePatchState::default();
     app.agent_presence.reset();

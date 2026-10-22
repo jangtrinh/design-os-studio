@@ -1,14 +1,16 @@
 //! The unsaved dot on a tab: it follows what the last save (or the open) wrote, not the undo stack.
 //! A save that did not happen (cancelled dialog, no dialog, write error) keeps the dot.
 //!
-//! The dot is current once the last change settled: every test waits [`SETTLED`] after an edit.
+//! The dot is current a frame or two after the change; every test waits [`SETTLED`] after one.
 
 use super::*;
 use crate::home::Act;
 use crate::io::{DialogOutcome, ScriptedDialogs};
-use designos_doc::{Document, Node, Rect as DRect};
+use designos_doc::{Document, Node, PageHydrator, Rect as DRect};
 use designos_library::Library;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 struct TmpDir(PathBuf);
 
@@ -40,10 +42,6 @@ fn two_rects() -> Document {
     d
 }
 
-fn write_designos(path: &Path) {
-    std::fs::write(path, two_rects().to_json().unwrap()).unwrap();
-}
-
 /// A sim on the library's seeded "Welcome" file, tab bar shown.
 fn library_sim() -> (Sim, TmpDir) {
     let dir = TmpDir::new();
@@ -60,9 +58,13 @@ fn library_sim() -> (Sim, TmpDir) {
 
 /// A sim on a `.designos` file outside the library.
 fn external_sim() -> (Sim, TmpDir, PathBuf) {
+    external_sim_with(&two_rects())
+}
+
+fn external_sim_with(doc: &Document) -> (Sim, TmpDir, PathBuf) {
     let dir = TmpDir::new();
     let path = dir.0.join("outside.designos");
-    write_designos(&path);
+    std::fs::write(&path, doc.to_json().unwrap()).unwrap();
     let mut s = Sim::with(Options { file: Some(path.clone()), library: Some(dir.0.join("lib")), ..Default::default() });
     s.shell.app.tabs.always_visible = true;
     wait(&mut s, SETTLED);
@@ -252,13 +254,17 @@ fn viewing_the_canvas_never_lights_the_dot() {
     edit(&mut s);
     s.cmd_key(Key::S);
     wait(&mut s, SETTLED);
+    let rev = s.app().canvas.tiles.rev();
     s.shell.app.zoom_to(2.0);
     wait(&mut s, SETTLED);
+    assert_eq!(s.app().canvas.tiles.rev(), rev, "a zoom is not a change of the document");
     assert!(!dot(&s), "a zoom changes no layer");
 
     let (mut s, _d) = library_sim();
+    let rev = s.app().canvas.tiles.rev();
     s.shell.app.zoom_to(2.0);
     wait(&mut s, SETTLED);
+    assert_eq!(s.app().canvas.tiles.rev(), rev, "a zoom is not a change of the document");
     assert!(!dot(&s), "a zoom changes no layer");
 }
 
@@ -339,12 +345,15 @@ fn opening_a_library_file_never_flashes_the_dot() {
     s.shell.app.tabs.always_visible = true;
     let id = s.app().home.as_ref().unwrap().snap.files[0].id.clone();
     crate::home::apply(&mut s.shell.app, Act::Open(id));
+    let mut checked = 0;
     for _ in 0..30 {
         s.frame(vec![]);
         if !s.app().tabs.entries.is_empty() {
             assert!(!dot(&s), "at {:.2}s after the open", s.t);
+            checked += 1;
         }
     }
+    assert!(checked >= 20, "the dot was looked at in {checked} of 30 frames");
     assert_eq!(s.app().autosave.saves, 0, "nothing was rewritten");
 }
 
@@ -363,4 +372,237 @@ fn the_dot_stays_lit_while_a_drag_holds_the_next_save_back() {
     s.one_frame().move_to(p).release().send();
     wait(&mut s, 3.0);
     assert!(!dot(&s), "autosave wrote it once the pointer was up");
+}
+
+/// `n` rectangles on page 1 and an empty page 2, which is the page a hydrator fills on its first visit.
+fn two_page_doc(n: usize) -> (Document, NodeId) {
+    let mut d = Document::new("Pages");
+    let p1 = d.add_page("P1");
+    for i in 0..n {
+        let id = d.alloc_id();
+        d.insert(p1, Node::rectangle(id, DRect::new((i % 100) as f32 * 6.0, (i / 100) as f32 * 6.0, 5.0, 5.0))).unwrap();
+    }
+    let p2 = d.add_page("P2");
+    (d, p2)
+}
+
+/// Models the deferred pages of a big `.fig`: the first visit to `page` adds a node to it.
+#[derive(Debug)]
+struct OneNodeHydrator {
+    page: NodeId,
+    done: bool,
+}
+
+impl PageHydrator for OneNodeHydrator {
+    fn hydrate_page(&mut self, doc: &mut Document, page: NodeId) -> bool {
+        if page != self.page || self.done {
+            return false;
+        }
+        self.done = true;
+        let id = doc.alloc_id();
+        doc.insert(page, Node::rectangle(id, DRect::new(0.0, 0.0, 10.0, 10.0))).is_ok()
+    }
+    fn hydrate_all(&mut self, doc: &mut Document) -> bool {
+        let page = self.page;
+        self.hydrate_page(doc, page)
+    }
+    fn is_hydrated(&self, page: NodeId) -> bool {
+        page != self.page || self.done
+    }
+}
+
+#[test]
+fn visiting_a_page_after_a_save_does_not_light_the_dot() {
+    // 14 nodes take the full content hash, 5,100 the cheap epoch hash: neither may see the page visit as an edit
+    for n in [10, 5100] {
+        let (doc, page2) = two_page_doc(n);
+        let (mut s, _d, _path) = external_sim_with(&doc);
+        s.shell.app.doc.page_hydrator = Some(Arc::new(Mutex::new(OneNodeHydrator { page: page2, done: false })));
+        edit(&mut s);
+        s.cmd_key(Key::S);
+        wait(&mut s, SETTLED);
+        assert!(!dot(&s), "saved ({n} rects)");
+        let (nodes, depth) = (s.app().doc.nodes.len(), s.app().hist.undo_depth());
+        s.shell.app.switch_page(page2);
+        wait(&mut s, SETTLED);
+        assert!(s.app().doc.nodes.len() > nodes, "the page was expanded ({n} rects)");
+        assert_eq!(s.app().hist.undo_depth(), depth, "no undo step: not an edit ({n} rects)");
+        assert!(!dot(&s), "a page visit is not an edit ({n} rects)");
+    }
+}
+
+#[test]
+fn undoing_back_to_the_saved_state_clears_the_dot_on_a_big_document() {
+    let (doc, _page2) = two_page_doc(5100);
+    let (mut s, _d, _path) = external_sim_with(&doc);
+    edit(&mut s);
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    edit(&mut s);
+    assert!(dot(&s));
+    s.shell.app.undo();
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s), "back at the saved state, whatever the document size");
+    s.shell.app.undo();
+    wait(&mut s, SETTLED);
+    assert!(dot(&s), "past it");
+}
+
+#[test]
+fn undoing_to_the_saved_state_and_editing_again_is_not_the_saved_document() {
+    let (mut s, _d, _path) = external_sim();
+    edit(&mut s);
+    edit(&mut s);
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    s.shell.app.undo();
+    // a different edit takes the place of the saved step: the same depth, another document
+    edit(&mut s);
+    assert!(dot(&s));
+    s.shell.app.undo();
+    s.shell.app.redo();
+    wait(&mut s, SETTLED);
+    assert!(dot(&s), "the saved state cannot be reached again");
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s));
+}
+
+#[test]
+fn an_agent_that_replaces_the_document_lights_the_dot_until_the_next_save() {
+    let (mut s, _d, _path) = external_sim();
+    let mut replaced = s.app().doc.clone();
+    replaced.name = "Agent version".into();
+    s.shell.app.terminal.live_patch.pending_doc = Some(replaced);
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().doc.name, "Agent version", "the agent's document is on screen");
+    assert_eq!(s.app().hist.undo_depth(), 0, "no undo step came with it");
+    assert!(dot(&s), "it is not in the file");
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    assert!(!dot(&s));
+}
+
+/// Runs frames until `done` holds and returns the repaint requests of that last frame.
+fn repaints_of_the_frame_where(s: &mut Sim, done: impl Fn(&Sim) -> bool) -> Vec<Duration> {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let log_in_callback = log.clone();
+    s.ctx.set_request_repaint_callback(move |info| log_in_callback.lock().unwrap().push(info.delay));
+    for _ in 0..200 {
+        log.lock().unwrap().clear();
+        s.frame(vec![]);
+        if done(s) {
+            return log.lock().unwrap().clone();
+        }
+    }
+    panic!("the condition never held");
+}
+
+#[test]
+fn autosave_clearing_the_dot_asks_for_the_repaint_that_shows_it() {
+    // the tab bar is drawn before autosave runs: without a request of its own the old dot stays until an input arrives
+    let (mut s, _d) = library_sim();
+    edit(&mut s);
+    assert!(dot(&s));
+    let saves = s.app().autosave.saves;
+    let requests = repaints_of_the_frame_where(&mut s, |s| s.app().autosave.saves > saves);
+    assert!(!s.app().has_unsaved_edits(), "autosave wrote the edit");
+    assert!(requests.contains(&Duration::ZERO), "an immediate repaint is asked for in the frame that clears the dot: {requests:?}");
+    s.frame(vec![]);
+    assert!(!dot(&s));
+}
+
+/// The repaint requests made while `act` runs its frames.
+fn repaints_during(s: &mut Sim, act: impl FnOnce(&mut Sim)) -> Vec<Duration> {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let log_in_callback = log.clone();
+    s.ctx.set_request_repaint_callback(move |info| log_in_callback.lock().unwrap().push(info.delay));
+    act(s);
+    let requests = log.lock().unwrap().clone();
+    requests
+}
+
+#[test]
+fn undoing_to_the_saved_state_asks_for_the_repaint_that_shows_it() {
+    let (mut s, _d, _path) = external_sim();
+    edit(&mut s);
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    edit(&mut s);
+    assert!(dot(&s));
+    // Ctrl+Z is handled after the tab bar was drawn: the frame that clears the dot has already painted it
+    let requests = repaints_during(&mut s, |s| s.cmd_key(Key::Z));
+    assert!(!s.app().has_unsaved_edits());
+    assert!(requests.contains(&Duration::ZERO), "an immediate repaint is asked for: {requests:?}");
+}
+
+#[test]
+fn saving_asks_for_the_repaint_that_shows_the_clean_tab() {
+    let (mut s, _d, _path) = external_sim();
+    edit(&mut s);
+    assert!(dot(&s));
+    let requests = repaints_during(&mut s, |s| s.cmd_key(Key::S));
+    assert!(!s.app().has_unsaved_edits());
+    assert!(requests.contains(&Duration::ZERO), "an immediate repaint is asked for: {requests:?}");
+}
+
+#[test]
+fn a_held_dot_asks_for_no_repaint_so_an_idle_window_stays_idle() {
+    let (mut s, _d) = library_sim();
+    edit(&mut s);
+    wait(&mut s, 3.0);
+    let requests = repaints_of_the_frame_where(&mut s, |_| true);
+    assert!(requests.is_empty(), "a saved library file left alone asks for nothing: {requests:?}");
+
+    // a document outside the library has one timed wake-up of its own (the disk watcher's); the dot adds no repaint
+    let (mut s, _d, _path) = external_sim();
+    edit(&mut s);
+    let requests = repaints_of_the_frame_where(&mut s, |_| true);
+    assert!(!requests.contains(&Duration::ZERO), "an unsaved document left alone asks for no immediate repaint: {requests:?}");
+}
+
+#[test]
+fn switching_back_to_an_unedited_library_tab_never_lights_the_dot() {
+    let (mut s, _d) = library_sim();
+    let a = s.app().lib_file.as_ref().unwrap().clone();
+    let b = lib(&s).create_file(&a.project_id, None, "Second", &two_rects()).unwrap();
+    s.shell.app.go_home();
+    wait(&mut s, SETTLED);
+    crate::home::apply(&mut s.shell.app, Act::Open(b.id.clone()));
+    wait(&mut s, 3.0);
+    assert_eq!(s.app().tabs.entries.len(), 2);
+    let first = s.app().tabs.entries.iter().position(|t| t.lib_file.as_ref().is_some_and(|f| f.id == a.id)).unwrap();
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(first, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    let end = s.t + 3.0;
+    while s.t < end {
+        s.frame(vec![]);
+        assert!(!dot(&s), "an unedited file shows no dot, at {:.2}s after the switch", s.t);
+    }
+}
+
+#[test]
+fn edits_that_net_out_on_a_library_file_leave_no_dot_and_no_rewrite() {
+    let (mut s, _d) = library_sim();
+    let id = s.app().lib_file.as_ref().unwrap().id.clone();
+    let modified = lib(&s).file(&id).unwrap().modified;
+    // rename a layer and rename it back by hand: two undo steps, the document as it was
+    let app = &mut s.shell.app;
+    let first = app.doc.get(app.page).unwrap().children[0];
+    let original = app.doc.get(first).unwrap().clone();
+    let mut renamed = original.clone();
+    renamed.name = "Something else".into();
+    app.hist.exec(&mut app.doc, designos_doc::Command::Update { node: Box::new(renamed) }).unwrap();
+    app.changed();
+    wait(&mut s, 0.1);
+    assert!(dot(&s), "an edit");
+    let app = &mut s.shell.app;
+    app.hist.exec(&mut app.doc, designos_doc::Command::Update { node: Box::new(original) }).unwrap();
+    app.changed();
+    wait(&mut s, 3.0);
+    assert_eq!(s.app().hist.undo_depth(), 2);
+    assert!(!dot(&s), "the file holds exactly this document");
+    assert_eq!(s.app().autosave.saves, 0, "nothing needed writing");
+    assert_eq!(lib(&s).file(&id).unwrap().modified, modified);
 }
