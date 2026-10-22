@@ -1187,6 +1187,14 @@ pub fn resolve_colour_ref(
     })
 }
 
+/// Cuts the links between a node's fill paints and what colours them from outside: every `fills/*`
+/// variable binding (the colour, its opacity and its stops) and the linked Fill style. Call it where the
+/// paints are replaced by a literal colour, so what is drawn is the colour that was written.
+pub fn detach_fill_paints(node: &mut Node) {
+    node.variables.bindings.retain(|key, _| !key.starts_with("fills/"));
+    node.style_refs.remove("fill");
+}
+
 /// Binds a variable ID to `prop_keys` on `node_id` in `doc` and writes the resolved value via [`set_bound_property`].
 pub fn apply_variable_binding(
     doc: &mut Document,
@@ -2088,5 +2096,20 @@ mod tests {
         assert_eq!(drawn_text.style.fills, light, "the token resolves to the same light grey");
         let badge = doc.get(NodeId(report.name_to_id["Panel/Badge"])).unwrap();
         assert_eq!(text_fills_of(&doc, badge.children[0]), vec![Paint::solid(Color::rgb(0x10, 0xB9, 0x81))]);
+    }
+    #[test]
+    fn detach_fill_paints_drops_every_fill_binding_and_the_fill_style_link_only() {
+        let mut node = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
+        for (key, var) in [("fills/0", "a"), ("fills/0/opacity", "b"), ("fills/1", "c"), ("strokes/0", "d"), ("width", "e")] {
+            node.variables.bindings.insert(key.to_string(), var.to_string());
+        }
+        node.style_refs.insert("fill".to_string(), "s_fill".to_string());
+        node.style_refs.insert("stroke".to_string(), "s_stroke".to_string());
+
+        detach_fill_paints(&mut node);
+
+        let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
+        assert_eq!(left, ["strokes/0", "width"]);
+        assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["stroke"]);
     }
 }

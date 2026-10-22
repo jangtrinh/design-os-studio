@@ -1115,8 +1115,7 @@ impl Document {
                 match resolved {
                     ResolvedColourRef::NoneOrTransparent => {
                         if let Some(n) = self.get_mut(id) {
-                            n.variables.bindings.remove("fills/0");
-                            n.style_refs.remove("fill");
+                            crate::detach_fill_paints(n);
                             if let NodeKind::Text(tp) = &mut n.kind {
                                 tp.style.fills.clear();
                             }
@@ -1124,8 +1123,7 @@ impl Document {
                     }
                     ResolvedColourRef::Literal(c) => {
                         if let Some(n) = self.get_mut(id) {
-                            n.variables.bindings.remove("fills/0");
-                            n.style_refs.remove("fill");
+                            crate::detach_fill_paints(n);
                             if let NodeKind::Text(tp) = &mut n.kind {
                                 tp.style.fills = vec![Paint::solid(c)];
                             }
@@ -1155,15 +1153,13 @@ impl Document {
             match resolved {
                 ResolvedColourRef::NoneOrTransparent => {
                     if let Some(n) = self.get_mut(id) {
-                        n.variables.bindings.remove("fills/0");
-                        n.style_refs.remove("fill");
+                        crate::detach_fill_paints(n);
                         n.fills.clear();
                     }
                 }
                 ResolvedColourRef::Literal(c) => {
                     if let Some(n) = self.get_mut(id) {
-                        n.variables.bindings.remove("fills/0");
-                        n.style_refs.remove("fill");
+                        crate::detach_fill_paints(n);
                         n.fills = vec![Paint::solid(c)];
                     }
                 }

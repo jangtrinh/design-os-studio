@@ -59,12 +59,15 @@ pub(crate) fn validate_fill_color(fill: Option<&str>) -> Result<Option<Paint>, T
     Ok(Some(Paint::solid(c)))
 }
 
-/// Sets the paints `node` is drawn with.
+/// Sets the paints `node` is drawn with, and cuts the variable bindings and the fill style link of the
+/// paints it replaces, as `apply_spec` does for a literal colour. Left in place they would be applied
+/// over the new paints, so the canvas would keep drawing the old colour.
 ///
 /// Every renderer reads a text node's colour from its text style (`style.fills`, and each run's), never from
 /// `Node::fills`, so a text node takes the paints there and keeps none of its own. This is the rule
 /// `designos_doc::apply_style_values` follows when a colour style is applied to text.
 pub(crate) fn set_node_fills(node: &mut Node, paints: Vec<Paint>) {
+    designos_doc::detach_fill_paints(node);
     match &mut node.kind {
         NodeKind::Text(t) => {
             for run in &mut t.runs {
