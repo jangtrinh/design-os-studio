@@ -722,6 +722,23 @@ mod tests {
     }
 
     #[test]
+    fn a_very_long_layer_name_still_saves_to_the_fallback_folder() {
+        use crate::io::{DialogOutcome, ScriptedDialogs};
+        let dir = scratch_dir("long_name");
+        let (mut app, a, b) = named_rects_with_png_rows();
+        app.doc.get_mut(a).unwrap().name = "a".repeat(300);
+        app.doc.get_mut(b).unwrap().name = "b".repeat(300);
+        for ids in [vec![a], vec![a, b]] {
+            run_export_with(&mut app, &ids, &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+            assert!(toast_of(&app).unwrap().0.starts_with("No save dialog. Saved"), "{:?}", toast_of(&app));
+        }
+        let names = files_in(&dir);
+        assert_eq!(names.len(), 3, "one file, then two more: {names:?}");
+        assert!(names.iter().all(|n| n.len() <= 255 && n.ends_with(".png")), "{names:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn export_without_a_dialog_or_a_fallback_folder_still_says_so() {
         use crate::io::{DialogOutcome, ScriptedDialogs};
         let (mut app, a, b) = named_rects_with_png_rows();

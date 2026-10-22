@@ -80,6 +80,22 @@ fn export_selection_fallback_keeps_a_layer_name_inside_the_folder() {
 }
 
 #[test]
+fn export_selection_fallback_saves_a_layer_with_a_very_long_name() {
+    let dir = scratch_dir("export_long_name");
+    for (label, name) in [("ascii", "a".repeat(300)), ("wide", "界".repeat(300))] {
+        let mut app = app_with_selected_layer(&name);
+        app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let (text, error) = toast_of(&app).unwrap();
+        assert!(text.starts_with("No save dialog. Saved to "), "{label}: {text}");
+        assert!(error);
+    }
+    let names = files_in(&dir);
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(names.iter().all(|n| n.len() <= 255 && n.ends_with(".png")), "{names:?}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn export_selection_without_a_dialog_or_a_fallback_folder_still_says_so() {
     let mut app = app_with_selected_layer("Frame 1");
     app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable));
@@ -250,11 +266,24 @@ mod other_dialog_sites {
     }
 
     #[test]
-    fn asset_download_says_so_and_writes_nothing() {
+    fn asset_download_without_a_dialog_saves_to_the_fallback_folder_and_says_so() {
+        let dir = scratch_dir("asset_unavailable");
+        let mut app = app_with_selected_layer("Frame 1");
+        let id = app.selection[0];
+        let dialogs = ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone());
+        crate::panels::inspect::download_with(&mut app, id, &crate::panels::inspect::Asset::Svg, &dialogs);
+        let saved = dir.join("Frame 1.svg");
+        assert!(std::fs::read_to_string(&saved).unwrap().contains("<svg"), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn asset_download_without_a_dialog_or_a_fallback_folder_says_so() {
         let mut app = app_with_selected_layer("Frame 1");
         let id = app.selection[0];
         crate::panels::inspect::download_with(&mut app, id, &crate::panels::inspect::Asset::Svg, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
-        assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert_eq!(toast_of(&app), Some(("No save dialog. No Downloads or home folder found.".to_string(), true)));
     }
 
     #[test]
@@ -266,10 +295,21 @@ mod other_dialog_sites {
     }
 
     #[test]
-    fn the_deck_pdf_export_says_so_and_writes_nothing() {
+    fn the_deck_pdf_export_without_a_dialog_saves_to_the_fallback_folder_and_says_so() {
+        let dir = scratch_dir("deck_unavailable");
+        let mut app = App::new(crate::decks::new_document("Talk"));
+        app.export_deck_pdf_with(true, &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let saved = dir.join("Talk.pdf");
+        assert!(std::fs::read(&saved).unwrap().starts_with(b"%PDF-"), "{:?}", files_in(&dir));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_deck_pdf_export_without_a_dialog_or_a_fallback_folder_says_so() {
         let mut app = App::new(crate::decks::new_document("Talk"));
         app.export_deck_pdf_with(true, &ScriptedDialogs::answering(DialogOutcome::Unavailable));
-        assert_eq!(toast_of(&app), Some((NO_FILE_DIALOG.to_string(), true)));
+        assert_eq!(toast_of(&app), Some(("No save dialog. No Downloads or home folder found.".to_string(), true)));
     }
 
     #[test]
@@ -289,7 +329,7 @@ fn repo_file(relative: &str) -> String {
 fn the_deb_recommends_a_dialog_backend() {
     let package = repo_file("scripts/package.sh");
     let control = package.lines().filter(|l| l.starts_with("Depends:") || l.starts_with("Recommends:")).collect::<Vec<_>>();
-    assert!(control.contains(&"Recommends: xdg-desktop-portal | zenity"), "{control:?}");
+    assert!(control.contains(&"Recommends: zenity | xdg-desktop-portal"), "{control:?}");
 }
 
 #[test]
@@ -297,4 +337,5 @@ fn the_linux_install_docs_say_what_the_file_dialog_needs() {
     let install = repo_file("docs/install.md");
     let linux = install.split("## 3. Linux").nth(1).and_then(|rest| rest.split("\n## 4.").next()).expect("a Linux section");
     assert!(linux.contains("xdg-desktop-portal") && linux.contains("zenity"), "{linux}");
+    assert!(linux.contains("`zenity | xdg-desktop-portal`"), "the doc states the same order as the package: {linux}");
 }

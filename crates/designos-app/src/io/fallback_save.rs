@@ -19,17 +19,34 @@ pub fn fallback_dir_in(home: &Path) -> PathBuf {
     }
 }
 
+const MAX_STEM_CHARS: usize = 100;
+/// With the extension and a ` 10000` suffix this stays under the 255-byte file name limit of common file systems.
+const MAX_STEM_BYTES: usize = 200;
+/// A longer tail after the last dot is part of the name, not an extension.
+const MAX_EXTENSION_BYTES: usize = 16;
+
+/// The first [`MAX_STEM_CHARS`] characters of `stem`, and at most [`MAX_STEM_BYTES`] bytes, cut on a character boundary.
+fn cut_stem(stem: &str) -> String {
+    let mut cut: String = stem.chars().take(MAX_STEM_CHARS).collect();
+    while cut.len() > MAX_STEM_BYTES {
+        cut.pop();
+    }
+    cut
+}
+
 /// Writes `bytes` to `dir/file_name`, or to the first free `name 2.ext`, `name 3.ext`, ... Never replaces a file.
 /// The name is cleaned first, so a layer called `../x` stays inside `dir`.
 pub fn write_new_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
     let clean = designos_export::sanitize_file_name(file_name);
     let (stem, ext) = match clean.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), Some(ext.to_string())),
-        _ => (clean.clone(), None),
+        Some((stem, ext)) if !stem.is_empty() && ext.len() <= MAX_EXTENSION_BYTES => (stem, Some(ext)),
+        _ => (clean.as_str(), None),
     };
+    let stem = cut_stem(stem);
     for n in 1..=10_000u32 {
-        let name = match (n, &ext) {
-            (1, _) => clean.clone(),
+        let name = match (n, ext) {
+            (1, Some(ext)) => format!("{stem}.{ext}"),
+            (1, None) => stem.clone(),
             (_, Some(ext)) => format!("{stem} {n}.{ext}"),
             (_, None) => format!("{stem} {n}"),
         };
@@ -46,7 +63,7 @@ pub fn write_new_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Resul
             Err(e) => return Err(e),
         }
     }
-    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("too many files named {clean}")))
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("too many files named {stem}")))
 }
 
 #[cfg(test)]
@@ -111,6 +128,45 @@ mod tests {
         let dir = scratch("escape");
         let path = write_new_in(&dir, "../../evil.png", b"x").unwrap();
         assert_eq!(path.parent(), Some(dir.as_path()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_long_name_is_cut_to_fit_the_file_system() {
+        let dir = scratch("long_ascii");
+        let path = write_new_in(&dir, &format!("{}.png", "a".repeat(300)), b"x").unwrap();
+        let file = path.file_name().unwrap().to_str().unwrap();
+        assert_eq!(file, format!("{}.png", "a".repeat(100)), "the stem keeps its first 100 characters");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_long_name_of_wide_characters_is_cut_on_a_character_boundary_within_the_byte_limit() {
+        let dir = scratch("long_wide");
+        let path = write_new_in(&dir, &format!("{}.png", "界".repeat(300)), b"x").unwrap();
+        let file = path.file_name().unwrap().to_str().unwrap();
+        assert!(file.ends_with(".png") && file.chars().filter(|c| *c == '界').count() >= 60, "{file}");
+        assert!(file.len() <= 255 - " 10000".len(), "{} bytes leaves no room for a number: {file}", file.len());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_long_tail_after_a_dot_is_not_kept_as_an_extension() {
+        let dir = scratch("long_tail");
+        let path = write_new_in(&dir, &format!("v1.{}", "x".repeat(300)), b"x").unwrap();
+        assert!(path.file_name().unwrap().len() <= 255);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cut_name_still_never_overwrites() {
+        let dir = scratch("long_twice");
+        let name = format!("{}.png", "b".repeat(300));
+        let first = write_new_in(&dir, &name, b"first").unwrap();
+        let second = write_new_in(&dir, &name, b"second").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(&first).unwrap(), b"first");
+        assert_eq!(second.file_name().unwrap().to_str().unwrap(), format!("{} 2.png", "b".repeat(100)));
         std::fs::remove_dir_all(&dir).ok();
     }
 

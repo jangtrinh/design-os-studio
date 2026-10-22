@@ -5,7 +5,7 @@
 //! cancel and says so on a failure. Callers take `&dyn FileDialogs`, so tests drive every outcome
 //! without a real dialog.
 
-use super::dialog_probe::{classify, dialog_backend_present};
+use super::dialog_probe::dialog_outcome;
 use super::fallback_save::{fallback_dir_in, user_home, write_new_in};
 use crate::app::App;
 use std::path::PathBuf;
@@ -78,11 +78,11 @@ pub struct SystemDialogs;
 
 impl FileDialogs for SystemDialogs {
     fn pick(&self, request: &FileRequest) -> DialogOutcome {
-        classify(show_with_rfd(request), dialog_backend_present)
+        dialog_outcome(|| show_with_rfd(request))
     }
 
     fn pick_many(&self, request: &FileRequest) -> DialogOutcome<Vec<PathBuf>> {
-        classify(rfd_dialog(request).pick_files(), dialog_backend_present)
+        dialog_outcome(|| rfd_dialog(request).pick_files())
     }
 
     fn fallback_dir(&self) -> Option<PathBuf> {

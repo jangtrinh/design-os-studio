@@ -51,8 +51,18 @@ impl App {
             safe_filename(&format!("{} - {slide}", self.doc.name))
         };
         crate::canvas::interact::finish_text(self, true);
-        let outcome = dialogs.pick(&crate::io::FileRequest::save(format!("{name}.pdf")).filter("PDF document", &["pdf"]));
-        let Some(path) = self.picked_path(outcome) else { return };
+        let file = format!("{name}.pdf");
+        let path = match dialogs.pick(&crate::io::FileRequest::save(file.as_str()).filter("PDF document", &["pdf"])) {
+            crate::io::DialogOutcome::Picked(path) => path,
+            crate::io::DialogOutcome::Cancelled => return,
+            crate::io::DialogOutcome::Unavailable => {
+                match self.deck_pdf_bytes(all) {
+                    Ok(bytes) => self.save_without_dialog(dialogs, &file, &bytes),
+                    Err(error) => self.show_toast(error, true),
+                }
+                return;
+            }
+        };
         let result = self.deck_pdf_bytes(all).and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| format!("Cannot save the PDF: {error}")));
         match result {
             Ok(()) => self.show_toast(format!("Exported {} {} to {}", slides.len(), if slides.len() == 1 { "slide" } else { "slides" }, path.display()), false),

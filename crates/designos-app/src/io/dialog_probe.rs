@@ -1,28 +1,43 @@
 //! Tells a cancelled file dialog from one that could not open.
 //!
 //! `rfd` answers `None` for both. On Linux a dialog needs `zenity` or an xdg-desktop-portal with a
-//! FileChooser backend; when neither is installed every `None` is a failure, not a cancel. The probe reads
-//! only the file system, so it never blocks on D-Bus, and it leans toward "present": a wrong "present"
-//! keeps the old silent cancel, while a wrong "absent" would write a file after a real cancel.
+//! FileChooser backend, and two signals mark a `None` as a failure:
+//! - the dialog returned in under [`MIN_HUMAN_DIALOG`]: a real dialog stays open until a person acts;
+//! - the file-system probe finds neither `zenity` nor a portal backend. It never blocks on D-Bus, and it
+//!   leans toward "present": a wrong "present" keeps the old silent cancel, while a wrong "absent" would
+//!   write a file after a real cancel.
 
 use super::file_dialog::DialogOutcome;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 const FILE_CHOOSER_INTERFACE: &str = "org.freedesktop.impl.portal.FileChooser";
 
-/// Maps what `rfd` returned to an outcome. `backend_present` runs only when nothing was picked.
-pub fn classify<T>(picked: Option<T>, backend_present: impl FnOnce() -> bool) -> DialogOutcome<T> {
+/// Runs `show` and maps what it returned to an outcome. `backend_present` runs only when nothing was picked.
+pub fn classify<T>(show: impl FnOnce() -> Option<T>, clock: impl Fn() -> Instant, backend_present: impl FnOnce() -> bool) -> DialogOutcome<T> {
+    let started = clock();
+    let picked = show();
+    let elapsed = clock().saturating_duration_since(started);
     match picked {
         Some(value) => DialogOutcome::Picked(value),
-        None if backend_present() => DialogOutcome::Cancelled,
-        None => DialogOutcome::Unavailable,
+        // Two signals, either one is enough: no human acts that fast, or nothing on disk could show a dialog.
+        // The first also catches a portal file left behind with no service running.
+        None if elapsed < MIN_HUMAN_DIALOG || !backend_present() => DialogOutcome::Unavailable,
+        None => DialogOutcome::Cancelled,
     }
 }
 
-/// Whether this machine can show a native file dialog. Only Linux can lack one.
-pub fn dialog_backend_present() -> bool {
-    !cfg!(target_os = "linux") || ProbeEnv::from_process().backend_present()
+/// A dialog that returns nothing sooner than this never showed: a person cannot see it and cancel it that fast.
+pub const MIN_HUMAN_DIALOG: Duration = Duration::from_millis(300);
+
+/// Runs a native file dialog and tells a cancel from a dialog that could not open. Only Linux can lack a
+/// dialog, so everywhere else a dialog that returns nothing is a cancel.
+pub fn dialog_outcome<T>(show: impl FnOnce() -> Option<T>) -> DialogOutcome<T> {
+    if !cfg!(target_os = "linux") {
+        return show().map_or(DialogOutcome::Cancelled, DialogOutcome::Picked);
+    }
+    classify(show, Instant::now, || ProbeEnv::from_process().backend_present())
 }
 
 /// Where a Linux dialog backend could live.
@@ -109,20 +124,62 @@ mod tests {
         std::fs::set_permissions(bin.join("zenity"), std::fs::Permissions::from_mode(mode)).unwrap();
     }
 
+    /// A clock that reads `start` first and `start + elapsed` after, so a dialog appears to take `elapsed`.
+    fn clock_taking(elapsed: Duration) -> impl Fn() -> Instant {
+        let start = Instant::now();
+        let reads = std::cell::Cell::new(0u32);
+        move || {
+            reads.set(reads.get() + 1);
+            if reads.get() == 1 {
+                start
+            } else {
+                start + elapsed
+            }
+        }
+    }
+
+    const FAST: Duration = Duration::from_millis(50);
+    const HUMAN: Duration = Duration::from_secs(2);
+
     #[test]
     fn nothing_picked_and_no_backend_is_unavailable() {
-        assert_eq!(classify::<PathBuf>(None, || false), DialogOutcome::Unavailable);
+        assert_eq!(classify::<PathBuf>(|| None, clock_taking(HUMAN), || false), DialogOutcome::Unavailable);
     }
 
     #[test]
-    fn nothing_picked_with_a_backend_is_a_cancel() {
-        assert_eq!(classify::<PathBuf>(None, || true), DialogOutcome::Cancelled);
+    fn nothing_picked_after_a_person_could_have_acted_with_a_backend_is_a_cancel() {
+        assert_eq!(classify::<PathBuf>(|| None, clock_taking(HUMAN), || true), DialogOutcome::Cancelled);
+    }
+
+    #[test]
+    fn nothing_picked_at_once_is_unavailable_even_when_the_probe_sees_a_backend() {
+        // A stale portal file with no running service answers instantly; nobody cancels a dialog in 50 ms.
+        assert_eq!(classify::<PathBuf>(|| None, clock_taking(FAST), || true), DialogOutcome::Unavailable);
+    }
+
+    #[test]
+    fn the_cutoff_is_exact() {
+        let just_under = MIN_HUMAN_DIALOG - Duration::from_millis(1);
+        assert_eq!(classify::<PathBuf>(|| None, clock_taking(just_under), || true), DialogOutcome::Unavailable);
+        assert_eq!(classify::<PathBuf>(|| None, clock_taking(MIN_HUMAN_DIALOG), || true), DialogOutcome::Cancelled);
+    }
+
+    #[test]
+    fn a_pick_is_a_pick_however_fast() {
+        assert_eq!(classify(|| Some(PathBuf::from("/a.png")), clock_taking(FAST), || false), DialogOutcome::Picked(PathBuf::from("/a.png")));
     }
 
     #[test]
     fn a_pick_never_runs_the_probe() {
-        let picked = classify(Some(PathBuf::from("/a.png")), || panic!("the probe must not run after a pick"));
+        let picked = classify(|| Some(PathBuf::from("/a.png")), clock_taking(HUMAN), || panic!("the probe must not run after a pick"));
         assert_eq!(picked, DialogOutcome::Picked(PathBuf::from("/a.png")));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn off_linux_a_dialog_that_returns_nothing_is_always_a_cancel() {
+        assert_eq!(dialog_outcome::<PathBuf>(|| None), DialogOutcome::Cancelled);
+        assert_eq!(dialog_outcome(|| Some(PathBuf::from("/a.png"))), DialogOutcome::Picked(PathBuf::from("/a.png")));
     }
 
     #[test]

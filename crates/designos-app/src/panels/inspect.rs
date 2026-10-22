@@ -291,8 +291,14 @@ pub(crate) fn download_with(app: &mut App, id: NodeId, asset: &Asset, dialogs: &
         app.show_toast("Nothing to download", true);
         return;
     }
-    let outcome = dialogs.pick(&crate::io::FileRequest::save(file).filter(label, &[ext]));
-    let Some(path) = app.picked_path(outcome) else { return };
+    let path = match dialogs.pick(&crate::io::FileRequest::save(file.as_str()).filter(label, &[ext])) {
+        crate::io::DialogOutcome::Picked(path) => path,
+        crate::io::DialogOutcome::Cancelled => return,
+        crate::io::DialogOutcome::Unavailable => {
+            app.save_without_dialog(dialogs, &file, &bytes);
+            return;
+        }
+    };
     match std::fs::write(&path, bytes) {
         Ok(()) => app.show_toast(format!("Saved {}", path.display()), false),
         Err(e) => app.show_toast(format!("Download failed: {e}"), true),
