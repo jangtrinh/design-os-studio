@@ -94,9 +94,17 @@ pub struct Options {
     /// With `--screenshot`: never paint transient toasts (e.g. "Opened <file>") into the capture.
     pub no_toast: bool,
     pub help: bool,
+    /// `--version` / `-V`: print the release version and exit.
+    pub version: bool,
 }
 
 impl Options {
+    /// Whether this run may create the file argument instead of reading it: the three agent commands that write a
+    /// new document into a path that is not there yet.
+    pub fn creates_missing_file(&self) -> bool {
+        self.apply_spec.is_some() || self.import_capture.is_some() || self.import_variables.is_some()
+    }
+
     /// Whether this invocation runs a headless Agent CLI command and exits without opening a window.
     pub fn is_agent_cli(&self) -> bool {
         self.inspect_json
@@ -311,6 +319,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
                 o.format = Some(f);
             }
             "-h" | "--help" => o.help = true,
+            "-V" | "--version" => o.version = true,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             _ => {
                 if o.file.is_some() {
@@ -323,7 +332,20 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
     Ok(o)
 }
 
+/// What `--version` prints: the binary's name and the version of the release it was built from.
+pub fn version_line() -> String {
+    format!("{} {}", option_env!("CARGO_BIN_NAME").unwrap_or("designos"), env!("CARGO_PKG_VERSION"))
+}
+
+/// The line to print when the FILE argument names nothing on disk, or `None` when the run can go on.
+pub fn missing_file_message(opts: &Options) -> Option<String> {
+    let file = opts.file.as_ref()?;
+    let gone = matches!(file.try_exists(), Ok(false));
+    (gone && !opts.creates_missing_file()).then(|| format!("No file named {}. Run designos --help.", file.display()))
+}
+
 pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size WxH] [--scale FACTOR] [--select LAYER|none] [--menu main|main/File|shape|palette] [--panel agents-start-failure|specs|assets|plugins|interaction|present-variables|variables|variables-floating|libraries|picker|picker-page|fill-d9|picker-gradient|effects-menu|effect-styles|grid-styles|edit-style-color|edit-style-text|edit-style-effect|edit-style-grid|stroke-settings|type-details|effect-noise|effect-texture|effect-glass|version-history|dev-annotate|dev-compare|web-capture-report]\n               [--zoom PERCENT] [--rulers] [--grid] [--gpu] [--home] [--library DIR] [--layout-grid grid|columns|rows] [--edit-text LAYER [--select-text START-END]]\n               [--inspect-json] [--comments-json] [--add-comment TEXT] [--reply-comment ID [--message TEXT] [--resolve]] [--resolve-comment ID] [--apply-spec SPEC.json] [--export-spec OUT.json] [--export-fig OUT.fig] [--codegen LANG] [--import-capture CAP.json [--out OUT.designos]]\n  FILE  .fig, .json (Figma REST or native), .svg or .designos; without a file the projects home screen opens
+  --version, -V  print the version and exit
   --scale    with --screenshot: device pixel ratio (2 writes a PNG twice --size, rendered crisp rather than upscaled)
   --home     show the home screen (also in --screenshot mode)
   --present  open presentation preview; --fullscreen starts it in native fullscreen (F11 toggles, Esc returns)
@@ -506,6 +528,64 @@ mod tests {
         assert!(!o.wants_home());
         assert_eq!(o.import_capture, Some("card.capture.json".into()));
         assert_eq!(o.out, Some("out.designos".into()));
+    }
+
+    #[test]
+    fn parses_the_version_flags() {
+        assert!(p(&["--version"]).unwrap().version);
+        assert!(p(&["-V"]).unwrap().version);
+        assert!(!p(&[]).unwrap().version);
+        assert!(!p(&["--version"]).unwrap().is_agent_cli(), "printing the version opens no window and runs no command");
+        let both = p(&["doctor", "--version"]).unwrap();
+        assert!(both.version && both.file == Some("doctor".into()), "the file argument is kept, and --version wins over it in main");
+    }
+
+    #[test]
+    fn the_version_line_names_the_binary_and_the_cargo_version() {
+        let line = version_line();
+        assert!(line.starts_with("designos"), "{line}");
+        assert!(line.ends_with(env!("CARGO_PKG_VERSION")), "{line}");
+        assert_eq!(line.split(' ').count(), 2, "one name, one version: {line}");
+    }
+
+    #[test]
+    fn the_usage_lists_the_version_flag() {
+        assert!(USAGE.contains("--version"), "{USAGE}");
+        assert!(USAGE.contains("-V"), "{USAGE}");
+    }
+
+    #[test]
+    fn a_file_that_is_not_there_is_named_in_one_plain_line() {
+        let missing = p(&["doctor"]).unwrap();
+        assert_eq!(missing_file_message(&missing).as_deref(), Some("No file named doctor. Run designos --help."));
+        let nested = p(&["no/such/dir/a b.fig"]).unwrap();
+        assert_eq!(missing_file_message(&nested).as_deref(), Some("No file named no/such/dir/a b.fig. Run designos --help."));
+        assert_eq!(missing_file_message(&p(&["doctor", "--screenshot", "x.png"]).unwrap()).as_deref(), Some("No file named doctor. Run designos --help."));
+        assert_eq!(missing_file_message(&p(&["doctor", "--inspect-json"]).unwrap()).as_deref(), Some("No file named doctor. Run designos --help."));
+    }
+
+    #[test]
+    fn a_file_that_exists_or_is_not_asked_for_is_not_called_missing() {
+        let here = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        assert_eq!(missing_file_message(&p(&[here]).unwrap()), None, "an existing file");
+        assert_eq!(missing_file_message(&p(&[env!("CARGO_MANIFEST_DIR")]).unwrap()), None, "a directory is something, and the loader names its own problem");
+        assert_eq!(missing_file_message(&p(&[]).unwrap()), None, "no file argument");
+        assert_eq!(missing_file_message(&p(&["--home"]).unwrap()), None);
+        assert_eq!(missing_file_message(&p(&["--open-id", "abc"]).unwrap()), None);
+    }
+
+    #[test]
+    fn the_commands_that_write_a_new_file_may_name_one_that_is_not_there_yet() {
+        for args in [
+            &["new.designos", "--apply-spec", "spec.json"][..],
+            &["new.designos", "--import-capture", "cap.json"][..],
+            &["new.designos", "--import-variables", "vars.json"][..],
+        ] {
+            let o = p(args).unwrap();
+            assert!(o.creates_missing_file(), "{args:?}");
+            assert_eq!(missing_file_message(&o), None, "{args:?}");
+        }
+        assert!(!p(&["a.designos", "--inspect-json"]).unwrap().creates_missing_file());
     }
 
     #[test]

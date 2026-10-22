@@ -16,8 +16,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             return Ok(());
         }
+        (Some(flag), None, None) if flag == "--version" || flag == "-V" => {
+            println!("designos-mcp {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
         (Some(flag), None, None) if flag == "--help" => {
-            eprintln!("designos-mcp --workspace DIRECTORY\nLocal MCP server over stdio; edits are isolated until explicitly saved to a new file.");
+            eprintln!(
+                "designos-mcp --workspace DIRECTORY\nLocal MCP server over stdio; edits are isolated until explicitly saved to a new file.\n  --version, -V  print the version and exit"
+            );
             return Ok(());
         }
         _ => return Err("Usage: designos-mcp --workspace DIRECTORY".into()),
