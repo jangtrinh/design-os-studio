@@ -88,6 +88,16 @@ impl App {
         if self.leave.is_asking() {
             return false;
         }
+        // An agent's document held behind a dialog is shown first, so the questions ask about it like any other.
+        if self.terminal.live_patch.pending_doc.is_some() && self.dialog.is_some() {
+            self.dialog = None;
+            // A drag or a text session that is still going on holds the switch too: end it where it is first.
+            self.commit_open_edits();
+            crate::live_patch_apply::apply_pending_live_patches(self);
+            let mut tabs = std::mem::take(&mut self.tabs);
+            tabs.sync_from_app(self);
+            self.tabs = tabs;
+        }
         let asking = self.begin_leave(Some(ctx), Leave::Quit);
         if asking {
             crate::present::leave(self, ctx);

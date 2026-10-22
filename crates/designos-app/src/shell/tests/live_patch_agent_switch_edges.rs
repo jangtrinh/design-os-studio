@@ -12,7 +12,7 @@ use designos_doc::{Document, Node, NodeId, Rect as DRect};
 use std::path::Path;
 
 /// A document an agent opened: a page and `n` rectangles.
-fn agent_doc_n(name: &str, n: usize) -> Document {
+pub(super) fn agent_doc_n(name: &str, n: usize) -> Document {
     let mut d = Document::new(name);
     let page = d.add_page("P");
     for i in 0..n {
@@ -174,10 +174,14 @@ fn a_running_turn_begins_at_the_start_of_the_history_of_a_document_replaced_in_p
     edit(&mut s);
     s.cmd_key(Key::S);
     wait(&mut s, SETTLED);
-    s.shell.app.terminal.tabs[0].turn_start_undo_depth = s.app().hist.undo_depth();
-    assert!(s.app().terminal.tabs[0].turn_start_undo_depth > 0);
+    // The agent's turn starts: the bridge notes the depth of the history it starts on, as it does for a real turn.
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = crate::terminal::AgentTabStatus::Working(None);
+    s.frame(vec![]);
+    assert!(crate::agent_stop::is_tab_turn_running(&s.app().terminal.tabs[0]), "the turn is running");
+    assert!(s.app().terminal.tabs[0].turn_start_undo_depth > 0, "it began above the start of the user's history");
     agent_switches(&mut s, agent_doc_n("Agent opened this", 3));
     assert_eq!(s.app().tabs.entries.len(), 1, "replaced in place");
+    assert!(crate::agent_stop::is_tab_turn_running(&s.app().terminal.tabs[0]), "the turn is still running");
     assert_eq!(s.app().terminal.tabs[0].turn_start_undo_depth, 0);
     s.shell.app.terminal.shutdown();
 }
