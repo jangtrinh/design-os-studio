@@ -307,6 +307,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
 
 /// Selects `t` and remembers it as its toolbar group's current pick.
 pub fn pick_tool(app: &mut App, t: Tool) {
+    let t = t.or_fallback();
     if let Some((g, i)) = GROUPS.iter().enumerate().find_map(|(g, tools)| tools.iter().position(|x| *x == t).map(|i| (g, i))) {
         app.group_pick[g] = i;
     }
@@ -1072,6 +1073,24 @@ mod tests {
         assert!(matches_query("Zoom to fit", "zoom fit"));
         assert!(matches_query("Zoom to fit", ""));
         assert!(!matches_query("Zoom to fit", "pen"));
+    }
+
+    #[test]
+    fn palette_and_dropdowns_do_not_offer_the_arrow_tool() {
+        let app = App::new(designos_doc::Document::new("t"));
+        assert!(commands(&app).iter().all(|c| !matches!(c.act, Action::Tool(Tool::Arrow))), "Cmd+K must not offer the Arrow tool");
+        assert!(palette_entries(&app, "").iter().all(|(_, shortcut)| shortcut != "Shift+L"), "no row advertises Shift+L");
+        for g in 0..GROUPS.len() {
+            assert!(tool_nodes(&app, g).iter().all(|n| n.item.label != "Arrow"), "toolbar group {g} lists Arrow");
+        }
+    }
+
+    #[test]
+    fn picking_the_hidden_arrow_tool_remembers_line_for_the_group() {
+        let mut app = App::new(designos_doc::Document::new("t"));
+        pick_tool(&mut app, Tool::Arrow);
+        assert_eq!(app.tool, Tool::Line);
+        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Line, "the shape button shows Line, never a stale Arrow");
     }
 
     #[test]

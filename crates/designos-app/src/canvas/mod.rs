@@ -348,6 +348,7 @@ impl App {
 
     /// Switches tool, finishing any pen path or text edit in progress.
     pub fn set_tool(&mut self, tool: tools::Tool) {
+        let tool = tool.or_fallback();
         interact::finish_pen(self);
         interact::finish_text(self, true);
         self.cancel_interaction();

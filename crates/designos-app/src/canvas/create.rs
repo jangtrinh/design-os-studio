@@ -363,6 +363,35 @@ mod tests {
         assert_eq!(g.rect, Rect::new(80.0, 90.0, 40.0, 20.0));
     }
 
+    /// An arrow made before the tool was hidden is a round-capped `Line` named "Arrow": it must
+    /// survive a save and reload unchanged and still paint.
+    #[test]
+    fn existing_arrow_layers_stay_plain_lines_through_save_and_render() {
+        let mut app = App::new(Document::new("arrows"));
+        let page = app.doc.add_page("Page 1");
+        let fid = app.doc.alloc_id();
+        let frame = app.doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let mut arrow = new_shape(&mut app, Tool::Arrow);
+        assert_eq!(arrow.kind, NodeKind::Line, "the model has no arrow kind");
+        assert!(arrow.name.starts_with("Arrow"), "named {:?}", arrow.name);
+        assert_eq!(arrow.stroke.cap, StrokeCap::Round);
+        arrow.stroke.weight = 4.0;
+        arrow.transform = Affine::translate(10.0, 20.0);
+        arrow.size = v2(80.0, 0.0);
+        let aid = app.doc.insert(frame, arrow).unwrap();
+
+        let json = app.doc.to_json().unwrap();
+        let back = Document::from_json(&json).unwrap();
+        let after = back.get(aid).unwrap();
+        assert_eq!(after, app.doc.get(aid).unwrap(), "nothing about the arrow is lost on save and reload");
+        assert_eq!(after.kind, NodeKind::Line);
+
+        let pm = designos_render::render_node(&back, frame, 1.0).expect("frame renders");
+        let (on_line, off_line) = (pm.pixel(50, 20).unwrap(), pm.pixel(50, 5).unwrap());
+        assert_eq!(on_line.red(), 0, "the reloaded arrow paints its black stroke on row 20");
+        assert_eq!(off_line.red(), 0xFF, "the white frame shows off the stroke");
+    }
+
     #[test]
     fn line_drag_snaps_with_shift() {
         let g = draw_geom(Tool::Line, v2(0.0, 0.0), v2(100.0, 10.0), true, false);
