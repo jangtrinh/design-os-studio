@@ -1418,8 +1418,9 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
                 ns.y = 0.0;
             }
             let t = *t0 * Affine::translate(d.x, if is_line { 0.0 } else { d.y });
-            // Cmd/Ctrl while resizing a container ignores child constraints & auto-layout (MI-11).
-            if inp.mods.command && app.doc.get(*id).is_some_and(|n| n.kind.is_container()) {
+            // Cmd/Ctrl while resizing a container ignores child constraints & auto-layout (MI-11). The operands of a
+            // boolean group are its shape rather than its layers, so they scale with it either way.
+            if inp.mods.command && app.doc.get(*id).is_some_and(|n| n.kind.is_container() && !matches!(n.kind, NodeKind::BooleanOp(_))) {
                 if let Some(n) = r.tx.ed.node(&mut app.doc, *id) {
                     n.size = ns;
                     n.transform = t;

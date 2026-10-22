@@ -1115,6 +1115,7 @@ mod panel_keys;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
+mod resized_shape_geometry;
 mod slot_canvas_edits;
 mod style_edit;
 mod svg;

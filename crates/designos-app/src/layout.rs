@@ -6,7 +6,7 @@
 
 use crate::edit::Edit;
 use crate::util::{aabb_of, rect_corners, v2};
-use designos_doc::{resolve_node, Document, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2};
+use designos_doc::{resolve_node, Affine, Document, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2};
 
 use designos_doc::layout_solver::{compute_with_stroke, ChildIn, SizeLimits};
 
@@ -100,8 +100,11 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
             if let Some(n) = ed.node(doc, *cid) {
                 n.transform.tx = r.x;
                 n.transform.ty = r.y;
-                n.size = new_size;
                 n.layout_child = new_lc;
+            }
+            if size_changed {
+                let placed = doc.get(*cid).map(|n| n.transform).unwrap_or_default();
+                set_box(doc, ed, *cid, placed, new_size);
             }
         }
         if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) {
@@ -173,6 +176,32 @@ pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
 pub fn relayout_around(doc: &mut Document, ed: &mut Edit, id: NodeId) {
     layout_node(doc, ed, id);
     relayout_up(doc, ed, id);
+}
+
+/// Gives `id` the box `(transform, size)` and brings along what is drawn from it:
+/// - a vector scales its stored paths, and a boolean group scales its operands;
+/// - a basic shape (rectangle, ellipse, star, polygon, line) drops the outlines a `.fig` import stored for its old
+///   size, so the renderers draw the primitive at the new one;
+/// - every other kind is drawn from its box alone.
+///
+/// A stroke keeps its weight, except that the outlined stroke (`stroke_geometry`) of an imported vector is scaled
+/// with the box like the rest of its geometry.
+pub fn set_box(doc: &mut Document, ed: &mut Edit, id: NodeId, transform: Affine, size: Vec2) {
+    let Some(n) = ed.node(doc, id) else { return };
+    let old = n.size;
+    match n.kind {
+        NodeKind::Vector { .. } | NodeKind::Rectangle | NodeKind::Ellipse(_) | NodeKind::Star { .. } | NodeKind::Polygon { .. } | NodeKind::Line => {
+            designos_doc::apply_constrained_geometry(n, transform, size)
+        }
+        NodeKind::BooleanOp(_) => {
+            designos_doc::apply_constrained_geometry(n, transform, size);
+            apply_constraints(doc, ed, id, old, size);
+        }
+        _ => {
+            n.transform = transform;
+            n.size = size;
+        }
+    }
 }
 
 /// Applies children constraints when a (non auto-layout) frame is resized.
