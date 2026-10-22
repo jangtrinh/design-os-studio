@@ -23,6 +23,8 @@ pub struct FontLoader {
     failed: HashSet<FontRequest>,
     /// Opens the cache a load resolves through.
     open_cache: Arc<dyn Fn() -> FontCache + Send + Sync>,
+    /// The texts waiting to be re-measured with the faces that arrived.
+    pub(crate) refit: crate::font_refit::TextRefit,
     /// The faces the latest `load_for` asked for (tests read it instead of waiting for a fetch).
     #[cfg(test)]
     requested: BTreeSet<FontRequest>,
@@ -39,6 +41,7 @@ impl Default for FontLoader {
             wanted: BTreeSet::new(),
             failed: HashSet::new(),
             open_cache: Arc::new(default_cache),
+            refit: Default::default(),
             #[cfg(test)]
             requested: Default::default(),
             #[cfg(test)]
@@ -51,6 +54,9 @@ impl Default for FontLoader {
 pub struct FontsLoaded {
     pub loaded: usize,
     pub failed: Vec<String>,
+    /// The families of the faces that arrived, under the name the document uses and the name the
+    /// font holds (a document's "Gotham" is drawn with Montserrat): the texts to re-measure.
+    pub families: Vec<String>,
 }
 
 impl FontLoader {
@@ -140,6 +146,13 @@ impl FontLoader {
             .collect()
     }
 
+    /// A face `t` uses is not one the renderer has (not embedded, not installed, not registered):
+    /// the text is measured and drawn with a stand-in font until that face arrives.
+    pub(crate) fn uses_stand_in(&self, t: &designos_doc::TextProps) -> bool {
+        let faces = designos_fonts::text_faces(t);
+        self.available(&faces).len() < faces.len()
+    }
+
     /// Registers finished fonts with the renderer. Returns `Some` once per load.
     pub fn poll(&mut self) -> Option<FontsLoaded> {
         let report = self.pending.as_ref()?.try_recv().ok()?;
@@ -148,14 +161,17 @@ impl FontLoader {
         // have replaced it), so what it could not fetch is reported once and not asked for again.
         self.wanted.clear();
         let loaded = report.loaded.len();
+        let mut families = BTreeSet::new();
         for f in report.loaded {
             self.failed.remove(&f.request);
+            families.insert(f.request.family.clone());
+            families.insert(f.family.clone());
             self.register(f);
         }
         // A failure is reported the first time; a later load that fails again stays quiet.
         let failed =
             report.failed.iter().filter(|(req, _)| self.failed.insert(req.clone())).map(|(req, err)| format!("{} {}: {err}", req.family, req.weight)).collect();
-        Some(FontsLoaded { loaded, failed })
+        Some(FontsLoaded { loaded, failed, families: families.into_iter().collect() })
     }
 
     /// Registers one fetched font with the renderer and remembers its face.

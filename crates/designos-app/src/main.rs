@@ -40,6 +40,7 @@ mod dev;
 mod edit;
 mod fig_export;
 mod find;
+mod font_refit;
 mod fonts;
 mod history;
 mod home;

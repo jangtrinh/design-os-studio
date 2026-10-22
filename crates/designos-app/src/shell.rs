@@ -1232,6 +1232,15 @@ impl eframe::App for Shell {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.draw(ui);
+        if self.app.text_refit_pending() {
+            // The next slice of the re-fit after a face arrived. A gesture holds it: look again a few times
+            // a second, so the pass goes on once the gesture ends. Nothing is asked for once it is done.
+            if self.app.text_refit_held() {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            } else {
+                ui.ctx().request_repaint();
+            }
+        }
     }
 }
 
