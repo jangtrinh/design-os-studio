@@ -58,7 +58,10 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
                 match (button, pressed) {
                     (egui::PointerButton::Primary, true) => {
                         press = Some(*pos);
-                        prior_release = release.take().or(prior_release);
+                        // The FIRST release of the frame ended the gesture that was open when it began; any later
+                        // press and release pair is a gesture of its own that this frame does not play out.
+                        let seen = release.take();
+                        prior_release = prior_release.or(seen);
                     }
                     (egui::PointerButton::Primary, false) => release = Some(*pos),
                     (egui::PointerButton::Middle, true) => mid_press = Some(*pos),

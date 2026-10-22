@@ -278,6 +278,35 @@ fn release_before_press_in_one_frame_ends_the_open_draw_where_it_was_released() 
     near(second.size.y, DEFAULT, "second height");
 }
 
+#[test]
+fn the_open_draw_ends_at_the_first_release_of_a_frame_that_holds_several() {
+    let mut s = sim_with(Tool::Rectangle);
+    s.shell.app.keep_tool = true; // the tool stays armed, so the last press draws as well
+    let known = all_nodes(&s);
+    let (a, b) = ends(&s);
+    let c = s.screen(620.0, 930.0);
+    let d = s.screen(700.0, 950.0);
+    s.mv(a);
+    s.button(true);
+    s.mv(a + (b - a) * 0.5);
+    // the open draw is released at `b`; a click at `c` and a press at `d` follow in the same frame
+    s.one_frame().move_to(b).release().move_to(c).press().release().move_to(d).press().send();
+    assert!(matches!(s.app().canvas.inter, Interaction::Draw(_)), "the draw of the last press is open");
+    assert!(s.ctx.input(|i| i.pointer.primary_down()), "the button is down at the end of the frame");
+    s.one_frame().release().send();
+    s.frame(vec![]);
+
+    // the click at `c` falls inside the frame and is not drawn: one gesture per frame is all that is supported
+    let ids = new_nodes(&s, &known);
+    assert_eq!(ids.len(), 2, "the dragged shape and the draw of the last press");
+    let first = s.app().doc.get(ids[0]).unwrap();
+    near(first.size.x, DRAGGED.0, "first width");
+    near(first.size.y, DRAGGED.1, "first height");
+    let second = s.app().doc.get(ids[1]).unwrap();
+    near(second.size.x, DEFAULT, "second width");
+    near(second.size.y, DEFAULT, "second height");
+}
+
 // ---------------------------------------------------------------- drag versus click uses the raw pointer
 
 /// A rectangle whose top-left corner is the snap point the tests aim at, in page space.
