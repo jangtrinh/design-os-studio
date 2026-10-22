@@ -529,6 +529,18 @@ mod tests {
         dir
     }
 
+    /// Waits until the stub's `argv.log` ends in a newline, so the line it logged is whole, and returns the text. The stub's `printf` of a long
+    /// command line can reach the file in more than one write. A reader that stops at the first byte can stop the stub half way through its line,
+    /// and the next stub's line then joins it.
+    fn wait_for_whole_logged_line(path: &Path) -> String {
+        let mut text = String::new();
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
+            text = std::fs::read_to_string(path).unwrap_or_default();
+            text.ends_with('\n')
+        });
+        text
+    }
+
     #[cfg(unix)]
     fn write_executable_script(dir: &Path, name: &str, body: &str) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
@@ -1122,7 +1134,7 @@ mod tests {
             st1.path_prepend.push(bin_dir.clone());
             st1.spawn_tab(AgentCliPreset::Claude, None).expect("spawn first claude");
             let uuid = st1.tabs[0].session_uuid.clone().expect("uuid");
-            crate::test_timing::wait_for_nonempty_file(&st1.session_dir.join("argv.log"), crate::test_timing::STUB_WAIT);
+            wait_for_whole_logged_line(&st1.session_dir.join("argv.log"));
             st1.shutdown();
             uuid
         };
@@ -1137,7 +1149,7 @@ mod tests {
         let mut log_contents = String::new();
         crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             log_contents = std::fs::read_to_string(st2.session_dir.join("argv.log")).unwrap_or_default();
-            log_contents.lines().count() >= 2
+            log_contents.ends_with('\n') && log_contents.lines().count() >= 2
         });
 
         let canonical_session_dir = st2.session_dir.canonicalize().unwrap_or_else(|_| st2.session_dir.clone());
@@ -1429,7 +1441,7 @@ mod tests {
         assert_eq!(st.tabs[0].preset, AgentCliPreset::Claude, "must resume Claude instead of spawning Shell");
         assert!(st.tabs[0].is_resumed);
 
-        let argv_log = crate::test_timing::wait_for_nonempty_file(&st.session_dir.join("argv.log"), crate::test_timing::STUB_WAIT);
+        let argv_log = wait_for_whole_logged_line(&st.session_dir.join("argv.log"));
         assert!(argv_log.contains(&format!("--resume {planted_uuid}")), "child argv must contain --resume {planted_uuid}, got: {argv_log}");
 
         st.shutdown();
@@ -1814,25 +1826,35 @@ mod tests {
         let mut st = TerminalState::for_tab(1);
         st.bind_library_file(&dir, "file-silent-exit", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
-        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn silent exiting claude");
 
-        let wait_deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
-        while st.active_tab_mut().unwrap().is_alive() {
-            assert!(std::time::Instant::now() < wait_deadline, "silent stub must exit");
-            std::thread::sleep(std::time::Duration::from_millis(10));
+        // One start and one poll of the bridge. The stub exits at once with no output. The poll runs only after the PTY reader has
+        // seen the end of the output, which is the state the old 100 ms sleep waited for, and only the poll is timed.
+        let mut poll_after_silent_exit = || {
+            st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn silent exiting claude");
+            let ended = crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
+                let tab = st.active_tab_mut().unwrap();
+                !tab.is_alive() && tab.reader_eof.load(std::sync::atomic::Ordering::Acquire)
+            });
+            assert!(ended, "the silent stub must exit and its output must end");
+            st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
+
+            let t0 = std::time::Instant::now();
+            let _ = st.poll_live_agent_bridge();
+            let elapsed = t0.elapsed();
+            assert!(st.active_tab().unwrap().start_failure.is_some(), "start_failure must be recorded");
+            elapsed
+        };
+
+        // A poll that sleeps 100 ms on the UI thread is over the budget on every run. A scheduler stall on a loaded machine only
+        // adds time to a run, so the poll is timed until one run is within budget, as `test_timing::fastest_within` does for a
+        // pure function. (`failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread` also guards the source.)
+        let budget = std::time::Duration::from_millis(25);
+        let give_up = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let mut fastest = std::time::Duration::MAX;
+        while fastest >= budget && std::time::Instant::now() < give_up {
+            fastest = fastest.min(poll_after_silent_exit());
         }
-        // Give the background PTY reader thread a moment to observe EOF on the closed slave fd.
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        st.active_tab_mut().unwrap().spawned_at = std::time::Instant::now();
-
-        let t0 = std::time::Instant::now();
-        let _ = st.poll_live_agent_bridge();
-        let elapsed = t0.elapsed();
-        assert!(st.active_tab().unwrap().start_failure.is_some(), "start_failure must be recorded");
-        assert!(
-            elapsed < std::time::Duration::from_millis(25),
-            "poll_live_agent_bridge must not sleep 100ms on the UI thread when raw_log is empty (took {elapsed:?})"
-        );
+        assert!(fastest < budget, "poll_live_agent_bridge must not sleep 100ms on the UI thread when raw_log is empty (took {fastest:?} at best)");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

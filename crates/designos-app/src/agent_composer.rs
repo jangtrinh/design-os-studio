@@ -1228,6 +1228,56 @@ mod tests {
         src.find("#[cfg(test)]").map(|idx| &src[..idx]).unwrap_or(src)
     }
 
+    /// Polls the bridge every 25 ms until `condition` holds or `STUB_WAIT` passes, and returns whether it held. The stub CLIs
+    /// are real child processes, and a loaded machine can take seconds just to start one, so the wait ends on the event it names.
+    fn poll_bridge_until(st: &mut TerminalState, mut condition: impl FnMut(&mut TerminalState) -> bool) -> bool {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
+            let _ = st.poll_live_agent_bridge();
+            condition(st)
+        })
+    }
+
+    /// Leaves only the simulated frame time to decide when a pending delayed `\r` is written: the real-clock deadline, which a loaded
+    /// machine can reach between two frames of a test, is pushed out of reach.
+    fn defer_pending_enter_to_frame_time(st: &mut TerminalState) {
+        for tab in &mut st.tabs {
+            if tab.composer.pending_enter_deadline.is_some() {
+                tab.composer.pending_enter_deadline = Some(Instant::now() + Duration::from_secs(3600));
+            }
+        }
+    }
+
+    /// Checks the real-clock deadline of the delayed `\r` the active tab holds right after a send, before
+    /// [`defer_pending_enter_to_frame_time`] pushes it out of reach. `before` and `after` are read around the send.
+    ///
+    /// The delay is the CLI's own. The deadline is the instant the paste was written plus that delay, so it lies in
+    /// `[before + delay, after + delay]` on the real clock, and it is exactly `awaiting_confirm_since + delay`. The second check holds
+    /// however long a loaded machine stalled inside the send, so a deadline set to the send instant (no delay at all) fails it on every run.
+    fn assert_enter_deadline_follows_the_send(st: &TerminalState, expected_delay: Duration, before: Instant, after: Instant, which: &str) {
+        let tab = st.active_tab().expect("the active tab");
+        let delay = tab.composer.pending_enter_delay.expect("a send leaves its Enter delay on the composer");
+        assert_eq!(delay, expected_delay, "{which}: the Enter delay of this CLI");
+        let deadline = tab.composer.pending_enter_deadline.expect("a send leaves its Enter deadline on the composer");
+        assert!(
+            deadline >= before + delay,
+            "{which}: the Enter deadline must be at least {delay:?} after the send, but it is only {:?} after the moment before it",
+            deadline.saturating_duration_since(before)
+        );
+        assert!(
+            deadline <= after + delay,
+            "{which}: the Enter deadline must be at most {delay:?} after the send, but it is {:?} after the moment it returned",
+            deadline.saturating_duration_since(after)
+        );
+        let sent_at = tab.composer.awaiting_confirm_since.expect("a send stamps the instant it wrote the paste");
+        assert_eq!(deadline, sent_at + delay, "{which}: the Enter deadline must be the instant the paste was written plus the delay");
+    }
+
+    /// Waits until the active tab's stub CLI has printed its `Ready>` prompt.
+    fn wait_for_ready_prompt(st: &mut TerminalState) {
+        let ready = poll_bridge_until(st, |st| st.active_tab().is_some_and(|t| t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))));
+        assert!(ready, "the stub CLI must print its Ready> prompt");
+    }
+
     // 1. `two_messages_in_a_row_reach_one_session`
     #[test]
     fn two_messages_in_a_row_reach_one_session() {
@@ -1247,17 +1297,12 @@ mod tests {
         assert_eq!(st.tabs.len(), 1);
 
         // Wait until the stub CLI prints `Ready>` and enables bracketed paste.
-        let ready_deadline = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < ready_deadline {
-            let _ = st.poll_live_agent_bridge();
-            let ready = st.active_tab().is_some_and(|t| {
+        let ready = poll_bridge_until(&mut st, |st| {
+            st.active_tab().is_some_and(|t| {
                 t.parser.lock().ok().is_some_and(|p| p.screen().bracketed_paste()) && t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))
-            });
-            if ready {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
+            })
+        });
+        assert!(ready, "the stub CLI must print Ready> and enable bracketed paste");
 
         // Send message 1 and let the delayed `\r` fire through `tick_composer`.
         assert_eq!(st.send_to_agent("First message in session", None), SendOutcome::Written);
@@ -1270,15 +1315,11 @@ mod tests {
         st.tick_composer();
 
         // Wait for both lines to be written by the single running process.
-        let recv_deadline = Instant::now() + Duration::from_secs(4);
         let mut log_contents = String::new();
-        while Instant::now() < recv_deadline {
+        crate::test_timing::poll_until(crate::test_timing::STUB_WAIT, || {
             log_contents = std::fs::read_to_string(&log_file).unwrap_or_default();
-            if log_contents.contains("First message in session") && log_contents.contains("Second message in session") {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(30));
-        }
+            log_contents.contains("First message in session") && log_contents.contains("Second message in session")
+        });
 
         let raw_out = st.active_tab().and_then(|t| t.raw_log.lock().ok().map(|g| g.clone())).unwrap_or_default();
         assert_eq!(st.tabs.len(), 1, "Must still have one live session tab");
@@ -1329,7 +1370,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1377,12 +1418,17 @@ mod tests {
             events: vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
             ..Default::default()
         };
+        let before_send = Instant::now();
         let _ = ctx.run_ui(raw_enter, |ui| {
             let mut acts = Vec::new();
             let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
+        let after_send = Instant::now();
         assert_eq!(st.composer_draft(), "", "Plain Enter must clear the draft after sending");
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~line one\nline two\x1b[201~", "Bracketed paste payload must be written first, before the delayed Enter");
+        // The real-clock delay is judged here, before the deadline is pushed out so that only the simulated frame times below decide the flush.
+        assert_enter_deadline_follows_the_send(&st, CLAUDE_ENTER_DELAY, before_send, after_send, "Claude");
+        defer_pending_enter_to_frame_time(&mut st);
 
         // Intermediate frame (+24ms < 50ms CLAUDE_ENTER_DELAY): `\r` must NOT flush early.
         let raw_early =
@@ -1420,11 +1466,17 @@ mod tests {
             events: vec![Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
             ..Default::default()
         };
+        let before_codex_send = Instant::now();
         let _ = ctx.run_ui(raw_codex_enter, |ui| {
             let mut acts = Vec::new();
             let _ = show_composer(&mut st, ui, panel_rect, 80.0, None, MentionScope { doc: &Document::new("Composer"), page: NodeId(1) }, &mut acts);
         });
+        let after_codex_send = Instant::now();
         assert_eq!(&*rec.lock().unwrap(), b"\x1b[200~codex line\x1b[201~");
+        let codex_delay = enter_delay_for_preset(AgentCliPreset::Codex, rec.lock().unwrap().len());
+        assert!(codex_delay >= OTHER_CLI_BASE_ENTER_DELAY, "a non-Claude CLI waits at least the base delay: {codex_delay:?}");
+        assert_enter_deadline_follows_the_send(&st, codex_delay, before_codex_send, after_codex_send, "Codex");
+        defer_pending_enter_to_frame_time(&mut st);
 
         // +83ms spinner frame (< 500ms OTHER_CLI_BASE_ENTER_DELAY): `\r` must NOT flush yet.
         let raw_spinner =
@@ -1460,7 +1512,7 @@ mod tests {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 720.0));
 
         let mut heights = Vec::new();
@@ -1494,7 +1546,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1560,7 +1612,7 @@ mod tests {
     // 6. `each_tab_keeps_its_draft`
     #[test]
     fn each_tab_keeps_its_draft() {
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab 0");
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab 1");
         for tab in &mut st.tabs {
@@ -1605,16 +1657,11 @@ mod tests {
         assert_eq!(st.active_composer().notice.as_deref(), Some("Starting Claude Code… your message will be sent"));
 
         // Poll bridge until the newly spawned agent becomes ready, receives the queued message, and gets `\r`.
-        let deadline = Instant::now() + Duration::from_secs(5);
         let mut delivered = String::new();
-        while Instant::now() < deadline {
-            let _ = st.poll_live_agent_bridge();
+        poll_bridge_until(&mut st, |_| {
             delivered = std::fs::read_to_string(&recv_file).unwrap_or_default();
-            if delivered.contains("Build hero card when ready") {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
+            delivered.contains("Build hero card when ready")
+        });
         let raw_out = st.active_tab().and_then(|t| t.raw_log.lock().ok().map(|g| g.clone())).unwrap_or_default();
         assert!(st.active_composer().pending_send.is_none(), "Queued message must be flushed once ready (raw_out={raw_out:?})");
         assert!(delivered.contains("Build hero card when ready"), "Queued message must reach the started CLI: {delivered:?}, raw_out={raw_out:?}");
@@ -1638,21 +1685,7 @@ mod tests {
         assert_eq!(outcome, SendOutcome::Queued);
         assert_eq!(st.composer_draft(), "", "Draft is cleared while queued");
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            if let Some(tab) = st.active_tab_mut() {
-                if !tab.is_alive() {
-                    tab.spawned_at = Instant::now();
-                }
-            }
-            let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-
-        assert!(st.active_tab().is_some_and(|t| t.start_failure.is_some()), "Start failure must be recorded");
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "Start failure must be recorded");
         assert_eq!(
             st.composer_draft(),
             "Restore this draft when start fails",
@@ -1667,7 +1700,7 @@ mod tests {
     // 9. `pasting_copied_layers_makes_a_chip`
     #[test]
     fn pasting_copied_layers_makes_a_chip() {
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1720,7 +1753,7 @@ mod tests {
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
 
-        let mut st = TerminalState::default();
+        let mut st = crate::test_timing::ScopedTerminalState::default();
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
         {
             let tab = st.active_tab_mut().unwrap();
@@ -1803,18 +1836,13 @@ mod tests {
 
         st.shutdown();
     }
-    /// Polls the bridge until `file` contains `needle` or `secs` elapse; returns the file text.
-    fn wait_for_file_containing(st: &mut TerminalState, file: &Path, needle: &str, secs: u64) -> String {
-        let deadline = Instant::now() + Duration::from_secs(secs);
+    /// Polls the bridge until `file` contains `needle` or `STUB_WAIT` passes; returns the file text.
+    fn wait_for_file_containing(st: &mut TerminalState, file: &Path, needle: &str) -> String {
         let mut text = String::new();
-        while Instant::now() < deadline {
-            let _ = st.poll_live_agent_bridge();
+        poll_bridge_until(st, |_| {
             text = std::fs::read_to_string(file).unwrap_or_default();
-            if text.contains(needle) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
+            text.contains(needle)
+        });
         text
     }
 
@@ -1857,13 +1885,13 @@ mod tests {
             assert_eq!(tab.spawn_preset, AgentCliPreset::Claude);
             assert!(tab.spawned_command.as_deref().is_some_and(|c| c.contains("claude")), "the tab must launch the claude binary: {:?}", tab.spawned_command);
         }
-        let received = wait_for_file_containing(&mut st, &recv, "Image task 7", 6);
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 7");
         assert!(received.contains("Image task 7: Remove background."), "the agent CLI must receive the prompt: {received:?}");
 
         // A second job reuses the same agent tab.
         st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Isolate subject.", None);
         assert_eq!(st.tabs.len(), 1, "a ready agent tab of the same CLI is reused");
-        let received = wait_for_file_containing(&mut st, &recv, "Image task 8", 6);
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 8");
         assert!(received.contains("Image task 8: Isolate subject."), "second prompt reaches the same CLI: {received:?}");
 
         st.shutdown();
@@ -1895,7 +1923,7 @@ mod tests {
             assert!(!written.contains("Image task"), "tab {i} must never receive the system prompt: {written:?}");
         }
         assert_eq!(st.active_tab, 2, "the new agent tab is active");
-        let received = wait_for_file_containing(&mut st, &recv, "Image task 9", 6);
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 9");
         assert!(received.contains("Image task 9"), "the Claude tab receives the prompt: {received:?}");
 
         st.shutdown();
@@ -1912,11 +1940,7 @@ mod tests {
         let mut st = TerminalState::new_for_session("doc-system-keeps-composer", "System Send", Some(&dir));
         st.path_prepend.push(bin_dir);
         st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude");
-        let ready_deadline = Instant::now() + Duration::from_secs(4);
-        while Instant::now() < ready_deadline && !st.active_tab().is_some_and(|t| t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))) {
-            let _ = st.poll_live_agent_bridge();
-            std::thread::sleep(Duration::from_millis(25));
-        }
+        wait_for_ready_prompt(&mut st);
         st.active_composer_mut().record_sent("older prompt");
         st.set_composer_draft("half typed thought");
         st.active_composer_mut().chips.push(sample_chip());
@@ -1932,7 +1956,7 @@ mod tests {
         assert_eq!(comp.send_count, sends_before, "a system send is not a composer send");
         assert_eq!(st.active_mentions, vec![sample_mention()], "a system send must not consume mentions");
 
-        let received = wait_for_file_containing(&mut st, &recv, "Image task 3", 6);
+        let received = wait_for_file_containing(&mut st, &recv, "Image task 3");
         assert!(received.contains("Image task 3: Remove background. Compare @Hero/Title."), "prompt arrives verbatim: {received:?}");
         assert!(!received.contains("References:"), "the user's layer references must not be attached: {received:?}");
         assert!(!received.contains("designos:node/4521"), "no unrelated layer reference in the system prompt: {received:?}");
@@ -1952,20 +1976,7 @@ mod tests {
 
         st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 5: Remove background.", None);
 
-        let deadline = Instant::now() + Duration::from_secs(6);
-        while Instant::now() < deadline {
-            if let Some(tab) = st.active_tab_mut() {
-                if !tab.is_alive() {
-                    tab.spawned_at = Instant::now();
-                }
-            }
-            let _ = st.poll_live_agent_bridge();
-            if st.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        assert!(st.active_tab().is_some_and(|t| t.start_failure.is_some()), "the stub CLI fails to start");
+        assert!(st.poll_until_start_failure(crate::test_timing::STUB_WAIT), "the stub CLI fails to start");
         let _ = st.poll_live_agent_bridge();
         assert_eq!(st.composer_draft(), "", "a system prompt is dropped, never returned to the user's draft");
         assert!(st.active_composer().pending_send.is_none());
@@ -1990,11 +2001,7 @@ mod tests {
         write_executable_stub(&bin_dir, preset.binary_name(), &recording_agent_script(&recv));
         st.path_prepend.push(bin_dir);
         st.spawn_tab(preset, None).expect("spawn stub cli");
-        let ready_deadline = Instant::now() + Duration::from_secs(6);
-        while Instant::now() < ready_deadline && !st.active_tab().is_some_and(|t| t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))) {
-            let _ = st.poll_live_agent_bridge();
-            std::thread::sleep(Duration::from_millis(25));
-        }
+        wait_for_ready_prompt(st);
         // The CLI counts as ready only after a quiet spell following its last output.
         std::thread::sleep(READY_QUIET_BRACKETED * 3);
         attach_recording_writer(st.active_tab_mut().expect("stub tab"))
@@ -2097,7 +2104,7 @@ mod tests {
         assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Queued);
         edit_user_skill_on_disk(&dir, "queued-edit", "Second draft of the rule.");
 
-        let received = wait_for_file_containing(&mut st, &recv, "Make a pricing card", 8);
+        let received = wait_for_file_containing(&mut st, &recv, "Make a pricing card");
         assert!(received.contains("Make a pricing card"), "the queued prompt was flushed: {received:?}");
         assert!(!received.contains("designos-skill:"), "Claude never gets the skills in the pasted prompt: {received:?}");
         let reply = hook_reply(&st);
@@ -2178,7 +2185,7 @@ mod tests {
         assert_eq!(st.send_to_agent("Make a pricing card", None), SendOutcome::Queued);
         assert_eq!(st.active_composer().pending_send.as_deref(), Some("Make a pricing card"), "the queue keeps the user's text, not the skill blocks");
 
-        let received = wait_for_file_containing(&mut st, &recv, "Make a pricing card", 8);
+        let received = wait_for_file_containing(&mut st, &recv, "Make a pricing card");
         assert!(received.contains("designos-skill:queued-skill@1.0.0"), "the flushed prompt carries the skill block: {received:?}");
         assert!(received.contains("Queued skill body."), "the flushed prompt carries the skill body: {received:?}");
         let raw = std::fs::read_to_string(st.session_dir.join("run.json")).expect("run.json after the flush");
@@ -2377,11 +2384,7 @@ mod tests {
         let selector = write_user_skill(&mut st, &dir, "custom-skill", "Custom CLI body.");
         st.skills.toggle_skill(&selector);
         st.spawn_custom_cli_tab("Custom stub", &stub.display().to_string(), None).expect("spawn custom tab");
-        let ready_deadline = Instant::now() + Duration::from_secs(6);
-        while Instant::now() < ready_deadline && !st.active_tab().is_some_and(|t| t.raw_log.lock().ok().is_some_and(|l| l.contains("Ready>"))) {
-            let _ = st.poll_live_agent_bridge();
-            std::thread::sleep(Duration::from_millis(25));
-        }
+        wait_for_ready_prompt(&mut st);
         std::thread::sleep(READY_QUIET_BRACKETED * 3);
         {
             let tab = st.active_tab().expect("custom tab");
