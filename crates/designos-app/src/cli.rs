@@ -359,6 +359,10 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--size W
   --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
+  --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
+  --import-variables  headless Agent CLI: read variables from FILE (.json or .zip) into the document
+  --export-variables  headless Agent CLI: write the document's variables to PATH (a .json or .zip file, or a folder)
+  --format   variable format for --import-variables and --export-variables (auto|figma-rest|figma-native|dtcg)
   --inspect-json / --comments-json / --apply-spec / --export-spec / --export-fig / --codegen / --import-capture  headless Agent CLI inspection and mutation";
 
 #[cfg(test)]
@@ -554,6 +558,23 @@ mod tests {
     fn the_usage_lists_the_version_flag() {
         assert!(USAGE.contains("--version"), "{USAGE}");
         assert!(USAGE.contains("-V"), "{USAGE}");
+    }
+
+    #[test]
+    fn the_usage_lists_the_fixture_and_variable_flags_the_parser_takes() {
+        for flag in ["--fixture", "--import-variables", "--export-variables", "--format"] {
+            let line = USAGE.lines().find(|l| l.trim_start().starts_with(flag)).unwrap_or_else(|| panic!("--help has no line for {flag}:\n{USAGE}"));
+            assert!(line.split_whitespace().count() > 2, "{flag} says what it does: {line}");
+            assert!(!line.contains("(1") && !line.contains("(2") && !line.contains("(3"), "no count in parentheses: {line}");
+        }
+        // The values named in --help are the ones the parser accepts.
+        for fixture in ["showcase", "proto-vars", "no-selection", "variables", "comments", "board", "board-empty"] {
+            assert!(USAGE.contains(fixture), "--fixture lists {fixture}");
+        }
+        for format in ["auto", "figma-rest", "figma-native", "dtcg"] {
+            assert!(USAGE.contains(format), "--format lists {format}");
+            assert!(p(&["--format", format]).is_ok(), "the parser takes {format}");
+        }
     }
 
     #[test]
