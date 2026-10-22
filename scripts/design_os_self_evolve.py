@@ -52,8 +52,18 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
      token-usage errors.
 
   9. G09 · `design_os_project_audit`:
-     Executes `design-os audit . --json` across all HTML/DS surfaces, plus `ui audit design/studio-ui-nodes.json`
-     and `ui flow lint design/flow.json` when present, verifying `0` errors across the entire repository.
+     Executes `design-os audit` over every HTML file in the repository except `skills/vendor/**`, plus one
+     repo-level run (`--dir .`) for the DS specimen / DS a11y / flow-lint sections, plus
+     `ui audit design/studio-ui-nodes.json` and `ui flow lint design/flow.json` when present, verifying `0`
+     errors across everything audited.
+     `design-os audit TARGET` takes one file or one directory and has no ignore option, so the gate walks the
+     HTML itself with the CLI's own walk (`rglob("*.html")`, skipping node_modules / .git / dist / build / .next /
+     out) and audits file by file; the DS/flow sections run exactly once. `toolsRun`, `toolsFailed`, `errors` and
+     `warnings` are summed over the runs; the gate passes only when every run exits 0 and reports ok, with
+     `toolsRun > 0`, `toolsFailed == 0` and `errors == 0`.
+     Excluded: `skills/vendor/**` only (owner ruling 2026-10-22). It holds SHA-pinned third-party upstream files
+     that must stay byte-identical (`scripts/check_vendor_skills.py verify`), so lint findings there cannot be
+     fixed in this repository. Every other HTML file stays audited, test fixtures included.
 """
 
 from __future__ import annotations
@@ -64,6 +74,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -78,6 +89,11 @@ STUDIO_UI_NODES_JSON = REPO_ROOT / "design" / "studio-ui-nodes.json"
 FLOW_JSON = REPO_ROOT / "design" / "flow.json"
 SOUL_MD = REPO_ROOT / "design" / "soul.md"
 ZERO_FAKE_GATE = REPO_ROOT / "scripts" / "zero_fake_ui_gate.py"
+
+# G09 audit scope. Mirror of `design_os.commands.audit._EXCLUDED_SEGMENTS` (the CLI's own HTML walk).
+AUDIT_WALK_EXCLUDED_SEGMENTS = frozenset({"node_modules", ".git", "dist", "build", ".next", "out"})
+# The only subtree G09 leaves out: SHA-pinned MIT upstream, kept byte-identical (owner ruling 2026-10-22).
+AUDIT_EXCLUDED_PREFIX: Tuple[str, ...] = ("skills", "vendor")
 
 BANNED_PURPLES = {"#9747ff", "#8755e9", "#c4a1ff", "#a855f7"}
 
@@ -487,21 +503,90 @@ def check_ui_gate_specimen() -> Tuple[bool, str, Dict[str, Any]]:
     return ok, summary, {"ui_gate": payload, "ds_usage_lint": u_payload}
 
 
+def collect_audit_html_targets(root: Path = REPO_ROOT) -> Tuple[List[str], List[str]]:
+    """HTML files `design-os audit .` would lint, split into (audited, excluded) repo-relative POSIX paths.
+
+    Same walk as the CLI (`rglob("*.html")`, any path segment in AUDIT_WALK_EXCLUDED_SEGMENTS dropped,
+    sorted); then only the pinned vendored subtree (AUDIT_EXCLUDED_PREFIX) moves to `excluded`.
+    """
+    audited: List[str] = []
+    excluded: List[str] = []
+    for rel in sorted(path.relative_to(root) for path in root.rglob("*.html")):
+        if not AUDIT_WALK_EXCLUDED_SEGMENTS.isdisjoint(rel.parts):
+            continue
+        (excluded if rel.parts[: len(AUDIT_EXCLUDED_PREFIX)] == AUDIT_EXCLUDED_PREFIX else audited).append(
+            rel.as_posix()
+        )
+    return audited, excluded
+
+
+def run_design_os_audit(label: str, cmd: List[str]) -> Dict[str, Any]:
+    """One `design-os audit` invocation, reduced to its summary counts and the sections that exited non-zero."""
+    code, payload, err = run_cli_json(cmd)
+    data = payload.get("data", {}) if isinstance(payload, dict) else {}
+    summary = data.get("summary", {}) if isinstance(data, dict) else {}
+    sections = data.get("sections", []) if isinstance(data, dict) else []
+    return {
+        "target": label,
+        "exit_code": code,
+        "ok": (code == 0) and isinstance(payload, dict) and bool(payload.get("ok")),
+        "tools_run": int(summary.get("toolsRun", 0)),
+        "tools_failed": int(summary.get("toolsFailed", 0)),
+        "errors": int(summary.get("errors", 0)),
+        "warnings": int(summary.get("warnings", 0)),
+        "failed_sections": [
+            {"tool": s.get("tool"), "target": s.get("target"), "exit_code": s.get("exitCode")}
+            for s in sections
+            if isinstance(s, dict) and s.get("exitCode") != 0
+        ],
+        "stderr": err,
+    }
+
+
 def check_design_os_project_audit() -> Tuple[bool, str, Dict[str, Any]]:
-    a_code, a_payload, a_err = run_cli_json(["design-os", "audit", ".", "--json"])
-    a_data = a_payload.get("data", {})
-    a_summary = a_data.get("summary", {})
-    tools_run = int(a_summary.get("toolsRun", 0))
-    tools_failed = int(a_summary.get("toolsFailed", 0))
-    audit_errors = int(a_summary.get("errors", 0))
-    audit_warnings = int(a_summary.get("warnings", 0))
+    audited, excluded = collect_audit_html_targets()
+    # `design-os audit` adds its DS specimen / DS a11y / flow-lint sections for `--dir`. An empty scratch
+    # target has no HTML, so this one run contributes exactly those sections and nothing else.
+    with tempfile.TemporaryDirectory(prefix="g09-repo-level-") as empty_dir:
+        runs = [
+            run_design_os_audit("<repo-level DS/flow>", ["design-os", "audit", empty_dir, "--dir", ".", "--json"])
+        ]
+    runs.extend(run_design_os_audit(rel, ["design-os", "audit", rel, "--json"]) for rel in audited)
+
+    tools_run = sum(r["tools_run"] for r in runs)
+    tools_failed = sum(r["tools_failed"] for r in runs)
+    audit_errors = sum(r["errors"] for r in runs)
+    audit_warnings = sum(r["warnings"] for r in runs)
+    runs_ok = all(r["ok"] for r in runs)
+    # An empty walk must not pass on the strength of the repo-level run alone.
     audit_ok = (
-        (a_code == 0)
-        and bool(a_payload.get("ok"))
+        bool(audited)
+        and runs_ok
         and (tools_run > 0)
         and (tools_failed == 0)
         and (audit_errors == 0)
     )
+    a_err = "; ".join(f"{r['target']}: {r['stderr']}" for r in runs if r["stderr"] and not r["ok"])[:300]
+    failing = [r for r in runs if (not r["ok"]) or r["errors"] or r["tools_failed"]]
+    scope_lines = [
+        f"audit scope: design-os audit . minus {'/'.join(AUDIT_EXCLUDED_PREFIX)}/** "
+        "(pinned upstream, owner ruling 2026-10-22)",
+        f"audited html targets ({len(audited)}), plus 1 repo-level DS/flow run:",
+        *(
+            f"  {'FAIL' if (not r['ok'] or r['errors'] or r['tools_failed']) else 'ok  '} {r['target']} "
+            f"(tools={r['tools_run']}, errors={r['errors']}, warnings={r['warnings']}, exit={r['exit_code']})"
+            for r in runs[1:]
+        ),
+        f"repo-level DS/flow: tools={runs[0]['tools_run']}, errors={runs[0]['errors']}, exit={runs[0]['exit_code']}",
+        f"excluded ({len(excluded)}): {', '.join(excluded) if excluded else 'none'}",
+    ]
+    a_payload: Dict[str, Any] = {
+        "excluded_rule": f"{'/'.join(AUDIT_EXCLUDED_PREFIX)}/**",
+        "audited_targets": audited,
+        "excluded_targets": excluded,
+        "runs": runs,
+    }
+    a_code = 0 if runs_ok else 1
 
     nodes_ok = True
     nodes_total = 0
@@ -539,18 +624,23 @@ def check_design_os_project_audit() -> Tuple[bool, str, Dict[str, Any]]:
     ok = audit_ok and nodes_ok and flow_ok
     if ok:
         summary = (
-            f"design-os audit . ({tools_run} tools, errors={audit_errors}, warnings={audit_warnings}); "
+            f"design-os audit . minus {'/'.join(AUDIT_EXCLUDED_PREFIX)}/** ({len(audited)} html targets + repo-level, "
+            f"{tools_run} tools, errors={audit_errors}, warnings={audit_warnings}, excluded={len(excluded)}); "
             f"nodes violations={nodes_total}; flow errors={flow_errors}"
         )
     else:
+        shown = ", ".join(f"{r['target']}[errors={r['errors']}]" for r in failing[:3])
+        more = f" +{len(failing) - 3} more" if len(failing) > 3 else ""
         summary = (
-            f"audit_exit={a_code}, tools_failed={tools_failed}, audit_errors={audit_errors}, "
+            f"audit_exit={a_code}, targets={len(audited)}, excluded={len(excluded)}, tools_run={tools_run}, "
+            f"tools_failed={tools_failed}, audit_errors={audit_errors}, failing=[{shown}{more}], "
             f"nodes_violations={nodes_total}, flow_errors={flow_errors} ({a_err})"
         )
     return ok, summary, {
         "project_audit": a_payload,
         "studio_ui_nodes_audit": nodes_payload,
         "flow_lint": flow_payload,
+        "report_lines": scope_lines,
     }
 
 
@@ -591,7 +681,7 @@ def main() -> int:
         ("G05", "ui_ds_soul_check", "Ratified Soul Integrity (ui ds soul check)", check_ui_ds_soul),
         ("G06", "ui_agents_check", "Roster & Cross-Runtime Design Agents Parity", check_ui_agents),
         ("G08", "ui_gate_specimen", "6-Family Specimen Gate & DS Usage Lint (design/specimen.html)", check_ui_gate_specimen),
-        ("G09", "design_os_project_audit", "Full Repository Audit, Node Tree & Flow Lint (design-os audit .)", check_design_os_project_audit),
+        ("G09", "design_os_project_audit", "Full Repository Audit, Node Tree & Flow Lint (design-os audit . minus skills/vendor/**)", check_design_os_project_audit),
         ("G07", "design_os_evolution", "Self-Evolution Loop Proof (design-os evolution)", lambda: run_self_evolution_pulse(check_only=check_only)),
     ]
 
@@ -634,6 +724,13 @@ def main() -> int:
         print("-" * 116)
         for r in results:
             print(f"{r['id']:<4} | {r['status']:<6} | {r['gate']:<24} | {r['summary']}")
+        print("-" * 116)
+        for r in results:
+            report_lines = r["detail"].get("report_lines") if isinstance(r["detail"], dict) else None
+            if report_lines:
+                print(f" {r['id']} detail:")
+                for line in report_lines:
+                    print(f"   {line}")
         print("-" * 116)
         verdict = "PASS" if all_passed else "FAIL"
         print(f" Overall Self-Evolution Verdict: {verdict} ({passed_count}/{total_count} gates passed)")
