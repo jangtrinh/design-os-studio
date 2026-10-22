@@ -1102,6 +1102,7 @@ mod effect_grid_styles;
 mod empty_slot_flows;
 mod fast_drag_draw;
 mod fast_drag_transform;
+mod fig_export_toast;
 mod figma_paste;
 mod find;
 mod gpu_screenshot_wait;

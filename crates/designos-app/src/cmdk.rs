@@ -246,7 +246,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
         id: "cmdk-export-fig",
         section: "Assets",
         icon: Icon::Export,
-        title: "Save Local Figma .fig Binary Copy",
+        title: "Save .fig copy",
         subtitle: "Writes a 1:1 round-trip Figma kiwi binary snapshot of the current document",
         badge: "Assets",
         shortcut: "⇧⌘K",
@@ -1703,6 +1703,13 @@ mod tests {
         assert_eq!(all_tab_items[3].title, "Boost resolution");
         assert_eq!(all_tab_items[4].title, "Edit image with prompt");
         assert!(QUICK_COMMANDS.iter().all(|item| item.title != "Remove background"), "the fake fill-strip entry must stay removed");
+    }
+
+    #[test]
+    fn the_palette_names_the_fig_export_like_the_file_menu() {
+        let item = QUICK_COMMANDS.iter().find(|item| item.id == "cmdk-export-fig").expect("the .fig export entry");
+        assert_eq!(item.title, "Save .fig copy", "one action, one name: the File menu says the same");
+        assert!(item.title.split_whitespace().count() <= 3, "an action label is 3 words or fewer");
     }
 
     #[test]

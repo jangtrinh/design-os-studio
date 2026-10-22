@@ -461,6 +461,8 @@ pub const PALETTE_TOP: f32 = 64.0;
 pub const TOAST_HEIGHT: f32 = 40.0;
 pub const TOAST_BOTTOM: f32 = 72.0;
 pub const TOAST_SECONDS: f64 = 4.0;
+/// A toast with a "Show in folder" action: long enough to read a full path and reach for the button.
+pub const TOAST_REVEAL_SECONDS: f64 = 10.0;
 // ---------------------------------------------------------------- comments and version history
 /// Comment pin: bubble diameter and the white ring around it.
 pub const COMMENT_PIN: f32 = 32.0;

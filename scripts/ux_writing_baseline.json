@@ -58,12 +58,6 @@
     {
       "file": "panels/menus.rs",
       "kind": "words",
-      "literal": "Save local .fig copy…",
-      "count": 2
-    },
-    {
-      "file": "panels/menus.rs",
-      "kind": "words",
       "literal": "Save to version history…",
       "count": 2
     },

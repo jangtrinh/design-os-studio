@@ -2250,23 +2250,12 @@ impl App {
         }
     }
 
-    /// Saves a local `.fig` binary copy of the current document.
+    /// Exports a `.fig` copy of the current document: next to a file opened from disk, otherwise in the library
+    /// `exports` folder. It never replaces a file; the toast gives the full path and a "Show in folder" action.
     pub fn export_fig_copy(&mut self) {
-        let stem = if self.doc.name.trim().is_empty() { "Untitled" } else { self.doc.name.trim() };
-        let default_path = self
-            .file_path
-            .as_ref()
-            .and_then(|p| p.parent().map(|d| d.join(format!("{stem}.fig"))))
-            .unwrap_or_else(|| std::env::temp_dir().join(format!("{stem}.fig")));
         self.settle_pending_relayout();
-        match crate::io::save_path(&self.doc, &default_path) {
-            Ok(saved) => {
-                let omitted = designos_fig::collect_omitted_extensions(&self.doc).len();
-                let note = if omitted == 0 { String::new() } else { format!(" ({omitted} extension keys not carried)") };
-                self.show_toast(format!("Saved .fig binary to {}{note}", saved.display()), false);
-            }
-            Err(e) => self.show_toast(e, true),
-        }
+        let result = self.fig_export_target().and_then(|(dir, stem)| crate::fig_export::export_new(&self.doc, &dir, &stem));
+        self.show_fig_export_result(result);
     }
 }
 

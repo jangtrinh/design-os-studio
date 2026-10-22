@@ -141,6 +141,8 @@ pub struct Toast {
     pub text: String,
     pub until: f64,
     pub error: bool,
+    /// A file this toast can show in its folder (the toast then carries a "Show in folder" action).
+    pub reveal: Option<PathBuf>,
 }
 
 pub struct App {
@@ -173,6 +175,9 @@ pub struct App {
     /// Reads the system clipboard's Figma HTML payload. The seam the paste paths go through: production
     /// reads the OS pasteboard, tests script it (the pasteboard is global and not thread-safe).
     pub system_html: fn() -> Option<String>,
+    /// Shows a file in the system file manager. The seam the "Show in folder" action goes through:
+    /// production launches the file manager, tests record the path (a test never opens a window).
+    pub reveal_file: fn(&std::path::Path) -> Result<(), String>,
     pub toast: Option<Toast>,
     pub file_path: Option<PathBuf>,
     pub now: f64,
@@ -261,6 +266,7 @@ impl App {
             copied_style: None,
             paste_count: 0,
             system_html: crate::clipboard::system_figma_html,
+            reveal_file: crate::fig_export::reveal_file,
             toast: None,
             file_path: None,
             now: 0.0,
@@ -319,7 +325,16 @@ impl App {
                 error = true;
             }
         }
-        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error });
+        self.toast = Some(Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None });
+    }
+
+    /// A toast that stays long enough to read and offers to show `path` in its folder.
+    pub fn show_toast_with_reveal(&mut self, text: impl Into<String>, path: PathBuf) {
+        self.show_toast(text, false);
+        if let Some(toast) = self.toast.as_mut() {
+            toast.reveal = Some(path);
+            toast.until = self.now + theme::TOAST_REVEAL_SECONDS;
+        }
     }
 
     /// Marks the document as modified so the canvas texture is re-rendered.
