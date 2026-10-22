@@ -8,7 +8,7 @@
 
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
-use crate::tools::fill_write::{validate_fill_color, write_fill};
+use crate::tools::fill_write::{validate_fill_color, write_fill, FillTarget};
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
@@ -1575,7 +1575,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let (id, target_idx, mut node) =
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
                         .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
-                write_fill(&mut trial, &mut node, parent, a.fill.as_deref(), a.fills.clone(), &mut Vec::new())
+                write_fill(&mut trial, &mut node, parent, FillTarget::NewLayer, a.fill.as_deref(), a.fills.clone(), &mut Vec::new())
                     .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
 
                 let cmd = Command::Insert { parent, index: target_idx, nodes: vec![node] };

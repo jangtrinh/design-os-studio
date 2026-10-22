@@ -243,7 +243,7 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
         node.opacity = opacity;
     }
     let mut warnings = Vec::new();
-    fill_write::write_fill(doc, &mut node, id, u.fill.as_deref(), u.fills, &mut warnings)?;
+    fill_write::write_fill(doc, &mut node, id, fill_write::FillTarget::ExistingLayer, u.fill.as_deref(), u.fills, &mut warnings)?;
     if let Some(text) = u.text {
         let NodeKind::Text(props) = &mut node.kind else {
             return Err(ToolError::new(ErrorCode::NotATextNode, "/text", "text can only be set on text nodes").with_received(json!(node.id.0)));

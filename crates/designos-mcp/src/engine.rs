@@ -1226,7 +1226,7 @@ impl Engine {
         let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
         let mut warnings = Vec::new();
-        crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, a.fill.as_deref(), a.fills, &mut warnings)?;
+        crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, FillTarget::NewLayer, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
@@ -1311,6 +1311,7 @@ pub(crate) fn parse_spec<T: DeserializeOwned>(args: Value) -> Result<T, ToolErro
 }
 
 use crate::tools::bounded_text;
+use crate::tools::fill_write::FillTarget;
 fn default_limit() -> usize {
     100
 }
