@@ -120,11 +120,23 @@ fn with_fonts<R>(f: impl FnOnce(&mut Fonts) -> R) -> R {
                 }
                 fonts.families = family_names(&fonts.fs);
                 REPLAYED.with(|r| r.set(done + pending.len()));
+                // Shaped text depends on the fonts: neither the outlines nor the measured geometry of the old set stand.
                 LAYOUTS.with(|l| l.borrow_mut().clear());
+                GEOMS.with(|g| g.borrow_mut().clear());
             }
         }
         f(fonts)
     })
+}
+
+/// Loads the fonts registered since this thread last looked, before a cache is read. A cache hit
+/// never reaches [`with_fonts`], so a thread that only hits its caches (a tile worker redrawing
+/// unchanged text) would otherwise keep the shapes of the old font set for as long as it lives.
+#[inline]
+fn sync_fonts() {
+    if REPLAYED.with(|r| r.get()) < font_generation() {
+        with_fonts(|_| ());
+    }
 }
 
 /// Registers extra font data (e.g. a font fetched by `designos-fonts`) with the
@@ -399,6 +411,7 @@ fn bucket_key(props: &TextProps, size: Vec2) -> u64 {
 
 /// Lays out `props` inside a box of `size`; cached per content/style/size.
 pub fn layout(props: &TextProps, size: Vec2) -> Rc<TextLayout> {
+    sync_fonts();
     let key = bucket_key(props, size);
     if let Some(hit) = LAYOUTS.with(|l| l.borrow().get(key, props, size)) {
         return hit;
@@ -759,6 +772,7 @@ thread_local! {
 /// Lines and glyph positions of `props` laid out in a box of `size`. Positions
 /// match the glyph outlines drawn by the renderer exactly.
 pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
+    sync_fonts();
     let key = bucket_key(props, size);
     if let Some(hit) = GEOMS.with(|g| g.borrow().get(key, props, size)) {
         return hit;
