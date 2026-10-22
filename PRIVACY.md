@@ -8,6 +8,7 @@
 - **The network requests Studio makes:**
   - font downloads from the Fontsource API when a file uses fonts you do not have
   - a check of a public status page after an agent provider error
+  - a connection check when you click Retry connection after an agent connection error
   - plugin downloads from GitHub that you start
 - **Agent CLIs are yours.** The Agents panel starts the agent CLI you choose (Claude Code, Codex, Grok, Antigravity or Gemini CLI). Each one signs in with your own account and sends what you ask it to its own provider, under that provider's terms. Studio does not proxy or record that traffic.
 - **Local work.** Rendering (`wgpu` and `tiny-skia`), `.fig` reading and writing, and MCP tool calls run on your machine.

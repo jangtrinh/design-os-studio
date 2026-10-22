@@ -48,7 +48,7 @@ Browser-based design tools keep your files on a vendor's servers and give coding
 | **MCP server** | `designos-mcp` serves 36 tools over stdio: see the design, read its design system, write in one step (`designos_apply_batch`) and lint the result (`designos_lint`). | Send `tools/list` to `designos-mcp --workspace <dir>`. The tool table below is generated from that list. |
 | **Variables** | Color, number, string and boolean variables in collections with modes. A frame can pin its own mode per collection, and modes round-trip through `.fig`. Import and export Figma JSON and W3C Design Tokens (DTCG). | `designos <file> --export-variables <out>` |
 | **Dev Mode** | Built-in Dev Mode (`Shift+D`) with code in CSS, Tailwind, React, SwiftUI, UIKit, Compose, Android XML and HTML. | `designos <file> --select <layer> --codegen react` |
-| **Privacy and license** | No telemetry. Studio makes these network requests: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, a public status-page check after an agent provider error, and a plugin download from GitHub when you install a plugin. The agent CLIs you start use the network under their own terms. Source-available under `PolyForm Shield 1.0.0`. | `git grep -n 'ureq::' -- crates` lists the HTTP calls. The Figma REST client in `designos-fig` is a cargo feature that is off by default. |
+| **Privacy and license** | No telemetry. Studio makes these network requests: open-licensed font downloads from the Fontsource API when a file uses fonts you do not have, a public status-page check after an agent provider error, a connection check when you click Retry connection, and a plugin download from GitHub when you install a plugin. The agent CLIs you start use the network under their own terms. Source-available under `PolyForm Shield 1.0.0`. | `git grep -n 'ureq::' -- crates` lists the HTTP calls. The Figma REST client in `designos-fig` is a cargo feature that is off by default. |
 
 To read the container version of an exported file, run `unzip -p out.fig canvas.fig | head -c 12 | xxd`. The header starts with `fig-kiwi` and ends with `6a00 0000`, which is 106 in little-endian.
 
@@ -65,7 +65,7 @@ To read the container version of an exported file, run `unzip -p out.fig canvas.
 | **Engine Stack** | Rust + `wgpu` + `tiny-skia` | Metal (verified on macOS) · Direct3D 12 / Vulkan (Windows and Linux, tested by their users) · No Electron |
 | **Figma Interop** | Reads `.fig`; writes container version 106 | `crates/designos-fig` round-trip tests · more than `6,000` automated tests pass in the macOS CI job · [known issue #834](https://github.com/jangtrinh/design-os-studio/issues/834) |
 | **Agent Surface** | Agents panel + `designos-mcp` | `Claude Code` · `Codex` · `Grok` · `Antigravity` · `Gemini CLI`, each with its own sign-in |
-| **Telemetry / Network** | No telemetry | Network use: font downloads from the Fontsource API for fonts a file needs, a status-page check after an agent provider error, plugin downloads you start from GitHub, and the agent CLIs you start |
+| **Telemetry / Network** | No telemetry | Network use: font downloads from the Fontsource API for fonts a file needs, a status-page check after an agent provider error, a connection check when you click Retry connection, plugin downloads you start from GitHub, and the agent CLIs you start |
 | **License** | `PolyForm Shield 1.0.0` (source-available) | Release packages: macOS `.dmg` (verified), Windows `.zip`, Linux `.deb` and `.tar.gz` (tested by their users) |
 
 ---
