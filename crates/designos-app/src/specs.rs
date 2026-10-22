@@ -3177,8 +3177,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         } else if !cur_draft.contains(&spec_ref) {
             app.terminal.set_composer_draft(format!("{spec_ref} {}", cur_draft.trim()));
         }
-        app.terminal.dock_open = true;
-        app.ui.rail = Some(crate::app::RailItem::Agents);
+        app.show_agents_panel();
         app.show_toast("Referenced @spec in Agent CLI (Claude / Codex / AGY / Grok)", false);
     }
     if let Some(prompt) = open_agent_prompt {

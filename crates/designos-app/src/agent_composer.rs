@@ -2718,13 +2718,12 @@ mod tests {
         panel_frame(&ctx, &mut st, Vec::new());
         assert!(drawn_rect(&ctx, "agents-skills-picker-popover").is_some(), "the picker is drawn");
 
-        // The strip makes room for it: with a tab open the button still sits right of `+` and never overlaps the pop-out toggle.
+        // The strip makes room for it: with a tab open the button still sits right of `+` and inside the panel (`panel_frame`: x 48..408).
         st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
         panel_frame(&ctx, &mut st, Vec::new());
         let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
         let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        let popout = drawn_rect(&ctx, "agents-header-popout").expect("pop-out");
-        assert!(skills.left() >= add.right() && skills.right() <= popout.left(), "{add:?} {skills:?} {popout:?}");
+        assert!(skills.left() >= add.right() && skills.right() <= 48.0 + 360.0, "{add:?} {skills:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

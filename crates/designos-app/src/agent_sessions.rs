@@ -1291,7 +1291,7 @@ mod tests {
         st.bind_library_file(&dir, "file-agents-reopen", "p1-w1-tab-1");
         st.path_prepend.push(bin_dir);
 
-        // `open_for_agent_use` is the Agents-open path triggered by `RailItem::Agents` and the dock.
+        // `open_for_agent_use` is the Agents-open path triggered by `RailItem::Agents` and Cmd+`.
         st.open_for_agent_use(None);
         assert_eq!(st.tabs.len(), 1);
         assert_eq!(st.tabs[0].preset, AgentCliPreset::Claude, "must resume Claude instead of spawning Shell");

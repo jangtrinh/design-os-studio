@@ -542,12 +542,12 @@ fn body(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId, count: usize) {
     c.y += cc_h + 8.0;
 
     let cc_r = c.rect(PAD, 0.0, c.w - 2.0 * PAD, 26.0);
-    if small_button(ui, cc_r, "code-connect-terminal", "Send to Agent Terminal") {
+    if small_button(ui, cc_r, "code-connect-terminal", "Send to agent") {
         match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
-            Ok(p) => app.show_toast(format!("Sent selection to Agent Terminal ({})", p.display()), false),
+            Ok(_) => app.show_toast("Sent selection to agent", false),
             Err(e) => app.show_toast(e, true),
         }
-        app.terminal.dock_open = true;
+        app.show_agents_panel();
     }
     c.y += 32.0;
 

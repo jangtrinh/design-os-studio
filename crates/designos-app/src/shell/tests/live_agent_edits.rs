@@ -4,7 +4,7 @@
 use super::*;
 use designos_doc::live_patch::{LiveOp, LivePatch};
 
-/// A window bound to a live agent session (the dock stays closed, so no shell is spawned).
+/// A window bound to a live agent session (the Agents panel stays closed, so no shell is spawned).
 fn live_sim() -> (Sim, designos_mcp::server::Session, std::path::PathBuf) {
     let s = Sim::new();
     let session_id = format!("{}-tab-1", s.app().tabs.instance_id);

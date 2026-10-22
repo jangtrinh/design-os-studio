@@ -1,5 +1,5 @@
 //! Native Embedded PTY Agent Terminal Runtime (`claude`, `codex`, `grok`, `$SHELL`)
-//! and Bidirectional Canvas <-> Terminal Spec Bridge (`RailItem::Terminal` + Bottom Dock).
+//! and Bidirectional Canvas <-> Terminal Spec Bridge (the Agents panel).
 //!
 //! Crafted to `es:designer` (`craft-floor.md` + `tokens.css`) and **EaseUI BrainWave 2.0**:
 //! - Zero emoji icons (`§2 Refuse by default`): uses crisp Lucide vector glyphs (`crate::icons::Icon`)
@@ -16,7 +16,7 @@ use crate::icons::{self, Icon};
 use crate::panels::clipped;
 use crate::theme;
 use crate::widgets;
-use designos_doc::{Document, NodeId, NodeSpec};
+use designos_doc::{Document, NodeId};
 use egui::text::LayoutJob;
 use egui::{
     Align2, Color32, CornerRadius, Event, FontFamily, FontId, Id, Key, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, TextFormat, Ui, Vec2,
@@ -119,9 +119,6 @@ impl AgentCliPreset {
     pub const GeminiCli: AgentCliPreset = AgentCliPreset::Gemini;
     pub const OpenCodeCli: AgentCliPreset = AgentCliPreset::OpenCode;
     pub const DefaultShell: AgentCliPreset = AgentCliPreset::Shell;
-
-    pub const QUICK_LAUNCH: [AgentCliPreset; 5] =
-        [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Antigravity, AgentCliPreset::Grok, AgentCliPreset::Shell];
 
     pub fn label(self) -> &'static str {
         self.tab_title()
@@ -423,8 +420,6 @@ pub enum TerminalAction {
     ApplyLiveLog(Vec<designos_doc::live_patch::LiveLogLine>),
     /// An agent edit in `doc-patch.jsonl` could not be read (unreadable or over the size limit).
     LiveSyncError(String),
-    /// Triggers immediate hot-reload of `save_path` into the Canvas.
-    ReloadFromDisk,
     /// Serializes the currently selected Canvas node (or first top-level frame) to
     /// `selection.spec.json` and pipes its path + node summary +
     /// unresolved Canvas Pin-Comments directly into the active PTY stdin.
@@ -476,7 +471,6 @@ pub struct TerminalTab {
     pub child: Box<dyn Child + Send + Sync>,
     pub rows: u16,
     pub cols: u16,
-    pub last_spec_json: Arc<Mutex<Option<String>>>,
     pub raw_log: Arc<Mutex<String>>,
     /// Bytes the reader thread has trimmed off the front of `raw_log` so far (`MAX_RAW_LOG_BYTES`). A position in the
     /// output stream is `raw_log_drained` plus an index into `raw_log`; it only grows, so a stored position never goes stale.
@@ -685,7 +679,6 @@ impl TerminalTab {
 
         let init_parser = vt100::Parser::new(rows, cols, 5000);
         let parser = Arc::new(Mutex::new(init_parser));
-        let last_spec_json = Arc::new(Mutex::new(None));
         let raw_log = Arc::new(Mutex::new(String::new()));
         let raw_log_drained = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let agent_status = Arc::new(Mutex::new(AgentTabStatus::Idle));
@@ -695,7 +688,6 @@ impl TerminalTab {
         let stop_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let parser_bg = Arc::clone(&parser);
-        let spec_bg = Arc::clone(&last_spec_json);
         let log_bg = Arc::clone(&raw_log);
         let drained_bg = Arc::clone(&raw_log_drained);
         let status_bg = Arc::clone(&agent_status);
@@ -760,11 +752,6 @@ impl TerminalTab {
                                     // Counted while the log lock is held, so a reader of the log sees the log and the count change together.
                                     drained_bg.fetch_add(boundary, std::sync::atomic::Ordering::Release);
                                 }
-                                if let Some(spec) = extract_spec_json_from_log(&log) {
-                                    if let Ok(mut last) = spec_bg.lock() {
-                                        *last = Some(spec);
-                                    }
-                                }
                             }
                             if let Some(s_arc) = slave_bg.upgrade() {
                                 if let Ok(mut s) = s_arc.lock() {
@@ -794,7 +781,6 @@ impl TerminalTab {
             child,
             rows,
             cols,
-            last_spec_json,
             raw_log,
             raw_log_drained,
             selection: None,
@@ -1125,8 +1111,6 @@ pub struct TerminalState {
     pub doc_name: String,
     pub tabs: Vec<TerminalTab>,
     pub active_tab: usize,
-    pub dock_open: bool,
-    pub dock_height: f32,
     /// Unattached composer state held while `tabs` is empty; moved into the first spawned tab (`#689` §4).
     pub unattached_composer: crate::agent_composer::ComposerState,
     /// Why the last sample-prompt click could not start an agent session; painted under the prompts until the next click.
@@ -1199,7 +1183,7 @@ pub struct TerminalState {
     pub path_prepend: Vec<PathBuf>,
     /// State for the new-session CLI picker, compact `+` menu, and inline `"Other CLI…"` form (`#652`).
     pub picker: crate::agent_picker::AgentPickerState,
-    /// True when the center of the Agent panel / `>_` dock shows the new-session picker (`#651`).
+    /// True when the center of the Agents panel shows the new-session picker (`#651`).
     pub picker_open: bool,
     /// True when the `"Sessions"` popover is open (`#651` §3 rule 5).
     pub sessions_popover_open: bool,
@@ -1223,7 +1207,7 @@ pub struct TerminalState {
     pub notifier: crate::agent_notify::AgentNotifier,
     /// True when the Studio OS window currently has focus (`#683` §3.7).
     pub window_focused: bool,
-    /// True when the Agents panel or Terminal dock is currently visible (`#683` §3.7).
+    /// True when the Agents panel is currently visible (`#683` §3.7).
     pub surface_visible: bool,
     /// Observed per-tab status transitions `(tab_id, new_status)` for tests and diagnostics (`#683` §10).
     pub status_changes: Vec<(usize, AgentTabStatus)>,
@@ -1438,8 +1422,6 @@ impl TerminalState {
             doc_name: "Untitled".to_string(),
             tabs: Vec::new(),
             active_tab: 0,
-            dock_open: false,
-            dock_height: 400.0,
             unattached_composer: crate::agent_composer::ComposerState::default(),
             sample_prompt_error: None,
             deferred_bridge_actions: Vec::new(),
@@ -2687,7 +2669,7 @@ impl TerminalState {
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,
     /// so single-key canvas shortcuts (`V`, `F`, `R`, `T`, `Backspace`, etc.) must be suppressed.
     pub fn is_capturing_keyboard(&self, agent_panel_open: bool) -> bool {
-        self.mention_popup.is_open() || (((agent_panel_open && self.side_panel_pty_open) || self.dock_open) && self.viewport_focused)
+        self.mention_popup.is_open() || (agent_panel_open && self.side_panel_pty_open && self.viewport_focused)
     }
 
     /// Returns the currently active terminal tab when one exists.
@@ -3604,7 +3586,6 @@ impl TerminalState {
     /// Dispatches a Figma AI task prompt into the active PTY session through [`Self::send_to_agent`]
     /// (`#651` §3 rule 10 & `#689` §3 rule 8).
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
-        self.dock_open = true;
         let outcome = self.send_to_agent(cli_prompt, file_path);
         if self.tabs.is_empty() && self.picker_open {
             self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
@@ -3659,7 +3640,6 @@ impl TerminalState {
         let paste_line = format!("Read the design:os spec excerpt at {} and follow the request inside it.", excerpt_path.display());
         let pasted = self.paste_into_agent_tab(&paste_line);
         if pasted {
-            self.dock_open = true;
             self.status_msg = Some("Copied to clipboard & pasted file reference into agent tab (press Enter to send)".into());
         } else {
             self.status_msg = Some("Copied to clipboard (no agent tab open — nothing sent to the terminal)".into());
@@ -4840,78 +4820,6 @@ fn last_lines_for_classification(turn_output: &str) -> String {
     agent_session_failure::tail_slice_last_n_lines(turn_output, agent_session_failure::CLASSIFY_TAIL_LINES).to_string()
 }
 
-/// Scans terminal output for a ```json ... ``` fence or JSON object representing a `NodeSpec`.
-/// Returns the latest valid `NodeSpec` JSON string if found.
-pub fn extract_spec_json_from_log(log: &str) -> Option<String> {
-    let mut search_end = log.len();
-    while let Some(fence_start) = log[..search_end].rfind("```json") {
-        let after_tag = &log[fence_start + 7..search_end];
-        if let Some(fence_end) = after_tag.find("```") {
-            let candidate = after_tag[..fence_end].trim();
-            if is_valid_node_spec_json(candidate) {
-                return Some(candidate.to_string());
-            }
-        }
-        search_end = fence_start;
-    }
-
-    let bytes = log.as_bytes();
-    let mut i = bytes.len();
-    let mut checked = 0usize;
-    while i > 0 && checked < 12 {
-        i -= 1;
-        if bytes[i] == b'}' {
-            if let Some(open_idx) = find_matching_open_brace(&log[..=i]) {
-                let candidate = log[open_idx..=i].trim();
-                if (candidate.contains("\"name\"") || candidate.contains("\"preset\"")) && is_valid_node_spec_json(candidate) {
-                    return Some(candidate.to_string());
-                }
-                checked += 1;
-            }
-        }
-    }
-    None
-}
-
-fn find_matching_open_brace(slice_ending_with_close: &str) -> Option<usize> {
-    let mut depth = 0i32;
-    let mut in_str = false;
-    let mut prev_backslash = false;
-    let chars: Vec<(usize, char)> = slice_ending_with_close.char_indices().collect();
-    for &(idx, ch) in chars.iter().rev() {
-        if in_str {
-            if ch == '"' && !prev_backslash {
-                in_str = false;
-            }
-            prev_backslash = ch == '\\';
-            continue;
-        }
-        match ch {
-            '"' => in_str = true,
-            '}' => depth += 1,
-            '{' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(idx);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn is_valid_node_spec_json(candidate: &str) -> bool {
-    if !candidate.starts_with('{') || !candidate.ends_with('}') {
-        return false;
-    }
-    if let Ok(spec) = serde_json::from_str::<NodeSpec>(candidate) {
-        !spec.name.trim().is_empty() || spec.preset.is_some() || !spec.children.is_empty() || !spec.kind.trim().is_empty()
-    } else {
-        false
-    }
-}
-
 /// Serializes the active selection (or first top-level frame on `page`) to
 /// the session's `selection.spec.json` with a `designos_context` object (node name, id, open
 /// pin-comments). Pastes only a fixed file-reference sentence into a live agent tab (never node
@@ -5063,21 +4971,7 @@ pub fn show_left_with_doc(
         p.rect_filled(bar_r, 0.0, TERM_BG_BAR);
         widgets::hline(&p, bar_r.left(), bar_r.right(), bar_r.bottom() - 1.0, TERM_BORDER);
 
-        // Right-aligned Dock/Expand toggle button (`agents-header-popout`)
-        let pop_rect = Rect::from_center_size(Pos2::new(bar_r.right() - 18.0, bar_r.center().y), Vec2::splat(24.0));
-        let pop_resp = ui.interact(pop_rect, Id::new("term-left-dock-toggle"), Sense::click());
-        if pop_resp.hovered() || state.dock_open {
-            p.rect_filled(pop_rect, CornerRadius::same(4), TERM_BG_HOVER);
-        }
-        paint_popout_icon(&p, pop_rect.center(), Color32::from_rgb(0xD4, 0xD4, 0xD4));
-        widgets::record(ui, "term-left-dock-toggle", pop_rect);
-        widgets::record(ui, "agents-popout-pty", pop_rect);
-        widgets::record(ui, "agents-header-popout", pop_rect);
-        if pop_resp.clicked() {
-            state.dock_open = !state.dock_open;
-        }
-
-        let stop_left = crate::agent_stop::paint_header_stop_controls(ui, &p, state, bar_r, pop_rect.left());
+        let stop_left = crate::agent_stop::paint_header_stop_controls(ui, &p, state, bar_r, bar_r.right());
 
         // The `Skills` button (`RD-4` §7) sits right of the `+` runtime selector: the tabs, `Sessions` and `+` end before it.
         let skills_w = state.skills.chip_width(&p);
@@ -5406,9 +5300,9 @@ pub fn show_left_with_doc(
         widgets::record(ui, "agents-needs-approval-pill", pill_r);
     }
 
-    // Header right controls: `AI` badge + Pop-out/PTY toggle. There is no `•••` More button: no spec defines a menu behind it (Zero Fake UI, P6).
+    // Header right control: the `AI` badge. There is no `•••` More button: no spec defines a menu behind it (Zero Fake UI, P6).
     let h_cy = header_rect.top() + 18.0;
-    let ai_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 50.0, h_cy), Vec2::new(24.0, 18.0));
+    let ai_rect = Rect::from_center_size(Pos2::new(header_rect.right() - theme::SPACE_INLINE - 12.0, h_cy), Vec2::new(24.0, 18.0));
     let ai_resp = ui.interact(ai_rect, Id::new("agents-header-ai"), Sense::click());
     let ai_bg = if !state.chat_mode || state.side_panel_pty_open {
         Color32::from_rgb(0x16, 0x35, 0x52)
@@ -5425,20 +5319,6 @@ pub fn show_left_with_doc(
     if ai_resp.clicked() {
         state.chat_mode = !state.chat_mode;
         state.side_panel_pty_open = !state.chat_mode;
-    }
-
-    let pop_rect = Rect::from_center_size(Pos2::new(header_rect.right() - 18.0, h_cy), Vec2::splat(24.0));
-    let pop_resp = ui.interact(pop_rect, Id::new("term-left-dock-toggle"), Sense::click());
-    if pop_resp.hovered() || state.side_panel_pty_open || state.dock_open {
-        p.rect_filled(pop_rect, CornerRadius::same(4), TERM_BG_HOVER);
-    }
-    paint_popout_icon(&p, pop_rect.center(), Color32::from_rgb(0xD4, 0xD4, 0xD4));
-    widgets::record(ui, "term-left-dock-toggle", pop_rect);
-    widgets::record(ui, "agents-popout-pty", pop_rect);
-    widgets::record(ui, "agents-header-popout", pop_rect);
-    if pop_resp.clicked() {
-        state.dock_open = !state.dock_open;
-        state.side_panel_pty_open = state.dock_open;
     }
 
     let mut top_y = header_rect.bottom();
@@ -5566,382 +5446,6 @@ fn paint_open_book_icon(p: &egui::Painter, c: Pos2, col: Color32) {
     icons::paint(p, Icon::BookOpen, c, 14.0, col);
 }
 
-fn paint_popout_icon(p: &egui::Painter, c: Pos2, col: Color32) {
-    icons::paint(p, Icon::ArrowSquareOut, c, 14.0, col);
-}
-
-/// Alias for `show_full` used when rendering the full-workspace Agent Terminal view.
-#[allow(dead_code)]
-pub fn show_workspace(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    show_full(state, ui, rect, file_path)
-}
-
-/// Renders the full-canvas Agent Terminal view (`RailItem::Terminal`).
-#[allow(dead_code)]
-pub fn show_full(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
-    let empty_doc = Document::new(&state.doc_name);
-    let page = NodeId(state.current_page_id.max(1));
-    render_terminal_surface(state, ui, rect, file_path, "full", &summary, &empty_doc, page)
-}
-
-/// Renders the docked bottom split-view Agent Terminal (`Ctrl+\`` / `dock_open`).
-pub fn show_dock(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) -> Vec<TerminalAction> {
-    let summary = crate::agent_selection_chip::SelectionSummary::empty(&state.current_page_name);
-    show_dock_with_selection(state, ui, rect, file_path, &summary)
-}
-
-/// Renders the docked bottom split-view Agent Terminal (`Ctrl+\`` / `dock_open`) with the live
-/// [`crate::agent_selection_chip::SelectionSummary`] computed in the current frame from `app`.
-pub fn show_dock_with_selection(
-    state: &mut TerminalState,
-    ui: &mut Ui,
-    rect: Rect,
-    file_path: Option<&Path>,
-    selection_summary: &crate::agent_selection_chip::SelectionSummary,
-) -> Vec<TerminalAction> {
-    let empty_doc = Document::new(&state.doc_name);
-    let page = NodeId(state.current_page_id.max(1));
-    show_dock_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
-}
-
-/// Renders the docked bottom split-view Agent Terminal with live [`Document`] access for the `@`-mention picker (`#655`).
-pub fn show_dock_with_doc(
-    state: &mut TerminalState,
-    ui: &mut Ui,
-    rect: Rect,
-    file_path: Option<&Path>,
-    selection_summary: &crate::agent_selection_chip::SelectionSummary,
-    doc: &Document,
-    current_page: NodeId,
-) -> Vec<TerminalAction> {
-    let grip_rect = Rect::from_min_size(Pos2::new(rect.left(), rect.top() - 3.0), Vec2::new(rect.width(), 6.0));
-    widgets::record(ui, "dock-resize-grip", grip_rect);
-    let actions = render_terminal_surface(state, ui, rect, file_path, "dock", selection_summary, doc, current_page);
-    let p = ui.painter().clone();
-    let pill_r = Rect::from_center_size(Pos2::new(rect.center().x, rect.top() + 2.0), Vec2::new(36.0, 3.0));
-    p.rect_filled(pill_r, CornerRadius::same(2), Color32::from_rgb(0x52, 0x52, 0x5B));
-    actions
-}
-
-fn resolve_apply_spec_action(state: &mut TerminalState) -> Option<TerminalAction> {
-    let mut detected_from_guard = None;
-    let mut detected_from_log = None;
-    if let Some(tab) = state.active_tab() {
-        if let Ok(guard) = tab.last_spec_json.lock() {
-            detected_from_guard = guard.clone();
-        }
-        if detected_from_guard.is_none() {
-            if let Ok(log) = tab.raw_log.lock() {
-                detected_from_log = extract_spec_json_from_log(&log);
-            }
-        }
-    }
-    if let Some(json) = detected_from_guard {
-        state.status_msg = Some("Applied NodeSpec JSON detected from PTY output".into());
-        return Some(TerminalAction::ApplySpecJson(json));
-    }
-    if let Some(json) = detected_from_log {
-        state.status_msg = Some("Applied NodeSpec JSON parsed from PTY log".into());
-        return Some(TerminalAction::ApplySpecJson(json));
-    }
-    let fallback = PathBuf::from("examples/specs/easeui-agent-console.spec.json");
-    state.status_msg = Some(format!("Applied {}", fallback.display()));
-    Some(TerminalAction::ApplySpecFile(fallback))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn render_terminal_surface(
-    state: &mut TerminalState,
-    ui: &mut Ui,
-    rect: Rect,
-    file_path: Option<&Path>,
-    surface_id: &'static str,
-    selection_summary: &crate::agent_selection_chip::SelectionSummary,
-    doc: &Document,
-    current_page: NodeId,
-) -> Vec<TerminalAction> {
-    state.poll_pending_online_retries(file_path);
-    let mut actions = state.poll_live_agent_bridge();
-    crate::agent_a11y::label_terminal_surface(state, ui, surface_id);
-    let p = ui.painter().clone();
-
-    if ui.input(|i| i.pointer.any_pressed()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            if rect.contains(pos) {
-                state.viewport_focused = true;
-            }
-        }
-    }
-
-    p.rect_filled(rect, 0.0, TERM_BG_VIEWPORT);
-    widgets::hline(&p, rect.left(), rect.right(), rect.top(), TERM_BORDER);
-
-    // 1. Top Tab & Preset Bar (36px)
-    let tab_bar_h = 36.0;
-    let tab_bar_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), tab_bar_h));
-    p.rect_filled(tab_bar_rect, 0.0, TERM_BG_BAR);
-    widgets::hline(&p, tab_bar_rect.left(), tab_bar_rect.right(), tab_bar_rect.bottom() - 1.0, TERM_BORDER);
-
-    // Bridge action buttons on the right of the tab bar (with vector icons, zero emojis)
-    let mut right_x = tab_bar_rect.right() - 8.0;
-    let btn_cy = tab_bar_rect.center().y;
-
-    let sync_r = draw_bar_icon_pill(
-        ui,
-        &p,
-        (surface_id, "term-bar-sync"),
-        Pos2::new(right_x, btn_cy),
-        Icon::Rotation,
-        "Sync Canvas",
-        TERM_BG_ELEVATED,
-        TERM_BORDER,
-        theme::TEXT,
-    );
-    right_x = sync_r.left() - 6.0;
-    if ui.interact(sync_r, Id::new((surface_id, "term-bar-sync")), Sense::click()).clicked() {
-        actions.push(TerminalAction::ReloadFromDisk);
-    }
-
-    let apply_r = draw_bar_icon_pill(
-        ui,
-        &p,
-        (surface_id, "term-bar-apply-spec"),
-        Pos2::new(right_x, btn_cy),
-        Icon::Sparkle,
-        "Apply Spec from Output",
-        STATUS_WARN_BG,
-        STATUS_WARN_BORDER,
-        STATUS_WARN_TEXT,
-    );
-    right_x = apply_r.left() - 6.0;
-    if ui.interact(apply_r, Id::new((surface_id, "term-bar-apply-spec")), Sense::click()).clicked() {
-        if let Some(act) = resolve_apply_spec_action(state) {
-            actions.push(act);
-        }
-    }
-
-    let send_r = draw_bar_icon_pill(
-        ui,
-        &p,
-        (surface_id, "term-bar-send-sel"),
-        Pos2::new(right_x, btn_cy),
-        Icon::Comment,
-        "Send Selection & Comments",
-        STATUS_INFO_BG,
-        STATUS_INFO_BORDER,
-        STATUS_INFO_TEXT,
-    );
-    right_x = send_r.left() - theme::SPACE_INLINE;
-    if ui.interact(send_r, Id::new((surface_id, "term-bar-send-sel")), Sense::click()).clicked() {
-        actions.push(TerminalAction::ExportSelectionToTerminal);
-    }
-
-    // `@ Mention` button in the terminal header (#655)
-    let min_tabs_left = tab_bar_rect.left() + 148.0;
-    if right_x - min_tabs_left >= theme::TARGET_MIN {
-        let (mention_btn_r, mention_clicked) = crate::agent_mention_popup::paint_terminal_mention_button(
-            ui,
-            "agent-mention-btn-dock",
-            right_x,
-            tab_bar_rect,
-            state.mention_popup.is_open_for_surface(surface_id),
-        );
-        right_x = mention_btn_r.left() - theme::SPACE_INLINE;
-        if mention_clicked {
-            state.mention_popup.toggle_terminal_mode_for(surface_id, doc, current_page);
-        }
-    }
-
-    // Live selection chip at the left of the bar's right-hand button group (#654)
-    if right_x - min_tabs_left >= theme::TARGET_MIN {
-        let chip_max_w = (right_x - min_tabs_left).min(260.0);
-        let chip_bounds = Rect::from_min_max(Pos2::new(right_x - chip_max_w, tab_bar_rect.top()), Pos2::new(right_x, tab_bar_rect.bottom()));
-        if let Some((chip_rect, chip_clicked)) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-dock", selection_summary, chip_bounds, true)
-        {
-            right_x = chip_rect.left() - theme::SPACE_INLINE;
-            if chip_clicked {
-                actions.push(TerminalAction::SendSelectionToAgent);
-            }
-        }
-    }
-
-    if let Some(cap) = state.active_tab().and_then(|t| t.header_usage_caption()) {
-        let cap_w = widgets::text_width(&p, &cap, &theme::font_mono());
-        if right_x - cap_w - theme::SPACE_GROUP > tab_bar_rect.left() + 180.0 {
-            let cap_rect = Rect::from_min_max(
-                Pos2::new(right_x - cap_w - theme::INSET_CONTROL, tab_bar_rect.top() + theme::SPACE_ROW),
-                Pos2::new(right_x, tab_bar_rect.bottom() - theme::SPACE_ROW),
-            );
-            p.text(Pos2::new(right_x - theme::INSET_SEGMENT, btn_cy), Align2::RIGHT_CENTER, cap, theme::font_mono(), theme::TEXT_SECONDARY);
-            let cap_resp = ui.interact(cap_rect, Id::new((surface_id, "agents-header-usage")), Sense::hover());
-            if let Some(tip) = state.active_tab().and_then(|t| t.usage_tooltip_text()) {
-                let _ = cap_resp.on_hover_text(tip);
-            }
-            widgets::record(ui, "agents-header-usage", cap_rect);
-            right_x = cap_rect.left() - theme::SPACE_INLINE;
-        } else {
-            ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
-        }
-    } else {
-        ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
-    }
-
-    // Left side of Tab Bar: Session Tabs + Quick-Launch Preset Buttons
-    let mut left_x = tab_bar_rect.left() + 8.0;
-    let mut tab_to_select: Option<usize> = None;
-    let mut tab_to_close: Option<usize> = None;
-
-    for (idx, tab) in state.tabs.iter().enumerate() {
-        if left_x + 120.0 > right_x {
-            break;
-        }
-        let is_active = idx == state.active_tab;
-        let tab_w = 136.0f32.min((right_x - left_x - 4.0).max(76.0));
-        let t_rect = Rect::from_min_size(Pos2::new(left_x, tab_bar_rect.center().y - 12.0), Vec2::new(tab_w, 24.0));
-        let close_rect = Rect::from_min_size(Pos2::new(t_rect.right() - 18.0, t_rect.center().y - 7.0), Vec2::new(14.0, 14.0));
-        let t_hit_rect = Rect::from_min_max(t_rect.min, Pos2::new((close_rect.left() - 2.0).max(t_rect.left() + 16.0), t_rect.max.y));
-        let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
-        let tab_resp = ui.interact(t_hit_rect, Id::new((surface_id, "term-tab-select", tab.id)), Sense::click());
-        let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
-            (true, Some(usage)) => Some(format!("{NEEDS_APPROVAL_LABEL}\n{usage}")),
-            (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
-            (false, usage) => usage,
-        };
-        let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
-        let close_resp = ui.interact(close_rect, Id::new((surface_id, "term-tab-close", tab.id)), Sense::click());
-
-        let bg = if is_active {
-            TERM_BG_ELEVATED
-        } else if tab_resp.hovered() {
-            TERM_BG_HOVER
-        } else {
-            TERM_BG_BAR
-        };
-        p.rect_filled(t_rect, CornerRadius::same(6), bg);
-        if is_active {
-            p.rect_stroke(t_rect, CornerRadius::same(6), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
-            p.rect_filled(
-                Rect::from_min_max(Pos2::new(t_rect.left() + 5.0, t_rect.bottom() - 2.0), Pos2::new(t_rect.right() - 5.0, t_rect.bottom())),
-                CornerRadius::same(1),
-                TERM_ORANGE,
-            );
-        }
-
-        paint_orca_tab_status_and_provider(ui, &p, tab, t_rect);
-        let title_str = widgets::elide(&p, &tab.title, &theme::font_caption_medium(), (tab_w - 44.0).max(20.0));
-        p.text(
-            Pos2::new(t_rect.left() + 22.0, t_rect.center().y),
-            Align2::LEFT_CENTER,
-            title_str,
-            theme::font_caption_medium(),
-            if is_active { theme::TEXT } else { theme::TEXT_SECONDARY },
-        );
-        icons::paint(&p, Icon::Close, close_rect.center(), 10.0, if close_resp.hovered() { STATUS_BAD_TEXT } else { theme::ICON_TERTIARY });
-
-        if close_resp.clicked() {
-            tab_to_close = Some(idx);
-        } else if tab_resp.clicked() {
-            tab_to_select = Some(idx);
-        }
-        left_x = t_rect.right() + 4.0;
-    }
-
-    if let Some(idx) = tab_to_select {
-        state.active_tab = idx;
-        if let Some(tab) = state.tabs.get_mut(idx) {
-            tab.unread = false;
-        }
-        state.sync_active_tab_approvals();
-        state.viewport_focused = true;
-        state.refresh_tab_usage(idx);
-    }
-    if state.surface_visible {
-        if let Some(tab) = state.active_tab_mut() {
-            tab.unread = false;
-        }
-    }
-    if let Some(idx) = tab_to_close {
-        state.close_tab(idx);
-    }
-
-    // Quick-launch preset buttons with crisp Plus icon
-    for preset in AgentCliPreset::QUICK_LAUNCH {
-        let label = preset.button_label();
-        let btn_w = (label.len() as f32 * 6.0 + 28.0).clamp(64.0, 98.0);
-        if left_x + btn_w > right_x {
-            break;
-        }
-        let b_rect = Rect::from_min_size(Pos2::new(left_x, tab_bar_rect.center().y - 11.0), Vec2::new(btn_w, 22.0));
-        let b_resp = ui.interact(b_rect, Id::new((surface_id, "term-preset-spawn", preset as usize)), Sense::click());
-        let is_agent = preset != AgentCliPreset::Shell;
-        let bg = if b_resp.hovered() {
-            TERM_BG_HOVER
-        } else if is_agent {
-            STATUS_INFO_BG
-        } else {
-            TERM_BG_ELEVATED
-        };
-        let border = if is_agent { STATUS_INFO_BORDER } else { TERM_BORDER };
-        let fg = if is_agent { STATUS_INFO_TEXT } else { theme::TEXT_SECONDARY };
-        p.rect_filled(b_rect, CornerRadius::same(6), bg);
-        p.rect_stroke(b_rect, CornerRadius::same(6), Stroke::new(1.0, border), StrokeKind::Inside);
-        icons::paint(&p, Icon::Plus, Pos2::new(b_rect.left() + 10.0, b_rect.center().y), 10.0, fg);
-        let elided = widgets::elide(&p, label, &theme::font_caption_medium(), (btn_w - 22.0).max(16.0));
-        p.text(Pos2::new(b_rect.left() + 18.0, b_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), fg);
-        if b_resp.clicked() {
-            let _ = state.spawn_tab(preset, file_path);
-        }
-        left_x = b_rect.right() + 4.0;
-    }
-
-    let now_secs = crate::agent_sessions::unix_timestamp_secs();
-    if let Some((dot_col, status_txt)) = state.active_tab().and_then(|t| t.header_status_indicator(now_secs)) {
-        let avail_w = (right_x - left_x - 16.0).max(0.0);
-        if avail_w >= 48.0 {
-            let status_elided = widgets::elide(&p, &status_txt, &theme::font_caption(), avail_w - 14.0);
-            p.circle_filled(Pos2::new(left_x + 7.0, tab_bar_rect.center().y), 3.0, dot_col);
-            p.text(Pos2::new(left_x + 16.0, tab_bar_rect.center().y), Align2::LEFT_CENTER, status_elided, theme::font_caption(), theme::TEXT_SECONDARY);
-        }
-    }
-
-    if state.mention_popup.is_open_for_surface(surface_id) {
-        state.mention_popup.sync_from_composer_text("", 0, doc, current_page);
-        let mut unused_text = String::new();
-        let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut unused_text, &mut state.active_mentions, doc, current_page);
-        if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
-            state.handle_terminal_mention_pick(&mention);
-        }
-    }
-
-    // 2. VT100 Screen Grid Renderer + Raw Keyboard Capture (full height)
-    let active_receipt =
-        state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
-    let vp_bottom = if active_receipt.is_some() { (rect.bottom() - 24.0).max(tab_bar_rect.bottom()) } else { rect.bottom() };
-    let viewport_rect = Rect::from_min_max(Pos2::new(rect.left(), tab_bar_rect.bottom()), Pos2::new(rect.right(), vp_bottom));
-    render_vt100_viewport(state, ui, viewport_rect, file_path, surface_id);
-    if let Some(receipt) = &active_receipt {
-        let receipt_r = Rect::from_min_max(Pos2::new(rect.left(), vp_bottom), rect.max);
-        paint_turn_receipt_row(state, &mut actions, ui, &p, receipt_r, receipt);
-    }
-    if let Some(fix) = state.pending_start_fix.take() {
-        state.apply_start_fix(fix, file_path);
-    }
-
-    if state.mention_popup.is_open_for_surface(surface_id) {
-        let mut unused_text = String::new();
-        let show_outcome = state.mention_popup.show(ui, rect, tab_bar_rect, &mut unused_text, &mut state.active_mentions);
-        if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
-            state.handle_terminal_mention_pick(&mention);
-        }
-    }
-
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-
-    actions
-}
-
 fn extract_selected_terminal_text(screen: &vt100::Screen, sel: ((u16, u16), (u16, u16)), rows: u16, cols: u16) -> String {
     let (start, end) = if sel.0 <= sel.1 { (sel.0, sel.1) } else { (sel.1, sel.0) };
     let r_start = start.0.min(rows.saturating_sub(1));
@@ -6017,9 +5521,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     };
     if state.picker_open || state.tabs.is_empty() {
         if !state.runtime_dropdown_open && !state.sessions_popover_open {
-            if state.tabs.is_empty() && surface_id == "agents-left-pty" {
+            if state.tabs.is_empty() {
                 // Agents panel with no session yet: the picker stays on top and the starter prompts sit below it
-                // (`#688` §3 rule 3). The dock terminal has no composer to fill, so it keeps the picker alone.
+                // (`#688` §3 rule 3).
                 crate::agent_sample_prompts::show_empty_state(state, ui, viewport_rect, file_path);
             } else {
                 crate::agent_picker::show_picker_panel(state, ui, viewport_rect, file_path);
@@ -6521,31 +6025,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_bar_icon_pill(
-    ui: &mut Ui,
-    p: &Painter,
-    id: impl std::hash::Hash + std::fmt::Debug,
-    right_center: Pos2,
-    icon: Icon,
-    label: &str,
-    bg: Color32,
-    border: Color32,
-    fg: Color32,
-) -> Rect {
-    let w = (label.len() as f32 * 5.8 + 30.0).clamp(84.0, 184.0);
-    let h = 22.0;
-    let rect = Rect::from_min_size(Pos2::new(right_center.x - w, right_center.y - h / 2.0), Vec2::new(w, h));
-    let resp = ui.interact(rect, Id::new(id), Sense::hover());
-    let fill = if resp.hovered() { TERM_BG_HOVER } else { bg };
-    p.rect_filled(rect, CornerRadius::same(6), fill);
-    p.rect_stroke(rect, CornerRadius::same(6), Stroke::new(1.0, border), StrokeKind::Inside);
-    icons::paint(p, icon, Pos2::new(rect.left() + 11.0, rect.center().y), 11.0, fg);
-    let elided = widgets::elide(p, label, &theme::font_caption_medium(), (w - 24.0).max(20.0));
-    p.text(Pos2::new(rect.left() + 20.0, rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption_medium(), fg);
-    rect
-}
-
 /// Converts a `vt100::Color` (Default, 16-ANSI, 256-palette, or 24-bit TrueColor RGB) to `egui::Color32`.
 pub fn vt100_color_to_egui(c: vt100::Color, is_fg: bool) -> Color32 {
     match c {
@@ -6604,30 +6083,7 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{Comment, CommentAnchor, CommentThread, Node};
-
-    #[test]
-    fn extract_spec_json_from_fenced_and_raw_terminal_output() {
-        let log = r#"
-$ claude "design an EaseUI card"
-Here is the NodeSpec blueprint:
-```json
-{
-  "name": "Agent Card",
-  "preset": "easeui-card",
-  "children": [
-    { "kind": "text", "name": "Title", "text": "Hello from Claude" }
-  ]
-}
-```
-Done!
-"#;
-        let extracted = extract_spec_json_from_log(log).expect("should extract fenced NodeSpec JSON");
-        let parsed: NodeSpec = serde_json::from_str(&extracted).expect("valid NodeSpec");
-        assert_eq!(parsed.name, "Agent Card");
-        assert_eq!(parsed.preset.as_deref(), Some("easeui-card"));
-        assert_eq!(parsed.children.len(), 1);
-    }
+    use designos_doc::{Comment, CommentAnchor, CommentThread, Node, NodeSpec};
 
     #[test]
     fn pty_spawn_and_vt100_screen_capture_work() {
@@ -6650,7 +6106,7 @@ Done!
     }
 
     #[test]
-    fn send_copy_for_ai_formats_product_os_citation_and_opens_dock() {
+    fn send_copy_for_ai_formats_product_os_citation() {
         let payload = format_copy_for_ai_payload("## US-01: Native PTY Agent Terminal");
         assert!(payload.contains("- File: spec/"));
         assert!(payload.contains("- Mục:"));
@@ -6660,9 +6116,7 @@ Done!
     }
 
     #[test]
-    fn antigravity_preset_and_quick_launch_cover_all_five_cli_runtimes() {
-        assert_eq!(AgentCliPreset::QUICK_LAUNCH.len(), 5);
-        assert!(AgentCliPreset::QUICK_LAUNCH.contains(&AgentCliPreset::Antigravity));
+    fn antigravity_preset_names_the_agy_cli() {
         assert_eq!(AgentCliPreset::Antigravity.tab_title(), "Antigravity (agy)");
         assert_eq!(AgentCliPreset::Antigravity.button_label(), "Antigravity");
         assert_eq!(AgentCliPreset::Antigravity.badge(), "AGY");
@@ -6885,7 +6339,6 @@ Done!
         let rec = attach_recorder(st.active_tab_mut().unwrap());
         st.dispatch_figma_ai_prompt("Auto-rename layers to semantic names", "Auto-rename layers to semantic names", None);
         st.flush_pending_enter_now();
-        assert!(st.dock_open);
         let written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
         assert!(written.contains("Auto-rename layers to semantic names"));
         assert!(!written.trim_start().starts_with('#'));
@@ -6963,8 +6416,8 @@ Done!
 
     /// Zero Fake UI (`design/principles.md` P6): a control the chat-view header draws must do something when clicked.
     /// The `More` button (`agents-more-menu`) lost its only effect when the "What's next?" category cards went away, and the
-    /// #688 spec defines no menu behind it (rule 7 keeps the real actions on the header and dock bar), so it is not drawn
-    /// and the pop-out toggle takes the right-edge slot, where the terminal view already puts it.
+    /// #688 spec defines no menu behind it, so it is not drawn. The pop-out toggle (`agents-header-popout`) only opened the
+    /// terminal dock, which is gone (#838), so it is not drawn either and the AI toggle takes the right-edge slot.
     #[test]
     fn chat_header_draws_no_control_that_does_nothing() {
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
@@ -6989,7 +6442,6 @@ Done!
                 (
                     st.chat_mode,
                     st.side_panel_pty_open,
-                    st.dock_open,
                     st.runtime_dropdown_open,
                     st.sessions_popover_open,
                     st.active_runtime,
@@ -7029,16 +6481,15 @@ Done!
             kill_tabs(&mut st);
         }
         assert!(inert.is_empty(), "header controls drawn in the chat view that do nothing when clicked: {inert:?}");
-        assert_eq!(drawn, ["agents-header-back", "agents-header-ai", "agents-header-popout"], "the chat header draws Back, AI and pop-out only");
+        assert_eq!(drawn, ["agents-header-back", "agents-header-ai"], "the chat header draws Back and AI only");
 
         let (ctx, mut st) = chat_view();
         let ai = rect_of(&ctx, "agents-header-ai").expect("AI toggle");
-        let popout = rect_of(&ctx, "agents-header-popout").expect("pop-out toggle");
-        assert!(ai.right() <= popout.left() && !ai.intersects(popout), "AI toggle {ai:?} sits left of pop-out {popout:?}");
         assert!(
-            panel_rect.right() - popout.right() <= 8.0,
-            "pop-out {popout:?} sits at the right edge of {panel_rect:?} like the terminal view's dock toggle, with no empty slot beside it"
+            panel_rect.right() - ai.right() <= theme::SPACE_INLINE,
+            "AI toggle {ai:?} sits at the right edge of {panel_rect:?}, with no empty slot beside it"
         );
+        assert!(rect_of(&ctx, "agents-header-popout").is_none(), "the pop-out toggle belonged to the removed dock");
         kill_tabs(&mut st);
     }
 
@@ -7059,8 +6510,11 @@ Done!
         });
         let update = out.platform_output.accesskit_update.expect("AccessKit TreeUpdate expected");
         let buttons: Vec<&str> = update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button).filter_map(|(_, n)| n.label()).collect();
-        for named in ["Back", "Hide AI chat", "Show terminal dock"] {
+        for named in ["Back", "Hide AI chat"] {
             assert!(buttons.contains(&named), "the header control {named:?} stays announced: {buttons:?}");
+        }
+        for gone in ["Show terminal dock", "Hide terminal dock"] {
+            assert!(!buttons.contains(&gone), "the terminal dock is removed, so {gone:?} is not announced: {buttons:?}");
         }
         assert!(!buttons.contains(&"More options"), "a control that is not drawn must not be announced: {buttons:?}");
         kill_tabs(&mut st);
@@ -7073,7 +6527,6 @@ Done!
         assert_ne!(st1.session_dir, st2.session_dir);
         assert_ne!(st1.live_spec_path, st2.live_spec_path);
         assert_ne!(st1.live_doc_sync_path, st2.live_doc_sync_path);
-        assert_eq!(st1.dock_height, 400.0);
 
         let mut doc1 = Document::new("File Alpha");
         let _page1 = doc1.add_page("Page 1");
@@ -8783,7 +8236,6 @@ Done!
         st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
         let rec = attach_recorder(st.active_tab_mut().unwrap());
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
-        let dock_rect = Rect::from_min_size(Pos2::new(0.0, 500.0), Vec2::new(1200.0, 300.0));
         let _ = std::fs::remove_file(&st.selection_spec_path);
         let recorded = |ctx: &egui::Context, name: &str| -> (Option<Rect>, Option<String>) {
             ctx.data(|d| (d.get_temp(Id::new(("test-rect", name.to_string()))), d.get_temp(Id::new(("test-text", name.to_string())))))
@@ -8794,11 +8246,9 @@ Done!
         let _ = ctx.run_ui(raw0.clone(), |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
                 emitted.extend(show_left_with_selection(&mut st, ui, panel_rect, None, summary));
-                emitted.extend(show_dock_with_selection(&mut st, ui, dock_rect, None, summary));
             });
         });
         assert_eq!(recorded(&ctx, "agent-selection-chip-left"), (None, None), "no chip in the panel header strip when nothing is selected");
-        assert_eq!(recorded(&ctx, "agent-selection-chip-dock"), (None, None), "no chip in the dock bar when nothing is selected");
         assert_eq!(recorded(&ctx, "agent-selection-chip"), (None, None));
 
         // Where the chip would have sat, a click raises nothing and writes nothing.
@@ -8821,19 +8271,16 @@ Done!
         assert!(rec.lock().unwrap().is_empty(), "an empty selection writes nothing to the PTY");
         assert!(!st.selection_spec_path.exists(), "an empty selection writes no selection.spec.json");
 
-        // A selection brings the chip back in both places.
+        // A selection brings the chip back.
         let sel = [ids[0]];
         let _ = ctx.run_ui(raw0, |ui| {
             crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
                 let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
-                let _ = show_dock_with_selection(&mut st, ui, dock_rect, None, summary);
             });
         });
         let (left_rect, left_text) = recorded(&ctx, "agent-selection-chip-left");
-        let (dock_rect_chip, dock_text) = recorded(&ctx, "agent-selection-chip-dock");
-        assert!(left_rect.is_some() && dock_rect_chip.is_some(), "a selected layer shows the chip in the strip and in the dock");
+        assert!(left_rect.is_some(), "a selected layer shows the chip in the strip");
         assert_eq!(left_text.as_deref(), Some("Page 1 · 1 selected · A"));
-        assert_eq!(dock_text.as_deref(), Some("Page 1 · 1 selected · A"));
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
@@ -9762,7 +9209,6 @@ Done!
             let notice = rect_of("agents-header-turn-status").expect("still-running notice takes the right slot");
             let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
             let stop = rect_of("agents-header-stop-btn").expect("Stop button");
-            let popout = rect_of("agents-header-popout").expect("pop-out button");
             let strip = [("chip", chip), ("notice", notice), ("mention", mention)];
             for (i, (an, a)) in strip.iter().enumerate() {
                 assert!(a.left() >= panel_rect.left() && a.right() <= panel_rect.right(), "{an} {a:?} inside {width}px panel");
@@ -9771,8 +9217,7 @@ Done!
                 }
             }
             assert!(chip.right() <= notice.left() && notice.right() <= mention.left(), "chip | notice | mention order at {width}px");
-            assert!(stop.right() <= popout.left() && !stop.intersects(popout), "Stop {stop:?} left of pop-out {popout:?} at {width}px");
-            assert!(popout.right() <= panel_rect.right(), "pop-out inside panel");
+            assert!(stop.left() >= panel_rect.left() && stop.right() <= panel_rect.right(), "Stop {stop:?} inside the {width}px panel");
             assert!(stop.bottom() <= chip.top().min(mention.top()), "Stop sits in the chrome bar above the strip");
 
             // A token/cost readout (`#678`) joins the strip: it never overlaps the chip, the turn status or `@ Mention`,
@@ -10995,7 +10440,7 @@ Done!
     }
 
     #[test]
-    fn mention_popup_renders_only_on_the_surface_that_opened_it() {
+    fn mention_popup_opens_inside_the_agents_panel_and_pastes_the_picked_layer() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
@@ -11007,21 +10452,16 @@ Done!
         st.sync_live_file_context(&doc, page, &[], None);
 
         let left_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
-        let dock_rect = Rect::from_min_size(Pos2::new(340.0, 500.0), Vec2::new(900.0, 360.0));
-
-        // Frame 1: paint both left PTY and dock surface to record `agent-mention-btn-dock`.
-        let raw0 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
-        let _ = ctx.run_ui(raw0, |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
-                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let paint = |ctx: &egui::Context, st: &mut TerminalState, raw: egui::RawInput| {
+            let _ = ctx.run_ui(raw, |ui| {
+                crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
+                    let _ = show_left_with_doc(st, ui, left_rect, None, summary, &doc, page);
+                });
             });
-        });
-        let dock_btn: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-btn-dock".to_string())))).expect("dock mention button rect");
-
-        // Frame 2: click `agent-mention-btn-dock` while both surfaces are rendered.
+        };
         let click_ev = |pos: Pos2| egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
+            screen_rect: Some(screen),
             events: vec![
                 egui::Event::PointerMoved(pos),
                 egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
@@ -11029,34 +10469,24 @@ Done!
             ],
             ..Default::default()
         };
-        let _ = ctx.run_ui(click_ev(dock_btn.center()), |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
-                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
-            });
-        });
-        assert!(st.mention_popup.is_open(), "clicking dock @ Mention must open popup");
 
-        // Frame 3: paint so dock popup records `agent-mention-row-0` inside `dock_rect`, then click it.
-        let raw1 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
-        let _ = ctx.run_ui(raw1, |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
-                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
-            });
-        });
+        // Frame 1: paint the panel to record `agent-mention-btn-left`.
+        paint(&ctx, &mut st, egui::RawInput { screen_rect: Some(screen), ..Default::default() });
+        let mention_btn: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-btn-left".to_string())))).expect("mention button rect");
+
+        // Frame 2: click `@ Mention`.
+        paint(&ctx, &mut st, click_ev(mention_btn.center()));
+        assert!(st.mention_popup.is_open(), "clicking @ Mention must open the popup");
+
+        // Frame 3: paint so the popup records `agent-mention-row-0` inside the panel, then click it.
+        paint(&ctx, &mut st, egui::RawInput { screen_rect: Some(screen), ..Default::default() });
         let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-row-0".to_string())))).expect("row 0 rect");
-        assert!(dock_rect.contains(row0.center()), "popup must render inside the dock surface that opened it, got {row0:?}");
+        assert!(left_rect.contains(row0.center()), "the popup must render inside the Agents panel, got {row0:?}");
 
-        let _ = ctx.run_ui(click_ev(row0.center()), |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, left_rect, None, summary, &doc, page);
-                let _ = render_terminal_surface(&mut st, ui, dock_rect, None, "agents-dock", summary, &doc, page);
-            });
-        });
-        assert!(!st.mention_popup.is_open(), "clicking a row in the dock popup must pick and close");
+        paint(&ctx, &mut st, click_ev(row0.center()));
+        assert!(!st.mention_popup.is_open(), "clicking a row in the popup must pick and close");
         let pasted = String::from_utf8_lossy(&rec.lock().unwrap()).to_string();
-        assert!(pasted.contains(&format!("@A (designos:node/{})", ids[0].0)), "dock row click must paste mention into Claude tab, got {pasted:?}");
+        assert!(pasted.contains(&format!("@A (designos:node/{})", ids[0].0)), "a row click must paste the mention into the Claude tab, got {pasted:?}");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);

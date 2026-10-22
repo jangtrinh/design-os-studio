@@ -116,13 +116,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                     app.ui.menu = None;
                 }
             } else if *item == RailItem::Agents {
-                if app.ui.rail == Some(RailItem::Agents) && !app.ui.left_collapsed {
-                    app.ui.rail = None;
-                } else {
-                    app.ui.rail = Some(RailItem::Agents);
-                    app.ui.left_collapsed = false;
-                    app.terminal.open_for_agent_use(app.file_path.as_deref());
-                }
+                app.toggle_agents_panel();
             } else if *item == RailItem::Specs {
                 if app.ui.rail == Some(RailItem::Specs) && app.specs.open {
                     app.ui.rail = None;
@@ -132,16 +126,6 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                     app.ui.left_collapsed = false;
                     app.specs.open = true;
                     app.specs.ensure_loaded();
-                }
-            } else if *item == RailItem::Tools {
-                if app.ui.rail == Some(RailItem::Tools) && !app.ui.left_collapsed {
-                    app.ui.rail = None;
-                    app.terminal.dock_open = false;
-                } else {
-                    app.ui.rail = Some(RailItem::Tools);
-                    app.ui.left_collapsed = false;
-                    app.terminal.dock_open = true;
-                    app.terminal.open_for_agent_use(app.file_path.as_deref());
                 }
             } else {
                 if *item == RailItem::Variables {
@@ -159,21 +143,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     }
 
-    // Bottom: Agent Terminal quick toggle (`>_`) + Figma Sync/Updates button with blue indicator dot.
-    let tr = Rect::from_min_size(
-        Pos2::new(rect.left() + theme::RAIL_MENU_BUTTON_X, rect.bottom() - 48.0 - theme::RAIL_MENU_BUTTON_SIZE),
-        Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE),
-    );
-    widgets::record(ui, "rail-terminal", tr);
-    if widgets::icon_button(ui, tr, "rail-terminal", Icon::Terminal, app.terminal.dock_open, "Agent Terminal (Claude / Codex / Shell)").clicked() {
-        app.terminal.dock_open = !app.terminal.dock_open;
-        if app.terminal.dock_open {
-            app.ui.rail = Some(RailItem::Agents);
-            app.ui.left_collapsed = false;
-            app.terminal.open_for_agent_use(app.file_path.as_deref());
-        }
-    }
-
+    // Bottom: Figma Sync/Updates button with blue indicator dot.
     let br = Rect::from_min_size(
         Pos2::new(rect.left() + theme::RAIL_MENU_BUTTON_X, rect.bottom() - 8.0 - theme::RAIL_MENU_BUTTON_SIZE),
         Vec2::splat(theme::RAIL_MENU_BUTTON_SIZE),

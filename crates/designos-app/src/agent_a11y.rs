@@ -362,14 +362,10 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
 
     // 1. Panel region + header controls created in this frame
     widgets::labelled(ui, Id::new("agents-panel-region"), Role::Region, "Agents panel");
-    // The name says which way the toggle goes, so it follows the state the click flips.
-    let dock_toggle_name = if state.dock_open { "Hide terminal dock" } else { "Show terminal dock" };
-    if state.side_panel_pty_open {
-        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, dock_toggle_name);
-    } else {
+    if !state.side_panel_pty_open {
         widgets::labelled(ui, Id::new("agents-header-back"), Role::Button, "Back");
+        // The name says which way the toggle goes, so it follows the state the click flips.
         widgets::labelled(ui, Id::new("agents-header-ai"), Role::Button, if state.chat_mode { "Hide AI chat" } else { "Show AI chat" });
-        widgets::labelled(ui, Id::new("term-left-dock-toggle"), Role::Button, dock_toggle_name);
     }
 
     // 2. Tab strip region + tab/runtime controls created in this frame
@@ -409,39 +405,6 @@ pub fn label_agents_panel(state: &TerminalState, ui: &mut Ui) {
         widgets::labelled(ui, Id::new("agents-composer-prd"), Role::Button, "Attach PRD context");
         widgets::labelled(ui, Id::new("agents-composer-send"), Role::Button, "Send");
     }
-}
-
-/// Labels a docked or full-screen terminal surface (`show_dock` / `show_full`).
-pub fn label_terminal_surface(state: &TerminalState, ui: &Ui, surface_id: &'static str) {
-    if !is_accesskit_active() {
-        return;
-    }
-    let (active_agent, active_status) = state
-        .active_tab()
-        .map(|tab| {
-            let st = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-            (resolved_agent_name(tab.preset, &tab.title).to_string(), st)
-        })
-        .unwrap_or_else(|| (state.active_runtime.display_name().to_string(), AgentTabStatus::Idle));
-    let term_desc = status_description_named(&active_agent, &active_status, state.active_tab().is_some_and(|t| t.needs_approval()));
-
-    widgets::labelled(ui, Id::new((surface_id, "term-tab-list")), Role::TabList, "Agent tabs");
-    for tab in &state.tabs {
-        widgets::labelled(ui, Id::new((surface_id, "term-tab-select", tab.id)), Role::Tab, &tab.title);
-        widgets::labelled(ui, Id::new((surface_id, "term-tab-close", tab.id)), Role::Button, "Close tab");
-    }
-    for preset in AgentCliPreset::QUICK_LAUNCH {
-        widgets::labelled(ui, Id::new((surface_id, "term-preset-spawn", preset as usize)), Role::Button, "New session");
-    }
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-sync")), Role::Button, "Sync canvas");
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-apply-spec")), Role::Button, "Apply spec from output");
-    widgets::labelled(ui, Id::new((surface_id, "term-bar-send-sel")), Role::Button, "Send selection and comments");
-
-    ui.ctx().accesskit_node_builder(Id::new((surface_id, "term-vt100-viewport")), |node| {
-        node.set_role(Role::Terminal);
-        node.set_label("Agent terminal");
-        node.set_description(term_desc);
-    });
 }
 
 fn is_agents_panel_focus(id: Id) -> bool {

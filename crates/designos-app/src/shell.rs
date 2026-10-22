@@ -313,9 +313,7 @@ impl Shell {
                 app.specs.ensure_loaded();
             }
             Some("terminal") => {
-                app.ui.rail = Some(crate::app::RailItem::Agents);
-                app.ui.left_collapsed = false;
-                app.terminal.dock_open = true;
+                app.show_agents_panel();
                 app.terminal.open_for_agent_use(app.file_path.as_deref());
             }
             Some(p @ ("check-designs" | "check-designs-fixed")) => {
@@ -762,10 +760,7 @@ impl Shell {
                 (Key::Backslash, _, _) => Some(Action::ToggleSidebar),
                 (Key::K, false, false) => Some(Action::OpenPalette),
                 (Key::Backtick, _, _) => {
-                    app.terminal.dock_open = !app.terminal.dock_open;
-                    if app.terminal.dock_open {
-                        app.terminal.open_for_agent_use(app.file_path.as_deref());
-                    }
+                    app.toggle_agents_panel();
                     None
                 }
                 (Key::P, false, false) => {
@@ -1404,7 +1399,7 @@ impl Shell {
         }
         let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
         self.app.terminal.set_window_focused(win_focused);
-        self.app.terminal.surface_visible = (!self.app.ui.left_collapsed && is_ai_panel) || self.app.terminal.dock_open;
+        self.app.terminal.surface_visible = !self.app.ui.left_collapsed && is_ai_panel;
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
@@ -1422,50 +1417,25 @@ impl Shell {
             crate::variables::view::show(&mut self.app, ui, content);
         } else {
             let specs_reader_open = false;
-            let max_dock_h = (canvas_rect.height() - 100.0).max(200.0);
-            let dock_h = if self.app.terminal.dock_open { self.app.terminal.dock_height.clamp(160.0, max_dock_h) } else { 0.0 };
-            let main_canvas_rect =
-                Rect::from_min_max(canvas_rect.min, Pos2::new(canvas_rect.right(), (canvas_rect.bottom() - dock_h).max(canvas_rect.top() + 80.0)));
-            let dock_rect = Rect::from_min_max(Pos2::new(canvas_rect.left(), main_canvas_rect.bottom()), canvas_rect.max);
             if specs_reader_open {
-                self.app.canvas_rect = main_canvas_rect;
-                crate::specs::show_reader(&mut self.app, ui, main_canvas_rect);
+                self.app.canvas_rect = canvas_rect;
+                crate::specs::show_reader(&mut self.app, ui, canvas_rect);
             } else {
                 if let Some(seq) = self.shot.as_ref().and_then(|s| s.seq.as_ref()) {
                     if seq.hud.zoom > 0.0 {
                         self.app.first_fit_done = true;
-                        let aspect_scale = (main_canvas_rect.width() / 1080.0).clamp(0.70, 1.05);
+                        let aspect_scale = (canvas_rect.width() / 1080.0).clamp(0.70, 1.05);
                         let z = (seq.hud.zoom * aspect_scale).max(0.25);
                         self.app.view.zoom = z;
                         self.app.view.offset = designos_doc::Vec2::new(
-                            seq.hud.focus_page.x - (main_canvas_rect.width() * 0.5) / z,
-                            seq.hud.focus_page.y - (main_canvas_rect.height() * 0.5) / z,
+                            seq.hud.focus_page.x - (canvas_rect.width() * 0.5) / z,
+                            seq.hud.focus_page.y - (canvas_rect.height() * 0.5) / z,
                         );
                     }
                 }
-                canvas::show(&mut self.app, ui, main_canvas_rect);
+                canvas::show(&mut self.app, ui, canvas_rect);
                 if deck {
                     crate::decks::ui::notes(&mut self.app, ui, notes_rect);
-                }
-            }
-            if self.app.terminal.dock_open && dock_rect.height() >= 80.0 {
-                let file_path = self.app.file_path.clone();
-                let term_actions = crate::agent_selection_chip::with_selection_summary(&self.app.doc, self.app.page, &self.app.selection, |summary| {
-                    crate::terminal::show_dock_with_doc(&mut self.app.terminal, ui, dock_rect, file_path.as_deref(), summary, &self.app.doc, self.app.page)
-                });
-                execute_terminal_actions_with_ctx(&mut self.app, term_actions, Some(&ctx));
-                let dock_handle_rect =
-                    Rect::from_min_max(Pos2::new(dock_rect.left(), dock_rect.top() - 3.0), Pos2::new(dock_rect.right(), dock_rect.top() + 3.0));
-                widgets::record(ui, "dock-resize-handle", dock_handle_rect);
-                let dock_drag = ui.interact(dock_handle_rect, ui.id().with("dock-resize-handle"), egui::Sense::drag());
-                if dock_drag.hovered() || dock_drag.dragged() {
-                    ctx.set_cursor_icon(egui::CursorIcon::ResizeVertical);
-                    ui.painter().hline(dock_rect.x_range(), dock_rect.top(), egui::Stroke::new(2.0, theme::BG_BRAND));
-                }
-                if dock_drag.dragged() {
-                    if let Some(pointer) = ctx.input(|i| i.pointer.interact_pos()) {
-                        self.app.terminal.dock_height = (canvas_rect.bottom() - pointer.y).clamp(160.0, max_dock_h);
-                    }
                 }
             }
             rail::show(&mut self.app, ui, rail_rect);
@@ -1508,10 +1478,10 @@ impl Shell {
                 }
             }
             if board {
-                if !specs_reader_open && !self.app.terminal.dock_open {
+                if !specs_reader_open {
                     crate::board::toolbar::show(&mut self.app, ui, canvas_rect_for_toolbar(full));
-                    crate::board::bar::show(&mut self.app, ui, main_canvas_rect);
-                    crate::board::canvas::zoom_pill(&mut self.app, ui, main_canvas_rect);
+                    crate::board::bar::show(&mut self.app, ui, canvas_rect);
+                    crate::board::canvas::zoom_pill(&mut self.app, ui, canvas_rect);
                 }
             } else {
                 if specs_reader_open {
@@ -1520,13 +1490,13 @@ impl Shell {
                     right::show(&mut self.app, ui, right_rect);
                 }
                 if !specs_reader_open {
-                    let tb_rect = if deck || self.app.terminal.dock_open { main_canvas_rect } else { canvas_rect_for_toolbar(full) };
+                    let tb_rect = if deck { canvas_rect } else { canvas_rect_for_toolbar(full) };
                     toolbar::show(&mut self.app, ui, tb_rect);
                 }
             }
             if !specs_reader_open {
-                crate::history::banner::show(&mut self.app, ui, main_canvas_rect);
-                self.context_menu(ui, main_canvas_rect);
+                crate::history::banner::show(&mut self.app, ui, canvas_rect);
+                self.context_menu(ui, canvas_rect);
             }
             menus::show(&mut self.app, &ctx);
             panels::context::show(&mut self.app, &ctx);
@@ -1535,7 +1505,7 @@ impl Shell {
             // the floating panel (or only the inspector's binding picker when closed)
             crate::variables::view::show(&mut self.app, ui, full);
             if let Some(seq) = self.shot.as_ref().and_then(|s| s.seq.as_ref()) {
-                paint_micro_seq_hud(ui, &self.app, main_canvas_rect, right_rect, &seq.hud, seq.cur, seq.total);
+                paint_micro_seq_hud(ui, &self.app, canvas_rect, right_rect, &seq.hud, seq.cur, seq.total);
             }
         }
         if let Some(cmdk_act) = crate::cmdk::show(&ctx, &mut self.app.cmdk, &self.app.doc, self.app.page, &self.app.selection) {
@@ -1612,14 +1582,6 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                 }
             }
             crate::terminal::TerminalAction::LiveSyncError(msg) => app.show_toast(msg, true),
-            crate::terminal::TerminalAction::ReloadFromDisk => {
-                if let Some(p) = app.file_path.clone() {
-                    app.open_path(p);
-                    app.show_toast("Synced Canvas from disk", false);
-                } else {
-                    app.show_toast("No file path open to sync", true);
-                }
-            }
             crate::terminal::TerminalAction::ExportSelectionToTerminal => {
                 match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
                     Ok(p) => app.show_toast(format!("Sent selection & comments -> {}", p.display()), false),
@@ -1673,6 +1635,7 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
     match action {
         crate::cmdk::CmdKAction::ApplySpec(spec) => {
             let fp = app.file_path.clone();
+            app.show_agents_panel();
             app.terminal.dispatch_figma_ai_prompt("Make Design", &spec.name, fp.as_deref());
             app.apply_node_spec(&spec, "Cmd+K Synthesizer");
         }
@@ -1686,15 +1649,11 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
         crate::cmdk::CmdKAction::OpenTerminal(preset) => {
             let file_path = app.file_path.clone();
             let _ = app.terminal.spawn_tab(preset, file_path.as_deref());
-            app.terminal.dock_open = true;
-            app.ui.rail = Some(crate::app::RailItem::Agents);
-            app.ui.left_collapsed = false;
+            app.show_agents_panel();
             app.cmdk.open = false;
         }
         crate::cmdk::CmdKAction::SendSelectionToTerminal => {
-            app.terminal.dock_open = true;
-            app.ui.rail = Some(crate::app::RailItem::Agents);
-            app.ui.left_collapsed = false;
+            app.show_agents_panel();
             match crate::terminal::export_selection_and_comments_to_pty(&mut app.terminal, &app.doc, app.page, &app.selection, app.file_path.as_deref()) {
                 Ok(p) => app.show_toast(format!("Sent selection & comments -> {}", p.display()), false),
                 Err(e) => app.show_toast(e, true),
@@ -1726,6 +1685,7 @@ pub fn execute_cmdk_action(app: &mut App, action: crate::cmdk::CmdKAction) {
             app.changed();
             app.cmdk.last_audit = Some(crate::cmdk::run_design_gate_audit(&app.doc, app.page, &app.selection));
             let fp = app.file_path.clone();
+            app.show_agents_panel();
             app.terminal.dispatch_figma_ai_prompt("Figma AI Action", &format!("Applied {fixed_count} Canvas changes (Undo with Cmd+Z)"), fp.as_deref());
             app.show_toast(format!("Applied {fixed_count} Figma AI change(s) (Cmd+Z to Undo)"), false);
         }

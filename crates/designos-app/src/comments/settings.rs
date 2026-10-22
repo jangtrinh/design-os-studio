@@ -196,6 +196,39 @@ mod tests {
         assert!(!os_user_name().is_empty());
     }
 
+    /// A `settings.json` saved by v0.6.0, when the terminal dock still existed (#838). Studio never wrote the dock's open
+    /// state or height to it; keys a file may still carry from an older build are ignored, kept and never rejected.
+    #[test]
+    fn a_v060_settings_file_still_loads_after_the_dock_was_removed() {
+        let d = tmp("v060");
+        std::fs::write(
+            d.join(FILE),
+            r#"{
+                "author": "Kir",
+                "agent_permission_mode": "ask",
+                "agent.in_progress_stale_minutes": 30,
+                "custom_clis": [{ "label": "My CLI", "command": "mycli --flag" }],
+                "skills": { "default": ["es-designer"] },
+                "dock_open": true,
+                "dock_height": 360
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(load_author(&d).as_deref(), Some("Kir"));
+        assert_eq!(crate::agent_permissions::load_permission_mode(&d), crate::agent_permissions::AgentPermissionMode::Ask);
+        assert_eq!(load_in_progress_stale_minutes(&d), 30);
+        assert_eq!(load_custom_clis(&d).len(), 1);
+        assert_eq!(load_default_skills(&d), vec!["es-designer".to_string()]);
+
+        save_author(&d, "Ann").unwrap();
+        assert_eq!(load_author(&d).as_deref(), Some("Ann"));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(d.join(FILE)).unwrap()).unwrap();
+        assert_eq!(v["dock_open"], true, "a key an older build wrote survives a save");
+        assert_eq!(v["dock_height"], 360);
+        designos_doc::set_in_progress_stale_minutes(None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn in_progress_stale_minutes_roundtrip_and_clamp() {
         let d = tmp("stale");
