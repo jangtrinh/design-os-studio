@@ -386,3 +386,27 @@ fn after_keep_mine_a_round_trip_does_not_ask_about_the_same_write_again() {
     wait(&mut s, 1.5);
     assert!(conflict_open(&s), "another write asks again");
 }
+
+#[test]
+fn after_keep_mine_an_undo_back_to_the_opened_version_does_not_load_the_rejected_file() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    rewrite_on_disk(&path, &other_document());
+    wait(&mut s, 1.5);
+    assert!(conflict_open(&s));
+    s.key(Key::Escape);
+    wait(&mut s, 1.0);
+    // Cmd+Z back to the version that was opened: the history says it is the saved one, but the file is not that any more
+    s.cmd_key(Key::Z);
+    wait(&mut s, 2.5);
+    assert_eq!(s.app().doc.name, "Outside", "the document stays the user's");
+    assert!(!synced_toast(&s), "the rejected file was not installed: {:?}", s.app().toast.as_ref().map(|t| &t.text));
+    assert!(dot(&s), "it is still not what the file holds, so the dot stays lit");
+    assert!(!conflict_open(&s), "and the write already answered is not asked about again");
+    // redo still works, and Cmd+S writes the user's version over the file
+    s.cmd_key(Key::S);
+    wait(&mut s, SETTLED);
+    let on_disk = Document::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(on_disk.name, "Outside", "the user's version is on disk");
+    assert!(!dot(&s), "saved");
+}

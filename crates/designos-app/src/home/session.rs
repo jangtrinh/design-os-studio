@@ -943,6 +943,9 @@ impl App {
     /// The file changed under unsaved edits. Opens the question once per write; the edits stay on screen
     /// whatever the answer, and "Keep mine" (or closing the question) leaves the write unread.
     fn ask_which_version_to_keep(&mut self, ctx: &egui::Context, mtime: Option<std::time::SystemTime>) {
+        // The file no longer holds the version the history marks as saved: an undo back to that point must not make the
+        // document look clean, or the next look at the file would install the rejected one. The dot stays until a save.
+        self.mark_edited_outside_history();
         self.autosave.conflict_mtime = mtime;
         self.dialog = Some(super::dialog::Dialog::disk_changed());
         ctx.request_repaint();
