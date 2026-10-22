@@ -1208,6 +1208,13 @@ pub fn apply_variable_binding(
     let Some(node) = doc.get_mut(node_id) else {
         return 0;
     };
+    bind_variable_on_node(node, prop_keys, var_id, val.as_ref())
+}
+
+/// Binds `var_id` to `prop_keys` on `node` and writes `value`, the variable resolved in the node's mode, via
+/// [`set_bound_property`]. This is the part of [`apply_variable_binding`] that needs only the node, for a copy
+/// of a node that is committed later as one command.
+pub fn bind_variable_on_node(node: &mut Node, prop_keys: &[&str], var_id: &str, value: Option<&VariableValue>) -> usize {
     let mut created = 0usize;
     for &key in prop_keys {
         if key == "fills/0" {
@@ -1227,7 +1234,7 @@ pub fn apply_variable_binding(
             node.stroke.paints.push(Paint::solid(Color::TRANSPARENT));
         }
         node.variables.bindings.insert(key.to_string(), var_id.to_string());
-        if let Some(ref resolved) = val {
+        if let Some(resolved) = value {
             crate::set_bound_property(node, key, resolved);
         }
         created += 1;

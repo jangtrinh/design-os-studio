@@ -8,7 +8,8 @@
 
 use crate::engine::Engine;
 use crate::tools::errors::{tool_output_schema_from_object, ErrorCode, ToolError};
-use crate::tools::{build_created_node, build_updated_node, set_node_fills, validate_create_fields, validate_update_fields, UpdateFields};
+use crate::tools::fill_write::{validate_fill_color, write_fill};
+use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
     apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
@@ -639,10 +640,7 @@ fn parse_and_validate_ops(raw_ops: Vec<Value>) -> Result<Vec<ParsedOp>, ToolErro
                 }
                 validate_create_fields(&a.kind, a.name.as_deref(), a.text.as_deref(), a.x, a.y, a.width, a.height)
                     .map_err(|e| wrap_op_err(idx, "insert", &op_path, e))?;
-                if let Some(fill_str) = &a.fill {
-                    resolve_easeui_color(fill_str)
-                        .ok_or_else(|| op_failed_error(idx, "insert", ErrorCode::ValueOutOfRange, &op_path, format!("invalid fill color '{fill_str}'")))?;
-                }
+                validate_fill_color(a.fill.as_deref()).map_err(|e| wrap_op_err(idx, "insert", &op_path, e))?;
                 has_prev = true;
                 ParsedOp::Insert(a)
             }
@@ -1573,13 +1571,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let (id, target_idx, mut node) =
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
                         .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
-                if let Some(fills) = &a.fills {
-                    set_node_fills(&mut node, fills.clone());
-                } else if let Some(fill_str) = &a.fill {
-                    if let Some(color) = resolve_easeui_color(fill_str) {
-                        set_node_fills(&mut node, vec![Paint::solid(color)]);
-                    }
-                }
+                write_fill(&mut trial, &mut node, parent, a.fill.as_deref(), a.fills.clone(), &mut Vec::new())
+                    .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
 
                 let cmd = Command::Insert { parent, index: target_idx, nodes: vec![node] };
                 if recording_live {
@@ -1608,8 +1601,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             ParsedOp::Update(a) => {
                 let id = resolve_node_ref(&trial, &alias_roots, prev_node, &a.node, op_idx, op_name, "node")?;
                 check_lease_guard(&trial, engine.owned_frames.as_deref(), id, op_idx, op_name)?;
-                let (updated_node, node_changed) = build_updated_node(
-                    &trial,
+                let (updated_node, node_changed, _warnings) = build_updated_node(
+                    &mut trial,
                     id,
                     UpdateFields {
                         name: a.name.clone(),

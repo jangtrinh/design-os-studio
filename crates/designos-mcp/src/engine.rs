@@ -1218,25 +1218,18 @@ impl Engine {
             None => self.resolve_default_page()?,
         };
         self.check_owned_frames(parent_id, "/parent_id")?;
-        if let Some(fill_str) = &a.fill {
-            designos_doc::resolve_easeui_color(fill_str)
-                .ok_or_else(|| ToolError::new(ErrorCode::ValueOutOfRange, "/fill", format!("invalid fill color '{fill_str}'")))?;
-        }
+        crate::tools::fill_write::validate_fill_color(a.fill.as_deref())?;
         let before_doc = a.diff_image.then(|| self.doc.clone());
         let baseline = crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent_id, &self.session_options.issues, a.lint, self.lint_env());
         let (id, index, mut node) = crate::tools::build_created_node(&mut self.doc, parent_id, None, &a.kind, a.name, a.text, a.x, a.y, a.width, a.height)?;
-        if let Some(fills) = a.fills {
-            crate::tools::set_node_fills(&mut node, fills);
-        } else if let Some(fill_str) = &a.fill {
-            if let Some(color) = designos_doc::resolve_easeui_color(fill_str) {
-                crate::tools::set_node_fills(&mut node, vec![designos_doc::Paint::solid(color)]);
-            }
-        }
+        let mut warnings = Vec::new();
+        crate::tools::fill_write::write_fill(&mut self.doc, &mut node, parent_id, a.fill.as_deref(), a.fills, &mut warnings)?;
         self.exec(Command::Insert { parent: parent_id, index, nodes: vec![node] })?;
         if let Some(page_id) = self.doc.page_of(id) {
             self.relayout(page_id);
         }
         let mut out = json!({"node":self.doc.get(id),"parent_id":parent_id.0,"changed":true});
+        attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
@@ -1247,8 +1240,8 @@ impl Engine {
     fn update(&mut self, a: UpdateArgs) -> Result<Value, ToolError> {
         crate::tools::ledger::validate_idempotency_key_opt(&a.idempotency_key)?;
         self.check_owned_frames(NodeId(a.node_id), "/node_id")?;
-        let (node, changed) = crate::tools::build_updated_node(
-            &self.doc,
+        let (node, changed, warnings) = crate::tools::build_updated_node(
+            &mut self.doc,
             NodeId(a.node_id),
             crate::tools::UpdateFields {
                 name: a.name,
@@ -1273,11 +1266,22 @@ impl Engine {
             }
         }
         let mut out = json!({"node":self.doc.get(NodeId(a.node_id)),"changed":changed});
+        attach_warnings(&mut out, &warnings);
         crate::tools::issues::attach_issues_block(&self.doc, &[id], &self.session_options.issues, a.lint, &baseline, self.lint_env(), &[], &mut out);
         if let Some(before) = &before_doc {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
         Ok(out)
+    }
+}
+
+/// Adds the bind warnings (such as a variable that has no value in the node's mode) to a write reply, as `apply_spec` does.
+fn attach_warnings(out: &mut Value, warnings: &[designos_doc::SpecWarning]) {
+    if warnings.is_empty() {
+        return;
+    }
+    if let (Some(obj), Ok(v)) = (out.as_object_mut(), serde_json::to_value(warnings)) {
+        obj.insert("warnings".into(), v);
     }
 }
 
