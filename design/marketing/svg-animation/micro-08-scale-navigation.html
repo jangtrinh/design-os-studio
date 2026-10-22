@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DESIGN:OS Studio — Proportional Scale (K) & Smart Viewport (08 / 08)</title>
+  <title>DESIGN:OS Studio — Smart Viewport: Fit &amp; Zoom Levels (08 / 08)</title>
   <link rel="stylesheet" href="./sf-pro-rounded.css" />
   <style>
     :root {
@@ -161,8 +161,8 @@
       gap: 10px;
       padding: 8px 16px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.09);
-      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #232329;
+      border: 1px solid #3f3f46;
       font-family: var(--font-mono);
       font-size: 12px;
       font-weight: 700;
@@ -177,8 +177,8 @@
       color: rgba(255, 255, 255, 0.64);
       padding: 6px 14px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #1e1e22;
+      border: 1px solid #2e2e36;
     }
 
     .intro-center {
@@ -225,7 +225,7 @@
       gap: 16px;
       flex-wrap: wrap;
       padding-top: 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      border-top: 1px solid #2e2e36;
     }
 
     .keycap-group {
@@ -240,11 +240,11 @@
       align-items: center;
       padding: 7px 14px;
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: #2e2e36;
+      border: 1px solid #3f3f46;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 10px rgba(0, 0, 0, 0.25);
       font-family: var(--font-mono);
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 600;
       color: #f8fafc;
     }
@@ -302,7 +302,7 @@
       padding: 4px 12px;
       border-radius: 999px;
       background: #353538;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid #4a4a50;
       font-size: 12px;
       font-weight: 600;
       color: #e4e4e7;
@@ -310,7 +310,7 @@
 
     .window-step-counter {
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: 12px;
       font-weight: 600;
       color: #a1a1aa;
     }
@@ -383,8 +383,8 @@
       gap: 14px;
       padding: 14px 22px;
       border-radius: 18px;
-      background: rgba(255, 255, 255, 0.09);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: #232329;
+      border: 1px solid #3f3f46;
       box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.22);
       width: fit-content;
     }
@@ -421,6 +421,11 @@
       width: fit-content;
     }
 
+    .outro-credit-badge {
+      font-family: var(--font-mono);
+      color: #a1a1aa;
+    }
+
     /* Bottom iOS 26 Liquid Glass HUD Dock */
     #bottom-dock {
       position: absolute;
@@ -455,14 +460,14 @@
       padding: 4px 9px;
       border-radius: 999px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       color: rgba(255, 255, 255, 0.5);
       background: #3c3c41;
     }
 
     .step-dot.active {
-      color: #ffffff;
+      color: #111216;
       background: var(--accent);
       box-shadow: 0 0 12px rgba(13, 153, 255, 0.45);
     }
@@ -527,7 +532,7 @@
       background: rgba(17, 18, 22, 0.85);
       color: #fff;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 12px;
       z-index: 100;
     }
     body.render-mode #player-toolbar {
@@ -548,16 +553,16 @@
         font-size: 40px;
       }
       .intro-subtitle {
-        font-size: 17px;
+        font-size: 18px;
       }
       .outro-title {
         font-size: 34px;
       }
       .github-repo-url {
-        font-size: 19px;
+        font-size: 18px;
       }
       .outro-cli-code {
-        font-size: 11.5px;
+        font-size: 12px;
       }
       #bottom-dock {
         bottom: 34px;
@@ -652,7 +657,7 @@
       </div>
       <div class="apple-pill-dark">
         <svg width="15" height="15"><use href="#icon-arrows-out"></use></svg>
-        <span id="top-phase-label">08 / 08 · Proportional Scale (K) & Smart Viewport</span>
+        <span id="top-phase-label">08 / 08 · Smart Viewport: Fit &amp; Zoom Levels</span>
       </div>
     </header>
 
@@ -663,7 +668,7 @@
         <div class="intro-top-row">
           <div class="intro-badge">
             <svg width="16" height="16"><use href="#icon-arrows-out"></use></svg>
-            <span>MICRO-INTERACTIONS #48–#62 · PROPORTIONAL SCALE TOOL (K)</span>
+            <span>MICRO-INTERACTIONS · SMART VIEWPORT</span>
           </div>
           <span class="intro-series-tag">SERIES 08 / 08</span>
         </div>
@@ -672,13 +677,13 @@
           <div class="intro-icon-orb">
             <svg width="36" height="36"><use href="#icon-arrows-out"></use></svg>
           </div>
-          <h1 class="intro-title">Proportional Scale (K) & Smart Viewport</h1>
-          <p class="intro-subtitle">Scale bounds, corner radius, stroke weight & child metrics together from 1.0x to 2.0x</p>
+          <h1 class="intro-title">Smart Viewport: Fit &amp; Zoom Levels</h1>
+          <p class="intro-subtitle">Zoom to fit the selection, then 50%, 100%, 150% and 200% on Untitled UI chart cards</p>
         </div>
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-chip">K Scale Tool</span><span class="apple-chip">1.25x / 1.50x</span><span class="apple-chip">1.75x / 2.00x</span><span class="apple-chip">Side-by-Side Proof</span>
+            <span class="apple-chip">Zoom to Fit</span><span class="apple-chip">50%</span><span class="apple-chip">100%</span><span class="apple-chip">200%</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-check-circle"></use></svg>
@@ -697,19 +702,19 @@
           </div>
           <div class="window-title-pill">
             <svg width="14" height="14"><use href="#icon-arrows-out"></use></svg>
-            <span>designos-studio — Proportional Scale (K) & Smart Viewport</span>
+            <span>designos-studio — Smart Viewport: Fit &amp; Zoom Levels</span>
           </div>
           <div id="header-step-readout" class="window-step-counter">STEP 01 / 06</div>
         </div>
 
         <div class="studio-viewport">
           <div id="camera-rig">
-            <img id="real-step-1" class="real-studio-shot" src="../screenshots/micro/m08-step1.png" alt="Proportional Scale (K) & Smart Viewport — Step 1: Press K -> Activate Proportional Scale Tool (1.00x)" style="opacity:1" />
-              <img id="real-step-2" class="real-studio-shot" src="../screenshots/micro/m08-step2.png" alt="Proportional Scale (K) & Smart Viewport — Step 2: Drag Bottom-Right Handle -> 1.25x (320x200)" style="opacity:0" />
-              <img id="real-step-3" class="real-studio-shot" src="../screenshots/micro/m08-step3.png" alt="Proportional Scale (K) & Smart Viewport — Step 3: Drag to 1.50x (384x240) Beside 1.00x Baseline Card" style="opacity:0" />
-              <img id="real-step-4" class="real-studio-shot" src="../screenshots/micro/m08-step4.png" alt="Proportional Scale (K) & Smart Viewport — Step 4: Drag to 1.75x (448x280) with Locked Aspect Ratio" style="opacity:0" />
-              <img id="real-step-5" class="real-studio-shot" src="../screenshots/micro/m08-step5.png" alt="Proportional Scale (K) & Smart Viewport — Step 5: Drag to 2.00x (512x320 · Radius 28px · Stroke 4px)" style="opacity:0" />
-              <img id="real-step-6" class="real-studio-shot" src="../screenshots/micro/m08-step6.png" alt="Proportional Scale (K) & Smart Viewport — Step 6: Commit 1.50x Golden Scale & Zoom-to-Fit (Shift+1)" style="opacity:0" />
+            <img id="real-step-1" class="real-studio-shot" src="./micro-kit/m08-step1.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 1: Zoom to fit the selected frame" style="opacity:1" />
+            <img id="real-step-2" class="real-studio-shot" src="./micro-kit/m08-step2.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 2: Zoom 50%" style="opacity:0" />
+            <img id="real-step-3" class="real-studio-shot" src="./micro-kit/m08-step3.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 3: Zoom 100%" style="opacity:0" />
+            <img id="real-step-4" class="real-studio-shot" src="./micro-kit/m08-step4.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 4: Zoom 150%" style="opacity:0" />
+            <img id="real-step-5" class="real-studio-shot" src="./micro-kit/m08-step5.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 5: Zoom 200%" style="opacity:0" />
+            <img id="real-step-6" class="real-studio-shot" src="./micro-kit/m08-step6.webp" width="2880" height="1800" alt="Smart Viewport: Fit &amp; Zoom Levels - step 6: Back to zoom-to-fit" style="opacity:0" />
             <div id="active-target-ring" data-interactive="true"></div>
           </div>
         </div>
@@ -735,6 +740,7 @@
             <svg width="18" height="18"><use href="#icon-terminal-window"></use></svg>
             <span>cargo run --release -p designos-app --bin designos-studio</span>
           </div>
+          <div class="intro-real-badge outro-credit-badge"><span>Demo UI: Untitled UI PRO v8.0 kit by Untitled UI</span></div>
         </div>
 
         <div class="intro-bottom-row">
@@ -742,7 +748,7 @@
             <span class="apple-chip">macOS Metal .dmg</span>
             <span class="apple-chip">Windows DirectX 12 .exe</span>
             <span class="apple-chip">Linux Vulkan .deb</span>
-            <span class="apple-chip">22 MCP Tools</span>
+            <span class="apple-chip">36 MCP Tools</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-sparkle"></use></svg>
@@ -757,8 +763,8 @@
       <div class="step-dots">
         <div id="step-dot-0" class="step-dot active"><span>01</span></div><div id="step-dot-1" class="step-dot"><span>02</span></div><div id="step-dot-2" class="step-dot"><span>03</span></div><div id="step-dot-3" class="step-dot"><span>04</span></div><div id="step-dot-4" class="step-dot"><span>05</span></div><div id="step-dot-5" class="step-dot"><span>06</span></div>
       </div>
-      <span id="dock-step-title" class="dock-step-label">Press K -> Activate Proportional Scale Tool (1.00x)</span>
-      <span id="dock-shortcut-pill">K · Scale 1.00x</span>
+      <span id="dock-step-title" class="dock-step-label">Zoom to fit the selected frame</span>
+      <span id="dock-shortcut-pill">Fit · Shift+1</span>
     </footer>
 
     <!-- Concentric Click Ripple & Canonical macOS Pointer Tip at (0,0) -->
@@ -791,7 +797,31 @@
       const BEAT = 0.5964214711729623;
       const TOTAL_BEATS = 50;
       const DURATION = 29.821074;
-      const STEPS = [{"step":1,"label":"Press K -> Activate Proportional Scale Tool (1.00x)","detail":"Baseline 256x160 frame with 14px corner radius, 2px stroke, and nested pills","shortcut":"K · Scale 1.00x","cam":{"zoom":1.06,"panX":-14,"panY":10},"cursor":{"x0":0.45,"y0":0.46,"x1":0.53,"y1":0.52,"action":"click"}},{"step":2,"label":"Drag Bottom-Right Handle -> 1.25x (320x200)","detail":"Scales frame, child rectangles, corner radius (17.5px), and stroke (2.5px) together","shortcut":"Drag BR -> 1.25x","cam":{"zoom":1.24,"panX":-28,"panY":16},"cursor":{"x0":0.53,"y0":0.52,"x1":0.57,"y1":0.56,"action":"drag"}},{"step":3,"label":"Drag to 1.50x (384x240) Beside 1.00x Baseline Card","detail":"Side-by-side comparison proves corner radius (21px) and stroke (3px) scale cleanly","shortcut":"Scale -> 1.50x","cam":{"zoom":1.2,"panX":-18,"panY":14},"cursor":{"x0":0.57,"y0":0.56,"x1":0.61,"y1":0.6,"action":"drag"}},{"step":4,"label":"Drag to 1.75x (448x280) with Locked Aspect Ratio","detail":"Inner Badge and Metric pills scale proportionally without layout distortion","shortcut":"Scale -> 1.75x","cam":{"zoom":1.18,"panX":-14,"panY":12},"cursor":{"x0":0.61,"y0":0.6,"x1":0.65,"y1":0.64,"action":"drag"}},{"step":5,"label":"Drag to 2.00x (512x320 · Radius 28px · Stroke 4px)","detail":"Right Inspector W/H, radius, and stroke fields reflect exact 2.00x values","shortcut":"Scale -> 2.00x","cam":{"zoom":1.14,"panX":-10,"panY":10},"cursor":{"x0":0.65,"y0":0.64,"x1":0.68,"y1":0.67,"action":"drag"}},{"step":6,"label":"Commit 1.50x Golden Scale & Zoom-to-Fit (Shift+1)","detail":"Zero manual font, stroke, or radius fixing required after proportional scaling","shortcut":"Shift + 1 · Fit View","cam":{"zoom":1,"panX":0,"panY":0},"cursor":{"x0":0.68,"y0":0.67,"x1":0.55,"y1":0.52,"action":"click"}}];
+      const STEPS = [{"step": 1, "label": "Zoom to fit the selected frame", "detail": "Viewport shows the whole frame", "shortcut": "Fit · Shift+1", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.4796, "y0": 0.5575, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 2, "label": "Zoom 50%", "detail": "Zoom readout 50%", "shortcut": "Zoom: 50%", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 3, "label": "Zoom 100%", "detail": "Zoom readout 100%", "shortcut": "Zoom: 100%", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.5278, "y1": 0.4889, "action": "click"}}, {"step": 4, "label": "Zoom 150%", "detail": "Zoom readout 150%", "shortcut": "Zoom: 150%", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.5278, "y0": 0.4889, "x1": 0.5278, "y1": 0.4889, "action": "click"}}, {"step": 5, "label": "Zoom 200%", "detail": "Zoom readout 200%", "shortcut": "Zoom: 200%", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.5278, "y0": 0.4889, "x1": 0.5278, "y1": 0.4889, "action": "click"}}, {"step": 6, "label": "Back to zoom-to-fit", "detail": "Viewport shows the whole frame again", "shortcut": "Fit · Shift+1", "cam": {"zoom": 1.0, "panX": 0, "panY": 0}, "cursor": {"x0": 0.5278, "y0": 0.4889, "x1": 0.5196, "y1": 0.5175, "action": "click"}}];
+
+
+      const IMG_ASPECT = 2880 / 1800;
+
+      // Rect the contained screenshot occupies inside the studio viewport (letterboxed)
+      function imageRect(vw, vh) {
+        let w = vw;
+        let h = vw / IMG_ASPECT;
+        if (h > vh) {
+          h = vh;
+          w = vh * IMG_ASPECT;
+        }
+        return { x: (vw - w) / 2, y: (vh - h) / 2, w: w, h: h };
+      }
+
+      // Camera of a step: either fixed zoom/pan or zoom centred on a point of the screenshot
+      function cameraFor(step, rect, vw, vh, boost) {
+        const c = step.cam;
+        if (!c.focus) return { zoom: c.zoom * boost, panX: c.panX, panY: c.panY };
+        const z = c.zoom * boost;
+        const px = rect.x + rect.w * c.focus[0];
+        const py = rect.y + rect.h * c.focus[1];
+        return { zoom: z, panX: -(px - vw / 2) * z, panY: -(py - vh / 2) * z };
+      }
 
       const morphShell = document.getElementById('morph-shell');
       const introCard = document.getElementById('intro-card');
@@ -904,18 +934,20 @@
         headerStepReadout.textContent = 'STEP 0' + activeStep.step + ' / 06 · REAL STUDIO';
         dockStepTitle.textContent = activeStep.label;
         dockShortcutPill.textContent = activeStep.shortcut;
-        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0.18, 1).toFixed(3);
+        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0, 1).toFixed(3);
 
         // Smooth spring camera zoom/pan across the 6 real steps
         const stepSpring = springStep(stepLocalBeat * BEAT, 11.0, 0.85);
-        let camZoom = lerp(prevStep.cam.zoom, activeStep.cam.zoom, stepSpring);
-        let camPanX = lerp(prevStep.cam.panX, activeStep.cam.panX, stepSpring);
-        let camPanY = lerp(prevStep.cam.panY, activeStep.cam.panY, stepSpring);
-
+        const viewW = curW;
+        const viewH = curH - 38;
+        const shotRect = imageRect(viewW, viewH);
         // In 9:16 portrait mode, slightly boost zoom so the real Studio canvas & Inspector read crisply on mobile
-        if (isPortrait) {
-          camZoom *= 1.12;
-        }
+        const zoomBoost = isPortrait ? 1.12 : 1;
+        const prevCam = cameraFor(prevStep, shotRect, viewW, viewH, zoomBoost);
+        const nextCam = cameraFor(activeStep, shotRect, viewW, viewH, zoomBoost);
+        const camZoom = lerp(prevCam.zoom, nextCam.zoom, stepSpring);
+        const camPanX = lerp(prevCam.panX, nextCam.panX, stepSpring);
+        const camPanY = lerp(prevCam.panY, nextCam.panY, stepSpring);
 
         cameraRig.style.transform =
           'translate3d(' + camPanX.toFixed(2) + 'px, ' + camPanY.toFixed(2) + 'px, 0) scale(' + camZoom.toFixed(4) + ')';
@@ -931,8 +963,11 @@
         const relX = lerp(activeStep.cursor.x0, activeStep.cursor.x1, moveProgress);
         const relY = lerp(activeStep.cursor.y0, activeStep.cursor.y1, moveProgress);
 
-        const studioCursorX = shellLeft + curW * relX;
-        const studioCursorY = shellTop + 38 + (curH - 38) * relY;
+        // The pointer path is stored as fractions of the screenshot; map it through the camera so it lands on the frame
+        const shotX = shotRect.x + shotRect.w * relX;
+        const shotY = shotRect.y + shotRect.h * relY;
+        const studioCursorX = shellLeft + viewW / 2 + (shotX - viewW / 2) * camZoom + camPanX;
+        const studioCursorY = shellTop + 38 + viewH / 2 + (shotY - viewH / 2) * camZoom + camPanY;
 
         const outroTargetX = W * 0.50;
         const outroTargetY = H * 0.48;
@@ -949,8 +984,8 @@
         );
 
         // Position active target ring inside viewport so cursor hit-test is 100% verified
-        activeTargetRing.style.left = (relX * 100).toFixed(2) + '%';
-        activeTargetRing.style.top = (relY * 100).toFixed(2) + '%';
+        activeTargetRing.style.left = (shotRect.x + shotRect.w * relX).toFixed(1) + 'px';
+        activeTargetRing.style.top = (shotRect.y + shotRect.h * relY).toFixed(1) + 'px';
         activeTargetRing.style.opacity = (studioWeight * 0.85).toFixed(3);
 
         // Click / Drag impulse at stepLocalBeat = 2.4

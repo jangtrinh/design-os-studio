@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DESIGN:OS Studio — Smart Selection, Swap Rings & Tidy Up (03 / 08)</title>
+  <title>DESIGN:OS Studio — Tidy Up, Equal Gaps &amp; Reordering (03 / 08)</title>
   <link rel="stylesheet" href="./sf-pro-rounded.css" />
   <style>
     :root {
@@ -161,8 +161,8 @@
       gap: 10px;
       padding: 8px 16px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.09);
-      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: #232329;
+      border: 1px solid #3f3f46;
       font-family: var(--font-mono);
       font-size: 12px;
       font-weight: 700;
@@ -177,8 +177,8 @@
       color: rgba(255, 255, 255, 0.64);
       padding: 6px 14px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #1e1e22;
+      border: 1px solid #2e2e36;
     }
 
     .intro-center {
@@ -225,7 +225,7 @@
       gap: 16px;
       flex-wrap: wrap;
       padding-top: 20px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      border-top: 1px solid #2e2e36;
     }
 
     .keycap-group {
@@ -240,11 +240,11 @@
       align-items: center;
       padding: 7px 14px;
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: #2e2e36;
+      border: 1px solid #3f3f46;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 4px 10px rgba(0, 0, 0, 0.25);
       font-family: var(--font-mono);
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 600;
       color: #f8fafc;
     }
@@ -302,7 +302,7 @@
       padding: 4px 12px;
       border-radius: 999px;
       background: #353538;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid #4a4a50;
       font-size: 12px;
       font-weight: 600;
       color: #e4e4e7;
@@ -310,7 +310,7 @@
 
     .window-step-counter {
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: 12px;
       font-weight: 600;
       color: #a1a1aa;
     }
@@ -383,8 +383,8 @@
       gap: 14px;
       padding: 14px 22px;
       border-radius: 18px;
-      background: rgba(255, 255, 255, 0.09);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: #232329;
+      border: 1px solid #3f3f46;
       box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.22);
       width: fit-content;
     }
@@ -421,6 +421,11 @@
       width: fit-content;
     }
 
+    .outro-credit-badge {
+      font-family: var(--font-mono);
+      color: #a1a1aa;
+    }
+
     /* Bottom iOS 26 Liquid Glass HUD Dock */
     #bottom-dock {
       position: absolute;
@@ -455,14 +460,14 @@
       padding: 4px 9px;
       border-radius: 999px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       color: rgba(255, 255, 255, 0.5);
       background: #3c3c41;
     }
 
     .step-dot.active {
-      color: #ffffff;
+      color: #111216;
       background: var(--accent);
       box-shadow: 0 0 12px rgba(13, 153, 255, 0.45);
     }
@@ -527,7 +532,7 @@
       background: rgba(17, 18, 22, 0.85);
       color: #fff;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: 12px;
       z-index: 100;
     }
     body.render-mode #player-toolbar {
@@ -548,16 +553,16 @@
         font-size: 40px;
       }
       .intro-subtitle {
-        font-size: 17px;
+        font-size: 18px;
       }
       .outro-title {
         font-size: 34px;
       }
       .github-repo-url {
-        font-size: 19px;
+        font-size: 18px;
       }
       .outro-cli-code {
-        font-size: 11.5px;
+        font-size: 12px;
       }
       #bottom-dock {
         bottom: 34px;
@@ -651,8 +656,8 @@
         <span>DESIGN:OS STUDIO · REAL GPU/CPU CANVAS</span>
       </div>
       <div class="apple-pill-dark">
-        <svg width="15" height="15"><use href="#icon-selection-all"></use></svg>
-        <span id="top-phase-label">03 / 08 · Smart Selection, Swap Rings & Tidy Up</span>
+        <svg width="15" height="15"><use href="#icon-layout"></use></svg>
+        <span id="top-phase-label">03 / 08 · Tidy Up, Equal Gaps &amp; Reordering</span>
       </div>
     </header>
 
@@ -662,23 +667,23 @@
       <div id="intro-card">
         <div class="intro-top-row">
           <div class="intro-badge">
-            <svg width="16" height="16"><use href="#icon-selection-all"></use></svg>
-            <span>MICRO-INTERACTIONS #19–#21 · SMART SELECTION</span>
+            <svg width="16" height="16"><use href="#icon-layout"></use></svg>
+            <span>MICRO-INTERACTIONS · TIDY UP &amp; REORDER</span>
           </div>
           <span class="intro-series-tag">SERIES 03 / 08</span>
         </div>
 
         <div class="intro-center">
           <div class="intro-icon-orb">
-            <svg width="36" height="36"><use href="#icon-selection-all"></use></svg>
+            <svg width="36" height="36"><use href="#icon-layout"></use></svg>
           </div>
-          <h1 class="intro-title">Smart Selection, Swap Rings & Tidy Up</h1>
-          <p class="intro-subtitle">One-click Tidy Up alignment, pink gap bar scrubbing & circular ring card swapping</p>
+          <h1 class="intro-title">Tidy Up, Equal Gaps &amp; Reordering</h1>
+          <p class="intro-subtitle">Untitled UI pricing cards aligned to one top edge, re-spaced and re-ordered on the canvas</p>
         </div>
 
         <div class="intro-bottom-row">
           <div class="keycap-group">
-            <span class="apple-chip">Tidy Up</span><span class="apple-chip">Pink Gap Drag</span><span class="apple-chip">Pink Ring Swap</span><span class="apple-chip">Equalize 18px</span>
+            <span class="apple-chip">Tidy Up</span><span class="apple-chip">Equal Gaps</span><span class="apple-chip">Reorder</span><span class="apple-chip">Pricing Row</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-check-circle"></use></svg>
@@ -696,20 +701,20 @@
             <span class="tl tl-max"></span>
           </div>
           <div class="window-title-pill">
-            <svg width="14" height="14"><use href="#icon-selection-all"></use></svg>
-            <span>designos-studio — Smart Selection, Swap Rings & Tidy Up</span>
+            <svg width="14" height="14"><use href="#icon-layout"></use></svg>
+            <span>designos-studio — Tidy Up, Equal Gaps &amp; Reordering</span>
           </div>
           <div id="header-step-readout" class="window-step-counter">STEP 01 / 06</div>
         </div>
 
         <div class="studio-viewport">
           <div id="camera-rig">
-            <img id="real-step-1" class="real-studio-shot" src="../screenshots/micro/m03-step1.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 1: Select 3 Misaligned Pricing Cards on Canvas" style="opacity:1" />
-              <img id="real-step-2" class="real-studio-shot" src="../screenshots/micro/m03-step2.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 2: One-Click Tidy Up -> Equal 24px Horizontal Gaps" style="opacity:0" />
-              <img id="real-step-3" class="real-studio-shot" src="../screenshots/micro/m03-step3.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 3: Drag Pink Smart-Selection Gap Bar (24px -> 44px)" style="opacity:0" />
-              <img id="real-step-4" class="real-studio-shot" src="../screenshots/micro/m03-step4.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 4: Drag Pink Ring to Swap Pro <-> Starter" style="opacity:0" />
-              <img id="real-step-5" class="real-studio-shot" src="../screenshots/micro/m03-step5.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 5: Drag Pink Ring to Swap Enterprise <-> Starter" style="opacity:0" />
-              <img id="real-step-6" class="real-studio-shot" src="../screenshots/micro/m03-step6.png" alt="Smart Selection, Swap Rings & Tidy Up — Step 6: Final Equalized Pricing Row & Inspector Verification" style="opacity:0" />
+            <img id="real-step-1" class="real-studio-shot" src="./micro-kit/m03-step1.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 1: Three pricing cards with uneven gaps and offsets" style="opacity:1" />
+            <img id="real-step-2" class="real-studio-shot" src="./micro-kit/m03-step2.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 2: Aligned to one top edge with 24px gaps" style="opacity:0" />
+            <img id="real-step-3" class="real-studio-shot" src="./micro-kit/m03-step3.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 3: Gaps widened from 24 to 44" style="opacity:0" />
+            <img id="real-step-4" class="real-studio-shot" src="./micro-kit/m03-step4.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 4: Pro moves to the first slot" style="opacity:0" />
+            <img id="real-step-5" class="real-studio-shot" src="./micro-kit/m03-step5.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 5: Enterprise moves to the middle slot" style="opacity:0" />
+            <img id="real-step-6" class="real-studio-shot" src="./micro-kit/m03-step6.webp" width="2880" height="1800" alt="Tidy Up, Equal Gaps &amp; Reordering - step 6: Equal 16px gaps in a single row" style="opacity:0" />
             <div id="active-target-ring" data-interactive="true"></div>
           </div>
         </div>
@@ -735,6 +740,7 @@
             <svg width="18" height="18"><use href="#icon-terminal-window"></use></svg>
             <span>cargo run --release -p designos-app --bin designos-studio</span>
           </div>
+          <div class="intro-real-badge outro-credit-badge"><span>Demo UI: Untitled UI PRO v8.0 kit by Untitled UI</span></div>
         </div>
 
         <div class="intro-bottom-row">
@@ -742,7 +748,7 @@
             <span class="apple-chip">macOS Metal .dmg</span>
             <span class="apple-chip">Windows DirectX 12 .exe</span>
             <span class="apple-chip">Linux Vulkan .deb</span>
-            <span class="apple-chip">22 MCP Tools</span>
+            <span class="apple-chip">36 MCP Tools</span>
           </div>
           <div class="intro-real-badge">
             <svg width="16" height="16"><use href="#icon-sparkle"></use></svg>
@@ -757,8 +763,8 @@
       <div class="step-dots">
         <div id="step-dot-0" class="step-dot active"><span>01</span></div><div id="step-dot-1" class="step-dot"><span>02</span></div><div id="step-dot-2" class="step-dot"><span>03</span></div><div id="step-dot-3" class="step-dot"><span>04</span></div><div id="step-dot-4" class="step-dot"><span>05</span></div><div id="step-dot-5" class="step-dot"><span>06</span></div>
       </div>
-      <span id="dock-step-title" class="dock-step-label">Select 3 Misaligned Pricing Cards on Canvas</span>
-      <span id="dock-shortcut-pill">Shift + Click (3)</span>
+      <span id="dock-step-title" class="dock-step-label">Three pricing cards with uneven gaps and offsets</span>
+      <span id="dock-shortcut-pill">Select Frame</span>
     </footer>
 
     <!-- Concentric Click Ripple & Canonical macOS Pointer Tip at (0,0) -->
@@ -791,7 +797,31 @@
       const BEAT = 0.5964214711729623;
       const TOTAL_BEATS = 50;
       const DURATION = 29.821074;
-      const STEPS = [{"step":1,"label":"Select 3 Misaligned Pricing Cards on Canvas","detail":"Starter, Pro, and Enterprise cards start at uneven X gaps and Y offsets","shortcut":"Shift + Click (3)","cam":{"zoom":1.05,"panX":-16,"panY":8},"cursor":{"x0":0.42,"y0":0.46,"x1":0.85,"y1":0.28,"action":"click"}},{"step":2,"label":"One-Click Tidy Up -> Equal 24px Horizontal Gaps","detail":"Snaps all 3 cards to Y=1100 and reveals pink gap bars & center swap rings","shortcut":"Click Tidy Up","cam":{"zoom":1.24,"panX":-36,"panY":16},"cursor":{"x0":0.85,"y0":0.28,"x1":0.46,"y1":0.47,"action":"click"}},{"step":3,"label":"Drag Pink Smart-Selection Gap Bar (24px -> 44px)","detail":"Dragging any pink gap bar adjusts spacing uniformly across all selected siblings","shortcut":"Drag Pink Gap","cam":{"zoom":1.26,"panX":-40,"panY":18},"cursor":{"x0":0.46,"y0":0.47,"x1":0.49,"y1":0.47,"action":"drag"}},{"step":4,"label":"Drag Pink Ring to Swap Pro <-> Starter","detail":"Grab the center pink circle on Plan · Pro and drag left to reorder slots live","shortcut":"Drag Pink Ring","cam":{"zoom":1.24,"panX":-34,"panY":16},"cursor":{"x0":0.49,"y0":0.47,"x1":0.39,"y1":0.47,"action":"drag"}},{"step":5,"label":"Drag Pink Ring to Swap Enterprise <-> Starter","detail":"Plan · Enterprise moves into the center slot (Pro -> Enterprise -> Starter)","shortcut":"Swap Slot 2 <-> 3","cam":{"zoom":1.18,"panX":-24,"panY":12},"cursor":{"x0":0.39,"y0":0.47,"x1":0.51,"y1":0.47,"action":"drag"}},{"step":6,"label":"Final Equalized Pricing Row & Inspector Verification","detail":"Crisp 16px smart-selection grid with zero manual X/Y coordinate math","shortcut":"Smart Grid Ready","cam":{"zoom":1,"panX":0,"panY":0},"cursor":{"x0":0.51,"y0":0.47,"x1":0.85,"y1":0.32,"action":"click"}}];
+      const STEPS = [{"step": 1, "label": "Three pricing cards with uneven gaps and offsets", "detail": "Cards sit at different heights and distances", "shortcut": "Select Frame", "cam": {"zoom": 1.0, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.4122, "y0": 0.5175, "x1": 0.5196, "y1": 0.5175, "action": "click"}}, {"step": 2, "label": "Aligned to one top edge with 24px gaps", "detail": "Same top edge, equal gaps", "shortcut": "Aligned · Gap 24", "cam": {"zoom": 1.35, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.5175, "x1": 0.4122, "y1": 0.5175, "action": "click"}}, {"step": 3, "label": "Gaps widened from 24 to 44", "detail": "Equal 44px gaps", "shortcut": "Gap: 44", "cam": {"zoom": 1.35, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.426, "y0": 0.5175, "x1": 0.4304, "y1": 0.5175, "action": "click"}}, {"step": 4, "label": "Pro moves to the first slot", "detail": "Order: Pro, Starter, Enterprise", "shortcut": "Reorder", "cam": {"zoom": 1.35, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.5196, "y0": 0.468, "x1": 0.3412, "y1": 0.468, "action": "click"}}, {"step": 5, "label": "Enterprise moves to the middle slot", "detail": "Order: Pro, Enterprise, Starter", "shortcut": "Reorder", "cam": {"zoom": 1.25, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.6981, "y0": 0.468, "x1": 0.5196, "y1": 0.468, "action": "click"}}, {"step": 6, "label": "Equal 16px gaps in a single row", "detail": "Final row with 16px gaps", "shortcut": "Gap: 16", "cam": {"zoom": 1.0, "focus": [0.5196, 0.5175]}, "cursor": {"x0": 0.439, "y0": 0.5175, "x1": 0.4326, "y1": 0.5175, "action": "click"}}];
+
+
+      const IMG_ASPECT = 2880 / 1800;
+
+      // Rect the contained screenshot occupies inside the studio viewport (letterboxed)
+      function imageRect(vw, vh) {
+        let w = vw;
+        let h = vw / IMG_ASPECT;
+        if (h > vh) {
+          h = vh;
+          w = vh * IMG_ASPECT;
+        }
+        return { x: (vw - w) / 2, y: (vh - h) / 2, w: w, h: h };
+      }
+
+      // Camera of a step: either fixed zoom/pan or zoom centred on a point of the screenshot
+      function cameraFor(step, rect, vw, vh, boost) {
+        const c = step.cam;
+        if (!c.focus) return { zoom: c.zoom * boost, panX: c.panX, panY: c.panY };
+        const z = c.zoom * boost;
+        const px = rect.x + rect.w * c.focus[0];
+        const py = rect.y + rect.h * c.focus[1];
+        return { zoom: z, panX: -(px - vw / 2) * z, panY: -(py - vh / 2) * z };
+      }
 
       const morphShell = document.getElementById('morph-shell');
       const introCard = document.getElementById('intro-card');
@@ -904,18 +934,20 @@
         headerStepReadout.textContent = 'STEP 0' + activeStep.step + ' / 06 · REAL STUDIO';
         dockStepTitle.textContent = activeStep.label;
         dockShortcutPill.textContent = activeStep.shortcut;
-        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0.18, 1).toFixed(3);
+        bottomDock.style.opacity = clamp(studioWeight * 1.15, 0, 1).toFixed(3);
 
         // Smooth spring camera zoom/pan across the 6 real steps
         const stepSpring = springStep(stepLocalBeat * BEAT, 11.0, 0.85);
-        let camZoom = lerp(prevStep.cam.zoom, activeStep.cam.zoom, stepSpring);
-        let camPanX = lerp(prevStep.cam.panX, activeStep.cam.panX, stepSpring);
-        let camPanY = lerp(prevStep.cam.panY, activeStep.cam.panY, stepSpring);
-
+        const viewW = curW;
+        const viewH = curH - 38;
+        const shotRect = imageRect(viewW, viewH);
         // In 9:16 portrait mode, slightly boost zoom so the real Studio canvas & Inspector read crisply on mobile
-        if (isPortrait) {
-          camZoom *= 1.12;
-        }
+        const zoomBoost = isPortrait ? 1.12 : 1;
+        const prevCam = cameraFor(prevStep, shotRect, viewW, viewH, zoomBoost);
+        const nextCam = cameraFor(activeStep, shotRect, viewW, viewH, zoomBoost);
+        const camZoom = lerp(prevCam.zoom, nextCam.zoom, stepSpring);
+        const camPanX = lerp(prevCam.panX, nextCam.panX, stepSpring);
+        const camPanY = lerp(prevCam.panY, nextCam.panY, stepSpring);
 
         cameraRig.style.transform =
           'translate3d(' + camPanX.toFixed(2) + 'px, ' + camPanY.toFixed(2) + 'px, 0) scale(' + camZoom.toFixed(4) + ')';
@@ -931,8 +963,11 @@
         const relX = lerp(activeStep.cursor.x0, activeStep.cursor.x1, moveProgress);
         const relY = lerp(activeStep.cursor.y0, activeStep.cursor.y1, moveProgress);
 
-        const studioCursorX = shellLeft + curW * relX;
-        const studioCursorY = shellTop + 38 + (curH - 38) * relY;
+        // The pointer path is stored as fractions of the screenshot; map it through the camera so it lands on the frame
+        const shotX = shotRect.x + shotRect.w * relX;
+        const shotY = shotRect.y + shotRect.h * relY;
+        const studioCursorX = shellLeft + viewW / 2 + (shotX - viewW / 2) * camZoom + camPanX;
+        const studioCursorY = shellTop + 38 + viewH / 2 + (shotY - viewH / 2) * camZoom + camPanY;
 
         const outroTargetX = W * 0.50;
         const outroTargetY = H * 0.48;
@@ -949,8 +984,8 @@
         );
 
         // Position active target ring inside viewport so cursor hit-test is 100% verified
-        activeTargetRing.style.left = (relX * 100).toFixed(2) + '%';
-        activeTargetRing.style.top = (relY * 100).toFixed(2) + '%';
+        activeTargetRing.style.left = (shotRect.x + shotRect.w * relX).toFixed(1) + 'px';
+        activeTargetRing.style.top = (shotRect.y + shotRect.h * relY).toFixed(1) + 'px';
         activeTargetRing.style.opacity = (studioWeight * 0.85).toFixed(3);
 
         // Click / Drag impulse at stepLocalBeat = 2.4
