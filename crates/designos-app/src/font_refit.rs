@@ -8,12 +8,14 @@
 //! app's own measure, unless the user edits that text or its width. A document that is only opened
 //! is never re-measured, whatever is fetched for it. So the pass covers only a recorded set: texts
 //! whose box a user edit measured while a face of theirs was missing in this session, each with the
-//! box that edit committed ([`App::note_text_measures`]). A colour or a move that leaves the box
-//! alone is not a measure, and a width a layout gave the text is not an edit of it. [`App::poll_fonts`] hands the
-//! arrived families to [`App::start_text_refit`], which queues the recorded texts that use them
-//! and still hold the committed box (an undo puts the file's box back: that text is the file's
-//! again, and its record is dropped). [`App::step_text_refit`] re-fits the queue, then lays out the
-//! frames that hug the fitted texts.
+//! box that edit committed and what the measure read of the text then ([`App::note_text_measures`]).
+//! A colour or a move that leaves the box alone is not a measure, and a width a layout gave the text
+//! is not an edit of it. [`App::poll_fonts`] hands the arrived families to [`App::start_text_refit`],
+//! which queues the recorded texts that use them and still hold both the committed box and the
+//! committed text. An undo puts the file's text back, and with it the file's box when the edit moved
+//! it: that text is the file's again, and its record is dropped. The box alone cannot tell the two
+//! apart, because an alignment, an underline or a letter in a wrapped text commits the file's own
+//! box. [`App::step_text_refit`] re-fits the queue, then lays out the frames that hug the fitted texts.
 //!
 //! This is not an edit: nothing enters the undo history. A drag or a text session in progress holds
 //! the pass, because the next frame of a drag puts its layers back as they were; the set is kept and
@@ -38,9 +40,9 @@ pub struct TextRefit {
     /// The document the sets belong to; another document on screen leaves them alone.
     doc: u64,
     /// Texts whose box the app measured while a face of theirs was missing, each with the box the
-    /// user's edit committed. The text is fitted only while it still holds that box. A text from the
-    /// file is never in it.
-    stand_in: BTreeMap<NodeId, Vec2>,
+    /// user's edit committed and what the measure read of the text then ([`measure_key`]). The text is
+    /// fitted only while it still holds both. A text from the file is never in it.
+    stand_in: BTreeMap<NodeId, (Vec2, TextProps)>,
     /// Texts to re-measure, in id order.
     queue: BTreeSet<NodeId>,
     /// The frames that hug a fitted text and are not laid out yet, deepest first, each with one text
@@ -121,18 +123,18 @@ fn auto_sized(doc: &designos_doc::Document, id: NodeId) -> Option<&TextProps> {
 impl App {
     /// Records the texts a user edit just committed whose box the app measured with a stand-in:
     /// the edit left a box that is exactly what the app measures, and a face of the text is not
-    /// here yet. The box is kept with the record: the pass fits the text only while it still holds
-    /// it. `before` is the state of every node the edit touched. A text from the file that the edit
-    /// left alone is never recorded, and neither is one that only a colour or a move touched (a
-    /// colour change that re-measures the text, as the inspector's does, is a measure). While a
-    /// gesture holds the pass, only a text the edit itself changed joins it: one whose box a
-    /// layout changed was not measured by this edit.
+    /// here yet. The box and the text's measure key are kept with the record: the pass fits the text
+    /// only while it still holds both. `before` is the state of every node the edit touched. A text
+    /// from the file that the edit left alone is never recorded, and neither is one that only a
+    /// colour or a move touched (a colour change that re-measures the text, as the inspector's does,
+    /// is a measure). While a gesture holds the pass, only a text the edit itself changed joins it:
+    /// one whose box a layout changed was not measured by this edit.
     pub(crate) fn note_text_measures(&mut self, before: &BTreeMap<NodeId, Node>) {
         let fonts = &self.fonts;
         // whether a set of faces has a stand-in is asked once per set, not once per text
         let mut asked: BTreeMap<BTreeSet<FontRequest>, bool> = BTreeMap::new();
         let mut uses_stand_in = |t: &TextProps| *asked.entry(designos_fonts::text_faces(t)).or_insert_with(|| fonts.uses_stand_in(t));
-        let mut found: Vec<(NodeId, Vec2, bool)> = Vec::new();
+        let mut found: Vec<(NodeId, Vec2, TextProps, bool)> = Vec::new();
         let mut obsolete: Vec<NodeId> = Vec::new();
         for (id, was) in before {
             let (Some(now), Some(t)) = (self.doc.get(*id), auto_sized(&self.doc, *id)) else { continue };
@@ -148,7 +150,7 @@ impl App {
             // A text whose box only a layout changed was not measured by this edit, so it does not count.
             let waiting = edited && fonts.refit.arrived.as_ref().is_some_and(|a| a.shapes(t));
             if waiting || (uses_stand_in(t) && layout::fit_text(t, now.size) == now.size) {
-                found.push((*id, now.size, waiting));
+                found.push((*id, now.size, measure_key(t), waiting));
             } else {
                 // the edit left a box that is not a stand-in measure: an earlier record of this text is out of date
                 obsolete.push(*id);
@@ -168,8 +170,8 @@ impl App {
         for id in obsolete {
             refit.stand_in.remove(&id);
         }
-        for (id, committed, waiting) in found {
-            refit.stand_in.insert(id, committed);
+        for (id, committed, key, waiting) in found {
+            refit.stand_in.insert(id, (committed, key));
             if waiting {
                 refit.queue.insert(id);
             }
@@ -177,8 +179,9 @@ impl App {
     }
 
     /// Queues the recorded texts that use one of `families` (the faces a load just registered) and
-    /// still hold the box their edit committed. One that holds another box is the file's again (an
-    /// undo put its box back) or was laid out since: it is left as it is, and its record is dropped.
+    /// still hold the box and the text their edit committed. One that holds another is the file's
+    /// again (an undo put its text back) or was laid out since: it is left as it is, and its record
+    /// is dropped.
     pub(crate) fn start_text_refit(&mut self, families: &[String]) {
         if families.is_empty() {
             return;
@@ -187,12 +190,12 @@ impl App {
         let refit = &mut self.fonts.refit;
         refit.adopt(self.doc.runtime_id());
         let mut dropped = Vec::new();
-        for (id, committed) in &refit.stand_in {
+        for (id, (committed, key)) in &refit.stand_in {
             let Some(t) = auto_sized(&self.doc, *id) else { continue };
             if !arrived.shapes(t) {
                 continue;
             }
-            if self.doc.get(*id).is_some_and(|n| n.size == *committed) {
+            if self.doc.get(*id).is_some_and(|n| n.size == *committed) && measure_key(t) == *key {
                 refit.queue.insert(*id);
             } else {
                 dropped.push(*id);
@@ -237,8 +240,10 @@ impl App {
         while in_time(worked) {
             let Some(id) = refit.queue.pop_first() else { break };
             worked += 1;
-            // the text is the app's to fit only while it holds the box its edit committed
-            let holds = refit.stand_in.get(&id).is_some_and(|committed| self.doc.get(id).is_some_and(|n| n.size == *committed));
+            // the text is the app's to fit only while it holds the box and the text its edit committed
+            let holds = refit.stand_in.get(&id).is_some_and(|(committed, key)| {
+                self.doc.get(id).is_some_and(|n| n.size == *committed) && auto_sized(&self.doc, id).is_some_and(|t| measure_key(t) == *key)
+            });
             if !holds {
                 refit.stand_in.remove(&id);
                 continue;
@@ -263,7 +268,7 @@ impl App {
         // The pass's own writes move boxes a user's edit committed (the text it fitted, a text a layout
         // resized): the record follows the box, so a text that still needs another face is fitted again.
         for (id, was) in ed.before_nodes() {
-            if let (Some(committed), Some(now)) = (refit.stand_in.get_mut(id), self.doc.get(*id)) {
+            if let (Some((committed, _)), Some(now)) = (refit.stand_in.get_mut(id), self.doc.get(*id)) {
                 if *committed == was.size {
                     *committed = now.size;
                 }

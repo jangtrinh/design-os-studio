@@ -5,7 +5,7 @@ use super::*;
 use designos_doc::{Color, Paint};
 
 /// A document opened from a file whose `count` texts each hug a row of their own.
-fn opened_rows(count: usize, family: &str, served: &[&str]) -> (App, Vec<NodeId>, Vec<NodeId>) {
+pub(super) fn opened_rows(count: usize, family: &str, served: &[&str]) -> (App, Vec<NodeId>, Vec<NodeId>) {
     let mut d = Document::new("t");
     let page = d.add_page("p");
     let (mut rows, mut texts) = (Vec::new(), Vec::new());
@@ -35,7 +35,7 @@ fn back_online(app: &mut App, served: &[&str]) {
 }
 
 /// What this app measures for a file text with its stand-in: the box a file text must not be mistaken for.
-fn stand_in_measure(app: &App, id: NodeId) -> Vec2 {
+pub(super) fn stand_in_measure(app: &App, id: NodeId) -> Vec2 {
     match &app.doc.get(id).unwrap().kind {
         NodeKind::Text(t) => layout::fit_text(t, FILE_BOX),
         _ => unreachable!(),
@@ -65,7 +65,7 @@ fn column(family: &str, content: &str) -> (App, NodeId, NodeId, NodeId) {
 }
 
 /// A text session on `id` that appends a long phrase, not yet committed.
-fn type_a_phrase_in_a_session(app: &mut App, id: NodeId) {
+pub(super) fn type_a_phrase_in_a_session(app: &mut App, id: NodeId) {
     crate::canvas::textsession::begin_text_edit(app, id);
     let len = match &app.doc.get(id).unwrap().kind {
         NodeKind::Text(t) => t.content.len(),

@@ -325,6 +325,8 @@ fn a_text_edited_while_a_gesture_holds_the_pass_joins_it() {
 }
 
 mod after_edits;
+mod guards;
+mod undone_edits;
 
 #[test]
 fn a_script_face_matches_the_texts_that_use_the_script() {
