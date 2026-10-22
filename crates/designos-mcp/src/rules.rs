@@ -500,7 +500,9 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`NOT_A_CONTAINER`",
             "`VALUE_OUT_OF_RANGE`",
-            "`INVALID_COLOR`",
+            "`UNKNOWN_VARIABLE`",
+            "`VARIABLE_TYPE_MISMATCH`",
+            "`AMBIGUOUS_VARIABLE`",
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
@@ -509,7 +511,9 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`PAGE_ROOT_PROTECTED`",
             "`MOVE_CYCLE`",
-            "`INVALID_COLOR`",
+            "`UNKNOWN_VARIABLE`",
+            "`VARIABLE_TYPE_MISMATCH`",
+            "`AMBIGUOUS_VARIABLE`",
             "`OUTSIDE_OWNED_FRAMES`",
             "`TOOL_DISABLED`",
         ],
@@ -570,7 +574,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_get_variables" => r#"{"node_id":2}"#,
         "designos_generate_code" => r#"{"node_id":2,"language":"react"}"#,
         "designos_create_node" => r#"{"parent_id":1,"kind":"frame","name":"Hero","width":1200,"height":640}"#,
-        "designos_update_node" => r#"{"node_id":2,"name":"Header","width":1200,"height":80}"#,
+        "designos_update_node" => r#"{"node_id":2,"name":"Header","fill":"var:Color/Primary"}"#,
         "designos_delete_node" => r#"{"node_id":3}"#,
         "designos_list_comments" => r#"{"resolved":false}"#,
         "designos_add_comment" => r#"{"node_id":2,"x":24,"y":16,"text":"Increase subtitle contrast"}"#,
@@ -701,7 +705,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
     }
     out.push_str(
         "- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
-         - **Retry contract:** When `safe_to_retry: true`, repair using `corrected_example` or `valid_options` and retry once. When `safe_to_retry: false`, re-read state, then follow `next_step`. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\n",
+         - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\n",
     );
 }
 
@@ -852,6 +856,32 @@ mod tests {
         let err = generate_rules_pack_with_inputs(&crate::server::tools(), &SpecSchemas::default(), WORKFLOW_TEMPLATE, &oversized_quality, None)
             .expect_err("generator must fail when rules pack exceeds the 6000-token / 24000-char budget");
         assert!(err.contains("RULES_BUDGET_EXCEEDED"), "{err}");
+    }
+
+    /// The section of the rules pack for `tool`, from its heading to the next one.
+    fn pack_section(pack: &str, tool: &str) -> String {
+        let start = pack.find(&format!("### `{tool}`")).unwrap_or_else(|| panic!("{tool} is in the pack"));
+        let rest = &pack[start + 4..];
+        let end = rest.find("\n### ").map_or(pack.len(), |i| start + 4 + i);
+        pack[start..end].to_string()
+    }
+
+    #[test]
+    fn create_and_update_list_the_variable_errors_and_say_fill_takes_a_var_reference() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for tool in ["designos_create_node", "designos_update_node"] {
+            let section = pack_section(&pack, tool);
+            for code in ["UNKNOWN_VARIABLE", "VARIABLE_TYPE_MISMATCH", "AMBIGUOUS_VARIABLE"] {
+                assert!(section.contains(&format!("`{code}`")), "{tool} lists {code}: {section}");
+            }
+            assert!(!section.contains("INVALID_COLOR"), "{tool} never returns INVALID_COLOR; a bad colour is VALUE_OUT_OF_RANGE: {section}");
+            let schema = crate::server::tools().into_iter().find(|t| t.name == tool).expect("tool");
+            let schema = serde_json::to_value(&schema.input_schema).unwrap();
+            let fill = schema["properties"]["fill"]["description"].as_str().unwrap_or_else(|| panic!("{tool} describes fill"));
+            assert!(fill.contains("var:<collection>/<name>"), "{tool}: {fill}");
+        }
+        let update = pack_section(&pack, "designos_update_node");
+        assert!(update.contains(r#""fill":"var:"#), "the update_node example shows a var: fill: {update}");
     }
 
     /// Fails when `args` uses a property the tool's advertised `inputSchema` does not declare,

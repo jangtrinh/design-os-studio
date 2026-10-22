@@ -5,6 +5,7 @@ pub mod batch;
 pub mod bootstrap;
 pub mod design_context;
 pub mod errors;
+pub mod fill_write;
 pub mod guidelines;
 pub mod issues;
 pub mod ledger;
@@ -21,7 +22,7 @@ pub mod search_design_system;
 pub mod session_options;
 
 use crate::tools::errors::{ErrorCode, ToolError};
-use designos_doc::{resolve_easeui_color, Document, Node, NodeId, NodeKind, Paint, Rect, TextStyle};
+use designos_doc::{Document, Node, NodeId, NodeKind, Paint, Rect, SpecWarning, TextStyle};
 use serde_json::json;
 
 pub(crate) fn bounded_text(field: &str, value: &str, max: usize) -> Result<(), ToolError> {
@@ -49,22 +50,15 @@ pub(crate) fn geometry(x: f32, y: f32, width: f32, height: f32) -> Result<(), To
     Ok(())
 }
 
-pub(crate) fn validate_fill_color(fill: Option<&str>) -> Result<Option<Paint>, ToolError> {
-    let Some(f) = fill else { return Ok(None) };
-    let c = resolve_easeui_color(f).ok_or_else(|| {
-        ToolError::new(ErrorCode::ValueOutOfRange, "/fill", format!("invalid fill color '{f}'"))
-            .with_received(json!(f))
-            .with_expected("valid #RRGGBB/#RRGGBBAA hex or $easeui.* color token")
-    })?;
-    Ok(Some(Paint::solid(c)))
-}
-
-/// Sets the paints `node` is drawn with.
+/// Sets the paints `node` is drawn with, and cuts the variable bindings and the fill style link of the
+/// paints it replaces, as `apply_spec` does for a literal colour. Left in place they would be applied
+/// over the new paints, so the canvas would keep drawing the old colour.
 ///
 /// Every renderer reads a text node's colour from its text style (`style.fills`, and each run's), never from
 /// `Node::fills`, so a text node takes the paints there and keeps none of its own. This is the rule
 /// `designos_doc::apply_style_values` follows when a colour style is applied to text.
 pub(crate) fn set_node_fills(node: &mut Node, paints: Vec<Paint>) {
+    designos_doc::detach_fill_paints(node);
     match &mut node.kind {
         NodeKind::Text(t) => {
             for run in &mut t.runs {
@@ -213,11 +207,10 @@ pub(crate) fn validate_update_fields(u: &UpdateFields) -> Result<(), ToolError> 
     if let Some(text) = &u.text {
         bounded_text("text", text, 100_000)?;
     }
-    validate_fill_color(u.fill.as_deref())?;
-    Ok(())
+    fill_write::validate_fill_color(u.fill.as_deref())
 }
 
-pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) -> Result<(Node, bool), ToolError> {
+pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields) -> Result<(Node, bool, Vec<SpecWarning>), ToolError> {
     if id.0 == 0 {
         return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/node_id", "node IDs must be positive integers").with_received(json!(0)).with_expected(">= 1"));
     }
@@ -249,12 +242,8 @@ pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) ->
     if let Some(opacity) = u.opacity {
         node.opacity = opacity;
     }
-    if let Some(paint) = validate_fill_color(u.fill.as_deref())? {
-        set_node_fills(&mut node, vec![paint]);
-    }
-    if let Some(fills) = u.fills {
-        set_node_fills(&mut node, fills);
-    }
+    let mut warnings = Vec::new();
+    fill_write::write_fill(doc, &mut node, id, fill_write::FillTarget::ExistingLayer, u.fill.as_deref(), u.fills, &mut warnings)?;
     if let Some(text) = u.text {
         let NodeKind::Text(props) = &mut node.kind else {
             return Err(ToolError::new(ErrorCode::NotATextNode, "/text", "text can only be set on text nodes").with_received(json!(node.id.0)));
@@ -266,5 +255,5 @@ pub(crate) fn build_updated_node(doc: &Document, id: NodeId, u: UpdateFields) ->
         }
     }
     let changed = doc.get(id) != Some(&node);
-    Ok((node, changed))
+    Ok((node, changed, warnings))
 }

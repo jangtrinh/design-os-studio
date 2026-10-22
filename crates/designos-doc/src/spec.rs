@@ -829,7 +829,7 @@ impl Document {
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(14.0);
                 style.font_weight = spec.font_weight.unwrap_or(400);
-                style.fills = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
+                style.fills = vec![Paint::solid(crate::default_text_colour(self, parent))];
                 let content = if text_var.is_some() { String::new() } else { spec.text.clone().unwrap_or_default() };
                 Node::text(id, rect, content, style)
             }
@@ -1116,8 +1116,7 @@ impl Document {
                 match resolved {
                     ResolvedColourRef::NoneOrTransparent => {
                         if let Some(n) = self.get_mut(id) {
-                            n.variables.bindings.remove("fills/0");
-                            n.style_refs.remove("fill");
+                            crate::detach_fill_paints(n);
                             if let NodeKind::Text(tp) = &mut n.kind {
                                 tp.style.fills.clear();
                             }
@@ -1125,8 +1124,7 @@ impl Document {
                     }
                     ResolvedColourRef::Literal(c) => {
                         if let Some(n) = self.get_mut(id) {
-                            n.variables.bindings.remove("fills/0");
-                            n.style_refs.remove("fill");
+                            crate::detach_fill_paints(n);
                             if let NodeKind::Text(tp) = &mut n.kind {
                                 tp.style.fills = vec![Paint::solid(c)];
                             }
@@ -1156,15 +1154,13 @@ impl Document {
             match resolved {
                 ResolvedColourRef::NoneOrTransparent => {
                     if let Some(n) = self.get_mut(id) {
-                        n.variables.bindings.remove("fills/0");
-                        n.style_refs.remove("fill");
+                        crate::detach_fill_paints(n);
                         n.fills.clear();
                     }
                 }
                 ResolvedColourRef::Literal(c) => {
                     if let Some(n) = self.get_mut(id) {
-                        n.variables.bindings.remove("fills/0");
-                        n.style_refs.remove("fill");
+                        crate::detach_fill_paints(n);
                         n.fills = vec![Paint::solid(c)];
                     }
                 }
@@ -1367,7 +1363,7 @@ impl Document {
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(13.0);
                 style.font_weight = spec.font_weight.unwrap_or(500);
-                style.fills = vec![Paint::solid(Color::rgb(0xF4, 0xF4, 0xF5))];
+                style.fills = vec![Paint::solid(crate::default_text_colour(self, id))];
                 let initial = if text_var.is_some() { String::new() } else { label.clone() };
                 let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), initial, style);
                 if text_var.is_none() {
@@ -1571,7 +1567,7 @@ impl Document {
         libraries: &[LibrarySnapshot],
         report: &mut SpecApplyReport,
     ) -> Result<String, SpecBindError> {
-        let var_id = crate::resolve_variable_ref(self, index, libraries, raw_ref, fname, fpath)?;
+        let var_id = crate::resolve_variable_ref_of_kind(self, index, libraries, raw_ref, fname, fpath, keys.first().and_then(|k| crate::property_kind(k)))?;
         crate::validate_variable_binding_for_keys(self, index, &var_id, keys, node_kind, raw_ref, fname, fpath)?;
         report.bindings_created += crate::apply_variable_binding(self, id, keys, &var_id, fpath, &mut report.warnings);
         Ok(var_id)
