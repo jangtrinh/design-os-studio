@@ -2,6 +2,121 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.6.0] - 2026-10-22
+
+Pack **AI design** ([milestone v0.6 AI design](https://github.com/jangtrinh/design-os-studio/milestone/4)): agents can see a design, read its design system, write in one step and check their own work. The Agents panel gets sessions, review and stop.
+
+### Added
+- **Agents panel: sessions.**
+  - Opening the panel resumes the file's last session. With none to resume, it shows the CLI picker. Studio no longer starts a shell by itself (#651).
+  - A file keeps its sessions after a restart. A menu in the panel lists them, renames them and removes them from the list. Files opened from disk keep sessions too. Renaming or moving such a file starts a fresh history (#653).
+  - A session that cannot resume says why and what to do next (PR #806).
+  - The new-session picker lists installed CLIs first, with version and login state. The CLI you used last for the file comes first. A CLI that is not installed links to its install page. Rows keep their order while the checks finish, so a click lands on the row you aimed at (#652, #783).
+  - Gemini CLI joins Claude Code, Codex, Grok and Antigravity in the new-session picker. OpenCode is not in the picker yet. A sample prompt starts it only when it is the only agent CLI installed, and it runs without Studio tools (#679).
+- **Agents panel: talking to an agent.**
+  - The composer sends into the tab's live CLI session. Each tab keeps its own draft and its last 100 prompts (#689).
+  - A chip shows the current selection. Click it to hand the selection to the agent. It hides when nothing is selected (#654).
+  - Type `@` to mention a layer, page, component, variable or style. The agent gets a reference it can resolve (#655).
+  - The empty state offers sample prompts that fill the composer, and hints for attaching a selection (#688).
+  - Attach bundled skills or your own `SKILL.md` files to a design run. Three skills ship with Studio (#573).
+  - On macOS, Cmd+Z undoes and Shift+Cmd+Z redoes document edits while a terminal tab has focus. On Windows and Linux, Ctrl+Z stays with the CLI (#685).
+  - AI image tools (remove background, isolate subject, expand, erase) run through the connected agent CLI. They turn off when no agent CLI is installed. Studio bundles no model weights (#177).
+- **Agents panel: while an agent works.**
+  - Each tab shows live status. Each turn ends with a receipt: how long it worked, how many tool calls, how many layers changed. A system notification tells you when an agent finishes in the background (#683).
+  - Review a turn's edits, then keep them or revert them in one undo step. A revert leaves layers you edited yourself (#677).
+  - Stop one agent, or all running agents, from the panel. Studio interrupts the CLI, closes the open edit batch as one undo step, and records that you stopped it (#684).
+  - An optional ask mode (Preferences > Agent permissions… > Ask before acting) launches CLIs without their skip-permissions flags. Claude's requests show as Approve or Deny in the panel. Codex, Grok, Antigravity and Gemini CLI ask in their own tab. The default stays Skip permissions (#656, PR #817).
+  - When a session fails, a banner names the cause and the next step: rate limit, expired login, billing or quota, provider error, full context, or no network (#686). A CLI that fails to start gets the same: not installed, not signed in, or a rejected flag. Any other early exit shows its exit code and the last lines it printed (#673).
+  - Claude and Grok tabs show tokens and cost (Grok's cost is a list-price reference, marked ref.). Codex, Antigravity, Gemini CLI and OpenCode show none, because Studio has no usage source for them (#678).
+  - Screen readers hear when an agent finishes, needs input or fails, and the panel regions have names. Cmd+Alt+J (Ctrl+Alt+J on Windows and Linux) moves focus between the composer and the canvas. When a text layer is selected or being edited, the chord still justifies text (#687).
+- **Agents on the canvas.**
+  - Each agent shows a named cursor, and a layer flashes when the agent writes it (#682).
+  - When a turn ends with changes off screen, a chip at the canvas edge shows how many. The view does not move until you click it (#695).
+  - When you edit inside a frame an agent is working on, a banner names the agent. You can duplicate the frame or edit anyway (#693).
+- **MCP: see the design.**
+  - `designos_get_screenshot` returns PNG or JPEG image content for a node, for up to 50 nodes on one page, or for a region (#238).
+  - `designos_get_metadata` returns a sparse XML outline with bounds, layout, components, text previews and, with `lint: true`, issue counts (#239).
+  - `designos_get_design_context` returns code, variable and style hints, and a screenshot for a node (#241). Dev Mode and the MCP server share the same data (#240).
+  - Write calls can return before and after images of the region they changed, with `diff_image` (#593).
+  - `designos_query_xpath` pages through large documents with a node budget, compact rows and cursors. It can select by lint problem, bound value, hard-coded value or in-progress state (#602).
+- **MCP: know the design system.**
+  - `designos_get_libraries` lists the local and enabled libraries (#247). `designos_search_design_system` searches components, styles and variables across them and returns instance-ready examples (#272).
+  - `designos_get_guidelines` and the `create_design_system_rules` prompt write design-system rules from the open file (#248).
+  - On its first turn, an agent gets the open file's outline, variables, components and style. `designos_get_app_state` returns the same on demand. The selection is sent only when the agent asks for it (#601).
+  - A rules pack with a build, verify and fix workflow is generated from the tool schemas. It ships with the skill and with each session. `designos.enabled_tools` in the session config limits the tool list (#600).
+- **MCP: write safely.**
+  - `designos_apply_spec` places component instances and variants, and sets properties and overrides by path (#586). It fills slots (#587). It binds fills, strokes, numbers and styles to variables with `var:` references. The old `$easeui.*` tokens still resolve and warn as deprecated (#588). An agent undo keeps variables and collections you edited after the agent wrote them (PR #803).
+  - `designos_apply_batch` applies up to 200 operations as one transaction. It supports `dry_run`, makes one undo step, and returns the created ids and a name-to-id map (#589).
+  - A mutating call can carry an `idempotency_key`. A replay with the same key and arguments returns the first reply and writes nothing (#591).
+  - `designos_set_in_progress` flags a frame while an agent works on it. The flag clears when the turn ends or you stop the agent. Flags are not undo steps (#592).
+  - Every tool advertises an `outputSchema` and returns `structuredContent`. Errors carry a named code, a corrected example and a `safe_to_retry` flag (#590). See Breaking.
+  - `designos_create_node` and `designos_update_node` take `fill` and `fills`. On a text layer the colour goes on its text style and runs (#593, PR #813).
+  - On files above 25,000 nodes, agents keep the file's variables and styles, so `var:` and style references still resolve (#696).
+- **MCP: check the work.**
+  - `designos_lint` is one geometric linter with 27 rules, four presets (agent, check-designs, recommended and strict) and eight category presets. It finds overflow, clipping, sibling overlap, truncated and wrapped text, collapsed sizes and detached instances. Check designs shares its detached-instance and contrast checks with it (#594).
+  - Contrast is measured against the real backdrop, at WCAG AA and AAA. A finding names the layer that covers the text (#595).
+  - Off-scale and hard-coded value rules find spacing, radius and type sizes outside the file's scale, and raw values that match a token (#596).
+  - Each mutating call returns a short `issues` block and marks problems that were already there. `designos_configure_session` sets the mode, the preset and the number of items (#597).
+  - `designos_lint_fix` applies the deterministic fixes for auto-fixable findings on a page or on chosen layers, in one undo step. Its default preset is strict (#594).
+- **MCP tool list.** `docs/mcp-parity.md` maps Figma's 41 MCP tools to Studio's. A test pins the tool list, and the tool tables in the README and the skill are generated from it (#243).
+- **Web capture.**
+  - A capture script in the source tree (`crates/designos-webcapture/js/capture.js`, run with Playwright) records a rendered page: computed styles, boxes, text runs and images (#276).
+  - Studio imports a capture as editable auto layout frames with live text, in one undo step. Use the File menu, drop the file on the canvas, run `--import-capture`, or call `designos_import_web_capture`. A report lists substituted fonts and anything not captured (#277). If the import worker crashes, a toast says so (PR #806).
+- **Styles hold variable aliases.** Colour, effect and text styles can point to variables (#131).
+- **Variables as Figma JSON and DTCG.** Import and export variables in Figma's native JSON and in W3C Design Tokens (DTCG), from the Variables menu or with `--import-variables` and `--export-variables`. An import merges into the file. Studio reports how many variables it imported and lists any it skipped, and `--import-variables` prints the added, updated and skipped counts. The Figma REST format is unchanged (#138).
+- **`.pen` 2.21.** Studio reads and writes JSON scene format 2.21 and migrates older files on import (#570). See Breaking.
+- **Check designs.**
+  - The rules match Figma's list. A rules popover turns each one on or off and sets contrast to AA or AAA (#158).
+  - Ignore keeps a finding off and is saved in the file. Dismiss hides it for the session (#158).
+  - Whole pages are scanned a little each frame (2 ms slices), so the canvas stays responsive, with a progress bar. The 20,000-layer cut-off is gone. Fix all waits until the scan ends (#157).
+- **Slots.** Stretch on insert applies when you drag a layer into a slot, drop a library asset on it, or place an image, video or SVG in it. Drawn layers keep their size (#644).
+- **Dev Mode codegen.**
+  - HTML joins CSS, Tailwind, React, SwiftUI, UIKit, Compose and Android XML. It writes a full page or a fragment, from Dev Mode, `--dev html`, `--codegen html` and `designos_generate_code` (#250).
+  - React components declare their variant and property props, with defaults and TypeScript unions for variants. Reserved words in prop and slot names are renamed the same way in React, Compose and SwiftUI (#605).
+- **Branches in the library, engine only.** A file can keep branch copies and checkpoints (#343). A three-way diff compares nodes, styles, variables and components, and reports conflicts per layer (#344). A merge remaps ids and takes each conflict from main or from the branch (#345). Studio, the CLI and the MCP server do not use branches yet.
+- **Vendored skills.** The MIT-licensed `jakubkrehel/skills` are vendored at a pinned commit, with attribution. A rule map ties each of its 273 rules to a lint rule (34), a rubric axis (70) or a skill section (58), or marks it web-only (111). `designos-mcp --list-lint-rules` prints the 27 lint rule ids (#636).
+- **Evaluation harness.** `designos-eval` (in the source tree, not in the release packages) runs each design task three times by default. It reports bootstrap confidence intervals, keeps a held-out split, and writes JSONL. `DESIGNOS_MCP_TRANSCRIPT` logs every tool call (#613). A register and a CI check cover the licences of eval datasets, model weights and skills (#611).
+- **UI copy standard.** `design/ux-writing.md` ports the VSF PCP writing rules. A gate fails new action labels over three words or with a count in parentheses (PR #804).
+
+### Changed
+- **DESIGN:OS Studio is source-available under PolyForm Shield 1.0.0** (PR #820). You can use and modify it, including for paid work. You cannot resell it or use it to build a competing product. Releases up to v0.5.0 were published under MIT OR Apache-2.0 and keep that license. Packages ship one `LICENSE` file instead of `LICENSE-MIT` and `LICENSE-APACHE`.
+- **Large `.fig` imports have a global clone budget** of 8,000,000 nodes. Instances past it stay unexpanded, survive a `.fig` and `.designos` round trip, and a warning says how many (#5).
+- **`designos_open_file` takes larger files:** up to 512 MiB and 1,200,000 layers. The limits were 64 MiB and 100,000 (#602).
+- **UI copy follows the writing standard.** Labels and messages in the Agents panel, Check designs, the variable menus, AI image tools and the web capture report are shorter and verb-first. Tabs, the panel header, Sessions rows, screen-reader announcements and notifications use the same labels for the same agent states: Needs approval, Needs input, Working…, Done, Failed and Stopped. New action labels carry no count in parentheses, and failures never show raw codes (PR #814, PR #817).
+- **The Agents panel shows only real output.** Send no longer inserts a template. The canned "Executed via" line and the microphone button are gone (#681). The empty-state category cards and the More button that collapsed them give way to sample prompts (#688, PR #807).
+
+### Fixed
+- **Code export.**
+  - A child that fills the counter axis of a hugging parent exports its solved length, so a row of fill children no longer collapses to 0 px in CSS or Tailwind (#578).
+  - A grid child with vertical fill exports the height the layout solver computed (#639).
+- **Constraints.** `.fig` import and the editor use one constraint solver. Rotated children, rounding and sizes under 1 px match Figma (#691).
+- **Components and slots.**
+  - Migrate to slot on an unbound instance in one variant no longer adds a slot property to the whole set that the other variants never get (#645).
+  - Slot content written through MCP, live patches or `.fig` import is marked, so a main-component sync keeps it (#582).
+- **Auto layout.** A direction change made through MCP before the first solve no longer stretches a child twice (#583).
+- **`.fig` export.** Component keys no longer collide, and half-null GUIDs survive a round trip (#669).
+- **Check designs inside instances.** Layers that only mirror their main component are skipped, which cuts the work on large pages. A contrast problem that an override creates inside an instance is reported on the instance (#663).
+- **Agents.**
+  - Session files live in a per-session folder instead of shared paths under `/tmp`. The scratch folder is removed when the last tab or the window closes. Folders of dead sessions older than 7 days are swept at startup. The live document is written by a worker thread, not the UI thread (#690).
+  - On macOS, a terminal tab no longer drops the output of a command that exits at once (#782).
+
+### Breaking
+These change what agent integrations and exported files see. No MCP tool is renamed or removed. The old names `export_fig_file`, `query_nodes` and `check_design` still work.
+- **MCP errors are named errors (#590).**
+  - `structuredContent.error` was a string. It is now an object with `code`, `message`, `path`, `safe_to_retry` and `next_step`, plus `expected`, `valid_options` and `corrected_example` when they apply. The same fields are copied to the top level of the reply and into `content[0].text`. `path` is a JSON Pointer.
+  - If you matched on the error text, read `error.code`. Read `error.safe_to_retry` before you retry. Use `corrected_example` and `valid_options` to fix the call.
+- **Unknown keys in a spec fail (#590).** `designos_apply_spec` and batch specs reject keys the schema does not list in `NodeSpec` and `LayoutSpec` (and in the new `OverrideSpec`). The error is `UNKNOWN_FIELD`. Remove the key. Documented aliases still work, such as `layout.dir`.
+- **`designos_query_xpath` and `query_nodes` return pages (#602).** The reply was `{selector, page_id, nodes, total}` with every match. It is now `{columns, rows, count, scanned, scanned_total, scope_size, remaining, done, complete, cursor}`. A call returns at most 100 rows by default, and at most 500. Call again with `cursor` while `done` is false. Send `format: "objects"` to get objects instead of rows. Old selectors still work.
+- **`designos_lint` and `check_design` replies changed (#594).**
+  - The reply was `{page_id, findings, total, passed}`, and a finding was `{rule, severity, node_id, name, message}`.
+  - It is now `{findings, total, by_severity, by_rule, skipped_rules, scanned, complete, elapsed_ms, cursor}`. A finding carries `node_name`, `xpath`, `bounds` and `fixable`, not `name`. There is no `passed`. A call returns 100 findings by default, so follow `cursor`.
+  - Findings use canonical rule ids. `zero-bounds` is now `collapsed-size`. The old ids still work as input.
+  - The default preset is `agent`. It no longer reports `default-layer-name`. Pass `preset: "recommended"` to get it.
+- **The global live-session files are gone (#690).** Studio and `designos-mcp` no longer use `/tmp/designos-live-context.json`, `/tmp/designos-live-canvas.designos`, `/tmp/designos-live-agent-out.spec.json`, `/tmp/designos-live-doc-sync.designos` or `/tmp/designos-live-selection.spec.json`. Use the folder named by `DESIGNOS_SESSION_DIR` (or the `DESIGNOS_LIVE_*` path variables). Without them, `designos-mcp` leaves those paths unset.
+- **Use the `designos-mcp` that ships with this build.** The live edit log has new operations for variables, styles, library state, images and in-progress flags, and new `label`, `session_id` and `agent_label` fields (#586, #589, #592, #696).
+- **`.pen` export is version 2.21 (#570).** Studio wrote 1.0. A reader that accepts only 1.0 must read 2.21. Studio refuses `.pen` files newer than 2.21 and names both versions in the error.
+- **`DESIGNOS_FORCE_LOCAL_SYNTH` is removed (#681).** Send no longer builds a template, so nothing replaces it.
+
 ## [0.5.0] - 2026-10-19
 
 Pack **Components** ([milestone v0.5 Components](https://github.com/jangtrinh/design-os-studio/milestone/3)): slots and a stronger Check designs.

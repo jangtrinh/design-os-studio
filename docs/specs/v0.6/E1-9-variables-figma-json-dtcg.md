@@ -179,7 +179,7 @@ shape, alias syntax, group/token separation, name restrictions: no `{`, `}`, `.`
 
 The Variables panel menu (`crates/designos-app/src/variables/`) gains `Import variables…` and `Export
 variables…` with a format choice (`Figma (REST)`, `Figma`, `Design tokens (DTCG)`), a result toast
-`Imported 120 variables (4 skipped — details)`, and the details listing skipped tokens. Load es-designer
+`Imported 120 variables · 4 skipped`, and the skipped list opening beside it. Load es-designer
 before UI code; desktop capture at 1440; responsive SKIPPED.
 
 ## 8. Edge cases

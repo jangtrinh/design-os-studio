@@ -83,7 +83,7 @@ Install the AI agent skill plugin in Claude Code / Codex, download a release pac
 git clone https://github.com/jangtrinh/design-os-studio
 cd design-os-studio
 cargo run --release -p designos-app --bin designos-studio
-./scripts/build-release.sh 0.5.0 --local-host
+./scripts/build-release.sh 0.6.0 --local-host
 ```
 
 <a id="first-safe-use--the-practical-loop"></a>
@@ -202,7 +202,7 @@ Inspect and switch primitive, semantic, and component token collections (`COLOR`
   <sub>Command: <code>designos-studio --fixture showcase --select "Hero" --dev react --dev-demo --size 1440x900 --scale 2 --screenshot docs/images/designos-devmode.png</code></sub>
 </p>
 
-Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect CSS box-model padding/margin/border diagrams, resolved variable tokens, `handoffStatusMap` (`Ready for dev` badges), and copy-ready code generated deterministically in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, and **Android XML**.
+Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect CSS box-model padding/margin/border diagrams, resolved variable tokens, `handoffStatusMap` (`Ready for dev` badges), and copy-ready code generated deterministically in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML**, and **HTML**.
 
 ### Pillar 4 — Declarative `NodeSpec` JSON -> Auto-Layout 5.0 -> Native `.fig` v106 Binary Roundtrip
 
@@ -280,7 +280,7 @@ Releases are verified on macOS (Apple Silicon). The Windows and Linux packages a
 
 ```bash
 # Build & package native installers + release-manifest.json + SHA256SUMS locally into dist/
-./scripts/build-release.sh 0.5.0 --local-host
+./scripts/build-release.sh 0.6.0 --local-host
 ```
 
 ### Claude Code
