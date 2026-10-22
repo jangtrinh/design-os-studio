@@ -81,14 +81,19 @@ fn handle_at(sim: &Sim, handle: Handle) -> Pos2 {
     sim.app().view.to_screen(sim.app().canvas_rect.min, handles::handle_pos(&corners, handle))
 }
 
-/// A quarter turn about the middle of the selection, grabbed just outside the bottom-right corner.
-fn quarter_turn(sim: &Sim) -> (Pos2, Pos2) {
+/// A turn of `degrees` about the middle of the selection, grabbed just outside the bottom-right corner.
+fn turn(sim: &Sim, degrees: f32) -> (Pos2, Pos2) {
     let (corners, _) = interact::selection_box(sim.app()).expect("the selection has a box");
     let to_screen = |p: DV| sim.app().view.to_screen(sim.app().canvas_rect.min, p);
     let start = to_screen(corners[2]) + Vec2::new(5.0, 5.0);
     let center = to_screen(DV::new((corners[0].x + corners[2].x) / 2.0, (corners[0].y + corners[2].y) / 2.0));
     let rel = start - center;
-    (start, center + Vec2::new(-rel.y, rel.x))
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    (start, center + Vec2::new(rel.x * cos - rel.y * sin, rel.x * sin + rel.y * cos))
+}
+
+fn quarter_turn(sim: &Sim) -> (Pos2, Pos2) {
+    turn(sim, 90.0)
 }
 
 impl Case {
@@ -377,25 +382,213 @@ fn a_middle_press_ends_the_open_gesture_in_one_undo_step() {
     }
 }
 
-// ---------------------------------------------------------------- a click stays a click
+// ---------------------------------------------------------------- the modifiers are those held at the release
 
-/// A spot that hits what the case grabs, 5.6 px from the exact handle: inside the 6 px hit radius, outside the 5 px
-/// snap distance. A resize that followed the pointer to the click would visibly change the layer.
-fn off_centre(c: &Case) -> Pos2 {
-    match c.kind {
-        Kind::ResizeTopEdge => c.from + Vec2::new(0.0, 5.6),
-        Kind::ResizeBottomRightCorner | Kind::ResizeTopLeftCorner | Kind::ResizeRightEdge | Kind::ResizeEdgeToSnap => c.from + Vec2::new(5.6, 0.0),
-        Kind::Rotate | Kind::RotateGroup => c.from + Vec2::new(2.0, 2.0),
-        Kind::Move | Kind::MoveUnselected | Kind::MoveToSnap => c.from,
+/// A pointer button event with the modifiers that were held when it happened, as the window stamps it. The modifiers
+/// of the frame are the state at its END, which can differ: the button goes up with Shift held and Shift goes up
+/// before the frame is drawn.
+fn button_event(at: Pos2, button: PointerButton, pressed: bool, modifiers: Modifiers) -> Event {
+    Event::PointerButton { pos: at, button, pressed, modifiers }
+}
+
+/// A case whose drag shows what `modifiers` change: the pointer ends off the layer's proportions, 50 degrees round
+/// the middle.
+fn tuned(kind: Kind) -> Case {
+    let mut c = Case::new(kind);
+    match kind {
+        Kind::Rotate => c.to = turn(&c.sim, 50.0).1,
+        Kind::ResizeBottomRightCorner => c.to = c.from + Vec2::new(-60.0, -10.0),
+        _ => {}
     }
+    c
+}
+
+/// The layers after the gesture over many frames with `modifiers` held all the way, which is what a fast machine
+/// gives, and after the same gesture without them.
+fn with_and_without(kind: Kind, modifiers: Modifiers) -> (Vec<Shape>, Vec<Shape>) {
+    let run = |mods: Modifiers| {
+        let mut c = tuned(kind);
+        c.sim.mods = mods;
+        c.sim.drag(c.from, c.to);
+        c.shape()
+    };
+    let (held, plain) = (run(modifiers), run(Modifiers::NONE));
+    assert!(!same(&held, &plain), "{kind:?} {modifiers:?}: the modifier changes the result, or the comparison proves nothing");
+    (held, plain)
 }
 
 #[test]
-fn a_press_and_release_in_one_frame_without_movement_is_a_click() {
-    for kind in ALL {
+fn a_modifier_that_goes_up_with_the_button_still_shapes_the_end_of_the_gesture() {
+    // Shift locks the axis of a move, the aspect of a resize and the angle of a rotate to 15 degrees; Alt resizes from
+    // the middle; Cmd turns snapping off.
+    let cases = [
+        (Kind::Move, Modifiers::SHIFT),
+        (Kind::Rotate, Modifiers::SHIFT),
+        (Kind::ResizeBottomRightCorner, Modifiers::SHIFT),
+        (Kind::ResizeBottomRightCorner, Modifiers::ALT),
+        (Kind::MoveToSnap, Modifiers::COMMAND),
+    ];
+    let mut wrong = Vec::new();
+    for (kind, modifiers) in cases {
+        let (held, _) = with_and_without(kind, modifiers);
+        let mut c = tuned(kind);
+        let (a, b) = (c.from, c.to);
+        c.sim.mods = modifiers;
+        c.sim.mv(a);
+        c.sim.button(true);
+        for i in 1..=4 {
+            c.sim.mv(a + (b - a) * (i as f32 / 4.0));
+        }
+        // the button goes up with the modifier held, and the modifier is up again when the frame is drawn
+        c.sim.mods = Modifiers::NONE;
+        c.sim.frame(vec![button_event(b, PointerButton::Primary, false, modifiers)]);
+        c.sim.frame(vec![]);
+        if !same(&c.shape(), &held) {
+            wrong.push(format!("{kind:?} {modifiers:?}: got {:?}, want {held:?}", c.shape()));
+        }
+        if c.undo_depth() != 1 {
+            wrong.push(format!("{kind:?} {modifiers:?}: {} undo steps", c.undo_depth()));
+        }
+    }
+    assert!(wrong.is_empty(), "the end keeps the modifier of the release:\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn a_modifier_pressed_with_the_next_click_does_not_shape_the_gesture_that_just_ended() {
+    let (_, want) = reference(Kind::Move);
+    let mut c = Case::new(Kind::Move);
+    c.open_at_the_end();
+    let (b, elsewhere) = (c.to, c.sim.screen(EMPTY.0, EMPTY.1));
+    // the button goes up with no modifier; Shift goes down and the next press is a Shift-click, all in one frame
+    c.sim.mods = Modifiers::SHIFT;
+    c.sim.frame(vec![
+        button_event(b, PointerButton::Primary, false, Modifiers::NONE),
+        Event::PointerMoved(elsewhere),
+        button_event(elsewhere, PointerButton::Primary, true, Modifiers::SHIFT),
+    ]);
+    c.sim.mods = Modifiers::NONE;
+    assert_same(&c.shape(), &want, "Shift of the next click does not lock the axis of the finished move");
+    assert_eq!(c.undo_depth(), 1, "the finished move is in the undo history");
+}
+
+/// Press, moves and release of an Alt-aware move in one frame; `at_release` are the modifiers on the release event
+/// and `at_frame_end` the modifiers of the frame.
+fn flick_with_alt(at_release: Modifiers, at_frame_end: Modifiers) -> Case {
+    let mut c = Case::new(Kind::Move);
+    let (a, b) = (c.from, c.to);
+    c.sim.mods = at_frame_end;
+    c.sim.frame(vec![
+        Event::PointerMoved(a),
+        button_event(a, PointerButton::Primary, true, at_release),
+        Event::PointerMoved(a + (b - a) * 0.5),
+        Event::PointerMoved(b),
+        button_event(b, PointerButton::Primary, false, at_release),
+    ]);
+    c.sim.mods = Modifiers::NONE;
+    c.sim.frame(vec![]);
+    c
+}
+
+#[test]
+fn an_alt_that_goes_down_right_after_a_flick_makes_no_duplicate() {
+    let (_, want) = reference(Kind::Move);
+    let before = Case::new(Kind::Move).sim.count();
+    let c = flick_with_alt(Modifiers::NONE, Modifiers::ALT);
+    assert_eq!(c.sim.count(), before, "no copy: Alt was not held when the layer was let go");
+    assert_same(&c.shape(), &want, "the layer moved to the release");
+}
+
+#[test]
+fn an_alt_drag_in_one_frame_copies_even_if_alt_goes_up_with_the_button() {
+    let before = Case::new(Kind::Move).sim.count();
+    let c = flick_with_alt(Modifiers::ALT, Modifiers::NONE);
+    assert_eq!(c.sim.count(), before + 1, "Alt was held when the layer was let go: it is a copy");
+    let (before, _) = reference(Kind::Move);
+    assert_same(&c.shape(), &before, "the original stays where it was and the copy took the move");
+}
+
+#[test]
+fn a_shape_drawn_with_shift_stays_square_when_shift_goes_up_with_the_button() {
+    let drag = |release_with_shift: bool| {
+        let mut s = Sim::new();
+        s.shell.app.set_tool(Tool::Rectangle);
+        let (a, b) = (s.screen(300.0, 800.0), s.screen(480.0, 870.0));
+        s.mods = Modifiers::SHIFT;
+        s.mv(a);
+        s.button(true);
+        for i in 1..=4 {
+            s.mv(a + (b - a) * (i as f32 / 4.0));
+        }
+        let up = if release_with_shift { Modifiers::SHIFT } else { Modifiers::NONE };
+        s.mods = Modifiers::NONE;
+        s.frame(vec![button_event(b, PointerButton::Primary, false, up)]);
+        s.frame(vec![]);
+        let id = *s.app().selection.first().expect("the drawn shape is selected");
+        s.app().doc.get(id).expect("the drawn shape exists").size
+    };
+    let square = drag(true);
+    assert!((square.x - square.y).abs() < 1.0, "Shift was held when the button went up: a square, got {square:?}");
+    let loose = drag(false);
+    assert!((loose.x - loose.y).abs() > 20.0, "without Shift at the release the rectangle follows the pointer, got {loose:?}");
+}
+
+// ---------------------------------------------------------------- a middle press over a click
+
+#[test]
+fn a_middle_press_over_a_pending_click_leaves_the_selection_alone() {
+    let mut s = Sim::new();
+    let (a, b) = (s.by_name("Tile A"), s.by_name("Tile B"));
+    s.shell.app.selection = vec![a, b];
+    s.frame(vec![]);
+    let on_a = s.screen(600.0, 400.0);
+    let away = on_a + Vec2::new(0.0, 60.0);
+    s.mv(on_a);
+    s.button(true);
+    assert!(matches!(s.app().canvas.inter, Interaction::Pending(_)), "the press waits to be a click or a drag");
+    // a pan habit: the middle button goes down while the left one is still held, and the pointer pans away
+    s.one_frame().button(PointerButton::Middle, true).send();
+    assert!(!matches!(s.app().canvas.inter, Interaction::Pending(_)), "the pending click is dropped");
+    s.mv(away);
+    s.one_frame().button(PointerButton::Middle, false).release().send();
+    s.frame(vec![]);
+    assert_eq!(s.app().selection, vec![a, b], "the multi-selection stays");
+    assert!(!s.app().hist.can_undo(), "nothing was edited");
+}
+
+#[test]
+fn a_middle_press_in_the_frame_that_drags_a_pending_click_past_the_threshold_still_makes_the_move() {
+    let (_, want) = reference(Kind::Move);
+    let mut c = Case::new(Kind::Move);
+    let (a, b) = (c.from, c.to);
+    c.sim.mv(a);
+    c.sim.button(true);
+    assert!(matches!(c.sim.app().canvas.inter, Interaction::Pending(_)));
+    c.sim.one_frame().move_to(b).button(PointerButton::Middle, true).send();
+    assert_eq!(c.undo_depth(), 1, "the move is in the undo history");
+    assert_same(&c.shape(), &want, "the move ended where the pointer was");
+}
+
+// ---------------------------------------------------------------- a click stays a click
+
+/// A spot that hits the handle but is 5.6 px from its exact place: inside the 6 px hit radius, outside the 5 px snap
+/// distance. A resize that followed the pointer to the click would visibly change the layer.
+fn off_the_handle(c: &Case) -> Pos2 {
+    match c.kind {
+        Kind::ResizeTopEdge => c.from + Vec2::new(0.0, 5.6),
+        _ => c.from + Vec2::new(5.6, 0.0),
+    }
+}
+
+/// Only the resize rows can fail when the follow to the release is not skipped for a click. A rotate follows to the
+/// same angle it started at (no change by construction), and a move stays under the drag threshold, so the jitter test
+/// below is the guard for it.
+#[test]
+fn a_press_and_release_in_one_frame_on_a_resize_handle_is_a_click() {
+    let kinds = [Kind::ResizeBottomRightCorner, Kind::ResizeTopLeftCorner, Kind::ResizeRightEdge, Kind::ResizeTopEdge, Kind::ResizeEdgeToSnap];
+    for kind in kinds {
         let mut c = Case::new(kind);
         let before = c.shape();
-        let p = off_centre(&c);
+        let p = off_the_handle(&c);
         c.sim.one_frame().move_to(p).press().release().send();
         c.sim.frame(vec![]);
         assert_same(&c.shape(), &before, &format!("{kind:?}: a click changes nothing"));
@@ -404,13 +597,17 @@ fn a_press_and_release_in_one_frame_without_movement_is_a_click() {
     }
 }
 
+/// A jitter just under the 3 px drag threshold. Cmd turns snapping and pixel rounding off, so a jitter that became a
+/// move would show: Hero's edges sit within the snap distance of the frame's and would pull a 2 px move back to 0.
 #[test]
 fn a_jitter_below_the_drag_threshold_is_still_a_click() {
     for kind in [Kind::Move, Kind::MoveUnselected] {
         let mut c = Case::new(kind);
         let before = c.shape();
         let p = c.from;
-        c.sim.one_frame().move_to(p).press().move_to(p + Vec2::new(1.0, 1.0)).release().send();
+        c.sim.mods = Modifiers::COMMAND;
+        c.sim.one_frame().move_to(p).press().move_to(p + Vec2::new(2.0, 0.0)).release().send();
+        c.sim.mods = Modifiers::NONE;
         c.sim.frame(vec![]);
         assert_same(&c.shape(), &before, &format!("{kind:?}: a jitter moves nothing"));
         assert_eq!(c.undo_depth(), 0, "{kind:?}: a jitter adds no undo step");

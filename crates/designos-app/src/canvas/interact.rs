@@ -35,6 +35,11 @@ struct Inp {
     /// Where the primary button went up before the last press of the frame: the end of the gesture that was open
     /// when the frame began.
     prior_release_pos: Option<Pos2>,
+    /// The modifiers held when the primary button went up (see `release_pos`). `mods` is the state at the END of the
+    /// frame and may already have changed since: a gesture that ends at the release was drawn with these.
+    release_mods: Option<Modifiers>,
+    /// The modifiers held at `prior_release_pos`.
+    prior_release_mods: Option<Modifiers>,
     pressed: bool,
     down: bool,
     /// The primary button went up after the last press of this frame, so the gesture that press started is over.
@@ -54,7 +59,7 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
         // Events are walked in arrival order: a release only ends the gesture of the press that came before it.
         let (mut press, mut mid_press, mut release, mut prior_release) = (None, None, None, None);
         for ev in &i.events {
-            if let egui::Event::PointerButton { pos, button, pressed, .. } = ev {
+            if let egui::Event::PointerButton { pos, button, pressed, modifiers } = ev {
                 match (button, pressed) {
                     (egui::PointerButton::Primary, true) => {
                         press = Some(*pos);
@@ -63,7 +68,7 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
                         let seen = release.take();
                         prior_release = prior_release.or(seen);
                     }
-                    (egui::PointerButton::Primary, false) => release = Some(*pos),
+                    (egui::PointerButton::Primary, false) => release = Some((*pos, *modifiers)),
                     (egui::PointerButton::Middle, true) => mid_press = Some(*pos),
                     _ => {}
                 }
@@ -73,8 +78,10 @@ fn gather(ui: &Ui, typing: bool) -> Inp {
         Inp {
             pos: i.pointer.latest_pos(),
             press_pos: if pressed { press } else { mid_press },
-            release_pos: release,
-            prior_release_pos: prior_release,
+            release_pos: release.map(|r| r.0),
+            prior_release_pos: prior_release.map(|r| r.0),
+            release_mods: release.map(|r| r.1),
+            prior_release_mods: prior_release.map(|r| r.1),
             pressed,
             down: i.pointer.primary_down(),
             released: i.pointer.primary_released() && (release.is_some() || press.is_none()),
@@ -352,15 +359,12 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     // A new press ends a draw, move, resize or rotate still open (a middle press, a pan habit, while the primary
     // button is held; a release and a press in one slow frame; a press after a lost release). Without this the
     // press starts another gesture over the open one, and what it did stays in the document outside undo.
-    // The open gesture ended where the primary button went up before this frame's press, wherever that press lands:
-    // on a panel it never reaches the canvas, and the gesture would follow the held button. A primary press with no
-    // release before it means the release was lost: the gesture ends as it was last drawn, because the pointer is
-    // now somewhere that has nothing to do with it. A middle press leaves the gesture live up to this frame.
+    // A release before this frame's press ends the gesture wherever that press lands: on a panel it never reaches
+    // the canvas, and the gesture would follow the held button.
     let open_gesture =
         matches!(app.canvas.inter, Interaction::Draw(_) | Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_));
     if new_press && open_gesture && (hovered || inp.prior_release_pos.is_some()) {
-        let end = if inp.pressed { inp.prior_release_pos } else { inp.release_pos.or(inp.pos) };
-        on_release(app, rect, &Inp { release_pos: inp.prior_release_pos, ..inp.clone() }, end);
+        end_open_gesture(app, rect, &inp);
     }
     if new_press && hovered {
         on_press(app, &ctx, rect, &inp);
@@ -378,7 +382,7 @@ pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
             _ => inp.released || !inp.down && !inp.pressed,
         };
         if ended {
-            on_release(app, rect, &inp, release_end(&inp));
+            on_release(app, rect, &Inp { mods: inp.release_mods.unwrap_or(inp.mods), ..inp.clone() }, release_end(&inp));
         }
     }
     if resp.secondary_clicked() && hovered {
@@ -1203,6 +1207,31 @@ fn follow_pointer(app: &mut App, inter: &mut Interaction, pos: Pos2, cur: DV, in
     }
 }
 
+/// Ends the draw, move, resize or rotate that a new press finds open.
+/// A primary press ends it where the primary button went up before that press, with the modifiers held then. A
+/// primary press with no release before it means the release was lost: the gesture ends as it was last drawn, because
+/// the pointer is now somewhere that has nothing to do with it. A middle press leaves the primary button live, so the
+/// gesture ends at this frame's release if there is one, else at the pointer.
+fn end_open_gesture(app: &mut App, rect: ERect, inp: &Inp) {
+    let (end, mods) = if inp.pressed { (inp.prior_release_pos, inp.prior_release_mods) } else { (inp.release_pos.or(inp.pos), inp.release_mods) };
+    let ending = Inp { mods: mods.unwrap_or(inp.mods), ..inp.clone() };
+    if !inp.pressed && matches!(app.canvas.inter, Interaction::Pending(_)) {
+        // A pan habit over a pending click is not a click, so the selection stays. A pointer that went past the drag
+        // threshold within this frame still makes the move.
+        let mut inter = std::mem::take(&mut app.canvas.inter);
+        if let Some(p) = end {
+            let page = app.view.to_page(rect.min, p);
+            follow_pointer(app, &mut inter, p, page, &ending);
+        }
+        if !matches!(inter, Interaction::Pending(_)) {
+            app.canvas.inter = inter;
+        }
+    }
+    if !matches!(app.canvas.inter, Interaction::None) {
+        on_release(app, rect, &ending, end);
+    }
+}
+
 /// Where the primary button went up in this frame: the place a move, resize or rotate still open at the release
 /// ends. `None` for a click, a press and a release at one spot in one frame, which must not resize or rotate
 /// anything by the few pixels between the pointer and the middle of the handle it hit.
@@ -1551,7 +1580,7 @@ fn on_release(app: &mut App, rect: ERect, inp: &Inp, end: Option<Pos2>) {
         Interaction::Draw(mut d) => {
             // `on_drag` does not run on the frame of the release, and the release can share its frame with the press
             // and the moves. Shape the draw to where the pointer let go, then decide between a drag and a click.
-            if let Some(p) = inp.release_pos.or(inp.pos) {
+            if let Some(p) = end {
                 update_draw(app, &mut d, app.view.to_page(rect.min, p), inp);
                 app.canvas.guides.clear();
                 app.canvas.measures.clear();
@@ -2408,6 +2437,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2439,6 +2470,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2474,6 +2507,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
@@ -2629,6 +2664,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: false,
             released: false,
@@ -2805,6 +2842,8 @@ mod tests {
             press_pos: None,
             release_pos: None,
             prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
             pressed: false,
             down: true,
             released: false,
