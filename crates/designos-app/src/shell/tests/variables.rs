@@ -869,3 +869,71 @@ fn file_import_protects_local_records_and_does_not_count_existing_library_variab
     assert_eq!(app.doc.variable_collections[lib_coll].variables.len(), 3, "existing library variables remain intact");
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+/// A DTCG file with one good token and one the importer skips.
+fn tokens_file_with_a_skipped_token(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("designos_var_toast_{tag}_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("Light.tokens.json");
+    std::fs::write(
+        &path,
+        r##"{"brand":{
+            "primary":{"$type":"color","$value":{"colorSpace":"srgb","components":[0.1,0.2,0.3],"alpha":1.0,"hex":"#1A334D"}},
+            "broken":{"$type":"color","$value":"{brand.missing}"}}}"##,
+    )
+    .unwrap();
+    path
+}
+
+/// The painted toast text of the last frame: (paint order index, bounds), `None` when it was not painted.
+fn painted_text(s: &Sim, text: &str) -> Option<(usize, Rect)> {
+    s.shapes.iter().enumerate().find_map(|(i, c)| match &c.shape {
+        egui::Shape::Text(t) if t.galley.text() == text => Some((i, t.visual_bounding_rect())),
+        _ => None,
+    })
+}
+
+/// The first opaque rectangle painted after shape `index` that covers `r`'s center: what would hide it.
+fn opaque_rect_over(s: &Sim, index: usize, r: Rect) -> Option<(usize, Rect)> {
+    s.shapes.iter().enumerate().skip(index + 1).find_map(|(i, c)| match &c.shape {
+        egui::Shape::Rect(rs) if rs.fill.a() == u8::MAX && rs.rect.contains(r.center()) && c.clip_rect.contains(r.center()) => Some((i, rs.rect)),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_import_toast_paints_above_the_full_variables_view() {
+    let mut s = Sim::new();
+    open_view(&mut s, true);
+    let path = tokens_file_with_a_skipped_token("full");
+    s.shell.app.import_variables_files_with_format(&[path.clone()], designos_fig::VariablesFormat::FigmaNative);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    let rep = s.app().vars.last_import_report.as_ref().expect("the import left a report");
+    assert!(!rep.skipped.is_empty(), "precondition: the file has a skipped token");
+    let text = s.app().toast.as_ref().expect("the import raised a toast").text.clone();
+    assert!(text.starts_with("Imported ") && text.ends_with(" skipped"), "unexpected toast text {text:?}");
+    assert!(s.app().vars.open && s.app().vars.full, "precondition: the full view is still open");
+
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    if let Some((over, rect)) = opaque_rect_over(&s, at, bounds) {
+        panic!("toast {text:?} (shape #{at}, {bounds:?}) is hidden by the opaque rect #{over} {rect:?} painted after it");
+    }
+}
+
+#[test]
+fn the_import_toast_still_paints_above_the_floating_variables_panel() {
+    let mut s = Sim::new();
+    open_view(&mut s, false);
+    let path = tokens_file_with_a_skipped_token("floating");
+    s.shell.app.import_variables_files_with_format(&[path.clone()], designos_fig::VariablesFormat::FigmaNative);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    let text = s.app().toast.as_ref().expect("the import raised a toast").text.clone();
+    let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
+    assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+}
