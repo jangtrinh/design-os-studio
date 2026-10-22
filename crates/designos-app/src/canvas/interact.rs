@@ -11,6 +11,7 @@ pub use super::textsession::{begin_text_edit, finish_text};
 use super::tools::{press_action, PressAction, PressTarget, Tool};
 use super::vector;
 use super::*;
+use crate::comp_ops::mains_held_by;
 use crate::edit::Tx;
 use crate::layout;
 use crate::ops::apply_resize;
@@ -1247,6 +1248,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
     }
     let mut tx = Tx::new();
     let mut dup_blocked = None;
+    let mut main_copies = Vec::new();
     if alt {
         let mut dup = Vec::new();
         // one clip for the whole selection, so connectors between duplicated nodes join the copies
@@ -1272,8 +1274,10 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
             let Some(parent) = app.doc.get(*id).and_then(|n| n.parent) else { continue };
             let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| c == id)).map(|i| i + 1).unwrap_or(usize::MAX);
             let root = nodes.first().map(|n| n.id);
+            let is_main = crate::clipboard::is_main(&app.doc, *id);
             if tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }).is_ok() {
                 dup.extend(root);
+                main_copies.extend(root.filter(|_| is_main).map(|copy| (*id, copy)));
             }
         }
         if !dup.is_empty() {
@@ -1284,7 +1288,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
     let idx = active_index(app);
     let orig_bbox = union_all(ids.iter().map(|i| super::fast_world_aabb(&app.doc, idx, *i)))?;
     let targets = snap_targets(app, &ids);
-    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None, dup_blocked })
+    Some(MoveState { tx, ids, start, orig_bbox, targets, moved: false, reorder: None, dup_blocked, main_copies })
 }
 
 fn parent_has_auto_layout(doc: &Document, id: NodeId) -> bool {
@@ -1725,6 +1729,7 @@ fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) 
     if m.moved && !m.ids.is_empty() && !space && !reparent_after_move(app, m, cur) {
         return false;
     }
+    settle_main_copies(app, m);
     for id in m.ids.clone() {
         let Some(parent) = app.doc.get(id).and_then(|n| n.parent) else { continue };
         if let Some(blocked) = &m.dup_blocked {
@@ -1739,20 +1744,23 @@ fn release_move(app: &mut App, m: &mut MoveState, cur: Option<DV>, space: bool) 
     true
 }
 
-/// The main components that `ids` (with their layers) hold an instance of, directly or through the content of the
-/// mains those instances link to.
-fn mains_held_by(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
-    let mut mains: Vec<NodeId> = Vec::new();
-    let mut to_walk = ids.to_vec();
-    while let Some(root) = to_walk.pop() {
-        doc.walk(root, |n, _| {
-            if let Some(main) = designos_doc::instance_component(n).filter(|m| !mains.contains(m)) {
-                mains.push(main);
-                to_walk.push(main);
-            }
-        });
+/// Where an Alt-copy of a main component or set has landed decides what it is: an instance, or a real copy where an
+/// instance cannot go (in a component set, in a layer of an instance of the main). The copy made at the start of the
+/// drag is replaced by the other kind in the same undo step.
+fn settle_main_copies(app: &mut App, m: &mut MoveState) {
+    for k in 0..m.main_copies.len() {
+        let (source, copy) = m.main_copies[k];
+        let Some(nodes) = crate::clipboard::recast_copy(&mut app.doc, source, copy) else { continue };
+        let Some(parent) = app.doc.get(copy).and_then(|n| n.parent) else { continue };
+        let index = app.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == copy)).unwrap_or(usize::MAX);
+        let new = nodes.first().map(|n| n.id);
+        let swapped = m.tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes }).is_ok() && m.tx.cmd(&mut app.doc, Command::Remove { id: copy }).is_ok();
+        let Some(new) = new.filter(|_| swapped) else { continue };
+        m.main_copies[k].1 = new;
+        for id in m.ids.iter_mut().chain(app.selection.iter_mut()).filter(|id| **id == copy) {
+            *id = new;
+        }
     }
-    mains
 }
 
 /// `cur` is where the layers were dropped; without it they stay in the container they are in.
@@ -1787,6 +1795,9 @@ fn reparent_after_move(app: &mut App, m: &mut MoveState, cur: Option<DV>) -> boo
     // itself. A copy of a main dropped on the main lands beside it.
     let mut skip = m.ids.clone();
     skip.extend(mains_held_by(&app.doc, &m.ids));
+    let sources: Vec<NodeId> = m.main_copies.iter().map(|(source, _)| *source).collect();
+    skip.extend(mains_held_by(&app.doc, &sources));
+    skip.extend(sources);
     let target = create::container_at_with_index(&app.doc, active_index(app), app.page, cur, &skip);
     // Layers that stay inside their container only reorder; leaving it takes them out of the flow.
     let moving: Vec<NodeId> =
@@ -2515,6 +2526,164 @@ mod tests {
         assert_eq!(mains, 1, "the file keeps its one main");
         app.undo();
         assert_eq!(app.doc.nodes.len(), nodes, "one undo takes both copies away");
+    }
+
+    /// A page with `count` plain frames at x = 0, 300, 600 ..., each 100 x 100 with one 40 x 40 layer inside.
+    fn page_of_frames(count: usize) -> (Document, NodeId, Vec<NodeId>) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let frames: Vec<NodeId> = (0..count)
+            .map(|i| {
+                let id = d.alloc_id();
+                let f = d.insert(page, designos_doc::Node::frame(id, Rect::new(300.0 * i as f32, 0.0, 100.0, 100.0))).unwrap();
+                let id = d.alloc_id();
+                d.insert(f, designos_doc::Node::frame(id, Rect::new(10.0, 10.0, 40.0, 40.0))).unwrap();
+                f
+            })
+            .collect();
+        (d, page, frames)
+    }
+
+    fn make_main(d: &mut Document, id: NodeId) {
+        designos_doc::create_component(d, id).apply(d).unwrap();
+    }
+
+    /// Alt-drags `selection` (starting from `from`) and drops it where the pointer is at `drop`; commits the gesture.
+    fn alt_drag_and_drop(app: &mut App, from: NodeId, drop: DV) -> Vec<NodeId> {
+        let mut m = start_move(app, from, v2(0.0, 0.0), true).unwrap();
+        m.moved = true;
+        assert!(release_move(app, &mut m, Some(drop), false));
+        let ids = m.ids.clone();
+        assert!(app.run_tx(m.tx));
+        ids
+    }
+
+    fn mains_in(app: &App) -> usize {
+        app.doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).count()
+    }
+
+    fn is_instance_of(app: &App, id: NodeId, main: NodeId) -> bool {
+        app.doc.get(id).is_some_and(|n| matches!(n.kind, NodeKind::Instance { component: Some(c), .. } if c == main))
+    }
+
+    #[test]
+    fn alt_drag_of_a_main_keeps_its_connectors_attached_to_the_new_instance() {
+        let (mut d, page, f) = page_of_frames(2);
+        let (main, other) = (f[0], f[1]);
+        make_main(&mut d, main);
+        let layer = d.get(main).unwrap().children[0];
+        let connect = |d: &mut Document, from: NodeId| {
+            let id = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(from, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(other, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, designos_doc::Node::connector(id, props)).unwrap()
+        };
+        let (on_main, on_layer) = (connect(&mut d, main), connect(&mut d, layer));
+        let mut app = App::new(d);
+        app.selection = vec![main, other, on_main, on_layer];
+        let m = start_move(&mut app, main, v2(0.0, 0.0), true).unwrap();
+        let [copy_main, copy_other, copy_on_main, copy_on_layer] = m.ids[..] else { panic!("four copies, got {:?}", m.ids) };
+        assert!(is_instance_of(&app, copy_main, main));
+        let ends = |id: NodeId| match &app.doc.get(id).unwrap().kind {
+            NodeKind::Connector(c) => (c.start.node, c.end.node),
+            k => panic!("{k:?}"),
+        };
+        assert_eq!(ends(copy_on_main), (Some(copy_main), Some(copy_other)), "attached to the instance");
+        let mirror = app.doc.get(copy_main).unwrap().children[0];
+        assert_eq!(app.doc.get(mirror).unwrap().component.source, Some(layer));
+        assert_eq!(ends(copy_on_layer), (Some(mirror), Some(copy_other)), "attached to the instance's copy of the layer");
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_layer_of_its_own_instance_is_a_real_copy_that_an_edit_of_the_main_keeps() {
+        let (mut d, page, f) = page_of_frames(1);
+        let main = f[0];
+        make_main(&mut d, main);
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, main, page, v2(400.0, 0.0)) else { panic!("instance") };
+        let instance = nodes[0].id;
+        designos_doc::Command::Insert { parent: page, index: 1, nodes }.apply(&mut d).unwrap();
+        let mirror = d.get(instance).unwrap().children[0];
+        let inside = crate::util::rect_center(&crate::util::world_aabb(&d, mirror));
+        let mut app = App::new(d);
+        app.selection = vec![main];
+        let copy = alt_drag_and_drop(&mut app, main, inside)[0];
+        let n = app.doc.get(copy).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)), "a real copy, got {:?}", n.kind);
+        assert_eq!(n.parent, Some(mirror));
+        let _ = designos_doc::sync_instances(&mut app.doc, main).apply(&mut app.doc);
+        assert!(app.doc.get(copy).is_some(), "the next edit of the main keeps the copy");
+    }
+
+    #[test]
+    fn a_main_holding_an_instance_of_b_alt_dragged_onto_b_lands_beside_b() {
+        let (mut d, page, f) = page_of_frames(2);
+        let (a, b) = (f[0], f[1]);
+        make_main(&mut d, a);
+        make_main(&mut d, b);
+        let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut d, b, a, v2(50.0, 50.0)) else { panic!("instance of B") };
+        designos_doc::Command::Insert { parent: a, index: 0, nodes }.apply(&mut d).unwrap();
+        let inside_b = crate::util::rect_center(&crate::util::world_aabb(&d, b));
+        let mut app = App::new(d);
+        app.selection = vec![a];
+        let copy = alt_drag_and_drop(&mut app, a, inside_b)[0];
+        assert!(is_instance_of(&app, copy, a));
+        assert_eq!(app.doc.get(copy).unwrap().parent, Some(page), "not inside B, which would then hold itself");
+        let _ = designos_doc::sync_instances(&mut app.doc, b).apply(&mut app.doc);
+    }
+
+    /// A page with a set of two variants (`variants`) and a plain main `solo` beside it.
+    fn set_and_a_main() -> (App, NodeId, Vec<NodeId>, NodeId) {
+        let (mut d, _page, f) = page_of_frames(3);
+        for id in &f {
+            make_main(&mut d, *id);
+        }
+        designos_doc::combine_as_variants(&mut d, &f[..2]).apply(&mut d).unwrap();
+        let set = d.get(f[0]).unwrap().parent.unwrap();
+        (App::new(d), set, f[..2].to_vec(), f[2])
+    }
+
+    #[test]
+    fn a_main_alt_dragged_into_a_component_set_is_a_new_variant_not_an_instance_in_the_set() {
+        let (mut app, set, variants, solo) = set_and_a_main();
+        app.selection = vec![solo];
+        let (mains, assets) = (mains_in(&app), app.local_components().len());
+        let r = crate::util::world_aabb(&app.doc, set);
+        let copy = alt_drag_and_drop(&mut app, solo, v2(r.x + 2.0, r.y + 2.0))[0];
+        let n = app.doc.get(copy).unwrap();
+        assert_eq!(n.parent, Some(set), "dropped in the set");
+        assert!(matches!(n.kind, NodeKind::Component(_)), "a new variant, got {:?}", n.kind);
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len() + 1);
+        assert_eq!((mains_in(&app), app.local_components().len()), (mains + 1, assets), "a variant adds no Assets row");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_out_of_its_set_becomes_an_instance_of_that_variant() {
+        let (mut app, set, variants, _solo) = set_and_a_main();
+        app.selection = vec![variants[1]];
+        let (mains, assets) = (mains_in(&app), app.local_components().len());
+        let r = crate::util::world_aabb(&app.doc, set);
+        let copy = alt_drag_and_drop(&mut app, variants[1], v2(r.x + 5000.0, r.y + 5000.0))[0];
+        assert!(is_instance_of(&app, copy, variants[1]), "got {:?}", app.doc.get(copy).unwrap().kind);
+        assert_eq!(app.doc.get(copy).unwrap().parent, Some(app.page));
+        assert_eq!((mains_in(&app), app.local_components().len()), (mains, assets), "Assets lists each main once");
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len(), "the set keeps its variants");
+        app.undo();
+        assert!(app.doc.get(copy).is_none(), "one undo takes the copy away");
+    }
+
+    #[test]
+    fn a_variant_alt_dragged_a_little_stays_in_its_set_as_a_new_variant() {
+        let (mut app, set, variants, _solo) = set_and_a_main();
+        app.selection = vec![variants[0]];
+        let at = crate::util::rect_center(&crate::util::world_aabb(&app.doc, variants[0]));
+        let copy = alt_drag_and_drop(&mut app, variants[0], at)[0];
+        let n = app.doc.get(copy).unwrap();
+        assert!(matches!(n.kind, NodeKind::Component(_)), "got {:?}", n.kind);
+        assert_eq!(n.parent, Some(set));
+        assert_eq!(app.doc.get(set).unwrap().children.len(), variants.len() + 1);
     }
 
     #[test]

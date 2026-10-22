@@ -156,6 +156,37 @@ pub fn with_sync(doc: &mut Document, cmd: Command) -> Command {
     }
 }
 
+/// The main components that `ids` (with their layers) hold an instance of, directly or through the content of the
+/// mains those instances link to.
+pub(crate) fn mains_held_by(doc: &Document, ids: &[NodeId]) -> Vec<NodeId> {
+    let mut direct = Vec::new();
+    for id in ids {
+        doc.walk(*id, |n, _| direct.extend(instance_component(n)));
+    }
+    mains_held_through(doc, direct)
+}
+
+/// `mains` and every main that the content of those holds an instance of, through any number of mains.
+pub(crate) fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId>) -> Vec<NodeId> {
+    let mut held: Vec<NodeId> = Vec::new();
+    let mut to_walk: Vec<NodeId> = Vec::new();
+    for main in mains {
+        if !held.contains(&main) {
+            held.push(main);
+            to_walk.push(main);
+        }
+    }
+    while let Some(root) = to_walk.pop() {
+        doc.walk(root, |n, _| {
+            if let Some(main) = instance_component(n).filter(|m| !held.contains(m)) {
+                held.push(main);
+                to_walk.push(main);
+            }
+        });
+    }
+    held
+}
+
 /// One row of the Assets panel.
 #[derive(Clone, Debug)]
 pub struct AssetEntry {

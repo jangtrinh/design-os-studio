@@ -2,7 +2,7 @@
 //! instance of it, so the file keeps one main and Assets one entry. Pasting into another file copies for real.
 
 use super::*;
-use designos_doc::{instance_component, Node, Rect as DRect};
+use designos_doc::{instance_component, sync_instances, ConnectorEnd, ConnectorProps, Magnet, Node, Rect as DRect};
 
 fn mains(s: &Sim) -> Vec<NodeId> {
     s.app().doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Component(_))).map(|n| n.id).collect()
@@ -314,4 +314,184 @@ fn a_plain_layer_and_an_instance_copy_as_before() {
     copy_then_paste(&mut s);
     let [new] = s.app().selection[..] else { panic!("one layer selected") };
     assert!(matches!(s.app().doc.get(new).unwrap().kind, NodeKind::Frame(_)));
+}
+
+// ---- what hangs on a main, and where a copy may go
+
+fn add_frame(s: &mut Sim, parent: NodeId, rect: DRect, name: &str) -> NodeId {
+    let id = s.shell.app.doc.alloc_id();
+    let frame = s.shell.app.doc.insert(parent, Node::frame(id, rect)).unwrap();
+    s.shell.app.doc.get_mut(frame).unwrap().name = name.into();
+    frame
+}
+
+/// A main with one layer inside, on `parent`.
+fn add_main(s: &mut Sim, parent: NodeId, rect: DRect, name: &str) -> NodeId {
+    let main = add_frame(s, parent, rect, name);
+    add_frame(s, main, DRect::new(10.0, 10.0, 40.0, 40.0), "Layer");
+    designos_doc::create_component(&mut s.shell.app.doc, main).apply(&mut s.shell.app.doc).unwrap();
+    main
+}
+
+fn connect(s: &mut Sim, parent: NodeId, from: NodeId, to: NodeId) -> NodeId {
+    let id = s.shell.app.doc.alloc_id();
+    let props = ConnectorProps { start: ConnectorEnd::attached(from, Magnet::Auto), end: ConnectorEnd::attached(to, Magnet::Auto), ..Default::default() };
+    s.shell.app.doc.insert(parent, Node::connector(id, props)).unwrap()
+}
+
+fn ends(s: &Sim, connector: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+    let NodeKind::Connector(c) = &s.app().doc.get(connector).unwrap().kind else { panic!("{connector:?} is no connector") };
+    (c.start.node, c.end.node)
+}
+
+/// The layer of `instance` that mirrors `source` (a layer of its main).
+fn mirror_of(s: &Sim, instance: NodeId, source: NodeId) -> NodeId {
+    *s.app().doc.get(instance).unwrap().children.iter().find(|c| s.app().doc.get(**c).unwrap().component.source == Some(source)).expect("a mirror of the layer")
+}
+
+/// "Primary button" and a plain frame, with a connector from the main to the frame and one from a layer in the main
+/// to the frame, all selected. Returns (main, its layer, the two connectors).
+fn main_with_two_connectors() -> (Sim, NodeId, NodeId, NodeId, NodeId) {
+    let (mut s, main) = main_sim();
+    let comps = s.app().doc.get(main).unwrap().parent.unwrap();
+    let other = add_frame(&mut s, comps, DRect::new(600.0, 600.0, 40.0, 40.0), "Other");
+    let layer = child_of(&s, main, "Bg");
+    let (on_main, on_layer) = (connect(&mut s, comps, main, other), connect(&mut s, comps, layer, other));
+    s.shell.app.selection = vec![main, other, on_main, on_layer];
+    (s, main, layer, on_main, on_layer)
+}
+
+fn child_of(s: &Sim, parent: NodeId, name: &str) -> NodeId {
+    *s.app().doc.get(parent).unwrap().children.iter().find(|c| s.app().doc.get(**c).unwrap().name == name).unwrap_or_else(|| panic!("no child {name}"))
+}
+
+/// The copied connectors (their starts) and the copy of the plain frame, from a selection of four new layers.
+fn assert_connectors_follow_the_instance(s: &Sim, main: NodeId, layer: NodeId) {
+    let sel = s.app().selection.clone();
+    let doc = &s.app().doc;
+    let instance = *sel.iter().find(|i| matches!(doc.get(**i).unwrap().kind, NodeKind::Instance { .. })).expect("an instance among the copies");
+    assert_eq!(instance_component(doc.get(instance).unwrap()), Some(main));
+    let frame_copy = *sel.iter().find(|i| doc.get(**i).unwrap().name == "Other").expect("the frame copy");
+    let connectors: Vec<NodeId> = sel.iter().copied().filter(|i| matches!(doc.get(*i).unwrap().kind, NodeKind::Connector(_))).collect();
+    assert_eq!(connectors.len(), 2);
+    let mut starts: Vec<Option<NodeId>> = connectors.iter().map(|c| ends(s, *c).0).collect();
+    starts.sort();
+    let mut want = vec![Some(instance), Some(mirror_of(s, instance, layer))];
+    want.sort();
+    assert_eq!(starts, want, "one connector is attached to the instance, the other to the instance's copy of the layer");
+    assert!(connectors.iter().all(|c| ends(s, *c).1 == Some(frame_copy)), "the other end follows the copied frame");
+    assert!(connectors.iter().all(|c| ends(s, *c).0.is_some_and(|n| doc.get(n).is_some())), "no end names a layer that was never inserted");
+}
+
+#[test]
+fn ctrl_d_keeps_a_connector_on_the_main_attached_to_the_new_instance() {
+    let (mut s, main, layer, _, _) = main_with_two_connectors();
+    s.cmd_key(Key::D);
+    assert_connectors_follow_the_instance(&s, main, layer);
+}
+
+#[test]
+fn pasting_keeps_a_connector_on_the_main_attached_to_the_new_instance() {
+    let (mut s, main, layer, _, _) = main_with_two_connectors();
+    copy_then_paste(&mut s);
+    assert_connectors_follow_the_instance(&s, main, layer);
+}
+
+#[test]
+fn ctrl_d_of_a_hidden_main_makes_a_hidden_instance() {
+    let (mut s, main) = main_sim();
+    s.shell.app.doc.get_mut(main).unwrap().visible = false;
+    s.cmd_key(Key::D);
+    let inst = the_new_instance_of(&s, main);
+    assert!(!s.app().doc.get(inst).unwrap().visible, "the copy of a hidden layer stays hidden");
+}
+
+/// Main "M2" with a layer, an instance of it, and the instance's copy of the layer.
+fn main_and_its_instance(s: &mut Sim) -> (NodeId, NodeId, NodeId) {
+    let comps = s.app().doc.get(s.by_name("Primary button")).unwrap().parent.unwrap();
+    let m2 = add_main(s, comps, DRect::new(700.0, 0.0, 200.0, 200.0), "M2");
+    s.shell.app.selection.clear();
+    let inst = s.shell.app.insert_instance(m2, DV::new(1200.0, 600.0)).expect("instance placed");
+    let mirror = s.app().doc.get(inst).unwrap().children[0];
+    (m2, inst, mirror)
+}
+
+/// What the next edit of the main does to its instances.
+fn edit_main(s: &mut Sim, main: NodeId) {
+    let cmd = sync_instances(&mut s.shell.app.doc, main);
+    let _ = cmd.apply(&mut s.shell.app.doc);
+}
+
+#[test]
+fn a_main_pasted_into_a_layer_of_its_own_instance_is_a_real_copy_that_an_edit_of_the_main_keeps() {
+    let (mut s, _) = main_sim();
+    let (m2, _inst, mirror) = main_and_its_instance(&mut s);
+    s.shell.app.selection = vec![m2];
+    let json = s.shell.app.copy_selection().unwrap();
+    s.shell.app.selection = vec![mirror];
+    s.shell.app.paste(Some(&json));
+    let [new] = s.app().selection[..] else { panic!("one layer selected") };
+    assert!(matches!(s.app().doc.get(new).unwrap().kind, NodeKind::Component(_)), "a real copy, not an instance that sits in an instance of its own main");
+    edit_main(&mut s, m2);
+    assert!(s.app().doc.get(new).is_some(), "the next edit of the main does not remove the pasted layer");
+}
+
+/// "A" holds an instance of "B"; both are mains on the page.
+fn a_holds_an_instance_of_b(s: &mut Sim) -> (NodeId, NodeId) {
+    let comps = s.app().doc.get(s.by_name("Primary button")).unwrap().parent.unwrap();
+    let b = add_main(s, comps, DRect::new(700.0, 0.0, 120.0, 120.0), "B");
+    let a = add_main(s, comps, DRect::new(900.0, 0.0, 120.0, 120.0), "A");
+    let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut s.shell.app.doc, b, a, DV::new(5.0, 5.0)) else {
+        panic!("instance of B")
+    };
+    designos_doc::Command::Insert { parent: a, index: 0, nodes }.apply(&mut s.shell.app.doc).unwrap();
+    (a, b)
+}
+
+fn assert_a_pasted_inside_b_is_valid(s: &mut Sim, b: NodeId) {
+    for id in s.app().selection.clone() {
+        assert!(!s.app().doc.is_ancestor(b, id) && id != b, "{id:?} would make B hold itself");
+    }
+    // the edit that overflowed the stack when B held itself
+    edit_main(s, b);
+    s.frame(vec![]);
+}
+
+#[test]
+fn pasting_a_main_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    s.shell.app.selection = vec![a];
+    let json = s.shell.app.copy_selection().unwrap();
+    s.shell.app.selection = vec![b];
+    s.shell.app.paste(Some(&json));
+    assert_a_pasted_inside_b_is_valid(&mut s, b);
+}
+
+#[test]
+fn pasting_a_main_that_holds_an_instance_of_b_with_a_layer_of_b_selected_does_not_make_b_hold_itself() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    s.shell.app.selection = vec![a];
+    let json = s.shell.app.copy_selection().unwrap();
+    s.shell.app.selection = vec![child_of(&s, b, "Layer")];
+    s.shell.app.paste(Some(&json));
+    assert_a_pasted_inside_b_is_valid(&mut s, b);
+}
+
+#[test]
+fn pasting_a_plain_frame_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself() {
+    let (mut s, _) = main_sim();
+    let (a, b) = a_holds_an_instance_of_b(&mut s);
+    let comps = s.app().doc.get(a).unwrap().parent.unwrap();
+    let holder = add_frame(&mut s, comps, DRect::new(0.0, 700.0, 100.0, 100.0), "Holder");
+    let designos_doc::Command::Insert { nodes, .. } = designos_doc::create_instance(&mut s.shell.app.doc, b, holder, DV::new(5.0, 5.0)) else {
+        panic!("instance of B")
+    };
+    designos_doc::Command::Insert { parent: holder, index: 0, nodes }.apply(&mut s.shell.app.doc).unwrap();
+    s.shell.app.selection = vec![holder];
+    let json = s.shell.app.copy_selection().unwrap();
+    s.shell.app.selection = vec![b];
+    s.shell.app.paste(Some(&json));
+    assert_a_pasted_inside_b_is_valid(&mut s, b);
 }

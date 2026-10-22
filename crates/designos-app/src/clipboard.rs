@@ -444,22 +444,10 @@ struct MainLink {
     scope: NodeId,
 }
 
-/// `Some` for a root of `clip` that was a main component (or a component set) and still is, in the document it was
-/// copied from. A clip pasted into another file, a main since cut or deleted, and a layer made a main after it was
-/// copied all give `None`: those copy for real.
-fn main_link(doc: &Document, clip: &Clip, root: NodeId) -> Option<MainLink> {
-    if clip.origin != Some(Origin::of(doc)) {
-        return None;
-    }
+/// The main `root` is in `doc` right now: a standalone `Component`, a variant, or a `ComponentSet` (through its
+/// default variant). `None` for anything else.
+fn live_main(doc: &Document, root: NodeId) -> Option<MainLink> {
     let live = doc.get(root)?;
-    // Most roots are no main: leave before the scan of the clip.
-    if !matches!(live.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_)) {
-        return None;
-    }
-    let copied = clip.nodes.iter().find(|n| n.id == root)?;
-    if std::mem::discriminant(&copied.kind) != std::mem::discriminant(&live.kind) {
-        return None;
-    }
     match &live.kind {
         NodeKind::Component(_) => {
             let in_set = live.parent.filter(|p| matches!(doc.get(*p).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
@@ -473,14 +461,61 @@ fn main_link(doc: &Document, clip: &Clip, root: NodeId) -> Option<MainLink> {
     }
 }
 
-/// Where a paste of `clip` goes when the insert container is `parent`: the same, unless that is a main (or set) the
-/// clip holds, or a layer inside one. Its instance cannot sit inside the main it links to, so it goes beside it,
-/// in the main's own parent.
+/// Whether `id` is a main component or a component set in `doc`.
+pub fn is_main(doc: &Document, id: NodeId) -> bool {
+    live_main(doc, id).is_some()
+}
+
+/// For each root of `clip`, `Some` when it was a main component (or a component set) and still is, in the document
+/// it was copied from. A clip pasted into another file, a main since cut or deleted, and a layer made a main after it
+/// was copied all give `None`: those copy for real.
+fn main_links(doc: &Document, clip: &Clip) -> Vec<Option<MainLink>> {
+    let live: Vec<Option<MainLink>> = if clip.origin == Some(Origin::of(doc)) { clip.roots.iter().map(|r| live_main(doc, *r)).collect() } else { Vec::new() };
+    if live.iter().all(Option::is_none) {
+        return clip.roots.iter().map(|_| None).collect();
+    }
+    // One pass over the clip, and only when some root is a live main: what the roots were when they were copied.
+    let was: HashMap<NodeId, &Node> = clip.nodes.iter().filter(|n| clip.roots.contains(&n.id)).map(|n| (n.id, n)).collect();
+    let kind_of = |id: NodeId| was.get(&id).map(|n| std::mem::discriminant(&n.kind));
+    clip.roots.iter().zip(live).map(|(root, link)| link.filter(|_| kind_of(*root) == doc.get(*root).map(|n| std::mem::discriminant(&n.kind)))).collect()
+}
+
+/// Whether an instance of the main `link` can sit in `parent` without the file coming apart: not in a component
+/// set (a copy there is a variant), not in the main or set itself, not in a layer of one of its own instances (the
+/// next edit of the main removes it), and not in a main whose content holds this one, which would make that main
+/// hold itself.
+fn instance_fits(doc: &Document, link: &MainLink, parent: NodeId) -> bool {
+    let inside = |outer: NodeId| parent == outer || doc.is_ancestor(outer, parent);
+    if matches!(doc.get(parent).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))) || inside(link.scope) {
+        return false;
+    }
+    let mut at = Some(parent);
+    while let Some(n) = at.and_then(|id| doc.get(id)) {
+        if designos_doc::instance_component(n) == Some(link.comp) {
+            return false;
+        }
+        at = n.parent;
+    }
+    !crate::comp_ops::mains_held_by(doc, &[link.comp]).into_iter().any(inside)
+}
+
+/// Where a paste of `clip` goes when the insert container is `parent`: the same, unless that container would hold
+/// itself. An instance cannot sit inside the main it links to, nor can a layer that holds an instance of a main sit
+/// in that main, directly or through the mains in between. Such a paste goes beside the main, in its own parent.
 pub fn paste_parent(doc: &Document, clip: &Clip, mut parent: NodeId) -> NodeId {
-    for root in &clip.roots {
-        let Some(link) = main_link(doc, clip, *root) else { continue };
-        if link.scope == *root && (parent == *root || doc.is_ancestor(*root, parent)) {
-            parent = doc.get(*root).and_then(|n| n.parent).unwrap_or(parent);
+    // the mains a pasted layer holds an instance of (the ids a clip names, which may be another file's)
+    let mut shut = crate::comp_ops::mains_held_through(doc, clip.nodes.iter().filter_map(designos_doc::instance_component));
+    for (root, link) in clip.roots.iter().zip(main_links(doc, clip)) {
+        let Some(link) = link else { continue };
+        if link.scope == *root {
+            shut.push(*root);
+        }
+        shut.extend(crate::comp_ops::mains_held_by(doc, &[link.comp]));
+    }
+    while let Some(main) = shut.iter().find(|m| parent == **m || doc.is_ancestor(**m, parent)) {
+        match doc.get(*main).and_then(|n| n.parent) {
+            Some(above) => parent = above,
+            None => break,
         }
     }
     parent
@@ -488,25 +523,75 @@ pub fn paste_parent(doc: &Document, clip: &Clip, mut parent: NodeId) -> NodeId {
 
 /// [`instantiate`], except that in the file a main component (or a component set) was copied from, its copy is an
 /// instance of it (of the set's default variant): the file keeps one main, as Figma does. `parent_of` gives the
-/// parent each root will be inserted under, by the root's id in `clip`. A copy that would sit in a component set
-/// stays a copy, because that is how a variant is added; so does one that would sit inside its own main.
-/// The instance takes the position of the layer it replaces.
+/// parent each root will be inserted under, by the root's id in `clip`. A copy that would sit where an instance
+/// cannot go (see [`instance_fits`]) stays a copy; in a component set that is how a variant is added.
+/// The instance takes the place and visibility of the layer it replaces, and connectors copied along with it attach
+/// to it instead of to the copy it replaces.
 pub fn instantiate_linking_mains(doc: &mut Document, clip: &Clip, parent_of: impl Fn(&Document, NodeId) -> Option<NodeId>) -> Vec<Vec<Node>> {
-    let mut lists = instantiate(doc, clip);
-    for (root, list) in clip.roots.iter().zip(lists.iter_mut()) {
-        let Some(link) = main_link(doc, clip, *root) else { continue };
+    let (mut lists, copy_of) = instantiate_mapped(doc, clip);
+    let links = main_links(doc, clip);
+    let mut original_of: Option<HashMap<NodeId, NodeId>> = None;
+    // layers of the copies that were replaced -> the layer that stands in for them (`None`: a free end)
+    let mut stand_in: HashMap<NodeId, Option<NodeId>> = HashMap::new();
+    for ((root, link), list) in clip.roots.iter().zip(links).zip(lists.iter_mut()) {
+        let Some(link) = link else { continue };
         let Some(parent) = parent_of(doc, *root) else { continue };
-        let in_set = matches!(doc.get(parent).map(|n| &n.kind), Some(NodeKind::ComponentSet(_)));
-        if in_set || parent == link.scope || doc.is_ancestor(link.scope, parent) {
+        if !instance_fits(doc, &link, parent) {
             continue;
         }
         let Command::Insert { nodes: mut instance, .. } = create_instance(doc, link.comp, parent, Vec2::ZERO) else { continue };
-        if let (Some(root_copy), Some(root_instance)) = (list.first(), instance.first_mut()) {
-            root_instance.transform = root_copy.transform;
+        if let (Some(copy), Some(root_instance)) = (list.first(), instance.first_mut()) {
+            root_instance.transform = copy.transform;
+            root_instance.visible = copy.visible;
+        }
+        let original_of = original_of.get_or_insert_with(|| copy_of.iter().map(|(original, copy)| (*copy, *original)).collect());
+        let mirror_of: HashMap<NodeId, NodeId> = instance.iter().filter_map(|n| Some((n.component.source?, n.id))).collect();
+        for gone in list.iter() {
+            let original = original_of[&gone.id];
+            let to = if original == *root { Some(instance[0].id) } else { mirror_of.get(&original).copied().or_else(|| doc.get(original).map(|_| original)) };
+            stand_in.insert(gone.id, to);
         }
         *list = instance;
     }
+    if !stand_in.is_empty() {
+        for node in lists.iter_mut().flatten() {
+            if let NodeKind::Connector(c) = &mut node.kind {
+                for end in [&mut c.start, &mut c.end] {
+                    if let Some(to) = end.node.and_then(|n| stand_in.get(&n)) {
+                        end.node = *to;
+                    }
+                }
+            }
+        }
+    }
     lists
+}
+
+/// An Alt-drag makes its copy before it knows where the copy lands. At the drop, `copy` (made from the main `source`
+/// and now under its final parent) is checked against the rules of [`instantiate_linking_mains`] again. Returns the
+/// nodes that should stand in its place, with its transform, when they are not what it is now: an instance that
+/// landed where it cannot go becomes a real copy, and a real copy that left its set becomes an instance.
+pub fn recast_copy(doc: &mut Document, source: NodeId, copy: NodeId) -> Option<Vec<Node>> {
+    let link = live_main(doc, source)?;
+    let placed = doc.get(copy)?;
+    let parent = placed.parent?;
+    let is_instance = matches!(placed.kind, NodeKind::Instance { .. });
+    if instance_fits(doc, &link, parent) == is_instance {
+        return None;
+    }
+    let (transform, visible) = (placed.transform, placed.visible);
+    let mut nodes = if is_instance {
+        clone_subtree(doc, source)
+    } else {
+        match create_instance(doc, link.comp, parent, Vec2::ZERO) {
+            Command::Insert { nodes, .. } => nodes,
+            _ => return None,
+        }
+    };
+    let root = nodes.first_mut()?;
+    root.transform = transform;
+    root.visible = visible;
+    Some(nodes)
 }
 
 /// Fresh-id deep copy of the subtree rooted at `id` (root first).
@@ -592,17 +677,17 @@ pub(crate) mod tests {
     fn a_clip_names_the_document_it_came_from_in_its_json() {
         let (d, _, main, _) = doc_with_a_main();
         let clip = from_json(&to_json(&capture(&d, &[main]).unwrap()).unwrap()).unwrap();
-        assert!(main_link(&d, &clip, main).is_some(), "the file it was copied from");
+        assert!(main_links(&d, &clip)[0].is_some(), "the file it was copied from");
         let mut other = d.clone();
         other.renew_runtime_id();
-        assert!(main_link(&other, &clip, main).is_none(), "another file with the same node ids");
+        assert!(main_links(&other, &clip)[0].is_none(), "another file with the same node ids");
 
         // The same document number in another Studio process (the clip came through the system clipboard).
         let mut value: serde_json::Value = serde_json::from_str(&to_json(&clip).unwrap()).unwrap();
         let process = value["origin"]["process"].as_u64().unwrap();
         value["origin"]["process"] = serde_json::json!(process.wrapping_add(1));
         let foreign = from_json(&value.to_string()).unwrap();
-        assert!(main_link(&d, &foreign, main).is_none(), "another process with the same document number");
+        assert!(main_links(&d, &foreign)[0].is_none(), "another process with the same document number");
     }
 
     #[test]
