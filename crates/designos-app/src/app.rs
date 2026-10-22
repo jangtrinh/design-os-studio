@@ -202,6 +202,8 @@ pub struct App {
     pub home: Option<crate::home::Home>,
     /// The open modal dialog (prompts, confirmations, shortcuts, About).
     pub dialog: Option<crate::home::Dialog>,
+    /// The questions "Save changes to <name>?" that stand between an action and the unsaved edits it would drop.
+    pub leave: crate::home::LeaveFlow,
     pub autosave: crate::home::Autosave,
     /// The header file name is being renamed (double-click).
     pub renaming_file: bool,
@@ -288,6 +290,7 @@ impl App {
             lib_file: None,
             home: None,
             dialog: None,
+            leave: Default::default(),
             autosave: Default::default(),
             renaming_file: false,
             comments: Default::default(),

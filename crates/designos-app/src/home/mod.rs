@@ -6,6 +6,7 @@
 //! and turns user interactions into [`Act`]s that [`apply`] runs against the library.
 
 pub mod dialog;
+mod leave;
 mod session;
 #[cfg(test)]
 mod spec_bundle_hidden_tests;
@@ -16,6 +17,9 @@ mod unsaved;
 pub mod updater;
 
 pub use dialog::{Dialog, Intent};
+#[cfg(test)]
+pub use leave::Answer;
+pub use leave::{Leave, LeaveFlow};
 pub(crate) use session::library_file_disk_path;
 pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, DiskState, LibFile};

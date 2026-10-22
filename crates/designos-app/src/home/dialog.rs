@@ -30,6 +30,8 @@ pub enum Intent {
     About,
     /// The file of the open document changed on disk while it has unsaved edits: use the file, or keep mine.
     DiskChanged,
+    /// A document with edits no save has written is about to be closed or replaced: Save, Don't save or Cancel.
+    SaveChanges,
 }
 
 /// One row of the project picker: a project or one of its folders.
@@ -58,6 +60,8 @@ pub struct Dialog {
     /// The label of the safe answer, shown where Cancel would be. Enter and Escape give it, so only a click
     /// on the main button does the thing that cannot be undone.
     pub safe_label: Option<String>,
+    /// A third answer, between Cancel and the main button.
+    pub alt_label: Option<String>,
     fresh: bool,
     scroll: f32,
 }
@@ -81,6 +85,7 @@ impl Dialog {
             danger: false,
             info: false,
             safe_label: None,
+            alt_label: None,
             fresh: true,
             scroll: 0.0,
         }
@@ -92,6 +97,17 @@ impl Dialog {
 
     pub fn confirm(intent: Intent, title: &str, body: &[&str], ok: &str) -> Self {
         Self { lines: body.iter().map(|l| (l.to_string(), String::new())).collect(), ..Self::base(intent, title, ok) }
+    }
+
+    /// A document outside the library has edits no save has written, and an action would drop them. Enter, Esc and a
+    /// click outside answer Cancel; only a click on Don't save drops the edits.
+    pub fn save_changes(name: &str) -> Self {
+        let name = if name.chars().count() > 28 { format!("{}\u{2026}", name.chars().take(27).collect::<String>()) } else { name.to_string() };
+        Self {
+            safe_label: Some("Cancel".into()),
+            alt_label: Some("Don't save".into()),
+            ..Self::confirm(Intent::SaveChanges, &format!("Save changes to {name}?"), &["Your changes are lost if you don't save."], "Save")
+        }
     }
 
     /// The open document's file changed on disk under unsaved edits.
@@ -234,6 +250,7 @@ pub fn show(app: &mut App, ctx: &Context) {
 
     let mut submit = enter && d.can_submit() && d.safe_label.is_none();
     let mut cancel = esc || (enter && d.safe_label.is_some());
+    let mut alt = false;
     egui::Area::new(Id::new("dialog")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
@@ -349,10 +366,23 @@ pub fn show(app: &mut App, ctx: &Context) {
         if resp.clicked() {
             submit = true;
         }
+        let mut left_of = ok_r.left();
+        if let Some(alt_label) = d.alt_label.as_deref() {
+            let aw = widgets::text_width(&p, alt_label, &font) + 32.0;
+            let ar = Rect::from_min_size(Pos2::new(left_of - 8.0 - aw, y), Vec2::new(aw, BTN_H));
+            let aresp = ui.interact(ar, Id::new("dialog-alt"), Sense::click());
+            widgets::button_bg(&p, ar, &aresp, false, theme::cr(theme::RADIUS_CONTROL));
+            p.text(ar.center(), Align2::CENTER_CENTER, alt_label, font.clone(), theme::TEXT);
+            widgets::record(ui, "dialog-alt", ar);
+            if aresp.clicked() {
+                alt = true;
+            }
+            left_of = ar.left();
+        }
         if !d.info {
             let cancel_label = d.safe_label.as_deref().unwrap_or("Cancel");
             let cw = widgets::text_width(&p, cancel_label, &font) + 32.0;
-            let cr = Rect::from_min_size(Pos2::new(ok_r.left() - 8.0 - cw, y), Vec2::new(cw, BTN_H));
+            let cr = Rect::from_min_size(Pos2::new(left_of - 8.0 - cw, y), Vec2::new(cw, BTN_H));
             let cresp = ui.interact(cr, Id::new("dialog-cancel"), Sense::click());
             widgets::button_bg(&p, cr, &cresp, false, theme::cr(theme::RADIUS_CONTROL));
             p.text(cr.center(), Align2::CENTER_CENTER, cancel_label, font.clone(), theme::TEXT);
@@ -363,6 +393,23 @@ pub fn show(app: &mut App, ctx: &Context) {
         }
     });
 
+    if d.intent == Intent::SaveChanges {
+        // Three answers; the question is answered by exactly one of them, and Cancel is the quiet default.
+        let answer = if alt {
+            Some(super::leave::Answer::DontSave)
+        } else if cancel {
+            Some(super::leave::Answer::Cancel)
+        } else if submit {
+            Some(super::leave::Answer::Save)
+        } else {
+            None
+        };
+        match answer {
+            Some(a) => app.answer_save_changes(ctx, a),
+            None => app.dialog = Some(d),
+        }
+        return;
+    }
     if d.info && (submit || cancel) {
         return;
     }
@@ -437,7 +484,13 @@ pub fn finish(app: &mut App, d: Dialog) {
             }
             Ok(())
         }
-        Intent::Shortcuts | Intent::About | Intent::AuthorName | Intent::NameVersion(_) | Intent::OpenDevLink(_) | Intent::DiskChanged => {
+        Intent::Shortcuts
+        | Intent::About
+        | Intent::AuthorName
+        | Intent::NameVersion(_)
+        | Intent::OpenDevLink(_)
+        | Intent::DiskChanged
+        | Intent::SaveChanges => {
             dirty = false;
             Ok(())
         }

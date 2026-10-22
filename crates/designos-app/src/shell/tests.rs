@@ -60,6 +60,10 @@ struct Sim {
     cursor: egui::CursorIcon,
     shapes: Vec<egui::epaint::ClippedShape>,
     accesskit_update: Option<egui::accesskit::TreeUpdate>,
+    /// The viewport commands the last frame sent (`Close`, `CancelClose`, ...).
+    commands: Vec<egui::ViewportCommand>,
+    /// Every viewport command sent since the test last cleared this.
+    sent_commands: Vec<egui::ViewportCommand>,
 }
 
 impl Sim {
@@ -79,6 +83,8 @@ impl Sim {
             cursor: egui::CursorIcon::Default,
             shapes: Vec::new(),
             accesskit_update: None,
+            commands: Vec::new(),
+            sent_commands: Vec::new(),
         };
         s.frame(vec![]);
         s.frame(vec![]);
@@ -114,6 +120,8 @@ impl Sim {
         self.accesskit_update = out.platform_output.accesskit_update;
         // a paste that waits for the clipboard worker lands before the test looks at the document
         self.shell.app.settle_paste_jobs();
+        self.commands = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+        self.sent_commands.extend(self.commands.iter().cloned());
     }
     fn app(&self) -> &App {
         &self.shell.app
@@ -1123,6 +1131,7 @@ mod grid_track_editing;
 mod history;
 mod home;
 mod layer_drag_fast;
+mod leave_prompt;
 mod live_agent_edits;
 mod menus;
 mod panel_keys;

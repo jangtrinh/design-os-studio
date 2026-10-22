@@ -795,9 +795,8 @@ impl Shell {
                     None
                 }
                 (Key::W, false, false) => {
-                    if !app.tabs.entries.is_empty() {
-                        let idx = app.tabs.active_idx;
-                        app.close_tab(idx);
+                    if let Some(id) = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id) {
+                        app.request_leave(Some(ctx), crate::home::Leave::CloseTab(id));
                     }
                     None
                 }
@@ -1358,12 +1357,17 @@ impl Shell {
         }
         self.drive_screenshot(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
-            crate::decks::ui::flush_notes(&mut self.app);
-            self.app.save_close_version();
-            self.app.flush_autosave();
-            self.app.terminal.shutdown();
-            for tab in &mut self.app.tabs.entries {
-                tab.terminal.shutdown();
+            if !self.app.may_quit(&ctx) {
+                // Edits no save has written are being asked about: the window stays open, and the close comes round again.
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            } else {
+                crate::decks::ui::flush_notes(&mut self.app);
+                self.app.save_close_version();
+                self.app.flush_autosave();
+                self.app.terminal.shutdown();
+                for tab in &mut self.app.tabs.entries {
+                    tab.terminal.shutdown();
+                }
             }
         }
         self.app.scrub_sync(&ctx);

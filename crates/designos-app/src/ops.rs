@@ -2098,12 +2098,18 @@ impl App {
                 }
             }
         }
+        // The document on screen (or, from Home, the open tab of this same file) is replaced: unsaved edits are asked about first.
+        if self.ask_before_open(&p) {
+            return;
+        }
         match io::load_path_with_warning(&p) {
             Ok((doc, warning)) => {
                 let name = doc.name.clone();
                 // An SVG becomes a new unsaved document, never overwritten by Save.
                 let svg = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg"));
                 self.replace_document(doc, (!svg).then_some(p));
+                // What the replaced document left (a change no history holds) is not this one's.
+                self.autosave.dot.adopt(false);
                 self.show_toast(io::opened_toast_text(&name, warning.as_deref()), warning.is_some());
             }
             Err(e) => self.show_toast(e, true),
