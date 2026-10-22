@@ -32,8 +32,20 @@ pub fn edit_text_hint(
     pad_x: f32,
     hint: Option<(&str, Color32)>,
 ) -> Option<String> {
-    let focused = ui.memory(|m| m.has_focus(id));
-    let mut buf = if focused { ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| display.to_string()) } else { display.to_string() };
+    super::field_tab::register(ui, rect, id);
+    let focused_before = ui.memory(|m| m.has_focus(id));
+    // A TextEdit reads the frame's keys only if it already has focus, and a click gives it focus after
+    // that. Keys that arrive in the same frame as the click (a slow frame) would be dropped, so the
+    // field takes the focus first, with its whole value selected for the keys to replace.
+    let pressed_now = !focused_before && ui.is_enabled() && super::field_tab::is_pressed(ui.ctx(), id);
+    if pressed_now {
+        ui.memory_mut(|m| m.request_focus(id));
+        select_value(ui.ctx(), id, display.chars().count());
+    }
+    let focused = focused_before || pressed_now;
+    // A field that lost focus in the frame before (Tab moved on) still holds the text typed into it.
+    let editing = focused || ui.memory(|m| m.had_focus_last_frame(id));
+    let mut buf = if editing { ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| display.to_string()) } else { display.to_string() };
     let te = TextEdit::singleline(&mut buf)
         .id(id)
         .font(font.clone())
@@ -45,9 +57,15 @@ pub fn edit_text_hint(
         .desired_width(rect.width());
     let out = ui.put(rect, te);
     if out.gained_focus() {
-        let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
-        state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(buf.chars().count()))));
-        state.store(ui.ctx(), id);
+        // Keys typed in the frame of the click have already replaced the value: the caret goes after them.
+        let count = buf.chars().count();
+        if out.changed() {
+            let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+            state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(count))));
+            state.store(ui.ctx(), id);
+        } else {
+            select_value(ui.ctx(), id, count);
+        }
     }
     if out.has_focus() {
         ui.data_mut(|d| d.insert_temp(id, buf.clone()));
@@ -68,6 +86,13 @@ pub fn edit_text_hint(
         }
     }
     None
+}
+
+/// Selects the `count` characters of the text field `id`, so the next key replaces them.
+fn select_value(ctx: &egui::Context, id: Id, count: usize) {
+    let mut state = TextEdit::load_state(ctx, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(count))));
+    state.store(ctx, id);
 }
 
 /// Editable numeric text cell with live `ArrowUp`/`ArrowDown` (`±1`, `Shift ±10`, `Alt ±0.1`)
@@ -591,10 +616,11 @@ pub const SCRUB_FLAG: &str = "designos-scrub-active";
 
 /// Figma-style scrubbing: dragging a field's prefix changes the value by one
 /// unit per pixel (x10 with Shift, x0.1 with Alt) and shows the horizontal-resize cursor.
-/// Clicking the prefix without dragging focuses the numeric field.
+/// Clicking the prefix without dragging focuses the numeric field. The prefix is not a Tab stop: it
+/// senses drags only, so Tab goes from one value to the next.
 fn scrub_prefix(ui: &mut Ui, prefix: Rect, id: Id, value: Option<f32>) -> Option<f32> {
     let sid = id.with("scrub");
-    let resp = ui.interact(prefix, sid, Sense::drag());
+    let resp = ui.interact(prefix, sid, Sense::DRAG);
     if resp.hovered() || resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
