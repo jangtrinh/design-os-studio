@@ -547,9 +547,7 @@ impl Shell {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
             if self.paste_chord.on_event(&ev) && !editing_text {
-                if let Some(html) = (self.app.system_html)() {
-                    self.app.paste_with_html(None, Some(&html));
-                }
+                self.app.paste_from_system(None);
                 continue;
             }
             match ev {
@@ -1239,16 +1237,18 @@ impl eframe::App for Shell {
 }
 
 impl Shell {
-    /// Files dropped on the window: `.svg` files are placed at the drop point,
+    /// Files dropped on the window: `.svg`, `.png`, `.jpg` and `.webp` files are placed at the drop point,
     /// `.webcapture` / `.capture.json` files are imported at the drop point,
     /// anything else (the first file) is opened as a document.
     fn handle_drops(&mut self, ctx: &Context) {
         let (files, pos) = ctx.input(|i| (i.raw.dropped_files.clone(), i.pointer.hover_pos().or(i.pointer.latest_pos())));
-        let is_svg = |f: &egui::DroppedFile| {
+        let extension_of = |f: &egui::DroppedFile| {
             let name = f.path.as_ref().and_then(|p| p.to_str()).unwrap_or(&f.name);
-            name.rsplit('.').next().is_some_and(|e| e.eq_ignore_ascii_case("svg"))
+            name.rsplit('.').next().map(str::to_ascii_lowercase).unwrap_or_default()
         };
-        if let Some(path) = files.iter().filter(|f| !is_svg(f)).find_map(|f| f.path.clone()) {
+        let is_svg = |f: &egui::DroppedFile| extension_of(f) == "svg";
+        let is_placed = |f: &egui::DroppedFile| crate::canvas::interact::IMAGE_EXTENSIONS.contains(&extension_of(f).as_str());
+        if let Some(path) = files.iter().filter(|f| !is_placed(f)).find_map(|f| f.path.clone()) {
             if crate::io::is_web_capture_path(&path) {
                 let page_pos = pos.map(|s| self.app.view.to_page(self.app.canvas_rect.min, s));
                 self.app.import_web_capture_path_at(path, page_pos);
@@ -1257,26 +1257,46 @@ impl Shell {
             }
             return;
         }
-        for (nth, f) in files.iter().filter(|f| is_svg(f)).enumerate() {
-            let text = match (&f.path, &f.bytes) {
-                (Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
-                (None, Some(b)) => String::from_utf8(b.to_vec()).map_err(|_| "The SVG is not valid UTF-8".to_string()),
-                (None, None) => continue,
-            };
+        // Every file of the drop goes through one transaction: one undo step, and all the new layers are selected.
+        let mut tx = crate::edit::Tx::new();
+        let (mut placed, mut any_image) = (Vec::new(), false);
+        for (nth, f) in files.iter().filter(|f| is_placed(f)).enumerate() {
             let stem = f
                 .path
                 .as_deref()
                 .and_then(|p| p.file_stem())
                 .and_then(|s| s.to_str())
-                .or_else(|| f.name.strip_suffix(".svg"))
+                .or_else(|| f.name.rsplit_once('.').map(|(stem, _)| stem))
                 .filter(|s| !s.is_empty())
-                .unwrap_or("svg")
+                .unwrap_or(if is_svg(f) { "svg" } else { "Image" })
                 .to_string();
-            match text {
-                Ok(t) => crate::clipboard::drop_svg(&mut self.app, &t, &stem, pos, nth),
-                Err(e) => self.app.show_toast(e, true),
+            if is_svg(f) {
+                let text = match (&f.path, &f.bytes) {
+                    (Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
+                    (None, Some(b)) => String::from_utf8(b.to_vec()).map_err(|_| "The SVG is not valid UTF-8".to_string()),
+                    (None, None) => continue,
+                };
+                match text {
+                    Ok(t) => placed.extend(crate::clipboard::drop_svg(&mut self.app, &mut tx, &t, &stem, pos, nth)),
+                    Err(e) => self.app.show_toast(e, true),
+                }
+            } else {
+                let bytes = match (&f.path, &f.bytes) {
+                    (Some(p), _) => std::fs::read(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),
+                    (None, Some(b)) => Ok(b.to_vec()),
+                    (None, None) => continue,
+                };
+                match bytes {
+                    Ok(b) => {
+                        let id = crate::clipboard::drop_image(&mut self.app, &mut tx, b, &stem, pos, nth);
+                        any_image |= id.is_some();
+                        placed.extend(id);
+                    }
+                    Err(e) => self.app.show_toast(e, true),
+                }
             }
         }
+        crate::clipboard::commit_dropped(&mut self.app, tx, placed, any_image);
     }
 
     fn sync_title(&mut self, ctx: &Context) {
@@ -1316,6 +1336,11 @@ impl Shell {
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
+        // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
+        // worker; an idle window draws nothing more, so ask for the frame that finishes it.
+        if !self.app.paste_jobs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         self.request_screenshot(&ctx);
     }
 
@@ -1326,6 +1351,7 @@ impl Shell {
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
         self.app.poll_image_jobs();
+        self.app.poll_paste_jobs();
         if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -1597,7 +1623,7 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
                     Ok(spec) => {
                         let label = path.file_name().and_then(|s| s.to_str()).unwrap_or("Spec");
                         let before = app.hist.undo_depth();
-                        app.apply_node_spec(&spec, label);
+                        app.apply_live_spec(&path, &raw, &spec, label);
                         if app.hist.undo_depth() > before {
                             app.hist.mark_last_undo_as_agent();
                             app.terminal.current_undo_depth = app.hist.undo_depth();

@@ -259,25 +259,70 @@ fn remap_foreign_prop_value(val: &mut PropValue, map: &HashMap<NodeId, NodeId>, 
     }
 }
 
-/// Places a dropped `.svg` file's markup centered on screen position `at`
-/// (the drop point; the viewport center when it is outside the canvas), into
-/// the frame under that point. `nth` staggers several files dropped together.
-pub fn drop_svg(app: &mut App, svg: &str, name: &str, at: Option<egui::Pos2>, nth: usize) {
+/// Page point a dropped file lands on: screen position `at` (the drop point; the viewport center when it is outside
+/// the canvas), moved 24 px down and right for each file `nth` dropped before it.
+fn drop_point(app: &App, at: Option<egui::Pos2>, nth: usize) -> Vec2 {
     let view = app.canvas_rect;
     let screen = at.filter(|p| view.contains(*p)).unwrap_or(view.center());
     let mut p = app.view.to_page(view.min, screen);
     p.x += 24.0 * nth as f32;
     p.y += 24.0 * nth as f32;
+    p
+}
+
+/// Adds a dropped `.svg` file's markup to `tx`, centered on the drop point, into the frame under that point. `nth`
+/// staggers several files dropped together. Shows a toast and returns `None` when the markup cannot be placed.
+pub fn drop_svg(app: &mut App, tx: &mut Tx, svg: &str, name: &str, at: Option<egui::Pos2>, nth: usize) -> Option<NodeId> {
+    let p = drop_point(app, at, nth);
     let parent = crate::canvas::create::container_at(&app.doc, app.page, p, &[]);
-    if let Err(e) = place_svg(app, svg, name, p, parent) {
-        app.show_toast(e, true);
+    match place_svg_in(app, tx, svg, name, p, parent) {
+        Ok(id) => Some(id),
+        Err(e) => {
+            app.show_toast(e, true);
+            None
+        }
     }
+}
+
+/// Adds a dropped PNG, JPEG or WebP file to `tx` as an image layer, through the Image tool's placement: into the frame
+/// under the drop point, centered on it (moved inside a frame that clips its content), at most 400 px on its longest
+/// side. `nth` staggers several files dropped together, as for SVG. Shows a toast and returns `None` when the file is
+/// not a picture.
+pub fn drop_image(app: &mut App, tx: &mut Tx, bytes: Vec<u8>, name: &str, at: Option<egui::Pos2>, nth: usize) -> Option<NodeId> {
+    let landing = crate::paste_placement::drop_landing(app, drop_point(app, at, nth));
+    crate::paste_placement::insert_image_at(app, tx, &landing, name, bytes)
+}
+
+/// Ends a drop of several files: everything `tx` gathered is one undo step, and the placed layers are selected.
+pub fn commit_dropped(app: &mut App, tx: Tx, placed: Vec<NodeId>, any_image: bool) {
+    if placed.is_empty() {
+        tx.cancel(&mut app.doc);
+        return;
+    }
+    if !app.run_tx(tx) {
+        return;
+    }
+    app.selection = placed;
+    if any_image {
+        app.tool = crate::canvas::tools::Tool::Move;
+    }
+    app.fonts.load_for(&app.doc);
 }
 
 /// Imports SVG markup as a Frame named `name` centered on page point `center`
 /// (rounded to whole pixels), appended to `parent`'s children as one undoable
 /// step, and selects it.
 pub fn place_svg(app: &mut App, svg: &str, name: &str, center: Vec2, parent: NodeId) -> Result<NodeId, String> {
+    let mut tx = Tx::new();
+    let root = place_svg_in(app, &mut tx, svg, name, center, parent)?;
+    app.run_tx(tx);
+    app.selection = vec![root];
+    app.fonts.load_for(&app.doc);
+    Ok(root)
+}
+
+/// [`place_svg`] through `tx`: the caller commits it and selects the layer. Nothing is changed on `Err`.
+fn place_svg_in(app: &mut App, tx: &mut Tx, svg: &str, name: &str, center: Vec2, parent: NodeId) -> Result<NodeId, String> {
     let mut out = designos_svg::svg_to_nodes(svg, name, &mut || app.doc.alloc_id()).map_err(|e| format!("Cannot import SVG: {e}"))?;
     if let Some(err) = crate::ops::slot_edit_error(&app.doc, &[], Some((parent, &[&out.nodes[0]]))) {
         return Err(err.to_string());
@@ -286,17 +331,13 @@ pub fn place_svg(app: &mut App, svg: &str, name: &str, center: Vec2, parent: Nod
     let c = inv.apply(center);
     let size = out.nodes[0].size;
     out.nodes[0].transform = Affine::translate((c.x - size.x / 2.0).round(), (c.y - size.y / 2.0).round());
-    app.doc.images.append(&mut out.images);
     let root = out.nodes[0].id;
     let index = app.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
-    let mut tx = Tx::new();
     tx.cmd(&mut app.doc, Command::Insert { parent, index, nodes: out.nodes }).map_err(|e| e.to_string())?;
+    app.doc.images.append(&mut out.images);
     App::stretch_into_slot_if_configured(&mut app.doc, &mut tx.ed, parent, root);
     App::mark_slot_content_override(&mut app.doc, &mut tx.ed, parent);
     layout::relayout_around(&mut app.doc, &mut tx.ed, parent);
-    app.run_tx(tx);
-    app.selection = vec![root];
-    app.fonts.load_for(&app.doc);
     Ok(root)
 }
 

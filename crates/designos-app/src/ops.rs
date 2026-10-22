@@ -672,27 +672,59 @@ impl App {
         s
     }
 
-    /// Paste with the system clipboard's HTML flavour read through [`App::system_html`].
-    pub fn paste_from_system(&mut self, system_text: Option<&str>) {
+    /// Pastes what is on the system clipboard. `event_text` is the plain text egui-winit read for the paste chord;
+    /// `None` (Edit > Paste, or a clipboard that holds an image alone, for which egui-winit sends no text) reads the
+    /// text through [`App::system_text`].
+    pub fn paste_from_system(&mut self, event_text: Option<&str>) {
+        let text = event_text.map(str::to_owned).or_else(|| (self.system_text)());
+        // Studio's own markup is the whole clipboard: it replaced every other flavour when it was copied, so no
+        // newer image or HTML sits beside it and nothing else needs reading.
+        if let Some(clip) = text.as_deref().and_then(clipboard::from_json) {
+            self.paste_clip(clip);
+            return;
+        }
         let html = (self.system_html)();
-        self.paste_with_html(system_text, html.as_deref());
+        self.paste_with_html(text.as_deref(), html.as_deref());
     }
 
-    /// Paste with the system clipboard's HTML flavour at hand: a Figma payload wins over SVG and text.
+    /// Paste with the system clipboard's HTML flavour read through [`App::system_html`] at hand. The first of these
+    /// that the clipboard holds wins: a Figma payload, SVG markup, Studio's own layers, the clipboard image (a worker
+    /// reads it, see `system_paste`), plain text as a text layer, and last Studio's own copy when nothing on the
+    /// system clipboard can be read. Text from another app is newer than Studio's copy, so it never brings the
+    /// in-app layers back.
     pub fn paste_with_html(&mut self, system_text: Option<&str>, system_html: Option<&str>) {
         if system_html.is_some_and(|h| clipboard::paste_figma(self, h)) {
             return;
         }
-        self.paste(system_text);
+        if system_text.is_some_and(|t| clipboard::paste_svg(self, t)) {
+            return;
+        }
+        if let Some(clip) = system_text.and_then(clipboard::from_json) {
+            self.paste_clip(clip);
+            return;
+        }
+        self.start_system_paste(system_text);
     }
 
+    /// Pastes `system_text` when it is SVG markup or Studio's own layers; with `None`, Studio's own copy. Text of
+    /// any other kind pastes nothing here (see [`App::paste_with_html`] for the full order).
     pub fn paste(&mut self, system_text: Option<&str>) {
         // SVG markup on the system clipboard becomes layers.
         if system_text.is_some_and(|t| clipboard::paste_svg(self, t)) {
             return;
         }
-        let clip = system_text.and_then(clipboard::from_json).or_else(|| self.clip.clone());
-        let Some(clip) = clip else { return };
+        // Text that is not Studio's own markup came from another app after the in-app copy, so it never brings the
+        // older in-app layers back. Only a clipboard with no text at all (`None`) pastes the in-app copy.
+        let clip = match system_text {
+            Some(text) => clipboard::from_json(text),
+            None => self.clip.clone(),
+        };
+        if let Some(clip) = clip {
+            self.paste_clip(clip);
+        }
+    }
+
+    fn paste_clip(&mut self, clip: clipboard::Clip) {
         let parent = self.container_for_insert();
         let lists = clipboard::instantiate(&mut self.doc, &clip);
         let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();

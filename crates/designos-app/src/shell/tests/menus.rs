@@ -50,11 +50,13 @@ fn keyboard_navigates_submenus() {
     for _ in 0..4 {
         s.key(Key::ArrowDown);
     }
-    // Highlight is on Edit; Right opens it, Down lands on the first enabled row, Enter runs it.
+    // Highlight is on Edit; Right opens it on its first enabled row (Paste, which is always on). Down skips the
+    // disabled rows to Select all, and Enter runs it.
     s.key(Key::ArrowRight);
+    s.key(Key::ArrowDown);
     s.key(Key::Enter);
     assert_eq!(s.app().ui.menu, None);
-    assert!(!s.app().selection.is_empty(), "first enabled Edit entry is Select all");
+    assert!(!s.app().selection.is_empty(), "the next enabled Edit entry after Paste is Select all");
 }
 
 #[test]

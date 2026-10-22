@@ -56,12 +56,14 @@ mod live_doc_epoch_tests;
 mod live_log_wake;
 mod live_patch_apply;
 mod live_patch_log;
+mod live_spec_apply;
 #[cfg(test)]
 mod live_sync_interaction_tests;
 #[cfg(test)]
 mod live_sync_tests;
 mod ops;
 mod panels;
+mod paste_placement;
 mod plugins;
 mod present;
 mod proto;
@@ -72,6 +74,7 @@ mod showcase;
 mod skills;
 mod specs;
 mod styles;
+mod system_paste;
 mod tabs;
 mod terminal;
 mod terminal_undo_chord;

@@ -614,6 +614,8 @@ pub struct SpecsState {
     pub comments: Vec<SpecComment>,
     /// Draft text input for posting a new comment in the Right Rail.
     pub comment_draft: String,
+    /// What each agent's live spec file last put on the canvas, so a rewrite of the file replaces that output.
+    pub live_outputs: std::collections::HashMap<PathBuf, crate::live_spec_apply::LiveSpecOutput>,
 }
 
 impl Default for SpecsState {
@@ -647,6 +649,7 @@ impl Default for SpecsState {
                 },
             ],
             comment_draft: String::new(),
+            live_outputs: Default::default(),
         }
     }
 }
@@ -2180,6 +2183,12 @@ pub fn summarize_json_spec(raw: &str) -> SpecJsonSummary {
 impl App {
     /// Applies a declarative [`NodeSpec`] to the active page in one undoable command and fits the canvas.
     pub fn apply_node_spec(&mut self, spec: &NodeSpec, label: &str) {
+        self.apply_node_spec_replacing(spec, label, None);
+    }
+
+    /// [`App::apply_node_spec`] that, when `replacing` is a layer of the active page, takes that layer's place in the
+    /// same undo step instead of adding the spec at the end. Returns the new root layer.
+    pub fn apply_node_spec_replacing(&mut self, spec: &NodeSpec, label: &str, replacing: Option<NodeId>) -> Option<NodeId> {
         let parent = self.page;
         let mut trial = self.doc.clone();
         match trial.apply_spec_with_report(parent, spec) {
@@ -2187,9 +2196,15 @@ impl App {
                 let root_id = report.root_node_id;
                 let mut nodes = Vec::new();
                 trial.walk(root_id, |n, _| nodes.push(n.clone()));
-                let index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
+                let mut index = self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0);
                 // The variables and styles the spec created go in the same undo step as its nodes.
                 let mut commands = self.doc.spec_data_commands(&trial);
+                if let Some(old) = replacing {
+                    if let Some(at) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == old)) {
+                        index = at;
+                        commands.push(Command::Remove { id: old });
+                    }
+                }
                 commands.push(Command::Insert { parent, index, nodes });
                 let command = if commands.len() == 1 { commands.remove(0) } else { Command::Batch(commands) };
                 if self.hist.exec(&mut self.doc, command).is_ok() {
@@ -2211,9 +2226,14 @@ impl App {
                     self.changed();
                     self.fit_all();
                     self.show_toast(format!("Applied UI spec '{label}' to canvas"), false);
+                    return Some(root_id);
                 }
+                None
             }
-            Err(e) => self.show_toast(format!("Spec error: {e}"), true),
+            Err(e) => {
+                self.show_toast(format!("Spec error: {e}"), true);
+                None
+            }
         }
     }
 

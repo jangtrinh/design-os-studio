@@ -119,7 +119,7 @@ fn a_shell_started_while_the_window_is_built_keeps_its_session_after_the_first_f
     for panel in ["agents", "terminal", "agents-chat"] {
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, Options { panel: Some(panel.into()), ..Options::default() });
-        shell.app.system_html = no_system_clipboard;
+        script_empty_clipboard(&mut shell.app);
         assert!(shell.app.terminal.picker_open || !shell.app.terminal.tabs.is_empty(), "precondition: --panel {panel} opens the agent surface during build");
         let started_with = shell.app.terminal.session_env();
 
