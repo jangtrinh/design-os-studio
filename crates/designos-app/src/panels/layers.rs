@@ -321,9 +321,10 @@ fn visible_rows_cached(app: &mut App) -> Vec<Row> {
 /// (`scrollbar` draws it 8 px wide) and the reach of the panel's resize handle.
 const EDGE_STRIP_W: f32 = 8.0;
 
-/// The row under `pos`, when `pos` is on a row of the list and no popup is drawn over it.
+/// The row under `pos`, when `pos` is on a row of the list and no popup, floating panel or dialog (a layer above the one
+/// the list is drawn in) is over it.
 fn row_at(app: &App, ui: &Ui, region: Rect, scroll: f32, pos: Pos2) -> Option<NodeId> {
-    if !region.contains(pos) || pos.x >= region.right() - EDGE_STRIP_W || ui.ctx().layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Foreground) {
+    if !region.contains(pos) || pos.x >= region.right() - EDGE_STRIP_W || ui.ctx().layer_id_at(pos).is_some_and(|l| l != ui.layer_id()) {
         return None;
     }
     let i = ((pos.y - region.top() + scroll) / theme::LAYER_ROW_HEIGHT).floor();
@@ -1096,5 +1097,29 @@ mod tests {
         assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");
         assert_eq!(colors(1), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden instance greys the name and the label together");
         assert_eq!(colors(2), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden rectangle greys the name and the label together");
+    }
+
+    #[test]
+    fn a_floating_panel_over_the_list_takes_the_press_from_the_row() {
+        let (d, ..) = sample();
+        let mut app = App::new(d);
+        ensure_rows_cache(&mut app);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 600.0));
+        let panel = Rect::from_min_size(Pos2::new(100.0, 0.0), Vec2::new(120.0, 100.0));
+        let (under_panel, beside_panel) = (Pos2::new(160.0, 20.0), Pos2::new(20.0, 20.0));
+        let ctx = egui::Context::default();
+        let mut found = (None, None);
+        // An area is hit-tested from its second frame on.
+        for _ in 0..2 {
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))), ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| {
+                egui::Area::new(egui::Id::new("floating-panel")).order(egui::Order::Middle).fixed_pos(panel.min).show(ui.ctx(), |ui| {
+                    ui.allocate_exact_size(panel.size(), Sense::click());
+                });
+                found = (row_at(&app, ui, region, 0.0, under_panel), row_at(&app, ui, region, 0.0, beside_panel));
+            });
+        }
+        assert_eq!(found.0, None, "a press on a floating panel is the panel's, not a row's");
+        assert!(found.1.is_some(), "beside the panel the same height is a row");
     }
 }
