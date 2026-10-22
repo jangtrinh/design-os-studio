@@ -829,16 +829,18 @@ impl Session {
         match name {
             "designos_open_file" => {
                 let a: OpenArgs = parse(args)?;
+                // The path is checked first, so a path outside the workspace is refused as such and is
+                // never echoed back in the unsaved-changes hint.
+                let path = self.input_path(&a.path)?;
                 if self.dirty && !a.discard_changes {
                     return Err(ToolError::new(
                         ErrorCode::UnsavedChanges,
                         "/discard_changes",
-                        "Unsaved changes: save to a new .designos/.designos file, or set discard_changes=true",
+                        "Unsaved changes: call designos_save_file first, or set discard_changes=true",
                     )
                     .with_received(json!(false))
                     .with_corrected_example(json!({"path": a.path, "discard_changes": true})));
                 }
-                let path = self.input_path(&a.path)?;
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
                 if len > 512 * 1024 * 1024 {
                     return Err(ToolError::new(ErrorCode::FileTooLarge, "/path", "Input file exceeds the 512 MiB import limit")

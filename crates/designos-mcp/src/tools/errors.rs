@@ -298,7 +298,7 @@ impl ErrorCode {
             Self::EditorPublishFailed => "Save the file or reopen Studio before continuing.",
             Self::PatchTooLarge => "Split the edit into smaller calls or save and reopen the document.",
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
-            Self::UnsavedChanges => "Pass force=true to discard unsaved changes or call designos_save_file first.",
+            Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
             Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
