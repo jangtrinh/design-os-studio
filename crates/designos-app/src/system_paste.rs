@@ -107,8 +107,9 @@ impl App {
     }
 
     /// Finishes the pastes whose worker has answered, in the order they started. A paste whose tab is no longer open
-    /// is dropped, and one whose worker is still silent after 10 s is given up with a toast, so a clipboard owner that
-    /// hangs holds nothing back and ends the redrawing. True while one is still waiting.
+    /// is dropped. One whose worker is still silent after 10 s pastes the text it already had, or gives up with a
+    /// toast when it had none, so a hung clipboard owner ends the redrawing; later pastes wait behind it until then.
+    /// True while one is still waiting.
     pub fn poll_paste_jobs(&mut self) -> bool {
         while let Some(job) = self.paste_jobs.front() {
             let answer = if job.tab != self.paste_tab() {
@@ -117,10 +118,16 @@ impl App {
                 match job.probe.try_recv() {
                     Ok(probe) => Some(probe),
                     Err(TryRecvError::Disconnected) => Some(ImageProbe::Absent),
+                    // The image never came. Text the paste already had is still worth pasting; the toast is for a
+                    // clipboard with nothing else to offer.
                     Err(TryRecvError::Empty) if Instant::now() >= job.deadline => {
-                        self.paste_jobs.pop_front();
-                        self.show_toast("Clipboard did not answer. Try again.", true);
-                        continue;
+                        if job.text.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+                            Some(ImageProbe::Absent)
+                        } else {
+                            self.paste_jobs.pop_front();
+                            self.show_toast("Clipboard did not answer. Try again.", true);
+                            continue;
+                        }
                     }
                     Err(TryRecvError::Empty) => return true,
                 }

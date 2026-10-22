@@ -2,7 +2,7 @@
 //!
 //! A frame that clips its content (every frame imported from Figma does) hides whatever sticks out of it, so the
 //! frame is picked at the point the layer lands, never at the layer's own corner, and a layer that would land half
-//! outside such a frame is moved inside it.
+//! outside such a frame, or outside a clipping frame that holds the one it joins, is moved inside it.
 
 use crate::app::App;
 use crate::canvas::{create, interact};
@@ -44,36 +44,80 @@ pub fn drop_landing(app: &App, point: Vec2) -> Landing {
     Landing { parent: create::container_at_with_index(&app.doc, interact::active_index(app), app.page, point, &[]), center: point }
 }
 
+/// A box in the landing frame's own coordinates.
+#[derive(Clone, Copy, Debug)]
+struct Span {
+    min: Vec2,
+    max: Vec2,
+}
+
+impl Span {
+    fn intersect(self, o: Span) -> Option<Span> {
+        let (min, max) = (Vec2::new(self.min.x.max(o.min.x), self.min.y.max(o.min.y)), Vec2::new(self.max.x.min(o.max.x), self.max.y.min(o.max.y)));
+        (min.x < max.x && min.y < max.y).then_some(Span { min, max })
+    }
+}
+
 /// The landing frame as seen from inside it.
 struct ParentFrame {
     /// The landing point in the frame's own coordinates.
     center: Vec2,
-    size: Vec2,
-    /// The frame hides what sticks out of it.
-    clips: bool,
+    /// The part of the frame's coordinate space that shows: the box the clipping frames above it (or it itself) leave.
+    /// `None` when nothing clips, so the layer stays where it is centered.
+    shown: Option<Span>,
 }
 
 impl ParentFrame {
     fn of(app: &App, landing: &Landing) -> Option<Self> {
         let inv = app.doc.world_transform(landing.parent).invert()?;
-        let node = app.doc.get(landing.parent)?;
-        let clips = landing.parent != app.page && node.kind.frame_props().is_some_and(|f| f.clips_content);
-        Some(Self { center: inv.apply(landing.center), size: node.size, clips })
+        app.doc.get(landing.parent)?;
+        // A frame that does not clip, or a group, inside one that does (a group in a screen imported from Figma) still
+        // hides what sticks out of the clipping one: every clipping ancestor counts, the nearest first.
+        let (mut nearest, mut all) = (None, None::<Span>);
+        let mut up = Some(landing.parent);
+        while let Some(id) = up {
+            let node = app.doc.get(id)?;
+            if id != app.page && node.kind.frame_props().is_some_and(|f| f.clips_content) {
+                let r = world_aabb(&app.doc, id);
+                let corners = [(r.x, r.y), (r.x + r.w, r.y), (r.x, r.y + r.h), (r.x + r.w, r.y + r.h)].map(|(x, y)| inv.apply(Vec2::new(x, y)));
+                let min = corners.iter().fold(Vec2::new(f32::MAX, f32::MAX), |m, c| Vec2::new(m.x.min(c.x), m.y.min(c.y)));
+                let max = corners.iter().fold(Vec2::new(f32::MIN, f32::MIN), |m, c| Vec2::new(m.x.max(c.x), m.y.max(c.y)));
+                let span = Span { min, max };
+                nearest = nearest.or(Some(span));
+                all = match all {
+                    None => Some(span),
+                    // clipping frames that share no area leave nothing to aim at: the nearest one decides
+                    Some(a) => a.intersect(span).or(nearest),
+                };
+            }
+            up = node.parent;
+        }
+        Some(Self { center: inv.apply(landing.center), shown: all })
     }
 
-    /// Top-left corner, in the frame's coordinates, of a layer of `size` centered on the landing point. In a clipping
-    /// frame a layer that fits is moved inside it, and one that is larger is centered in it.
+    /// Top-left corner, in the frame's coordinates, of a layer of `size` centered on the landing point. Where a
+    /// clipping frame hides what sticks out, a layer that fits is moved inside the part that shows, and one that is
+    /// larger is centered in it.
     fn origin_for(&self, size: Vec2) -> Vec2 {
-        let axis = |center: f32, extent: f32, frame: f32| {
+        let axis = |center: f32, extent: f32, lo: f32, hi: f32| {
             let at = center - extent / 2.0;
-            let at = match (self.clips, extent <= frame) {
-                (false, _) => at,
-                (true, true) => at.clamp(0.0, frame - extent),
-                (true, false) => (frame - extent) / 2.0,
+            let at = match self.shown {
+                None => at,
+                Some(_) if extent <= hi - lo => at.clamp(lo, hi - extent),
+                Some(_) => (lo + hi - extent) / 2.0,
             };
             at.round()
         };
-        Vec2::new(axis(self.center.x, size.x, self.size.x), axis(self.center.y, size.y, self.size.y))
+        let Span { min, max } = self.shown.unwrap_or(Span { min: Vec2::ZERO, max: Vec2::ZERO });
+        Vec2::new(axis(self.center.x, size.x, min.x, max.x), axis(self.center.y, size.y, min.y, max.y))
+    }
+
+    /// The widest a text layer may be before it wraps: the part of the frame that shows, at most 400 px.
+    fn text_limit(&self) -> f32 {
+        match self.shown {
+            Some(s) if s.max.x > s.min.x => PASTED_TEXT_MAX_WIDTH.min(s.max.x - s.min.x),
+            _ => PASTED_TEXT_MAX_WIDTH,
+        }
     }
 }
 
@@ -121,7 +165,7 @@ pub fn paste_text(app: &mut App, landing: &Landing, text: &str) -> bool {
     };
     let Some((mut node, _)) = create::new_text(app, parent, landing.center) else { return false };
     node.name = pasted_name(&content);
-    let limit = if frame.clips && frame.size.x > 0.0 { PASTED_TEXT_MAX_WIDTH.min(frame.size.x) } else { PASTED_TEXT_MAX_WIDTH };
+    let limit = frame.text_limit();
     if let NodeKind::Text(t) = &mut node.kind {
         t.content = content;
         node.size = layout::estimate_text_size(t);
@@ -157,7 +201,7 @@ mod tests {
     use super::*;
 
     fn frame(clips: bool) -> ParentFrame {
-        ParentFrame { center: Vec2::new(0.0, 0.0), size: Vec2::new(360.0, 640.0), clips }
+        ParentFrame { center: Vec2::new(0.0, 0.0), shown: clips.then_some(Span { min: Vec2::new(0.0, 0.0), max: Vec2::new(360.0, 640.0) }) }
     }
 
     #[test]
@@ -176,6 +220,27 @@ mod tests {
         assert_eq!((o.x, o.y), (0.0, 540.0), "pulled in from the left and bottom edges");
         let o = f.origin_for(Vec2::new(400.0, 100.0));
         assert_eq!((o.x, o.y), (-20.0, 540.0), "400 px in a 360 px frame is centered on that axis only");
+    }
+
+    #[test]
+    fn a_layer_is_kept_inside_a_clipping_frame_that_sits_around_the_frame_it_joins() {
+        // the frame it joins does not clip; the screen around it does, and starts 100 px to its left and 50 above it
+        let f = ParentFrame { center: Vec2::new(330.0, 30.0), shown: Some(Span { min: Vec2::new(-100.0, -50.0), max: Vec2::new(260.0, 590.0) }) };
+        let o = f.origin_for(Vec2::new(120.0, 80.0));
+        assert_eq!((o.x, o.y), (140.0, -10.0), "pulled in from the screen's right edge, not the joined frame's");
+        let o = f.origin_for(Vec2::new(400.0, 80.0));
+        assert_eq!(o.x, -120.0, "wider than the screen: centered in it");
+        assert_eq!(f.text_limit(), 360.0, "text wraps at the width that shows");
+        assert_eq!(frame(false).text_limit(), 400.0);
+    }
+
+    #[test]
+    fn clipping_boxes_are_intersected_and_boxes_that_share_no_area_leave_nothing() {
+        let a = Span { min: Vec2::new(0.0, 0.0), max: Vec2::new(100.0, 100.0) };
+        let b = Span { min: Vec2::new(50.0, 20.0), max: Vec2::new(200.0, 80.0) };
+        let i = a.intersect(b).expect("they overlap");
+        assert_eq!((i.min.x, i.min.y, i.max.x, i.max.y), (50.0, 20.0, 100.0, 80.0));
+        assert!(a.intersect(Span { min: Vec2::new(100.0, 0.0), max: Vec2::new(200.0, 100.0) }).is_none());
     }
 
     #[test]

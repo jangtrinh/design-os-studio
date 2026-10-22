@@ -733,6 +733,116 @@ fn a_frame_selected_inside_a_clipping_frame_takes_the_paste_and_the_layer_is_cen
     assert!(visible_share(&s, new[0]) >= 0.9);
 }
 
+// ----------------------------------------------------- a clipping frame further up hides what sticks out of it
+
+/// What the nested fixtures put near the right edge of the clipping `Welcome` frame (360 px wide at x 120): a 60 px
+/// box whose center is 30 px from that edge, so a 120 px layer centered on it would stick out by 30 px.
+struct Nested {
+    /// Where a drop lands: the non-clipping frame the layer joins.
+    frame: NodeId,
+    /// A layer to select so that a paste joins the box: the frame itself, or a rectangle inside the group.
+    selectable: NodeId,
+    welcome: NodeId,
+}
+
+/// `group`: a Figma-style group inside the screen, holding a non-clipping frame and a rectangle. Otherwise a
+/// Studio-drawn frame, which does not clip, straight in the screen. Either way the screen clips and the box does not.
+fn nested_in_clipping_screen(s: &mut Sim, group: bool) -> Nested {
+    clip_every_frame(s);
+    let welcome = s.by_name("Welcome");
+    let app = &mut s.shell.app;
+    let add = |app: &mut crate::app::App, parent: NodeId, mut n: designos_doc::Node, name: &str, at: (f32, f32)| {
+        n.name = name.into();
+        n.transform = designos_doc::Affine::translate(at.0, at.1);
+        n.size = designos_doc::Vec2::new(60.0, 60.0);
+        app.doc.insert(parent, n).unwrap()
+    };
+    let nested = if group {
+        let id = app.doc.alloc_id();
+        let g = add(app, welcome, designos_doc::Node::new(id, NodeKind::Group), "Icon group", (300.0, 300.0));
+        let (fid, rid) = (app.doc.alloc_id(), app.doc.alloc_id());
+        let frame = add(app, g, designos_doc::Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 60.0, 60.0)), "Badge", (0.0, 0.0));
+        let chip = add(app, g, designos_doc::Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 60.0, 60.0)), "Chip", (0.0, 0.0));
+        Nested { frame, selectable: chip, welcome }
+    } else {
+        let id = app.doc.alloc_id();
+        let frame = add(app, welcome, designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 60.0, 60.0)), "Badge row", (300.0, 300.0));
+        Nested { frame, selectable: frame, welcome }
+    };
+    app.changed();
+    s.frame(vec![]);
+    nested
+}
+
+fn check_nested_paste(group: bool, text: bool) {
+    let mut s = Sim::new();
+    let n = nested_in_clipping_screen(&mut s, group);
+    let joined = if group { parent_of(&s, n.selectable) } else { n.frame };
+    assert!(!s.app().doc.get(joined).unwrap().kind.frame_props().is_some_and(|f| f.clips_content), "precondition: the box it joins does not clip");
+    s.shell.app.selection = vec![n.selectable];
+    let before = ids(&s);
+    if text {
+        ctrl_v(&mut s, Some("Release notes for Friday"));
+    } else {
+        s.shell.app.system_image = small_image;
+        ctrl_v(&mut s, None);
+    }
+    let new = added(&s, &before);
+    assert_eq!(new.len(), 1, "{new:?}");
+    assert_eq!(parent_of(&s, new[0]), joined, "it joins the box, not the screen");
+    let share = visible_share(&s, new[0]);
+    assert!(share >= 0.99, "visible share {share}");
+    // inside the screen, which is what hides it
+    let (x, _, w, _) = world_box(&s, new[0]);
+    let (wx, _, ww, _) = world_box(&s, n.welcome);
+    assert!(x >= wx - 0.5 && x + w <= wx + ww + 0.5, "x {x}..{} against the screen {wx}..{}", x + w, wx + ww);
+}
+
+fn check_nested_drop(group: bool) {
+    let path = write_file(&format!("nested-{group}.png"), &encoded(image::ImageFormat::Png, 120, 80));
+    let mut s = Sim::new();
+    let n = nested_in_clipping_screen(&mut s, group);
+    let (x, y, w, h) = world_box(&s, n.frame);
+    let before = ids(&s);
+    s.mv(s.screen(x + w / 2.0, y + h / 2.0));
+    s.drop_on_window(vec![dropped(&path)]);
+    std::fs::remove_file(&path).ok();
+    let (id, _) = the_image_layer(&s, &before);
+    assert_eq!(parent_of(&s, id), n.frame, "the frame under the pointer");
+    let share = visible_share(&s, id);
+    assert!(share >= 0.99, "visible share {share}");
+}
+
+#[test]
+fn pasted_text_in_a_group_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_paste(true, true);
+}
+
+#[test]
+fn a_pasted_image_in_a_group_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_paste(true, false);
+}
+
+#[test]
+fn pasted_text_in_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_paste(false, true);
+}
+
+#[test]
+fn a_pasted_image_in_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_paste(false, false);
+}
+
+#[test]
+fn an_image_dropped_on_a_non_clipping_frame_in_a_group_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_drop(true);
+}
+
+#[test]
+fn an_image_dropped_on_a_non_clipping_frame_inside_a_clipping_frame_is_never_partly_hidden() {
+    check_nested_drop(false);
+}
+
 // --------------------------------------------------------------------------- Edit > Paste while typing
 
 #[test]
@@ -787,6 +897,27 @@ fn a_clipboard_read_that_never_answers_times_out_with_a_toast_and_blocks_nothing
     let before = ids(&s);
     ctrl_v(&mut s, Some("Release notes for Friday"));
     assert_eq!(added(&s, &before).len(), 1);
+    RELEASE_HUNG_READ.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[test]
+fn a_clipboard_read_that_times_out_still_pastes_the_text_it_had() {
+    RELEASE_HUNG_READ.store(false, std::sync::atomic::Ordering::SeqCst);
+    let mut s = Sim::new();
+    s.shell.app.system_image = hung_image;
+    let before = ids(&s);
+    // the text came with the paste event; only the image never arrives
+    s.mods = Modifiers::COMMAND;
+    s.frame_without_settling(vec![Event::Paste("Release notes for Friday".into())]);
+    s.mods = Modifiers::NONE;
+    assert_eq!(s.shell.app.paste_jobs.len(), 1, "precondition: the read is waiting");
+    s.shell.app.expire_paste_jobs();
+    s.frame_without_settling(vec![]);
+    assert!(s.shell.app.paste_jobs.is_empty());
+    let new = added(&s, &before);
+    assert_eq!(new.len(), 1, "the text became a layer: {new:?}");
+    assert!(matches!(&s.app().doc.get(new[0]).unwrap().kind, NodeKind::Text(t) if t.content == "Release notes for Friday"));
+    assert_eq!(toast(&s), None, "there is nothing to retry");
     RELEASE_HUNG_READ.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
