@@ -8,6 +8,18 @@ fn no_system_clipboard() -> Option<String> {
     None
 }
 
+fn no_system_image() -> Option<crate::system_paste::ClipImage> {
+    None
+}
+
+/// Hermetic: the OS pasteboard is global and not thread-safe, so no test window reads it. Tests script the clipboard
+/// flavours they need through `App::system_html`, `App::system_text` and `App::system_image`.
+fn script_empty_clipboard(app: &mut App) {
+    app.system_html = no_system_clipboard;
+    app.system_text = no_system_clipboard;
+    app.system_image = no_system_image;
+}
+
 /// Directory of stub agent CLIs (`claude`, `codex`, `agy`, `grok`, `gemini`, `opencode`). Every stub blocks reading
 /// its PTY, so it lives exactly as long as the tab that started it and never exits on its own. A timer-based stub
 /// would bring back the race this exists to remove: an agent that exits while the test is still clicking changes
@@ -57,8 +69,7 @@ impl Sim {
     fn with(opts: Options) -> Self {
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
-        // Hermetic: the OS pasteboard is global and not thread-safe; tests script the clipboard instead.
-        shell.app.system_html = no_system_clipboard;
+        script_empty_clipboard(&mut shell.app);
         let mut s = Sim {
             ctx,
             shell,
@@ -101,6 +112,8 @@ impl Sim {
         self.cursor = out.platform_output.cursor_icon;
         self.shapes = out.shapes;
         self.accesskit_update = out.platform_output.accesskit_update;
+        // a paste that waits for the clipboard worker lands before the test looks at the document
+        self.shell.app.settle_paste_jobs();
     }
     fn app(&self) -> &App {
         &self.shell.app
@@ -1122,6 +1135,7 @@ mod stale_canvas_after_agent_edit;
 mod stray_layers;
 mod style_edit;
 mod svg;
+mod system_paste_and_drop;
 mod typography;
 mod variables;
 mod vector;

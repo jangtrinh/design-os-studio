@@ -73,6 +73,7 @@ mod showcase;
 mod skills;
 mod specs;
 mod styles;
+mod system_paste;
 mod tabs;
 mod terminal;
 mod terminal_undo_chord;

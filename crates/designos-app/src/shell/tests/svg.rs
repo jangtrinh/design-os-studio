@@ -93,13 +93,16 @@ fn pasting_svg_text_creates_layers_at_the_viewport_center_as_one_undo_step() {
 }
 
 #[test]
-fn pasting_other_text_is_ignored_and_bad_svg_reports_an_error() {
+fn pasting_other_text_makes_a_text_layer_and_bad_svg_reports_an_error() {
     let mut s = Sim::new();
     let before = s.ids();
     s.frame(vec![Event::Paste("just some words".to_string())]);
-    assert_eq!(s.ids(), before);
+    let added = s.new_ids(&before);
+    assert_eq!(added.len(), 1, "plain text becomes exactly one text layer");
+    assert!(matches!(&s.app().doc.get(added[0]).unwrap().kind, NodeKind::Text(t) if t.content == "just some words"));
+    let before = s.ids();
     s.frame(vec![Event::Paste("<svg xmlns=\"http://www.w3.org/2000/svg\"".to_string())]);
-    assert_eq!(s.ids(), before);
+    assert_eq!(s.ids(), before, "broken SVG markup adds nothing, not even as text");
     let toast = s.app().toast.as_ref().expect("an error toast");
     assert!(toast.error && toast.text.contains("SVG"), "{}", toast.text);
 }

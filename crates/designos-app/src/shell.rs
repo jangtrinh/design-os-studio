@@ -547,9 +547,7 @@ impl Shell {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
             if self.paste_chord.on_event(&ev) && !editing_text {
-                if let Some(html) = (self.app.system_html)() {
-                    self.app.paste_with_html(None, Some(&html));
-                }
+                self.app.paste_from_system(None);
                 continue;
             }
             match ev {
@@ -1323,6 +1321,9 @@ impl Shell {
         self.app.now = ctx.input(|i| i.time);
         self.app.poll_plugins();
         self.app.poll_image_jobs();
+        if self.app.poll_paste_jobs() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         if self.app.image_jobs.has_active_jobs() || self.app.tabs.entries.iter().any(|e| e.image_jobs.has_active_jobs()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

@@ -38,11 +38,12 @@ fn a_paste_event_pastes_the_scripted_figma_html_as_layers() {
 }
 
 #[test]
-fn a_paste_event_without_figma_html_leaves_the_document_alone() {
+fn a_paste_event_without_figma_html_pastes_only_its_text() {
     let mut s = Sim::new();
     let before = ids(&s);
     s.frame(vec![Event::Paste("just some words".into())]);
-    assert_eq!(ids(&s), before);
+    let names = names_added(&s, &before);
+    assert_eq!(names, vec!["just some words"], "one text layer and no Figma layers");
 }
 
 // The key sequences below are what egui-winit 0.35 really emits for a paste chord:

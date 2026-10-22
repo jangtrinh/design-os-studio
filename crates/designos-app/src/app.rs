@@ -178,6 +178,12 @@ pub struct App {
     /// Shows a file in the system file manager. The seam the "Show in folder" action goes through:
     /// production launches the file manager, tests record the path (a test never opens a window).
     pub reveal_file: fn(&std::path::Path) -> Result<(), String>,
+    /// Reads the system clipboard's plain text, for the paste paths that egui-winit sends no text for (Edit > Paste).
+    pub system_text: fn() -> Option<String>,
+    /// Reads the system clipboard's image. Runs on a worker thread, see `system_paste`.
+    pub system_image: fn() -> Option<crate::system_paste::ClipImage>,
+    /// Pastes whose clipboard image is still being read.
+    pub paste_jobs: std::collections::VecDeque<crate::system_paste::PasteJob>,
     pub toast: Option<Toast>,
     pub file_path: Option<PathBuf>,
     pub now: f64,
@@ -267,6 +273,9 @@ impl App {
             paste_count: 0,
             system_html: crate::clipboard::system_figma_html,
             reveal_file: crate::fig_export::reveal_file,
+            system_text: crate::system_paste::system_text,
+            system_image: crate::system_paste::system_image,
+            paste_jobs: Default::default(),
             toast: None,
             file_path: None,
             now: 0.0,

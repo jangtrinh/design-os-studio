@@ -446,7 +446,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Undo", "Ctrl+Z", Action::Undo).off(!app.hist.can_undo()),
         leaf("Redo", "Ctrl+Shift+Z", Action::Redo).off(!app.hist.can_redo()).sep(),
         leaf("Copy", "Ctrl+C", Action::Copy).off(!has_sel),
-        leaf("Paste", "Ctrl+V", Action::Paste).off(app.clip.is_none()),
+        // always on: the system clipboard is read when it runs, not while the menu draws
+        leaf("Paste", "Ctrl+V", Action::Paste),
         leaf("Duplicate", "Ctrl+D", Action::Duplicate).off(!has_sel),
         leaf("Delete", "Del", Action::Delete).off(!has_sel).sep(),
         leaf("Select all", "Ctrl+A", Action::SelectAll),
@@ -1081,6 +1082,27 @@ pub fn palette_entries(app: &App, query: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Whether the Edit menu's Paste row can be clicked.
+    fn edit_paste_enabled(app: &App) -> bool {
+        let nodes = main_nodes(app);
+        let edit = nodes.iter().find(|n| n.item.label == "Edit").expect("Edit submenu");
+        !edit.kids.iter().find(|n| n.item.label == "Paste").expect("Paste row").item.disabled
+    }
+
+    #[test]
+    fn edit_paste_is_not_greyed_out_before_anything_was_copied_in_studio() {
+        // the system clipboard may hold text or an image from another app, and it is read only when Paste runs
+        let mut app = App::new(designos_doc::Document::new("t"));
+        assert!(app.clip.is_none());
+        assert!(edit_paste_enabled(&app));
+        // the rows that work on Studio's own copy only stay off until it exists
+        let nodes = main_nodes(&app);
+        let edit = nodes.iter().find(|n| n.item.label == "Edit").unwrap();
+        assert!(edit.kids.iter().find(|n| n.item.label == "Paste over selection").unwrap().item.disabled);
+        app.copy_selection();
+        assert!(edit_paste_enabled(&app));
+    }
 
     #[test]
     fn query_matching_is_word_based() {
