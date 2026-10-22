@@ -12,7 +12,7 @@ Both repositories are PolyForm Shield 1.0.0 under the same licensor. The plugin 
 
 Scope (owner, 2026-10-22): the three small items are next-patch work after v0.6.1. The three larger ones are specced now and scheduled later. No issue has a milestone yet.
 
-Code baseline of every spec: `origin/main@42a0d027` (`docs: make the README, privacy page and plugin descriptions true for 0.6.0 (#839)`). Line numbers move as v0.6.1 fixes merge, so each spec tells the worker to re-anchor every cited line against HEAD and report drift before writing code. Every spec follows the 13-section layout of the v0.6 and v0.7 specs and ends with **Open questions for the owner**, with the recommended answer first.
+Code baseline of every spec: `origin/main@42a0d027` (`docs: make the README, privacy page and plugin descriptions true for 0.6.0 (#839)`). Line numbers move as v0.6.1 fixes merge, so each spec tells the worker to re-anchor every cited line against HEAD and report drift before writing code. Every spec follows the 13-section layout of the v0.6 and v0.7 specs. Each ends with **Decisions on the open questions**: the owner delegated these calls on 2026-10-22, so each question was settled with its recommended answer, and the reason is kept so the owner can reverse it.
 
 The number in a file name is the issue number.
 
